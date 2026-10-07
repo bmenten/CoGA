@@ -158,3 +158,6 @@ class SmallVariantTagDefinitionOut(BaseModel):
     project_id: Optional[str] = None
     shared_project_ids: List[str] = Field(default_factory=list)
     is_custom: bool = False
+    # False for a deleted custom tag, listed only on request so a review that still holds
+    # it can show it; it can no longer be added to a review.
+    is_active: bool = True

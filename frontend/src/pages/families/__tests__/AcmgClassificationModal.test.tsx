@@ -6,7 +6,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AcmgClassificationModal from '../AcmgClassificationModal';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import type { SmallVariant, SmallVariantReviewSavePayload } from '../smallVariantSearch';
+import type {
+  SmallVariant,
+  SmallVariantReviewSavePayload,
+  SmallVariantTagDefinition,
+} from '../smallVariantSearch';
 
 vi.mock('../../../lib/api', () => ({
   default: { get: vi.fn() },
@@ -32,11 +36,18 @@ const variant: SmallVariant = {
 function renderModal(
   onSave: (payload: SmallVariantReviewSavePayload) => Promise<void> = vi.fn(async () => undefined),
   shown: SmallVariant = variant,
+  tagDefinitions?: SmallVariantTagDefinition[],
 ) {
   const client = createTestQueryClient();
   render(
     <QueryClientProvider client={client}>
-      <AcmgClassificationModal variant={shown} familyId="F1" onClose={vi.fn()} onSave={onSave} />
+      <AcmgClassificationModal
+        variant={shown}
+        familyId="F1"
+        onClose={vi.fn()}
+        onSave={onSave}
+        tagDefinitions={tagDefinitions}
+      />
     </QueryClientProvider>,
   );
   return onSave;
@@ -320,5 +331,54 @@ describe('AcmgClassificationModal', () => {
     await screen.findByRole('link', { name: /PubMed \(gene \+ HPO\)/ });
     // ...and the analyst's edit survived it.
     expect(screen.getByRole('checkbox', { name: /PVS1/ })).not.toBeChecked();
+  });
+
+  // A deleted custom tag stays on the reviews that hold it: the dialog lists it, marked,
+  // only where the review holds it, so it can be removed, and adds it to no other review.
+  const tagDefinitions: SmallVariantTagDefinition[] = [
+    {
+      key: 'needs_segregation',
+      label: 'Needs segregation',
+      group: 'custom',
+      color: '#aa3366',
+      sort_order: 500,
+      scope: 'global',
+      is_custom: true,
+      is_active: true,
+    },
+    {
+      key: 'probe_x',
+      label: 'Probe X',
+      group: 'custom',
+      color: '#336699',
+      sort_order: 500,
+      scope: 'global',
+      is_custom: true,
+      is_active: false,
+    },
+  ];
+
+  it('offers a deleted tag only to a review that holds it, marked, to be removed', async () => {
+    const onSave = renderModal(
+      undefined,
+      { ...variant, review: { variant_id: variant._id, tags: ['probe_x'], tag_metadata: {} } },
+      tagDefinitions,
+    );
+    const user = userEvent.setup();
+
+    const held = await screen.findByRole('button', { name: 'Probe X (deleted)' });
+    expect(held).toHaveAttribute('aria-pressed', 'true');
+    await user.click(held);
+    await user.click(screen.getByRole('button', { name: /save classification/i }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const payload = vi.mocked(onSave).mock.calls[0][0] as SmallVariantReviewSavePayload;
+    expect(payload.tags).not.toContain('probe_x');
+  });
+
+  it('does not offer a deleted tag to a review that does not hold it', async () => {
+    renderModal(undefined, variant, tagDefinitions);
+
+    await screen.findByRole('button', { name: 'Needs segregation' });
+    expect(screen.queryByRole('button', { name: /Probe X/ })).toBeNull();
   });
 });

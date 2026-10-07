@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import require_uuid
 from ..schemas import (
     CnvAcmgClassificationPayload,
     SmallVariantFilterPresetCreate,
@@ -21,6 +22,7 @@ from .clinical_audit_service import record_structural_review_changes
 from .family_metadata_context import FamilyMetadataContext
 from .access_control import CurrentUser
 from .review_pg_utils import (
+    _added_tags,
     _has_stored_record,
     _lock_review,
     _raise_on_stale_review,
@@ -28,7 +30,6 @@ from .review_pg_utils import (
     _log_unreadable_classification,
     _merge_tag_metadata,
     _normalize_tags,
-    _require_uuid,
 )
 from .small_variant_review_tags import list_small_variant_tag_definitions
 from .clickhouse_variant_records import StructuralVariantRecord
@@ -306,25 +307,7 @@ async def upsert_structural_variant_review(
     normalized_variant_id = str(variant_id).strip()
     if not normalized_variant_id:
         raise HTTPException(status_code=400, detail="Variant id is required")
-    # Only resolve the allowed-tag set (a GROUP BY/ARRAY_AGG join) when the payload
-    # actually carries tags to validate — the common no-tag save skips the query.
     normalized_tags = _normalize_tags(payload.tags)
-    if normalized_tags:
-        allowed_tags = {
-            definition.key
-            for definition in await list_small_variant_tag_definitions(
-                session,
-                family_uuid=context.family_uuid,
-                project_ids=context.project_ids,
-            )
-        }
-        unknown_tags = [tag for tag in normalized_tags if tag not in allowed_tags]
-        if unknown_tags:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown structural-variant tag(s): {', '.join(sorted(unknown_tags))}",
-            )
-
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
     # The CNV (ClinGen) scoring, as a small-variant save treats ``acmg``: a save that
@@ -356,6 +339,25 @@ async def upsert_structural_variant_review(
         variant_id=normalized_variant_id,
     )
     _raise_on_stale_review(payload, existing, _serialize_review)
+    # Only a tag the save adds must be one the family may use, and only then is the
+    # allowed-tag set (a GROUP BY/ARRAY_AGG join) resolved; one the review holds is
+    # kept, a deleted tag included (see _added_tags).
+    added_tags = _added_tags(normalized_tags, (existing or {}).get("tags"))
+    if added_tags:
+        allowed_tags = {
+            definition.key
+            for definition in await list_small_variant_tag_definitions(
+                session,
+                family_uuid=context.family_uuid,
+                project_ids=context.project_ids,
+            )
+        }
+        unknown_tags = [tag for tag in added_tags if tag not in allowed_tags]
+        if unknown_tags:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unknown structural-variant tag(s): {', '.join(sorted(unknown_tags))}",
+            )
     if not cnv_requested and existing is not None:
         # Kept exactly as stored, an unreadable record included (#514).
         cnv_blob = existing.get("cnv_acmg") or None
@@ -669,7 +671,7 @@ async def delete_structural_variant_filter_preset(
     preset_id: str,
     user: CurrentUser,
 ) -> None:
-    preset_uuid = _require_uuid(preset_id, "Preset not found")
+    preset_uuid = require_uuid(preset_id, "Preset not found", status_code=404)
     result = await session.execute(
         text(
             """

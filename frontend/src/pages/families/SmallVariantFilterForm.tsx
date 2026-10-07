@@ -3,6 +3,8 @@ import type { ChangeEvent, SyntheticEvent } from 'react';
 import {
   ALL_GT_GROUPS,
   BUILT_IN_SMALL_PRESETS,
+  addableTagDefinitions,
+  heldTagOptions,
   sortTagDefinitions,
   resolveCarrierScreeningCoupleMembers,
   type ActiveSmallFilterChip,
@@ -206,7 +208,7 @@ const SmallVariantFilterForm = ({
     value: option,
     label: option,
   }));
-  const sortedTagDefinitions = sortTagDefinitions(tags);
+  const sortedTagDefinitions = sortTagDefinitions(addableTagDefinitions(tags));
   const standardTagOptions = sortedTagDefinitions
     .filter((tag) => !tag.is_custom)
     .map((tag) => ({
@@ -219,6 +221,14 @@ const SmallVariantFilterForm = ({
       value: tag.key,
       label: tag.label,
     }));
+  // A deleted tag a preset or a link still filters on is offered nowhere: it is listed where
+  // it is selected, marked, so it can be unticked.
+  const selectedHeldTagOptions = (selected: string[]) =>
+    heldTagOptions(
+      selected,
+      tags,
+      sortedTagDefinitions.map((tag) => tag.key),
+    );
 
   const summarizeSection = (count: number, emptyLabel: string) =>
     count > 0 ? `${count} active` : emptyLabel;
@@ -303,6 +313,7 @@ const SmallVariantFilterForm = ({
     openSections,
     panels,
     sampleDraftFilters,
+    selectedHeldTagOptions,
     setDraftFilterValue,
     setSampleQualityThresholds,
     standardTagOptions,

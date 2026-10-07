@@ -13,6 +13,7 @@ import SmallVariantFilterForm from './SmallVariantFilterForm';
 import SmallVariantResults from './SmallVariantResults';
 import VariantResultsLoading from './VariantResultsLoading';
 import {
+  addableTagDefinitions,
   buildPresetPayload,
   hasLocationProblems,
   smallVariantLocationProblems,
@@ -142,8 +143,9 @@ const FamilySmallVariantsPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: variantQueryReady,
     queryFn: async () => {
+      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
       const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: projectId ? { project_id: projectId } : undefined,
+        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
       });
       return res.data as SmallVariantTagDefinition[];
     },
@@ -415,7 +417,7 @@ const FamilySmallVariantsPage: React.FC = () => {
                         </>
                       ) : null}
                       <span className="badge-chip">Active filters {activeFilterCount}</span>
-                      <span className="badge-chip">Tag library {tags.length}</span>
+                      <span className="badge-chip">Tag library {addableTagDefinitions(tags).length}</span>
                       {isFetching ? <span className="badge-chip">Updating…</span> : null}
                     </div>
                   </div>

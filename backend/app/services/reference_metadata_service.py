@@ -229,7 +229,7 @@ async def _get_assembly_by_id(
     session: AsyncSession,
     assembly_id: str,
 ) -> dict[str, str]:
-    require_uuid(assembly_id, "Invalid assembly id")
+    assembly_uuid = require_uuid(assembly_id, "Invalid assembly id")
     result = await session.execute(
         text(
             """
@@ -238,7 +238,7 @@ async def _get_assembly_by_id(
             WHERE id = CAST(:assembly_id AS uuid)
             """
         ),
-        {"assembly_id": assembly_id},
+        {"assembly_id": assembly_uuid},
     )
     row = result.mappings().first()
     if row is None:
@@ -761,6 +761,7 @@ async def apply_reference_dataset_text(
     left out, the import is recorded as one whose source states none.
     """
     assembly = await _get_assembly_by_id(session, assembly_id)
+    assembly_id = assembly["id"]
 
     existing_count = await _assembly_dataset_count(
         session, assembly_id=assembly_id, dataset_type=dataset_type
@@ -1264,6 +1265,7 @@ async def apply_reference_gene_rows(
     ``source_release_date`` are the release its GTF states (see record_reference_import).
     """
     assembly = await _get_assembly_by_id(session, assembly_id)
+    assembly_id = assembly["id"]
     existing_count = await _assembly_dataset_count(
         session, assembly_id=assembly_id, dataset_type="genes"
     )
@@ -1696,7 +1698,7 @@ async def get_clinical_cnv_by_id_data(
     *,
     cnv_id: str,
 ) -> ClinicalCnvOut:
-    require_uuid(cnv_id, "Invalid clinical CNV id")
+    cnv_uuid = require_uuid(cnv_id, "Invalid clinical CNV id")
     result = await session.execute(
         text(
             f"""
@@ -1705,7 +1707,7 @@ async def get_clinical_cnv_by_id_data(
             WHERE id = CAST(:cnv_id AS uuid)
             """
         ),
-        {"cnv_id": cnv_id},
+        {"cnv_id": cnv_uuid},
     )
     row = result.mappings().first()
     if row is None:

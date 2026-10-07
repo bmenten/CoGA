@@ -3,6 +3,7 @@ import type { StructuralVariant } from './structuralVariantSearch';
 import {
   COLLABORATION_QUICK_TAGS,
   COMPOUND_HET_PHASE_STATUS_LABELS,
+  tagDefinitionLabel,
   type SmallVariant,
   type SmallVariantReviewTagMetadata,
   type SmallVariantTagDefinition,
@@ -317,9 +318,26 @@ export const getReviewTagStyle = (
   const color = tagMap?.[tagKey]?.color || DEFAULT_TAG_COLOR;
   return {
     borderColor: toRgba(color, 0.28),
+    // A deleted tag the review still holds: dashed, beside its "(deleted)" label.
+    ...(isDeletedReviewTag(tagKey, tagMap) ? { borderStyle: 'dashed' } : {}),
     background: toRgba(color, 0.14),
     color: getReadableTextColor(color),
   };
+};
+
+/** Is this a deleted tag, one the review still holds but no save can add any more? */
+export const isDeletedReviewTag = (
+  tagKey: string,
+  tagMap?: Record<string, SmallVariantTagDefinition>,
+) => tagMap?.[tagKey]?.is_active === false;
+
+/** A review tag as its chip reads: its label (a deleted tag marked), or the bare key. */
+export const formatReviewTagLabel = (
+  tagKey: string,
+  tagMap?: Record<string, SmallVariantTagDefinition>,
+) => {
+  const tag = tagMap?.[tagKey];
+  return tag ? tagDefinitionLabel(tag) : tagKey;
 };
 
 export const sortReviewTagKeys = (
@@ -362,7 +380,7 @@ export const buildReviewTagTooltip = ({
   tagMap?: Record<string, SmallVariantTagDefinition>;
   tagMetadata?: Record<string, SmallVariantReviewTagMetadata>;
 }) => {
-  const tagLabel = tagMap?.[tagKey]?.label || tagKey;
+  const tagLabel = formatReviewTagLabel(tagKey, tagMap);
   const metadata = tagMetadata?.[tagKey];
   if (!metadata?.updated_by && !metadata?.updated_at) {
     return tagLabel;

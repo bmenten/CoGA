@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.csv_export import csv_safe_cell
 from ..core.postgres import get_postgres_session
+from ..core.sql import canonical_uuid
 from ..dependencies import get_current_user
 from ..schemas import (
     GlobalVariantPageOut,
@@ -81,17 +82,22 @@ async def list_samples(
 
 @router.get("/small-variant-tags", response_model=List[SmallVariantTagDefinitionOut])
 async def list_explorer_tag_definitions(
+    include_inactive: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SmallVariantTagDefinitionOut]:
     if is_admin_user(user):
         return await list_small_variant_tag_definitions(
-            session, family_uuid="", project_ids=[], include_all_project_tags=True
+            session,
+            family_uuid="",
+            project_ids=[],
+            include_all_project_tags=True,
+            include_inactive=include_inactive,
         )
     rows = await _accessible_project_rows(session, user)
     project_ids = sorted({row["project_id"] for row in rows})
     return await list_small_variant_tag_definitions(
-        session, family_uuid="", project_ids=project_ids
+        session, family_uuid="", project_ids=project_ids, include_inactive=include_inactive
     )
 
 
@@ -138,11 +144,9 @@ async def _build_global_variant_filters(
     """
 
     panel_genes: list[str] = []
-    if panel_id:
-        try:
-            panel_genes = (await _fetch_panel_genes(session, [panel_id])).get(panel_id, [])
-        except ValueError:
-            panel_genes = []
+    panel_uuid = canonical_uuid(panel_id)
+    if panel_uuid is not None:
+        panel_genes = (await _fetch_panel_genes(session, [panel_uuid])).get(panel_uuid, [])
 
     return GlobalVariantFilters(
         chromosome=chr,

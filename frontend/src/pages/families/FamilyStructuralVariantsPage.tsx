@@ -27,6 +27,7 @@ import {
   type StructuralVariantTagDefinition,
 } from './structuralVariantSearch';
 import {
+  addableTagDefinitions,
   normalizeReviewClassification,
 } from './smallVariantSearch';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -185,8 +186,9 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     queryFn: async () => {
       // Structural and small-variant tags share the same store (small_variant_tag_definitions);
       // there is no separate structural endpoint.
+      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
       const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: projectId ? { project_id: projectId } : undefined,
+        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
       });
       return res.data as StructuralVariantTagDefinition[];
     },
@@ -401,7 +403,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           <span className="badge-chip">Showing {isError ? '—' : filteredTotalLabel}</span>
           <span className="badge-chip">All variants {overallTotal ?? '—'}</span>
           <span className="badge-chip">Active filters {activeFilterCount}</span>
-          <span className="badge-chip">Tag library {tags.length}</span>
+          <span className="badge-chip">Tag library {addableTagDefinitions(tags).length}</span>
           {isFetching ? <span className="badge-chip">Updating…</span> : null}
         </div>
       </FamilyPageHeader>

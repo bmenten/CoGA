@@ -329,8 +329,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryKey: ['family', familyId, 'small-variant-tags', 'summary', projectId || null],
     enabled: Boolean(familyId && hasSmallVariants),
     queryFn: async () => {
+      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
       const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: projectId ? { project_id: projectId } : undefined,
+        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
       });
       return res.data as SmallVariantTagDefinition[];
     },
@@ -350,8 +351,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     queryFn: async () => {
       // Structural and small-variant tags share the same store; there is no
       // separate structural endpoint.
+      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
       const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: projectId ? { project_id: projectId } : undefined,
+        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
       });
       return res.data as SmallVariantTagDefinition[];
     },

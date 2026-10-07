@@ -3,13 +3,12 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import uuid_list_bindparam, uuid_values
+from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
     GeneLocation,
     GenePanelCreate,
@@ -30,13 +29,6 @@ from .panelapp_service import (
     panelapp_default_panel_name,
     panelapp_panel_url,
 )
-
-
-def _require_panel_uuid(panel_id: str) -> None:
-    try:
-        UUID(panel_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid panel id") from exc
 
 
 def _ensure_admin(user: CurrentUser) -> None:
@@ -224,7 +216,7 @@ async def get_panel_or_404(
     session: AsyncSession,
     panel_id: str,
 ) -> GenePanelOut:
-    _require_panel_uuid(panel_id)
+    panel_id = require_uuid(panel_id, "Invalid panel id")
     panel_rows = await _fetch_panel_rows(session, [panel_id])
     if not panel_rows:
         raise HTTPException(status_code=404, detail="Panel not found")
@@ -538,7 +530,7 @@ async def update_panel_data(
     (Mendeliome, PanelApp) are updated by regenerating or re-importing.
     """
     _ensure_admin(user)
-    _require_panel_uuid(panel_id)
+    panel_id = require_uuid(panel_id, "Invalid panel id")
     existing = (
         await session.execute(
             text(
@@ -823,7 +815,7 @@ async def delete_panel_data(
     user: CurrentUser,
 ) -> None:
     _ensure_admin(user)
-    _require_panel_uuid(panel_id)
+    panel_id = require_uuid(panel_id, "Invalid panel id")
     result = await session.execute(
         text("DELETE FROM gene_panels WHERE id = CAST(:panel_id AS uuid)"),
         {"panel_id": panel_id},
@@ -862,7 +854,7 @@ def _jsonb_dict(value: Any) -> dict[str, Any]:
 
 
 async def list_panel_versions(session: AsyncSession, panel_id: str) -> GenePanelVersionListOut:
-    _require_panel_uuid(panel_id)
+    panel_id = require_uuid(panel_id, "Invalid panel id")
     current = (
         await session.execute(
             text("SELECT version FROM gene_panels WHERE id = CAST(:panel_id AS uuid)"),
@@ -895,7 +887,7 @@ async def list_panel_versions(session: AsyncSession, panel_id: str) -> GenePanel
 async def get_panel_version(
     session: AsyncSession, panel_id: str, version: int
 ) -> GenePanelVersionDetail:
-    _require_panel_uuid(panel_id)
+    panel_id = require_uuid(panel_id, "Invalid panel id")
     row = (
         await session.execute(
             text(

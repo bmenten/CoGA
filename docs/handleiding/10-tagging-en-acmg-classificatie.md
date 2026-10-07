@@ -32,7 +32,11 @@ Per variant en per familie legt een review vast: de **klasse** (bv. "VUS - class
 - **Systeemtags** zijn ingebouwd en niet te wijzigen: samenwerkingstags (bv. `review`, `send_for_validation`, `validated`, `report`, `excluded`) en de klassetags (`acmg_class_1` tot `acmg_class_5`, de VUS-niveaus `acmg_vus_hot`, `acmg_vus_warm` en `acmg_vus_cold`, en `secondary_finding`).
 - **Eigen tags** maakt een beheerder aan. Ze gelden overal (`global`) of voor één project (`project`), en een projecttag kan met extra projecten gedeeld worden.
 
-Bij het opslaan controleert de backend dat elke tag bestaat en in deze familie gebruikt mag worden; een onbekende tag geeft `400`. Eigen tags aanmaken, wijzigen of verwijderen mag alleen een beheerder (`admin` of `superuser`). Verwijderen zet een tag op inactief in plaats van hem te wissen, zodat oude reviews leesbaar blijven. Het beheerscherm staat onder Administratie (`frontend/src/pages/admin/AdminVariantTagsPage.tsx`).
+Bij het opslaan controleert de backend dat elke tag die de review *toevoegt* bestaat en in deze familie gebruikt mag worden; een onbekende tag geeft `400`. Een tag die de review al draagt, blijft staan, ook als hij intussen verwijderd is: de snelknoppen en de reviewdialoog sturen de opgeslagen tags mee terug, en anders zou elke volgende opslag van die variant mislukken, ook die waarmee de tag weggehaald wordt.
+
+Een tag wordt in reviews, bewaarde filterpresets en de audit trail aangeduid met zijn **sleutel** (`key`). Die ligt vast bij het aanmaken, afgeleid van het label; hernoemen wijzigt alleen het label, zodat de tag op elke review en in elke filter blijft staan. Een label dat leest als dat van een andere actieve tag of van een systeemtag wordt geweigerd (`409`). Krijgt een nieuwe tag het label van een hernoemde of verwijderde tag, dan krijgt hij een genummerde sleutel (bv. `probe_x_2`) en neemt hij geen reviews van de oude tag over.
+
+Eigen tags aanmaken, wijzigen of verwijderen mag alleen een beheerder (`admin` of `superuser`). Verwijderen zet een tag op inactief in plaats van hem te wissen: de reviews die hem dragen tonen hem nog, met zijn label en gemarkeerd als *(deleted)*, en hij kan er weggehaald worden, maar aan geen enkele review meer toegevoegd. Het beheerscherm staat onder Administratie (`frontend/src/pages/admin/AdminVariantTagsPage.tsx`).
 
 **Waar in de code:** `backend/app/services/small_variant_review_tags.py`; de tabellen `small_variant_tag_definitions` en `small_variant_tag_definition_project_links` in `03_assay.sql`.
 

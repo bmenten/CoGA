@@ -706,6 +706,13 @@ A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional
 warning. A bad phenotype row (an unknown person, HPO ID or status) is a warning: the row is
 skipped and never blocks the import.
 
+The API applies the control-character half of the ID rule to every request that looks an ID
+up. A family or sample ID in a request's path or in its `family_id` or `sample_id` query
+parameter that holds a control character is refused with 400 once the caller is signed in,
+before any lookup, with the same answer for every caller; so is any other path parameter
+with one, and a NUL in any query value. A `%00` in a URL arrives as a NUL, and Postgres cannot
+compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
+
 ## 5. Pedigrees and phenotypes
 
 - `POST /ped/manual`: any signed-in user creates a family from typed-in members.

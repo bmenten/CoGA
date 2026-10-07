@@ -24,17 +24,16 @@ async def create_project(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ProjectOut:
-    require_uuid(project_in.species_id, "Invalid species id")
-    require_uuid(project_in.assembly_id, "Invalid assembly id")
-    for user_id in project_in.user_ids:
-        require_uuid(user_id, f"Invalid user id: {user_id}")
+    species_id = require_uuid(project_in.species_id, "Invalid species id")
+    assembly_id = require_uuid(project_in.assembly_id, "Invalid assembly id")
+    user_ids = [require_uuid(user_id, f"Invalid user id: {user_id}") for user_id in project_in.user_ids]
     return await create_project_record(
         session,
         name=project_in.name,
         description=project_in.description,
-        species_id=project_in.species_id,
-        assembly_id=project_in.assembly_id,
-        user_ids=project_in.user_ids,
+        species_id=species_id,
+        assembly_id=assembly_id,
+        user_ids=user_ids,
     )
 
 
@@ -45,21 +44,24 @@ async def update_project(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> ProjectOut:
-    require_uuid(project_id, "Invalid project id")
+    project_uuid = require_uuid(project_id, "Invalid project id")
+    species_id = None
     if project_in.species_id is not None:
-        require_uuid(project_in.species_id, "Invalid species id")
+        species_id = require_uuid(project_in.species_id, "Invalid species id")
+    assembly_id = None
     if project_in.assembly_id is not None:
-        require_uuid(project_in.assembly_id, "Invalid assembly id")
-    for user_id in project_in.user_ids or []:
-        require_uuid(user_id, f"Invalid user id: {user_id}")
+        assembly_id = require_uuid(project_in.assembly_id, "Invalid assembly id")
+    user_ids = None
+    if project_in.user_ids is not None:
+        user_ids = [require_uuid(user_id, f"Invalid user id: {user_id}") for user_id in project_in.user_ids]
     return await update_project_record(
         session,
-        project_id=project_id,
+        project_id=project_uuid,
         name=project_in.name,
         description=project_in.description,
-        species_id=project_in.species_id,
-        assembly_id=project_in.assembly_id,
-        user_ids=project_in.user_ids,
+        species_id=species_id,
+        assembly_id=assembly_id,
+        user_ids=user_ids,
     )
 
 
@@ -77,5 +79,5 @@ async def delete_project(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> None:
-    require_uuid(project_id, "Invalid project id")
-    await delete_project_record(session, project_id=project_id)
+    project_uuid = require_uuid(project_id, "Invalid project id")
+    await delete_project_record(session, project_id=project_uuid)

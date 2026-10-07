@@ -333,6 +333,9 @@ export interface SmallVariantTagDefinition {
   project_id?: string | null;
   shared_project_ids?: string[];
   is_custom: boolean;
+  // False for a deleted custom tag. The tag lists serve one only on request
+  // (`include_inactive`), so a review that still holds it can show it; it is never offered.
+  is_active?: boolean;
 }
 
 export type FamilyMember = ApiFamilyMember;
@@ -1974,6 +1977,36 @@ export const normalizeTagKeys = (keys: Iterable<string>) =>
   Array.from(new Set(Array.from(keys).map((key) => key.trim()).filter(Boolean))).sort((a, b) =>
     a.localeCompare(b),
   );
+
+/**
+ * The tags a review or a filter may add. A deleted custom tag is listed (inactive) only so
+ * the reviews that still hold it can show it, never offered.
+ */
+export const addableTagDefinitions = (tags: SmallVariantTagDefinition[]) =>
+  tags.filter((tag) => tag.is_active !== false);
+
+/** A tag's label as a review shows it: a deleted tag is marked, it can no longer be added. */
+export const tagDefinitionLabel = (tag: SmallVariantTagDefinition) =>
+  tag.is_active === false ? `${tag.label} (deleted)` : tag.label;
+
+/**
+ * Options for the tag keys a review or a filter holds that the offered options leave out: a
+ * deleted tag, or a key the tag list does not hold. They are listed so they can be unticked;
+ * the save keeps a tag the review holds, but adds none of these. While the tag list loads
+ * (it is empty: a loaded one always holds the built-in tags) there are none.
+ */
+export const heldTagOptions = (
+  heldKeys: Iterable<string>,
+  tags: SmallVariantTagDefinition[],
+  offeredKeys: Iterable<string>,
+) => {
+  if (!tags.length) return [];
+  const offered = new Set(offeredKeys);
+  const byKey = getTagDefinitionMap(tags);
+  return normalizeTagKeys(heldKeys)
+    .filter((key) => !offered.has(key))
+    .map((key) => ({ value: key, label: byKey[key] ? tagDefinitionLabel(byKey[key]) : key }));
+};
 
 const LEGACY_CLASSIFICATION_MAP: Record<string, string> = {
   pathogenic: 'acmg_class_5',

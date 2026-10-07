@@ -5,6 +5,7 @@ import types
 from datetime import datetime, timezone
 
 import pytest
+from fastapi import HTTPException
 
 from backend.app.schemas import AcmgClassificationPayload, AcmgCriterionSelection, SmallVariantReviewUpdate
 from backend.app.services import clinical_audit_service
@@ -353,3 +354,102 @@ def test_a_strength_only_reclassification_is_audited(monkeypatch) -> None:
     [event] = clinical_audit_service.diff_review_changes(audit["existing"], audit["new_state"])
     assert event["action"] == "classification"
     assert "PM2 moderate → supporting" in event["summary"]
+
+
+# --- a tag the review holds is kept, whatever became of its definition ----------------------------
+# The quick tag toggle and the review dialog send the stored tags back with every save. A
+# tag deleted since (or one outside the family's projects) used to refuse every later save
+# of the review with 400, the one removing it included. Only a tag the save adds is checked.
+
+
+def _save_tags(monkeypatch, existing: dict | None, payload: SmallVariantReviewUpdate, allowed: list[str]):
+    """Save ``payload`` over ``existing`` with ``allowed`` as the family's usable tags.
+
+    Returns the audit calls, the writes made and the family ids the usable tags were read for.
+    """
+    reads: list[str] = []
+
+    async def _definitions(session_, *, family_uuid, project_ids):
+        reads.append(family_uuid)
+        return [types.SimpleNamespace(key=key) for key in allowed]
+
+    monkeypatch.setattr(small_variant_review_pg, "list_small_variant_tag_definitions", _definitions)
+    audits, writes, _session = _clear(monkeypatch, existing, payload)
+    return audits, writes, reads
+
+
+def test_a_save_keeps_a_tag_the_review_holds_after_its_definition_is_gone(monkeypatch) -> None:
+    existing = _stored_review(tags=["acmg_class_5", "probe_x", "report"])
+    payload = SmallVariantReviewUpdate(
+        classification="Pathogenic", tags=["acmg_class_5", "probe_x", "report"], note="reported, noted again"
+    )
+    audits, writes, reads = _save_tags(monkeypatch, existing, payload, allowed=["acmg_class_5", "report"])
+
+    assert writes == ["update"]
+    assert reads == []  # the save adds no tag: the family's tags are not even read
+    [audit] = audits
+    assert audit["new_state"]["tags"] == ["acmg_class_5", "probe_x", "report"]
+
+
+def test_a_save_removing_a_tag_whose_definition_is_gone_goes_ahead(monkeypatch) -> None:
+    existing = _stored_review(tags=["probe_x", "report"])
+    payload = SmallVariantReviewUpdate(classification="Pathogenic", tags=["report"], note="reported")
+    audits, writes, reads = _save_tags(monkeypatch, existing, payload, allowed=["report"])
+
+    assert (writes, reads) == (["update"], [])
+    assert audits[0]["new_state"]["tags"] == ["report"]
+
+
+def test_a_save_may_add_a_usable_tag_beside_one_whose_definition_is_gone(monkeypatch) -> None:
+    existing = _stored_review(tags=["probe_x"])
+    payload = SmallVariantReviewUpdate(classification="Pathogenic", tags=["probe_x", "review"], note="reported")
+    _audits, writes, reads = _save_tags(monkeypatch, existing, payload, allowed=["review"])
+
+    assert (writes, reads) == (["update"], ["family-uuid"])
+
+
+def test_a_save_adding_a_tag_the_family_cannot_use_is_refused(monkeypatch) -> None:
+    # A deleted tag included: once removed from a review, it cannot be added back.
+    existing = _stored_review(tags=["probe_x"])
+    for added in ("probe_y", "gone_tag"):
+        with pytest.raises(HTTPException) as refused:
+            _save_tags(
+                monkeypatch, existing, SmallVariantReviewUpdate(tags=["probe_x", added]), allowed=["review"]
+            )
+        # Named alone: the held tag is not what the save got wrong.
+        assert (refused.value.status_code, refused.value.detail) == (
+            400,
+            f"Unknown small-variant tag(s): {added}",
+        )
+
+
+def test_a_pair_save_keeps_a_pair_tag_the_review_holds(monkeypatch) -> None:
+    existing = _stored_review(
+        compound_het_group_id="group-1",
+        compound_het_partner_variant_ids=["1-200-C-T"],
+        compound_het_tags=["probe_x"],
+    )
+    writes: list[str] = []
+
+    async def _noop(*args, **kwargs):
+        writes.append("pair")
+
+    monkeypatch.setattr(small_variant_review_pg, "variants_share_gene", lambda *args: True)
+    monkeypatch.setattr(small_variant_review_pg, "has_affected_het_call", lambda *args: True)
+    monkeypatch.setattr(small_variant_review_pg, "_clear_compound_het_group", _noop)
+    monkeypatch.setattr(small_variant_review_pg, "_insert_review_row", _noop)
+
+    def pair(tags: list[str]) -> SmallVariantReviewUpdate:
+        return SmallVariantReviewUpdate(
+            classification="Pathogenic",
+            tags=["acmg_class_5", "report"],
+            note="reported",
+            compound_het={"partner_variant_id": "1-200-C-T", "tags": tags},
+        )
+
+    _audits, saved, reads = _save_tags(monkeypatch, existing, pair(["probe_x"]), allowed=["acmg_class_5", "report"])
+    assert "update" in saved and reads == []
+
+    with pytest.raises(HTTPException) as refused:
+        _save_tags(monkeypatch, existing, pair(["probe_x", "probe_y"]), allowed=["acmg_class_5", "report"])
+    assert refused.value.detail == "Unknown small-variant tag(s): probe_y"
