@@ -151,6 +151,16 @@
   border-radius: var(--radius-card);
 }
 
+/* Not confirmed (warn) and not checked (skip): the Mendel cell's warn colour, and the
+   neutral chip's muted text. */
+.qc-genotype-sex--unconfirmed {
+  color: #b45309;
+}
+
+.qc-genotype-sex--unchecked {
+  color: var(--color-text-muted);
+}
+
 .qc-mendel {
   font-weight: 600;
 }
