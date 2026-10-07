@@ -12,6 +12,7 @@ from .core.azure import verify_azure_token
 from .core.config import settings
 from .core.postgres import get_postgres_session
 from .services.access_control import ADMIN_ROLES, CurrentUser
+from .services.family_identifiers import request_value_problem
 from .services.metadata_service import get_current_user_by_email
 
 logger = logging.getLogger(__name__)
@@ -107,6 +108,15 @@ async def get_current_user(
             user.role,
         )
     request.state.current_user = user
+    # Every route that looks a request's path or query value up signs its caller in here
+    # (the QC-report download checks its own signed link first), so this is where those
+    # values are held to the control-character rule (family_identifiers): after the 401, so
+    # the refusal's audit row names the caller, and before any route reads a value, with the
+    # same answer whoever asks, so it says nothing about which families exist or who may
+    # see them.
+    problem = request_value_problem(request.path_params, request.query_params.multi_items())
+    if problem is not None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=problem)
     return user
 
 

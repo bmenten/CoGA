@@ -26,6 +26,18 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   families and samples of their own projects; admins see all. List endpoints filter in SQL,
   not after the fact. `backend/tests/test_access_control.py` covers the cross-user and
   multi-project cases.
+- ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
+  and Postgres cannot compare a NUL, so a request that looked up a family's path
+  (`/api/families/FAM%00X`) or any other path or query value with one failed with a 500.
+  `get_current_user` answers 400, naming the parameter, when a path parameter, a query
+  parameter's name or a `family_id` or `sample_id` query value holds a C0 control character
+  or DEL, which no family or sample ID may hold (`services/family_identifiers.py`), and when
+  any other query value holds a NUL. A gene or interval list typed one per line keeps its line
+  breaks. The check runs once the caller is signed in, so the 401 comes first and the
+  refusal's audit row names the caller, and before any route looks a value up, with the same
+  answer for every caller: it reveals nothing about which families exist or who may see them.
+  Every route that takes a path or query value signs its caller in, except the QC-report
+  download, which checks its own signed link first (`test_request_control_characters.py`).
 - ✅ **Admin-only changes.** Structure changes and deletions of families and data (member and
   structure edits, region of interest, project assignment, family and sample deletions),
   replacing a family's annotation manifest, reference data, imports and uploads require
@@ -145,7 +157,8 @@ are colleagues, so there is no tenant boundary to protect.
   endpoint ignores, or `%00` in the URL: the action was carried out, and its row, with every
   other row of its async batch, reached only the log. Such a value is now stored as a visible
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
-  UI-event log does the same.
+  UI-event log does the same. A NUL in the URL is now refused at sign-in (§1), and the
+  refusal's row is kept the same way, under the caller's name.
 - ✅ **A failed audit write is logged by its kind.** The log line gives the exception type and
   SQLSTATE (`describe_error` in `core/coga_logging.py`), never the error's text, which quotes
   the row it could not insert, request body included.
@@ -266,7 +279,8 @@ Every suppressed advisory is recorded in
 
 The application layer applies project-scoped access consistently, with no cross-project IDOR
 found, keeps a durable append-only audit trail, needs a signed-in user for reference data,
-throttles sign-ups and logins, bounds input sizes, decompression and paths, and refuses to
+throttles sign-ups and logins, bounds input sizes, decompression and paths, refuses a control
+character in what a request looks up, and refuses to
 start on weak or shared secrets or with the request audit log switched off. S-5 (audit
 durability), S-6 (required checks) and S-7 (dependency pinning) are closed. The open items are deployment-level: S-1, S-2, S-3 and S-8 are written
 in Terraform and wait for the first deployment and its evidence; S-4 is open. See

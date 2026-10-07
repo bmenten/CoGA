@@ -39,7 +39,7 @@ Autorisatie wordt alleen in de backend afgedwongen, met twee dependencies:
 - **`get_current_user`** controleert het token, laadt de gebruiker vers uit Postgres en weigert (`HTTP 401`) als het token ongeldig is, de gebruiker niet bestaat of niet actief is. Hoe het token wordt gecontroleerd, staat in [hoofdstuk 5](05-login-authenticatie.md).
 - **`get_current_admin_user`** bouwt daarop voort en geeft `HTTP 403` als de rol niet in `ADMIN_ROLES` zit. Dit is de poort voor alle beheer- en destructieve acties.
 
-Een gewoon endpoint zoals `GET /api/families/{family_id}` vraagt `get_current_user` (authenticatie) en laat de *autorisatie* over aan de servicelaag, die via het checkpoint hierboven loopt. Een viewer die een onbekend of vreemd `family_id` meegeeft, krijgt `403` of `404`. De hele beheerrouter (`/api/admin/...`) hangt achter `get_current_admin_user`, net als het aanmaken, wijzigen en verwijderen van projecten; de projectenlijst zelf toont een viewer alleen zijn eigen projecten.
+Een gewoon endpoint zoals `GET /api/families/{family_id}` vraagt `get_current_user` (authenticatie) en laat de *autorisatie* over aan de servicelaag, die via het checkpoint hierboven loopt. Een viewer die een onbekend of vreemd `family_id` meegeeft, krijgt `403` of `404`. Een `family_id` met een stuurteken krijgt al bij de aanmelding `400`, voor iedereen hetzelfde ([hoofdstuk 5](05-login-authenticatie.md)). De hele beheerrouter (`/api/admin/...`) hangt achter `get_current_admin_user`, net als het aanmaken, wijzigen en verwijderen van projecten; de projectenlijst zelf toont een viewer alleen zijn eigen projecten.
 
 Twee nuances voor de auditor:
 

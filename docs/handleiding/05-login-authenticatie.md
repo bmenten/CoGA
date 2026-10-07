@@ -69,7 +69,8 @@ Elk beschermd endpoint hangt af van `get_current_user`. Die functie:
 2. controleert de handtekening en de geldigheid; een ongeldig of verlopen token geeft `401 Could not validate credentials`;
 3. leest het e-mailadres uit de claim `sub`;
 4. laadt de gebruiker vers uit Postgres en controleert dat die bestaat en actief is; zo niet, opnieuw `401`;
-5. hangt de gebruiker aan het verzoek (`request.state.current_user`), zodat de auditlog weet wie het verzoek deed.
+5. hangt de gebruiker aan het verzoek (`request.state.current_user`), zodat de auditlog weet wie het verzoek deed;
+6. weigert (`400`) een verzoek met een stuurteken (C0 of DEL, zoals een NUL uit `%00`) in een padparameter, in de naam van een queryparameter of in de waarde van `family_id` of `sample_id` in de querystring, en een verzoek met een NUL in eender welke querywaarde. Een familie- of staal-ID mag zo'n teken niet bevatten, en Postgres kan een NUL niet vergelijken: zo'n verzoek liep vroeger vast op een `500`. Een gen- of intervallijst, één per regel getypt, behoudt haar regeleinden. De weigering komt na de aanmelding, zodat de auditlog de gebruiker noemt, en vóór een route iets opzoekt, met hetzelfde antwoord voor iedereen (`request_value_problem` in `backend/app/services/family_identifiers.py`).
 
 `get_current_admin_user` bouwt daarop voort en eist een beheerdersrol (`admin` of `superuser`); anders volgt `403 Admin access required`.
 
