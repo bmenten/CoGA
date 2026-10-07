@@ -13,8 +13,9 @@ manifest, a request, a folder name); what remains may not hold
   ``family.add_members`` adds are PED rows, so an ID with a space could not be read back.
 
 The package import reports an ID that breaks this rule as a validation error
-(``family_id_invalid``, ``sample_id_invalid``); the Family Builder and the PED upload refuse
-it with a 400. Either way nothing is written.
+(``family_id_invalid``, ``sample_id_invalid``); the Family Builder, the PED upload and the
+member and structure edits (a member's new sample ID, its father or mother, a member the
+structure edit adds) refuse it with a 400. Either way nothing is written.
 """
 
 from __future__ import annotations
