@@ -221,7 +221,9 @@ const AdminVariantTagsPage: React.FC = () => {
             <h1 className="catalog-card-title">Variant tag management</h1>
             <p className="catalog-card-copy">
               Define custom tags as global or project-scoped, then share project tags with one or more
-              additional projects.
+              additional projects. A renamed tag keeps its key, so the reviews and saved filters that
+              use it follow the new label. A deleted tag stays on the reviews that hold it, marked
+              deleted, and can no longer be added.
             </p>
           </div>
           <div className="compact-toolbar dashboard-toolbar">
@@ -719,7 +721,10 @@ const AdminVariantTagsPage: React.FC = () => {
                                       className="button-danger"
                                       disabled={isDeleteBusy}
                                       onClick={() => {
-                                        if (!window.confirm(`Delete custom tag "${tag.label}"?`)) {
+                                        const confirmed = window.confirm(
+                                          `Delete custom tag "${tag.label}"? Reviews that hold it keep it, marked deleted; it can no longer be added.`,
+                                        );
+                                        if (!confirmed) {
                                           return;
                                         }
                                         setStatus(null);

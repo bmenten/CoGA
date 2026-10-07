@@ -3,7 +3,7 @@
 // monogenic NIPT. The markup is recorded (__snapshots__), so splitting the form into
 // section components must reproduce it exactly: every section, label, control, value
 // and summary. Update the snapshot only for an intended change to the form's markup.
-import { render } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
@@ -91,4 +91,60 @@ test('renders the monogenic NIPT form as recorded', () => {
       ],
     }),
   ).toMatchSnapshot();
+});
+
+// A deleted custom tag a preset or a link still filters on is offered nowhere; it is listed,
+// marked, where it is selected, so it can be unticked.
+const customTag = (key: string, label: string, isActive: boolean) => ({
+  key,
+  label,
+  group: 'custom' as const,
+  color: '#336699',
+  sort_order: 500,
+  scope: 'global' as const,
+  is_custom: true,
+  is_active: isActive,
+});
+
+const WITH_DELETED_TAG = [
+  ...TAGS,
+  customTag('needs_segregation', 'Needs segregation', true),
+  customTag('probe_x', 'Probe X', false),
+];
+
+const tagBoxes = (label: string) =>
+  screen
+    .queryAllByText(label)
+    .map((element) => element.closest('label')?.querySelector('input') as HTMLInputElement);
+
+const renderForm = (filters: Partial<SmallFilterState>) =>
+  render(
+    <MemoryRouter>
+      <SmallVariantFilterForm
+        {...(props({ tags: WITH_DELETED_TAG, draftFilters: { ...draft(), ...filters } }) as unknown as ComponentProps<
+          typeof SmallVariantFilterForm
+        >)}
+      />
+    </MemoryRouter>,
+  );
+
+test('lists a deleted tag a review-tag filter holds, marked and ticked, in that list only', () => {
+  renderForm({ review_tags: 'probe_x,review' });
+  const boxes = tagBoxes('Probe X (deleted)');
+  expect(boxes).toHaveLength(1);
+  expect(boxes[0].checked).toBe(true);
+  // The active custom tag is offered in both lists, the include and the exclude one.
+  expect(tagBoxes('Needs segregation')).toHaveLength(2);
+});
+
+test('lists a deleted tag an exclude filter holds, marked and ticked', () => {
+  renderForm({ review_tags: '', exclude_review_tags: 'probe_x' });
+  const boxes = tagBoxes('Probe X (deleted)');
+  expect(boxes).toHaveLength(1);
+  expect(boxes[0].checked).toBe(true);
+});
+
+test('offers a deleted tag in no list that does not hold it', () => {
+  renderForm({ review_tags: 'review' });
+  expect(screen.queryAllByText(/Probe X/)).toHaveLength(0);
 });

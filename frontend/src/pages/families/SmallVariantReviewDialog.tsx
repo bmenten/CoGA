@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import { useModalDialog } from '../../lib/useModalDialog';
 import {
   ACMG_CLASSIFICATION_TAGS,
+  addableTagDefinitions,
   getClassificationLabelFromTagKey,
   getClassificationTagKeyFromClassification,
   getClassificationTagKeyFromTags,
+  heldTagOptions,
   normalizeTagKeys,
   sortTagDefinitions,
   type SmallVariantPriority,
@@ -159,7 +161,7 @@ export default function SmallVariantReviewDialog({
     value: option.key,
     label: option.label,
   }));
-  const sortedTagDefinitions = sortTagDefinitions(tags);
+  const sortedTagDefinitions = sortTagDefinitions(addableTagDefinitions(tags));
   const standardTagOptions = sortedTagDefinitions
     .filter((tag) => !ACMG_CLASSIFICATION_TAGS.some((option) => option.key === tag.key))
     .filter((tag) => !tag.is_custom)
@@ -174,6 +176,14 @@ export default function SmallVariantReviewDialog({
       value: tag.key,
       label: tag.label,
     }));
+  // A tag the review holds that no option offers, a deleted tag above all: listed, marked,
+  // so it can be unticked. Left ticked the save keeps it; no save adds it to a review anew.
+  const reviewHeldTagOptions = heldTagOptions(variant.review?.tags || [], tags, [
+    ...ACMG_CLASSIFICATION_TAGS.map((option) => option.key),
+    ...standardTagOptions.map((option) => option.value),
+    ...customTagOptions.map((option) => option.value),
+  ]);
+  const customColumnOptions = [...customTagOptions, ...reviewHeldTagOptions];
 
   const toggleTag = (
     key: string,
@@ -299,9 +309,9 @@ export default function SmallVariantReviewDialog({
               </div>
               <div className="variant-review-tag-column">
                 <p className="variant-annotation-impact-title">Custom tags</p>
-                {customTagOptions.length ? (
+                {customColumnOptions.length ? (
                   <div className="variant-review-tag-list">
-                    {customTagOptions.map((option) => (
+                    {customColumnOptions.map((option) => (
                       <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
                         <input
                           type="checkbox"

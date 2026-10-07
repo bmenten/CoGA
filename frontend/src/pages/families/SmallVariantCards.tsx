@@ -24,6 +24,7 @@ import {
   formatGenomicChange,
   formatLocus,
   formatPredictionScore,
+  formatReviewTagLabel,
   formatScore,
   formatTokenLabel,
   getClinvarHighlightTone,
@@ -791,7 +792,7 @@ export default function SmallVariantCards({
                       tagMetadata: variant.review?.tag_metadata,
                     })}
                   >
-                    {tagMap[tagKey]?.label || tagKey}
+                    {formatReviewTagLabel(tagKey, tagMap)}
                   </span>
                 ))}
               </div>

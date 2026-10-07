@@ -422,6 +422,7 @@ async def delete_small_variant_filter_preset(
 async def list_small_variant_tags(
     family_id: str,
     project_id: str | None = None,
+    include_inactive: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SmallVariantTagDefinitionOut]:
@@ -436,6 +437,7 @@ async def list_small_variant_tags(
         family_uuid=context.family_uuid,
         project_ids=context.project_ids,
         project_id=project_id,
+        include_inactive=include_inactive,
     )
 
 

@@ -81,17 +81,22 @@ async def list_samples(
 
 @router.get("/small-variant-tags", response_model=List[SmallVariantTagDefinitionOut])
 async def list_explorer_tag_definitions(
+    include_inactive: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> List[SmallVariantTagDefinitionOut]:
     if is_admin_user(user):
         return await list_small_variant_tag_definitions(
-            session, family_uuid="", project_ids=[], include_all_project_tags=True
+            session,
+            family_uuid="",
+            project_ids=[],
+            include_all_project_tags=True,
+            include_inactive=include_inactive,
         )
     rows = await _accessible_project_rows(session, user)
     project_ids = sorted({row["project_id"] for row in rows})
     return await list_small_variant_tag_definitions(
-        session, family_uuid="", project_ids=project_ids
+        session, family_uuid="", project_ids=project_ids, include_inactive=include_inactive
     )
 
 
