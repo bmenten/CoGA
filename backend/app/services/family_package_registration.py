@@ -32,6 +32,7 @@ from .clickhouse_variant_storage import (
     delete_family_structural_variants,
 )
 from .data_scope import normalize_chromosome
+from .family_identifiers import identifier_problem
 from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
@@ -56,7 +57,10 @@ async def existing_family_sample_ids(
     """Sample IDs of an already-configured family, or ``[]`` when it does not
     exist. Used so manifest discovery can scan per-sample dataset files for an
     incremental import without requiring a PED file."""
-    if not family_id:
+    family_id = (family_id or "").strip()
+    if identifier_problem(family_id) is not None:
+        # No family is stored under such an ID (and a NUL could not even be sent to
+        # Postgres): Discover reports it as family_id_invalid.
         return []
     existing = await _fetch_existing_family(session, family_id=family_id)
     if existing is None:

@@ -9,7 +9,7 @@ from ..schemas import (
     FamilyImportValidationIssue,
 )
 
-from .family_package_common import PackageManifest, ParsedPed, PedMember, _issue, _metadata_dict, _normalize_header_key
+from .family_package_common import PackageManifest, ParsedPed, PedMember, _issue, _metadata_dict, _normalize_header_key, sample_id_issues
 
 
 logger = logging.getLogger(__name__)
@@ -608,19 +608,19 @@ def _manifest_added_ped_rows(
     they are members of the right sex. Other links go under ``family.relationships``.
 
     A member already in the PED is an error, except when the PED is the stored pedigree
-    of an existing family, which holds the members an earlier import added.
+    of an existing family, which holds the members an earlier import added. So is an ID,
+    the member's or a parent's, that a sample cannot be stored under (``sample_id_invalid``).
     """
     rows: list[str] = []
     errors: list[FamilyImportValidationIssue] = []
     seen: set[str] = set()
     for sample_id, payload in _manifest_added_member_entries(manifest):
-        if not sample_id or any(character.isspace() for character in sample_id):
-            errors.append(
-                _issue(
-                    "manifest_added_member_invalid",
-                    "family.add_members entries need a sample_id without spaces",
-                )
-            )
+        if not sample_id:
+            errors.append(_issue("manifest_added_member_invalid", "family.add_members entries need a sample_id"))
+            continue
+        id_issues = sample_id_issues([sample_id], source="under family.add_members")
+        if id_issues:
+            errors.extend(id_issues)
             continue
         if sample_id in ped_sample_ids:
             if ped_from_database:
@@ -684,14 +684,12 @@ def _manifest_added_ped_rows(
             str(value).strip() if value is not None and str(value).strip() else "0"
             for value in (_lookup_normalized_key(payload, "father"), _lookup_normalized_key(payload, "mother"))
         ]
-        if any(any(character.isspace() for character in parent) for parent in parents):
-            errors.append(
-                _issue(
-                    "manifest_added_member_invalid",
-                    f"family.add_members gives '{sample_id}' a parent id with spaces",
-                    sample_id=sample_id,
-                )
-            )
+        parent_issues = sample_id_issues(
+            [parent for parent in parents if parent != "0"],
+            source=f"a parent of {sample_id} under family.add_members",
+        )
+        if parent_issues:
+            errors.extend(parent_issues)
             continue
         rows.append(f"{family_id} {sample_id} {parents[0]} {parents[1]} {sex} {phenotype} role={role}")
     return rows, errors

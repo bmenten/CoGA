@@ -458,19 +458,23 @@ def test_an_index_nothing_links_is_added_without_a_link(tmp_path: Path) -> None:
 def test_a_family_id_with_a_line_break_cannot_forge_a_log_line(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    # Discover reads the KING table named after the family ID its request gives, and logs
-    # the path of one it cannot read. A line break in that ID must not start a new log line.
+    # The PGT reader logs the path of a package file it cannot read, such as the KING table
+    # named after the family ID. A line break in that path must not start a new log line.
     forged = f"{FAMILY}\nERROR forged entry"
     root = _write_copgtm_package(tmp_path / FAMILY)
     (root / f"king/{forged}.kin0").write_bytes(b"\xff not UTF-8")
 
     with caplog.at_level(logging.WARNING, logger=family_package_pgt.__name__):
-        family_package_discovery.discover_family_package_manifest(
+        assert family_package_pgt._read_package_file(root, f"king/{forged}.kin0", kind="KING kinship") is None
+        # Discover refuses such a family ID before it reads any file named after it
+        # (test_family_package_identifiers.py), so it logs nothing here.
+        out = family_package_discovery.discover_family_package_manifest(
             FamilyPackageManifestBuildRequest(folder_path=str(root), naming_scheme="standard_v1", family_id=forged)
         )
 
-    messages = {record.getMessage() for record in caplog.records if record.name == family_package_pgt.__name__}
-    assert messages == {f"Could not read king/{FAMILY} ERROR forged entry.kin0 from the package"}
+    assert [issue.code for issue in out.errors] == ["family_id_invalid"]
+    messages = [record.getMessage() for record in caplog.records if record.name == family_package_pgt.__name__]
+    assert messages == [f"Could not read king/{FAMILY} ERROR forged entry.kin0 from the package"]
 
 
 @pytest.mark.parametrize(
