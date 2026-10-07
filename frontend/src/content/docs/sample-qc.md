@@ -60,6 +60,7 @@ heterozygotes, a woman many.
   no-call or a half call (`./1`) is left out.
 - A recorded sex that differs from the genetic sex is a **fail** — most often a sample swap or a
   mislabelled tube. No recorded sex is a **warn**.
+- A sample with no X genotypes at all is **not run**: its sex is indeterminate.
 
 ### Relatedness against the pedigree
 
@@ -191,7 +192,14 @@ symbol keeps its clinical meaning (black for affected, the carrier half-fill in 
 Hover a symbol for the reason.
 
 **Per-sample table.** Recorded sex against genetic sex, and the Mendelian-error rate, coloured by
-status. Hover a cell for the explanation.
+status. Hover a cell for the explanation. The genetic sex carries a mark for its verdict:
+
+| Verdict | Mark | Meaning |
+| --- | --- | --- |
+| Pass | ✓, green | matches the recorded sex |
+| Warn | !, amber | not confirmed: indeterminate, or no recorded sex to compare with |
+| Fail | ✗, red | contradicts the recorded sex — a possible swap or mislabelled tube |
+| Not run | ?, grey | not checked: no X genotypes for the sample |
 
 **Relatedness matrix.** A sample × sample grid (lower half only; it is symmetric). Each cell shows the
 inferred relationship, the kinship φ and the IBS0. A pair that contradicts the pedigree — including
