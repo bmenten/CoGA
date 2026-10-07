@@ -117,7 +117,12 @@ are colleagues, so there is no tenant boundary to protect.
 - ✅ **No silent loss (S-5).** A full queue applies backpressure for up to
   `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event directly; the worker
   retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`); an event that still cannot be stored
-  is logged at ERROR with its (already masked) payload and counted for alerting. Outside
+  is logged at ERROR with its (already masked) payload and counted for alerting. The same holds
+  without the queue, with `AUDIT_LOG_MODE=sync` or while no worker runs (before startup
+  completes, after shutdown): each event is written as its request runs, and a write that fails
+  is logged and counted the same way, where it used to leave a warning the alert did not count.
+  Neither the request nor a batch of UI events fails because of it: the UI-event endpoint still
+  answers 202, so the browser does not resend the events already stored. Outside
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
@@ -127,9 +132,10 @@ are colleagues, so there is no tenant boundary to protect.
   other row of its async batch, reached only the log. Such a value is now stored as a visible
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
   UI-event log does the same.
-- ✅ **A failed audit write is logged by its kind.** The log line gives the exception type and
-  SQLSTATE (`describe_error` in `core/coga_logging.py`), never the error's text, which quotes
-  the row it could not insert, request body included.
+- ✅ **A failed audit write is logged by its kind.** The log line names the exception by its
+  type and SQLSTATE (`describe_error` in `core/coga_logging.py`), never by the error's text,
+  which quotes the statement and the row it could not insert. The row itself is logged once,
+  as its masked payload (S-5).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the
