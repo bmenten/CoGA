@@ -148,7 +148,12 @@ are colleagues, so there is no tenant boundary to protect.
 - ✅ **No silent loss (S-5).** A full queue applies backpressure for up to
   `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event directly; the worker
   retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`); an event that still cannot be stored
-  is logged at ERROR with its (already masked) payload and counted for alerting. Outside
+  is logged at ERROR with its (already masked) payload and counted for alerting. The same holds
+  without the queue, with `AUDIT_LOG_MODE=sync` or while no worker runs (before startup
+  completes, after shutdown): each event is written as its request runs, and a write that fails
+  is logged and counted the same way, where it used to leave a warning the alert did not count.
+  Neither the request nor a batch of UI events fails because of it: the UI-event endpoint still
+  answers 202, so the browser does not resend the events already stored. Outside
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
@@ -159,9 +164,10 @@ are colleagues, so there is no tenant boundary to protect.
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
   UI-event log does the same. A NUL in the URL is now refused at sign-in (§1), and the
   refusal's row is kept the same way, under the caller's name.
-- ✅ **A failed audit write is logged by its kind.** The log line gives the exception type and
-  SQLSTATE (`describe_error` in `core/coga_logging.py`), never the error's text, which quotes
-  the row it could not insert, request body included.
+- ✅ **A failed audit write is logged by its kind.** The log line names the exception by its
+  type and SQLSTATE (`describe_error` in `core/coga_logging.py`), never by the error's text,
+  which quotes the statement and the row it could not insert. The row itself is logged once,
+  as its masked payload (S-5).
 - ✅ **No request body and no error text in the application log.** The request body is written
   only to `audit_log_events`, and so is the text of an error, which for a failed statement
   quotes its SQL and parameters: values from the request, or read for it. An unhandled error's
@@ -178,7 +184,8 @@ are colleagues, so there is no tenant boundary to protect.
   (`JsonLogFormatter`): the exception's kind in `error`, the frames of its chain in
   `traceback`, never its message. If the traceback cannot be written, the line still goes out
   with the kind, because a formatter that fails makes `logging` print the logged exception's
-  full text to stderr.
+  full text to stderr. The one exception is a row the audit table cannot store: it is logged at
+  ERROR with its masked payload, body and error text included, so it can be restored (S-5).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the

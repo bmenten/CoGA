@@ -114,7 +114,7 @@ Naast de HTTP-auditlog legt CoGA **betekenisvolle interacties** in de interface 
 
 - **In de browser** vangt `frontend/src/lib/telemetry.ts` die gebeurtenissen op en stuurt ze in groepjes naar `POST /api/ui-events`, ook bij het verlaten van de pagina. Telemetrie is *best effort*: een netwerkfout laat een gebeurtenis vallen, maar verstoort de app nooit.
 - **Op de server** is `ingest_ui_events` de filter: alleen een vaste lijst soorten wordt aanvaard (`click`, `navigation`, `submit`, `view`, `query`); in paden worden id's gemaskeerd en querystrings tot hun sleutels teruggebracht, zodat klinische identificaties niet worden opgeslagen; gevoelige velden (wachtwoord, token, …) worden gemaskeerd en geneste structuren tot hun type herleid. De actor komt uit het token.
-- **Opslag:** de gebeurtenissen gaan naar de tabel `ui_events`, via dezelfde verliesvrije wachtrij als de HTTP-auditlog (hoofdstuk 7).
+- **Opslag:** de gebeurtenissen gaan naar de tabel `ui_events`, via dezelfde verliesvrije wachtrij als de HTTP-auditlog (hoofdstuk 7). Een gebeurtenis die de databank niet aanneemt, wordt met inhoud gelogd en geteld; de batch krijgt toch 202, zodat de browser niets opnieuw stuurt dat al bewaard is.
 
 **Waar in de code:** `frontend/src/lib/telemetry.ts`, `backend/app/routers/ui_events.py` en `backend/app/services/ui_event_pg.py`.
 

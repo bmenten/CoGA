@@ -146,7 +146,11 @@ async def ingest_ui_events(
 
     Events are sanitized (identifiers masked, query strings reduced to keys)
     before being queued for storage. Available to any authenticated user; the
-    actor is always taken from the auth token, never the request body."""
+    actor is always taken from the auth token, never the request body.
+
+    An event the database cannot take is recorded as lost (logged with its payload
+    and counted, TF-13 S-5), as the queue's worker records one: the batch is still
+    answered 202, so the client does not resend events already stored."""
 
     remote_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")

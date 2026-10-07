@@ -8,11 +8,14 @@ accountability trail (TF-13 S-5) is never silently lost:
 * ``AUDIT_LOG_DROP_ALLOWED`` false (production default): a full queue applies
   backpressure for up to ``AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS`` and then falls
   back to a synchronous write, so the event is always persisted.
-* A genuinely unpersistable event (the synchronous fallback fails, or the worker's
-  batch write keeps failing) is logged at ERROR with its full, already-sanitised
-  payload — so it survives in the log stream that feeds monitoring — and counted,
-  never silently discarded. The database error is named, never quoted: its text
-  repeats the rows it could not insert.
+* Without a queue (``AUDIT_LOG_MODE=sync``, or no worker running: before the lifespan
+  starts it, after shutdown, under an in-process ASGI client) each event is written as
+  its request runs, the way that fallback writes it (``write_event_now``).
+* A genuinely unpersistable event (a synchronous write fails, or the worker's batch
+  write keeps failing) is logged at ERROR with its full, already-sanitised payload —
+  so it survives in the log stream that feeds monitoring — and counted, never silently
+  discarded and never raised into the request. The database error is named, never
+  quoted: its text repeats the rows it could not insert.
 * What an event holds cannot make it unpersistable: the writers escape the values
   Postgres refuses (a NUL, half a surrogate pair, NaN) before the INSERT
   (``core/pg_storable.py``), so one such event cannot fail its batch either.
@@ -56,7 +59,10 @@ def _increment_drop(name: str) -> int:
     return _dropped_counts[name]
 
 
-def _record_unpersisted(name: str, payload: Any, reason: str) -> None:
+def record_unpersisted(name: str, payload: Any, reason: str) -> None:
+    """Record an event that will not reach its table: counted for the alert, and logged with
+    its payload. ``reason`` names a database error by its kind (``describe_error``), never by
+    its text, which quotes the row."""
     # ERROR (not WARN): losing an accountability event is integrity-relevant. The
     # full payload is logged so the event is recoverable from the log stream.
     total = _increment_drop(name)
@@ -67,6 +73,22 @@ def _record_unpersisted(name: str, payload: Any, reason: str) -> None:
         total,
         payload,
     )
+
+
+async def write_event_now(
+    payload: Any,
+    *,
+    name: str,
+    write_batch: WriteBatch,
+    reason: str = "synchronous write failed",
+) -> None:
+    """Write one event at once, outside the queue. A failed write is recorded
+    (``record_unpersisted``), never raised: the caller is a request, which must not fail
+    because an event could not be stored."""
+    try:
+        await write_batch([payload])
+    except Exception as exc:  # noqa: BLE001 — last resort, never raise into the request
+        record_unpersisted(name, payload, f"{reason}: {describe_error(exc)}")
 
 
 async def enqueue_event(
@@ -111,10 +133,9 @@ async def enqueue_event(
             settings.audit_log_backpressure_timeout_seconds,
         )
 
-    try:
-        await write_batch([payload])
-    except Exception as exc:  # noqa: BLE001 — last resort, never raise into the request
-        _record_unpersisted(name, payload, f"synchronous fallback failed: {describe_error(exc)}")
+    await write_event_now(
+        payload, name=name, write_batch=write_batch, reason="synchronous fallback failed"
+    )
 
 
 async def write_event_batch_with_retry(
@@ -148,7 +169,7 @@ async def write_event_batch_with_retry(
                     describe_error(exc),
                 )
                 for payload in batch:
-                    _record_unpersisted(name, payload, "batch write failed")
+                    record_unpersisted(name, payload, "batch write failed")
                 return
             backoff = min(
                 settings.audit_log_flush_interval_seconds * attempt,
