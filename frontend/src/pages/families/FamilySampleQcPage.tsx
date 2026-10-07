@@ -47,6 +47,30 @@ const formatSex = (sex?: string | null): string => {
   return value || 'unknown';
 };
 
+// The genotype-sex cell's mark for each sex-check verdict. Only a pass confirms the
+// recorded sex. A warn did not (the genotypes left the sex indeterminate, or no sex was
+// recorded to compare with), nor did a skip (no chrX genotypes), so neither may look like
+// a match: this is a sample-identity check (TF-06 H4).
+const SEX_CHECK_MARK: Record<QcStatus, { tone: string; glyph: string }> = {
+  pass: { tone: 'match', glyph: '✓' },
+  warn: { tone: 'unconfirmed', glyph: '!' },
+  fail: { tone: 'mismatch', glyph: '✗' },
+  skip: { tone: 'unchecked', glyph: '?' },
+};
+
+// The API types the verdict as a string: an unexpected one reads as unconfirmed.
+const sexCheckMark = (status: QcStatus) => SEX_CHECK_MARK[status] ?? SEX_CHECK_MARK.warn;
+
+// The ring tooltip's words for a sex check: "(matches record)" for a pass alone. A warn or
+// a skip gives its own message, which says why the sex could not be confirmed.
+const sexCheckNote = (check: ApiSampleIntegritySexCheck): string => {
+  if (check.status === 'pass') return `Sex ${formatSex(check.inferred_sex)} (matches record)`;
+  if (check.status === 'fail') {
+    return `Sex mismatch: recorded ${formatSex(check.recorded_sex)}, genotypes ${formatSex(check.inferred_sex)}`;
+  }
+  return check.message;
+};
+
 // Roll each sample's sex / Mendelian / relatedness checks into one ring status
 // for the pedigree, with a tooltip summarising why.
 const buildQcStatusBySample = (
@@ -62,15 +86,7 @@ const buildQcStatusBySample = (
     byId.set(key, entry);
   };
 
-  qc.sex_checks.forEach((c) =>
-    add(
-      c.sample_id,
-      c.status,
-      c.status === 'fail'
-        ? `Sex mismatch: recorded ${formatSex(c.recorded_sex)}, genotypes ${formatSex(c.inferred_sex)}`
-        : `Sex ${formatSex(c.inferred_sex)} (matches record)`,
-    ),
-  );
+  qc.sex_checks.forEach((c) => add(c.sample_id, c.status, sexCheckNote(c)));
   qc.mendelian_checks.forEach((c) =>
     add(
       c.child,
@@ -163,7 +179,7 @@ const SampleQcTable: React.FC<{
             const sex = sexById.get(member.sample_id);
             const mendel = mendelByChild.get(member.sample_id);
             const ring = perSample[member.sample_id];
-            const sexMismatch = sex && sex.status === 'fail';
+            const sexMark = sex ? sexCheckMark(sex.status) : null;
             return (
               <tr key={member.sample_id}>
                 <td>
@@ -182,13 +198,12 @@ const SampleQcTable: React.FC<{
                 <td>{member.role || '-'}</td>
                 <td>{formatSex(member.sex)}</td>
                 <td>
-                  {sex ? (
+                  {sex && sexMark ? (
                     <InfoTip
                       label={sex.message}
-                      className={`qc-genotype-sex qc-genotype-sex--${sexMismatch ? 'mismatch' : 'match'}`}
+                      className={`qc-genotype-sex qc-genotype-sex--${sexMark.tone}`}
                     >
-                      {formatSex(sex.inferred_sex)}
-                      {sexMismatch ? ' ✗' : ' ✓'}
+                      {formatSex(sex.inferred_sex)} {sexMark.glyph}
                     </InfoTip>
                   ) : (
                     <span className="dashboard-link-note">-</span>

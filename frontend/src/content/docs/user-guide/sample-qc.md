@@ -15,7 +15,9 @@ The page first works out what kind of case it is and runs only the checks that f
 
 - **Pedigree** — each person's symbol carries a ring and a badge: green ✓ pass, amber ! warning, red ✕
   fail. Hover a symbol for the reason.
-- **Per-sample table** — recorded sex against genetic sex, and the Mendelian-error rate.
+- **Per-sample table** — recorded sex against genetic sex, and the Mendelian-error rate. The genetic sex
+  carries green ✓ when it matches the record, red ✗ when it does not, amber ! when it could not be
+  confirmed and grey ? when it was not checked. Hover a cell for the reason.
 - **Relatedness matrix** — each pair's inferred relationship, kinship and IBS0. A pair that contradicts
   the pedigree, including parents who look related, is outlined in red.
 - **NIPT cards** — paternity, fetal sex and the category check, for a cfDNA family.

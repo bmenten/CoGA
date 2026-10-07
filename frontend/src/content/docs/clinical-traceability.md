@@ -116,7 +116,7 @@ Sign-out stops at each of these, in this order:
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
 | **Data being written** | A data import of the family is queued or running, or its variants are being written (an upload or a deletion). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
-| **Sample QC** | Sample QC failed, or a check that confirms the pedigree could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
+| **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
