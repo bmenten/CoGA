@@ -7,12 +7,13 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import require_uuid
 from ..schemas import (
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
 )
 from .access_control import CurrentUser
-from .review_pg_utils import _json_payload, _require_uuid
+from .review_pg_utils import _json_payload
 
 # A small-variant preset is its owner's, reusable in every family they can open (#681).
 _PRESET_COLUMNS = """
@@ -144,7 +145,7 @@ async def delete_small_variant_filter_preset_for_owner(
     preset_id: str,
     user: CurrentUser,
 ) -> None:
-    preset_uuid = _require_uuid(preset_id, "Preset not found")
+    preset_uuid = require_uuid(preset_id, "Preset not found", status_code=404)
     result = await session.execute(
         text(
             """

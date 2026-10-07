@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
 from ..core.object_storage import is_remote_uri, remote_object_identity
+from ..core.sql import canonical_uuid
 
 # Repo-level data directory (matches routers/cram.py DATA_DIR resolution).
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -359,6 +360,9 @@ async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list
 
 
 async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, Any] | None:
+    file_uuid = canonical_uuid(file_id)
+    if file_uuid is None:
+        return None
     result = await session.execute(
         text(
             """
@@ -381,7 +385,7 @@ async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, 
             WHERE rif.id = CAST(:file_id AS uuid)
             """
         ),
-        {"file_id": file_id},
+        {"file_id": file_uuid},
     )
     row = result.mappings().first()
     return _row_to_dict(row) if row else None

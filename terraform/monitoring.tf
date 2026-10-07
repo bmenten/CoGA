@@ -85,7 +85,7 @@ locals {
       severity = "CRITICAL"
       duration = "0s"
       query    = "sum by (pipeline) (increase(coga_audit_events_not_persisted_total[15m])) > 0"
-      doc      = "The request audit log or the UI-event log lost events: the database write and its synchronous fallback both failed. Each lost event is in the backend's ERROR log with its payload; recover them from there. Check Cloud SQL. See docs/monitoring.md."
+      doc      = "The request audit log or the UI-event log lost events: their database write failed, after the worker's retries or as a synchronous write. Each lost event is in the backend's ERROR log with its payload; recover them from there. Check Cloud SQL. See docs/monitoring.md."
     }
     audit_backlog = {
       name     = "CoGA: audit queue is backing up"

@@ -3,13 +3,12 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 from urllib.parse import quote, urlencode
-from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import uuid_list_bindparam, uuid_values
+from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
 from ..schemas import (
     GeneAssemblyLocationOut,
     GeneExternalLinkOut,
@@ -302,16 +301,6 @@ def _build_external_links(
     return links
 
 
-def _require_uuid_or_none(value: str | None, detail: str) -> str | None:
-    if value is None:
-        return None
-    try:
-        UUID(value)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=detail) from exc
-    return value
-
-
 def _ensure_project_access(project_id: str, user: CurrentUser) -> None:
     if is_admin_user(user):
         return
@@ -470,8 +459,8 @@ async def build_gene_profile(
     project_id: str | None,
     user: CurrentUser,
 ) -> GeneProfileOut:
-    requested_assembly_id = _require_uuid_or_none(assembly_id, "Assembly id is invalid")
-    requested_project_id = _require_uuid_or_none(project_id, "Project id is invalid")
+    requested_assembly_id = None if assembly_id is None else require_uuid(assembly_id, "Assembly id is invalid")
+    requested_project_id = None if project_id is None else require_uuid(project_id, "Project id is invalid")
     family_row: dict[str, Any] | None = None
     if family_id:
         family_row = await get_accessible_family_mapping(session, family_id, user)

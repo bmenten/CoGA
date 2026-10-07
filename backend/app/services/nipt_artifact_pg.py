@@ -20,6 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import canonical_uuid
 from .clickhouse_family_variants import fetch_artifact_protection_flags, fetch_recurrent_small_variant_ids
 from .clickhouse_variant_ids import build_small_variant_id
 from .clinical_audit_service import record_clinical_event
@@ -112,8 +113,11 @@ async def list_nipt_artifacts(
     assembly_id: str,
     assay_key: str | None = None,
 ) -> list[dict[str, Any]]:
+    assembly_uuid = canonical_uuid(assembly_id)
+    if assembly_uuid is None:
+        return []
     clauses = ["assembly_id = CAST(:assembly_id AS uuid)"]
-    params: dict[str, Any] = {"assembly_id": assembly_id}
+    params: dict[str, Any] = {"assembly_id": assembly_uuid}
     if assay_key:
         clauses.append("assay_key = :assay_key")
         params["assay_key"] = assay_key
@@ -215,6 +219,9 @@ async def delete_nipt_artifact(
     actor_id: str | None = None,
 ) -> bool:
     """Remove an artifact entry, and audit it; False when there is none."""
+    artifact_uuid = canonical_uuid(artifact_id)
+    if artifact_uuid is None:
+        return False
     result = await session.execute(
         text(
             f"""
@@ -222,7 +229,7 @@ async def delete_nipt_artifact(
             RETURNING {_ARTIFACT_COLUMNS}
             """
         ),
-        {"id": artifact_id},
+        {"id": artifact_uuid},
     )
     deleted = result.mappings().first()
     if deleted is None:

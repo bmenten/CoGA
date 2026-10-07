@@ -22,7 +22,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
-from ..core.sql import is_missing_postgres_schema_error
+from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid
 
 HPO_ID_PATTERN = re.compile(r"^HP:[0-9]{7}$", re.IGNORECASE)
 HPO_ID_SEARCH_PATTERN = re.compile(r"(?:HP[:_])([0-9]{7})", re.IGNORECASE)
@@ -1123,12 +1123,18 @@ async def _sample_uuid_for(
     return str(sample_uuid)
 
 
+_ANNOTATION_NOT_FOUND = "HPO annotation was not found"
+
+
 async def _annotation_by_id(
     session: AsyncSession,
     *,
     family_uuid: str,
     annotation_id: str,
 ) -> dict[str, Any] | None:
+    annotation_uuid = canonical_uuid(annotation_id)
+    if annotation_uuid is None:
+        return None
     if await _postgres_tables_available(session, ("hpo_term",)):
         result = await session.execute(
             text(
@@ -1153,7 +1159,7 @@ async def _annotation_by_id(
                   AND ih.id = CAST(:annotation_id AS uuid)
                 """
             ),
-            {"family_uuid": family_uuid, "annotation_id": annotation_id},
+            {"family_uuid": family_uuid, "annotation_id": annotation_uuid},
         )
     else:
         result = await session.execute(
@@ -1178,7 +1184,7 @@ async def _annotation_by_id(
                   AND ih.id = CAST(:annotation_id AS uuid)
                 """
             ),
-            {"family_uuid": family_uuid, "annotation_id": annotation_id},
+            {"family_uuid": family_uuid, "annotation_id": annotation_uuid},
         )
     row = result.mappings().first()
     return dict(row) if row is not None else None
@@ -1819,7 +1825,8 @@ async def update_individual_hpo_annotation(
     await _ensure_hpo_schema_available(session)
     existing = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
     if existing is None:
-        raise HTTPException(status_code=404, detail="HPO annotation was not found")
+        raise HTTPException(status_code=404, detail=_ANNOTATION_NOT_FOUND)
+    annotation_id = str(existing["id"])
     status_value = _payload_value(payload, "status")
     status = normalize_annotation_status(status_value) if status_value is not None else existing["status"]
     if not status:
@@ -1891,6 +1898,7 @@ async def delete_individual_hpo_annotation(
     annotation_id: str,
     commit: bool = True,
 ) -> None:
+    annotation_uuid = require_uuid(annotation_id, _ANNOTATION_NOT_FOUND, status_code=404)
     result = await session.execute(
         text(
             """
@@ -1899,10 +1907,10 @@ async def delete_individual_hpo_annotation(
               AND id = CAST(:annotation_id AS uuid)
             """
         ),
-        {"family_uuid": family_uuid, "annotation_id": annotation_id},
+        {"family_uuid": family_uuid, "annotation_id": annotation_uuid},
     )
     if result.rowcount == 0:
-        raise HTTPException(status_code=404, detail="HPO annotation was not found")
+        raise HTTPException(status_code=404, detail=_ANNOTATION_NOT_FOUND)
     await mark_family_hpo_annotations_stale(
         session,
         family_uuid=family_uuid,

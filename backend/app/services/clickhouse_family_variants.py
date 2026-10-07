@@ -5,7 +5,6 @@ import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Collection, Literal, Mapping, Sequence
-from uuid import UUID
 
 from fastapi import HTTPException
 from clickhouse_connect.driver.exceptions import ClickHouseError
@@ -15,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.clickhouse import execute_clickhouse
 from ..core.coga_logging import describe_error
 from ..core.csv_export import TRUNCATED_BY_CANDIDATE_LIMIT, TRUNCATED_BY_ROW_LIMIT
+from ..core.sql import require_uuid
 from ..schemas import (
     MonarchPhenotypeMatchOut,
     SmallVariantGroupOut,
@@ -290,10 +290,7 @@ async def _fetch_panel_constraints(
     *,
     assembly_id: str | None = None,
 ) -> PanelFilterConstraints:
-    try:
-        UUID(panel_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid panel id") from exc
+    panel_id = require_uuid(panel_id, "Invalid panel id")
     gene_result = await session.execute(
         text(
             """
