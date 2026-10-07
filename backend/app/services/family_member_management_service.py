@@ -34,6 +34,7 @@ from .family_structure_service import (
 )
 from .hpo_service import list_family_hpo_annotations
 from .metadata_service import get_accessible_family_mapping, get_family_record
+from .ped_service import _require_storable_id
 from .access_control import CurrentUser
 
 GENOMIC_DATA_KEYS = {
@@ -53,6 +54,26 @@ GENOMIC_DATA_KEYS = {
 def _payload_has_field(payload: Any, field_name: str) -> bool:
     fields_set = getattr(payload, "model_fields_set", None)
     return isinstance(fields_set, set) and field_name in fields_set
+
+
+def _require_storable_member_ids(
+    update: FamilyMemberUpdate | FamilyMemberBatchUpdateItem,
+    *,
+    new_sample_id_field: str,
+) -> None:
+    """Refuse (400) an ID the request gives a member that CoGA cannot store (see
+    family_identifiers): its new sample ID, its father or its mother. The routes call this
+    before anything is read or written under such an ID, and before any member of the
+    request is renamed. The whitespace around an ID is stripped first, as where the ID is
+    used; a value that is empty once stripped is left to the route, which reads it as before."""
+    for field_name, kind in (
+        (new_sample_id_field, "Sample ID"),
+        ("father_id", "Father ID"),
+        ("mother_id", "Mother ID"),
+    ):
+        value = getattr(update, field_name)
+        if value and value.strip():
+            _require_storable_id(value.strip(), kind=kind)
 
 
 def _find_member(family_members: list[FamilyMemberOut], sample_id: str) -> FamilyMemberOut:
@@ -613,6 +634,7 @@ async def update_family_member_for_admin(
     user: CurrentUser,
 ) -> FamilyMemberUpdateOut:
     old_sample_id = _clean_sample_id(sample_id)
+    _require_storable_member_ids(update, new_sample_id_field="sample_id")
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
     sample_uuid, resolved_sample_id = await _sample_uuid_for_member(
@@ -705,6 +727,9 @@ async def update_family_members_batch_for_admin(
         family = await get_family_record(session, family_id, user)
         return FamilyMemberBatchUpdateOut(family=family)
 
+    # Every item's IDs first: the loop below writes an item's rename before it reads the next.
+    for item in update.updates:
+        _require_storable_member_ids(item, new_sample_id_field="new_sample_id")
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
     family = await get_family_record(session, family_id, user)
