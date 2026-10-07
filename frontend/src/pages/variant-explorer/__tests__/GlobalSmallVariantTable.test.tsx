@@ -168,6 +168,28 @@ describe('GlobalSmallVariantTable', () => {
     expect(untagged[4]).toHaveTextContent(/^—$/);
   });
 
+  it('marks a deleted tag the variant is still tagged with', () => {
+    renderTable({
+      variants: [makeVariant({ key: '1', tags: ['probe_x'] })],
+      tagDefinitions: [
+        ...TAGS,
+        {
+          key: 'probe_x',
+          label: 'Probe X',
+          group: 'custom',
+          color: '#336699',
+          sort_order: 500,
+          scope: 'global',
+          is_custom: true,
+          is_active: false,
+        },
+      ],
+    });
+
+    const [tagged] = bodyCells();
+    expect(within(tagged[4]).getByText('Probe X (deleted)')).toHaveStyle({ backgroundColor: '#336699' });
+  });
+
   it('opens the carrier dialog in the mode of the count that was clicked', async () => {
     const user = userEvent.setup();
     const variant = makeVariant();

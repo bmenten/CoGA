@@ -24,6 +24,7 @@ from .clinical_audit_service import record_review_changes
 from .family_metadata_context import FamilyMetadataContext
 from .access_control import CurrentUser
 from .review_pg_utils import (
+    _added_tags,
     _has_stored_record,
     _lock_review,
     _raise_on_stale_review,
@@ -286,8 +287,8 @@ async def upsert_small_variant_review(
         raise HTTPException(status_code=404, detail="Variant not found")
 
     # Resolve the allowed-tag set lazily (a GROUP BY/ARRAY_AGG join) and only when
-    # the regular or compound-het payload actually carries tags — the common no-tag
-    # save skips the query; it runs at most once when tags are present.
+    # the regular or compound-het payload adds a tag the stored review does not hold —
+    # the common save skips the query; it runs at most once.
     allowed_tags: set[str] | None = None
 
     async def _allowed_tags() -> set[str]:
@@ -303,15 +304,18 @@ async def upsert_small_variant_review(
             }
         return allowed_tags
 
-    normalized_tags = _normalize_tags(payload.tags)
-    if normalized_tags:
-        unknown_tags = [tag for tag in normalized_tags if tag not in await _allowed_tags()]
+    async def _refuse_unknown_added_tags(tags: list[str], held: Any) -> None:
+        # Only a tag the save adds must be one the family may use; one the review holds
+        # is kept, a deleted tag included (see _added_tags).
+        added = _added_tags(tags, held)
+        unknown_tags = [tag for tag in added if tag not in await _allowed_tags()] if added else []
         if unknown_tags:
             raise HTTPException(
                 status_code=400,
                 detail=f"Unknown small-variant tag(s): {', '.join(sorted(unknown_tags))}",
             )
 
+    normalized_tags = _normalize_tags(payload.tags)
     normalized_note = (payload.note or "").strip() or None
     normalized_classification = (payload.classification or "").strip() or None
     now = datetime.now(timezone.utc)
@@ -324,6 +328,7 @@ async def upsert_small_variant_review(
         variant_id=variant_id,
     )
     _raise_on_stale_review(payload, existing, _serialize_review)
+    await _refuse_unknown_added_tags(normalized_tags, (existing or {}).get("tags"))
     compound_het_data: dict[str, Any] | None = None
     compound_het_requested = "compound_het" in payload.model_fields_set
     compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (
@@ -352,16 +357,9 @@ async def upsert_small_variant_review(
         normalized_compound_het_tags = _normalize_tags(compound_het_payload.tags)
         normalized_compound_het_note = (compound_het_payload.note or "").strip() or None
         compound_het_partner_id = (compound_het_payload.partner_variant_id or "").strip() or None
-        unknown_compound_het_tags = (
-            [tag for tag in normalized_compound_het_tags if tag not in await _allowed_tags()]
-            if normalized_compound_het_tags
-            else []
+        await _refuse_unknown_added_tags(
+            normalized_compound_het_tags, (existing or {}).get("compound_het_tags")
         )
-        if unknown_compound_het_tags:
-            raise HTTPException(
-                status_code=400,
-                detail="Unknown small-variant tag(s): " + ", ".join(sorted(unknown_compound_het_tags)),
-            )
         if compound_het_partner_id:
             if variant is None or not context.assembly_name:
                 raise HTTPException(

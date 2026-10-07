@@ -14,6 +14,7 @@ import {
   buildSmallVariantNavigation,
   buildSvSecondHitHref,
   formatCompoundHetPhaseStatus,
+  formatReviewTagLabel,
   getClinvarHighlightTone,
   getReviewClassificationTone,
   getReviewTagStyle,
@@ -287,7 +288,7 @@ export default function SmallVariantTable({
                               tagMetadata: variant.review?.tag_metadata,
                             })}
                           >
-                            {tagMap[tagKey]?.label || tagKey}
+                            {formatReviewTagLabel(tagKey, tagMap)}
                           </span>
                         ))}
                       </div>
@@ -333,7 +334,7 @@ export default function SmallVariantTable({
                                   tagMetadata: variant.review?.compound_het?.tag_metadata,
                                 })}
                               >
-                                {tagMap[tagKey]?.label || tagKey}
+                                {formatReviewTagLabel(tagKey, tagMap)}
                               </span>
                             ))}
                           </div>

@@ -327,6 +327,59 @@ def test_an_unknown_tag_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "not-a-tag" in refused.value.detail
 
 
+def test_a_tag_the_review_holds_is_kept_after_its_definition_is_gone(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A deleted tag stays on the reviews that hold it. The tag toggle and the review dialog
+    # send it back with every save, so refusing it refused every later save of the review,
+    # the one removing it included. Only a tag the save adds is checked.
+    allowed = ["probe_x", "report"]
+    reads: list[str] = []
+
+    async def definitions(session, *, family_uuid, project_ids):
+        reads.append(family_uuid)
+        return [types.SimpleNamespace(key=key) for key in allowed]
+
+    monkeypatch.setattr(svr, "list_small_variant_tag_definitions", definitions)
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(tags=["probe_x"], note="tagged"))
+    allowed = ["report"]  # probe_x is deleted
+    reads.clear()
+
+    review = _save(table, SmallVariantReviewUpdate(tags=["probe_x"], note="noted again"))
+    assert (review.tags, review.note) == (["probe_x"], "noted again")
+    assert reads == []  # the save adds no tag: the family's tags are not even read
+
+    review = _save(table, SmallVariantReviewUpdate(tags=["probe_x", "report"], note="noted again"))
+    assert review.tags == ["probe_x", "report"] and len(reads) == 1
+
+    review = _save(table, SmallVariantReviewUpdate(tags=["report"], note="noted again"))
+    assert table.rows["sv1"]["tags"] == ["report"]
+    # Once removed, the deleted tag cannot be added back.
+    with pytest.raises(HTTPException) as refused:
+        _save(table, SmallVariantReviewUpdate(tags=["probe_x", "report"], note="noted again"))
+    assert (refused.value.status_code, refused.value.detail) == (
+        400,
+        "Unknown structural-variant tag(s): probe_x",
+    )
+
+
+def test_a_save_adding_an_unknown_tag_is_refused_beside_a_held_deleted_one(monkeypatch: pytest.MonkeyPatch) -> None:
+    allowed = ["probe_x"]
+
+    async def definitions(session, *, family_uuid, project_ids):
+        return [types.SimpleNamespace(key=key) for key in allowed]
+
+    monkeypatch.setattr(svr, "list_small_variant_tag_definitions", definitions)
+    table = _ReviewTable()
+    _save(table, SmallVariantReviewUpdate(tags=["probe_x"]))
+    allowed = ["report"]  # probe_x is deleted
+
+    with pytest.raises(HTTPException) as refused:
+        _save(table, SmallVariantReviewUpdate(tags=["probe_x", "probe_y"]))
+    # Named alone: the held tag is not what the save got wrong.
+    assert refused.value.detail == "Unknown structural-variant tag(s): probe_y"
+    assert table.rows["sv1"]["tags"] == ["probe_x"]
+
+
 def test_a_blank_variant_id_is_refused() -> None:
     with pytest.raises(HTTPException) as refused:
         _save(_ReviewTable(), SmallVariantReviewUpdate(note="x"), variant_id="  ")

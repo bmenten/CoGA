@@ -5,6 +5,7 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import {
   buildReviewTagTooltip,
   formatFrequency,
+  formatReviewTagLabel,
   getReviewClassificationTone,
   getReviewTagStyle,
   sortReviewTagKeys,
@@ -380,7 +381,7 @@ export default function StructuralVariantTable({
                               tagMetadata: variant.review?.tag_metadata,
                             })}
                           >
-                            {tagMap[tagKey]?.label || tagKey}
+                            {formatReviewTagLabel(tagKey, tagMap)}
                           </span>
                         ))}
                       </div>

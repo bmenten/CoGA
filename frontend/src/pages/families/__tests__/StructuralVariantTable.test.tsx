@@ -224,6 +224,28 @@ describe('StructuralVariantTable', () => {
     expect(within(row()).getByText('Breakpoint in intron 10.')).toBeInTheDocument();
   });
 
+  it('shows a deleted tag the review still holds by its label, marked and dashed', () => {
+    renderTable({
+      variants: [sv({ review: { tags: ['probe_x'] } as StructuralVariant['review'] })],
+      tags: [
+        ...TAGS,
+        {
+          key: 'probe_x',
+          label: 'Probe X',
+          group: 'custom',
+          color: '#336699',
+          sort_order: 500,
+          scope: 'global',
+          is_custom: true,
+          is_active: false,
+        },
+      ],
+    });
+    const chip = within(row()).getByText('Probe X (deleted)');
+    expect(chip).toHaveClass('table-chip--tag');
+    expect(chip).toHaveStyle({ borderStyle: 'dashed' });
+  });
+
   it('shows a classification once, as its tag when it is tagged', () => {
     renderTable({
       variants: [

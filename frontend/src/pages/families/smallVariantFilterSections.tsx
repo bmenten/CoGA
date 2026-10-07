@@ -196,6 +196,8 @@ export interface FilterSectionForm
   clinvarOptions: FilterOption[];
   standardTagOptions: FilterOption[];
   customTagOptions: FilterOption[];
+  /** The selected tags no option offers (a deleted tag), to be shown so they can be unticked. */
+  selectedHeldTagOptions: (selected: string[]) => FilterOption[];
   /** Draft location filters that cannot be read, shown under their fields (#604). */
   draftLocationProblems?: LocationProblems | null;
 }
@@ -1418,6 +1420,7 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
     handleSectionToggle,
     offers,
     openSections,
+    selectedHeldTagOptions,
     setDraftFilterValue,
     standardTagOptions,
     summarizeSection,
@@ -1432,6 +1435,10 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
       : 0);
   const selectedExcludeClinvarValues = parseCommaSeparatedValues(draftFilters.exclude_clinvar);
   const selectedExcludeReviewTagValues = parseCommaSeparatedValues(draftFilters.exclude_review_tags);
+  const excludeCustomTagOptions = [
+    ...customTagOptions,
+    ...selectedHeldTagOptions(selectedExcludeReviewTagValues),
+  ];
   const applyExcludeQuickFilter = (value: string) => {
     if (value === 'all') {
       setDraftFilterValue('exclude_clinvar', '');
@@ -1540,9 +1547,9 @@ export const ExcludeFilterSection = ({ form }: { form: FilterSectionForm }) => {
             </div>
             <div>
               <p className="variant-annotation-impact-title">Excluded custom tags</p>
-              {customTagOptions.length ? (
+              {excludeCustomTagOptions.length ? (
                 <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                  {customTagOptions.map((option) => (
+                  {excludeCustomTagOptions.map((option) => (
                     <label
                       key={option.value}
                       className="analysis-checkbox variant-compact-checkbox"
@@ -1595,6 +1602,7 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
     handleSectionToggle,
     offers,
     openSections,
+    selectedHeldTagOptions,
     setDraftFilterValue,
     standardTagOptions,
     summarizeSection,
@@ -1607,6 +1615,10 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
 
   const selectedClassificationValues = parseCommaSeparatedValues(draftFilters.classification);
   const selectedReviewTagValues = parseCommaSeparatedValues(draftFilters.review_tags);
+  const reviewCustomTagOptions = [
+    ...customTagOptions,
+    ...selectedHeldTagOptions(selectedReviewTagValues),
+  ];
   const classificationOptions = REVIEW_CLASSIFICATION_OPTIONS.map((option) => ({
     value: option,
     label: option,
@@ -1712,9 +1724,9 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
           </div>
           <div>
             <p className="variant-annotation-impact-title">Custom tags</p>
-            {customTagOptions.length ? (
+            {reviewCustomTagOptions.length ? (
               <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                {customTagOptions.map((option) => (
+                {reviewCustomTagOptions.map((option) => (
                   <label
                     key={option.value}
                     className="analysis-checkbox variant-compact-checkbox"

@@ -134,7 +134,10 @@ const GlobalSmallVariantExplorerPage = () => {
   const { data: tagDefinitions } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['variant-explorer', 'small-variant-tags'],
     queryFn: async () => {
-      const res = await api.get('/variant-explorer/small-variant-tags');
+      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
+      const res = await api.get('/variant-explorer/small-variant-tags', {
+        params: { include_inactive: true },
+      });
       return res.data as SmallVariantTagDefinition[];
     },
   });
