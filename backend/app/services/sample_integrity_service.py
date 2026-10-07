@@ -247,6 +247,10 @@ async def get_family_sample_integrity_qc(
     )
     profile = profile_for(application)
 
+    # The notes are frozen into the signed report snapshot with the rest of the report. A
+    # check that could not run says so in a fixed sentence, never with the error's text: a
+    # failed query's text quotes its SQL and parameters. The warning logged beside it names
+    # the error.
     service_notes: list[str] = []
     paternity_check: PaternityCheck | None = None
     fetal_sex_check: FetalSexCheck | None = None
@@ -269,7 +273,7 @@ async def get_family_sample_integrity_qc(
             logger.warning(
                 "NIPT cfDNA QC could not run for family %s: %s", scrub_log(family_id), describe_error(exc)
             )
-            service_notes.append(f"NIPT cfDNA analysis could not run ({exc}).")
+            service_notes.append("NIPT cfDNA analysis could not run.")
 
     autosomal: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
     x_genotypes: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
@@ -299,7 +303,7 @@ async def get_family_sample_integrity_qc(
             logger.warning(
                 "Genotypes could not be loaded for family %s: %s", scrub_log(family_id), describe_error(exc)
             )
-            service_notes.append(f"Genotypes could not be loaded ({exc}).")
+            service_notes.append("Genotypes could not be loaded.")
             autosomal = {sample: [] for sample in samples}
             x_genotypes = {sample: [] for sample in samples}
 
