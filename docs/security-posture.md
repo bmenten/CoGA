@@ -43,6 +43,25 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   replacing a family's annotation manifest, reference data, imports and uploads require
   `get_current_admin_user`. A user with access to a family can edit its phenotypes, reviews
   and saved filters.
+- ✅ **A UUID a request names a record by is read once.** asyncpg's uuid codec takes nothing
+  but hex digits and hyphens, so a path or query value that was no UUID
+  (`/api/admin/data/files/PROBEX/download`), or a UUID in braces or after `urn:uuid:` that a
+  route had checked with `uuid.UUID` and then bound as received, failed the request with a
+  500. Every such value (a raw file, an import job, an HPO annotation, a NIPT artifact, a
+  panel, a filter preset, a user, a project, a species, an assembly, a clinical CNV, the
+  `panel_id` filter) is now read by `core/sql.py` (`canonical_uuid`, `require_uuid`): one that
+  spells no UUID is answered as an unknown record is, with the route's own 404 or the 400 it
+  answers an invalid id with, before any query; one that does is bound as its canonical text,
+  so each spelling of a record's id names that record. What `uuid.UUID` merely tolerates (an
+  underscore, a space or a sign among the digits, `0x`, digits of another script) spells no
+  UUID: read as a number, it would name a different-looking record. The value is read where
+  the record is looked up, after the sign-in, the role and the family's project checks, so the
+  answer is the one an unknown record gets, whether or not a record of that id exists in a
+  project the caller cannot see (`test_request_uuid.py`,
+  `e2e/test_e2e_request_malformed_uuid.py`). The ids a project, assembly, family-project or
+  family-status body carries are read the same way; the `assembly_id` of a NIPT artifact and
+  the `project_id` of an import request are not checked yet, and one that names nothing still
+  fails with a 500.
 - ✅ **Scoped downloads.** The CRAM/BAM and signal-track endpoints check family and sample
   access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
   They sign a location the import recorded only when it names an object in the configured
