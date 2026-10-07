@@ -23,7 +23,7 @@ from .hpo_service import (
 )
 
 from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates, read_vcf_sample_columns
-from .family_package_manifest import _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
+from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
@@ -296,7 +296,13 @@ def _validate_wisecondorx_dataset(
     )
 
 
-def _validate_nipt_per_sample_snv_dataset(
+# The ``source_format`` a per-sample SNV callset outside monogenic NIPT declares: the
+# family's primary callset of germline calls, one file per sample (the long-read
+# pipeline's), which the import reads side by side as one callset.
+PER_SAMPLE_PRIMARY_SOURCE_FORMAT = "clair3"
+
+
+def _validate_per_sample_snv_dataset(
     *,
     root: Path,
     dataset: ManifestDataset,
@@ -304,21 +310,27 @@ def _validate_nipt_per_sample_snv_dataset(
     errors: list[FamilyImportValidationIssue],
     analysis_type: str | None,
 ) -> FamilyImportDatasetSummary:
-    """Validate ``snv.per_sample``: a monogenic NIPT's SNV files, one per sample.
+    """Validate ``snv.per_sample``: an SNV callset of one file per sample.
 
-    Only a monogenic NIPT family has its SNV callset as one file per sample: every other
-    analysis reads a sample without a call at a variant as reference, which only a joint
-    VCF says. Each file must hold exactly one sample (it is bound to its entry's sample).
+    Two kinds are read. A monogenic NIPT's files (the plasma and the father, Mutect2
+    tumour-only calls whose GT says nothing of the genotype), and a primary callset of
+    germline calls made one sample at a time (the long-read pipeline's), which the
+    dataset declares with ``source_format: clair3``. Anything else is refused: a NIPT
+    pair's files read as germline calls would give every call the genotype Mutect2 wrote.
+    Each file must hold exactly one sample (it is bound to its entry's sample).
     """
     files: list[str] = []
     samples: list[str] = []
     before = len(errors)
-    if analysis_type != MONOGENIC_NIPT_ANALYSIS_TYPE:
+    source_format = str((dataset.model_extra or {}).get("source_format") or "").strip()
+    if analysis_type != MONOGENIC_NIPT_ANALYSIS_TYPE and source_format != PER_SAMPLE_PRIMARY_SOURCE_FORMAT:
         errors.append(
             _issue(
                 "dataset_per_sample_unsupported",
-                "A per-sample SNV callset (snv.per_sample) is read only for a monogenic NIPT "
-                "family (analysis_type: monogenic_nipt); give a joint VCF as snv.family_vcf",
+                "A per-sample SNV callset (snv.per_sample) is read for a monogenic NIPT family "
+                "(analysis_type: monogenic_nipt), or as the family's callset of germline calls "
+                "made one sample at a time when the dataset says source_format: clair3; "
+                "otherwise give a joint VCF as snv.family_vcf",
                 dataset="snv",
             )
         )
@@ -915,6 +927,8 @@ _PER_SAMPLE_DATASET_ROLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = 
     # repeats_trgt is family-level by default; the long-read pipeline writes it per
     # sample (repeats/<sample>/<sample>_tr.vcf.gz), so both shapes are accepted.
     "repeats_trgt": (("file",), ("index",)),
+    # So is sv_needlr: sv/<sample>/needlr/<sample>_sv_phased.needLR.<version>.vcf.gz.
+    "sv_needlr": (("vcf",), ("index",)),
 }
 
 
@@ -1081,7 +1095,7 @@ def _validate_dataset(
             message="Dataset disabled in manifest",
         )
     if dataset_type == "snv" and dataset.per_sample and not dataset.family_vcf:
-        return _validate_nipt_per_sample_snv_dataset(
+        return _validate_per_sample_snv_dataset(
             root=root,
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
@@ -1089,9 +1103,10 @@ def _validate_dataset(
             analysis_type=analysis_type,
         )
     if dataset_type in {"snv", "sv_needlr", "repeats_trgt"}:
-        # TRGT is family-level when a joint VCF exists and per-sample otherwise (the
-        # long-read pipeline only writes repeats/<sample>/<sample>_tr.vcf.gz).
-        if dataset_type == "repeats_trgt" and not dataset.family_vcf and dataset.per_sample:
+        # TRGT and NeedlR are family-level when a joint VCF exists and per-sample
+        # otherwise (the long-read pipeline writes repeats/<sample>/<sample>_tr.vcf.gz and
+        # one annotated SV VCF per sample).
+        if dataset_type in {"repeats_trgt", "sv_needlr"} and not dataset.family_vcf and dataset.per_sample:
             return _validate_per_sample_file_dataset(
                 root=root,
                 dataset_type=dataset_type,
@@ -1495,12 +1510,28 @@ def _validate_and_load_package(
         ped_text = fallback_ped_text
         metadata["ped_source"] = "database"
     elif ped_path is None:
-        errors.append(_issue("ped_missing_path", "Manifest must define a PED path", path=manifest_path))
+        if _manifest_added_member_entries(manifest):
+            # No PED: the manifest names every member under family.add_members (the
+            # long-read pipeline writes no PED for a couple screened for carriership).
+            ped_text = ""
+            metadata["ped_source"] = "manifest"
+        else:
+            errors.append(
+                _issue(
+                    "ped_missing_path",
+                    "Manifest must define a PED path, or name the family's members under family.add_members",
+                    path=manifest_path,
+                )
+            )
     else:
         errors.append(_issue("ped_file_missing", "PED file does not exist", path=ped_path))
 
     if ped_text is not None:
-        ped, ped_errors = _parse_ped_text_strict(ped_text)
+        if ped_text.strip():
+            ped, ped_errors = _parse_ped_text_strict(ped_text)
+        else:
+            # The members are the manifest's alone: its added rows below are the PED.
+            ped, ped_errors = ParsedPed(family_ids=[], members=[], sample_ids=[], text=""), []
         if ped is not None:
             added_rows, added_errors = _manifest_added_ped_rows(
                 manifest,
@@ -1513,8 +1544,13 @@ def _validate_and_load_package(
                 # Re-parsed with the added rows appended to the file's own text, so the
                 # file's rows keep their line numbers and the added members get every
                 # PED check (duplicate ids, parents) the file's members get.
-                ped, ped_errors = _parse_ped_text_strict("\n".join([ped_text.rstrip("\n"), *added_rows]))
+                ped_rows = [ped_text.rstrip("\n"), *added_rows] if ped_text.strip() else added_rows
+                ped, ped_errors = _parse_ped_text_strict("\n".join(ped_rows))
                 metadata["added_members"] = [row.split()[1] for row in added_rows]
+            elif not ped.members:
+                ped, ped_errors = None, [
+                    _issue("ped_empty", "family.add_members names no member the package can import")
+                ]
         errors.extend(ped_errors)
 
     if ped is not None:
@@ -1612,7 +1648,7 @@ def _validate_and_load_package(
         datasets=summaries,
         metadata=metadata,
     )
-    if errors or ped is None or ped_path is None:
+    if errors or ped is None:
         return validation, None
     return validation, FamilyPackageBundle(
         root=root,

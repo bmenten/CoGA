@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import logging
 from pathlib import Path
 import re
@@ -18,6 +19,7 @@ from ..schemas import (
 )
 
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, PED_FOLDER, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path
+from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
@@ -65,6 +67,17 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "snv/{family_id}_annot.tsv.gz",
                     "snv/{family_id}.annot.tsv.gz",
                 ],
+                # A family of two or more samples without a joint VCF: the long-read
+                # pipeline's per-sample callsets, read side by side as one callset.
+                "sample_vcf": [
+                    "snv/{sample_id}/annotation/{sample_id}_annot.vcf.gz",
+                    "snv/annotation/{sample_id}/{sample_id}_annot.vcf.gz",
+                ],
+                "sample_index": [
+                    "snv/{sample_id}/annotation/{sample_id}_annot.vcf.gz.tbi",
+                    "snv/{sample_id}/annotation/{sample_id}_annot.vcf.gz.csi",
+                    "snv/annotation/{sample_id}/{sample_id}_annot.vcf.gz.tbi",
+                ],
             },
             "sv_needlr": {
                 "family_vcf": [
@@ -73,8 +86,10 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "sv_needlr/{family_id}.sv.annotated.vcf.gz",
                     "sv_needlr/family.sv.annotated.vcf.gz",
                     # nf-core/lrsvar: sv/<sample>/annotation/<sample>_sv_phased.needLR.<version>.vcf.gz
-                    # The NeedlR release is part of the filename, so only a glob matches.
+                    # (sv/<sample>/needlr/ in later runs). The NeedlR release is part of the
+                    # filename, so only a glob matches.
                     "sv/{sample_id}/annotation/{sample_id}*.needLR.*.vcf.gz",
+                    "sv/{sample_id}/needlr/{sample_id}*.needLR.*.vcf.gz",
                     "sv/annotation/{sample_id}/{sample_id}*.needLR.*.vcf.gz",
                 ],
                 "index": [
@@ -84,6 +99,21 @@ NAMING_SCHEMES: dict[str, dict[str, Any]] = {
                     "sv_needlr/family.sv.annotated.vcf.gz.tbi",
                     "sv/{sample_id}/annotation/{sample_id}*.needLR.*.vcf.gz.tbi",
                     "sv/{sample_id}/annotation/{sample_id}*.needLR.*.vcf.gz.csi",
+                    "sv/{sample_id}/needlr/{sample_id}*.needLR.*.vcf.gz.tbi",
+                    "sv/{sample_id}/needlr/{sample_id}*.needLR.*.vcf.gz.csi",
+                    "sv/annotation/{sample_id}/{sample_id}*.needLR.*.vcf.gz.tbi",
+                ],
+                # Two or more samples: one annotated SV VCF per sample.
+                "sample_vcf": [
+                    "sv/{sample_id}/annotation/{sample_id}*.needLR.*.vcf.gz",
+                    "sv/{sample_id}/needlr/{sample_id}*.needLR.*.vcf.gz",
+                    "sv/annotation/{sample_id}/{sample_id}*.needLR.*.vcf.gz",
+                ],
+                "sample_index": [
+                    "sv/{sample_id}/annotation/{sample_id}*.needLR.*.vcf.gz.tbi",
+                    "sv/{sample_id}/annotation/{sample_id}*.needLR.*.vcf.gz.csi",
+                    "sv/{sample_id}/needlr/{sample_id}*.needLR.*.vcf.gz.tbi",
+                    "sv/{sample_id}/needlr/{sample_id}*.needLR.*.vcf.gz.csi",
                     "sv/annotation/{sample_id}/{sample_id}*.needLR.*.vcf.gz.tbi",
                 ],
             },
@@ -993,6 +1023,99 @@ def _with_family_qc_files(
     )
 
 
+def _per_sample_callset_availability(
+    *,
+    root: Path,
+    family_id: str,
+    sample_ids: list[str],
+    dataset_type: str,
+    patterns: dict[str, list[str]],
+    fallback: tuple[FamilyManifestDatasetAvailability, dict[str, Any]],
+) -> tuple[FamilyManifestDatasetAvailability, dict[str, Any]]:
+    """A family-level dataset (``snv``, ``sv_needlr``) as one VCF per sample, when the
+    samples have one (the long-read pipeline's ``sample_vcf`` files); else ``fallback``, the
+    family VCF's availability. A sample without a file is named in the message: the import
+    reads it as having no calls at all."""
+    item, block = _optional_role_dataset_availability(
+        root=root,
+        family_id=family_id,
+        sample_ids=sample_ids,
+        dataset_type=dataset_type,
+        patterns={"vcf": patterns["sample_vcf"], "index": patterns["sample_index"]},
+        required_roles=("vcf",),
+        optional_roles=("index",),
+    )
+    if not item.complete:
+        return fallback
+    missing = [sample_id for sample_id in sample_ids if sample_id not in item.samples]
+    message = f"Available as one VCF per sample ({len(item.samples)} samples), read as one callset"
+    if missing:
+        message += f"; none for {', '.join(missing)}, which would have no calls"
+    return item.model_copy(update={"message": message}), block
+
+
+# DeepVariant's FILTER values for records that carry no variant: reference sites
+# (RefCall) and sites without reads (NoCall). A whole-genome callset is half of them.
+_NON_VARIANT_FILTERS = ("RefCall", "NoCall")
+
+
+def _declared_filters(path: Path) -> set[str]:
+    """The FILTER ids a VCF's header declares, read from its header only."""
+    declared: set[str] = set()
+    try:
+        with (
+            gzip.open(path, "rt", encoding="utf-8", errors="replace")
+            if path.name.endswith(".gz")
+            else path.open("r", encoding="utf-8", errors="replace")
+        ) as handle:
+            for line in handle:
+                if not line.startswith("##"):
+                    break
+                match = _FILTER_ID.match(line)
+                if match:
+                    declared.add(match.group(1))
+    except (OSError, EOFError, UnicodeError):
+        return set()
+    return declared
+
+
+_FILTER_ID = re.compile(r"##FILTER=<ID=([^,>]+)")
+
+
+def _with_long_read_snv_settings(
+    root: Path,
+    block: dict[str, Any],
+    *,
+    sample_ids: list[str],
+    patterns: dict[str, list[str]],
+) -> dict[str, Any]:
+    """The ``snv`` block with what the long-read pipeline's per-sample annotated callsets
+    need: ``source_format: clair3`` (a phased primary callset would otherwise be guessed
+    imputed and hidden from the diagnostic views, and a per-sample callset is read only so
+    declared) and ``exclude_filters`` for the DeepVariant records without a variant. Any
+    other callset's block is returned as it is."""
+    per_sample = block.get("per_sample")
+    if isinstance(per_sample, dict) and per_sample and not block.get("family_vcf"):
+        paths = [entry.get("vcf") for entry in per_sample.values() if isinstance(entry, dict)]
+    else:
+        long_read_paths = {
+            _format_pattern(pattern, family_id="", sample_id=sample_id)
+            for pattern in patterns["sample_vcf"]
+            for sample_id in sample_ids
+        }
+        paths = [block["family_vcf"]] if block.get("family_vcf") in long_read_paths else []
+    resolved = [_resolve_package_path(root, value) for value in paths if isinstance(value, str)]
+    files = [path for path in resolved if path is not None and path.is_file()]
+    if not files:
+        return block
+    settings: dict[str, Any] = {"enabled": block.get("enabled", True), "source_format": "clair3"}
+    declared = set.intersection(*(_declared_filters(path) for path in files))
+    excluded = [value for value in _NON_VARIANT_FILTERS if value in declared]
+    if excluded:
+        settings["exclude_filters"] = excluded
+    return {**settings, **{key: value for key, value in block.items() if key != "enabled"}}
+
+
 def _family_role_dataset_availability(
     *,
     root: Path,
@@ -1238,7 +1361,7 @@ def _build_manifest_payload(
     *,
     root: Path,
     family_id: str,
-    ped_relative_path: str,
+    ped_relative_path: str | None,
     sample_ids: list[str],
     naming_scheme: str,
     hpo_terms: list[str],
@@ -1255,6 +1378,19 @@ def _build_manifest_payload(
             patterns=scheme[dataset_type],
             sample_ids=sample_ids,
         )
+        if not item.complete and dataset_type in ("snv", "sv_needlr") and len(sample_ids) > 1:
+            # No joint VCF: the long-read pipeline's one VCF per sample, which the import
+            # reads as one callset.
+            item, block = _per_sample_callset_availability(
+                root=root,
+                family_id=family_id,
+                sample_ids=sample_ids,
+                dataset_type=dataset_type,
+                patterns=scheme[dataset_type],
+                fallback=(item, block),
+            )
+        if dataset_type == "snv" and item.complete:
+            block = _with_long_read_snv_settings(root, block, sample_ids=sample_ids, patterns=scheme["snv"])
         if not item.complete and dataset_type == "repeats_trgt":
             # No joint TRGT VCF: fall back to the pipeline's per-sample repeat calls.
             sample_item, sample_block = _optional_role_dataset_availability(
@@ -1368,8 +1504,9 @@ def _build_manifest_payload(
     payload: dict[str, Any] = {
         "schema_version": 1,
         "family_id": family_id,
-        "ped": ped_relative_path,
     }
+    if ped_relative_path is not None:
+        payload["ped"] = ped_relative_path
     if metadata:
         payload["metadata"] = metadata
     payload["samples"] = {sample_id: {} for sample_id in sample_ids}
@@ -1542,6 +1679,14 @@ def discover_family_package_manifest(
     )
     parsed_ped: ParsedPed | None = None
     use_db_structure = ped_path is None and bool(db_sample_ids)
+    # A long-read package without a PED (the pipeline writes none for a couple screened
+    # for carriership): the members are its per-sample folders, named in the manifest.
+    existing_family_block = existing_manifest.get("family")
+    folder_sample_ids = (
+        long_read_sample_ids(root)
+        if ped_path is None and not use_db_structure and not request.ped_path and not ped_warnings
+        else []
+    )
     if use_db_structure:
         # Existing family with no PED on disk: take the sample list from the
         # family already configured in the database instead of erroring.
@@ -1552,7 +1697,7 @@ def discover_family_package_manifest(
                 path=root,
             )
         )
-    else:
+    elif not folder_sample_ids:
         errors.extend(ped_errors)
         warnings.extend(ped_warnings)
         if ped_path is not None:
@@ -1603,8 +1748,11 @@ def discover_family_package_manifest(
         root, sample_ids=[*sample_ids, *pipeline_roles], parent_ids=parent_ids
     )
     warnings.extend(run_warnings)
-    existing_family = existing_manifest.get("family")
-    family_block: dict[str, Any] = existing_family if isinstance(existing_family, dict) else {}
+    family_block: dict[str, Any] = existing_family_block if isinstance(existing_family_block, dict) else {}
+    if folder_sample_ids and not _added_member_ids(family_block):
+        proposed_block, folder_warnings = long_read_family_block(root, folder_sample_ids)
+        family_block = {**proposed_block, **family_block}
+        warnings.extend(folder_warnings)
     if not family_block and parsed_ped is not None and pipeline_roles:
         family_block, _added_ids, pgt_warnings = pgt_family_block(
             root=root,
@@ -1617,7 +1765,15 @@ def discover_family_package_manifest(
     added_ids = [sample_id for sample_id in _added_member_ids(family_block) if sample_id not in sample_ids]
     sample_ids = [*sample_ids, *added_ids]
 
-    ped_relative_path = _display_path(root, ped_path) if ped_path is not None else (request.ped_path or f"{family_id}.ped")
+    # No PED file when the manifest names the members (family.add_members of a PED-less
+    # long-read package).
+    ped_relative_path: str | None = (
+        _display_path(root, ped_path)
+        if ped_path is not None
+        else None
+        if folder_sample_ids
+        else (request.ped_path or f"{family_id}.ped")
+    )
     manifest_payload, availability = _build_manifest_payload(
         root=root,
         family_id=family_id,

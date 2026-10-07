@@ -357,4 +357,44 @@ describe('PackageImportPage', () => {
     );
     expect(screen.getByText(/wrote \/data\/fam-100\/manifest.yaml/i)).toBeInTheDocument();
   });
+
+  it("shows what Discover proposed for checking, not the datasets it did not find", async () => {
+    (api.post as unknown as Mock).mockImplementation((url: string, payload: unknown) => {
+      if (url === '/family-imports/manifest/discover') {
+        return Promise.resolve({
+          data: {
+            valid: true,
+            family_id: 'COUPLE1',
+            ped_path: null,
+            manifest_path: '/data/COUPLE1/manifest.yaml',
+            naming_scheme: 'standard_v1',
+            sample_ids: ['FATHER1', 'MOTHER1'],
+            manifest_yaml: 'schema_version: 1\nfamily_id: COUPLE1\n',
+            datasets: [],
+            errors: [],
+            warnings: [
+              {
+                code: 'ped_proposed_from_folders',
+                message:
+                  'The package has no PED. Discover took its two samples for a couple screened for carriership: MOTHER1 (female) and FATHER1 (male).',
+              },
+              { code: 'dataset_not_detected', message: 'No mito files were found', dataset: 'mito' },
+            ],
+            metadata: {},
+          },
+        });
+      }
+      return Promise.resolve({ data: payload });
+    });
+
+    renderPage();
+    fireEvent.change(screen.getByLabelText(/family folder path/i), {
+      target: { value: '/data/COUPLE1' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /discover manifest/i }));
+
+    expect(await screen.findByText(/check before writing the manifest/i)).toBeInTheDocument();
+    expect(screen.getByText(/MOTHER1 \(female\) and FATHER1 \(male\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/No mito files were found/)).not.toBeInTheDocument();
+  });
 });

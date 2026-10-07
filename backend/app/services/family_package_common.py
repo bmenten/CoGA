@@ -130,7 +130,9 @@ class ManifestPhenotypes(BaseModel):
 class PackageManifest(BaseModel):
     schema_version: int = 1
     family_id: str | None = None
-    ped: str
+    # The PED file. A package without one names its members under family.add_members
+    # (the long-read pipeline writes no PED for a couple screened for carriership).
+    ped: str | None = None
     # Optional analysis type for the family, e.g. "monogenic_nipt". Promoted to
     # families.metadata["analysis_type"] so the workspace surfaces the NIPT tab
     # and resolve_nipt_trio can find the cfDNA sample (see docs/monogenic-nipt.md).
@@ -172,7 +174,8 @@ class FamilyPackageBundle:
     root: Path
     manifest_path: Path
     manifest: PackageManifest
-    ped_path: Path
+    # None when the manifest names the members itself (family.add_members, no PED file).
+    ped_path: Path | None
     ped: ParsedPed
     # When the package was staged from S3, the original s3:// source so provenance
     # records the durable S3 URI rather than the ephemeral staging path.

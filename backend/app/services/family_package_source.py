@@ -23,6 +23,7 @@ from ..core.object_storage import (
 )
 
 from .family_package_common import PED_FOLDER, PackageManifest
+from .family_package_long_read import long_read_sample_ids
 
 
 logger = logging.getLogger(__name__)
@@ -128,8 +129,9 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
 
     A candidate is an immediate subdirectory containing a manifest
     (manifest.yaml/.yml/.json) or a ``*.ped`` file, at its top or in its ``ped/``
-    folder (where the PGT pipeline writes it). The folder path can then be selected in
-    the import UI instead of typed by hand.
+    folder (where the PGT pipeline writes it), or laid out per sample as the long-read
+    pipeline writes its output (which has no PED for a couple screened for carriership).
+    The folder path can then be selected in the import UI instead of typed by hand.
     """
     packages: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -141,7 +143,7 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
                 continue
             manifest_path = _find_manifest(child)
             ped_paths = sorted(child.glob("*.ped")) or sorted((child / PED_FOLDER).glob("*.ped"))
-            if manifest_path is None and not ped_paths:
+            if manifest_path is None and not ped_paths and not long_read_sample_ids(child):
                 continue
             resolved = str(child.resolve())
             if resolved in seen:

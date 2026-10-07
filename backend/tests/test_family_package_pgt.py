@@ -532,8 +532,9 @@ def test_every_file_role_discovery_writes_leaves_a_provenance_record() -> None:
         role
         for dataset in family_package_discovery.NAMING_SCHEMES["standard_v1"]["datasets"].values()
         for role in dataset
-        # A pattern list, not a manifest key: discovery writes what it finds as `index`.
-        if role != "sample_index"
+        # Pattern lists, not manifest keys: discovery writes what they find as `vcf` and
+        # `index`.
+        if role not in {"sample_vcf", "sample_index"}
     }
 
     assert roles - family_package_registration._PROVENANCE_PATH_KEYS == set()

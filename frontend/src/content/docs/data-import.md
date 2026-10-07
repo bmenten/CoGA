@@ -120,6 +120,18 @@ pacbio/
   pipeline_info/  software_versions.yaml, params_*.json
 ```
 
+A couple screened for carriership on the long-read pipeline has **no PED** and no joint call set: each
+partner has their own files (`snv/A/annotation/A_annot.vcf.gz`, `sv/A/needlr/A_sv_phased.needLR.4.0.vcf.gz`,
+`repeats/A/A_tr.vcf.gz`, `paraphase/A/A.paraphase.json`). The import page lists such a folder. **Discover
+manifest** takes the members from the per-sample folders, each with the sex TRGT genotyped its repeats
+with, proposes two members of opposite sex as a couple (the female partner as mother, the male as
+father), and names them in the manifest under `family.add_members`, so no PED is needed. The page shows what it
+proposed under *Check before writing the manifest*: check both, and their sex, before you write the
+manifest. The two SNV files become one call set: a site both partners
+carry is one variant with both calls, and a partner whose file has no record at the other's variant is
+read as reference, as a joint VCF would call a covered site. DeepVariant's reference and no-call records
+are kept only where the other partner has a variant.
+
 PGT packages from the PGT pipeline (nf-cmgg/copgtm) are laid out per tool:
 
 ```text
@@ -192,7 +204,8 @@ heteroplasmy.
 
 - The folder and the manifest exist.
 - The PED is a six-column PED with **one family**, whose identifier matches the manifest's (by default
-  the folder name). Sample identifiers are unique, and every parent is a sample in the same PED.
+  the folder name). Sample identifiers are unique, and every parent is a sample in the same PED. A
+  manifest without a PED names every member under `family.add_members`.
 - Every sample and every per-sample dataset in the manifest is a sample in the PED.
 - Every file exists. A compressed family VCF for small variants, structural variants or repeats needs
   its index (`.tbi`, `.csi` or `.idx`); a plain `.vcf` does not. Other index files are checked only when

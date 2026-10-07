@@ -56,7 +56,7 @@ from .variant_upload_service import (
 )
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_nipt import (
     nipt_import_order,
@@ -93,8 +93,14 @@ from .family_package_qc import (
 from .family_package_registration import _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _pcf_role_path
-from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata
+from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
+from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
+from .per_sample_small_variants import (
+    PER_SAMPLE_CALLSET_SOURCE,
+    PerSampleVcf,
+    upload_family_per_sample_small_variant_files,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -158,8 +164,11 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
     if dataset.per_sample and not dataset.family_vcf:
-        # Validation allows this only for a monogenic NIPT family.
-        return await _import_nipt_per_sample_snv(job)
+        # One VCF per sample: a monogenic NIPT's plasma and father, or the long-read
+        # pipeline's per-sample callsets (a couple screened for carriership).
+        if (bundle.manifest.analysis_type or "").strip() == MONOGENIC_NIPT_ANALYSIS_TYPE:
+            return await _import_nipt_per_sample_snv(job)
+        return await _import_per_sample_snv(job)
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
     if vcf_path is None:
         return await _register_only(summary, "Registered only; family_vcf path is unavailable")
@@ -595,8 +604,9 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
     conflict_mode = job.conflict_mode
     if not family_context.assembly_name:
         return await _register_only(summary, "Registered only; family is not linked to a single assembly")
+    per_sample = not dataset.family_vcf and bool(dataset.per_sample)
     vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
-    if vcf_path is None:
+    if vcf_path is None and not per_sample:
         return await _register_only(summary, "Registered only; family_vcf path is unavailable")
     if conflict_mode == "update":
         existing_count = await count_family_structural_variants(
@@ -613,12 +623,30 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
                     "summary": {"existing": existing_count},
                 }
             )
-    text_value = _read_package_text(vcf_path)
-    records = _iter_needlr_structural_records(
-        text_value,
-        ped=bundle.ped,
-        sample_contexts=sample_contexts,
-    )
+    # The files read: the family VCF, or one VCF per sample (the long-read pipeline's).
+    texts: dict[str, str] = {}
+    filenames: str | dict[str, str]
+    if per_sample:
+        sample_files = await _needlr_sample_files(job)
+        if not sample_files:
+            return await _register_only(summary, "Registered only; no per-sample NeedlR file is readable")
+        texts = {_display_path(bundle.root, path): text_value for _sample_id, path, text_value in sample_files}
+        filenames = {sample_id: path.name for sample_id, path, _text in sample_files}
+        records = _iter_needlr_per_sample_records(
+            [(sample_id, text_value) for sample_id, _path, text_value in sample_files],
+            ped=bundle.ped,
+            sample_contexts=sample_contexts,
+        )
+    else:
+        assert vcf_path is not None
+        text_value = _read_package_text(vcf_path)
+        texts = {_display_path(bundle.root, vcf_path): text_value}
+        filenames = vcf_path.name
+        records = _iter_needlr_structural_records(
+            text_value,
+            ped=bundle.ped,
+            sample_contexts=sample_contexts,
+        )
     if not records:
         raise RuntimeError("No Needlr structural variants with PED sample calls were found")
     # Held until the commit that records the SV file (the import holds it for its whole run).
@@ -639,7 +667,7 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
         session,
         sample_contexts=sample_contexts,
         source="needlr",
-        filename=vcf_path.name,
+        filename=filenames,
     )
     # Capture SV provenance into the family's annotation manifest (best-effort;
     # joins the import transaction). The NeedlR SV VCF carries no structured version
@@ -652,11 +680,16 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
         merge_module_maps,
     )
 
-    sv_lines = text_value.splitlines()
-    sv_modules = merge_module_maps(
-        extract_header_provenance(sv_lines, modality="sv").as_modules(),
-        extract_info_description_provenance(sv_lines),
-    )
+    sv_modules: dict[str, dict[str, Any]] = {}
+    for text_value in texts.values():
+        sv_lines = [line for line in text_value.splitlines() if line.startswith("#")]
+        sv_modules = merge_module_maps(
+            sv_modules,
+            merge_module_maps(
+                extract_header_provenance(sv_lines, modality="sv").as_modules(),
+                extract_info_description_provenance(sv_lines),
+            ),
+        )
     await merge_vcf_header_provenance(
         session,
         family_uuid=family_context.family_uuid,
@@ -667,13 +700,51 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
     return summary.model_copy(
         update={
             "status": "imported",
-            "message": "Imported Needlr family SV VCF into structural variant storage",
+            "message": (
+                "Imported the per-sample Needlr SV VCFs into structural variant storage"
+                if per_sample
+                else "Imported Needlr family SV VCF into structural variant storage"
+            ),
             "summary": {
                 "processed": len(records),
                 "source": "needlr",
+                **({"per_sample": sorted(texts)} if per_sample else {}),
             },
         }
     )
+
+
+async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, str]]:
+    """Each per-sample NeedlR entry's ``(sample id, path, text)``, checked to hold that
+    sample's calls before anything is written.
+
+    NeedlR has no sample column: each record names its query sample in ``Query_ID``,
+    after the caller's input file (``<sample>_sv_phased``). A file whose query names
+    another sample of CoGA -- a family member's file under this entry, or another
+    family's -- is refused, as a per-sample VCF column is (``per_sample_vcf_column``); a
+    query that names no known sample is the entry's."""
+    bundle, family_context = job.bundle, job.family_context
+    files: list[tuple[str, Path, str]] = []
+    for sample_id, raw_entry in job.dataset.per_sample.items():
+        if sample_id not in job.sample_contexts or not isinstance(raw_entry, dict):
+            continue
+        path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        if path is None:
+            continue
+        text_value = _read_package_text(path)
+        queries = sorted(needlr_query_ids(text_value))
+        known = await known_vcf_sample_ids(
+            job.session, family_uuid=family_context.family_uuid, header_samples=queries
+        )
+        for query in queries:
+            named = resolve_vcf_sample_id(query, known | {sample_id})
+            if named is not None and named != sample_id:
+                raise RuntimeError(
+                    f"The NeedlR file of {sample_id} holds another sample's calls: its query "
+                    f"'{query}' is {named}. {_PER_SAMPLE_COLUMN_REMEDY}"
+                )
+        files.append((sample_id, path, text_value))
+    return files
 
 
 @_dataset_importer("apcad")
@@ -933,6 +1004,105 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
             "status": "imported",
             "message": "Imported the NIPT per-sample SNV files as one callset",
             "summary": sample_results,
+        }
+    )
+
+
+async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    """Import ``datasets.snv.per_sample`` of a family that is not a monogenic NIPT: the
+    long-read pipeline's per-sample callsets, read side by side as the family's primary
+    callset (see per_sample_small_variants).
+
+    Every file is checked to hold its entry's sample (``per_sample_vcf_column``) before
+    anything is written. With ``update`` the dataset is skipped when the family holds a
+    primary callset; with ``overwrite`` the files replace it.
+    """
+    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    assembly_name = family_context.assembly_name or ""
+    if job.conflict_mode == "update":
+        existing_count = await count_family_small_variants(
+            assembly_name,
+            family_context.family_uuid,
+            project_ids=family_context.project_ids,
+            source=PER_SAMPLE_CALLSET_SOURCE,
+        )
+        if existing_count:
+            return summary.model_copy(
+                update={
+                    "status": "skipped",
+                    "message": "Skipped SNV import in update mode because small variants already exist for this family",
+                    "summary": {"existing": existing_count},
+                }
+            )
+    extra = dataset.model_extra or {}
+    exclude_filters = extra.get("exclude_filters")
+    if isinstance(exclude_filters, str):
+        exclude_filters = [exclude_filters]
+    elif not isinstance(exclude_filters, (list, tuple)):
+        exclude_filters = None
+    files: list[PerSampleVcf] = []
+    for sample_id, raw_entry in dataset.per_sample.items():
+        if sample_id not in sample_contexts or not isinstance(raw_entry, dict):
+            continue
+        vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        if vcf_path is None:
+            continue
+        header = read_vcf_sample_columns(vcf_path)
+        if len(header) != 1:
+            raise RuntimeError(f"The SNV file of {sample_id} must hold one sample; it has {len(header)}")
+        column = per_sample_vcf_column(
+            header,
+            target_sample_id=sample_id,
+            known_sample_ids=await known_vcf_sample_ids(
+                session,
+                family_uuid=family_context.family_uuid,
+                header_samples=header,
+            ),
+            declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
+            label=f"The SNV file of {sample_id}",
+            remedy=_PER_SAMPLE_COLUMN_REMEDY,
+        )
+        files.append(PerSampleVcf(sample_id=sample_id, path=vcf_path, column=column))
+    if not files:
+        return await _register_only(summary, "Registered only; no per-sample SNV file is readable")
+    progress_lock = asyncio.Lock()
+
+    async def report_progress(stats: dict[str, Any]) -> None:
+        if job.progress is None:
+            return
+        async with progress_lock:
+            await job.progress(
+                summary.model_copy(
+                    update={
+                        "status": "running",
+                        "message": "Importing the per-sample SNV files as one callset",
+                        "summary": stats,
+                    }
+                )
+            )
+
+    paths = {file.sample_id: _display_path(bundle.root, file.path) for file in files}
+    if job.progress is not None:
+        await report_progress({"stage": "starting", "per_sample": paths})
+    result = await _run_with_periodic_progress(
+        upload_family_per_sample_small_variant_files(
+            session,
+            context=family_context,
+            sample_contexts=sample_contexts,
+            files=files,
+            overwrite=True,
+            exclude_filters=exclude_filters,
+            progress=report_progress if job.progress is not None else None,
+        ),
+        report=report_progress if job.progress is not None else None,
+        stats={"per_sample": paths},
+    )
+    return summary.model_copy(
+        update={
+            "status": "imported",
+            "message": "Imported the per-sample SNV files as one callset",
+            "summary": {**result, "per_sample": paths},
         }
     )
 

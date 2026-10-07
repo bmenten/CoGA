@@ -1416,6 +1416,27 @@ async def count_family_small_variants(
     return int(rows[0][0]) if rows else 0
 
 
+async def family_small_variant_call_samples(
+    assembly_name: str,
+    family_uuid: str,
+    *,
+    source: str,
+) -> set[str]:
+    """Every sample a call of the family's ``source`` rows names (its sample id, or the
+    sample uuid a call may be stored under)."""
+    await ensure_clickhouse_variant_tables(assembly_name)
+    rows = await _execute(
+        f"""
+        SELECT DISTINCT sample_id
+        FROM {_small_table_name(assembly_name, 'entries')}
+        ARRAY JOIN `calls.sampleId` AS sample_id
+        WHERE family_guid = %(family_guid)s AND sign = 1 AND source = %(source)s
+        """,
+        {"family_guid": family_uuid, "source": source},
+    )
+    return {str(row[0]) for row in rows if row[0]}
+
+
 async def _count_distinct_keys_by_family(
     *,
     entries_table: str,

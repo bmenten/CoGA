@@ -1158,6 +1158,12 @@ describe('FamilySmallVariantsPage', () => {
       expect(apiMock.get).toHaveBeenCalledWith(
         expect.stringContaining('expanded_carrier_screening=true'),
       );
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('impact=HIGH'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('impact=MODERATE'));
+      expect(apiMock.get).toHaveBeenCalledWith(expect.stringContaining('max_gnomad_popmax_af=0.01'));
+      expect(apiMock.get).toHaveBeenCalledWith(
+        expect.stringContaining('clinvar_overrides_frequency=true'),
+      );
     });
   });
 

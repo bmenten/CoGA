@@ -189,7 +189,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
   relatives; the SV second-hit index; expanded carrier screening, which keeps the genes in
   which both partners carry a variant and, on chrX outside the pseudo-autosomal regions, a
-  female partner's variant on its own.
+  female partner's variant on its own, its preset reading rare high- or moderate-impact
+  variants with the ClinVar P/LP frequency override, so a long-read genome's screen reaches
+  chrX within the candidate window.
 - **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
   cap; the clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar
   support, GRCh37 and GRCh38 builds); repeat-expansion status, including contraction loci and
@@ -214,7 +216,10 @@ pull request updates this list only when it adds clinical behaviour that no area
   haplogroup and per-sample mitochondrial imports; the Sample QC read from sites across
   every autosome, so sibling embryos read as siblings, and its sex check from chrX outside
   the pseudo-autosomal regions.
-- **Data integrity** — package imports (long-read layout; the PGT pipeline layout, with the
+- **Data integrity** — package imports (long-read layout; the long-read couple without a
+  PED, its members and their sex from the pipeline's folders and TRGT's karyotype, and its one
+  SNV VCF per partner read as one callset, a partner without a record at the other's variant
+  read as reference; the PGT pipeline layout, with the
   embryo roles and the index its PED lacks; the monogenic NIPT pair, one VCF per sample with
   the father's noise left out, and the per-target coverage tables; bucket sources;
   snapshot/restore);

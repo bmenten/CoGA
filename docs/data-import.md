@@ -307,6 +307,20 @@ pacbio/
   pipeline_info/software_versions.yaml, params_*.json
 ```
 
+A couple screened for carriership on the long-read pipeline has no PED and no joint callset:
+each partner has their own files (the NeedlR VCF in `sv/<sample>/needlr/` in later runs):
+
+```text
+COUPLE1/
+  snv/MOTHER1/annotation/MOTHER1_annot.vcf.gz (+ .tbi)   and FATHER1's
+  sv/MOTHER1/needlr/MOTHER1_sv_phased.needLR.4.0.vcf.gz (+ .tbi)
+  repeats/MOTHER1/MOTHER1_tr.vcf.gz (+ .csi)
+  paraphase/MOTHER1/MOTHER1.paraphase.json
+```
+
+How Discover reads such a folder and how its per-sample files are imported is under
+[Per-sample callsets of a long-read couple](#per-sample-callsets-of-a-long-read-couple).
+
 A PGT package from nf-cmgg/copgtm is laid out per tool, and holds the files Discover reads
 for each dataset:
 
@@ -380,15 +394,18 @@ Discover knows several file names per dataset, and shows what it found. The exac
 are the `standard_v1` entry of `NAMING_SCHEMES` in
 `backend/app/services/family_package_discovery.py`. A pattern may contain `*` (the SV
 annotator puts its version in the file name); the saved manifest always holds the real path.
-A long-read package counts a per-sample SNV file as the family's callset only when the
-family has one sample.
+A long-read package counts a per-sample SNV or NeedlR file as the family's callset only when the
+family has one sample; with two or more samples and no joint VCF, Discover proposes the samples'
+files as one VCF per sample (`per_sample`), and names a sample that has none. For the long-read
+pipeline's annotated SNV files it also sets `source_format: clair3` and, when the header
+declares them, `exclude_filters: [RefCall, NoCall]`.
 
 ### The manifest
 
 ```yaml
 schema_version: 1          # must be 1
 family_id: FAM001          # defaults to the folder name
-ped: family.ped
+ped: family.ped            # optional when family.add_members names every member
 analysis_type: monogenic_nipt   # optional
 roi: CFTR                  # optional region of interest
 
@@ -469,6 +486,8 @@ the affected parent.
 when given, its `father` and `mother`, so every check and the stored pedigree treat it like
 the PED's members. A member already in the PED is an error; its states go under
 `family.members`. Other links go under `family.relationships`, which may only name members.
+A manifest without `ped` names all its members there: its added rows are then the whole PED
+(the long-read couple's manifest, which Discover drafts).
 
 `family.relationships.relatives` links a member to the family through another member by an
 unknown degree: a PGT index known only to be on the mother's side, say, or related to both
@@ -504,8 +523,8 @@ The `snv` dataset takes three optional settings:
 
 | Dataset | Stored as |
 | --- | --- |
-| `snv` | small variants (ClickHouse), with the VEP table if given; a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)) |
-| `sv_needlr` | structural variants (ClickHouse), source `needlr` |
+| `snv` | small variants (ClickHouse), with the VEP table if given; a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format: clair3`) as the primary callset, source `clair3` ([below](#per-sample-callsets-of-a-long-read-couple)) |
+| `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
 | `coverage` | the `coverage` track (a BED per sample, `bed:`), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
@@ -590,6 +609,62 @@ an ordinary `snv` `family_vcf`, as the demo family does
 ([demo/nipt_family](../demo/nipt_family/README.md)); the analysis is the same. Without coverage
 tables, the NIPT coverage check reads the plasma's `coverage` track (a BED) instead.
 
+### Per-sample callsets of a long-read couple
+
+The long-read pipeline calls and annotates each sample on its own and writes neither a PED
+nor a joint callset for a couple screened for carriership. Such a folder is listed on the
+Package Import page all the same: a folder counts as a package when it holds a manifest, a
+PED, or the pipeline's per-sample folders (`snv/<sample>/`, `sv/<sample>/`, `repeats/<sample>/`,
+`paraphase/<sample>/`, `cnv/<sample>/`, `mito/<sample>/`, each holding a file named after the
+sample).
+
+**Discover without a PED.** The members are those per-sample folders, named under
+`family.add_members`, so the manifest needs no `ped`. Each member's sex is the karyotype TRGT
+genotyped its repeats with (`--karyotype XX` or `XY` in the TRGT VCF's `##trgtCommand`): the
+pipeline sets it from its samplesheet, so it is the recorded sex, which the Sample QC checks
+against the reads. Two members of opposite sex are proposed as a couple
+(`family.relationships.couples`, context `carrier screening`), the female partner with the
+mother role and the male with the father role; their clinical status is left unknown. Any
+other set of members gets no link, and a member without a TRGT VCF no sex. The warning
+`ped_proposed_from_folders` says what was proposed: check it before writing the manifest.
+
+**The SNV files are one callset**, the family's primary callset (source `clair3`), declared as
+`snv.per_sample` with `source_format: clair3`
+([per_sample_small_variants.py](../backend/app/services/per_sample_small_variants.py)):
+
+- The files are read side by side, each sorted in the order of its `##contig` lines; a file
+  sorted otherwise, or whose contigs are listed in another order, fails the dataset before
+  anything is written. Each file must hold one sample column, and that column must be the
+  entry's sample (`per_sample_vcf_column`): the partner's file under an entry is refused.
+- The records of one site (chromosome, position, REF and ALT) become one row holding the call
+  of each sample whose file has a record there. Two records of one position whose alleles
+  differ (`A>G`, `A>G,T`) are two rows; a multi-allelic record is not split.
+- `exclude_filters` (DeepVariant's `RefCall` and `NoCall`) leaves out a site where every record
+  is excluded. Where one partner has a variant, the other partner's excluded record is kept as
+  their call: a `RefCall` (0/0) says the caller read them as reference, a `NoCall` (./.) that it
+  could not. The dataset summary counts them (`excluded_calls_kept`).
+- A partner whose file has no record at a site had no read evidence of the variant that the
+  caller reported. The genotype filters (a genotype class including reference) and the Sample QC
+  read it as reference, as a joint VCF calls a covered site; a site without reads is read the
+  same way, which the Sample QC notes.
+- Each record's QUAL, FILTER and caller metrics are the call's own (`calls.filters`,
+  `calls.metrics`). The row's FILTER holds every record's; its annotation is the first file's
+  with a kept record there.
+- The callset replaces the family's primary callset, joint or per-sample: the import must bring
+  the file of every sample with calls in it, else it is refused before anything is deleted
+  (*"The family's callset also holds the calls of …"*). With `update` the dataset is skipped
+  when the family holds a primary callset.
+
+A monogenic NIPT pair's per-sample files are read differently ([below](#monogenic-nipt-pairs)):
+without `analysis_type: monogenic_nipt` and without `source_format: clair3`, a per-sample SNV
+callset is refused (`dataset_per_sample_unsupported`), so a NIPT pair whose analysis type was
+left out is never read as germline calls.
+
+**The NeedlR files** go under `sv_needlr.per_sample`. NeedlR has no sample column; each record
+names its query in `Query_ID`, after the caller's input (`<sample>_sv_phased`). A file whose query
+names another sample is refused before anything is written; a query naming no known sample is
+the entry's. One SV called in both partners with the same alleles is one SV with both calls.
+
 ### Validation
 
 Discover, dry run and import check that:
@@ -597,7 +672,8 @@ Discover, dry run and import check that:
 - the folder and the manifest exist, and `schema_version` is 1;
 - the PED parses as six-column PED, holds one family and matches `family_id`; sample IDs are
   unique and every parent is in the PED. For an import into an existing family the PED file
-  may be missing: the family's stored pedigree is used;
+  may be missing: the family's stored pedigree is used. A manifest without `ped` must name its
+  members under `family.add_members` (`ped_missing_path`);
 - the manifest's samples and per-sample entries name samples in the PED or in
   `family.add_members`, an added member is not already in the PED, and every
   `family.relationships` entry names members;
@@ -605,10 +681,11 @@ Discover, dry run and import check that:
 - every file the manifest names exists (for a package in a bucket, an alignment exists in the
   bucket), and a compressed family VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or
   given as `index:`); a plain `.vcf` needs none;
-- a per-sample SNV callset (`snv.per_sample` without `family_vcf`) is read only for a family
-  with `analysis_type: monogenic_nipt` (`dataset_per_sample_unsupported`): every other analysis
-  reads a sample without a call as reference, which only a joint VCF says. Each of its VCFs
-  holds exactly one sample (`dataset_vcf_not_single_sample`) and needs no index;
+- a per-sample SNV callset (`snv.per_sample` without `family_vcf`) is read for a family with
+  `analysis_type: monogenic_nipt`, or as the primary callset of germline calls made one sample at
+  a time when the dataset says `source_format: clair3` (`dataset_per_sample_unsupported`
+  otherwise). Each of its VCFs holds exactly one sample (`dataset_vcf_not_single_sample`) and
+  needs no index;
 - a per-target coverage table's header names `chromosome`, `start`, `end`, `attribute` and
   `mean` (`coverage_target_table_columns`);
 - every dataset key is a known one.
@@ -766,7 +843,10 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. |
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the sample it took for the maternal plasma and the one it took for the father. |
-| `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt`; give a joint VCF as `snv.family_vcf`. |
+| `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt` and does not say `source_format: clair3`; for the long-read pipeline's per-sample calls set `source_format: clair3`, else give a joint VCF as `snv.family_vcf`. |
+| `ped_missing_path` | The manifest names no PED and no members under `family.add_members`. |
+| `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when they are of opposite sex). Check them before writing the manifest. |
+| "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF of a NIPT pair holds no sample column or more than one. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
 | A per-target coverage import fails on `sample_interval_track_sources_track_type_check` | The Postgres database is older than the `target_coverage` track type; reset it ([database.md](database.md)). |

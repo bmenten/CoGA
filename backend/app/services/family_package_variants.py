@@ -4,7 +4,7 @@ from dataclasses import replace
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -77,16 +77,66 @@ def _needlr_parent_sample_ids(ped: ParsedPed, sample_id: str) -> tuple[str | Non
     return mother, father
 
 
+def needlr_query_ids(text_value: str) -> set[str]:
+    """Every query sample (``Query_ID``) a NeedlR VCF's records name."""
+    queries: set[str] = set()
+    for line in text_value.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t")
+        if len(parts) < 8:
+            continue
+        query_id = _first_info_value(_parse_vcf_info(parts[7]), "Query_ID", "QueryId", "Sample", "SAMPLE")
+        if query_id is not None:
+            queries.add(query_id)
+    return queries
+
+
 def _iter_needlr_structural_records(
     text_value: str,
     *,
     ped: ParsedPed,
     sample_contexts: dict[str, SampleMetadataContext],
 ) -> list[StructuralVariantRecord]:
+    """A family NeedlR VCF's records, each query call under the sample its ``Query_ID``
+    names."""
+    return _needlr_records([(text_value, None)], ped=ped, sample_contexts=sample_contexts)
+
+
+def _iter_needlr_per_sample_records(
+    files: Sequence[tuple[str, str]],
+    *,
+    ped: ParsedPed,
+    sample_contexts: dict[str, SampleMetadataContext],
+) -> list[StructuralVariantRecord]:
+    """The records of one NeedlR VCF per sample, ``(sample id, text)``, as one callset: each
+    file's query calls belong to its sample (the importer checked that its ``Query_ID``
+    names no other), and one SV called in two samples with the same alleles is one record
+    holding both calls."""
+    return _needlr_records(
+        [(text_value, sample_id) for sample_id, text_value in files],
+        ped=ped,
+        sample_contexts=sample_contexts,
+    )
+
+
+def _needlr_records(
+    texts: Sequence[tuple[str, str | None]],
+    *,
+    ped: ParsedPed,
+    sample_contexts: dict[str, SampleMetadataContext],
+) -> list[StructuralVariantRecord]:
+    """The records of the NeedlR ``texts``, each with the sample its query calls are bound
+    to, or None to read it from the record's ``Query_ID``."""
     sample_ids = set(sample_contexts)
     merged: dict[str, StructuralVariantRecord] = {}
     allele_by_variant_id: dict[str, tuple[str, str]] = {}
-    for line in text_value.splitlines():
+    lines = (
+        (line, bound_sample)
+        for text_value, bound_sample in texts
+        for line in text_value.splitlines()
+    )
+    for line, bound_sample in lines:
         if not line or line.startswith("#"):
             continue
         parts = line.split("\t")
@@ -104,7 +154,9 @@ def _iter_needlr_structural_records(
             end = start + abs(sv_len or 1)
         qual = _coerce_finite_float(qual_raw)
         filt = None if filt_raw in {"", "."} else filt_raw
-        query_sample = _needlr_query_sample_id(info, sample_ids)
+        query_sample = (
+            bound_sample if bound_sample is not None else _needlr_query_sample_id(info, sample_ids)
+        )
         calls: list[StructuralVariantCall] = []
         if query_sample is not None:
             calls.append(
@@ -319,16 +371,26 @@ async def _update_sv_file_metadata(
     *,
     sample_contexts: dict[str, SampleMetadataContext],
     source: str,
-    filename: str,
+    filename: str | dict[str, str],
 ) -> None:
-    for sample_context in sample_contexts.values():
+    """Record ``source``'s SV file on each sample: one family file for every sample, or
+    ``{sample id: file name}`` for the samples of a per-sample dataset."""
+    filenames = (
+        filename
+        if isinstance(filename, dict)
+        else {sample_id: filename for sample_id in sample_contexts}
+    )
+    for sample_id, sample_filename in filenames.items():
+        sample_context = sample_contexts.get(sample_id)
+        if sample_context is None:
+            continue
         result = await session.execute(
             text("SELECT metadata FROM samples WHERE id = CAST(:sample_id AS uuid)"),
             {"sample_id": sample_context.sample_uuid},
         )
         metadata = _metadata_dict(result.scalar_one_or_none())
         sv_files = dict(metadata.get("sv_files") or {})
-        sv_files[source] = filename
+        sv_files[source] = sample_filename
         metadata["sv_files"] = sv_files
         await session.execute(
             text(

@@ -93,6 +93,13 @@ A pair needs at least **1,000** shared sites; with fewer the result is a **warn*
 always shows that pair, so it confirms *parents unrelated — no consanguinity*, or flags it when they look
 related. Other expected-unrelated pairs that pass are hidden to keep the matrix readable.
 
+**A call set made one sample at a time.** The long-read pipeline calls a couple screened for
+carriership one partner at a time, with no joint VCF. Where a partner's own file has no record at a site
+the other partner's file has, the checks read that partner as reference there, as a joint VCF calls a
+covered site. A site without reads is read the same way, which lowers the kinship: on low-coverage data
+an *unrelated* result does not exclude a relationship. The page then says so in a note, with the share
+of the sites read that each partner had no record at, and the overall verdict is at least **warn**.
+
 ### Mendelian errors
 
 For each child with genotyped parents, the **Mendelian-error rate** is the share of sites where the

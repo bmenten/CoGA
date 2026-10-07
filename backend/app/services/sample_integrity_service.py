@@ -23,7 +23,6 @@ from .clickhouse_family_variants import (
     fetch_genotype_site_sample,
 )
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
-from .clickhouse_variant_queries import PER_SAMPLE_SMALL_VARIANT_SOURCES
 from .genotypes import NO_CALL, classify_genotype
 from .haplotype_lineage_service import build_pedigree
 from .metadata_service import get_family_record
@@ -99,17 +98,46 @@ async def _load_genotype_sample(
     limit: int,
     samples: list[str],
     source: str,
+    *,
+    read_as_reference: dict[str, int] | None = None,
 ) -> dict[str, list[Genotype | None]]:
+    """Each sample's genotypes at the sampled sites. ``read_as_reference``, when given,
+    is told for each sample how many sites it was read as reference at without a call of
+    its own (see below)."""
     rows = await fetch_genotype_site_sample(context, scope=scope, limit=limit, source=source)
-    # In a per-sample callset a sample without a call at a site had no alt read there:
-    # reference, as a joint VCF would have called it.
-    uncalled = "0/0" if source in PER_SAMPLE_SMALL_VARIANT_SOURCES else None
+    # A sample without a call at a site of a callset stored one file per sample (a
+    # monogenic NIPT's, or the long-read pipeline's per-sample callsets read as one) had no
+    # alt read there that its caller reported: reference, as a joint VCF would have called
+    # it. A joint VCF calls each of its samples at every site, so there it never happens.
+    # A sample with no call at any site read has no file in the callset (it was not
+    # sequenced): its genotypes stay missing, never reference.
+    called = {sample for _chrom, _pos, _ref, _alt, sample_ids, _gts in rows for sample in sample_ids}
     arrays: dict[str, list[Genotype | None]] = {sample: [] for sample in samples}
     for _chrom, _pos, _ref, _alt, sample_ids, gts in rows:
         gt_by_sample = dict(zip(sample_ids, gts))
         for sample in samples:
-            arrays[sample].append(_parse_genotype(gt_by_sample.get(sample, uncalled)))
+            gt = gt_by_sample.get(sample)
+            if gt is None and sample in called:
+                gt = "0/0"
+                if read_as_reference is not None:
+                    read_as_reference[sample] = read_as_reference.get(sample, 0) + 1
+            arrays[sample].append(_parse_genotype(gt))
     return arrays
+
+
+def _per_sample_callset_note(read_as_reference: dict[str, int], sites: int) -> str | None:
+    """The note a relatedness reading needs when its call set was made one sample at a
+    time: a missing record is read as reference, and a site without reads is one too."""
+    shares = {sample: count / sites for sample, count in read_as_reference.items() if count and sites}
+    if not shares:
+        return None
+    described = ", ".join(f"{sample} at {share:.0%}" for sample, share in sorted(shares.items()))
+    return (
+        "The call set was made one sample at a time (no joint VCF). Where a sample's own file "
+        f"has no record ({described} of the sites read), the checks read it as reference, as a "
+        "joint VCF calls a covered site. A site without reads is read that way too, which "
+        "lowers the kinship: on low-coverage data, unrelated does not exclude a relationship."
+    )
 
 
 def _build_pedigree_spec(context: FamilyMetadataContext) -> PedigreeSpec:
@@ -248,12 +276,22 @@ async def get_family_sample_integrity_qc(
         try:
             genotype_source = _choose_genotype_source(await fetch_family_variant_sources(context))
             if genotype_source:
+                read_as_reference: dict[str, int] = {}
                 autosomal = await _load_genotype_sample(
-                    context, "autosomes", QC_AUTOSOMAL_SITES, samples, genotype_source
+                    context,
+                    "autosomes",
+                    QC_AUTOSOMAL_SITES,
+                    samples,
+                    genotype_source,
+                    read_as_reference=read_as_reference,
                 )
                 x_genotypes = await _load_genotype_sample(
                     context, "chrX", QC_X_SITES, samples, genotype_source
                 )
+                sites = max((len(values) for values in autosomal.values()), default=0)
+                note = _per_sample_callset_note(read_as_reference, sites)
+                if note is not None and profile.run_relatedness:
+                    service_notes.append(note)
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
             logger.warning("Genotypes could not be loaded for family %s: %s", scrub_log(family_id), scrub_log(exc))
             service_notes.append(f"Genotypes could not be loaded ({exc}).")

@@ -211,7 +211,7 @@ out:
 | --- | --- | --- |
 | `…/SNV_INDEL/entries` | `calls.ps` | Phase set, for read-based cis/trans against a phased SV |
 | `…/SNV_INDEL/entries` | `calls.af` | Per-allele fraction; on chrM this *is* the heteroplasmy level the mtDNA workspace reads |
-| `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair does: its record's FILTER then describes that one call. A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
+| `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair, and of a primary callset read one file per sample, does: its record's FILTER then describes that one call (a DeepVariant `RefCall` kept as a partner's call says the caller read that partner as reference there). A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
 | `…/SNV_INDEL/entries` | `calls.metrics` | The caller's metrics of the call, a map from the INFO key to a number, filled the same way ([vcf_call_metrics.py](../backend/app/services/vcf_call_metrics.py)): Mutect2's `TLOD`, `FS`, `SOR`, `MQ`, `ECNT` and others, and VarDict's `SBF`, `NM`, `MSI` and others; for a key with one value per allele (`MMQ`, `MBQ`, `MFRL`, `RPA`) the first ALT's value under the key and the reference's under `<key>_REF`; `QUAL` when the record has one; `STR` = 1 for Mutect2's short-tandem-repeat flag, and `RU_LEN`, the length of the repeat unit. A Mutect2 tumour-only call has no QUAL: its quality is `TLOD`. The NIPT quality filter, the father's genotype class and the de novo triage read them. |
 | `…/SV/entries` | `calls.ps` | Phase set for a structural call |
 | `…/SV/entries` | `calls.cn` | Copy number from a depth-based CNV caller (HiFiCNV `FORMAT/CN`). `GT=1/1` on a duplication cannot distinguish CN=3 from CN=6, and the ClinGen CNV dosage scoring needs the actual number. Null for callers that report none. |
@@ -219,7 +219,10 @@ out:
 
 The `source` column on both `entries` tables scopes deletes and re-imports, so one family can
 hold several callsets side by side. Small variants: `clair3` (the primary callset, whatever
-caller made it), `glimpse2` (imputed; hidden from the diagnostic lists by default), `mito`
+caller made it: one joint VCF, or the long-read pipeline's one VCF per sample read side by side,
+a site being one row holding the call of each sample whose file has a record there; see
+[data-import.md](data-import.md#per-sample-callsets-of-a-long-read-couple)), `glimpse2` (imputed;
+hidden from the diagnostic lists by default), `mito`
 (chrM) and `nipt` (a monogenic NIPT pair: the plasma's and the father's single-sample VCFs, each
 merged into the callset for its own sample, so a variant is one row holding each sample's call
 where its file has one). Structural variants: `needlr`, `hificnv` and `mito_sv` (chrM deletions and duplications, each
