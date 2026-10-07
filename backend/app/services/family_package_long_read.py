@@ -74,7 +74,8 @@ def _holds_file_named_after(folder: Path, sample_id: str) -> bool:
 def long_read_sample_ids(root: Path) -> list[str]:
     """The samples of a long-read package laid out per sample, in name order: every folder
     under one of the pipeline's per-sample datasets that holds a file named after it.
-    Empty for any other layout."""
+    Empty for any other layout. A name no sample can be stored under (with a space or a
+    control character) is listed too: Discover reports it, rather than leave a member out."""
     samples: set[str] = set()
     for dataset_folder in LONG_READ_SAMPLE_DATASET_FOLDERS:
         base = root / dataset_folder
@@ -84,7 +85,7 @@ def long_read_sample_ids(root: Path) -> list[str]:
             continue
         for child in children:
             name = child.name
-            if not child.is_dir() or name.startswith(".") or name == "annotation" or any(ch.isspace() for ch in name):
+            if not child.is_dir() or name.startswith(".") or name == "annotation":
                 continue
             if _holds_file_named_after(Path(child.path), name):
                 samples.add(name)

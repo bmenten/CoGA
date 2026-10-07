@@ -45,7 +45,8 @@ must carry FORMAT/AD.
 
 The built-in presets **De novo**, **Paternal, inherited** and **Recessive (both parents carrier)** set a
 view with high or moderate impact and a gnomAD frequency of 1% or less (a ClinVar pathogenic record
-overrides the frequency). Pick a gene panel as well.
+overrides the frequency). Pick a gene panel as well. The page opens on **De novo**; a link with its own
+filters, such as **Back to NIPT**, opens on those.
 
 > **Read the probabilities, not only the category.** A de novo or paternal allele shows clearly at any
 > fetal fraction. Whether the fetus inherited a *maternal* allele needs depth and a fair fetal fraction:

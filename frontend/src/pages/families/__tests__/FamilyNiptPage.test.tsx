@@ -219,6 +219,53 @@ describe('FamilyNiptPage', () => {
     expect(await screen.findByLabelText('Lowest de novo priority')).toBeInTheDocument();
   });
 
+  // A fresh open (no search in the URL) lists the de novo candidates: the De novo preset.
+  it('opens on the De novo preset', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [
+              { sample_id: 'CFDNA', role: 'proband', active: true },
+              { sample_id: 'FATHER', role: 'father', active: true },
+            ],
+            metadata: { analysis_type: 'monogenic_nipt' },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({
+          data: { family_id: 'NIPT001', total: 0, fetal_fraction: FETAL_FRACTION, variants: [] },
+        });
+      }
+      if (url === '/panels' || url.endsWith('/small-variant-tags') || url.endsWith('-presets')) {
+        return Promise.resolve({ data: [] });
+      }
+      return Promise.resolve({ data: {} });
+    });
+
+    renderPage('NIPT001');
+
+    await waitFor(() =>
+      expect(
+        apiMock.get.mock.calls.some(
+          ([url, config]) =>
+            url === '/families/NIPT001/nipt/variants' && config?.params?.inheritance === 'de_novo',
+        ),
+      ).toBe(true),
+    );
+    const variantCalls = apiMock.get.mock.calls.filter(
+      ([url]) => url === '/families/NIPT001/nipt/variants',
+    );
+    // No unfiltered search goes out before the preset applies.
+    expect(variantCalls.every(([, config]) => config?.params?.inheritance === 'de_novo')).toBe(true);
+    const { params } = variantCalls[0][1];
+    expect(params.impact).toEqual(['HIGH', 'MODERATE']);
+    expect(params.clinvar_overrides_frequency).toBe(true);
+    expect(screen.getByLabelText('NIPT inheritance preset')).toHaveValue('de_novo');
+  });
+
   // The list classifies the first variants of the search, in genomic order, up to a limit.
   // Past it, the list stopped part-way through the genome and read as complete.
   it('says when the list stops at the classification limit', async () => {

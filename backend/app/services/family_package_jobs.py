@@ -17,6 +17,7 @@ from ..schemas import (
 )
 from .access_control import CurrentUser, is_admin_user
 
+from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_package_source import package_folder_path
 from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json
 
@@ -71,6 +72,16 @@ async def queue_family_import_job(
     conflict_mode: str = "cancel",
     requested_by: str,
 ) -> FamilyPackageImportJobOut:
+    # The existing family the request names, read as every ID is. One that no family can be
+    # stored under is refused before the job is written: the job could not even store a NUL.
+    requested_family_id = (requested_family_id or "").strip() or None
+    if requested_family_id is not None:
+        problem = identifier_problem(requested_family_id)
+        if problem is not None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"family_id '{visible(requested_family_id)}' {problem}. {IDENTIFIER_RULE}",
+            )
     metadata = {
         "requested_family_id": requested_family_id,
         "conflict_mode": conflict_mode,

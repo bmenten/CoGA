@@ -37,6 +37,7 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/clinical_cnv_kb_jobs.py": 93.0,  # (96.9)
     "backend/app/services/cnv_acmg_points.py": 94.0,  # (97.7)
     "backend/app/services/compound_het_phase.py": 95.0,  # (98.7)
+    "backend/app/services/family_identifiers.py": 97.0,  # (100.0, unit tests at the change)
     "backend/app/services/family_variant_filters.py": 88.0,  # (91.7)
     "backend/app/services/family_variant_write_lock.py": 97.0,  # (100.0)
     "backend/app/services/genotypes.py": 97.0,  # (100.0)

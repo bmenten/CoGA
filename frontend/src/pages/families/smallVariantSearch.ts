@@ -1527,8 +1527,8 @@ type UseSmallVariantSearchStateArgs = {
   // Whether the panels query has settled, so the default can include the panel.
   panelsLoaded?: boolean;
   // The preset a fresh open (no search in the URL) applies; null opens unfiltered. The
-  // monogenic NIPT page opens unfiltered: the Phenotype-priority preset's genotype and
-  // phenotype filters do not apply to cfDNA.
+  // monogenic NIPT page opens on its De novo preset: the Phenotype-priority preset's
+  // genotype and phenotype filters do not apply to cfDNA.
   freshOpenPreset?: SmallPreset | null;
 };
 
@@ -1559,6 +1559,9 @@ export const useSmallVariantSearchState = ({
     SmallVariantSampleFilter
   >>({});
   const [page, setPage] = useState(1);
+  // Whether the filters were set from the URL or the fresh-open default; a search sent
+  // before that runs unfiltered.
+  const [searchReady, setSearchReady] = useState(false);
   const urlProjectId = useMemo(
     () => new URLSearchParams(locationSearch).get('project_id') || undefined,
     [locationSearch],
@@ -1600,6 +1603,7 @@ export const useSmallVariantSearchState = ({
       setSampleFilters(cloneSampleFilters(presetState.sampleFilters));
       setSampleDraftFilters(cloneSampleFilters(presetState.sampleFilters));
       setPage(1);
+      setSearchReady(true);
       return;
     }
     // An explicit search counts as initialised, so Clear/Reset won't re-default.
@@ -1682,6 +1686,7 @@ export const useSmallVariantSearchState = ({
     setSampleFilters(cloneSampleFilters(initialSampleFilters));
     setSampleDraftFilters(cloneSampleFilters(initialSampleFilters));
     setPage(parsedPage);
+    setSearchReady(true);
   }, [
     emptyFilters,
     family,
@@ -1917,6 +1922,7 @@ export const useSmallVariantSearchState = ({
     requestQueryString,
     sampleDraftFilters,
     sampleFilters,
+    searchReady,
     setDraftFilterValue,
     toggleDraftFilterListValue,
   };

@@ -21,6 +21,11 @@ detail (file formats, manifest fields, configuration) is kept by the bioinformat
 replacing an existing family, editing an existing family's members or structure, adding HPO terms,
 setting the region of interest, and loading or replacing data are for administrators.
 
+**Family and sample IDs** are printable text without spaces, whichever way a family comes in. The
+spaces around an ID are dropped. An ID with a space or a control character inside (a line break, a tab,
+an escape: characters a copied ID can carry without showing them) is refused before anything is saved;
+it would otherwise reach the pedigree, the report and the audit trail.
+
 The PED carries only affected or unaffected. Detailed phenotypes are HPO terms on each person, added in
 the family member dialog.
 
@@ -203,6 +208,10 @@ heteroplasmy.
 ### What validation checks
 
 - The folder and the manifest exist.
+- Every family and sample ID (the manifest's family ID or the folder name, the PED's, the members the
+  manifest adds, a long-read package's per-sample folders) is printable text without spaces. One that is
+  not is refused (`family_id_invalid`, `sample_id_invalid`), and nothing else is checked until it is
+  corrected: Discover drafts no manifest for it.
 - The PED is a six-column PED with **one family**, whose identifier matches the manifest's (by default
   the folder name). Sample identifiers are unique, and every parent is a sample in the same PED. A
   manifest without a PED names every member under `family.add_members`.
@@ -299,6 +308,10 @@ upload stores nothing and says *Sample not found* or *Family not found*.
 - **Only administrators load data.** Other users build new families by hand.
 - **Missing index.** A compressed small-variant, structural-variant or repeat VCF without its index
   fails validation.
+- **An ID with a hidden character.** An ID copied from a spreadsheet or an e-mail can carry a tab, a
+  line break or a non-breaking space. The validation message writes the character as an escape (`\t`,
+  `\n`, `\xa0`) and says where the ID comes from (the PED, the manifest, the folder name): correct it
+  there.
 - **Restructuring a family that has data.** Changes to members, relationships, affected or carrier status
   save even when data is loaded. The imported data is kept, and what depends on the changed facts is marked
   for re-checking. Re-review the saved interpretations.
