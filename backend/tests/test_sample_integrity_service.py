@@ -6,10 +6,13 @@ import random
 import types
 
 import pytest
+from clickhouse_connect.driver.exceptions import DatabaseError
+from sqlalchemy.exc import DBAPIError
 
 from backend.app.services import sample_integrity_service
 from backend.app.services.nipt_analysis import PaternalTransmissionEvidence
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.app.services.report_signout_service import _canonical_sample_qc
 
 SAMPLES = ["FATHER", "MOTHER", "CHILD"]
 
@@ -92,6 +95,15 @@ def _patch(monkeypatch, *, swap_child: bool, metadata: dict | None = None):
     monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
 
 
+# A value a failed query was given, which the error's text quotes.
+_QUOTED_VALUE = "SYNTHETIC-VALUE-17"
+
+
+def _frozen(report) -> str:
+    """The Sample QC as sign-out freezes it into the signed report snapshot."""
+    return str(_canonical_sample_qc(report))
+
+
 def test_service_clean_trio_passes(monkeypatch) -> None:
     _patch(monkeypatch, swap_child=False)
     report = asyncio.run(
@@ -123,6 +135,29 @@ def test_service_swapped_child_fails(monkeypatch) -> None:
     pc = [c for c in report.relatedness_checks if c.expected_relationship == "parent-child"]
     assert any(c.status == "fail" for c in pc)
     assert any(c.status == "fail" for c in report.mendelian_checks)
+
+
+def test_service_notes_a_failed_genotype_load_without_the_error_text(monkeypatch) -> None:
+    # ClickHouse's text for a failed query can quote a value it was given. The note is
+    # frozen into the signed report snapshot, so it says what did not load, not why.
+    _patch(monkeypatch, swap_child=False)
+
+    async def _unreadable_value(context, *, scope, limit, source):
+        raise DatabaseError(
+            f"Code: 6. DB::Exception: Cannot parse string '{_QUOTED_VALUE}' as UInt32. "
+            "(CANNOT_PARSE_TEXT)"
+        )
+
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _unreadable_value)
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id="FAM1", user=None
+        )
+    )
+    assert report.overall_status == "warn"
+    assert report.notes[0] == "Genotypes could not be loaded."
+    assert _QUOTED_VALUE not in _frozen(report)
+    assert "DB::Exception" not in _frozen(report)
 
 
 def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> None:
@@ -178,8 +213,9 @@ def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> 
 
 
 def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> None:
-    # Mock/partial data: the cfDNA analysis raises -> the page degrades to a
-    # warning with an explanatory note instead of 500-ing.
+    # The cfDNA analysis raises -> the page degrades to a warning with a note instead
+    # of 500-ing. The note is frozen into the signed report snapshot, so it is a fixed
+    # sentence: the error's text quotes the failed statement and its parameters.
     _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
     monkeypatch.setattr(
         sample_integrity_service, "resolve_nipt_trio",
@@ -188,7 +224,11 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
     import backend.app.services.nipt_service as nipt_service
 
     async def _boom(session, *, family_id, user, project_id=None, **kwargs):
-        raise RuntimeError("no cfDNA variants")
+        raise DBAPIError(
+            "SELECT artifact_id FROM nipt_artifacts WHERE assay_key = $1",
+            (_QUOTED_VALUE,),
+            Exception("invalid input syntax"),
+        )
 
     monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _boom)
 
@@ -198,7 +238,9 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
         )
     )
     assert report.overall_status == "warn"
-    assert any("NIPT cfDNA analysis could not run" in note for note in report.notes)
+    assert report.notes == ["NIPT cfDNA analysis could not run."]
+    assert _QUOTED_VALUE not in _frozen(report)
+    assert "SELECT" not in _frozen(report)
     assert report.paternity_check is None
 
 
