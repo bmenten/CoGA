@@ -22,6 +22,27 @@ def scrub_log(value: Any, *, max_len: int = 512) -> str:
     return scrubbed if len(scrubbed) <= max_len else scrubbed[: max_len - 3] + "..."
 
 
+def describe_error(exc: BaseException) -> str:
+    """Name an exception for a log line without its message, e.g. ``DBAPIError
+    (UntranslatableCharacterError, SQLSTATE 22P05)``: its type and, for a database error,
+    the driver's error type and SQLSTATE.
+
+    A failed statement's message quotes the values it was given (SQLAlchemy appends the
+    parameters, Postgres quotes the JSON it could not read). For the audit writers those are
+    the request's user, path and body, which the log must not copy."""
+    name = type(exc).__name__
+    orig = getattr(exc, "orig", None)
+    if not isinstance(orig, BaseException):
+        return name
+    # SQLAlchemy's asyncpg adapter raises its own error from asyncpg's, which names the kind.
+    driver_error = orig.__cause__ if orig.__cause__ is not None else orig
+    detail = type(driver_error).__name__
+    sqlstate = getattr(orig, "sqlstate", None)
+    if isinstance(sqlstate, str) and sqlstate:
+        detail += f", SQLSTATE {scrub_log(sqlstate, max_len=16)}"
+    return f"{name} ({detail})"
+
+
 class JsonLogFormatter(logging.Formatter):
     """CoGA JSON formatter for all backend logs."""
 

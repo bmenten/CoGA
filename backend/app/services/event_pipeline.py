@@ -11,7 +11,11 @@ accountability trail (TF-13 S-5) is never silently lost:
 * A genuinely unpersistable event (the synchronous fallback fails, or the worker's
   batch write keeps failing) is logged at ERROR with its full, already-sanitised
   payload — so it survives in the log stream that feeds monitoring — and counted,
-  never silently discarded.
+  never silently discarded. The database error is named, never quoted: its text
+  repeats the rows it could not insert.
+* What an event holds cannot make it unpersistable: the writers escape the values
+  Postgres refuses (a NUL, half a surrogate pair, NaN) before the INSERT
+  (``core/pg_storable.py``), so one such event cannot fail its batch either.
 * ``AUDIT_LOG_DROP_ALLOWED`` true (non-production only; refused in prod by the
   settings validator): a full queue drops with a WARN, preserving the original
   low-overhead dev/test behaviour.
@@ -27,6 +31,7 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from ..core.coga_logging import describe_error
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -109,7 +114,7 @@ async def enqueue_event(
     try:
         await write_batch([payload])
     except Exception as exc:  # noqa: BLE001 — last resort, never raise into the request
-        _record_unpersisted(name, payload, f"synchronous fallback failed: {exc}")
+        _record_unpersisted(name, payload, f"synchronous fallback failed: {describe_error(exc)}")
 
 
 async def write_event_batch_with_retry(
@@ -131,13 +136,16 @@ async def write_event_batch_with_retry(
         try:
             await write_batch(list(batch))
             return
-        except Exception:  # retried below; final loss is recorded
+        except Exception as exc:  # noqa: BLE001 - retried below; a final loss is recorded per event
             if attempt >= attempts:
-                logger.exception(
-                    "Audit pipeline %s: batch of %d events failed after %d attempts",
+                # The error is named, not quoted: its text repeats every row of the batch,
+                # and each event's payload is logged once below.
+                logger.error(
+                    "Audit pipeline %s: batch of %d events failed after %d attempts: %s",
                     name,
                     len(batch),
                     attempts,
+                    describe_error(exc),
                 )
                 for payload in batch:
                     _record_unpersisted(name, payload, "batch write failed")

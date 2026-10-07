@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 
+from sqlalchemy.exc import DBAPIError
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
@@ -286,3 +287,66 @@ def test_request_body_excluded_from_stdout_log_but_kept_in_audit(monkeypatch) ->
         "patient_name": "Jane Doe",
         "hpo": ["HP:0001250"],
     }
+
+
+def _json_post(path: str, body: bytes) -> Request:
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": path,
+        "scheme": "http",
+        "query_string": b"",
+        "http_version": "1.1",
+        "headers": [
+            (b"content-type", b"application/json"),
+            (b"content-length", str(len(body)).encode()),
+        ],
+        "client": ("127.0.0.1", 1234),
+        "server": ("testserver", 80),
+        "path_params": {},
+    }
+    sent = {"done": False}
+
+    async def receive():
+        if not sent["done"]:
+            sent["done"] = True
+            return {"type": "http.request", "body": body, "more_body": False}
+        return {"type": "http.disconnect"}
+
+    return Request(scope, receive)
+
+
+def test_a_failed_audit_write_is_logged_by_kind_not_by_its_text(monkeypatch, caplog) -> None:
+    # The error of a failed INSERT quotes the row it could not write (SQLAlchemy appends the
+    # parameters, the request body among them); the warning used to log that text whole.
+    class _AsyncpgError(Exception):
+        pass
+
+    class _AdaptedError(Exception):
+        sqlstate = "22P05"
+
+    orig = _AdaptedError("unsupported Unicode escape sequence")
+    orig.__cause__ = _AsyncpgError("unsupported Unicode escape sequence")
+    failure = DBAPIError(
+        "INSERT INTO audit_log_events ...", {"request_body": '{"patient_name": "Jane Doe"}'}, orig
+    )
+
+    async def _failing_write(_payload):
+        raise failure
+
+    async def call_next(_request):
+        return JSONResponse({"ok": True})
+
+    monkeypatch.setattr(rl, "write_audit_log_event", _failing_write)
+    caplog.set_level(logging.WARNING, logger=rl.logger._logger.name)
+    body = json.dumps({"patient_name": "Jane Doe"}).encode()
+
+    response = asyncio.run(rl.log_request_response(_json_post("/api/families/F1/notes", body), call_next))
+
+    assert response.status_code == 200  # a lost audit row never fails the request
+    warnings = [r for r in caplog.records if r.getMessage().startswith("Failed to persist audit log")]
+    assert len(warnings) == 1
+    assert warnings[0].getMessage() == (
+        "Failed to persist audit log: DBAPIError (_AsyncpgError, SQLSTATE 22P05)"
+    )
+    assert "Jane Doe" not in JsonLogFormatter().format(warnings[0])

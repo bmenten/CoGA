@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 
 import pytest
 
@@ -152,3 +153,22 @@ async def test_empty_batch_is_noop():
     await write_event_batch_with_retry(write_batch, [], name=NAME)
     assert calls == []
     assert dropped_event_count(NAME) == 0
+
+
+@pytest.mark.asyncio
+async def test_a_failed_batch_is_logged_by_kind_not_by_its_text(monkeypatch, caplog):
+    # A failed INSERT's text repeats every row of the batch; the batch line names the error
+    # instead, and each payload is still logged once with its own line (S-5).
+    monkeypatch.setattr(settings, "audit_log_max_write_attempts", 1)
+    caplog.set_level(logging.ERROR, logger="app.services.event_pipeline")
+
+    async def failing(_batch):
+        raise RuntimeError("INSERT failed [parameters: ('row-a', 'row-b')]")
+
+    await write_event_batch_with_retry(failing, ["row-a", "row-b"], name=NAME)
+
+    messages = [record.getMessage() for record in caplog.records]
+    batch_lines = [m for m in messages if "failed after" in m]
+    assert batch_lines == [f"Audit pipeline {NAME}: batch of 2 events failed after 1 attempts: RuntimeError"]
+    assert sum("payload='row-a'" in m for m in messages) == 1
+    assert all("[parameters:" not in m for m in messages)

@@ -10,6 +10,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.pg_storable import ESCAPED_KEY, storable_columns
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import AuditLogEventOut, AuditLogPageOut
 from .event_pipeline import enqueue_event, write_event_batch_with_retry
@@ -109,25 +110,36 @@ def _to_jsonb_text(value: Any) -> str | None:
 
 
 def _audit_log_insert_params(payload: AuditLogEventPayload) -> dict[str, Any]:
-    return {
-        "user_id": payload.user_id,
-        "user_email": payload.user_email,
-        "user_role": payload.user_role,
-        "method": payload.method,
-        "route_path": payload.route_path,
-        "path": payload.path,
-        "query_string": payload.query_string,
-        "status_code": payload.status_code,
-        "duration_ms": payload.duration_ms,
-        "remote_ip": payload.remote_ip,
-        "user_agent": payload.user_agent,
-        "referer": payload.referer,
-        "protocol": payload.protocol,
-        "request_body": _to_jsonb_text(payload.request_body),
-        "request_meta": _to_jsonb_text(payload.request_meta or {}),
-        "db_update": _to_jsonb_text(payload.db_update),
-        "error": payload.error,
-    }
+    # Whatever the request carried, its row must be storable: a value Postgres refuses (a NUL
+    # from a %00 in the path, \u0000 in an ignored body field) is escaped, and request_meta
+    # names the columns where that happened. Otherwise the INSERT fails, and neither the
+    # request's row nor the rest of its batch reaches the table.
+    params, escaped = storable_columns(
+        {
+            "user_id": payload.user_id,
+            "user_email": payload.user_email,
+            "user_role": payload.user_role,
+            "method": payload.method,
+            "route_path": payload.route_path,
+            "path": payload.path,
+            "query_string": payload.query_string,
+            "status_code": payload.status_code,
+            "duration_ms": payload.duration_ms,
+            "remote_ip": payload.remote_ip,
+            "user_agent": payload.user_agent,
+            "referer": payload.referer,
+            "protocol": payload.protocol,
+            "request_body": payload.request_body,
+            "request_meta": payload.request_meta or {},
+            "db_update": payload.db_update,
+            "error": payload.error,
+        }
+    )
+    if escaped:
+        params["request_meta"] = {**params["request_meta"], ESCAPED_KEY: escaped}
+    for column in ("request_body", "request_meta", "db_update"):
+        params[column] = _to_jsonb_text(params[column])
+    return params
 
 
 async def _write_audit_log_batch(payloads: list[AuditLogEventPayload]) -> None:

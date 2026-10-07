@@ -9,7 +9,7 @@ from urllib.parse import urlencode
 
 from fastapi import Request, Response
 
-from ..core.coga_logging import CoGALogger
+from ..core.coga_logging import CoGALogger, describe_error
 from ..core.config import API_PATH_PREFIX, settings
 from ..services.audit_log_pg import (
     AuditLogEventPayload,
@@ -314,8 +314,10 @@ async def log_request_response(request: Request, call_next) -> Response:
                 )
             )
         except Exception as exc:  # noqa: BLE001 - a lost audit row is logged; it never fails the request
+            # The error's own text quotes the row it could not insert, the request body
+            # among it, so only its kind is logged.
             logger.warning(
-                f"Failed to persist audit log: {exc}",
+                f"Failed to persist audit log: {describe_error(exc)}",
                 user=user,
                 detail={"path": request.url.path, "method": request.method},
             )

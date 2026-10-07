@@ -135,8 +135,8 @@ was.
 
 | Table | Holds |
 | --- | --- |
-| `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked |
-| `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage |
+| `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped (below) |
+| `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events` |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
 | `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes and sign-out, with before and after |
@@ -154,6 +154,19 @@ are never put in `sha256`. **Verify** on the admin page checks such a file again
 size and generation or version id (an unversioned S3 object is compared by ETag). It reports
 a vanished object as `missing` and a replaced one as `mismatch`. The file is not downloaded
 through CoGA.
+
+**Values Postgres cannot store.** A request can carry what Postgres refuses: a NUL character
+(a `%00` in the path or query string reaches the app decoded; `\u0000` in a JSON body), half
+of a UTF-16 surrogate pair (`\ud800` in a JSON body), and the JSON numbers `NaN` and
+`Infinity`. Such a value used to fail the INSERT, so the request's row, and in the async mode
+every row of its batch, never reached the table. The writers of `audit_log_events` and
+`ui_events` now store it as an escape (`core/pg_storable.py`): a NUL as the four characters
+`\x00`, half a pair as `\udXXX`, and a number as the string `"NaN"`, `"Infinity"` or
+`"-Infinity"`; a JSON key is treated like a value. `_escaped` lists the columns this happened
+in, sorted: in `request_meta` for `audit_log_events`, in `detail` for `ui_events`, where a
+client's own `_escaped` is dropped. A row without it is stored as the request sent it. The
+escape is not unique, since a request can send the characters `\x00` itself: `_escaped` says
+that a column holds an escape, not which one.
 
 What these records hold and how they are checked is in
 [clinical-traceability.md](clinical-traceability.md).

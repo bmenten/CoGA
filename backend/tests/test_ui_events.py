@@ -1,3 +1,4 @@
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -112,3 +113,30 @@ def test_insert_params_serializes_detail_to_json_string() -> None:
     )
     assert isinstance(params["detail"], str)
     assert params["detail"] == '{"from": "/a", "to": "/b"}'
+
+
+def test_insert_params_escape_what_postgres_refuses_and_flag_it_in_detail() -> None:
+    params = _ui_event_insert_params(
+        UiEventPayload(
+            event_type="click",
+            label="Save\x00x",
+            to_path="/families/F\x00/small-variants",
+            detail={"note": "a\x00b", "ratio": float("nan"), "count": 2},
+        )
+    )
+    assert params["label"] == "Save\\x00x"
+    assert params["to_path"] == "/families/F\\x00/small-variants"
+    assert json.loads(params["detail"]) == {
+        "note": "a\\x00b",
+        "ratio": "NaN",
+        "count": 2,
+        "_escaped": ["detail", "label", "to_path"],
+    }
+
+
+def test_insert_params_drop_a_client_flag_in_detail() -> None:
+    # Only the writer sets _escaped: a client cannot claim an escape that did not happen.
+    params = _ui_event_insert_params(
+        UiEventPayload(event_type="click", detail={"_escaped": "label", "count": 1})
+    )
+    assert json.loads(params["detail"]) == {"count": 1}
