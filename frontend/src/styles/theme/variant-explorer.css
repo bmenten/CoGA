@@ -320,23 +320,33 @@
   border-radius: var(--radius-card);
   background: linear-gradient(
     90deg,
-    #1a7f37 0%,
-    #2da44e 16%,
-    #b8c40d 34%,
-    #e8c317 44%,
-    #e8a317 58%,
-    #e0552b 74%,
-    var(--color-signature-red) 100%
+    #1a7f37 0% 6%,
+    #2da44e 6%,
+    #b8c40d 20%,
+    #e8c317 45%,
+    #e8a317 62%,
+    #e0552b 80%,
+    var(--color-signature-red) 94%,
+    #8f1420 94% 100%
   );
 }
 
+/* Ticks follow the posterior chart: a thin one per VUS point, a full-height
+   one on each class boundary. Benign (< 0.1%) and Pathogenic (> 99%) are solid
+   end caps in the gradient above. */
 .acmg-scalebar-tick {
   position: absolute;
-  top: -3px;
-  bottom: -3px;
+  top: 0;
+  bottom: -4px;
   width: 1px;
-  background: rgba(10, 11, 12, 0.35);
+  background: rgba(10, 11, 12, 0.3);
   transform: translateX(-0.5px);
+}
+
+.acmg-scalebar-tick--boundary {
+  top: -3px;
+  bottom: -5px;
+  background: rgba(10, 11, 12, 0.65);
 }
 
 .acmg-scalebar-arrow {
@@ -351,13 +361,38 @@
   transition: left 0.18s ease;
 }
 
+/* Posterior probability under each tick, centred on it. */
+.acmg-scalebar-ticklabels,
 .acmg-scalebar-legend {
-  display: flex;
-  justify-content: space-between;
+  position: relative;
   width: 100%;
-  margin-top: 0.25rem;
+  height: 1.1em;
   font-size: var(--fs-2xs);
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.acmg-scalebar-ticklabels {
+  margin-top: 0.375rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.acmg-scalebar-ticklabel {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+}
+
+/* Class names centred in their band; Benign and Pathogenic hug the ends. */
+.acmg-scalebar-legend {
+  margin-top: 0.125rem;
   color: var(--color-accent);
+}
+
+.acmg-scalebar-legend-item {
+  position: absolute;
+  top: 0;
 }
 
 /* ClinGen CNV classification modal — compact, column-aligned criteria. */

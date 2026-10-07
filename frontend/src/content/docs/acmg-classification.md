@@ -29,6 +29,12 @@ Each criterion you accept adds points by its strength. Benign criteria subtract 
 | −1 to −6 | Likely benign - class 2 |
 | −7 or less | Benign - class 1 |
 
+The score bar at the top of the form draws this scale as posterior probabilities of pathogenicity
+(Tavtigian: a prior of 10%, and the odds double with roughly every point). Benign is below 0.1% and
+Pathogenic above 99%, so both are short end caps. Every VUS point has a cell of its own, with a tick
+at 10%, 18.8%, 32.5%, 50%, 67.5% and 81.2%; Likely Pathogenic starts at 90%. The arrow sits in the
+cell of the current total.
+
 **BA1 overrides the points.** An accepted BA1 (allele frequency 5% or more) makes the variant Benign,
 whatever the other criteria say.
 
