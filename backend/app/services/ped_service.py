@@ -273,7 +273,7 @@ async def _resolve_accessible_project_id(
             return None
         raise HTTPException(status_code=400, detail="Project assignment is required")
 
-    require_uuid(normalized_project_id, "Invalid project id")
+    normalized_project_id = require_uuid(normalized_project_id, "Invalid project id")
     result = await session.execute(
         text("SELECT id::text AS id FROM projects WHERE id = CAST(:project_id AS uuid)"),
         {"project_id": normalized_project_id},

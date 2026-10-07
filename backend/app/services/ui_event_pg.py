@@ -13,7 +13,7 @@ from ..core.config import settings
 from ..core.pg_storable import ESCAPED_KEY, storable_columns
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import UiEventOut, UiEventPageOut
-from .event_pipeline import enqueue_event, write_event_batch_with_retry
+from .event_pipeline import enqueue_event, write_event_batch_with_retry, write_event_now
 
 _UI_EVENT_PIPELINE_NAME = "ui_event"
 
@@ -211,10 +211,16 @@ def ui_event_queue_depth() -> int:
 
 
 async def write_ui_event(payload: UiEventPayload) -> None:
+    """Store a UI event. A write that fails is recorded (TF-13 S-5), not raised, as the
+    worker records one it cannot store: it does not fail the batch the event came in."""
     if settings.audit_log_mode == "off":
         return
     if settings.audit_log_mode != "async" or _ui_event_queue is None:
-        await _write_ui_event_batch([payload])
+        # As for the request audit (audit_log_pg.write_audit_log_event): sync mode, or no
+        # worker running.
+        await write_event_now(
+            payload, name=_UI_EVENT_PIPELINE_NAME, write_batch=_write_ui_event_batch
+        )
         return
     await enqueue_event(
         _ui_event_queue,

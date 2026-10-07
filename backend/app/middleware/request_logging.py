@@ -11,10 +11,12 @@ from fastapi import Request, Response
 from ..core.coga_logging import CoGALogger, describe_error, describe_traceback
 from ..core.config import API_PATH_PREFIX, settings
 from ..services.audit_log_pg import (
+    AUDIT_PIPELINE_NAME,
     AuditLogEventPayload,
     log_model_update,
     write_audit_log_event,
 )
+from ..services.event_pipeline import record_unpersisted
 from ..services.operational_metrics import record_request
 
 logger = CoGALogger(__name__)
@@ -266,7 +268,10 @@ async def log_request_response(request: Request, call_next) -> Response:
         # text is emitted to the application log: a failed statement's text quotes
         # its SQL and parameters, values from the request or read for it. Both are
         # persisted only to the access-controlled audit DB (audit_log_events
-        # .request_body and .error) via the write_audit_log_event call below.
+        # .request_body and .error) via the write_audit_log_event call below. The one
+        # exception is a row the audit DB cannot store: that row is logged at ERROR
+        # with its payload, both included, so it can be restored
+        # (event_pipeline.record_unpersisted, TF-13 S-5).
         detail: dict[str, Any] = {"durationMs": duration_ms}
         log_kwargs: dict[str, Any] = {"http_request_json": http_request_json, "detail": detail}
         if db_update:
@@ -293,35 +298,35 @@ async def log_request_response(request: Request, call_next) -> Response:
                 "accept": request.headers.get("accept"),
             }
         }
+        audit_event: AuditLogEventPayload | None = None
         try:
-            await write_audit_log_event(
-                AuditLogEventPayload(
-                    user_id=user.get("id") if user else None,
-                    user_email=user.get("email") if user else None,
-                    user_role=user.get("role") if user else None,
-                    method=request.method.upper(),
-                    route_path=route_path,
-                    path=request.url.path,
-                    query_string=query_string,
-                    status_code=status_code,
-                    duration_ms=duration_ms,
-                    remote_ip=request.client.host if request.client else None,
-                    user_agent=request.headers.get("user-agent"),
-                    referer=request.headers.get("referer"),
-                    protocol=request.scope.get("http_version"),
-                    request_body=request_body,
-                    request_meta=request_meta,
-                    db_update=db_update,
-                    error=str(failure) if failure is not None else None,
-                )
+            audit_event = AuditLogEventPayload(
+                user_id=user.get("id") if user else None,
+                user_email=user.get("email") if user else None,
+                user_role=user.get("role") if user else None,
+                method=request.method.upper(),
+                route_path=route_path,
+                path=request.url.path,
+                query_string=query_string,
+                status_code=status_code,
+                duration_ms=duration_ms,
+                remote_ip=request.client.host if request.client else None,
+                user_agent=request.headers.get("user-agent"),
+                referer=request.headers.get("referer"),
+                protocol=request.scope.get("http_version"),
+                request_body=request_body,
+                request_meta=request_meta,
+                db_update=db_update,
+                error=str(failure) if failure is not None else None,
             )
-        except Exception as exc:  # noqa: BLE001 - a lost audit row is logged; it never fails the request
-            # The error's own text quotes the row it could not insert, the request body
-            # among it, so only its kind is logged.
-            logger.warning(
-                f"Failed to persist audit log: {describe_error(exc)}",
-                user=user,
-                detail={"path": request.url.path, "method": request.method},
+            await write_audit_log_event(audit_event)
+        except Exception as exc:  # noqa: BLE001 - a lost audit row never fails the request
+            # write_audit_log_event records a failed write itself (TF-13 S-5). Should anything
+            # else raise here, building the row included, the row is lost all the same and
+            # recorded the same way: counted and logged with what was built of it, the error
+            # by its kind, as its text may quote the row.
+            record_unpersisted(
+                AUDIT_PIPELINE_NAME, audit_event, f"audit write raised: {describe_error(exc)}"
             )
 
     assert response is not None

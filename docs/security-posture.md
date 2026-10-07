@@ -26,11 +26,42 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   families and samples of their own projects; admins see all. List endpoints filter in SQL,
   not after the fact. `backend/tests/test_access_control.py` covers the cross-user and
   multi-project cases.
+- ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
+  and Postgres cannot compare a NUL, so a request that looked up a family's path
+  (`/api/families/FAM%00X`) or any other path or query value with one failed with a 500.
+  `get_current_user` answers 400, naming the parameter, when a path parameter, a query
+  parameter's name or a `family_id` or `sample_id` query value holds a C0 control character
+  or DEL, which no family or sample ID may hold (`services/family_identifiers.py`), and when
+  any other query value holds a NUL. A gene or interval list typed one per line keeps its line
+  breaks. The check runs once the caller is signed in, so the 401 comes first and the
+  refusal's audit row names the caller, and before any route looks a value up, with the same
+  answer for every caller: it reveals nothing about which families exist or who may see them.
+  Every route that takes a path or query value signs its caller in, except the QC-report
+  download, which checks its own signed link first (`test_request_control_characters.py`).
 - ✅ **Admin-only changes.** Structure changes and deletions of families and data (member and
   structure edits, region of interest, project assignment, family and sample deletions),
   replacing a family's annotation manifest, reference data, imports and uploads require
   `get_current_admin_user`. A user with access to a family can edit its phenotypes, reviews
   and saved filters.
+- ✅ **A UUID a request names a record by is read once.** asyncpg's uuid codec takes nothing
+  but hex digits and hyphens, so a path or query value that was no UUID
+  (`/api/admin/data/files/PROBEX/download`), or a UUID in braces or after `urn:uuid:` that a
+  route had checked with `uuid.UUID` and then bound as received, failed the request with a
+  500. Every such value (a raw file, an import job, an HPO annotation, a NIPT artifact, a
+  panel, a filter preset, a user, a project, a species, an assembly, a clinical CNV, the
+  `panel_id` filter) is now read by `core/sql.py` (`canonical_uuid`, `require_uuid`): one that
+  spells no UUID is answered as an unknown record is, with the route's own 404 or the 400 it
+  answers an invalid id with, before any query; one that does is bound as its canonical text,
+  so each spelling of a record's id names that record. What `uuid.UUID` merely tolerates (an
+  underscore, a space or a sign among the digits, `0x`, digits of another script) spells no
+  UUID: read as a number, it would name a different-looking record. The value is read where
+  the record is looked up, after the sign-in, the role and the family's project checks, so the
+  answer is the one an unknown record gets, whether or not a record of that id exists in a
+  project the caller cannot see (`test_request_uuid.py`,
+  `e2e/test_e2e_request_malformed_uuid.py`). The ids a project, assembly, family-project or
+  family-status body carries are read the same way; the `assembly_id` of a NIPT artifact and
+  the `project_id` of an import request are not checked yet, and one that names nothing still
+  fails with a 500.
 - ✅ **Scoped downloads.** The CRAM/BAM and signal-track endpoints check family and sample
   access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
   They sign a location the import recorded only when it names an object in the configured
@@ -117,7 +148,12 @@ are colleagues, so there is no tenant boundary to protect.
 - ✅ **No silent loss (S-5).** A full queue applies backpressure for up to
   `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event directly; the worker
   retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`); an event that still cannot be stored
-  is logged at ERROR with its (already masked) payload and counted for alerting. Outside
+  is logged at ERROR with its (already masked) payload and counted for alerting. The same holds
+  without the queue, with `AUDIT_LOG_MODE=sync` or while no worker runs (before startup
+  completes, after shutdown): each event is written as its request runs, and a write that fails
+  is logged and counted the same way, where it used to leave a warning the alert did not count.
+  Neither the request nor a batch of UI events fails because of it: the UI-event endpoint still
+  answers 202, so the browser does not resend the events already stored. Outside
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
@@ -126,10 +162,12 @@ are colleagues, so there is no tenant boundary to protect.
   endpoint ignores, or `%00` in the URL: the action was carried out, and its row, with every
   other row of its async batch, reached only the log. Such a value is now stored as a visible
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
-  UI-event log does the same.
-- ✅ **A failed audit write is logged by its kind.** The log line gives the exception type and
-  SQLSTATE (`describe_error` in `core/coga_logging.py`), never the error's text, which quotes
-  the row it could not insert, request body included.
+  UI-event log does the same. A NUL in the URL is now refused at sign-in (§1), and the
+  refusal's row is kept the same way, under the caller's name.
+- ✅ **A failed audit write is logged by its kind.** The log line names the exception by its
+  type and SQLSTATE (`describe_error` in `core/coga_logging.py`), never by the error's text,
+  which quotes the statement and the row it could not insert. The row itself is logged once,
+  as its masked payload (S-5).
 - ✅ **No request body and no error text in the application log.** The request body is written
   only to `audit_log_events`, and so is the text of an error, which for a failed statement
   quotes its SQL and parameters: values from the request, or read for it. An unhandled error's
@@ -146,7 +184,8 @@ are colleagues, so there is no tenant boundary to protect.
   (`JsonLogFormatter`): the exception's kind in `error`, the frames of its chain in
   `traceback`, never its message. If the traceback cannot be written, the line still goes out
   with the kind, because a formatter that fails makes `logging` print the logged exception's
-  full text to stderr.
+  full text to stderr. The one exception is a row the audit table cannot store: it is logged at
+  ERROR with its masked payload, body and error text included, so it can be restored (S-5).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the
@@ -247,7 +286,8 @@ Every suppressed advisory is recorded in
 
 The application layer applies project-scoped access consistently, with no cross-project IDOR
 found, keeps a durable append-only audit trail, needs a signed-in user for reference data,
-throttles sign-ups and logins, bounds input sizes, decompression and paths, and refuses to
+throttles sign-ups and logins, bounds input sizes, decompression and paths, refuses a control
+character in what a request looks up, and refuses to
 start on weak or shared secrets or with the request audit log switched off. S-5 (audit
 durability), S-6 (required checks) and S-7 (dependency pinning) are closed. The open items are deployment-level: S-1, S-2, S-3 and S-8 are written
 in Terraform and wait for the first deployment and its evidence; S-4 is open. See
