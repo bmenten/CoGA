@@ -23,7 +23,7 @@ from ..schemas import (
 )
 from .data_scope import is_primary_chromosome
 from .metadata_service import get_accessible_family_mapping
-from .access_control import CurrentUser, is_admin_user
+from .access_control import CurrentUser, RecordNotVisible, user_can_access_metadata_projects
 from .monarch_ingest import (
     family_observed_phenotype_closure,
     list_monarch_gene_disease,
@@ -301,13 +301,6 @@ def _build_external_links(
     return links
 
 
-def _ensure_project_access(project_id: str, user: CurrentUser) -> None:
-    if is_admin_user(user):
-        return
-    if project_id not in set(user.metadata_project_ids):
-        raise HTTPException(status_code=403, detail="Not authorized")
-
-
 async def _get_human_context(session: AsyncSession) -> tuple[dict[str, Any], list[dict[str, Any]]]:
     species_result = await session.execute(
         text(
@@ -480,7 +473,9 @@ async def build_gene_profile(
         project_row = project_result.mappings().first()
         if project_row is None:
             raise HTTPException(status_code=404, detail="Project not found")
-        _ensure_project_access(requested_project_id, user)
+        # A project outside the user's projects answers exactly like an unknown one (REQ-SEC-001).
+        if not user_can_access_metadata_projects([project_row["id"]], user):
+            raise RecordNotVisible("project", "Project not found")
         if family_row is not None and requested_project_id not in (family_row.get("project_ids") or []):
             raise HTTPException(status_code=400, detail="Project is not linked to this family")
     elif family_row is not None:

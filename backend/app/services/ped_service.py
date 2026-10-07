@@ -14,7 +14,7 @@ from .clickhouse_variant_storage import delete_family_small_variants, delete_fam
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .upload_safety import decode_upload_text
-from .access_control import CurrentUser, is_admin_user
+from .access_control import CurrentUser, RecordNotVisible, is_admin_user, user_can_access_metadata_projects
 
 INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
 
@@ -254,14 +254,6 @@ def _normalize_project_id(value: str | None) -> str | None:
     return stripped or None
 
 
-def _metadata_project_ids_for_user(user: CurrentUser) -> set[str]:
-    return {
-        str(project_id)
-        for project_id in getattr(user, "metadata_project_ids", []) or []
-        if project_id
-    }
-
-
 async def _resolve_accessible_project_id(
     session: AsyncSession,
     user: CurrentUser,
@@ -278,10 +270,12 @@ async def _resolve_accessible_project_id(
         text("SELECT id::text AS id FROM projects WHERE id = CAST(:project_id AS uuid)"),
         {"project_id": normalized_project_id},
     )
-    if result.scalar_one_or_none() is None:
+    found_project_id = result.scalar_one_or_none()
+    if found_project_id is None:
         raise HTTPException(status_code=404, detail="Project not found")
-    if not is_admin_user(user) and normalized_project_id not in _metadata_project_ids_for_user(user):
-        raise HTTPException(status_code=403, detail="Not authorized for this project")
+    # A project outside the user's projects answers exactly like an unknown one (REQ-SEC-001).
+    if not user_can_access_metadata_projects([found_project_id], user):
+        raise RecordNotVisible("project", "Project not found")
     return normalized_project_id
 
 

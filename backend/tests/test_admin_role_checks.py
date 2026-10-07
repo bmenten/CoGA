@@ -5,7 +5,8 @@ superuser in through ``get_current_admin_user``, and then these checks refused i
 variant tags and gene panels, creating a family from a PED file or by hand, reading import
 jobs, reading a gene profile outside its projects, and listing the user accounts. Each check
 is now ``is_admin_user``. These tests hold a superuser to the same answer as an admin, and a
-viewer to the refusal it had.
+viewer to the refusal it had, except that a project outside the viewer's own now answers 404
+"Project not found", like one that does not exist (REQ-SEC-001).
 """
 
 from __future__ import annotations
@@ -119,16 +120,39 @@ def test_a_viewer_may_not_change_gene_panels() -> None:
 # --- gene profile --------------------------------------------------------------------------
 
 
+class _PastTheProjectCheck(Exception):
+    """The gene profile went on to its next step: the project check let the user through."""
+
+
+async def _gene_profile_in_project(monkeypatch, user: CurrentUser, *, project_exists: bool = True) -> None:
+    async def next_step(session: Any) -> None:
+        raise _PastTheProjectCheck
+
+    monkeypatch.setattr(gene_metadata_service, "_get_human_context", next_step)
+    found = _Result([{"id": PROJECT, "assembly_id": "a1"}] if project_exists else [])
+    await gene_metadata_service.build_gene_profile(
+        _Session(found), symbol="GENE1", assembly_id=None, family_id=None, project_id=PROJECT, user=user
+    )
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("role", ADMIN_ROLES)
-def test_every_admin_role_reads_a_gene_profile_in_any_project(role: str) -> None:
-    gene_metadata_service._ensure_project_access(PROJECT, _user(role))
+async def test_every_admin_role_reads_a_gene_profile_in_any_project(monkeypatch, role: str) -> None:
+    with pytest.raises(_PastTheProjectCheck):
+        await _gene_profile_in_project(monkeypatch, _user(role))
 
 
-def test_a_viewer_reads_gene_profiles_in_their_own_projects_only() -> None:
-    gene_metadata_service._ensure_project_access(PROJECT, _user("viewer", [PROJECT]))
+@pytest.mark.asyncio
+async def test_a_viewer_reads_gene_profiles_in_their_own_projects_only(monkeypatch) -> None:
+    with pytest.raises(_PastTheProjectCheck):
+        await _gene_profile_in_project(monkeypatch, _user("viewer", [PROJECT]))
     with pytest.raises(HTTPException) as refused:
-        gene_metadata_service._ensure_project_access(PROJECT, _user("viewer"))
-    assert refused.value.status_code == 403
+        await _gene_profile_in_project(monkeypatch, _user("viewer"))
+    with pytest.raises(HTTPException) as unknown:
+        await _gene_profile_in_project(monkeypatch, _user("viewer"), project_exists=False)
+    # Another team's project answers exactly like one that does not exist (REQ-SEC-001).
+    assert (refused.value.status_code, refused.value.detail) == (404, "Project not found")
+    assert (unknown.value.status_code, unknown.value.detail) == (404, "Project not found")
 
 
 # --- families from a PED file or by hand ---------------------------------------------------
@@ -152,7 +176,8 @@ async def test_a_viewer_needs_a_project_of_their_own_and_may_not_overwrite() -> 
     assert no_project.value.status_code == 400
     with pytest.raises(HTTPException) as not_theirs:
         await ped_service._resolve_accessible_project_id(_Session(_Result(scalar=PROJECT)), viewer, PROJECT)
-    assert not_theirs.value.status_code == 403
+    # Answered like a project that does not exist (REQ-SEC-001).
+    assert (not_theirs.value.status_code, not_theirs.value.detail) == (404, "Project not found")
     with pytest.raises(HTTPException) as overwrite:
         ped_service._ensure_user_can_replace_existing_families(viewer)
     assert overwrite.value.status_code == 403

@@ -95,8 +95,9 @@ def test_cram_manifest_relative_urls_in_local_mode(monkeypatch):
 
 
 def test_alignment_denied_when_family_not_accessible_before_serving(monkeypatch):
+    # The checkpoint's answer for a family outside the user's projects (REQ-SEC-001).
     async def _deny(session, family_id, user):
-        raise HTTPException(status_code=403, detail="Forbidden")
+        raise HTTPException(status_code=404, detail="Family not found")
 
     served = {"called": False}
 
@@ -110,7 +111,7 @@ def test_alignment_denied_when_family_not_accessible_before_serving(monkeypatch)
     with pytest.raises(HTTPException) as exc:
         asyncio.run(cram.get_cram("F1", "S1", session=None, user=object()))
 
-    assert exc.value.status_code == 403
+    assert exc.value.status_code == 404
     # The access failure must short-circuit before the file/presigned URL is issued.
     assert served["called"] is False
 

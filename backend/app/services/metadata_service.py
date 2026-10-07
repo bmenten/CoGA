@@ -26,8 +26,9 @@ from ..schemas import (
 )
 from .access_control import (
     CurrentUser,
-    ensure_user_can_access_metadata_projects,
+    RecordNotVisible,
     is_admin_user,
+    user_can_access_metadata_projects,
     user_metadata_project_ids,
     visible_metadata_project_ids,
 )
@@ -1198,9 +1199,11 @@ async def get_accessible_family_mapping(
     rows = await _fetch_family_rows(session, family_identifiers=[family_identifier])
     if not rows:
         raise HTTPException(status_code=404, detail="Family not found")
-    family_row = rows[0]
-    ensure_user_can_access_metadata_projects(_string_list(family_row.get("project_ids")), user)
-    return family_row
+    # A family outside the user's projects answers exactly like an unknown one, so a family ID
+    # tells nobody whether a family they may not see exists (REQ-SEC-001).
+    if not user_can_access_metadata_projects(rows[0].get("project_ids"), user):
+        raise RecordNotVisible("family", "Family not found")
+    return rows[0]
 
 
 async def get_family_record(
@@ -1392,7 +1395,10 @@ async def get_accessible_sample_mapping(
     mapping = await _fetch_sample_access_mapping(session, sample_identifier)
     if mapping is None:
         raise HTTPException(status_code=404, detail="Sample not found")
-    ensure_user_can_access_metadata_projects(_string_list(mapping.get("family_project_ids")), user)
+    # A sample is seen through its family's projects; one outside the user's projects answers
+    # exactly like an unknown one (REQ-SEC-001).
+    if not user_can_access_metadata_projects(mapping.get("family_project_ids"), user):
+        raise RecordNotVisible("sample", "Sample not found")
     return mapping
 
 
