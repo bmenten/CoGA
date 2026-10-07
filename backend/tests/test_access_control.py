@@ -5,11 +5,8 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 
-from backend.app.services.access_control import (
-    CurrentUser,
-    ensure_user_can_access_metadata_projects,
-    visible_metadata_project_ids,
-)
+from backend.app.services import metadata_service
+from backend.app.services.access_control import CurrentUser, RecordNotVisible, visible_metadata_project_ids
 from backend.app.services.ped_service import (
     _ensure_user_can_replace_existing_families,
     _resolve_accessible_project_id,
@@ -44,21 +41,35 @@ def _user(role: str, project_ids: list[str]) -> CurrentUser:
     )
 
 
+def _refusal(call) -> HTTPException:
+    with pytest.raises(HTTPException) as refused:
+        asyncio.run(call)
+    return refused.value
+
+
+def _answer(refusal: HTTPException) -> tuple[int, object, object]:
+    """What the client gets: the status, the body's detail and the headers."""
+    return refusal.status_code, refusal.detail, refusal.headers
+
+
+def _hidden_kind(refusal: HTTPException) -> str | None:
+    """What only the request's audit row gets: the kind of record that exists but was hidden."""
+    return refusal.kind if isinstance(refusal, RecordNotVisible) else None
+
+
 def test_resolve_accessible_project_id_requires_viewer_assignment() -> None:
+    # Another team's project answers exactly like a project that does not exist (REQ-SEC-001).
     allowed_project_id = str(uuid4())
     hidden_project_id = str(uuid4())
     user = _user("viewer", [allowed_project_id])
 
-    with pytest.raises(HTTPException) as exc_info:
-        asyncio.run(
-            _resolve_accessible_project_id(
-                _ProjectLookupSession(hidden_project_id),
-                user,
-                hidden_project_id,
-            )
-        )
+    hidden = _refusal(
+        _resolve_accessible_project_id(_ProjectLookupSession(hidden_project_id), user, hidden_project_id)
+    )
+    unknown = _refusal(_resolve_accessible_project_id(_ProjectLookupSession(None), user, str(uuid4())))
 
-    assert exc_info.value.status_code == 403
+    assert _answer(hidden) == _answer(unknown) == (404, "Project not found", None)
+    assert (_hidden_kind(hidden), _hidden_kind(unknown)) == ("project", None)
 
 
 def test_resolve_accessible_project_id_accepts_assigned_project() -> None:
@@ -99,47 +110,139 @@ def test_admin_can_replace_existing_families() -> None:
     _ensure_user_can_replace_existing_families(_user("admin", []))
 
 
-# --- PHI access gate: ensure_user_can_access_metadata_projects -------------
-# This is the central checkpoint every family/sample endpoint flows through
-# (build_family_metadata_context -> get_accessible_family_mapping -> here). The
-# cases below cover the cross-user / multi-project / admin scenarios so a
-# regression that widens access is caught.
+# --- PHI access gate: get_accessible_family_mapping / get_accessible_sample_mapping ---------
+# The central checkpoint every family/sample endpoint flows through
+# (build_family_metadata_context -> get_accessible_family_mapping, and the sample
+# equivalent). The cases below cover the cross-user / multi-project / admin scenarios so a
+# regression that widens access is caught, and hold a record outside the caller's projects
+# to the answer an unknown one gets, so an ID reveals nothing (REQ-SEC-001).
 
 
-def test_viewer_cannot_access_family_in_unassigned_project() -> None:
-    # The core IDOR guard: a viewer passing a family_id whose project they are
-    # not a member of must be rejected, regardless of the id being valid.
+def _families(monkeypatch, *rows: dict) -> None:
+    async def fetch(session, *, family_identifiers):
+        return [row for row in rows if row["family_id"] in family_identifiers]
+
+    monkeypatch.setattr(metadata_service, "_fetch_family_rows", fetch)
+
+
+def _samples(monkeypatch, *rows: dict) -> None:
+    async def fetch(session, sample_identifier):
+        return next((row for row in rows if row["sample_id"] == sample_identifier), None)
+
+    monkeypatch.setattr(metadata_service, "_fetch_sample_access_mapping", fetch)
+
+
+def _family(user: CurrentUser, family_id: str = "FAM1"):
+    return metadata_service.get_accessible_family_mapping(None, family_id, user)
+
+
+def _sample(user: CurrentUser, sample_id: str = "S1"):
+    return metadata_service.get_accessible_sample_mapping(None, sample_id, user)
+
+
+def test_viewer_cannot_access_family_in_unassigned_project(monkeypatch) -> None:
+    # The core IDOR guard: a viewer passing a family_id whose project they are not a member
+    # of is refused exactly as for a family that does not exist.
     owner_project = str(uuid4())
-    other_project = str(uuid4())
-    intruder = _user("viewer", [other_project])
+    intruder = _user("viewer", [str(uuid4())])
+    _families(monkeypatch, {"id": "f1", "family_id": "FAM1", "project_ids": [owner_project]})
 
-    with pytest.raises(HTTPException) as exc_info:
-        ensure_user_can_access_metadata_projects([owner_project], intruder)
+    hidden, unknown = _refusal(_family(intruder)), _refusal(_family(intruder, "NO_SUCH_FAMILY"))
 
-    assert exc_info.value.status_code == 403
+    assert _answer(hidden) == _answer(unknown) == (404, "Family not found", None)
+    assert (_hidden_kind(hidden), _hidden_kind(unknown)) == ("family", None)
 
 
-def test_viewer_can_access_family_sharing_one_assigned_project() -> None:
-    # A family linked to several projects is visible if the viewer is a member
-    # of at least one of them (no exception).
+def test_viewer_can_access_family_sharing_one_assigned_project(monkeypatch) -> None:
+    # A family linked to several projects is visible if the viewer is a member of at least
+    # one of them.
     shared = str(uuid4())
-    foreign = str(uuid4())
-    viewer = _user("viewer", [shared])
+    row = {"id": "f1", "family_id": "FAM1", "project_ids": [str(uuid4()), shared]}
+    _families(monkeypatch, row)
 
-    ensure_user_can_access_metadata_projects([foreign, shared], viewer)
-
-
-def test_viewer_with_no_projects_is_denied() -> None:
-    with pytest.raises(HTTPException) as exc_info:
-        ensure_user_can_access_metadata_projects([str(uuid4())], _user("viewer", []))
-
-    assert exc_info.value.status_code == 403
+    assert asyncio.run(_family(_user("viewer", [shared]))) == row
 
 
-def test_admin_bypasses_project_scoping() -> None:
-    # Admins are not project-scoped: access is granted even with no project
-    # assignments and a family in an arbitrary project.
-    ensure_user_can_access_metadata_projects([str(uuid4())], _user("admin", []))
+def test_viewer_with_no_projects_is_denied(monkeypatch) -> None:
+    viewer = _user("viewer", [])
+    _families(monkeypatch, {"id": "f1", "family_id": "FAM1", "project_ids": [str(uuid4())]})
+
+    assert _answer(_refusal(_family(viewer))) == (404, "Family not found", None)
+    assert _answer(_refusal(_family(viewer, "NO_SUCH_FAMILY"))) == (404, "Family not found", None)
+
+
+def test_a_family_in_no_project_is_hidden_from_a_viewer_and_shown_to_an_admin(monkeypatch) -> None:
+    row = {"id": "f1", "family_id": "FAM1", "project_ids": []}
+    _families(monkeypatch, row)
+
+    assert _answer(_refusal(_family(_user("viewer", [str(uuid4())])))) == (404, "Family not found", None)
+    assert asyncio.run(_family(_user("admin", []))) == row
+
+
+def test_admin_bypasses_project_scoping(monkeypatch) -> None:
+    # Admins are not project-scoped: access is granted even with no project assignments and
+    # a family in an arbitrary project.
+    row = {"id": "f1", "family_id": "FAM1", "project_ids": [str(uuid4())]}
+    _families(monkeypatch, row)
+
+    assert asyncio.run(_family(_user("admin", []))) == row
+
+
+def test_viewer_cannot_access_sample_whose_family_is_in_an_unassigned_project(monkeypatch) -> None:
+    # A sample is seen through its family's projects; outside them it answers like an
+    # unknown sample.
+    family_project = str(uuid4())
+    _samples(monkeypatch, {"id": "s1", "sample_id": "S1", "family_project_ids": [family_project]})
+    intruder = _user("viewer", [str(uuid4())])
+
+    hidden, unknown = _refusal(_sample(intruder)), _refusal(_sample(intruder, "NO_SUCH_SAMPLE"))
+
+    assert _answer(hidden) == _answer(unknown) == (404, "Sample not found", None)
+    assert (_hidden_kind(hidden), _hidden_kind(unknown)) == ("sample", None)
+    assert asyncio.run(_sample(_user("viewer", [family_project])))["id"] == "s1"
+    assert asyncio.run(_sample(_user("admin", [])))["id"] == "s1"
+
+
+def test_a_hidden_family_gets_an_unknown_ones_response_and_only_its_audit_row_says_so(monkeypatch) -> None:
+    # Through the app: the response is made by the handler every 404 goes through, and the
+    # request audit (request_logging) names the hidden record in request_meta.
+    from httpx import ASGITransport, AsyncClient
+
+    from backend.app.core.postgres import get_postgres_session
+    from backend.app.dependencies import get_current_user
+    from backend.app.main import app
+    from backend.app.middleware import request_logging
+
+    _families(monkeypatch, {"id": "f1", "family_id": "FAM1", "project_ids": [str(uuid4())]})
+    audited: list = []
+
+    async def capture(payload) -> None:
+        audited.append(payload)
+
+    async def no_session():
+        yield None
+
+    async def a_viewer() -> CurrentUser:
+        return _user("viewer", [str(uuid4())])
+
+    monkeypatch.setattr(request_logging, "write_audit_log_event", capture)
+    monkeypatch.setitem(app.dependency_overrides, get_postgres_session, no_session)
+    monkeypatch.setitem(app.dependency_overrides, get_current_user, a_viewer)
+
+    async def ask() -> list:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            return [await client.get(f"/api/families/{family_id}") for family_id in ("FAM1", "NO_SUCH_FAMILY")]
+
+    hidden, unknown = asyncio.run(ask())
+
+    assert hidden.json() == {"detail": "Family not found"}
+    assert (hidden.status_code, hidden.content, hidden.headers.items()) == (
+        unknown.status_code,
+        unknown.content,
+        unknown.headers.items(),
+    )
+    assert [payload.status_code for payload in audited] == [404, 404]
+    assert [payload.request_meta.get("record_hidden") for payload in audited] == ["family", None]
 
 
 def test_admin_sees_all_project_ids_while_viewer_sees_only_assigned() -> None:

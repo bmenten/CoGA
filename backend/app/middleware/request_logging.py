@@ -292,12 +292,17 @@ async def log_request_response(request: Request, call_next) -> Response:
         else:
             logger.info("", user=user, **log_kwargs)
 
-        request_meta = {
+        request_meta: dict[str, Any] = {
             "headers": {
                 "content-type": request.headers.get("content-type"),
                 "accept": request.headers.get("accept"),
             }
         }
+        record_hidden = getattr(request.state, "record_hidden", None)
+        if record_hidden:
+            # Answered as an unknown record; the audit keeps that it exists outside the user's
+            # projects (main._answer_record_not_visible, REQ-SEC-001).
+            request_meta["record_hidden"] = record_hidden
         audit_event: AuditLogEventPayload | None = None
         try:
             audit_event = AuditLogEventPayload(

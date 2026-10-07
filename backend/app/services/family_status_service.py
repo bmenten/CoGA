@@ -253,7 +253,7 @@ async def update_family_metadata_for_user(
     update: FamilyMetadataUpdate,
     user: CurrentUser,
 ) -> FamilyOut:
-    # 404 if the family is unknown, 403 if the user cannot access it.
+    # 404 if the family is unknown or outside the user's projects.
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = family_row["id"]
 

@@ -168,6 +168,11 @@ client's own `_escaped` is dropped. A row without it is stored as the request se
 escape is not unique, since a request can send the characters `\x00` itself: `_escaped` says
 that a column holds an escape, not which one.
 
+**Records outside the user's projects.** A request for a family, sample or project that
+exists outside the user's projects is answered exactly like a request for an unknown ID (404).
+Its `audit_log_events` row keeps the difference: `request_meta.record_hidden` names the kind
+(`family`, `sample` or `project`). The middleware sets it; a request cannot.
+
 What these records hold and how they are checked is in
 [clinical-traceability.md](clinical-traceability.md).
 

@@ -21,11 +21,24 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Access is scoped by project.** Every family, sample and variant endpoint resolves
   access through one checkpoint: `build_family_metadata_context`
   (`services/family_metadata_context.py`) → `get_accessible_family_mapping`
-  (`services/metadata_service.py`) → `ensure_user_can_access_metadata_projects`
-  (`services/access_control.py`), and the sample equivalent. A non-admin reaches only the
-  families and samples of their own projects; admins see all. List endpoints filter in SQL,
-  not after the fact. `backend/tests/test_access_control.py` covers the cross-user and
-  multi-project cases.
+  (`services/metadata_service.py`), which asks `user_can_access_metadata_projects`
+  (`services/access_control.py`), and the sample equivalent `get_accessible_sample_mapping`. A
+  non-admin reaches only the families and samples of their own projects; admins see all. List
+  endpoints filter in SQL, not after the fact. `backend/tests/test_access_control.py` covers
+  the cross-user and multi-project cases.
+- ✅ **A record outside your projects looks unknown.** A family or sample of another project
+  answers exactly like an ID nobody uses: `404 {"detail":"Family not found"}` or
+  `404 {"detail":"Sample not found"}`, raised at the checkpoint for both cases. A viewer
+  therefore cannot find out which family and sample IDs exist in other projects. A project ID
+  given to the Family Builder or the gene profile is treated the same way
+  (`404 Project not found`). The request audit still tells the two apart: the
+  `audit_log_events` row of such a request names the kind in `request_meta.record_hidden`
+  (`family`, `sample` or `project`), which the response never carries
+  (`main._answer_record_not_visible`).
+  `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` asks every route with a
+  family or sample ID in its path, on real Postgres, for a family of another project and for
+  an unknown one, and requires the same status and body. Refusals because of the caller's
+  role (`403 Admin access required`) are unchanged: they say nothing about the record.
 - ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
   and Postgres cannot compare a NUL, so a request that looked up a family's path
   (`/api/families/FAM%00X`) or any other path or query value with one failed with a 500.
@@ -117,6 +130,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 **IDOR review.** Every endpoint that takes a `family_id`, `sample_id` or `project_id` goes
 through the checkpoint above. No unscoped PHI endpoint was found.
 
+**Residual: IDs that are taken.** Family and sample IDs are unique across all projects, so
+creating a family refuses an ID that another project already uses (`409 Family id already
+exists`, `409 Sample id already exists`). A user who may create families (the Family Builder
+is open to a viewer with a project) can learn from that that the ID exists, but nothing else
+about it. Closing that would take IDs scoped per project.
+
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
 cookies would add CSRF surface and rework the Azure and telemetry paths, so the damage an XSS
 could do is bounded instead by the app's CSP, which allows no inline or outside scripts
@@ -140,6 +159,9 @@ are colleagues, so there is no tenant boundary to protect.
   (`middleware/request_logging.py`) records every API request in `audit_log_events`: the user
   (when signed in), method, path, status, time and client address. Failed logins are
   counted separately (`auth_login_attempts`).
+- ✅ **Requests for other projects' records stay visible in the audit.** Such a request is
+  answered as for an unknown ID (§1), but its row carries `request_meta.record_hidden`, so the
+  audit shows who asked for families, samples or projects outside their own.
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
 - ✅ **Append-only.** A trigger in `04_traceability.sql` blocks DELETE and UPDATE on

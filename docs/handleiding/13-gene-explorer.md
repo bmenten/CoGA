@@ -17,7 +17,7 @@ Het profiel toont onder meer: de plaats van het gen op GRCh38 en, waar beschikba
 
 Het profiel combineert twee Postgres-tabellen: **`genes`** (de referentiegenen per assembly, met chromosoom, positie, exonen en transcript) en **`gene_info`** (de bewaarde verrijking: naam, samenvatting, aliassen, id's, constraint, ziekteassociaties). Staat een gen zowel op een gewoon chromosoom als op een alternatieve sequentie, dan wint het gewone chromosoom. Is er voor de gekozen assembly nog geen verrijking, dan neemt het profiel de meest recente verrijking van hetzelfde symbool op een andere menselijke assembly.
 
-**Toegang.** Wordt een familie of project meegegeven (voor de fenotype-matching), dan controleert de backend eerst de toegang; een gebruiker zonder toegang krijgt `403`. Zo lekt het profiel geen familiecontext.
+**Toegang.** Wordt een familie of project meegegeven (voor de fenotype-matching), dan controleert de backend eerst de toegang. Een familie of project buiten de projecten van de gebruiker krijgt hetzelfde antwoord als een id dat niet bestaat (`404 Family not found` of `404 Project not found`). Zo lekt het profiel geen familiecontext, en ook niet welke families of projecten er bestaan.
 
 **Waar in de code:** `backend/app/routers/genes.py` en `build_gene_profile` in `backend/app/services/gene_metadata_service.py`.
 
