@@ -70,6 +70,14 @@ def describe_traceback(exc: BaseException) -> str:
 
     The frames are code. The messages, and any notes, are where a failed statement's values
     are, and are left out."""
+    return _describe_traceback(exc, set())
+
+
+def _describe_traceback(exc: BaseException, seen: set[int]) -> str:
+    # ``seen`` is shared with the members of exception groups, as in Python's own traceback: an
+    # exception raised while its group was handled (``raise group.exceptions[0]``) has that
+    # group, which holds it, as its context, and would otherwise be written without end.
+    seen.add(id(exc))
     chain = [exc]  # newest first
     links: list[str] = []  # links[i] stands between chain[i + 1] and chain[i]
     while True:
@@ -80,8 +88,9 @@ def describe_traceback(exc: BaseException) -> str:
             earlier, link = newest.__context__, _CONTEXT_LINK
         else:
             break
-        if any(earlier is seen for seen in chain):
+        if id(earlier) in seen:
             break
+        seen.add(id(earlier))
         chain.append(earlier)
         links.append(link)
 
@@ -95,14 +104,35 @@ def describe_traceback(exc: BaseException) -> str:
         if isinstance(error, BaseExceptionGroup):
             for number, member in enumerate(error.exceptions, start=1):
                 parts.append(f"Sub-exception {number} of {len(error.exceptions)}:\n")
-                parts.append(textwrap.indent(describe_traceback(member), "    ") + "\n")
+                parts.append(textwrap.indent(_describe_traceback(member, seen), "    ") + "\n")
         if index:
             parts.append(links[index - 1])
     return "".join(parts).rstrip("\n")
 
 
+def _describe_logged_exception(exc: BaseException) -> tuple[str, str]:
+    """:func:`describe_error` and :func:`describe_traceback` of an exception a log record
+    carries.
+
+    Neither may fail here. ``logging`` prints an error a formatter raises to stderr, with the
+    exception being logged as its context, message and all. An error a logger's filter raises,
+    and a RecursionError from a formatter (``StreamHandler`` raises it again), escape the log
+    call itself."""
+    error = type(exc).__name__
+    try:
+        error = describe_error(exc)
+        return error, describe_traceback(exc)
+    except Exception as problem:  # noqa: BLE001 - a log line never fails; see the docstring
+        return error, f"Traceback not written ({type(problem).__name__})\n{error}"
+
+
 class JsonLogFormatter(logging.Formatter):
-    """CoGA JSON formatter for all backend logs."""
+    """CoGA JSON formatter for all backend logs.
+
+    A record that carries an exception (``logger.exception()``, ``exc_info=True``), from any
+    logger and at any level, gets the exception's kind in ``error`` (:func:`describe_error`)
+    and the frames of its chain in ``traceback`` (:func:`describe_traceback`), never its
+    message, unless the call passed a ``traceback`` of its own."""
 
     def format(self, record: logging.LogRecord) -> str:
         payload: dict[str, Any] = {
@@ -132,8 +162,13 @@ class JsonLogFormatter(logging.Formatter):
 
         if hasattr(record, "db_update"):
             payload["dbUpdate"] = getattr(record, "db_update")
+        failure = record.exc_info[1] if record.exc_info else None
         if getattr(record, "traceback", None):
             payload["traceback"] = getattr(record, "traceback")
+        elif failure is not None:
+            # An exception's message quotes the values it was raised with: for a failed
+            # statement its SQL and parameters, values from a request or read for one.
+            payload["error"], payload["traceback"] = _describe_logged_exception(failure)
         if getattr(record, "detail", None):
             payload["detail"] = getattr(record, "detail")
 
@@ -198,7 +233,7 @@ class RedactServerErrorFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         if record.exc_info and record.exc_info[1] is not None:
-            record.exc_text = describe_traceback(record.exc_info[1])
+            record.exc_text = _describe_logged_exception(record.exc_info[1])[1]
             record.exc_info = None
         return True
 
