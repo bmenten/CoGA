@@ -22,7 +22,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates, read_vcf_sample_columns
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -1495,6 +1495,24 @@ def _validate_and_load_package(
         )
 
     family_id = (manifest.family_id or folder_name or root.name).strip()
+    family_issue = family_id_issue(
+        family_id, source="the manifest's family_id" if manifest.family_id else "the folder name"
+    )
+    if family_issue is not None:
+        # Nothing else is read under an ID the family cannot be stored under: the PED rows
+        # family.add_members adds would carry it too.
+        errors.append(family_issue)
+        return (
+            FamilyPackageValidationOut(
+                valid=False,
+                manifest_path=str(manifest_path),
+                errors=errors,
+                warnings=warnings,
+                datasets=summaries,
+                metadata=metadata,
+            ),
+            None,
+        )
     ped_path = _resolve_package_path(root, manifest.ped)
     ped: ParsedPed | None = None
     ped_text: str | None = None
@@ -1552,6 +1570,26 @@ def _validate_and_load_package(
                     _issue("ped_empty", "family.add_members names no member the package can import")
                 ]
         errors.extend(ped_errors)
+
+    if ped is not None:
+        # The PED's own IDs, or the stored pedigree's for an import into an existing family;
+        # family.add_members' were checked as their rows were made.
+        from_database = metadata.get("ped_source") == "database"
+        ped_source = "in the family's stored pedigree" if from_database else "in the PED"
+        ped_issue_path = None if from_database else ped_path
+        for ped_family_id in ped.family_ids:
+            ped_family_issue = (
+                family_id_issue(ped_family_id, source=ped_source, path=ped_issue_path)
+                if ped_family_id != family_id
+                else None
+            )
+            if ped_family_issue is not None:
+                errors.append(ped_family_issue)
+        errors.extend(sample_id_issues(ped.sample_ids, source=ped_source, path=ped_issue_path))
+        if any(issue.code in IDENTIFIER_ISSUE_CODES for issue in errors):
+            # Nothing else is read under an ID that cannot be stored: the dataset summaries
+            # and the job's record would carry it.
+            ped = None
 
     if ped is not None:
         if len(ped.family_ids) > 1:

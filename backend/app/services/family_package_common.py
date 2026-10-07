@@ -9,7 +9,7 @@ import logging
 import math
 from pathlib import Path
 import re
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Iterable
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -21,6 +21,7 @@ from ..schemas import (
     FamilyImportValidationIssue,
     FamilyPackageValidationOut,
 )
+from .family_identifiers import CONTROL_CHARACTERS, IDENTIFIER_RULE, identifier_problem, visible
 from .upload_safety import read_path_text_bounded
 
 
@@ -236,6 +237,10 @@ async def _run_with_periodic_progress(
                 await task
 
 
+def _blank_control_characters(value: str | None) -> str | None:
+    return CONTROL_CHARACTERS.sub(" ", value) if value is not None else None
+
+
 def _issue(
     code: str,
     message: str,
@@ -244,13 +249,56 @@ def _issue(
     sample_id: str | None = None,
     path: Path | str | None = None,
 ) -> FamilyImportValidationIssue:
+    # An ID, a file name or an exception's text can carry a control character: it becomes a
+    # space, as in a log line, since the import job stores the issue (a NUL could not be
+    # stored) and the import page shows it. A check that names such a value on purpose
+    # writes it with `visible` first, so that its message shows which character it is.
     return FamilyImportValidationIssue(
         code=code,
-        message=message,
-        dataset=dataset,
-        sample_id=sample_id,
-        path=str(path) if path is not None else None,
+        message=CONTROL_CHARACTERS.sub(" ", message),
+        dataset=_blank_control_characters(dataset),
+        sample_id=_blank_control_characters(sample_id),
+        path=_blank_control_characters(str(path)) if path is not None else None,
     )
+
+
+# The errors for an ID CoGA cannot store (see family_identifiers): the validation reads
+# nothing else of the package until it is corrected.
+IDENTIFIER_ISSUE_CODES = frozenset({"family_id_invalid", "sample_id_invalid"})
+
+
+def family_id_issue(
+    family_id: str, *, source: str, path: Path | str | None = None
+) -> FamilyImportValidationIssue | None:
+    """A ``family_id_invalid`` error when ``family_id``, read from ``source`` ("the folder
+    name", "in the PED"), cannot be stored as a family's ID; None when it can."""
+    problem = identifier_problem(family_id)
+    if problem is None:
+        return None
+    return _issue(
+        "family_id_invalid",
+        f"Family ID '{visible(family_id)}' ({source}) {problem}. {IDENTIFIER_RULE}",
+        path=path,
+    )
+
+
+def sample_id_issues(
+    sample_ids: Iterable[str], *, source: str, path: Path | str | None = None
+) -> list[FamilyImportValidationIssue]:
+    """A ``sample_id_invalid`` error for each of ``sample_ids``, read from ``source`` ("in
+    the PED", "under family.add_members"), that cannot be stored as a sample's ID."""
+    issues: list[FamilyImportValidationIssue] = []
+    for sample_id in dict.fromkeys(sample_ids):
+        problem = identifier_problem(sample_id)
+        if problem is not None:
+            issues.append(
+                _issue(
+                    "sample_id_invalid",
+                    f"Sample ID '{visible(sample_id)}' ({source}) {problem}. {IDENTIFIER_RULE}",
+                    path=path,
+                )
+            )
+    return issues
 
 
 # Suffixes long-read tools append to the sample name when they write a VCF's sample

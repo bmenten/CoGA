@@ -18,7 +18,7 @@ from ..schemas import (
     FamilyPackageManifestWriteOut,
 )
 
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, PED_FOLDER, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, PED_FOLDER, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, family_id_issue, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
@@ -1515,17 +1515,20 @@ def _build_manifest_payload(
 
 
 def _added_member_ids(family_block: dict[str, Any]) -> list[str]:
-    """The sample ids a manifest ``family`` block adds under ``add_members``."""
+    """The sample ids a manifest ``family`` block adds under ``add_members``, stripped of the
+    whitespace around them as the validation reads them."""
     raw = family_block.get("add_members")
     if isinstance(raw, dict):
-        return [str(sample_id) for sample_id in raw]
-    if isinstance(raw, list):
-        return [
-            str(entry.get("sample_id") or entry.get("id"))
+        ids = [str(sample_id).strip() for sample_id in raw]
+    elif isinstance(raw, list):
+        ids = [
+            str(entry.get("sample_id") or entry.get("id")).strip()
             for entry in raw
             if isinstance(entry, dict) and (entry.get("sample_id") or entry.get("id"))
         ]
-    return []
+    else:
+        ids = []
+    return [sample_id for sample_id in ids if sample_id]
 
 
 # The order a discovered manifest is written in: who the family is before where its data
@@ -1606,6 +1609,28 @@ def _ordered_manifest(payload: dict[str, Any]) -> dict[str, Any]:
     return ordered
 
 
+def _no_draft_for_an_id(
+    request: FamilyPackageManifestBuildRequest,
+    root: Path,
+    *,
+    family_id: str | None,
+    errors: list[FamilyImportValidationIssue],
+    warnings: list[FamilyImportValidationIssue],
+) -> FamilyPackageManifestBuildOut:
+    """No draft for a package that names a family or sample ID CoGA cannot store (see
+    family_identifiers): Discover looks up no file under it (a NUL could not even name
+    one), and the ID is corrected where it comes from."""
+    return FamilyPackageManifestBuildOut(
+        valid=False,
+        family_id=family_id,
+        manifest_path=str(root / "manifest.yaml"),
+        naming_scheme=request.naming_scheme,
+        manifest_yaml="",
+        errors=errors,
+        warnings=warnings,
+    )
+
+
 def discover_family_package_manifest(
     request: FamilyPackageManifestBuildRequest,
     *,
@@ -1672,6 +1697,18 @@ def discover_family_package_manifest(
         or (manifest_family_id if isinstance(manifest_family_id, str) else None)
         or root.name
     ).strip()
+    family_issue = family_id_issue(
+        family_id,
+        source=(
+            "the family_id of the request"
+            if request.family_id
+            else "the manifest's family_id"
+            if isinstance(manifest_family_id, str) and manifest_family_id
+            else "the folder name"
+        ),
+    )
+    if family_issue is not None:
+        return _no_draft_for_an_id(request, root, family_id=None, errors=[family_issue], warnings=warnings)
     ped_path, ped_errors, ped_warnings = _detect_ped_path(
         root,
         requested_ped_path=request.ped_path,
@@ -1711,8 +1748,10 @@ def discover_family_package_manifest(
 
     if parsed_ped is not None:
         sample_ids = parsed_ped.sample_ids
+        errors.extend(sample_id_issues(sample_ids, source="in the PED", path=ped_path))
     elif use_db_structure:
         sample_ids = list(db_sample_ids or [])
+        errors.extend(sample_id_issues(sample_ids, source="of the family in the database"))
     else:
         sample_ids = []
     if parsed_ped is not None:
@@ -1733,6 +1772,9 @@ def discover_family_package_manifest(
                         path=ped_path,
                     )
                 )
+                ped_family_issue = family_id_issue(ped_family_id, source="in the PED", path=ped_path)
+                if ped_family_issue is not None:
+                    errors.append(ped_family_issue)
 
     # The family block: an existing manifest's own, else what the PGT pipeline's
     # samplesheet says (embryo roles, an index the PED lacks). Members it adds count as
@@ -1744,15 +1786,25 @@ def discover_family_package_manifest(
         else set()
     )
     pipeline_roles = read_pgt_pipeline_roles(root) if parsed_ped is not None else {}
+    errors.extend(
+        sample_id_issues(
+            [sample_id for sample_id in pipeline_roles if sample_id not in sample_ids],
+            source="in the pipeline's samplesheet",
+        )
+    )
+    if any(issue.code in IDENTIFIER_ISSUE_CODES for issue in errors):
+        return _no_draft_for_an_id(request, root, family_id=family_id, errors=errors, warnings=warnings)
     roi, traced_parent, run_warnings = pgt_run_context(
         root, sample_ids=[*sample_ids, *pipeline_roles], parent_ids=parent_ids
     )
     warnings.extend(run_warnings)
     family_block: dict[str, Any] = existing_family_block if isinstance(existing_family_block, dict) else {}
+    added_source = "under family.add_members"
     if folder_sample_ids and not _added_member_ids(family_block):
         proposed_block, folder_warnings = long_read_family_block(root, folder_sample_ids)
         family_block = {**proposed_block, **family_block}
         warnings.extend(folder_warnings)
+        added_source = "the name of its per-sample folder"
     if not family_block and parsed_ped is not None and pipeline_roles:
         family_block, _added_ids, pgt_warnings = pgt_family_block(
             root=root,
@@ -1763,6 +1815,11 @@ def discover_family_package_manifest(
         )
         warnings.extend(pgt_warnings)
     added_ids = [sample_id for sample_id in _added_member_ids(family_block) if sample_id not in sample_ids]
+    added_issues = sample_id_issues(added_ids, source=added_source)
+    if added_issues:
+        return _no_draft_for_an_id(
+            request, root, family_id=family_id, errors=[*errors, *added_issues], warnings=warnings
+        )
     sample_ids = [*sample_ids, *added_ids]
 
     # No PED file when the manifest names the members (family.add_members of a PED-less

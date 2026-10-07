@@ -19,6 +19,7 @@ from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyPackageValidationOut,
 )
+from .family_identifiers import identifier_problem
 from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
@@ -148,7 +149,9 @@ async def db_pedigree_fallback(
     """PED text reconstructed from an existing family's database structure, or
     ``None`` when there is no existing family to fall back to. Used so imports
     that target an already-configured family do not require a PED file."""
-    if session is None or not requested_family_id:
+    requested_family_id = (requested_family_id or "").strip()
+    if session is None or identifier_problem(requested_family_id) is not None:
+        # No family is stored under such an ID (and a NUL could not even be sent to Postgres).
         return None
     try:
         return await ped_service.build_pedigree_text(session, family_id=requested_family_id)
@@ -208,6 +211,9 @@ async def _execute_family_package_import_local(
     remote_only_files: frozenset[str] = frozenset(),
     record_family: FamilyRecordCallback | None = None,
 ) -> PackageExecutionResult:
+    # The existing family the request names, read as every ID is: without the whitespace
+    # around it.
+    requested_family_id = (requested_family_id or "").strip() or None
     fallback_ped_text = await db_pedigree_fallback(session, requested_family_id)
     validation, bundle = load_validated_family_package(
         folder_path,
