@@ -3,7 +3,6 @@ import logging
 import smtplib
 from email.message import EmailMessage
 from typing import List
-from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
@@ -11,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from ..core.postgres import get_postgres_session
+from ..core.sql import require_uuid
 from ..dependencies import (
     create_access_token,
     get_password_hash,
@@ -273,10 +273,7 @@ async def update_user(
     current: CurrentUser = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_postgres_session),
 ):
-    try:
-        UUID(user_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid user id") from exc
+    user_uuid = require_uuid(user_id, "Invalid user id")
     if update.projects is not None:
         raise HTTPException(
             status_code=400,
@@ -284,6 +281,6 @@ async def update_user(
         )
     return await update_user_account(
         session,
-        user_id=user_id,
+        user_id=user_uuid,
         is_active=update.is_active,
     )

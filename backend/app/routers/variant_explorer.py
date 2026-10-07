@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.csv_export import csv_safe_cell
 from ..core.postgres import get_postgres_session
+from ..core.sql import canonical_uuid
 from ..dependencies import get_current_user
 from ..schemas import (
     GlobalVariantPageOut,
@@ -143,11 +144,9 @@ async def _build_global_variant_filters(
     """
 
     panel_genes: list[str] = []
-    if panel_id:
-        try:
-            panel_genes = (await _fetch_panel_genes(session, [panel_id])).get(panel_id, [])
-        except ValueError:
-            panel_genes = []
+    panel_uuid = canonical_uuid(panel_id)
+    if panel_uuid is not None:
+        panel_genes = (await _fetch_panel_genes(session, [panel_uuid])).get(panel_uuid, [])
 
     return GlobalVariantFilters(
         chromosome=chr,

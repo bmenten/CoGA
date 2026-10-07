@@ -10,6 +10,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import require_uuid
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyPackageImportJobOut,
@@ -141,12 +142,16 @@ async def queue_family_import_job(
     return _serialize_job(dict(result.mappings().one()))
 
 
+_JOB_NOT_FOUND = "Family import job not found"
+
+
 async def get_family_import_job(
     session: AsyncSession,
     *,
     job_id: str,
     user: CurrentUser,
 ) -> FamilyPackageImportJobOut:
+    job_uuid = require_uuid(job_id, _JOB_NOT_FOUND, status_code=404)
     result = await session.execute(
         text(
             """
@@ -173,11 +178,11 @@ async def get_family_import_job(
             WHERE id = CAST(:job_id AS uuid)
             """
         ),
-        {"job_id": job_id},
+        {"job_id": job_uuid},
     )
     row = result.mappings().first()
     if row is None:
-        raise HTTPException(status_code=404, detail="Family import job not found")
+        raise HTTPException(status_code=404, detail=_JOB_NOT_FOUND)
     if not is_admin_user(user) and str(row["requested_by"]) != user.email:
         raise HTTPException(status_code=403, detail="Not authorized for this import job")
     return _serialize_job(dict(row))

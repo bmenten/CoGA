@@ -12,12 +12,12 @@ from __future__ import annotations
 import re
 from datetime import datetime, timezone
 from typing import Any
-from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import canonical_uuid, require_uuid
 from ..schemas import (
     FamilyMetadataUpdate,
     FamilyOut,
@@ -31,14 +31,6 @@ from .access_control import CurrentUser
 
 _HEX_COLOR_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
 _DEFAULT_STATUS_COLOR = "#5b6b79"
-
-
-def _is_uuid(value: Any) -> bool:
-    try:
-        UUID(str(value))
-        return True
-    except (ValueError, AttributeError, TypeError):
-        return False
 
 
 def _normalize_color(color: str | None) -> str:
@@ -118,7 +110,7 @@ async def create_family_status(
         sort_order = int(max_row.scalar_one()) + 10
 
     now = datetime.now(timezone.utc)
-    created_by = str(user.id) if _is_uuid(user.id) else None
+    created_by = canonical_uuid(user.id)
     result = await session.execute(
         text(
             """
@@ -243,11 +235,10 @@ async def _resolve_status_id(session: AsyncSession, status_key: str) -> str:
 
 
 async def _validate_user_id(session: AsyncSession, user_id: str) -> str:
-    if not _is_uuid(user_id):
-        raise HTTPException(status_code=400, detail="Invalid user id")
+    user_uuid = require_uuid(user_id, "Invalid user id")
     result = await session.execute(
         text("SELECT id::text AS id FROM users WHERE id = CAST(:id AS uuid)"),
-        {"id": str(user_id)},
+        {"id": user_uuid},
     )
     resolved = result.scalar_one_or_none()
     if resolved is None:

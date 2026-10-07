@@ -1,10 +1,10 @@
 from typing import List
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
+from ..core.sql import require_uuid
 from ..dependencies import (
     get_current_admin_user,
     get_current_user,
@@ -116,11 +116,8 @@ async def list_assemblies(
     user: CurrentUser = Depends(get_current_user),
 ) -> List[AssemblyOut]:
     del user
-    try:
-        UUID(species_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid species id") from exc
-    return await list_assembly_records(session, species_id=species_id)
+    species_uuid = require_uuid(species_id, "Invalid species id")
+    return await list_assembly_records(session, species_id=species_uuid)
 
 
 @router.post("/", response_model=AssemblyOut, status_code=201)
@@ -129,13 +126,10 @@ async def create_assembly(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> AssemblyOut:
-    try:
-        UUID(assembly_in.species_id)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail="Invalid species id") from exc
+    species_uuid = require_uuid(assembly_in.species_id, "Invalid species id")
     return await create_assembly_record(
         session,
-        species_id=assembly_in.species_id,
+        species_id=species_uuid,
         assembly_name=assembly_in.assembly_name,
         version=assembly_in.version,
         release_date=assembly_in.release_date,

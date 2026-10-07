@@ -8,6 +8,7 @@ from fastapi import HTTPException
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import require_uuid
 from ..schemas import (
     CnvAcmgClassificationPayload,
     SmallVariantFilterPresetCreate,
@@ -29,7 +30,6 @@ from .review_pg_utils import (
     _log_unreadable_classification,
     _merge_tag_metadata,
     _normalize_tags,
-    _require_uuid,
 )
 from .small_variant_review_tags import list_small_variant_tag_definitions
 from .clickhouse_variant_records import StructuralVariantRecord
@@ -671,7 +671,7 @@ async def delete_structural_variant_filter_preset(
     preset_id: str,
     user: CurrentUser,
 ) -> None:
-    preset_uuid = _require_uuid(preset_id, "Preset not found")
+    preset_uuid = require_uuid(preset_id, "Preset not found", status_code=404)
     result = await session.execute(
         text(
             """
