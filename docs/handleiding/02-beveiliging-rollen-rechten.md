@@ -26,11 +26,11 @@ Elk verzoek naar een familie, sample of variant gaat door hetzelfde checkpoint. 
 
 **Lijsten filteren in de databank, niet achteraf.** Vraagt een viewer de families op, dan zit de projectfilter in de SQL-query zelf: een `EXISTS`-voorwaarde op `family_projects` laat alleen families door die aan minstens één van zijn projecten hangen. Families buiten zijn projecten komen dus nooit uit de databank; een vergeten filter in de applicatiecode kan ze niet laten lekken. Een viewer zonder projecten krijgt meteen een lege lijst. Voor een beheerder valt de filter weg.
 
-**Losse objecten worden gecontroleerd bij het ophalen.** Vraagt iemand één familie op via haar id, dan controleert de backend of er overlap is tussen de projecten van die familie en die van de gebruiker. Zo niet, dan volgt `HTTP 403`. Beheerders passeren. Zo kan niemand een familie openen door haar id te raden (bescherming tegen *IDOR*, *Insecure Direct Object Reference*).
+**Losse objecten worden gecontroleerd bij het ophalen.** Vraagt iemand één familie op via haar id, dan controleert de backend of er overlap is tussen de projecten van die familie en die van de gebruiker. Zo niet, dan antwoordt de backend precies zoals voor een id dat niet bestaat: `HTTP 404` met `Family not found`, of voor een sample `Sample not found`. Beheerders passeren. Zo kan niemand een familie openen door haar id te raden (bescherming tegen *IDOR*, *Insecure Direct Object Reference*), en verraadt het antwoord ook niet of een familie of sample van een ander project bestaat. De auditlog houdt het verschil wel bij (`request_meta.record_hidden`, hoofdstuk 7).
 
 Beide controles komen samen in `build_family_metadata_context`: het gedeelde checkpoint dat vrijwel elke familiegebonden view (varianten, tracks, rapport) eerst doorloopt. Het laadt de familie alleen als de gebruiker ze mag zien, en beperkt de zichtbare projecten tot die van de gebruiker. `build_sample_metadata_context` doet hetzelfde voor één sample.
 
-**Waar in de code:** `backend/app/services/access_control.py` (de toegangsregels, o.a. `ensure_user_can_access_metadata_projects`), `backend/app/services/metadata_service.py` (de gefilterde queries en `get_accessible_family_mapping`) en `backend/app/services/family_metadata_context.py` (het checkpoint).
+**Waar in de code:** `backend/app/services/access_control.py` (de toegangsregels, o.a. `user_can_access_metadata_projects`), `backend/app/services/metadata_service.py` (de gefilterde queries en `get_accessible_family_mapping`) en `backend/app/services/family_metadata_context.py` (het checkpoint).
 
 ## De backend is de echte poort
 
@@ -39,7 +39,7 @@ Autorisatie wordt alleen in de backend afgedwongen, met twee dependencies:
 - **`get_current_user`** controleert het token, laadt de gebruiker vers uit Postgres en weigert (`HTTP 401`) als het token ongeldig is, de gebruiker niet bestaat of niet actief is. Hoe het token wordt gecontroleerd, staat in [hoofdstuk 5](05-login-authenticatie.md).
 - **`get_current_admin_user`** bouwt daarop voort en geeft `HTTP 403` als de rol niet in `ADMIN_ROLES` zit. Dit is de poort voor alle beheer- en destructieve acties.
 
-Een gewoon endpoint zoals `GET /api/families/{family_id}` vraagt `get_current_user` (authenticatie) en laat de *autorisatie* over aan de servicelaag, die via het checkpoint hierboven loopt. Een viewer die een onbekend of vreemd `family_id` meegeeft, krijgt `403` of `404`. Een `family_id` met een stuurteken krijgt al bij de aanmelding `400`, voor iedereen hetzelfde ([hoofdstuk 5](05-login-authenticatie.md)). De hele beheerrouter (`/api/admin/...`) hangt achter `get_current_admin_user`, net als het aanmaken, wijzigen en verwijderen van projecten; de projectenlijst zelf toont een viewer alleen zijn eigen projecten.
+Een gewoon endpoint zoals `GET /api/families/{family_id}` vraagt `get_current_user` (authenticatie) en laat de *autorisatie* over aan de servicelaag, die via het checkpoint hierboven loopt. Een viewer die een onbekend of vreemd `family_id` meegeeft, krijgt in beide gevallen hetzelfde antwoord: `404 Family not found`. Een `family_id` met een stuurteken krijgt al bij de aanmelding `400`, voor iedereen hetzelfde ([hoofdstuk 5](05-login-authenticatie.md)). De hele beheerrouter (`/api/admin/...`) hangt achter `get_current_admin_user`, net als het aanmaken, wijzigen en verwijderen van projecten; de projectenlijst zelf toont een viewer alleen zijn eigen projecten.
 
 Twee nuances voor de auditor:
 

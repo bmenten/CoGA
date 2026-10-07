@@ -13,9 +13,9 @@ from ..core.config import settings
 from ..core.pg_storable import ESCAPED_KEY, storable_columns
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import AuditLogEventOut, AuditLogPageOut
-from .event_pipeline import enqueue_event, write_event_batch_with_retry
+from .event_pipeline import enqueue_event, write_event_batch_with_retry, write_event_now
 
-_AUDIT_PIPELINE_NAME = "audit_log"
+AUDIT_PIPELINE_NAME = "audit_log"
 
 _INSERT_AUDIT_LOG_SQL = text(
     """
@@ -180,7 +180,7 @@ async def _audit_log_worker() -> None:
             if not batch:
                 return
             await write_event_batch_with_retry(
-                _write_audit_log_batch, batch, name=_AUDIT_PIPELINE_NAME
+                _write_audit_log_batch, batch, name=AUDIT_PIPELINE_NAME
             )
             continue
 
@@ -194,7 +194,7 @@ async def _audit_log_worker() -> None:
 
         batch = [first_item, *_drain_audit_log_queue(settings.audit_log_batch_size - 1)]
         await write_event_batch_with_retry(
-            _write_audit_log_batch, batch, name=_AUDIT_PIPELINE_NAME
+            _write_audit_log_batch, batch, name=AUDIT_PIPELINE_NAME
         )
 
 
@@ -235,15 +235,22 @@ def audit_log_queue_depth() -> int:
 
 
 async def write_audit_log_event(payload: AuditLogEventPayload) -> None:
+    """Store a request's audit row. A write that fails is recorded (TF-13 S-5), not raised:
+    the request the row describes never fails because of it."""
     if settings.audit_log_mode == "off":
         return
     if settings.audit_log_mode != "async" or _audit_log_queue is None:
-        await _write_audit_log_batch([payload])
+        # AUDIT_LOG_MODE=sync, or no worker running (before the lifespan starts it, after
+        # shutdown, under an in-process ASGI client): the row is written as the request ends,
+        # and a failed write counts toward the alert as the worker's would.
+        await write_event_now(
+            payload, name=AUDIT_PIPELINE_NAME, write_batch=_write_audit_log_batch
+        )
         return
     await enqueue_event(
         _audit_log_queue,
         payload,
-        name=_AUDIT_PIPELINE_NAME,
+        name=AUDIT_PIPELINE_NAME,
         write_batch=_write_audit_log_batch,
     )
 

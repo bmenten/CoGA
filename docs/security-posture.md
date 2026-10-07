@@ -21,11 +21,24 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Access is scoped by project.** Every family, sample and variant endpoint resolves
   access through one checkpoint: `build_family_metadata_context`
   (`services/family_metadata_context.py`) → `get_accessible_family_mapping`
-  (`services/metadata_service.py`) → `ensure_user_can_access_metadata_projects`
-  (`services/access_control.py`), and the sample equivalent. A non-admin reaches only the
-  families and samples of their own projects; admins see all. List endpoints filter in SQL,
-  not after the fact. `backend/tests/test_access_control.py` covers the cross-user and
-  multi-project cases.
+  (`services/metadata_service.py`), which asks `user_can_access_metadata_projects`
+  (`services/access_control.py`), and the sample equivalent `get_accessible_sample_mapping`. A
+  non-admin reaches only the families and samples of their own projects; admins see all. List
+  endpoints filter in SQL, not after the fact. `backend/tests/test_access_control.py` covers
+  the cross-user and multi-project cases.
+- ✅ **A record outside your projects looks unknown.** A family or sample of another project
+  answers exactly like an ID nobody uses: `404 {"detail":"Family not found"}` or
+  `404 {"detail":"Sample not found"}`, raised at the checkpoint for both cases. A viewer
+  therefore cannot find out which family and sample IDs exist in other projects. A project ID
+  given to the Family Builder or the gene profile is treated the same way
+  (`404 Project not found`). The request audit still tells the two apart: the
+  `audit_log_events` row of such a request names the kind in `request_meta.record_hidden`
+  (`family`, `sample` or `project`), which the response never carries
+  (`main._answer_record_not_visible`).
+  `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` asks every route with a
+  family or sample ID in its path, on real Postgres, for a family of another project and for
+  an unknown one, and requires the same status and body. Refusals because of the caller's
+  role (`403 Admin access required`) are unchanged: they say nothing about the record.
 - ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
   and Postgres cannot compare a NUL, so a request that looked up a family's path
   (`/api/families/FAM%00X`) or any other path or query value with one failed with a 500.
@@ -117,6 +130,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 **IDOR review.** Every endpoint that takes a `family_id`, `sample_id` or `project_id` goes
 through the checkpoint above. No unscoped PHI endpoint was found.
 
+**Residual: IDs that are taken.** Family and sample IDs are unique across all projects, so
+creating a family refuses an ID that another project already uses (`409 Family id already
+exists`, `409 Sample id already exists`). A user who may create families (the Family Builder
+is open to a viewer with a project) can learn from that that the ID exists, but nothing else
+about it. Closing that would take IDs scoped per project.
+
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
 cookies would add CSRF surface and rework the Azure and telemetry paths, so the damage an XSS
 could do is bounded instead by the app's CSP, which allows no inline or outside scripts
@@ -140,6 +159,9 @@ are colleagues, so there is no tenant boundary to protect.
   (`middleware/request_logging.py`) records every API request in `audit_log_events`: the user
   (when signed in), method, path, status, time and client address. Failed logins are
   counted separately (`auth_login_attempts`).
+- ✅ **Requests for other projects' records stay visible in the audit.** Such a request is
+  answered as for an unknown ID (§1), but its row carries `request_meta.record_hidden`, so the
+  audit shows who asked for families, samples or projects outside their own.
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
 - ✅ **Append-only.** A trigger in `04_traceability.sql` blocks DELETE and UPDATE on
@@ -148,7 +170,12 @@ are colleagues, so there is no tenant boundary to protect.
 - ✅ **No silent loss (S-5).** A full queue applies backpressure for up to
   `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event directly; the worker
   retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`); an event that still cannot be stored
-  is logged at ERROR with its (already masked) payload and counted for alerting. Outside
+  is logged at ERROR with its (already masked) payload and counted for alerting. The same holds
+  without the queue, with `AUDIT_LOG_MODE=sync` or while no worker runs (before startup
+  completes, after shutdown): each event is written as its request runs, and a write that fails
+  is logged and counted the same way, where it used to leave a warning the alert did not count.
+  Neither the request nor a batch of UI events fails because of it: the UI-event endpoint still
+  answers 202, so the browser does not resend the events already stored. Outside
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
@@ -159,9 +186,10 @@ are colleagues, so there is no tenant boundary to protect.
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
   UI-event log does the same. A NUL in the URL is now refused at sign-in (§1), and the
   refusal's row is kept the same way, under the caller's name.
-- ✅ **A failed audit write is logged by its kind.** The log line gives the exception type and
-  SQLSTATE (`describe_error` in `core/coga_logging.py`), never the error's text, which quotes
-  the row it could not insert, request body included.
+- ✅ **A failed audit write is logged by its kind.** The log line names the exception by its
+  type and SQLSTATE (`describe_error` in `core/coga_logging.py`), never by the error's text,
+  which quotes the statement and the row it could not insert. The row itself is logged once,
+  as its masked payload (S-5).
 - ✅ **No request body and no error text in the application log.** The request body is written
   only to `audit_log_events`, and so is the text of an error, which for a failed statement
   quotes its SQL and parameters: values from the request, or read for it. An unhandled error's
@@ -178,7 +206,8 @@ are colleagues, so there is no tenant boundary to protect.
   (`JsonLogFormatter`): the exception's kind in `error`, the frames of its chain in
   `traceback`, never its message. If the traceback cannot be written, the line still goes out
   with the kind, because a formatter that fails makes `logging` print the logged exception's
-  full text to stderr.
+  full text to stderr. The one exception is a row the audit table cannot store: it is logged at
+  ERROR with its masked payload, body and error text included, so it can be restored (S-5).
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the

@@ -8,12 +8,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from fastapi import HTTPException
 
 from backend.app.services.access_control import (
     CurrentUser,
-    ensure_user_can_access_metadata_projects,
     is_admin_user,
+    user_can_access_metadata_projects,
     user_metadata_project_ids,
     visible_metadata_project_ids,
 )
@@ -45,12 +44,14 @@ def test_a_member_sees_only_their_own_projects() -> None:
     assert user_metadata_project_ids(member) == ["p2", "p3"]
 
 
-def test_a_non_member_is_refused() -> None:
-    with pytest.raises(HTTPException) as refused:
-        ensure_user_can_access_metadata_projects(["p1"], _user("viewer", ["p2"]))
-    assert refused.value.status_code == 403
+def test_a_non_member_may_not_see_the_record() -> None:
+    assert user_can_access_metadata_projects(["p1"], _user("viewer", ["p2"])) is False
+    # A record linked to no project is an admin's alone.
+    assert user_can_access_metadata_projects([], _user("viewer", ["p2"])) is False
+    assert user_can_access_metadata_projects(None, _user("viewer")) is False
 
 
-def test_a_member_and_an_admin_are_let_through() -> None:
-    ensure_user_can_access_metadata_projects(["p1", "p2"], _user("viewer", ["p2"]))
-    ensure_user_can_access_metadata_projects(["p9"], _user("admin"))
+def test_a_member_and_an_admin_may_see_it() -> None:
+    assert user_can_access_metadata_projects(["p1", None, "p2"], _user("viewer", ["p2"])) is True
+    assert user_can_access_metadata_projects(["p9"], _user("admin")) is True
+    assert user_can_access_metadata_projects([], _user("superuser")) is True

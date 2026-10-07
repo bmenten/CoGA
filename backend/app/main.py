@@ -1,7 +1,9 @@
 import asyncio
 from contextlib import asynccontextmanager
+from typing import cast
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request, Response
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -34,6 +36,7 @@ from .services.gene_info_jobs_pg import (
     queue_startup_gene_reference_refresh_if_needed,
     stop_gene_reference_worker,
 )
+from .services.access_control import RecordNotVisible
 from .services.family_variant_filters import SampleFilterError
 from .services.family_package_import import (
     drop_orphaned_import_backups,
@@ -176,6 +179,18 @@ async def _refuse_unreadable_sample_filter(request: Request, exc: Exception) -> 
 
 
 app.add_exception_handler(SampleFilterError, _refuse_unreadable_sample_filter)
+
+
+async def _answer_record_not_visible(request: Request, exc: Exception) -> Response:
+    # A record outside the user's projects is answered by the handler every other 404 goes
+    # through, so the response cannot differ from an unknown record's. Only the request's
+    # audit row names it (request_logging; REQ-SEC-001).
+    hidden = cast(RecordNotVisible, exc)
+    request.state.record_hidden = hidden.kind
+    return await http_exception_handler(request, hidden)
+
+
+app.add_exception_handler(RecordNotVisible, _answer_record_not_visible)
 
 # The trailing-slash normaliser needs the set of `/api/...` collection-root paths
 # (e.g. `/api/families/`). We read them from the OpenAPI schema rather than
