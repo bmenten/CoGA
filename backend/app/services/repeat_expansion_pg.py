@@ -27,7 +27,7 @@ from .family_package_common import (
     per_sample_vcf_column,
     resolve_vcf_sample_id,
 )
-from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI
+from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI, PREMUTATION_MIN_BY_GENE
 from .sex_chromosomes import hemizygous_chromosome
 from .vcf_header_provenance import extract_header_provenance
 
@@ -210,6 +210,9 @@ async def _seed_repeat_catalog_entries(
             "research_use_only": True,
             **(entry_metadata if isinstance(entry_metadata, dict) else {}),
         }
+        premutation_min = PREMUTATION_MIN_BY_GENE.get(str(entry.get("gene") or "").upper())
+        if premutation_min is not None:
+            metadata["premutation_min"] = premutation_min
         await session.execute(
             text(
                 """
@@ -387,6 +390,7 @@ def classify_repeat_count(
     benign_min: int | None = None,
     benign_max: int | None = None,
     pathogenic_max: int | None = None,
+    premutation_min: int | None = None,
 ) -> str:
     """Status for one allele's repeat count.
 
@@ -412,6 +416,11 @@ def classify_repeat_count(
     range is not consulted. Where the catalog's benign range shares its upper endpoint
     with the grey zone (RFC1 11, SCA8/ATXN8OS 50), that count therefore reads as
     ``intermediate`` — the conservative reading of an ambiguous boundary.
+
+    A locus with a premutation range (``premutation_min``, FMR1 55) splits the
+    intermediate range: below it the grey zone (``intermediate``), from it up to the
+    pathogenic threshold a ``premutation``, an allele that can expand to a full mutation
+    in a child, which a carrier screen reports.
     """
     if repeat_count is None:
         return "unknown"
@@ -430,6 +439,8 @@ def classify_repeat_count(
 
     if pathogenic_min is not None and repeat_count >= pathogenic_min:
         return "pathogenic"
+    if premutation_min is not None and repeat_count >= premutation_min:
+        return "premutation"
     if warning_min is not None and repeat_count >= warning_min:
         return "intermediate"
     return "normal"
@@ -437,8 +448,16 @@ def classify_repeat_count(
 
 # How much attention a status calls for; the row / locus shows its most severe allele.
 # "review" (a count the catalog cannot classify) outranks "normal" so it surfaces in the
-# aberrant-only view; "unknown" (no call) ranks lowest (#535).
-REPEAT_STATUS_RANK = {"unknown": 0, "normal": 1, "review": 2, "intermediate": 3, "pathogenic": 4}
+# aberrant-only view; "unknown" (no call) ranks lowest (#535). A premutation ranks between
+# the grey zone and a full mutation.
+REPEAT_STATUS_RANK = {
+    "unknown": 0,
+    "normal": 1,
+    "review": 2,
+    "intermediate": 3,
+    "premutation": 4,
+    "pathogenic": 5,
+}
 
 
 def summarize_repeat_status(statuses: Iterable[str]) -> str:
@@ -457,6 +476,7 @@ def _reclassify_repeat_alleles(
     benign_min: int | None = None,
     benign_max: int | None = None,
     pathogenic_max: int | None = None,
+    premutation_min: int | None = None,
 ) -> list[dict[str, Any]]:
     if not isinstance(alleles, list):
         return []
@@ -478,6 +498,7 @@ def _reclassify_repeat_alleles(
                 benign_min=benign_min,
                 benign_max=benign_max,
                 pathogenic_max=pathogenic_max,
+                premutation_min=premutation_min,
             )
         reclassified.append(next_allele)
     return reclassified
@@ -810,6 +831,7 @@ def _build_trgt_insert_params(
             benign_min=_as_int(locus_metadata.get("benign_min")),
             benign_max=_as_int(locus_metadata.get("benign_max")),
             pathogenic_max=_as_int(locus_metadata.get("pathogenic_max")),
+            premutation_min=_as_int(locus_metadata.get("premutation_min")),
         )
         motif_counts = (
             _motif_count_summary(motifs, motif_copy_counts[index])
@@ -1175,6 +1197,7 @@ async def get_family_repeat_expansion_table_response(
                 catalog.benign_min AS benign_min,
                 catalog.benign_max AS benign_max,
                 catalog.pathogenic_max AS pathogenic_max,
+                catalog.premutation_min AS premutation_min,
                 repeat_expansions.status,
                 repeat_expansions.genotype,
                 repeat_expansions.allele_count,
@@ -1193,7 +1216,8 @@ async def get_family_repeat_expansion_table_response(
                     -- Not columns: the ranges ride in the catalog metadata.
                     (repeat_loci.metadata ->> 'benign_min')::int AS benign_min,
                     (repeat_loci.metadata ->> 'benign_max')::int AS benign_max,
-                    (repeat_loci.metadata ->> 'pathogenic_max')::int AS pathogenic_max
+                    (repeat_loci.metadata ->> 'pathogenic_max')::int AS pathogenic_max,
+                    (repeat_loci.metadata ->> 'premutation_min')::int AS premutation_min
                 FROM repeat_loci
                 WHERE lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id)
                    OR lower(repeat_loci.gene) = lower(repeat_expansions.gene)
@@ -1252,6 +1276,7 @@ async def get_family_repeat_expansion_table_response(
             benign_min=row.get("benign_min"),
             benign_max=row.get("benign_max"),
             pathogenic_max=row.get("pathogenic_max"),
+            premutation_min=row.get("premutation_min"),
         )
         meta = member_meta.get(row["sample_uuid"], {})
         note = _male_x_allele_note(
@@ -1282,6 +1307,7 @@ async def get_family_repeat_expansion_table_response(
                 "benign_min": row.get("benign_min"),
                 "benign_max": row.get("benign_max"),
                 "pathogenic_max": row.get("pathogenic_max"),
+                "premutation_min": row.get("premutation_min"),
                 "status": row_status,
                 "calls": {},
             },

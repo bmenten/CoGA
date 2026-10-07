@@ -31,7 +31,8 @@ screening* (couples only: genes where both partners carry a rare (below 1%) high
 variant, and those variants a female partner carries on chrX outside the pseudo-autosomal regions,
 which put a son at risk on their own; a ClinVar pathogenic or likely pathogenic call overrides the
 frequency cut-off, so a common founder variant stays in; a partner whose sex is not recorded counts as
-female), *Compound het*, *Recessive
+female; mitochondrial variants are not part of it, as mtDNA passes from the mother alone), *Compound
+het*, *Recessive
 hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A preset saves the recipe, not the result;
 save your own to standardise a search. Compound-heterozygous candidates are shown as pairs. Up to 100
 matches show as cards, more as a table.

@@ -2441,7 +2441,7 @@ export interface RepeatExpansionAlleleOut {
   motif_spans: string | null;
   interrupted: boolean;
   interruption_label: string | null;
-  status: "normal" | "review" | "intermediate" | "pathogenic" | "unknown";
+  status: "normal" | "review" | "intermediate" | "premutation" | "pathogenic" | "unknown";
 }
 
 export interface RepeatExpansionMotifCountOut {
@@ -2464,7 +2464,8 @@ export interface RepeatExpansionRowOut {
   benign_min: number | null;
   benign_max: number | null;
   pathogenic_max: number | null;
-  status: "normal" | "review" | "intermediate" | "pathogenic" | "unknown";
+  premutation_min: number | null;
+  status: "normal" | "review" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   calls: Record<string, RepeatExpansionSampleCallOut>;
 }
 
@@ -2476,7 +2477,7 @@ export interface RepeatExpansionSampleCallOut {
   genotype: string;
   allele_count: number;
   alleles: RepeatExpansionAlleleOut[];
-  status: "normal" | "review" | "intermediate" | "pathogenic" | "unknown";
+  status: "normal" | "review" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   note: string | null;
 }
 
@@ -2492,7 +2493,7 @@ export interface RepeatExpansionTrackItemOut {
   motif: string | null;
   warning_min: number | null;
   pathogenic_min: number | null;
-  status: "normal" | "review" | "intermediate" | "pathogenic" | "unknown";
+  status: "normal" | "review" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
 }

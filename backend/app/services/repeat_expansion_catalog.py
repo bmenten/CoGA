@@ -3,6 +3,14 @@ from __future__ import annotations
 from typing import Any
 
 
+# The first repeat count of a premutation, per gene: an allele that does not cause the
+# disease in its carrier but can expand to a full mutation in a child. STRchive puts it
+# in its intermediate range (FMR1 45-200), with the grey zone, so it is set here. FMR1:
+# normal up to 44, intermediate (grey zone) 45-54, premutation 55-200, full mutation
+# above 200 (ACMG technical standards for fragile X testing).
+PREMUTATION_MIN_BY_GENE: dict[str, int] = {"FMR1": 55}
+
+
 BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
     {
         "locus_id": "HTT",

@@ -1616,6 +1616,14 @@ def _has_alt_allele(gt: str) -> bool:
     return genotype_has_alt(gt)
 
 
+def _is_mitochondrial_chromosome(chromosome: str | None) -> bool:
+    return _chromosome_match_key(str(chromosome or "")) == "MT"
+
+
+# chrM under the names a stored row may carry, for the carrier screen's SQL prefilter.
+_MITOCHONDRIAL_CHROMOSOMES = ("M", "MT", "chrM", "chrMT")
+
+
 def _filter_expanded_carrier_screening(
     records: Sequence[SmallVariantRecord],
     sample_rows: Sequence[dict[str, Any]],
@@ -1632,7 +1640,10 @@ def _filter_expanded_carrier_screening(
     other partner carries. A partner not recorded as male counts as female here, as the
     rest of CoGA reads such a sample as diploid on chrX; on an assembly whose
     pseudo-autosomal regions are not known (``hemizygous_chromosome``) only the
-    both-partners rule applies. A variant without a gene is never a finding.
+    both-partners rule applies. A variant without a gene is never a finding, and neither
+    is a mitochondrial one: mtDNA passes from the mother alone, so two partners carrying
+    a variant in one chrM gene says nothing of a child's risk (the mtDNA analysis reads
+    the female partner's chrM calls).
     """
     partners = _carrier_partner_names(sample_rows, relationship_rows)
     if partners is None:
@@ -1643,6 +1654,8 @@ def _filter_expanded_carrier_screening(
     carrier_variants: dict[tuple[str, str], list[SmallVariantRecord]] = {}
     carrier_sets: dict[tuple[str, str], set[str]] = {}
     for record in records:
+        if _is_mitochondrial_chromosome(record.chr):
+            continue
         gene, gene_id = _primary_gene_keys(record)
         keys: list[tuple[str, str]] = []
         if gene_id:
@@ -2038,6 +2051,10 @@ def _small_native_inheritance_clauses(
         )
         clauses.append(f"({' OR '.join(partner_alt_clauses)})")
         clauses.append("length(e.gene_symbols) > 0")
+        # Mitochondrial variants are not part of the couple rule
+        # (_filter_expanded_carrier_screening): they must not fill its candidate window.
+        params["carrier_screen_mito_chromosomes"] = _MITOCHONDRIAL_CHROMOSOMES
+        clauses.append("e.chrom NOT IN %(carrier_screen_mito_chromosomes)s")
 
     if not inheritance:
         return clauses, params

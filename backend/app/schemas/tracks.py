@@ -179,7 +179,7 @@ class RepeatExpansionAlleleOut(BaseModel):
     motif_spans: Optional[str] = None
     interrupted: bool = False
     interruption_label: Optional[str] = None
-    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
+    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
 
 
 class RepeatExpansionSampleCallOut(BaseModel):
@@ -190,7 +190,7 @@ class RepeatExpansionSampleCallOut(BaseModel):
     genotype: str
     allele_count: int = 0
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
-    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
+    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
     # Why the call needs a second look beyond its allele sizes (a male with two
     # different chrX alleles), or None.
     note: Optional[str] = None
@@ -214,7 +214,10 @@ class RepeatExpansionRowOut(BaseModel):
     benign_min: Optional[int] = None
     benign_max: Optional[int] = None
     pathogenic_max: Optional[int] = None
-    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
+    # The first count of a premutation (FMR1 55), between the grey zone and the
+    # pathogenic threshold; None for a locus without one.
+    premutation_min: Optional[int] = None
+    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
     calls: Dict[str, RepeatExpansionSampleCallOut] = Field(default_factory=dict)
 
 
@@ -334,7 +337,7 @@ class RepeatExpansionTrackItemOut(BaseModel):
     motif: Optional[str] = None
     warning_min: Optional[int] = None
     pathogenic_min: Optional[int] = None
-    status: Literal["normal", "review", "intermediate", "pathogenic", "unknown"] = "unknown"
+    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
     allele_repeat_counts: List[int] = Field(default_factory=list)
     allele_bp_lengths: List[int] = Field(default_factory=list)
 

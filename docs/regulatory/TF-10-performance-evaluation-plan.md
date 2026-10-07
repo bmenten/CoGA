@@ -189,13 +189,13 @@ pull request updates this list only when it adds clinical behaviour that no area
   PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
   relatives; the SV second-hit index; expanded carrier screening, which keeps the genes in
   which both partners carry a variant and, on chrX outside the pseudo-autosomal regions, a
-  female partner's variant on its own, its preset reading rare high- or moderate-impact
-  variants with the ClinVar P/LP frequency override, so a long-read genome's screen reaches
-  chrX within the candidate window.
+  female partner's variant on its own (never a mitochondrial variant), its preset reading
+  rare high- or moderate-impact variants with the ClinVar P/LP frequency override, so a
+  long-read genome's screen reaches chrX within the candidate window.
 - **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
   cap; the clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar
-  support, GRCh37 and GRCh38 builds); repeat-expansion status, including contraction loci and
-  unclassifiable alleles; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their
+  support, GRCh37 and GRCh38 builds); repeat-expansion status, including contraction loci,
+  unclassifiable alleles and an FMR1 premutation told from the grey zone; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their
   signal tracks.
 - **Interpretation** — the ACMG suggestions (conflicting ClinVar, parents from the pedigree),
   classifications that reopen with their saved criteria, CNV classifications preserved by

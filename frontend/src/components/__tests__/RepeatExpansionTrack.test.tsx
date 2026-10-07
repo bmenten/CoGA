@@ -160,6 +160,34 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
   });
 
+  it('counts a premutation as one, not as unknown', () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        items: [
+          locus('FMR1', 100, 'premutation', 'X'),
+          locus('AFF2', 800, 'intermediate', 'X'),
+        ],
+      },
+      isLoading: false,
+    });
+    render(
+      <RepeatExpansionTrack
+        familyId="F1"
+        sampleId="S1"
+        chrom="X"
+        regionStart={0}
+        regionEnd={200}
+        width={100}
+        height={20}
+        chromosomeSize={1000}
+      />,
+    );
+
+    expect(
+      screen.getByRole('img', { name: 'Repeat loci of S1 on chrX: 2, 1 premutation, 1 intermediate' }),
+    ).toBeInTheDocument();
+  });
+
   it('names only the loci in the region outside chromosome view mode (#529)', () => {
     useQueryMock.mockReturnValue({
       data: { items: [locus('ATXN1', 100, 'normal'), locus('FMR1', 700, 'pathogenic')] },

@@ -2,7 +2,8 @@
 
 A couple is at risk for a recessive condition when both partners carry a variant in the
 same gene. The search keeps, for such a gene, every variant either partner carries; a gene
-only one partner carries in is left out. For an X-linked condition the female partner's
+only one partner carries in is left out, and so is a mitochondrial gene, as mtDNA passes
+from the mother alone. For an X-linked condition the female partner's
 carrier status alone puts a son at risk, so on chrX outside the pseudo-autosomal regions a
 variant she carries is kept on its own. These tests pin the pure rule
 (``_filter_expanded_carrier_screening``) and how the couple is found
@@ -101,6 +102,16 @@ class TestCoupleRule:
             _variant("hbb-2", "HBB", man="./.", start=200),
         ]
         assert _kept(records) == []
+
+    def test_a_mitochondrial_gene_both_partners_carry_a_variant_in_is_not_a_finding(self) -> None:
+        # mtDNA passes from the mother alone: two partners with a variant in one chrM gene
+        # (homoplasmic haplogroup variants, mostly) put no child at risk.
+        for chromosome in ("M", "MT", "chrM"):
+            records = [
+                _variant("mt-1", "MT-CYB", woman="1/1", chr=chromosome, start=15_000),
+                _variant("mt-2", "MT-CYB", man="1/1", chr=chromosome, start=15_100),
+            ]
+            assert _kept(records) == [], chromosome
 
     def test_a_variant_without_a_gene_is_never_a_finding(self) -> None:
         assert _kept([_variant("intergenic", None, woman="0/1", man="0/1")]) == []

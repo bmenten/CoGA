@@ -375,6 +375,96 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
   });
 });
 
+describe('FamilyRepeatExpansionsPage — FMR1 premutation', () => {
+  it("labels a female partner's premutation as one and keeps it in the aberrant-only view", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [
+              { sample_id: 'MOTHER1', role: 'mother', affected: false, sex: 'female' },
+              { sample_id: 'FATHER1', role: 'father', affected: false, sex: 'male' },
+            ],
+            projects: [],
+          },
+        });
+      }
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({
+          data: {
+            samples: [
+              { sample_id: 'MOTHER1', role: 'mother', affected: false, sex: 'female' },
+              { sample_id: 'FATHER1', role: 'father', affected: false, sex: 'male' },
+            ],
+            loci: [
+              {
+                locus_id: 'FXS_FMR1',
+                gene: 'FMR1',
+                display_name: 'FMR1',
+                disease: 'Fragile X syndrome',
+                chr: 'X',
+                start: 147912049,
+                end: 147912111,
+                motif: 'CGG',
+                warning_min: 45,
+                pathogenic_min: 201,
+                benign_min: 5,
+                benign_max: 44,
+                pathogenic_max: 2000,
+                premutation_min: 55,
+                status: 'premutation',
+                calls: {
+                  MOTHER1: {
+                    sample: 'MOTHER1',
+                    role: 'mother',
+                    affected: false,
+                    sex: 'female',
+                    genotype: '1/2',
+                    allele_count: 2,
+                    status: 'premutation',
+                    alleles: [
+                      { repeat_count: 30, status: 'normal' },
+                      { repeat_count: 72, status: 'premutation' },
+                    ],
+                  },
+                  FATHER1: {
+                    sample: 'FATHER1',
+                    role: 'father',
+                    affected: false,
+                    sex: 'male',
+                    genotype: '1',
+                    allele_count: 1,
+                    status: 'normal',
+                    alleles: [{ repeat_count: 29, status: 'normal' }],
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
+          <Routes>
+            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect((await screen.findAllByText('Premutation')).length).toBeGreaterThan(0);
+    expect(screen.queryByText('Grey zone')).not.toBeInTheDocument();
+    expect(screen.getByText('orange ≥ 45 · premutation ≥ 55 · red ≥ 201')).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText('Aberrant only'));
+    expect(screen.getByText('1 of 1 loci')).toBeInTheDocument();
+  });
+});
+
 describe('repeat cutoff labels', () => {
   // A locus that is pathogenic by contraction cannot be stated as a lower bound: VWA1
   // is normal at exactly 2, and "red ≥ 1" would mark every healthy call.
@@ -393,6 +483,18 @@ describe('repeat cutoff labels', () => {
       'HTT (expansion, both thresholds)',
       { warning_min: 27, pathogenic_min: 36, benign_min: 6, benign_max: 26, pathogenic_max: 250 },
       'orange ≥ 27 · red ≥ 36',
+    ],
+    [
+      'FMR1 (grey zone, premutation and full mutation)',
+      {
+        warning_min: 45,
+        pathogenic_min: 201,
+        benign_min: 5,
+        benign_max: 44,
+        pathogenic_max: 2000,
+        premutation_min: 55,
+      },
+      'orange ≥ 45 · premutation ≥ 55 · red ≥ 201',
     ],
     [
       'expansion locus with no grey zone',
