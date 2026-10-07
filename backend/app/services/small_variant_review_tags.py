@@ -503,28 +503,30 @@ async def update_small_variant_tag_definition(
     if normalized_tag_key in DEFAULT_SMALL_VARIANT_TAG_KEYS:
         raise HTTPException(status_code=400, detail="Built-in variant tags cannot be edited")
 
+    # Every column is qualified: the links table has a project_id too, and Postgres refuses
+    # an unqualified one as ambiguous, which failed every edit with a 500.
     result = await session.execute(
         text(
             """
             SELECT
-                id::text AS id,
-                key,
-                label,
-                description,
-                scope,
-                project_id::text AS project_id,
-                "group",
-                color,
-                sort_order,
+                d.id::text AS id,
+                d.key,
+                d.label,
+                d.description,
+                d.scope,
+                d.project_id::text AS project_id,
+                d."group",
+                d.color,
+                d.sort_order,
                 COALESCE(
                     ARRAY_AGG(DISTINCT l.project_id::text) FILTER (WHERE l.project_id IS NOT NULL),
                     '{}'::text[]
                 ) AS shared_project_ids
-            FROM small_variant_tag_definitions
-            LEFT JOIN small_variant_tag_definition_project_links l ON l.tag_id = small_variant_tag_definitions.id
-            WHERE key = :key
-              AND is_active = TRUE
-            GROUP BY small_variant_tag_definitions.id
+            FROM small_variant_tag_definitions d
+            LEFT JOIN small_variant_tag_definition_project_links l ON l.tag_id = d.id
+            WHERE d.key = :key
+              AND d.is_active = TRUE
+            GROUP BY d.id
             """
         ),
         {"key": normalized_tag_key},
