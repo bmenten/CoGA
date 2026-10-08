@@ -1806,7 +1806,7 @@ def discover_family_package_manifest(
         warnings.extend(folder_warnings)
         added_source = "the name of its per-sample folder"
     if not family_block and parsed_ped is not None and pipeline_roles:
-        family_block, _added_ids, pgt_warnings = pgt_family_block(
+        family_block, pgt_warnings = pgt_family_block(
             root=root,
             family_id=family_id,
             ped=parsed_ped,

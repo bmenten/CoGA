@@ -199,9 +199,9 @@ def pgt_family_block(
     ped: ParsedPed,
     roles: dict[str, str],
     affected_parent: str | None = None,
-) -> tuple[dict[str, Any], list[str], list[FamilyImportValidationIssue]]:
-    """The manifest ``family`` block the pipeline's roles call for, the sample ids it adds
-    to the PED's, and the warnings for what the user still has to supply.
+) -> tuple[dict[str, Any], list[FamilyImportValidationIssue]]:
+    """The manifest ``family`` block the pipeline's roles call for, and the warnings for
+    what the user still has to supply.
 
     - An embryo gets the embryo role. The PED alone cannot say so: the pipeline writes the
       embryos' sex into it, and CoGA reads a child of the couple as an embryo only when
@@ -350,7 +350,7 @@ def pgt_family_block(
         block["add_members"] = added
     if relatives:
         block["relationships"] = {"relatives": relatives}
-    return block, [entry["sample_id"] for entry in added], warnings
+    return block, warnings
 
 
 def _latest_params(root: Path) -> tuple[str, dict[str, Any]] | None:

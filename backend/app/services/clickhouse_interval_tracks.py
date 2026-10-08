@@ -15,8 +15,6 @@ from .clickhouse_variant_ids import _require_clickhouse_identifier
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
 
-VALID_INTERVAL_TRACK_TYPES = {"coverage", "apcad", "apcad_pcf", "segments", "haplotype", "target_coverage"}
-
 # Memoize which interval tables have been ensured this process so the DDL runs
 # once per assembly instead of before every read/presence call (mirrors
 # clickhouse_variant_storage._ensured_variant_table_assemblies).

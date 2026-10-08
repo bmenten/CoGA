@@ -522,7 +522,6 @@ async def _import_bigwig_interval_track(
     skip_zero: bool = False,
     value_transform: Callable[[float], float] | None = None,
     extra_metadata: dict[str, Any] | None = None,
-    progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
 ) -> dict[str, int]:
     """Import a bigWig signal file as interval-track rows.
 
@@ -553,7 +552,6 @@ async def _import_bigwig_interval_track(
 
     processed = 0
     inserted = 0
-    last_reported = 0
     batch: list[dict[str, Any]] = []
     reader = open_bigwig(path)
     try:
@@ -585,9 +583,6 @@ async def _import_bigwig_interval_track(
                 await _insert_interval_track_rows(session, batch)
                 inserted += len(batch)
                 batch = []
-                if progress is not None and processed - last_reported >= 50000:
-                    last_reported = processed
-                    await progress({"processed": processed, "inserted": inserted, "skipped": 0})
     finally:
         reader.close()
     if batch:
@@ -610,10 +605,7 @@ async def _import_bigwig_interval_track(
         },
     )
     await session.commit()
-    result = {"processed": processed, "inserted": inserted, "skipped": processed - inserted}
-    if progress is not None:
-        await progress(result)
-    return result
+    return {"processed": processed, "inserted": inserted, "skipped": processed - inserted}
 
 
 _APCAD_VALUE_KEYS = (

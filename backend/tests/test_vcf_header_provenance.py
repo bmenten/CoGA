@@ -12,7 +12,6 @@ from app.services.vcf_header_provenance import (
     extract_info_description_provenance,
     extract_vep_tab_provenance,
     merge_module_maps,
-    provenance_to_modules,
 )
 
 # Real-shape NeedlR SV header: no structured version lines — the annotation
@@ -240,11 +239,11 @@ def test_info_description_mining_empty_safe():
     assert extract_info_description_provenance(["#CHROM\tPOS", "chr1\t1\t.\tA\tG"]) == {}
 
 
-def test_provenance_to_modules_combines_modalities():
-    snv = extract_header_provenance(SNV_VEP_HEADER.splitlines(), modality="snv")
-    sv = extract_header_provenance(SV_SNIFFLES_HEADER.splitlines(), modality="sv")
-    trgt = extract_header_provenance(TRGT_HEADER.splitlines(), modality="repeats")
-    combined = provenance_to_modules([snv, sv, trgt])
+def test_merging_modalities_keeps_each_modalitys_caller():
+    # As an importer folds the module maps of its files together (merge_module_maps).
+    combined: dict = {}
+    for header, modality in ((SNV_VEP_HEADER, "snv"), (SV_SNIFFLES_HEADER, "sv"), (TRGT_HEADER, "repeats")):
+        combined = merge_module_maps(combined, _modules(header, modality))
     # Each modality's caller is present in one merged family manifest.
     assert combined["deepvariant"]["version"] == "1.6.0"
     assert combined["sniffles"]["version"] == "2.2"

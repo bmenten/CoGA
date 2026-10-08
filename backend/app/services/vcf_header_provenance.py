@@ -123,8 +123,6 @@ _VERSION_TOKEN = re.compile(r"(?i)(version|_v$|cmd|command|commandline|pipeline)
 _NAME_VERSION = re.compile(r"(?i)^(?P<name>[a-z][a-z0-9]*?)[ _v-]*v?(?P<version>\d[\w.+-]*)$")
 # key="value" or key=value pairs (value may be quoted, may contain spaces if quoted)
 _KV_PAIR = re.compile(r'([A-Za-z0-9_.:-]+)=("(?:[^"\\]|\\.)*"|\S+)')
-# A version-looking token inside free text (for best-effort description mining)
-_VERSION_IN_TEXT = re.compile(r"(?i)\b(?:v(?:ersion)?\.?\s*)?([0-9]+(?:\.[0-9]+){1,3}[a-z]?)\b")
 
 
 @dataclass
@@ -439,13 +437,3 @@ def merge_module_maps(
                     continue
                 existing.setdefault(field_name, field_value)
     return {k: v for k, v in out.items() if v}
-
-
-def provenance_to_modules(
-    provs: Iterable[HeaderProvenance],
-) -> dict[str, dict[str, Any]]:
-    """Combine the provenance harvested from several inputs into one map."""
-    combined: dict[str, dict[str, Any]] = {}
-    for prov in provs:
-        combined = merge_module_maps(combined, prov.as_modules())
-    return combined

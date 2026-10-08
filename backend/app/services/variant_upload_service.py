@@ -280,32 +280,6 @@ def _has_phasing_source_hint(header_lines: list[str], filename: str | None = Non
     )
 
 
-def _detect_small_variant_format(
-    text: str,
-    format_hint: SmallVariantUploadFormat,
-) -> ResolvedSmallVariantFormat:
-    if format_hint != "auto":
-        return format_hint
-    header_lines: list[str] = []
-    for line in text.splitlines():
-        if not line:
-            continue
-        if line.startswith("#"):
-            header_lines.append(line)
-            continue
-        parts = line.split("\t")
-        if len(parts) < 9:
-            break
-        fmt = parts[8].split(":")
-        if "GP" in fmt or (
-            _has_phasing_source_hint(header_lines)
-            and _format_has_phased_gt(fmt, parts[9:])
-        ):
-            return "glimpse2"
-        return "clair3"
-    raise HTTPException(status_code=400, detail="No valid VCF records found")
-
-
 def _detect_small_variant_format_from_upload(
     file: UploadFile,
     format_hint: SmallVariantUploadFormat,
