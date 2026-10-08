@@ -83,14 +83,14 @@ the number of series.
 | Accountability events could not be persisted | critical | `increase(coga_audit_events_not_persisted_total[15m]) > 0` | The audit trail (IVDR) lost events. Each one is in the backend's ERROR log with its payload: restore it from there, and check Cloud SQL. |
 | Audit queue is backing up | warning | over 8,000 of the 10,000 queued events, for 10 minutes | The database is not keeping up; requests slow down once the queue is full. Check Cloud SQL. |
 | More than 5% of requests fail with a server error | warning | the 5xx share of `coga_http_requests_total` above 5%, for 10 minutes | Something is broken: `coga_http_requests_total` by `route` shows where; read the backend log. |
-| A package import shows no sign of life | warning | an active job's staleness above 15 minutes, for 5 minutes | Sign-out of its family stays refused while the job is active. Look at *Administration → Package Import*; after 10 minutes without a heartbeat the next worker takes the job over. |
+| A package import shows no sign of life | warning | a validating or running job's staleness above 15 minutes, for 5 minutes | Sign-out of its family stays refused while the job is active. Look at *Administration → Package Import*. Once the heartbeat is 10 minutes old, the next worker that looks for work runs a validating job again, and ends a running one as interrupted without running it again: its family stays marked import-incomplete until what it had not finished is imported again with overwrite ([data-import.md](data-import.md#the-import-job)). |
 | A metrics source cannot be read | warning | `increase(coga_metrics_collection_failures_total[15m]) > 0` | The import-job series are missing, so the import alert is blind. Check the backend's connection to Postgres. |
 | No metrics from the backend | critical | `absent(coga_build_info)`, for 10 minutes | The backend is down, or the collector cannot scrape it (a 401 means the two containers hold different tokens: roll the backend) or cannot write. Every other metric alert is blind meanwhile. |
 | `/api/health` is failing | critical | the uptime check fails from more than one region, for 5 minutes | Users cannot reach CoGA: check the load balancer, its certificate, Cloud Armor and the backend service. |
 
 The thresholds follow the backend's defaults: the integrity check runs every 6 hours
 (`CLICKHOUSE_INTEGRITY_INTERVAL_SECONDS=21600`), the audit queue holds 10,000 events
-(`AUDIT_LOG_QUEUE_SIZE`), and an import job without a heartbeat for 10 minutes is taken over by
-the next worker. Each backend instance runs its own integrity monitor and reads the same import
+(`AUDIT_LOG_QUEUE_SIZE`), and a worker takes an import job without a heartbeat for 10 minutes
+for stopped. Each backend instance runs its own integrity monitor and reads the same import
 jobs, so the queries take the maximum over instances. The same PromQL works in a self-run
 Prometheus.
