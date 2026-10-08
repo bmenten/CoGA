@@ -30,8 +30,9 @@ On startup, when no HPO terms are loaded yet, the backend imports this file. It
 reads the `data-version:` header and stores the release on every term
 (`hpo_term.release_version` and `release_date`). The release is shown on the admin
 HPO page, and it is part of the key of the phenotype-prioritised ranking cache, so
-a new release invalidates the cached rankings. The signed report does not yet record
-the HPO release ([ROADMAP](../../../docs/ROADMAP.md)); the
+a new release invalidates the cached rankings. Every sign-out freezes the release too,
+as the `hpo` reference module of the annotation manifest
+([annotation-provenance.md](../../../docs/annotation-provenance.md#the-reference-modules)); the
 [TF-08 SOUP register](../../../docs/regulatory/TF-08-soup-register.md) lists HPO
 as reference data.
 

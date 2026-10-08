@@ -144,9 +144,12 @@ Five gates run first, in this order:
    variant or of a structural variant or CNV, gives 409, unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
    acknowledgement covers both; the message says how many are structural variants or CNVs.
-4. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a swap check that
-   could not run for a relationship the pedigree asserts, gives 409 (`gate: "sample_qc"`),
-   unless the request sets `acknowledge_qc` with a `qc_acknowledgement_reason` (422 without).
+4. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a check that
+   could not run for lack of data where it is what confirms the pedigree or a sample's
+   identity (a relationship or Mendelian check the pedigree asserts, NIPT paternity or maternal
+   lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent),
+   gives 409 (`gate: "sample_qc"`), unless the request sets `acknowledge_qc` with a
+   `qc_acknowledgement_reason` (422 without).
 5. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
    that left it partly loaded ([data-import.md](data-import.md)) gives 409
    (`gate: "import_incomplete"`, naming the failed datasets and the import job), unless the
