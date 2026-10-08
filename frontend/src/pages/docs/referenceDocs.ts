@@ -13,68 +13,18 @@ import clinicalTraceability from '../../content/docs/clinical-traceability.md?ra
 
 export interface ReferenceDoc {
   slug: string;
-  title: string;
-  summary: string;
   markdown: string;
 }
 
 export const referenceDocs: ReferenceDoc[] = [
-  {
-    slug: 'data-import',
-    title: 'Data import',
-    summary:
-      'Family Builder and Package Import, who may do what, reference data per assembly, what each kind of data unlocks, and the package steps and checks.',
-    markdown: dataImport,
-  },
-  {
-    slug: 'sample-qc',
-    title: 'Sample-integrity QC',
-    summary:
-      'The checks per application — sex, relatedness and consanguinity, Mendelian errors, and the NIPT cfDNA checks — with their thresholds.',
-    markdown: sampleQc,
-  },
-  {
-    slug: 'monarch-integration',
-    title: 'Phenotype matching with Monarch',
-    summary:
-      'What the gene ↔ disease ↔ HPO graph links, the gene-profile associations, the candidate-gene panel, and how the phenotype score feeds the ranking and PP4.',
-    markdown: monarchIntegration,
-  },
-  {
-    slug: 'acmg-classification',
-    title: 'Semi-automatic ACMG classification',
-    summary:
-      'The points and class bands, the VUS tiers, every pre-evaluation rule, the criteria left to you, the mtDNA rule set, and the ClinGen CNV classifier.',
-    markdown: acmgClassification,
-  },
-  {
-    slug: 'haplotype-segregation',
-    title: 'Haplotype segregation analysis',
-    summary:
-      'The PGT haplotype track: the colours and risk line, how the disease haplotype is found, the embryo calls and their warnings, and the ROI marker review.',
-    markdown: haplotypeSegregation,
-  },
-  {
-    slug: 'monogenic-nipt',
-    title: 'Monogenic NIPT (cfDNA)',
-    summary:
-      'The two-sample trio, the required input, the fetal-fraction estimate, the eight categories and their flags, and the inheritance presets.',
-    markdown: monogenicNipt,
-  },
-  {
-    slug: 'sv-second-hit',
-    title: 'SNV + SV compound heterozygosity',
-    summary:
-      'Genes hit by both a small variant and a structural variant: the SV badge, the "Also hit by an SV" filter, and how trans or cis is decided.',
-    markdown: svSecondHit,
-  },
-  {
-    slug: 'clinical-traceability',
-    title: 'Report traceability & sign-out',
-    summary:
-      'The version footer, the evidence-drift banner, the audit trail, the three sign-out checks, and how to tell whether a page is the signed report.',
-    markdown: clinicalTraceability,
-  },
+  { slug: 'data-import', markdown: dataImport },
+  { slug: 'sample-qc', markdown: sampleQc },
+  { slug: 'monarch-integration', markdown: monarchIntegration },
+  { slug: 'acmg-classification', markdown: acmgClassification },
+  { slug: 'haplotype-segregation', markdown: haplotypeSegregation },
+  { slug: 'monogenic-nipt', markdown: monogenicNipt },
+  { slug: 'sv-second-hit', markdown: svSecondHit },
+  { slug: 'clinical-traceability', markdown: clinicalTraceability },
 ];
 
 export const referenceDocBySlug = new Map(referenceDocs.map((doc) => [doc.slug, doc]));
