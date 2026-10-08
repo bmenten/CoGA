@@ -11,7 +11,6 @@ interface Props {
   label: string;
   className?: string;
   children: React.ReactNode;
-  as?: 'span';
   /**
    * Set when the child is already a control (a button or link). The wrapper then
    * carries only the hover/focus handlers and drops its own `role`/`tabIndex`/
