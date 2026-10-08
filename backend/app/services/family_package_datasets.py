@@ -7,7 +7,7 @@ from functools import partial
 import json
 from math import log2
 from pathlib import Path
-from typing import Any, Awaitable, Callable
+from typing import Any, Awaitable, Callable, Sequence
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -153,6 +153,16 @@ async def _local_upload(path: Path):
         await upload.close()
 
 
+def _exclude_filters(dataset: ManifestDataset) -> Sequence[Any] | None:
+    """The SNV dataset's ``exclude_filters``, one value or a list: FILTER values whose
+    records carry no variant to review. DeepVariant marks reference blocks RefCall and
+    zero-depth sites NoCall; on a whole-genome long-read callset those are half the file."""
+    value = (dataset.model_extra or {}).get("exclude_filters")
+    if isinstance(value, str):
+        return [value]
+    return value if isinstance(value, (list, tuple)) else None
+
+
 @_dataset_importer("snv")
 async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
@@ -179,14 +189,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     # that is not glimpse2 made the compensating delete below wipe the family's
     # nuclear callset when a differently-sourced dataset failed.
     snv_source = source_format if source_format != "auto" else "clair3"
-    # FILTER values whose records carry no variant to review. DeepVariant marks
-    # reference blocks RefCall and zero-depth sites NoCall; on a whole-genome long-read
-    # callset those are half the file.
-    exclude_filters = extra.get("exclude_filters")
-    if isinstance(exclude_filters, str):
-        exclude_filters = [exclude_filters]
-    elif not isinstance(exclude_filters, (list, tuple)):
-        exclude_filters = None
+    exclude_filters = _exclude_filters(dataset)
     if conflict_mode == "update":
         existing_count = await count_family_small_variants(
             family_context.assembly_name,
@@ -454,8 +457,18 @@ async def _record_pipeline_haplotype_origin(job: DatasetImportJob) -> dict[str, 
     return record
 
 
-@_dataset_importer("wisecondorx")
-async def _import_wisecondorx_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+async def _import_bins_and_segments(
+    job: DatasetImportJob,
+    *,
+    caller: str,
+    source: str,
+    role_paths: Callable[[dict[str, Any]], dict[str, Any]],
+    track_importer: Callable[..., Awaitable[dict[str, int]]],
+) -> FamilyImportDatasetSummary:
+    """A per-sample copy-number caller's files (WisecondorX, QDNAseq): each sample's bins
+    as its ``coverage`` track and its segments as its ``segments`` track, under
+    ``source``. ``role_paths`` gives a sample entry's two manifest paths, and
+    ``track_importer`` reads one file into its track."""
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     progress = job.progress
@@ -476,7 +489,7 @@ async def _import_wisecondorx_dataset(job: DatasetImportJob) -> FamilyImportData
                     summary.model_copy(
                         update={
                             "status": "running",
-                            "message": f"Importing WisecondorX {role} for {sample_id}",
+                            "message": f"Importing {caller} {role} for {sample_id}",
                             "summary": sample_results,
                         }
                     )
@@ -485,18 +498,19 @@ async def _import_wisecondorx_dataset(job: DatasetImportJob) -> FamilyImportData
         # bins carry a per-bin ratio (a coverage axis); segments carry the called
         # level. Both go through the shared guard so a re-import owns its whole
         # (track_type, source) pair rather than only the filename it happens to read.
+        paths = role_paths(raw_entry)
         for role, track_type in (("bins", "coverage"), ("segments", "segments")):
-            path = _resolve_package_path(bundle.root, raw_entry.get(role))
+            path = _resolve_package_path(bundle.root, paths[role])
             if path is None:
                 continue
             sample_results[sample_id][role] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
                 track_type=track_type,
-                source="wisecondorx",
+                source=source,
                 conflict_mode=conflict_mode,
                 importer=partial(
-                    _import_wisecondorx_track,
+                    track_importer,
                     session,
                     sample_context=sample_context,
                     path=path,
@@ -514,83 +528,37 @@ async def _import_wisecondorx_dataset(job: DatasetImportJob) -> FamilyImportData
         update={
             "status": "imported",
             "message": (
-                "Imported WisecondorX bins as coverage and segments as segment interval tracks"
+                f"Imported {caller} bins as coverage and segments as segment interval tracks"
                 if not skipped
-                else f"Imported WisecondorX data; skipped existing tracks in update mode: {', '.join(skipped)}"
+                else f"Imported {caller} data; skipped existing tracks in update mode: {', '.join(skipped)}"
             ),
             "summary": sample_results,
         }
     )
 
 
+@_dataset_importer("wisecondorx")
+async def _import_wisecondorx_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
+    return await _import_bins_and_segments(
+        job,
+        caller="WisecondorX",
+        source="wisecondorx",
+        role_paths=lambda entry: {"bins": entry.get("bins"), "segments": entry.get("segments")},
+        track_importer=_import_wisecondorx_track,
+    )
+
+
 @_dataset_importer("qdnaseq")
 async def _import_qdnaseq_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
-    session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
-    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
-    progress = job.progress
-    sample_results: dict[str, Any] = {}
-    for sample_id, raw_entry in dataset.per_sample.items():
-        sample_context = sample_contexts.get(sample_id)
-        if sample_context is None or not isinstance(raw_entry, dict):
-            continue
-        sample_results[sample_id] = {}
-
-        # sample_id is bound now, so the callback reports the sample it was made for.
-        async def report_track(
-            role: str, stats: dict[str, int], *, sample_id: str = sample_id
-        ) -> None:
-            sample_results.setdefault(sample_id, {})[role] = stats
-            if progress is not None:
-                await progress(
-                    summary.model_copy(
-                        update={
-                            "status": "running",
-                            "message": f"Importing QDNAseq {role} for {sample_id}",
-                            "summary": sample_results,
-                        }
-                    )
-                )
-
-        role_paths = {
-            "bins": raw_entry.get("bins") or raw_entry.get("file"),
-            "segments": raw_entry.get("segments"),
-        }
-        for role, track_type in (("bins", "coverage"), ("segments", "segments")):
-            path = _resolve_package_path(bundle.root, role_paths[role])
-            if path is None:
-                continue
-            sample_results[sample_id][role] = await _import_interval_track_unless_present(
-                session,
-                sample_context=sample_context,
-                track_type=track_type,
-                source="qdnaseq",
-                conflict_mode=conflict_mode,
-                importer=partial(
-                    _import_copy_number_track,
-                    session,
-                    sample_context=sample_context,
-                    path=path,
-                    track_type=track_type,
-                    source="qdnaseq",
-                    progress=partial(report_track, role),
-                ),
-            )
-    skipped = [
-        f"{sample_id}:{role}"
-        for sample_id, roles in sample_results.items()
-        for role, stats in roles.items()
-        if isinstance(stats, dict) and stats.get("existing") is not None
-    ]
-    return summary.model_copy(
-        update={
-            "status": "imported",
-            "message": (
-                "Imported QDNAseq bins as coverage and segments as segment interval tracks"
-                if not skipped
-                else f"Imported QDNAseq data; skipped existing tracks in update mode: {', '.join(skipped)}"
-            ),
-            "summary": sample_results,
-        }
+    return await _import_bins_and_segments(
+        job,
+        caller="QDNAseq",
+        source="qdnaseq",
+        role_paths=lambda entry: {
+            "bins": entry.get("bins") or entry.get("file"),
+            "segments": entry.get("segments"),
+        },
+        track_importer=partial(_import_copy_number_track, source="qdnaseq"),
     )
 
 
@@ -1032,12 +1000,7 @@ async def _import_per_sample_snv(job: DatasetImportJob) -> FamilyImportDatasetSu
                     "summary": {"existing": existing_count},
                 }
             )
-    extra = dataset.model_extra or {}
-    exclude_filters = extra.get("exclude_filters")
-    if isinstance(exclude_filters, str):
-        exclude_filters = [exclude_filters]
-    elif not isinstance(exclude_filters, (list, tuple)):
-        exclude_filters = None
+    exclude_filters = _exclude_filters(dataset)
     files: list[PerSampleVcf] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         if sample_id not in sample_contexts or not isinstance(raw_entry, dict):

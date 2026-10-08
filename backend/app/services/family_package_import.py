@@ -373,7 +373,6 @@ async def _execute_family_package_import_local(
             conflict_mode=conflict_mode,
             progress=progress,
             job_id=job_id,
-            dry_run=dry_run,
             import_mark=import_mark,
         )
 
@@ -391,7 +390,6 @@ async def _import_family_datasets(
     conflict_mode: str,
     progress: ProgressCallback | None,
     job_id: str | None,
-    dry_run: bool,
     import_mark: ImportMark | None = None,
 ) -> PackageExecutionResult:
     """Import the package's datasets into the registered family, and leave it complete,
@@ -618,7 +616,7 @@ async def _import_family_datasets(
         # flagged until an import imports it again. An earlier import that stopped
         # part-way keeps its entry unless this one imported again, replacing them, the
         # datasets it had not finished: only an overwrite replaces what is there.
-        if not compensated and session is not None:
+        if not compensated:
             left = await _clear_family_import_incomplete(
                 session,
                 family_context,
@@ -643,7 +641,7 @@ async def _import_family_datasets(
     # be hit. Skip when the family shell was just compensated away (nothing to recache),
     # or when a failed overwrite was restored to its pre-import state (the content is
     # unchanged; the data version still moves, which costs at most one recompute).
-    if not compensated and not restored and not dry_run and session is not None:
+    if not compensated and not restored:
         from .variant_ranking_cache import clear_family_ranking_cache
         from .sv_gene_index_service import clear_family_sv_gene_index
 
