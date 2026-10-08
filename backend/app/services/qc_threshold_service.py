@@ -24,7 +24,6 @@ from __future__ import annotations
 import re
 
 from dataclasses import dataclass
-import logging
 from typing import Any, Literal, Sequence
 
 from fastapi import HTTPException
@@ -32,9 +31,6 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .sample_integrity_qc import Status
-
-
-logger = logging.getLogger(__name__)
 
 
 # A lower value is the failing side for almost every sequencing-QC metric (less depth,
