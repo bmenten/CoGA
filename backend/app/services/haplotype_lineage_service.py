@@ -1091,7 +1091,7 @@ def annotate_lineage(
 
     if not two_parent and single_known is None:
         # No identifiable parent at all — cannot ground founder colours.
-        return _grey_remaining(result, segments_by_name, chrom, region_start, region_end)
+        return _grey_remaining(result, segments_by_name)
 
     if not _is_autosome(chrom):
         # Sex chromosomes / mitochondrion break the diploid two-homolog assumption
@@ -1099,7 +1099,7 @@ def annotate_lineage(
         # Rather than mis-colour, leave relatives grey on non-autosomes. The core
         # itself keeps its role-based stored-block tags from step 1.
         # TODO(follow-up): proper hemizygous-X handling (single-homolog matching).
-        return _grey_remaining(result, segments_by_name, chrom, region_start, region_end)
+        return _grey_remaining(result, segments_by_name)
 
     alleles = _alleles_by_member(genotype_rows)
     eff_start, eff_end = _region_bounds(
@@ -1251,7 +1251,7 @@ def annotate_lineage(
                 segs = segs + [_grey_tail_block(chrom, eff_end, region_full_end)]
             result[neighbor] = segs
 
-    return _grey_remaining(result, segments_by_name, chrom, region_start, region_end)
+    return _grey_remaining(result, segments_by_name)
 
 
 def _normalize_chrom(value: Any) -> str:
@@ -1342,12 +1342,9 @@ def _founder_parent_blocks(chrom: str, origin: str, start: int, end: int) -> lis
 def _grey_remaining(
     result: dict[str, list[dict[str, Any]] | None],
     segments_by_name: dict[str, list[dict[str, Any]]],
-    chrom: str,
-    region_start: int | None,
-    region_end: int | None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Any member still without lineage (a relative we couldn't place) is rendered
-    as a single grey block spanning the region — never mis-coloured."""
+    """Any member still without lineage (a relative we couldn't place) keeps its stored
+    segments, both lanes tagged ``unknown`` (rendered grey) — never mis-coloured."""
     final: dict[str, list[dict[str, Any]]] = {}
     for name, segs in result.items():
         if segs is not None:

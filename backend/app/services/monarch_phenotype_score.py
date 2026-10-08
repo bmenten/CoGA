@@ -19,7 +19,6 @@ See docs/monarch-integration.md.
 from __future__ import annotations
 
 import asyncio
-import logging
 import math
 import time
 from dataclasses import dataclass, field
@@ -27,8 +26,6 @@ from typing import Any, Iterable
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
-
-logger = logging.getLogger(__name__)
 
 # IC is a function of the Monarch release only, so cache it process-wide with a TTL.
 # The lock makes the (heavy, ~265k-row) aggregate single-flight: concurrent first-hits

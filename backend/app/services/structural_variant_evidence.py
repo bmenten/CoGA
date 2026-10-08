@@ -28,7 +28,6 @@ analyst scores those criteria by hand. So the snapshot holds:
 from __future__ import annotations
 
 import json
-import logging
 import math
 from datetime import datetime
 from typing import Any, Mapping, Sequence
@@ -53,8 +52,6 @@ from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
 from .hash_chain import canonical_hash, canonical_json
-
-logger = logging.getLogger(__name__)
 
 # The evidence fields grouped under the name a drift reports when they change, in the
 # order a reviewer reads them.

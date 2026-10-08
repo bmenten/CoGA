@@ -50,9 +50,10 @@ def _default_filters(**overrides):
 
 
 def _hash(monkeypatch, *, filters=None, hpo=(), rev=None, exc=None, active=False, data="1:1"):
+    """The exact cache key (``inputs_hash``)."""
     _patch_db(monkeypatch)
-    return asyncio.run(
-        vrc.compute_inputs_hash(
+    inputs_hash, _base_hash = asyncio.run(
+        vrc.compute_ranking_hashes(
             None,
             context=_context(),
             filters=filters or _default_filters(),
@@ -63,6 +64,7 @@ def _hash(monkeypatch, *, filters=None, hpo=(), rev=None, exc=None, active=False
             include_review_filter_active=active,
         )
     )
+    return inputs_hash
 
 
 def test_canonical_filters_drops_pagination() -> None:

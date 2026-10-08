@@ -202,7 +202,6 @@ class QcProfile:
     run_relatedness: bool
     run_mendelian: bool
     run_paternity: bool
-    highlight_embryos: bool
 
 
 @dataclass(slots=True)
@@ -545,14 +544,14 @@ _PROFILES: dict[ApplicationKind, QcProfile] = {
         "Full pedigree QC on the SNV call set: sex concordance, relatedness vs the "
         "pedigree, and the Mendelian-error rate for parent-child pairs.",
         run_sex=True, run_relatedness=True, run_mendelian=True,
-        run_paternity=False, highlight_embryos=False,
+        run_paternity=False,
     ),
     "pgt": QcProfile(
         "pgt", "Shallow-WGS PGT (imputed)",
         "Embryo integrity from imputed genotypes: each embryo's sex, and that every "
         "embryo is a true first-degree child of both parents (no sample switch).",
         run_sex=True, run_relatedness=True, run_mendelian=True,
-        run_paternity=False, highlight_embryos=True,
+        run_paternity=False,
     ),
     # The per-member sex check is off here; the service sexes the father and the cfDNA
     # sample itself (extra_sex_checks), which is why the summary still names it.
@@ -567,27 +566,27 @@ _PROFILES: dict[ApplicationKind, QcProfile] = {
         "Genotype relatedness and Mendelian errors do not apply to a maternal/fetal "
         "mixture.",
         run_sex=False, run_relatedness=False, run_mendelian=False,
-        run_paternity=True, highlight_embryos=False,
+        run_paternity=True,
     ),
     "couple": QcProfile(
         "couple", "Carrier couple (BEGECS)",
         "Sex concordance for each partner. The couple is expected to be unrelated, "
         "which is confirmed (or flagged if they are not).",
         run_sex=True, run_relatedness=True, run_mendelian=False,
-        run_paternity=False, highlight_embryos=False,
+        run_paternity=False,
     ),
     "single": QcProfile(
         "single", "Single sample (targeted)",
         "Sex concordance only — a single sample has no relatedness or Mendelian "
         "context.",
         run_sex=True, run_relatedness=False, run_mendelian=False,
-        run_paternity=False, highlight_embryos=False,
+        run_paternity=False,
     ),
     "unknown": QcProfile(
         "unknown", "Family",
         "Sex concordance, relatedness and Mendelian-error rate where the data allows.",
         run_sex=True, run_relatedness=True, run_mendelian=True,
-        run_paternity=False, highlight_embryos=False,
+        run_paternity=False,
     ),
 }
 

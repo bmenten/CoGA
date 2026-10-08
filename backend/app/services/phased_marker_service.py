@@ -36,7 +36,7 @@ from ..schemas import (
 from .clickhouse_family_variants import fetch_imputed_phased_genotypes
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .family_metadata_context import FamilyMetadataContext
-from .haplotype_lineage_service import build_pedigree, founder_shade_map
+from .haplotype_lineage_service import _allele_int, build_pedigree, founder_shade_map
 from .haplotype_phase_correction import corrected_genotype_rows
 from .haplotype_block_builder import (
     _parent_sample_names,
@@ -49,10 +49,6 @@ from .haplotype_block_builder import (
 # an unusually large family's full-chromosome view. This bounds the ClickHouse
 # query only; the markers it returns are emitted raw, one point per site.
 PHASED_FETCH_LIMIT = 500_000
-
-
-def _allele_int(allele: str) -> int | None:
-    return int(allele) if allele.isdigit() else None
 
 
 def _is_mendelian_consistent(

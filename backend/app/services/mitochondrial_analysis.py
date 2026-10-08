@@ -29,7 +29,7 @@ from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .clickhouse_variant_queries import _parent_child_links
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
-from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype, genotype_has_alt
+from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
 from .qc_threshold_service import evaluate_metric, resolve_family_qc_thresholds
 from .small_variant_review_pg import get_small_variant_review_map
 
@@ -369,10 +369,6 @@ def _allele_fraction(call: SmallVariantCall) -> float | None:
     if depth and alt_depth is not None:
         return alt_depth / depth
     return None
-
-
-def _gt_has_alt(gt: str) -> bool:
-    return genotype_has_alt(gt)
 
 
 def _zygosity(call: SmallVariantCall) -> str:
