@@ -49,6 +49,7 @@ from ..schemas import (
     VariantExplorerAssemblyOut,
 )
 from .clickhouse_variant_ids import _small_table_name
+from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
 from .clickhouse_variant_records import CLINVAR_FREQUENCY_RESCUE_TERMS, _status_filter_terms
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
@@ -67,10 +68,6 @@ def _gt_is_hom(column: str, params: dict[str, Any]) -> str:
 
 def _gt_is_het(column: str, params: dict[str, Any]) -> str:
     return clickhouse_genotype_condition(column, {HET}, param="gt_het", params=params)
-
-# `entries.source` values produced by genotype imputation/phasing tools. These
-# are hidden by default and only included when the caller opts in.
-_IMPUTED_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
 
 _SORT_EXPR = {
     "total_samples": "total_samples",
@@ -663,7 +660,7 @@ def _entries_where(
         clauses.append("variantId IN %(tag_variant_ids)s")
 
     if not filters.include_imputed:
-        params["imputed_sources"] = _IMPUTED_SOURCES
+        params["imputed_sources"] = IMPUTED_SMALL_VARIANT_SOURCES
         clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
 
     sample_source = (
@@ -1131,7 +1128,7 @@ async def get_variant_carriers(
         genotype_clause = f" AND {_gt_is_het('gt', params)}"
     source_clause = ""
     if not include_imputed:
-        params["imputed_sources"] = _IMPUTED_SOURCES
+        params["imputed_sources"] = IMPUTED_SMALL_VARIANT_SOURCES
         source_clause = " AND lowerUTF8(source) NOT IN %(imputed_sources)s"
 
     params["carrier_limit"] = _VARIANT_CARRIER_ROW_LIMIT + 1

@@ -99,8 +99,8 @@ from .clickhouse_variant_records import (
 # These are excluded by default from the diagnostic per-family small-variant list,
 # counts, and summary (matching the global Variant Explorer's default), but remain
 # available to callers that request a source explicitly — the phased-marker /
-# relative-haplotype colouring and sample-integrity QC readers. Kept in sync with
-# variant_explorer_service._IMPUTED_SOURCES.
+# relative-haplotype colouring and sample-integrity QC readers. The Variant Explorer
+# hides the same sources unless asked to include them.
 IMPUTED_SMALL_VARIANT_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
 # A monogenic NIPT's callset stored one variant-only VCF per sample (the plasma and the
 # father; family_package_nipt): a sample without a call at a variant had no alt read
