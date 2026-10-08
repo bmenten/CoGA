@@ -31,6 +31,9 @@ Next to the badge may be:
 
 - **⚠ recombination** — a haplotype change inside the ROI or within 250 kb of it; the call may not hold
   across the locus.
+- **⚠ phase corrected** — CoGA undid a phase switch in a parent's haplotypes inside or close to the ROI.
+  Where the phase switched is known only roughly, so the call across the locus is less certain: review
+  the ROI markers.
 - **⚠ uninformative** — no call is made: no disease haplotype could be resolved, or the embryo's
   haplotype does not cover the ROI.
 - **⚠ sex unknown** — an X-linked recessive call depends on the embryo's sex, which is not recorded. The

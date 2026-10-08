@@ -1800,7 +1800,7 @@
   "title": "Haplotype segregation (PGT)",
   "summary": "Follow the parental haplotypes through the family to see which embryos inherited the disease haplotype — and when not to trust the call.",
   "quickLinks": [],
-  "text": "TheHaplotypestrack(chromosomeviewandgenomeoverview)isCoGA'sPGTtool.Itcolourseachperson'stwohaplotypesbytheparentalhomologtheydescendfrom,findsthehaplotypethatcarriesthediseaseallele,andcallseachembryofromit.WhatthefamilyneedsPhasedimputedgenotypes(GLIMPSE2)forthecouple,theembryosandtherelativesyouwantcoloured.Acorrectpedigree,includingthegrandparents,whoanchorthediseasehaplotype.Affectedandcarrierstatusonthemembersthatdefinethediseasehaplotype.Aninheritancemodel(ifnoneisset,CoGAassumesrecessivewhenamemberismarkedasacarrier,otherwisedominant)andaregionofinterestatthediseaselocus.WithoutanROItherearenoembryocalls.ReadingthetrackP1andP2(blues)arethefather'shomologs,M1andM2(greens)themother's.Untransmitted(grey)isarelative'shomologthatwasnotpasseddown,oroneCoGAcouldnotplace.Thediseasehaplotypehasalineundertheband:solidred(Affected)foradominantorX-linkedmodel,dashedorange(Carrier)forarecessiveone.OnthegenomeoverviewthelineappearsonlyontheROI'schromosome.Themarkerdotsaretherawphasedmarkers.Usethemtocheckthatacolourchangeisarealrecombinationandnotphasingnoise.Onaverylargeregiontheyarehidden:zoomin.TheembryocallsEachembryo'scallisabadgeintheFamilymemberstableonthefamilypage:Affected/atrisk,Carrier,UnaffectedorUninformative.Acallthattheembryodoesnotcarryadiseasehaplotypeneedstheembryo'sownhaplotype,seenacrosstheROI;withoutittheembryoreadsUninformative.Nexttothebadgemaybe:⚠recombination—ahaplotypechangeinsidetheROIorwithin250kbofit;thecallmaynotholdacrossthelocus.⚠uninformative—nocallismade:nodiseasehaplotypecouldberesolved,ortheembryo'shaplotypedoesnotcovertheROI.⚠sexunknown—anX-linkedrecessivecalldependsontheembryo'ssex,whichisnotrecorded.TheembryothenreadsAffected/atriskorUninformative,andthewarninggivesthecallforasonandforadaughter.Recordthesextoresolveit.ReviewROImarkers→showsthephasedgenotypesofeverymemberacrosstheROI,witheachchild'sMendelian-errorrate.Useittore-checkasurprisingcall:asinglemarkerthatdisagreeswithitsneighboursisnoise,notacrossover,andaclearMendelian-errorratepointstoaswaporawrongpedigree.Inasingle-parent(donor)familythedonorlanestaysgrey,andarecessivecallisuninformativebecausethedonorsideisunknown.In-depthreferenceHaplotypesegregationreference(colours,inferencerules,embryocalls)→",
+  "text": "TheHaplotypestrack(chromosomeviewandgenomeoverview)isCoGA'sPGTtool.Itcolourseachperson'stwohaplotypesbytheparentalhomologtheydescendfrom,findsthehaplotypethatcarriesthediseaseallele,andcallseachembryofromit.WhatthefamilyneedsPhasedimputedgenotypes(GLIMPSE2)forthecouple,theembryosandtherelativesyouwantcoloured.Acorrectpedigree,includingthegrandparents,whoanchorthediseasehaplotype.Affectedandcarrierstatusonthemembersthatdefinethediseasehaplotype.Aninheritancemodel(ifnoneisset,CoGAassumesrecessivewhenamemberismarkedasacarrier,otherwisedominant)andaregionofinterestatthediseaselocus.WithoutanROItherearenoembryocalls.ReadingthetrackP1andP2(blues)arethefather'shomologs,M1andM2(greens)themother's.Untransmitted(grey)isarelative'shomologthatwasnotpasseddown,oroneCoGAcouldnotplace.Thediseasehaplotypehasalineundertheband:solidred(Affected)foradominantorX-linkedmodel,dashedorange(Carrier)forarecessiveone.OnthegenomeoverviewthelineappearsonlyontheROI'schromosome.Themarkerdotsaretherawphasedmarkers.Usethemtocheckthatacolourchangeisarealrecombinationandnotphasingnoise.Onaverylargeregiontheyarehidden:zoomin.TheembryocallsEachembryo'scallisabadgeintheFamilymemberstableonthefamilypage:Affected/atrisk,Carrier,UnaffectedorUninformative.Acallthattheembryodoesnotcarryadiseasehaplotypeneedstheembryo'sownhaplotype,seenacrosstheROI;withoutittheembryoreadsUninformative.Nexttothebadgemaybe:⚠recombination—ahaplotypechangeinsidetheROIorwithin250kbofit;thecallmaynotholdacrossthelocus.⚠phasecorrected—CoGAundidaphaseswitchinaparent'shaplotypesinsideorclosetotheROI.Wherethephaseswitchedisknownonlyroughly,sothecallacrossthelocusislesscertain:reviewtheROImarkers.⚠uninformative—nocallismade:nodiseasehaplotypecouldberesolved,ortheembryo'shaplotypedoesnotcovertheROI.⚠sexunknown—anX-linkedrecessivecalldependsontheembryo'ssex,whichisnotrecorded.TheembryothenreadsAffected/atriskorUninformative,andthewarninggivesthecallforasonandforadaughter.Recordthesextoresolveit.ReviewROImarkers→showsthephasedgenotypesofeverymemberacrosstheROI,witheachchild'sMendelian-errorrate.Useittore-checkasurprisingcall:asinglemarkerthatdisagreeswithitsneighboursisnoise,notacrossover,andaclearMendelian-errorratepointstoaswaporawrongpedigree.Inasingle-parent(donor)familythedonorlanestaysgrey,andarecessivecallisuninformativebecausethedonorsideisunknown.In-depthreferenceHaplotypesegregationreference(colours,inferencerules,embryocalls)→",
   "paragraphs": [
    "The Haplotypes track (chromosome view and genome overview) is CoGA's PGT tool. It colours each person's two haplotypes by the parental homolog they descend from, finds the haplotype that carries the disease allele, and calls each embryo from it.",
    "Each embryo's call is a badge in the Family members table on the family page: Affected / at risk, Carrier, Unaffected or Uninformative. A call that the embryo does not carry a disease haplotype needs the embryo's own haplotype, seen across the ROI; without it the embryo reads Uninformative. Next to the badge may be:",
@@ -1851,6 +1851,10 @@
    [
     "li",
     "⚠ recombination — a haplotype change inside the ROI or within 250 kb of it; the call may not hold across the locus."
+   ],
+   [
+    "li",
+    "⚠ phase corrected — CoGA undid a phase switch in a parent's haplotypes inside or close to the ROI. Where the phase switched is known only roughly, so the call across the locus is less certain: review the ROI markers."
    ],
    [
     "li",
@@ -1941,6 +1945,10 @@
    [
     "strong",
     "⚠ recombination"
+   ],
+   [
+    "strong",
+    "⚠ phase corrected"
    ],
    [
     "strong",
