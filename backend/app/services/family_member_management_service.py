@@ -408,64 +408,18 @@ async def get_family_member_detail_for_user(
 
 
 def _relationship_payload_for_member_update(
-    family_relationships: list[Any],
+    family: Any,
     *,
     sample_id: str,
     update: FamilyMemberUpdate,
 ) -> FamilyStructureRelationshipsUpdate | None:
-    replace_father = _payload_has_field(update, "father_id")
-    replace_mother = _payload_has_field(update, "mother_id")
-    if not replace_father and not replace_mother:
+    """The family's links with the member's father and mother replaced as the update asks
+    (as a batch edit replaces them), or None when it names neither: the links then stay."""
+    if not _payload_has_field(update, "father_id") and not _payload_has_field(update, "mother_id"):
         return None
-
-    target_key = _sample_key(sample_id)
-    parent_child: list[FamilyStructureParentChildUpdate] = []
-    couples: list[FamilyStructureCoupleUpdate] = []
-    for relationship in family_relationships:
-        if relationship.relationship_type == "parent_child":
-            if _sample_key(relationship.sample_id_b) == target_key:
-                if relationship.role_a == "father" and replace_father:
-                    continue
-                if relationship.role_a == "mother" and replace_mother:
-                    continue
-            parent_child.append(
-                FamilyStructureParentChildUpdate(
-                    parent=relationship.sample_id_a,
-                    child=relationship.sample_id_b,
-                    parent_role=relationship.role_a
-                    if relationship.role_a in {"father", "mother", "parent"}
-                    else "parent",
-                    metadata=relationship.metadata or {},
-                )
-            )
-        elif relationship.relationship_type == "couple":
-            couples.append(
-                FamilyStructureCoupleUpdate(
-                    partners=[relationship.sample_id_a, relationship.sample_id_b],
-                    context=(relationship.metadata or {}).get("context"),
-                    metadata=relationship.metadata or {},
-                )
-            )
-
-    if replace_father and update.father_id:
-        parent_child.append(
-            FamilyStructureParentChildUpdate(
-                parent=_clean_sample_id(update.father_id, field_name="father_id"),
-                child=sample_id,
-                parent_role="father",
-                metadata={},
-            )
-        )
-    if replace_mother and update.mother_id:
-        parent_child.append(
-            FamilyStructureParentChildUpdate(
-                parent=_clean_sample_id(update.mother_id, field_name="mother_id"),
-                child=sample_id,
-                parent_role="mother",
-                metadata={},
-            )
-        )
-    return FamilyStructureRelationshipsUpdate(parent_child=parent_child, couples=couples)
+    relationships = _current_relationships_update(family)
+    _apply_parent_updates(relationships, child_id=sample_id, update=update)
+    return relationships
 
 
 def _apply_status_fields(values: dict[str, Any], update: Any) -> None:
@@ -486,21 +440,7 @@ def _apply_status_fields(values: dict[str, Any], update: Any) -> None:
 def _member_update_payload(
     *,
     sample_id: str,
-    update: FamilyMemberUpdate,
-) -> FamilyStructureMemberUpdate:
-    values: dict[str, Any] = {"sample_id": sample_id}
-    if _payload_has_field(update, "sex"):
-        values["sex"] = update.sex
-    if _payload_has_field(update, "role"):
-        values["role"] = update.role
-    _apply_status_fields(values, update)
-    return FamilyStructureMemberUpdate(**values)
-
-
-def _batch_member_update_payload(
-    *,
-    sample_id: str,
-    update: FamilyMemberBatchUpdateItem,
+    update: FamilyMemberUpdate | FamilyMemberBatchUpdateItem,
 ) -> FamilyStructureMemberUpdate:
     values: dict[str, Any] = {"sample_id": sample_id}
     if _payload_has_field(update, "sex"):
@@ -559,7 +499,7 @@ def _apply_parent_updates(
     relationships: FamilyStructureRelationshipsUpdate,
     *,
     child_id: str,
-    update: FamilyMemberBatchUpdateItem,
+    update: FamilyMemberUpdate | FamilyMemberBatchUpdateItem,
 ) -> None:
     replace_father = _payload_has_field(update, "father_id")
     replace_mother = _payload_has_field(update, "mother_id")
@@ -625,6 +565,47 @@ def _rename_block_reason(counts: dict[str, int]) -> str | None:
     return None
 
 
+async def _rename_member(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    sample_uuid: str,
+    sample_id: str,
+    new_sample_id: str,
+) -> None:
+    """Rename the member stored as ``sample_id`` to ``new_sample_id``, as a member edit and a
+    batch edit do: refused (409) when another sample holds the ID, or when the member's
+    genomic data still uses the old one or cannot be checked (``_rename_block_reason``)."""
+    await _ensure_sample_id_available(
+        session,
+        sample_uuid=sample_uuid,
+        new_sample_id=new_sample_id,
+    )
+    impact = await get_family_member_impact_for_user(
+        session,
+        family_id=family_id,
+        sample_id=sample_id,
+        user=user,
+    )
+    block_reason = _rename_block_reason(impact.data_counts)
+    if block_reason is not None:
+        raise HTTPException(
+            status_code=409,
+            detail={"message": block_reason, "impact": impact.model_dump()},
+        )
+    await session.execute(
+        text(
+            """
+            UPDATE samples
+            SET sample_id = :sample_id
+            WHERE id = CAST(:sample_uuid AS uuid)
+            """
+        ),
+        {"sample_uuid": sample_uuid, "sample_id": new_sample_id},
+    )
+
+
 async def update_family_member_for_admin(
     session: AsyncSession,
     *,
@@ -649,32 +630,13 @@ async def update_family_member_for_admin(
     if _payload_has_field(update, "sample_id") and update.sample_id is not None:
         new_sample_id = _clean_sample_id(update.sample_id)
         if _sample_key(new_sample_id) != _sample_key(resolved_sample_id):
-            await _ensure_sample_id_available(
-                session,
-                sample_uuid=sample_uuid,
-                new_sample_id=new_sample_id,
-            )
-            impact = await get_family_member_impact_for_user(
+            await _rename_member(
                 session,
                 family_id=family_id,
-                sample_id=resolved_sample_id,
                 user=user,
-            )
-            block_reason = _rename_block_reason(impact.data_counts)
-            if block_reason is not None:
-                raise HTTPException(
-                    status_code=409,
-                    detail={"message": block_reason, "impact": impact.model_dump()},
-                )
-            await session.execute(
-                text(
-                    """
-                    UPDATE samples
-                    SET sample_id = :sample_id
-                    WHERE id = CAST(:sample_uuid AS uuid)
-                    """
-                ),
-                {"sample_uuid": sample_uuid, "sample_id": new_sample_id},
+                sample_uuid=sample_uuid,
+                sample_id=resolved_sample_id,
+                new_sample_id=new_sample_id,
             )
             family = await get_family_record(session, family_id, user)
 
@@ -684,7 +646,7 @@ async def update_family_member_for_admin(
         clear_existing_genomic_data=False,
         members=[_member_update_payload(sample_id=new_sample_id, update=update)],
         relationships=_relationship_payload_for_member_update(
-            family.relationships,
+            family,
             sample_id=new_sample_id,
             update=update,
         ),
@@ -754,35 +716,13 @@ async def update_family_members_batch_for_admin(
                     family_uuid=family_uuid,
                     sample_id=current_sample_id,
                 )
-                await _ensure_sample_id_available(
-                    session,
-                    sample_uuid=sample_uuid,
-                    new_sample_id=requested_sample_id,
-                )
-                impact = await get_family_member_impact_for_user(
+                await _rename_member(
                     session,
                     family_id=family_id,
-                    sample_id=resolved_sample_id,
                     user=user,
-                )
-                block_reason = _rename_block_reason(impact.data_counts)
-                if block_reason is not None:
-                    raise HTTPException(
-                        status_code=409,
-                        detail={"message": block_reason, "impact": impact.model_dump()},
-                    )
-                await session.execute(
-                    text(
-                        """
-                        UPDATE samples
-                        SET sample_id = :sample_id
-                        WHERE id = CAST(:sample_uuid AS uuid)
-                        """
-                    ),
-                    {
-                        "sample_uuid": sample_uuid,
-                        "sample_id": requested_sample_id,
-                    },
+                    sample_uuid=sample_uuid,
+                    sample_id=resolved_sample_id,
+                    new_sample_id=requested_sample_id,
                 )
                 _replace_sample_id_in_relationships(
                     relationships_update,
@@ -808,7 +748,7 @@ async def update_family_members_batch_for_admin(
             )
             relationships_changed = True
         member_updates.append(
-            _batch_member_update_payload(sample_id=target_sample_id, update=item)
+            _member_update_payload(sample_id=target_sample_id, update=item)
         )
 
     response = await update_family_structure_for_admin(
