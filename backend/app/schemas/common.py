@@ -35,10 +35,7 @@ class ApiId(str):
 class ApiDocumentModel(BaseModel):
     id: ApiId = Field(alias="_id")
 
-    model_config = ConfigDict(
-        populate_by_name=True,
-        arbitrary_types_allowed=True,
-    )
+    model_config = ConfigDict(populate_by_name=True)
 
 
 class GeneLocation(BaseModel):
