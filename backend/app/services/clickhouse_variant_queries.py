@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import re
 from typing import Any, Collection, Iterable, Sequence
 
@@ -94,9 +93,6 @@ from .clickhouse_variant_records import (
     _annotation_spliceai_max,
     _annotation_matches_normal,
 )
-
-
-logger = logging.getLogger(__name__)
 
 
 # Callset ``source`` values that hold imputed (not directly-called) genotypes.
@@ -1477,45 +1473,6 @@ def _compound_het_pair_verdict(
     return COMPOUND_HET_PHASE_UNKNOWN, None
 
 
-def _compound_het_pair_phase(
-    left: SmallVariantRecord,
-    right: SmallVariantRecord,
-    *,
-    affected_samples: Sequence[str],
-    unaffected_samples: Sequence[str],
-    pedigree: FamilyPedigree | None = None,
-) -> str | None:
-    """The pair's phase, or None when it is not a compound-het candidate at all."""
-    verdict = _compound_het_pair_verdict(
-        left,
-        right,
-        affected_samples=affected_samples,
-        unaffected_samples=unaffected_samples,
-        pedigree=pedigree,
-    )
-    return None if verdict is None else verdict[0]
-
-
-def _records_form_compound_het_pair(
-    left: SmallVariantRecord,
-    right: SmallVariantRecord,
-    *,
-    affected_samples: Sequence[str],
-    unaffected_samples: Sequence[str],
-    pedigree: FamilyPedigree | None = None,
-) -> bool:
-    return (
-        _compound_het_pair_phase(
-            left,
-            right,
-            affected_samples=affected_samples,
-            unaffected_samples=unaffected_samples,
-            pedigree=pedigree,
-        )
-        is not None
-    )
-
-
 def _compound_het_pairs(
     records: Sequence[SmallVariantRecord],
     *,
@@ -1612,10 +1569,6 @@ def _carrier_partner_names(
     return None
 
 
-def _has_alt_allele(gt: str) -> bool:
-    return genotype_has_alt(gt)
-
-
 def _is_mitochondrial_chromosome(chromosome: str | None) -> bool:
     return _chromosome_match_key(str(chromosome or "")) == "MT"
 
@@ -1665,7 +1618,7 @@ def _filter_expanded_carrier_screening(
         if not keys:
             continue
         call_map = {call.sample: call.gt for call in record.calls}
-        carriers = {partner for partner in partners if _has_alt_allele(call_map.get(partner, "./."))}
+        carriers = {partner for partner in partners if genotype_has_alt(call_map.get(partner, "./."))}
         if not carriers:
             continue
         if any(partner in carriers for partner in x_carrier_partners) and (
@@ -2569,7 +2522,6 @@ def _small_annotation_exclude_filter_condition(
 
 
 def _small_annotation_scope_clauses(
-    context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
     *,
     params: dict[str, Any],
@@ -2610,7 +2562,7 @@ def _small_annotation_gene_membership_condition(
     terms_param = f"{prefix}_terms"
     params[terms_param] = normalized_gene_values
     gene_index_table = _small_annotation_gene_index_table_name(context.assembly_name)
-    scope_clauses = _small_annotation_scope_clauses(context, filters, params=params, alias="gi")
+    scope_clauses = _small_annotation_scope_clauses(filters, params=params, alias="gi")
     index_where = [*scope_clauses, f"gi.gene_term IN %({terms_param})s"]
     return (
         "(e.key, e.annotation_version, e.annotationSetHash) IN ("
@@ -2631,7 +2583,7 @@ def _small_annotation_key_membership_condition(
     if not context.assembly_name:
         return "0" if not negate else "1"
     annotation_index_table = _small_annotation_index_table_name(context.assembly_name)
-    scope_clauses = _small_annotation_scope_clauses(context, filters, params=params)
+    scope_clauses = _small_annotation_scope_clauses(filters, params=params)
     operator = "NOT IN" if negate else "IN"
     index_where = [*scope_clauses, f"({condition})"]
     return (
@@ -2640,24 +2592,6 @@ def _small_annotation_key_membership_condition(
         f"WHERE {' AND '.join(index_where)}"
         ")"
     )
-
-
-def _small_annotation_row_scope_clauses(
-    filters: SmallVariantQueryFilters,
-    *,
-    params: dict[str, Any],
-) -> list[str]:
-    clauses: list[str] = []
-    if filters.chromosome and "chromosomes" in params:
-        clauses.append("a.chrom IN %(chromosomes)s")
-    if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            clauses.append("(a.pos <= %(end)s AND (a.pos + length(a.ref) - 1) >= %(start)s)")
-        else:
-            clauses.append("a.pos >= %(start)s")
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
-        clauses.append("a.pos <= %(end)s")
-    return clauses
 
 
 def _small_annotation_row_membership_condition(
@@ -2671,7 +2605,7 @@ def _small_annotation_row_membership_condition(
     if not context.assembly_name:
         return "0" if not negate else "1"
     annotations_table = _small_annotation_table_name(context.assembly_name)
-    scope_clauses = _small_annotation_row_scope_clauses(filters, params=params)
+    scope_clauses = _small_annotation_scope_clauses(filters, params=params, alias="a")
     operator = "NOT IN" if negate else "IN"
     annotation_where = [*scope_clauses, f"({condition})"]
     return (

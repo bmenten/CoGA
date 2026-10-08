@@ -10,7 +10,7 @@ is not a candidate at all.
 import pytest
 
 from backend.app.services.clickhouse_variant_queries import (
-    _compound_het_pair_phase,
+    _compound_het_pair_verdict,
     _compound_het_pairs,
     _phased_alt_haplotype,
 )
@@ -43,6 +43,12 @@ def _variant(variant_id: str, *, calls: list[SmallVariantCall], start: int = 100
         annotations=[{"gene": "TRNT1"}],
         calls=calls,
     )
+
+
+def _compound_het_pair_phase(left: SmallVariantRecord, right: SmallVariantRecord, **kwargs) -> str | None:
+    """The pair's phase, or None when it is not a compound-het candidate at all."""
+    verdict = _compound_het_pair_verdict(left, right, **kwargs)
+    return None if verdict is None else verdict[0]
 
 
 def _phase(left_gt: str, right_gt: str, *, left_ps=None, right_ps=None) -> str | None:
