@@ -7,6 +7,8 @@ parser is best-effort: it must extract what it can and never raise.
 
 from __future__ import annotations
 
+import pytest
+
 from app.services.vcf_header_provenance import (
     extract_header_provenance,
     extract_info_description_provenance,
@@ -174,6 +176,10 @@ def test_empty_and_malformed_never_raise():
         "##source=",
         "##weird line without equals",
         "##bcftools_=",
+        "##fooVersion=<",
+        '##fooVersion="',
+        '##fooVersion=<ID=foo,Version=">',
+        "##fooCommand=",
         "not even a header",
     ]
     assert isinstance(extract_header_provenance(junk).as_modules(), dict)
@@ -249,3 +255,128 @@ def test_merging_modalities_keeps_each_modalitys_caller():
     assert combined["sniffles"]["version"] == "2.2"
     assert combined["trgt"]["version"] == "0.7.0"
     assert combined["vep"]["version"] == "110"
+
+
+# --- A command line names the tool, never its version ------------------------------ #
+# ``##<tool>Command=`` and ``##<tool>Cmd=`` lines start with the program or subcommand
+# (``view``, ``SnpSift``, ``trgt``), not a version, and the manifest is frozen into each
+# sign-out. Only a version line gives the version, wherever the command line stands.
+
+
+def test_a_bcftools_command_line_records_no_version():
+    mods = _modules(
+        "##fileformat=VCFv4.2\n"
+        "##bcftools_viewCommand=view -Oz -o out.vcf.gz in.vcf.gz; Date=Tue Oct  1 10:00:00 2024\n"
+    )
+    # bcftools ran, at a version the header does not state: not version "view".
+    assert mods == {"bcftools": {}}
+
+
+def test_snpsift_records_its_version_not_its_name():
+    # SnpSift's own header lines: its version line names the tool first.
+    header = (
+        "##fileformat=VCFv4.2\n"
+        '##SnpSiftVersion="SnpSift 5.1d (build 2022-04-19 15:05), by the snpEff author"\n'
+        '##SnpSiftCmd="SnpSift annotate -id dbsnp.vcf.gz input.vcf"\n'
+    )
+    assert _modules(header)["snpsift"] == {"version": "5.1d"}  # not "SnpSift"
+    command_only = '##fileformat=VCFv4.2\n##SnpSiftCmd="SnpSift annotate -id dbsnp.vcf.gz input.vcf"\n'
+    assert _modules(command_only) == {"snpsift": {}}  # not "SnpSift"
+
+
+def test_a_trgt_command_line_before_the_version_line_does_not_block_it():
+    header = (
+        "##fileformat=VCFv4.2\n"
+        "##trgtCommand=trgt genotype --genome ref.fa --repeats catalog.bed --karyotype XX\n"
+        "##trgtVersion=0.7.0\n"
+    )
+    assert _modules(header, modality="repeats")["trgt"] == {"version": "0.7.0"}  # not "trgt"
+
+
+@pytest.mark.parametrize(
+    ("command_line", "version_line", "tool", "version"),
+    [
+        (
+            "##bcftools_viewCommand=view -Oz -o out.vcf.gz in.vcf.gz; Date=Tue Oct  1 10:00:00 2024",
+            "##bcftools_viewVersion=1.21+htslib-1.21",
+            "bcftools",
+            "1.21+htslib-1.21",
+        ),
+        (
+            '##SnpSiftCmd="SnpSift dbnsfp -v -db dbNSFP4.1a.txt.gz input.vcf"',
+            '##SnpSiftVersion="SnpSift 4.3t (build 2017-11-24 10:18), by the snpEff author"',
+            "snpsift",
+            "4.3t",
+        ),
+        (
+            "##HiPhase_command=hiphase --bam s.bam --vcf s.vcf.gz --output-vcf out.vcf.gz",
+            "##HiPhase_version=1.4.5-f1bc7a8",
+            "hiphase",
+            "1.4.5-f1bc7a8",
+        ),
+        (
+            "##paraphase_command=paraphase -b s.bam -o out -r ref.fa",
+            "##paraphase_version=3.5.0",
+            "paraphase",
+            "3.5.0",
+        ),
+    ],
+    ids=["bcftools", "snpsift", "hiphase", "paraphase"],
+)
+def test_a_version_line_after_a_command_line_gives_the_version(command_line, version_line, tool, version):
+    mods = _modules(f"##fileformat=VCFv4.2\n{command_line}\n{version_line}\n")
+    assert mods[tool] == {"version": version}
+
+
+def test_a_command_line_does_not_block_another_files_version_in_the_merge():
+    # One TRGT file states only its command line, the next its version line: the folded
+    # manifest keeps the version, not the first file's word.
+    command_only = "##fileformat=VCFv4.2\n##trgtCommand=trgt genotype --karyotype XY\n"
+    combined: dict = {}
+    for header in (command_only, TRGT_HEADER):
+        combined = merge_module_maps(combined, _modules(header, "repeats"))
+    assert combined["trgt"]["version"] == "0.7.0"  # not "trgt"
+
+
+@pytest.mark.parametrize(
+    ("line", "tool", "version"),
+    [
+        ("##bcftools_normVersion=1.17+htslib-1.17", "bcftools", "1.17+htslib-1.17"),
+        ("##DeepVariant_version=1.10.0", "deepvariant", "1.10.0"),
+        ("##GLnexusVersion=v1.4.1-0-g68e25e5", "glnexus", "v1.4.1-0-g68e25e5"),
+        ("##trgtVersion=5.0.0-e9acee0", "trgt", "5.0.0-e9acee0"),
+        ('##SnpEffVersion="5.1d (build 2022-04-19 15:05), by the snpEff author"', "snpeff", "5.1d"),
+        ('##SnpSiftVersion="SnpSift 5.1d (build 2022-04-19 15:05)"', "snpsift", "5.1d"),
+        ('##SVDB_version=2.8.1 cmd="svdb --merge --vcf a.vcf b.vcf"', "svdb", "2.8.1"),
+        # A structured value states its version in its Version field.
+        (
+            '##DRAGENVersion=<ID=dragen,Version="SW: 07.021.624.3.10.4, HW: 07.021.624">',
+            "dragen",
+            "SW: 07.021.624.3.10.4, HW: 07.021.624",
+        ),
+        # One word with a digit, not version-shaped and not the tool's name, is kept as
+        # written: a release tag.
+        ("##pepper_version=r0.8", "pepper", "r0.8"),
+        # No version stated: the tool's own name, no value, a structured value without one.
+        ("##clair3_version=Clair3", "clair3", None),
+        ("##fooVersion=unknown", "foo", None),
+        ('##fooVersion=<ID=foo,Date="2024-01-01">', "foo", None),
+    ],
+    ids=[
+        "bcftools",
+        "deepvariant",
+        "glnexus",
+        "trgt",
+        "snpeff",
+        "snpsift-names-itself-first",
+        "svdb-with-its-command",
+        "dragen-structured",
+        "release-tag",
+        "only-the-tools-name",
+        "unknown",
+        "structured-without-version",
+    ],
+)
+def test_a_version_line_records_only_the_version_it_states(line, tool, version):
+    mods = _modules(f"##fileformat=VCFv4.2\n{line}\n")
+    assert mods[tool].get("version") == version
