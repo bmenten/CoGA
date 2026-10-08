@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type { StructuralVariantFilterPresetOut } from '../../lib/apiSchema.generated';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
@@ -692,11 +692,6 @@ export const useStructuralVariantSearchState = ({
     });
   };
 
-  const handleFilterChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = event.target;
-    setDraftFilterValue(name as keyof StructuralFilterState, value);
-  };
-
   const handleSampleFieldChange = (
     sample: string,
     field: Exclude<keyof StructuralSampleFilter, 'gt'>,
@@ -827,10 +822,8 @@ export const useStructuralVariantSearchState = ({
     applyPreset,
     applySavedPreset,
     draftFilters,
-    emptyFilters,
     filters,
     goToPage,
-    handleFilterChange,
     handleGtToggle,
     handleReset,
     handleSampleFieldChange,

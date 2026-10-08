@@ -27,8 +27,6 @@ const OVERALL_COPY: Record<QcStatus, string> = {
   skip: 'Sample-integrity QC could not run (no genotypes available).',
 };
 
-const worstStatus = worstQcStatus;
-
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
   <span className={QC_STATUS_CHIP[status]}>{QC_STATUS_LABEL[status]}</span>
 );
@@ -105,7 +103,7 @@ const buildQcStatusBySample = (
 
   const result: Record<string, PedigreeQcStatus> = {};
   byId.forEach((entry, id) => {
-    const status = worstStatus(entry.statuses);
+    const status = worstQcStatus(entry.statuses);
     if (status === 'skip') return; // no ring when nothing actually ran for this sample
     result[id] = {
       status,

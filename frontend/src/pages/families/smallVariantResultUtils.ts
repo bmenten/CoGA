@@ -36,38 +36,6 @@ export const SEGREGATION_MODE_LABELS: Record<string, string> = {
   dominant: 'dominant',
 };
 
-export const buildPriorityTooltip = (variant: SmallVariant): string => {
-  const p = variant.priority;
-  if (!p) return '';
-  const lines = [
-    `Priority ${p.combined_score.toFixed(2)}${p.rank ? ` (rank ${p.rank})` : ''}`,
-    `Variant ${p.variant_score.toFixed(2)} — pathogenicity ${p.pathogenicity_score.toFixed(
-      2,
-    )}, rarity ${p.frequency_score.toFixed(2)}`,
-  ];
-  if (p.segregation_modes.length) {
-    lines.push(
-      `Segregation: ${p.segregation_modes
-        .map((mode) => SEGREGATION_MODE_LABELS[mode] || mode)
-        .join(', ')}`,
-    );
-  }
-  if (typeof p.phenotype_score === 'number') {
-    const matches = p.phenotype_matches
-      .map((match) => match.label || match.hpo_id)
-      .slice(0, 4)
-      .join(', ');
-    lines.push(
-      `Phenotype ${p.phenotype_score.toFixed(2)}${p.phenotype_gene ? ` (${p.phenotype_gene})` : ''}${
-        matches ? `: ${matches}` : ''
-      }`,
-    );
-  } else {
-    lines.push('Phenotype: no Monarch data for this gene');
-  }
-  return lines.join('\n');
-};
-
 export const formatFrequency = (value?: number) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return '—';
   if (value === 0) return '0';

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import type { NiptDeNovoTriageOut, NiptRecessiveGeneOut } from '../../lib/apiSchema.generated';
@@ -1750,11 +1750,6 @@ export const useSmallVariantSearchState = ({
     });
   };
 
-  const handleFilterChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = event.target;
-    setDraftFilterValue(name as keyof SmallFilterState, value);
-  };
-
   const handleSampleFieldChange = (
     sample: string,
     field: keyof SmallVariantSampleFilter,
@@ -1909,12 +1904,10 @@ export const useSmallVariantSearchState = ({
     applyPreset,
     applySavedPreset,
     draftFilters,
-    emptyFilters,
     filters,
     goToPage,
     handleApply,
     draftLocationProblems,
-    handleFilterChange,
     handleGtToggle,
     handleReset,
     handleSampleFieldChange,

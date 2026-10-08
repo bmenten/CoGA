@@ -37,14 +37,9 @@ const geneHasCopyNumberSignal = (gene: ApiParaphaseGeneResult): boolean =>
 const formatMetricValue = (value?: number | null, digits = 0): string =>
   value == null ? 'no-call' : formatNullableNumber(value, digits);
 
-const sampleCopyNumberMetrics = (call: ApiParaphaseSampleResult) =>
-  call.copy_number_metrics?.length
-    ? call.copy_number_metrics
-    : [
-        { key: 'total_cn', label: 'Total CN', value: call.total_cn },
-        { key: 'gene_cn', label: 'Gene CN', value: call.gene_cn },
-        { key: 'highest_total_cn', label: 'Max CN', value: call.highest_total_cn },
-      ].filter((metric) => metric.value != null);
+// The backend lists total_cn, gene_cn and highest_total_cn here whenever the call has them,
+// so an empty list means the call has none.
+const sampleCopyNumberMetrics = (call: ApiParaphaseSampleResult) => call.copy_number_metrics ?? [];
 
 const clinicalCopyNumberMetrics = (
   gene: ApiParaphaseGeneResult,
