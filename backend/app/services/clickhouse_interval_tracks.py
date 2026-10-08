@@ -451,6 +451,38 @@ async def fetch_apcad_downsampled(
     ]
 
 
+def _samples_track_scope(
+    *,
+    family_uuid: str,
+    sample_uuid_to_name: dict[str, str],
+    track_type: str,
+    chromosomes: Sequence[str],
+    start: int | None,
+    end: int | None,
+) -> tuple[list[str], dict[str, Any]]:
+    """The conditions (and their bound values) that pick these samples' rows of one track
+    type of the family, on ``chromosomes`` (all when none) and in the window when given."""
+    clauses = [
+        "family_guid = %(family_uuid)s",
+        "sample_guid IN %(sample_uuids)s",
+        "track_type = %(track_type)s",
+    ]
+    params: dict[str, Any] = {
+        "family_uuid": family_uuid,
+        "sample_uuids": tuple(sample_uuid_to_name),
+        "track_type": track_type,
+    }
+    chrom_values = _chrom_values(chromosomes)
+    if chrom_values:
+        clauses.append("chrom IN %(chromosomes)s")
+        params["chromosomes"] = tuple(chrom_values)
+    if start is not None and end is not None:
+        clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
+        params["window_start"] = int(start)
+        params["window_end"] = int(end)
+    return clauses, params
+
+
 async def get_interval_track_sources_by_sample(
     assembly_name: str,
     *,
@@ -472,24 +504,14 @@ async def get_interval_track_sources_by_sample(
     if not sample_uuid_to_name:
         return {}
     await ensure_clickhouse_interval_table(assembly_name)
-    clauses = [
-        "family_guid = %(family_uuid)s",
-        "sample_guid IN %(sample_uuids)s",
-        "track_type = %(track_type)s",
-    ]
-    params: dict[str, Any] = {
-        "family_uuid": family_uuid,
-        "sample_uuids": tuple(sample_uuid_to_name),
-        "track_type": track_type,
-    }
-    chrom_values = _chrom_values(chromosomes)
-    if chrom_values:
-        clauses.append("chrom IN %(chromosomes)s")
-        params["chromosomes"] = tuple(chrom_values)
-    if start is not None and end is not None:
-        clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
-        params["window_start"] = int(start)
-        params["window_end"] = int(end)
+    clauses, params = _samples_track_scope(
+        family_uuid=family_uuid,
+        sample_uuid_to_name=sample_uuid_to_name,
+        track_type=track_type,
+        chromosomes=chromosomes,
+        start=start,
+        end=end,
+    )
     rows = await _execute(
         f"""
         SELECT DISTINCT sample_guid, source
@@ -520,24 +542,14 @@ async def get_interval_track_presence_by_sample(
     if not sample_uuid_to_name:
         return set()
     await ensure_clickhouse_interval_table(assembly_name)
-    clauses = [
-        "family_guid = %(family_uuid)s",
-        "sample_guid IN %(sample_uuids)s",
-        "track_type = %(track_type)s",
-    ]
-    params: dict[str, Any] = {
-        "family_uuid": family_uuid,
-        "sample_uuids": tuple(sample_uuid_to_name),
-        "track_type": track_type,
-    }
-    chrom_values = _chrom_values(chromosomes)
-    if chrom_values:
-        clauses.append("chrom IN %(chromosomes)s")
-        params["chromosomes"] = tuple(chrom_values)
-    if start is not None and end is not None:
-        clauses.append("start <= %(window_end)s AND end >= %(window_start)s")
-        params["window_start"] = int(start)
-        params["window_end"] = int(end)
+    clauses, params = _samples_track_scope(
+        family_uuid=family_uuid,
+        sample_uuid_to_name=sample_uuid_to_name,
+        track_type=track_type,
+        chromosomes=chromosomes,
+        start=start,
+        end=end,
+    )
     rows = await _execute(
         f"""
         SELECT DISTINCT sample_guid
@@ -576,15 +588,16 @@ async def get_interval_track_lineage_hash(
     return value or None
 
 
-async def count_interval_track_source_rows(
-    session: AsyncSession,
+def _track_source_filters(
     *,
-    sample_uuid: str | None = None,
-    family_uuid: str | None = None,
-    track_type: str | None = None,
-    source: str | None = None,
-    filename: str | None = None,
-) -> int:
+    sample_uuid: str | None,
+    family_uuid: str | None,
+    track_type: str | None,
+    source: str | None,
+    filename: str | None,
+) -> tuple[list[str], dict[str, Any]]:
+    """The conditions (and their bound values) that pick ``sample_interval_track_sources``
+    rows by whichever of these are given."""
     clauses: list[str] = []
     params: dict[str, Any] = {}
     if sample_uuid is not None:
@@ -602,6 +615,25 @@ async def count_interval_track_source_rows(
     if filename is not None:
         clauses.append("filename = :filename")
         params["filename"] = filename
+    return clauses, params
+
+
+async def count_interval_track_source_rows(
+    session: AsyncSession,
+    *,
+    sample_uuid: str | None = None,
+    family_uuid: str | None = None,
+    track_type: str | None = None,
+    source: str | None = None,
+    filename: str | None = None,
+) -> int:
+    clauses, params = _track_source_filters(
+        sample_uuid=sample_uuid,
+        family_uuid=family_uuid,
+        track_type=track_type,
+        source=source,
+        filename=filename,
+    )
     where_clause = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     result = await session.execute(
         text(
@@ -695,23 +727,13 @@ async def delete_interval_track_sources(
         source=source,
         filename=filename,
     )
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if sample_uuid is not None:
-        clauses.append("sample_id = CAST(:sample_uuid AS uuid)")
-        params["sample_uuid"] = sample_uuid
-    if family_uuid is not None:
-        clauses.append("family_id = CAST(:family_uuid AS uuid)")
-        params["family_uuid"] = family_uuid
-    if track_type is not None:
-        clauses.append("track_type = :track_type")
-        params["track_type"] = track_type
-    if source is not None:
-        clauses.append("source = :source")
-        params["source"] = source
-    if filename is not None:
-        clauses.append("filename = :filename")
-        params["filename"] = filename
+    clauses, params = _track_source_filters(
+        sample_uuid=sample_uuid,
+        family_uuid=family_uuid,
+        track_type=track_type,
+        source=source,
+        filename=filename,
+    )
     if not clauses:
         raise ValueError("At least one interval-track source delete filter is required")
     await session.execute(
