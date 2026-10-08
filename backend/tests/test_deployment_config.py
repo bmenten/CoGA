@@ -11,6 +11,7 @@ import re
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
@@ -126,6 +127,18 @@ def _build_workflow() -> dict:
     return yaml.safe_load((REPO / ".github" / "workflows" / "build.yml").read_text())
 
 
+# git in a throwaway repository: no user or system configuration, a fixed identity.
+_GIT_ENV = {
+    "PATH": os.environ["PATH"],
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "CI",
+    "GIT_AUTHOR_EMAIL": "ci@example.org",
+    "GIT_COMMITTER_NAME": "CI",
+    "GIT_COMMITTER_EMAIL": "ci@example.org",
+}
+
+
 def _run_build_metadata(repo: Path, *, ref_name: str, ref_type: str) -> dict[str, str]:
     """Run the workflow's build-metadata step in ``repo``, as the runner would; return its outputs."""
     step = next(s for s in _build_workflow()["jobs"]["prepare"]["steps"] if s.get("id") == "meta")
@@ -146,20 +159,10 @@ def test_each_main_build_deploys_an_image_tag_of_its_own(tmp_path: Path) -> None
     # Terraform deploys the image string it is given. A tag every main build reuses
     # (`:main`) leaves it no change to apply: Cloud Run keeps the image it runs, and the
     # db-migrate job, keyed on the backend image, never runs again after the first deploy.
-    git_env = {
-        "PATH": os.environ["PATH"],
-        "GIT_CONFIG_GLOBAL": os.devnull,
-        "GIT_CONFIG_NOSYSTEM": "1",
-        "GIT_AUTHOR_NAME": "CI",
-        "GIT_AUTHOR_EMAIL": "ci@example.org",
-        "GIT_COMMITTER_NAME": "CI",
-        "GIT_COMMITTER_EMAIL": "ci@example.org",
-    }
-
     def commit() -> None:
-        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "change"], cwd=tmp_path, env=git_env, check=True)
+        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "change"], cwd=tmp_path, env=_GIT_ENV, check=True)
 
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=git_env, check=True)
+    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=_GIT_ENV, check=True)
     (tmp_path / "VERSION").write_text("1.4.0\n")
     commit()
     first = _run_build_metadata(tmp_path, ref_name="main", ref_type="branch")
@@ -178,6 +181,111 @@ def test_each_main_build_deploys_an_image_tag_of_its_own(tmp_path: Path) -> None
     plan = next(step for step in jobs["deploy"]["steps"] if step.get("name") == "Terraform Plan")["run"]
     assert plan.count(image_tag) == 2, "both images reach Terraform with the build's tag"
     assert "triggers_replace = [var.backend_image]" in _terraform("migrate.tf")
+
+
+def _ci_workflow() -> dict:
+    return yaml.safe_load((REPO / ".github" / "workflows" / "ci.yml").read_text())
+
+
+def _ci_images_job() -> dict:
+    job = _ci_workflow()["jobs"].get("images")
+    assert job, "no CI job builds the production images"
+    return job
+
+
+def _docker_build(argv: list[str]) -> dict[str, object]:
+    """A `docker build` command line without its image tag: the Dockerfile, the target, the
+    build arguments (in any order), and the context with anything else it passes."""
+    assert argv[:1] == ["build"], argv
+    dockerfile = target = None
+    build_args: list[str] = []
+    rest: list[str] = []
+    args = iter(argv[1:])
+    for arg in args:
+        if arg in ("-f", "--file"):
+            dockerfile = next(args)
+        elif arg == "--target":
+            target = next(args)
+        elif arg == "--build-arg":
+            build_args.append(next(args))
+        elif arg in ("-t", "--tag"):
+            next(args)
+        else:
+            rest.append(arg)
+    return {"file": dockerfile, "target": target, "build_args": sorted(build_args), "rest": rest}
+
+
+def _cloud_build(name: str, **substitutions: str) -> dict[str, object]:
+    """The `docker build` that ci/cloudbuild.<name>.yaml runs when build.yml passes it these
+    substitutions; the others keep the config's defaults."""
+    config = yaml.safe_load((REPO / "ci" / f"cloudbuild.{name}.yaml").read_text())
+    (step,) = config["steps"]
+    assert step["name"] == "gcr.io/cloud-builders/docker"
+    values = {**(config.get("substitutions") or {}), "_IMAGE": "registry.example/coga:tag", **substitutions}
+    return _docker_build([re.sub(r"\$\{(_\w+)\}", lambda match: values[match.group(1)], arg) for arg in step["args"]])
+
+
+def _run_ci_step(tmp_path: Path, repo: Path, step: dict, variables: dict[str, str]) -> list[str]:
+    """Run a step of the CI `images` job in ``repo`` as the runner would, with a `docker` that
+    only records its arguments. ``variables`` stand in for the repository variables."""
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir(exist_ok=True)
+    recorded = tmp_path / "docker-argv"
+    docker = fake_bin / "docker"
+    docker.write_text('#!/bin/sh\nprintf \'%s\\n\' "$@" > "$RECORDED_ARGV"\n')
+    docker.chmod(0o755)
+    env = {**_GIT_ENV, "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}", "RECORDED_ARGV": str(recorded)}
+    for name, value in (step.get("env") or {}).items():
+        resolved = re.sub(r"\$\{\{\s*vars\.(\w+)\s*\}\}", lambda match: variables.get(match.group(1), ""), str(value))
+        assert "${{" not in resolved, f"{name}: {value} is not a repository variable"
+        env[name] = resolved
+    subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]], cwd=repo, env=env, check=True)
+    return recorded.read_text().splitlines()
+
+
+@pytest.mark.parametrize("problem_report_url", ["", "https://problems.example.org/report"])
+def test_ci_builds_the_production_images_as_the_release_build_does(tmp_path: Path, problem_report_url: str) -> None:
+    # build.yml builds the images in Cloud Build only after a merge, and not at all until
+    # Google Cloud is configured. The CI `images` job builds them on every pull request, and
+    # that proves something only while it is the release build: the same Dockerfile, target,
+    # context and build arguments, the backend stamped with what build.yml's prepare job
+    # computes (TF-18 §2).
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q"], cwd=repo, env=_GIT_ENV, check=True)
+    (repo / "VERSION").write_text("1.4.0\n")
+    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "change"], cwd=repo, env=_GIT_ENV, check=True)
+    release = _run_build_metadata(repo, ref_name="main", ref_type="branch")
+
+    built = {}
+    for step in _ci_images_job()["steps"]:
+        if "docker build" in step.get("run", ""):
+            build = _docker_build(_run_ci_step(tmp_path, repo, step, {"COGA_PROBLEM_REPORT_URL": problem_report_url}))
+            assert build["file"] not in built, f"{build['file']} is built twice"
+            built[build["file"]] = build
+
+    # build.yml passes the backend its version and commit, and the frontend the problem-report
+    # route when the repository variable is set; the GitHub links keep their empty defaults.
+    assert built == {
+        "backend/Dockerfile": _cloud_build("backend", _APP_VERSION=release["app_version"], _GIT_SHA=release["git_sha"]),
+        "frontend/Dockerfile": _cloud_build("frontend", _PROBLEM_REPORT_URL=problem_report_url),
+    }
+    assert built["backend/Dockerfile"]["target"] == built["frontend/Dockerfile"]["target"] == "production"
+    assert f"GIT_SHA={release['git_sha']}" in built["backend/Dockerfile"]["build_args"]
+
+
+def test_the_ci_image_build_runs_on_every_change_and_pushes_nothing() -> None:
+    workflow = _ci_workflow()
+    triggers = workflow.get("on", workflow.get(True))  # YAML 1.1 reads a bare `on` as true
+    assert "pull_request" in triggers and triggers["push"]["branches"] == ["main"]
+    job = _ci_images_job()
+    assert "if" not in job, "the image build must not be skipped"
+    # The workflow's read-only token and no registry credentials: nothing can be pushed.
+    assert workflow["permissions"] == {"contents": "read"} and "permissions" not in job
+    assert [step["uses"].split("@")[0] for step in job["steps"] if "uses" in step] == ["actions/checkout"]
+    scripts = "\n".join(step.get("run", "") for step in job["steps"])
+    for push in ("docker push", "docker login", "--push", "type=registry", "push=true"):
+        assert push not in scripts, push
 
 
 def _terraform(name: str) -> str:
