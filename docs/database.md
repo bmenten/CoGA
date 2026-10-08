@@ -332,9 +332,11 @@ these tables ends with the callset (`source`):
   per-sample upload names an SV `chrom-start-end-type---`, without its caller, so a Sniffles and
   a Spectre call at the same breakpoints have one id but two keys. Each has its own `entries`,
   `variants/details` and `key_lookup` row.
-- The variant id does not depend on the callset. Reviews, classification evidence snapshots,
-  the ranking cache and the SV→gene index attach by it, so they cover every callset's row of a
-  variant.
+- The variant id does not depend on the callset, with two exceptions whose id names their
+  source: a HiFiCNV call without an id of its own, and every mtDNA SV
+  (`build_structural_variant_id(..., source=...)` in `family_package_variants.py`). Reviews,
+  classification evidence snapshots, the ranking cache and the SV→gene index attach by the id,
+  so they cover every callset's row of a variant.
 
 When several callsets hold one small variant, the diagnostic lists show the direct call; an
 imputed callset shows only when it is asked for. Reviews and the drift check read the direct
