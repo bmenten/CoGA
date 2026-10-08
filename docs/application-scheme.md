@@ -50,10 +50,11 @@ payloads.
   `05_grants.sql`), applied in name order on every start; there is no migration ledger.
 - **ClickHouse** holds, for each assembly, the small variants (details, annotations and their
   indexes, the per-sample calls in `entries`, and per-family summaries), the structural
-  variants and CNVs, and the interval tracks: coverage, WisecondorX segments, APCAD, PCF
-  APCAD segments and haplotypes. The SQL file in `backend/db/schema/clickhouse/` only creates
-  the database. An assembly's tables are created the first time it is used, by
-  `clickhouse_variant_storage.py` and `clickhouse_interval_tracks.py`.
+  variants and CNVs, and the interval tracks: coverage, a capture panel's per-target
+  coverage, copy-number segments, APCAD, PCF APCAD segments and haplotypes. The SQL file in
+  `backend/db/schema/clickhouse/` only creates the database. An assembly's tables are created
+  the first time it is used, by `clickhouse_variant_storage.py` and
+  `clickhouse_interval_tracks.py`.
 
 [database.md](database.md) lists every table and the file that defines it. Metadata IDs are
 UUIDs.
@@ -114,8 +115,10 @@ On start the backend (`backend/app/main.py`):
    present and no gene information is cached;
 4. waits for ClickHouse and creates the database; refuses to start when a variant table's sort
    key leaves the callset out, or the small-variant calls table lacks the per-call FILTER and
-   metrics columns ([Storage identity](#storage-identity)); and starts the scheduled
-   ClickHouse integrity check;
+   metrics columns ([Storage identity](#storage-identity)); drops the backup tables of
+   `overwrite` imports that no running import owns, left by one whose process stopped
+   ([database.md](database.md#clickhouse-tables)); and starts the scheduled ClickHouse
+   integrity check;
 5. starts the gene-reference refresh worker and the family-package import workers
    (`FAMILY_IMPORT_WORKER_COUNT`).
 
