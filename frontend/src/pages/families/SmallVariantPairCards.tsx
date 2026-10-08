@@ -7,20 +7,18 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
-  buildReviewTagTooltip,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
   formatCompoundHetPhaseStatus,
   formatFrequency,
   formatLocus,
-  formatReviewTagLabel,
   formatTokenLabel,
   getImpactTone,
   getReviewClassificationTone,
-  getReviewTagStyle,
   sortReviewTagKeys,
 } from './smallVariantResultUtils';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import ReviewTagChip from './ReviewTagChip';
 import VariantPriorityBlock from './VariantPriorityBlock';
 
 interface SmallVariantPairCardsProps {
@@ -147,18 +145,13 @@ export default function SmallVariantPairCards({
                   {pairReviewTags.length ? (
                     <div className="variant-card-chip-row">
                       {pairReviewTags.map((tagKey) => (
-                        <span
+                        <ReviewTagChip
                           key={`${group.group_key}:${tagKey}`}
                           className="variant-card-chip variant-card-chip--tag"
-                          style={getReviewTagStyle(tagKey, tagMap)}
-                          title={buildReviewTagTooltip({
-                            tagKey,
-                            tagMap,
-                            tagMetadata: group.review?.tag_metadata,
-                          })}
-                        >
-                          {formatReviewTagLabel(tagKey, tagMap)}
-                        </span>
+                          tagKey={tagKey}
+                          tagMap={tagMap}
+                          tagMetadata={group.review?.tag_metadata}
+                        />
                       ))}
                     </div>
                   ) : null}
