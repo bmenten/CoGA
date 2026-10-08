@@ -1,5 +1,6 @@
 // ClinGen 2019 CNV evidence catalogs (loss & gain). Mirrors
-// backend/app/services/cnv_acmg_points.py — keep the codes and point ranges in sync.
+// backend/app/services/cnv_acmg_points.py — keep the codes and point ranges in sync
+// (backend/tests/test_acmg_frontend_parity.py reads this file and fails when they differ).
 
 import type { CnvCriterionDef, CnvKind } from './types';
 
