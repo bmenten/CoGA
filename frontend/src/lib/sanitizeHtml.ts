@@ -2,8 +2,8 @@
 // `dangerouslySetInnerHTML` (currently the clinical-CNV "Source" block).
 //
 // The backend already sanitises this content at ingest and read time, so this is
-// defense-in-depth at the render sink — and it also protects the browser directly for
-// any legacy row that predates backend sanitisation. Default-deny: any element or
+// defense-in-depth at the render sink: it protects the browser directly should a row
+// ever reach it unsanitised. Default-deny: any element or
 // attribute not on the allowlist is dropped; disallowed elements are unwrapped so their
 // text is kept as inert text rather than executable markup.
 

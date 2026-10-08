@@ -924,8 +924,8 @@ export interface ApiMitoDNAStructuralVariant {
 export interface ApiFamilyMitoDNAAnalysis {
   samples: ApiMitoDNASample[];
   variants: ApiMitoDNAVariant[];
-  // chrM large deletions and duplications; absent from older responses.
-  structural_variants?: ApiMitoDNAStructuralVariant[];
+  // chrM large deletions and duplications.
+  structural_variants: ApiMitoDNAStructuralVariant[];
   qc_notes: string[];
   heteroplasmy_threshold: number;
   homoplasmy_threshold: number;
