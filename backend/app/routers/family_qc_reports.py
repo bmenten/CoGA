@@ -20,7 +20,6 @@ short-lived URL scoped to exactly this one report, and opens that.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-import logging
 from pathlib import Path
 
 import jwt
@@ -39,8 +38,6 @@ from ..services.family_package_source import _ensure_authorized_package_path
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
 
-
-logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/families", tags=["families"])
 
@@ -84,21 +81,9 @@ def _verify_qc_report_token(token: str, family_id: str, sample_id: str) -> None:
         raise HTTPException(status_code=403, detail="QC report link is invalid or expired")
 
 
-async def _recorded_report_path(
-    session: AsyncSession,
-    *,
-    family_id: str,
-    sample_id: str,
-    user: CurrentUser,
-) -> str:
-    """The package-relative report path recorded on the sample at import.
-
-    Reading the family through ``get_family_record`` applies the project-scoped RBAC
-    and confirms the sample belongs to this family.
-    """
-    family = await get_family_record(session, family_id, user)
-    if sample_id not in {member.sample_id for member in family.members}:
-        raise HTTPException(status_code=404, detail="Sample not found in family")
+async def _recorded_report(session: AsyncSession, *, family_id: str, sample_id: str) -> str:
+    """The report path recorded in the sample's metadata at import, as stored (unstripped);
+    404 when none is recorded. No access check: the callers make their own."""
     result = await session.execute(
         text(
             """
@@ -115,7 +100,35 @@ async def _recorded_report_path(
     report = _metadata_dict(metadata.get("sequencing_qc")).get("report")
     if not isinstance(report, str) or not report.strip():
         raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
+    return report
+
+
+async def _recorded_report_path(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    sample_id: str,
+    user: CurrentUser,
+) -> str:
+    """The package-relative report path recorded on the sample at import.
+
+    Reading the family through ``get_family_record`` applies the project-scoped RBAC
+    and confirms the sample belongs to this family.
+    """
+    family = await get_family_record(session, family_id, user)
+    if sample_id not in {member.sample_id for member in family.members}:
+        raise HTTPException(status_code=404, detail="Sample not found in family")
+    report = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
     return report.strip()
+
+
+def _stored_report_key(family_id: str, relative_path: str) -> str:
+    """Remote mode: the report's object key under the storage prefix; 404 when the object
+    is gone."""
+    key = object_key(family_id, relative_path)
+    if not object_exists(key):
+        raise HTTPException(status_code=404, detail="QC report file is no longer available")
+    return key
 
 
 def _resolve_report_file(family_id: str, relative_path: str) -> Path:
@@ -151,9 +164,7 @@ async def get_family_qc_report_link(
     )
     expires_at = datetime.now(timezone.utc) + QC_REPORT_LINK_TTL
     if storage_is_remote():
-        key = object_key(family_id, relative_path)
-        if not object_exists(key):
-            raise HTTPException(status_code=404, detail="QC report file is no longer available")
+        key = _stored_report_key(family_id, relative_path)
         return FamilyQcReportLinkOut(
             url=presigned_get_url(key, filename=Path(relative_path).name),
             expires_at=expires_at,
@@ -183,26 +194,9 @@ async def get_family_qc_report(
     ``get_family_qc_report_link``.
     """
     _verify_qc_report_token(token, family_id, sample_id)
-    result = await session.execute(
-        text(
-            """
-            SELECT s.metadata
-            FROM samples s
-            JOIN family_members fm ON fm.sample_id = s.id
-            JOIN families f ON f.id = fm.family_id
-            WHERE f.family_id = :family_id AND s.sample_id = :sample_id
-            """
-        ),
-        {"family_id": family_id, "sample_id": sample_id},
-    )
-    metadata = _metadata_dict(result.scalar_one_or_none())
-    relative_path = _metadata_dict(metadata.get("sequencing_qc")).get("report")
-    if not isinstance(relative_path, str) or not relative_path.strip():
-        raise HTTPException(status_code=404, detail="No QC report is recorded for this sample")
+    relative_path = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
     if storage_is_remote():
-        key = object_key(family_id, relative_path.strip())
-        if not object_exists(key):
-            raise HTTPException(status_code=404, detail="QC report file is no longer available")
+        key = _stored_report_key(family_id, relative_path.strip())
         return RedirectResponse(
             presigned_get_url(key, filename=Path(relative_path).name), status_code=302
         )
