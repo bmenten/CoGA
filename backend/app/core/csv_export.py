@@ -9,10 +9,18 @@ data on open).
 
 ``csv_safe_cell`` neutralises this by prefixing an at-risk value with a single quote,
 which every mainstream spreadsheet treats as "keep the rest as literal text". It is the
-one formatter that every export path must funnel its data cells through.
+one formatter that every export path must funnel its data cells through, and
+``csv_document`` is the writer that does so for every CSV export.
 """
 
 from __future__ import annotations
+
+import csv
+import io
+from collections.abc import Callable, Iterable, Sequence
+from typing import TypeVar
+
+_Row = TypeVar("_Row")
 
 # The leading characters a spreadsheet may treat as the start of a formula. Tab / CR / LF
 # are included because a value can be pushed past a naive "first visible char" check.
@@ -30,6 +38,23 @@ def csv_safe_cell(value: str) -> str:
     if value and value[0] in _FORMULA_TRIGGERS:
         return "'" + value
     return value
+
+
+def csv_document(
+    columns: Sequence[tuple[str, str]],
+    rows: Iterable[_Row],
+    cell: Callable[[_Row, str], str],
+) -> str:
+    """The CSV text of an export: a header row of the ``(field, label)`` columns' labels,
+    then one row per item of ``rows`` with ``cell(row, field)`` for each column, every data
+    cell passed through ``csv_safe_cell``."""
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow([label for _, label in columns])
+    for row in rows:
+        writer.writerow([csv_safe_cell(cell(row, field)) for field, _ in columns])
+    return buffer.getvalue()
 
 
 # Response headers an export sets so the UI can say when a file was cut at the export cap

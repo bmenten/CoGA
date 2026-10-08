@@ -1,12 +1,10 @@
-import csv
-import io
 from typing import List
 
 from fastapi import APIRouter, Depends, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.csv_export import csv_safe_cell, export_response_headers
+from ..core.csv_export import csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_user
 from ..schemas import (
@@ -32,6 +30,7 @@ from ..services.structural_variant_review_pg import (
     save_structural_variant_filter_preset as save_structural_variant_filter_preset_record,
     upsert_structural_variant_review as upsert_structural_variant_review_record,
 )
+from .families_small_variants import _family_export_cell
 
 
 router = APIRouter()
@@ -174,25 +173,16 @@ _FAMILY_SV_EXPORT_COLUMNS: list[tuple[str, str]] = [
 
 
 def _family_sv_export_cell(variant: VariantOut, field: str) -> str:
+    """The SV-only columns, read from ``annotation_extra``; every other column as in the
+    small-variant export (priority, review, genotypes, plain attributes)."""
     extra = variant.annotation_extra or {}
-    if field == "priority_score":
-        return f"{variant.priority.combined_score:.4f}" if variant.priority else ""
-    if field == "priority_rank":
-        return str(variant.priority.rank) if variant.priority and variant.priority.rank else ""
-    if field == "classification":
-        return variant.review.classification or "" if variant.review else ""
-    if field == "tags":
-        return "; ".join(variant.review.tags) if variant.review else ""
-    if field == "genotypes":
-        return "; ".join(f"{gt.sample}={gt.gt}" for gt in variant.genotypes)
     if field in {"cytoband", "inheritance", "control_af", "population_af"}:
         value = extra.get(field)
         return "" if value is None else str(value)
     if field == "region_flags":
         flags = extra.get("region_flags") or []
         return "; ".join(str(flag) for flag in flags) if isinstance(flags, list) else str(flags)
-    value = getattr(variant, field, None)
-    return "" if value is None else str(value)
+    return _family_export_cell(variant, field)
 
 
 @router.get("/{family_id}/structural-variants/export")
@@ -280,14 +270,8 @@ async def export_family_structural_variants_csv(
         if prioritize
         else _FAMILY_SV_EXPORT_COLUMNS
     )
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow([label for _, label in columns])
-    for variant in export.rows:
-        writer.writerow([csv_safe_cell(_family_sv_export_cell(variant, field)) for field, _ in columns])
-
     return StreamingResponse(
-        iter([buffer.getvalue()]),
+        iter([csv_document(columns, export.rows, _family_sv_export_cell)]),
         media_type="text/csv",
         headers=export_response_headers(
             f"family-{family_id}-structural-variants",
