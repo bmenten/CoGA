@@ -7,9 +7,11 @@ import {
   buildSmallVariantQueryParams,
   buildPresetPayload,
   createEmptySmallFilters,
+  deserializePresetFilters,
   hasLocationProblems,
   heldTagOptions,
   resolveSampleFiltersFromPreset,
+  serializePresetFilters,
   smallVariantLocationProblems,
   tagDefinitionLabel,
   useSmallVariantSearchState,
@@ -471,5 +473,74 @@ describe('deleted tags', () => {
 
   it('lists none while the tag list is still loading', () => {
     expect(heldTagOptions(['probe_x'], [], [])).toEqual([]);
+  });
+});
+
+// The location filters as the search sends them: a locus as written and as the region or gene
+// it reads as, in place of the separate fields; else the separate fields as set.
+describe('buildSmallVariantQueryParams location', () => {
+  const query = (overrides: Partial<ReturnType<typeof createEmptySmallFilters>>, projectId?: string) =>
+    buildSmallVariantQueryParams({ ...createEmptySmallFilters(), ...overrides }, {}, 2, projectId).toString();
+
+  it('sends a region locus with the chromosome, start and end it reads as', () => {
+    expect(query({ locus: 'chr1:1,000-2,000', gene: 'BRCA2' }, 'P1')).toBe(
+      'page=2&page_size=100&project_id=P1&locus=chr1%3A1%2C000-2%2C000&chr=1&start=1000&end=2000' +
+        '&clinvar_overrides_frequency=true&prioritize=false',
+    );
+  });
+
+  it('sends a gene locus with the gene, and an unreadable one as written only', () => {
+    expect(query({ locus: 'BRCA1' })).toBe(
+      'page=2&page_size=100&locus=BRCA1&gene=BRCA1&clinvar_overrides_frequency=true&prioritize=false',
+    );
+    expect(query({ locus: 'chr1:100-' })).toBe(
+      'page=2&page_size=100&locus=chr1%3A100-&clinvar_overrides_frequency=true&prioritize=false',
+    );
+  });
+
+  it('without a locus, sends the gene, chromosome, start and end as set', () => {
+    expect(query({ gene: 'BRCA2', chr: '13', start: '100' })).toBe(
+      'page=2&page_size=100&gene=BRCA2&chr=13&start=100&clinvar_overrides_frequency=true&prioritize=false',
+    );
+  });
+});
+
+// A saved preset stores its on/off filters as booleans and reads them back as 'true' or ''.
+describe('preset filter (de)serialisation', () => {
+  it('saves the on/off filters as booleans, lists as arrays, the rest as written', () => {
+    expect(
+      serializePresetFilters({
+        ...createEmptySmallFilters(),
+        has_notes: 'true',
+        expanded_carrier_screening: 'true',
+        prioritize: 'true',
+        require_sv_second_hit: 'true',
+        impact: 'HIGH, MODERATE',
+        canonical_only: 'true',
+      }),
+    ).toEqual({
+      has_notes: true,
+      expanded_carrier_screening: true,
+      prioritize: true,
+      require_sv_second_hit: true,
+      impact: ['HIGH', 'MODERATE'],
+      canonical_only: 'true',
+      clinvar_overrides_frequency: 'true',
+    });
+  });
+
+  it('reads an on/off filter as on only when it was saved as true', () => {
+    const filters = deserializePresetFilters({
+      has_notes: true,
+      expanded_carrier_screening: 'yes',
+      prioritize: 'true',
+      require_sv_second_hit: false,
+      impact: ['HIGH'],
+    });
+    expect(filters.has_notes).toBe('true');
+    expect(filters.expanded_carrier_screening).toBe('');
+    expect(filters.prioritize).toBe('true');
+    expect(filters.require_sv_second_hit).toBe('');
+    expect(filters.impact).toBe('HIGH');
   });
 });

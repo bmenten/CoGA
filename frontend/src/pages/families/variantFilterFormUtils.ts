@@ -1,6 +1,33 @@
 import type { SyntheticEvent } from 'react';
+import { parseGeneOrRegionInput } from '../../lib/variantSearch';
 
-// Helpers shared by the small-variant and structural-variant filter forms.
+// Helpers shared by the small-variant and structural-variant searches and filter forms.
+
+/**
+ * The location filters as both family searches send them: a locus as written and as the
+ * region or gene it reads as; without a locus, the gene, chromosome, start and end as set.
+ */
+export const setLocationParams = (
+  params: URLSearchParams,
+  filters: { locus: string; gene: string; chr: string; start: string; end: string },
+) => {
+  if (filters.locus) {
+    params.set('locus', filters.locus);
+    const parsedLocus = parseGeneOrRegionInput(filters.locus);
+    if (parsedLocus?.kind === 'region') {
+      params.set('chr', parsedLocus.chr);
+      params.set('start', parsedLocus.start);
+      params.set('end', parsedLocus.end);
+    } else if (parsedLocus?.kind === 'gene') {
+      params.set('gene', parsedLocus.gene);
+    }
+    return;
+  }
+  if (filters.gene) params.set('gene', filters.gene);
+  if (filters.chr) params.set('chr', filters.chr);
+  if (filters.start) params.set('start', filters.start);
+  if (filters.end) params.set('end', filters.end);
+};
 
 /** How many of the values are filled in (after trimming): a section's active-filter count. */
 export const countNonEmpty = (...values: string[]) => values.filter((value) => value.trim()).length;

@@ -7,10 +7,8 @@ import type { ApiNiptCoverageRegion, ApiNiptCoverageSummary, GenePanel } from '.
 import type { NiptGeneTargetsOut, NiptTargetCoverageGeneOut } from '../../lib/apiSchema.generated';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
-import { depth, lowCoverageChipClass, lowCoverageDetail, targetExon } from './niptClassification';
+import { depth, lowCoverageChipClass, lowCoverageDetail, niptGeneTerms, targetExon } from './niptClassification';
 
-// The gene query splits into terms as the backend splits it.
-const GENE_TERM_SPLIT = /[\s,;]+/;
 // A whole panel holds thousands of genes: the first are drawn, the rest on request.
 const GENE_ROWS_SHOWN = 300;
 
@@ -246,7 +244,7 @@ const FamilyNiptCoveragePage: React.FC = () => {
   const projectId = searchParams.get('project_id') || undefined;
   const panelId = searchParams.get('panel_id') || undefined;
   const gene = searchParams.get('gene') || undefined;
-  const geneTerms = useMemo(() => (gene ? gene.split(GENE_TERM_SPLIT).filter(Boolean) : []), [gene]);
+  const geneTerms = useMemo(() => niptGeneTerms(gene), [gene]);
   // Back to the NIPT page as it was left: its filters live in its URL.
   const backTo = (location.state as { from?: string } | null)?.from || `/families/${familyId}/nipt`;
   const [filter, setFilter] = useState('');

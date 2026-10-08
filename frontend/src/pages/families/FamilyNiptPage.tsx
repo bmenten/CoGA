@@ -41,6 +41,7 @@ import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
+import FilterCollapseToggle from './FilterCollapseToggle';
 import SmallVariantResults from './SmallVariantResults';
 import NiptQcPanel from './NiptQcPanel';
 import NiptRecessiveGenes from './NiptRecessiveGenes';
@@ -512,17 +513,10 @@ const FamilyNiptPage: React.FC = () => {
           )}
         </div>
 
-        <div className="variant-filter-collapse-bar">
-          <button
-            type="button"
-            className="variant-filter-collapse-toggle"
-            aria-expanded={!filtersCollapsed}
-            onClick={() => setFiltersCollapsed((current) => !current)}
-          >
-            <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
-          </button>
-        </div>
+        <FilterCollapseToggle
+          collapsed={filtersCollapsed}
+          onToggle={() => setFiltersCollapsed((current) => !current)}
+        />
 
         {!filtersCollapsed && (
           <SmallVariantFilterForm

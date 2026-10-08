@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyPageHeader from './FamilyPageHeader';
+import FilterCollapseToggle from './FilterCollapseToggle';
 import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
@@ -324,19 +325,10 @@ const FamilySmallVariantsPage: React.FC = () => {
         className="variant-workbench-card"
         footer={
           <>
-        <div className="variant-filter-collapse-bar">
-          <button
-            type="button"
-            className="variant-filter-collapse-toggle"
-            aria-expanded={!filtersCollapsed}
-            onClick={() => setFiltersCollapsed((current) => !current)}
-          >
-            <span className="variant-filter-dropdown-caret" aria-hidden="true">
-              ▾
-            </span>
-            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
-          </button>
-        </div>
+        <FilterCollapseToggle
+          collapsed={filtersCollapsed}
+          onToggle={() => setFiltersCollapsed((current) => !current)}
+        />
         {!filtersCollapsed && (
         <SmallVariantFilterForm
           activeFilterChips={activeFilterChips}
