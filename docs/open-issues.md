@@ -14,7 +14,7 @@ are also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **P0** — a defect that silently gives a wrong clinical result, loses data or opens a
   security hole in production: fix before anything else. **None:** nothing is in clinical
-  use and the data are synthetic. The first five P1 items would be P0 in production.
+  use and the data are synthetic. The first six P1 items would be P0 in production.
 - **P1** — blocks the first release candidate (RC): wrong behaviour or records with
   clinical or audit impact, or a step the RC needs.
 - **P2** — to be done before the RC.
@@ -36,57 +36,60 @@ image built, nothing deployed, no release tagged.
 | 2 | CLIN-1 | P1 | Sample QC reads "all checks passed" while a sex check did not run | Eng, Owner |
 | 3 | CLIN-2 | P1 | FMR1: a 200-repeat allele is called a full mutation | QA, Eng |
 | 4 | CLIN-3 | P1 | The review API takes any ACMG strength for any criterion, and counts a repeated criterion twice | Eng |
-| 5 | SAFE-2 | P1 | A live import whose heartbeat goes stale is ended as interrupted (#746) | Eng, Owner |
-| 6 | TRACE-1 | P1 | NIPT per-target coverage tables get no raw-file provenance row | Eng |
-| 7 | TRACE-2 | P1 | A `##<tool>Command` header line is recorded with its first word as the tool's version | Eng |
-| 8 | REG-1 | P1 | Traceability-matrix rows that no test or implementation backs | QA, Owner, Eng |
-| 9 | REG-2 | P1 | Decide what the signed record holds per application | Owner |
-| 10 | OPS-1 | P1 | The database-migration job cannot start in production | Eng, Ops |
-| 11 | OPS-2 | P1 | No container image has ever been built | Eng, Ops |
-| 12 | OPS-3 | P1 | Terraform never applied; one environment; every push would deploy | Ops, Owner |
-| 13 | OPS-4 | P1 | The go-live switches are all off (#364) | Ops |
-| 14 | OPS-5 | P1 | No restore has been tested; no consistent Postgres + ClickHouse restore | Ops, Eng |
-| 15 | REG-3 | P1 | The RC steps of TF-18 §3a have not started | Owner, QA |
-| 16 | REG-4 | P1 | Technical-file sign-off (#518) | Owner, QA, RA |
-| 17 | REG-5 | P1 | Risk-file confirmations | LD, QA |
-| 18 | REG-6 | P1 | Performance-evaluation inputs (TF-10) | Owner, QA |
-| 19 | REG-7 | P1 | Usability evaluation, DPIA filing, national provisions | Owner, DPO, RA, QA |
-| 20 | REG-8 | P1 | Independent (4-eye) review is not enforced on `main` | Owner, Ops |
-| 21 | CLIN-4 | P2 | The SNV + SV second-hit badge can read a phase from a half call | Eng |
-| 22 | CLIN-5 | P2 | The Variant Explorer's *MANE only* drops MANE Plus Clinical transcripts | Eng |
-| 23 | CLIN-6 | P2 | An X-linked recessive embryo call rests on an unconfirmed assumption | Owner, LD |
-| 24 | CLIN-7 | P2 | The evidence snapshot lacks frequencies and in-silico scores | Owner, Eng |
-| 25 | AUDIT-1 | P2 | The report page shows the 200 newest clinical audit events as the whole trail | Eng |
-| 26 | SEC-1 | P2 | Any project member can change a family's phenotypes through the API | Owner, Eng |
-| 27 | SEC-2 | P2 | Family and sample IDs reach URLs unencoded | Eng |
-| 28 | SEC-3 | P2 | Discover reads outside the package folder through `..` in an ID | Eng |
-| 29 | SEC-4 | P2 | Users and sessions; Azure AD locks users out | Owner, Eng |
-| 30 | SEC-5 | P2 | The frontend sends no HSTS header on Google Cloud | Ops, Eng |
-| 31 | SEC-6 | P2 | The request audit holds clinical content with no retention period | Owner, DPO |
-| 32 | SEC-7 | P2 | Gaps in what the clinical audit trail and the append-only rule cover | Owner, Eng |
-| 33 | AUDIT-2 | P2 | One malformed UI-event timestamp loses a batch of other users' events | Eng |
-| 34 | AUDIT-3 | P2 | The async audit batch write is all-or-nothing | Eng |
-| 35 | AUDIT-4 | P2 | The admin audit page does not show `request_meta` | Eng |
-| 36 | DATA-1 | P2 | Reference downloads keep only the first member of a gzip file | Eng |
-| 37 | DATA-2 | P2 | The Variant Explorer CSV export stops at 50,000 rows without saying so | Eng |
-| 38 | TRACE-3 | P2 | The ClinGen recurrent-CNV file names another release than its file name | Eng, QA |
-| 39 | TRACE-4 | P2 | The HiFiCNV copy-number track does not record its transform | Eng |
-| 40 | TRACE-5 | P2 | Gene reference, PanelApp and CNV knowledgebase releases are not in the manifest | Eng |
-| 41 | CLIN-8 | P2 | A sign-out refusal reason does not name its sample | Owner |
-| 42 | CLIN-9 | P2 | QA confirmation of the carrier-screening preset and the chrM exclusion | QA |
-| 43 | CLIN-10 | P2 | Parent–embryo IBS0 never checked on real imputed data | Owner |
-| 44 | OPS-6 | P2 | Deployment settings: problem-report link, SMTP, the HPO fallback download | Ops, Eng |
-| 45 | OPS-7 | P2 | Integrity anchors: no schedule, no export, one key | Owner, Eng |
-| 46 | SEC-8 | P2 | Merge #788 (event-loop log lines quote values) | Owner |
-| 47 | REG-9 | P2 | Traceability-matrix rows whose cited tests cover less than they claim | QA, Eng |
-| 48 | REG-10 | P2 | No regression truth set (GIAB / GeT-RM) | Eng, QA |
-| 49 | REG-11 | P2 | Post-market, vigilance and security-process inputs | QA, RA, Owner |
-| 50 | ENG-1 | P2 | The small-variant filters exist twice (SQL and Python) | Eng |
-| 51 | ENG-2 | P2 | The SV list and its CSV export declare the same filters twice | Eng, Owner |
-| 52 | ENG-3 | P2 | No migration ledger | Owner |
-| 53 | OPS-8 | P2 | Version identity and release mechanics | Eng |
-| 54 | OPS-9 | P2 | Scale is unproven | Eng |
-| 55 | OPS-10 | P2 | Secrets in the Terraform state | Owner |
+| 5 | SAFE-11 | P1 | The NIPT pages hide the import-incomplete banner | Eng |
+| 6 | SAFE-2 | P1 | A live import whose heartbeat goes stale is ended as interrupted (#746) | Eng, Owner |
+| 7 | TRACE-1 | P1 | NIPT per-target coverage tables get no raw-file provenance row | Eng |
+| 8 | TRACE-2 | P1 | A `##<tool>Command` header line is recorded with its first word as the tool's version | Eng |
+| 9 | REG-1 | P1 | Traceability-matrix rows that no test or implementation backs | QA, Owner, Eng |
+| 10 | REG-2 | P1 | Decide what the signed record holds per application | Owner |
+| 11 | OPS-1 | P1 | The database-migration job cannot start in production | Eng, Ops |
+| 12 | OPS-2 | P1 | No container image has ever been built | Eng, Ops |
+| 13 | OPS-3 | P1 | Terraform never applied; one environment; every push would deploy | Ops, Owner |
+| 14 | OPS-4 | P1 | The go-live switches are all off (#364) | Ops |
+| 15 | OPS-5 | P1 | No restore has been tested; no consistent Postgres + ClickHouse restore | Ops, Eng |
+| 16 | REG-3 | P1 | The RC steps of TF-18 §3a have not started | Owner, QA |
+| 17 | REG-4 | P1 | Technical-file sign-off (#518) | Owner, QA, RA |
+| 18 | REG-5 | P1 | Risk-file confirmations | LD, QA |
+| 19 | REG-6 | P1 | Performance-evaluation inputs (TF-10) | Owner, QA |
+| 20 | REG-7 | P1 | Usability evaluation, DPIA filing, national provisions | Owner, DPO, RA, QA |
+| 21 | REG-8 | P1 | Independent (4-eye) review is not enforced on `main` | Owner, Ops |
+| 22 | CLIN-4 | P2 | The SNV + SV second-hit badge can read a phase from a half call | Eng |
+| 23 | CLIN-5 | P2 | The Variant Explorer's *MANE only* drops MANE Plus Clinical transcripts | Eng |
+| 24 | CLIN-6 | P2 | An X-linked recessive embryo call rests on an unconfirmed assumption | Owner, LD |
+| 25 | CLIN-7 | P2 | The evidence snapshot lacks frequencies and in-silico scores | Owner, Eng |
+| 26 | AUDIT-1 | P2 | The report page shows the 200 newest clinical audit events as the whole trail | Eng |
+| 27 | CLIN-19 | P2 | Gene explorer rows that no source fills read "—" (ACMG secondary finding for BRCA1) | Owner, Eng |
+| 28 | SEC-1 | P2 | Any project member can change a family's phenotypes through the API | Owner, Eng |
+| 29 | SEC-2 | P2 | Family and sample IDs reach URLs unencoded | Eng |
+| 30 | SEC-3 | P2 | Discover reads outside the package folder through `..` in an ID | Eng |
+| 31 | SEC-4 | P2 | Users and sessions; Azure AD locks users out | Owner, Eng |
+| 32 | SEC-5 | P2 | The frontend sends no HSTS header on Google Cloud | Ops, Eng |
+| 33 | SEC-6 | P2 | The request audit holds clinical content with no retention period | Owner, DPO |
+| 34 | SEC-7 | P2 | Gaps in what the clinical audit trail and the append-only rule cover | Owner, Eng |
+| 35 | UI-1 | P2 | Opening *Users* soon after *Audit logs* crashes the page | Eng |
+| 36 | AUDIT-2 | P2 | One malformed UI-event timestamp loses a batch of other users' events | Eng |
+| 37 | AUDIT-3 | P2 | The async audit batch write is all-or-nothing | Eng |
+| 38 | AUDIT-4 | P2 | The admin audit page does not show `request_meta` | Eng |
+| 39 | DATA-1 | P2 | Reference downloads keep only the first member of a gzip file | Eng |
+| 40 | DATA-2 | P2 | The Variant Explorer CSV export stops at 50,000 rows without saying so | Eng |
+| 41 | TRACE-3 | P2 | The ClinGen recurrent-CNV file names another release than its file name | Eng, QA |
+| 42 | TRACE-4 | P2 | The HiFiCNV copy-number track does not record its transform | Eng |
+| 43 | TRACE-5 | P2 | Gene reference, PanelApp and CNV knowledgebase releases are not in the manifest | Eng |
+| 44 | CLIN-8 | P2 | A sign-out refusal reason does not name its sample | Owner |
+| 45 | CLIN-9 | P2 | QA confirmation of the carrier-screening preset and the chrM exclusion | QA |
+| 46 | CLIN-10 | P2 | Parent–embryo IBS0 never checked on real imputed data | Owner |
+| 47 | OPS-6 | P2 | Deployment settings: problem-report link, SMTP, the HPO fallback download | Ops, Eng |
+| 48 | OPS-7 | P2 | Integrity anchors: no schedule, no export, one key | Owner, Eng |
+| 49 | SEC-8 | P2 | Merge #788 (event-loop log lines quote values) | Owner |
+| 50 | REG-9 | P2 | Traceability-matrix rows whose cited tests cover less than they claim | QA, Eng |
+| 51 | REG-10 | P2 | No regression truth set (GIAB / GeT-RM) | Eng, QA |
+| 52 | REG-11 | P2 | Post-market, vigilance and security-process inputs | QA, RA, Owner |
+| 53 | ENG-1 | P2 | The small-variant filters exist twice (SQL and Python) | Eng |
+| 54 | ENG-2 | P2 | The SV list and its CSV export declare the same filters twice | Eng, Owner |
+| 55 | ENG-3 | P2 | No migration ledger | Owner |
+| 56 | OPS-8 | P2 | Version identity and release mechanics | Eng |
+| 57 | OPS-9 | P2 | Scale is unproven | Eng |
+| 58 | OPS-10 | P2 | Secrets in the Terraform state | Owner |
 
 ## P1 — before the release candidate
 
@@ -127,6 +130,16 @@ scores +16, class 5. An API client with access to the family can store BS1 at *v
 codes. The UI cannot produce these, but the server's recompute is what protects the stored
 and signed classification. **Next:** refuse a repeated code and a strength the criterion does
 not allow (400), with a parity test against `criteria.ts`; the same for CNV criteria.
+
+### SAFE-11 · The NIPT pages hide the import-incomplete banner
+
+The NIPT page, the NIPT report and the NIPT coverage page do not use `FamilyPageHeader`, so
+they never render `ImportIncompleteBanner` (the header's comment says "on every family
+page"), and the NIPT page also lacks `AssemblyScopeBanner`. A NIPT family can be flagged
+`import_incomplete` like any other, and the NIPT report has no sign-out gate (REG-2), so a
+partly imported family reads as complete on screen and on the printed report. The IGV and
+ROI-marker viewers lack the banner too. **Next:** render both banners on every family page;
+test that each family route shows them.
 
 ### SAFE-2 · A live import whose heartbeat goes stale is ended as interrupted (#746)
 
@@ -275,6 +288,12 @@ and admin enforcement, and decide how independence is met, by the first beta at 
   the report page calls the list "an immutable record of who classified, tagged or annotated
   each variant". A review save can write three events, so about 70 saves fill it. Page it, or
   say when it is cut.
+- **CLIN-19 · Gene explorer rows that no source fills read "—".** *Clinical actionability*,
+  *Variant pathogenicity* and *ACMG secondary finding* (`GeneInfoPage.tsx`) read keys no
+  backend code writes, so they always show "—", BRCA1's secondary-finding status included;
+  the ClinGen bulk dosage entries show as an extra haploinsufficiency item without their
+  triplosensitivity, report link and date. Fill the rows from a source or remove them
+  (owner).
 - **SEC-1 · Any project member can change a family's phenotypes through the API.** The HPO
   create, update and delete routes (`routers/families.py`) use `get_current_user`; the UI and
   the user guide say administrators only. Phenotypes feed the ranking and PP4. The owner
@@ -307,6 +326,11 @@ and admin enforcement, and decide how independence is met, by the first beta at 
   and AGENTS.md lists `ui_events` among the traceability tables, though it has no
   `*_block_mutation` trigger and no `REVOKE`. Decide which of these are clinical-audit events,
   and correct AGENTS.md or protect `ui_events`.
+- **UI-1 · Opening *Users* soon after *Audit logs* crashes the page.** Three queries share
+  the cache key `['admin','users']` with different data shapes: the audit page caches only
+  `{id, email}`, which the users page then reads as full records (`u.projects.length` throws;
+  until then every user shows inactive with no role); the projects page uses the key too.
+  Give each its own key, or use `select`.
 - **AUDIT-2 · One malformed UI-event timestamp loses a batch of other users' events.**
   `UiEventIn.occurred_at` comes from the client unchecked; a value such as
   `0001-01-01T00:00:00+05:00` makes the Postgres driver's timestamp encoder overflow, and in
@@ -411,6 +435,10 @@ and admin enforcement, and decide how independence is met, by the first beta at 
   Removing it changes the API: owner decision.
 - **SAFE-10 ·** A 200 answer with a body that is not JSON from PanelApp or a reference source
   gives a 500 instead of a 502.
+- **SAFE-12 ·** The annotation manifest falls back to `families.metadata.annotation_manifest`,
+  which nothing in the backend writes (only tests feed it); the QC-threshold `reason` is
+  nullable only for edits made before it was required (making it `NOT NULL` is a schema and
+  API change for the owner).
 
 ### Security and audit
 
@@ -467,6 +495,15 @@ and admin enforcement, and decide how independence is met, by the first beta at 
   2020 whether a section maximum applies.
 - **CLIN-18 ·** The APCAD glossary entry awaits the laboratory's definition; the Sample QC
   pages say they catch contamination, which they do only indirectly (owner wording).
+- **CLIN-20 ·** Display differences between pages: the small-variant card and table show the
+  stored classification word as typed while the SV pages normalise it; the NIPT report prints
+  raw tokens (fetal sex, chrY profile, paternity, plasma status) where the screen's QC panel
+  uses readable text; the live report says "no longer present in the dataset" where the
+  signed version says "in the data".
+- **CLIN-21 ·** Filter-form details: the SV form's active *Gene panel* chip names the draft
+  panel, not the applied one; an SV preset's rule count includes one sample template per
+  member; the small-variant form's active review- and exclude-tag chips do not mark a deleted
+  tag "(deleted)", unlike the other chips since #776.
 
 ### Technical file and documentation
 
@@ -534,18 +571,33 @@ and admin enforcement, and decide how independence is met, by the first beta at 
   (`auth_login_attempts.last_success_at`, `small_variant_reviews.compound_het_partner_variant_keys`);
   ClickHouse columns always empty or constant and never read (`liftedOverChrom/Pos`,
   `sample_type`) or written and never read (`annotation_index.transcript_ids`).
-- **ENG-7 ·** Frontend: responses read through hand-written types where a generated type
-  exists (most visualisation tracks, several `apiTypes.ts` types without a contract check, the
-  Mendeliome response read untyped); seven admin alias routes no link names (owner: bookmarks);
-  the "(deleted)" tag label written three times; sentence case incomplete after #754
-  (sign-up page, admin dashboard tiles, the *Gene Explorer*, *Variant Explorer* and *Package
-  Import* headings, which the docs quote); the viewer still offers `MT`.
-- **ENG-8 ·** Backend duplication left for a later refactor: the audit and UI-event queue
+- **ENG-7 ·** Frontend: about 40 responses read through hand-written types where a generated
+  type exists (most visualisation tracks, the admin, gene, reference and import pages,
+  `apiTypes.ts` types without a contract check, the Mendeliome response read untyped); eight
+  admin alias routes nothing links to (`/admin/hpo`, `/admin/upload`, `/admin/users`,
+  `/admin/data/clickhouse`, `/admin/data/presets`, `/admin/data/tags`, `/admin/data/logs`,
+  `/admin/gene-reference`; owner: bookmarks — `/admin/data` itself is the breadcrumbs'
+  target); the "(deleted)" tag label also lives in the small-variant track; the viewer still
+  offers `MT`; wheel-zoom leftovers (#489: a shift scale always 1, a `[data-panning]` rule
+  that never matches, so no grabbing cursor during a pan).
+- **ENG-8 ·** Backend leftovers: gene-info keys one side reads and nothing writes, or writes and
+  nothing reads (`mane_select_transcript`, `ensembl_canonical_transcript`, `hgnc_vega_id`).
+  Duplication left for a later refactor: the audit and UI-event queue
   workers, the bounded download helper (Monarch, gene-info), several VCF INFO/FORMAT parsers
   with different flag handling, the interval-track tuple, small exact-copy helpers in the
   mito, repeat and Paraphase services, and parameters no caller sets.
 - **ENG-9 ·** The ranking's comments promised a re-sort by the raw variant score (corrected
   in the code comments); the UI could offer that sort for novel-gene candidates.
+- **ENG-10 ·** UI details: a failed saved-filter delete on *Settings* leaves the button at
+  "Removing…"; a `next` of `/\host` keeps a signed-in user on the login page without a
+  message (not an open redirect); two column headings in the data-inventory detail sit over
+  the wrong columns; the admin presets page's loading text mentions family-linked presets;
+  an empty transcript row spans 7 of 8 columns; several pages show a loading state without a
+  spinner.
+- **ENG-11 ·** Sentence case is incomplete after #754: headings (*Gene Explorer*,
+  *Variant Explorer*, *Package Import*, *Family Builder*), the Family Builder and sample-upload
+  tabs and buttons, the sign-up and login forms, the gene-panel page, the admin dashboard's
+  groups and tiles, and several kickers; the docs quote some of them, so change both together.
 
 ### Product gaps
 
@@ -572,6 +624,7 @@ recursion (#774); in the last week, the sex check shown as a match (#783), the s
 parent sex check (#781), 403 for another project's record (#785), 500s on malformed ids
 (#777, #787), SV preset saves (#786), tag edits (#771, #776) and the ID rule on member edits
 (#773). The cleanup branch that adds this page also corrects the documentation errors the
-audit found (the stale-job wording in ROADMAP.md and monitoring.md, TF-16's alerting status,
+audit found (the stale-job wording in ROADMAP.md and monitoring.md, TF-16's alerting status, the Sample
+QC relatedness copy, which said a warning is outlined red,
 the handleiding, the in-app user guide, the test catalogue and the technical file's code
 references), and removes the dead code it proved dead.
