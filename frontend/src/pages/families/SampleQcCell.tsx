@@ -3,6 +3,7 @@ import api, { resolveApiUrl } from '../../lib/api';
 import InfoTip from '../../components/InfoTip';
 import type { ApiFamilyRecord, ApiSampleSequencingQcEvaluation } from '../../lib/apiTypes';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import {
   formatSequencingQcDetail,
   formatSequencingQcSummary,
@@ -28,8 +29,8 @@ const VERDICT_CHIP_CLASS: Record<ApiSampleSequencingQcEvaluation['verdict'], str
 };
 
 /**
- * The verdict word shown beside the depth, using the same labels as the sample-integrity
- * QC page (`FamilySampleQcPage` STATUS_META) rather than a second spelling.
+ * The verdict word shown beside the depth, in the app-wide QC vocabulary
+ * (`QC_STATUS_LABEL`, as on the sample-integrity QC page) rather than a second spelling.
  *
  * Only the problem verdicts are labelled: a passing or unassessed chip shows the number
  * alone and stays narrow, so a word beside the depth always means "look at this". Colour
@@ -38,8 +39,8 @@ const VERDICT_CHIP_CLASS: Record<ApiSampleSequencingQcEvaluation['verdict'], str
  */
 const VERDICT_LABEL: Record<ApiSampleSequencingQcEvaluation['verdict'], string> = {
   pass: '',
-  warn: 'Warning',
-  fail: 'Fail',
+  warn: QC_STATUS_LABEL.warn,
+  fail: QC_STATUS_LABEL.fail,
   skip: '',
 };
 

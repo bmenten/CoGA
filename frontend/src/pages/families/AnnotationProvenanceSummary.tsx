@@ -14,6 +14,18 @@ const SOURCE_LABELS: Record<string, string> = {
 
 const COLLAPSED_COUNT = 6;
 
+/**
+ * The family's annotation manifest: the tool and database versions its data was built
+ * from. The provenance footer, the pipeline settings panel and the live report read it.
+ */
+export const useAnnotationManifest = (familyId: string | undefined) =>
+  useQuery<ApiAnnotationManifest>({
+    queryKey: ['family', familyId, 'annotation-manifest'],
+    enabled: Boolean(familyId),
+    queryFn: async () =>
+      (await api.get(apiPath`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
+  });
+
 /** The version to show for a module, given the page's modality (issue #294). */
 function modalityVersion(module: ApiAnnotationModule, modality?: string): string | null {
   if (modality && module.by_modality?.[modality]) return module.by_modality[modality];
@@ -46,12 +58,7 @@ export default function AnnotationProvenanceSummary({
   modality?: string;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const { data, isError, refetch } = useQuery<ApiAnnotationManifest>({
-    queryKey: ['family', familyId, 'annotation-manifest'],
-    enabled: Boolean(familyId),
-    queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
-  });
+  const { data, isError, refetch } = useAnnotationManifest(familyId);
 
   const modules = (data?.modules ?? [])
     .filter((module) => showsOnModality(module, modality))
