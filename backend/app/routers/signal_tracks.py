@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, RedirectResponse
@@ -89,8 +89,6 @@ _TRACK_KINDS: dict[str, dict[str, Any]] = {
         "extensions": (".bedgraph", ".bedGraph", ".bg"),
     },
 }
-
-TrackKind = Literal["depth_bigwig", "maf_bigwig", "copy_number_bedgraph"]
 
 
 def _family_package_root(family_id: str) -> Path:
@@ -181,14 +179,6 @@ def _track_uris(rows: list[tuple[str, dict[str, Any]]]) -> dict[str, dict[str, d
         if by_source:
             recorded[sample_id] = by_source
     return recorded
-
-
-async def _recorded_signal_tracks(
-    session: AsyncSession, sample_ids: list[str]
-) -> dict[str, dict[str, dict[str, str]]]:
-    """``sample_id -> source -> kind -> package-relative path``, as the import left it."""
-
-    return _track_paths(await _signal_track_rows(session, sample_ids))
 
 
 def _resolve_track_path(family_id: str, relative_path: str) -> Path | None:

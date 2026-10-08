@@ -481,9 +481,6 @@ from . import (  # noqa: E402
     families_tracks,
 )
 
-# Re-exported so `from ...routers.families import _FAMILY_EXPORT_COLUMNS` (a test) keeps resolving.
-from .families_small_variants import _FAMILY_EXPORT_COLUMNS, _family_export_cell  # noqa: E402,F401
-
 for _sub_router in (
     families_small_variants.router,
     families_structural_variants.router,
