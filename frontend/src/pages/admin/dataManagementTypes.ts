@@ -140,7 +140,6 @@ export interface RawFileVerifyResult {
 export type StatusTone = 'success' | 'error';
 
 export const EMPTY_PROJECTS: ProjectOption[] = [];
-export const DEFAULT_PAGE_SIZE = 25;
 
 export const SAMPLE_TRACK_ORDER: SampleTrackType[] = [
   'coverage',

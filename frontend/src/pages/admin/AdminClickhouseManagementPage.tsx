@@ -140,7 +140,6 @@ const AdminClickhouseManagementPage: React.FC = () => {
 
       <ClickhouseVariantOperationsSection
         assemblies={variantStorage?.assemblies ?? []}
-        loading={false}
         errorMessage={
           error
             ? getErrorMessage(

@@ -59,7 +59,6 @@ type RunAction = (
 
 interface ClickhouseVariantOperationsSectionProps {
   assemblies: ClickHouseVariantAssemblyStatus[];
-  loading: boolean;
   errorMessage?: string | null;
   busyKey: string | null;
   onRunAction: RunAction;
@@ -115,7 +114,6 @@ const ScheduledIntegrityResult: React.FC<{
 
 const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSectionProps> = ({
   assemblies,
-  loading,
   errorMessage,
   busyKey,
   onRunAction,
@@ -173,9 +171,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
         </div>
       </div>
 
-      {loading ? (
-        <p className="table-empty">Loading ClickHouse variant status…</p>
-      ) : errorMessage ? (
+      {errorMessage ? (
         <p className="table-empty">{errorMessage}</p>
       ) : assemblies.length === 0 ? (
         <p className="table-empty">No ClickHouse-backed variant assemblies are available yet.</p>
