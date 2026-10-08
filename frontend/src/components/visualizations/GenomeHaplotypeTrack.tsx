@@ -21,6 +21,7 @@ import {
 } from '../../lib/haplotypeRisk';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
+import type { GenomeLayout } from './genomeBinLayout';
 import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel } from '../../lib/chromosomes';
 import { isDeletedHaplotype } from '../../lib/phasedMarkers';
 
@@ -51,13 +52,6 @@ interface HaplotypeSourceResponse {
   samples?: HaplotypeSourceSample[];
 }
 
-interface Layout {
-  offsets: Record<string, number>;
-  lengths: Record<string, number>;
-  total: number;
-  chroms: string[];
-}
-
 interface Props {
   urls: string[];
   sampleId: string;
@@ -67,7 +61,7 @@ interface Props {
   carrierStatus?: boolean | null;
   carrierType?: string | null;
   highlightRiskHaplotype?: boolean;
-  layout: Layout | null;
+  layout: (GenomeLayout & { chroms: string[] }) | null;
   width?: number;
   height?: number;
   disorder?: 'dominant' | 'recessive';

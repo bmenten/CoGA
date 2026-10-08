@@ -1,5 +1,6 @@
 // The genome-wide layout the binned charts (coverage/segments and APCAD) lay their
-// chromosomes out on, shared so the two charts line up.
+// chromosomes out on, shared so the two charts line up. The genome SV, haplotype and
+// repeat tracks place their marks on the same layout.
 
 export interface GenomeLayout {
   offsets: Record<string, number>;

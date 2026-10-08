@@ -1,26 +1,12 @@
 import React from "react";
-import { useQuery } from "@tanstack/react-query";
-import api from "../../lib/api";
+import type { ApiChromosomeBand } from "../../lib/apiTypes";
 import { cssVar } from "../../lib/colors";
 import { getStainColor } from "../../lib/stainColors";
 import { getAcenDirection, getBandGradientStops, niceTickInterval } from "../../lib/ideogram";
 import VizTooltip from "./VizTooltip";
 import VizErrorOverlay from "./VizErrorOverlay";
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from "./trackRegion";
-import { apiPath } from '../../lib/apiPath';
-
-interface IdeogramBand {
-  name: string;
-  start: number;
-  end: number;
-  stain: string;
-}
-
-interface Chromosome {
-  chr: string;
-  size: number;
-  bands: IdeogramBand[];
-}
+import { useChromosome } from "./useChromosome";
 
 interface Props {
   assembly: string;
@@ -55,15 +41,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
   regionStart,
   regionEnd,
 }) => {
-  const { data, isError, refetch } = useQuery<Chromosome>({
-    queryKey: ["chromosome", assembly, chrom],
-    queryFn: async () => {
-      const res = await api.get(apiPath`/chromosomes/${assembly}/${chrom}`);
-      return res.data as Chromosome;
-    },
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
+  const { data, isError, refetch } = useChromosome(assembly, chrom);
   const [bandTooltip, setBandTooltip] = React.useState<{
     x: number;
     y: number;
@@ -95,7 +73,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
     );
   }
 
-  const bandHoverHandlers = (band: IdeogramBand) => ({
+  const bandHoverHandlers = (band: ApiChromosomeBand) => ({
     onMouseMove: (e: React.MouseEvent) =>
       setBandTooltip({ x: e.clientX, y: e.clientY, name: band.name }),
     onMouseLeave: () => setBandTooltip(null),
