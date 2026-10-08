@@ -120,7 +120,6 @@ async def fetch_external_gene_bundle(
     *,
     symbol: str,
     species_document: Dict[str, Any],
-    species_docs: List[Dict[str, Any]],
     bulk_context: HumanGeneBulkContext | None = None,
 ) -> Dict[str, Any]:
     cleaned_symbol = symbol.strip()

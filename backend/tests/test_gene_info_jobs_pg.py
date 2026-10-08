@@ -193,11 +193,7 @@ async def test_the_gene_refresh_loads_no_exons(monkeypatch: pytest.MonkeyPatch, 
             assemblies=[{"id": "11111111-1111-4111-8111-111111111111", "assembly_name": "GRCh38"}],
         )
 
-    async def no_species(_session):
-        return []
-
     monkeypatch.setattr(gene_info_jobs_pg, "_get_human_context", human_context)
-    monkeypatch.setattr(gene_info_jobs_pg, "_fetch_species_rows", no_species)
     session = _GeneRowsSession()
     await gene_info_jobs_pg._load_human_gene_groups(session, symbol=symbol)  # type: ignore[arg-type]
     [sql] = session.sql

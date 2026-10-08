@@ -22,6 +22,7 @@ from ..schemas import (
     MonarchPhenotypeMatchOut,
 )
 from .data_scope import is_primary_chromosome
+from .gene_info_jobs_pg import _get_human_context
 from .metadata_service import get_accessible_family_mapping
 from .access_control import CurrentUser, RecordNotVisible, user_can_access_metadata_projects
 from .monarch_ingest import (
@@ -136,16 +137,6 @@ def _gnomad_dataset_name(assembly_name: str) -> str | None:
     if assembly_name in {"GRCh37", "hg19"}:
         return "gnomad_r2_1"
     return None
-
-
-def _assembly_priority(assembly_name: str) -> tuple[int, str]:
-    if assembly_name == "GRCh38":
-        return (0, assembly_name)
-    if assembly_name in {"T2T-CHM13", "T2T-CHM13v2.0"} or assembly_name.startswith("T2T-CHM13"):
-        return (1, assembly_name)
-    if assembly_name in {"GRCh37", "hg19"}:
-        return (2, assembly_name)
-    return (9, assembly_name)
 
 
 def _first_identifier(extra: dict[str, Any], *paths: tuple[str, str]) -> str | None:
@@ -301,39 +292,6 @@ def _build_external_links(
     return links
 
 
-async def _get_human_context(session: AsyncSession) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    species_result = await session.execute(
-        text(
-            """
-            SELECT id::text AS id, name, common_name
-            FROM species
-            WHERE name = 'Homo sapiens' OR lower(common_name) = 'human'
-            ORDER BY CASE WHEN name = 'Homo sapiens' THEN 0 ELSE 1 END
-            LIMIT 1
-            """
-        )
-    )
-    species_row = species_result.mappings().first()
-    if species_row is None:
-        raise HTTPException(status_code=404, detail="Human reference species not found")
-
-    assemblies_result = await session.execute(
-        text(
-            """
-            SELECT id::text AS id, assembly_name, version
-            FROM assemblies
-            WHERE species_id = CAST(:species_id AS uuid)
-            """
-        ),
-        {"species_id": species_row["id"]},
-    )
-    assemblies = [dict(row) for row in assemblies_result.mappings().all()]
-    if not assemblies:
-        raise HTTPException(status_code=404, detail="No human assemblies found")
-    assemblies.sort(key=lambda row: _assembly_priority(str(row["assembly_name"])))
-    return dict(species_row), assemblies
-
-
 async def _lookup_gene_documents(
     session: AsyncSession,
     *,
@@ -398,7 +356,7 @@ async def search_genes(
     term = query.strip()
     if len(term) < 2:
         return []
-    species_row, assemblies = await _get_human_context(session)
+    assemblies = (await _get_human_context(session)).assemblies
     assembly_ids = [assembly["id"] for assembly in assemblies]
     result = await session.execute(
         text(
@@ -425,7 +383,6 @@ async def search_genes(
     for row in result.mappings().all():
         grouped[str(row["hgnc_symbol"])].append(dict(row))
 
-    _ = species_row
     payload: list[GeneSearchResultOut] = []
     for symbol, docs in sorted(grouped.items())[:20]:
         primary = _pick_primary_gene_doc(docs)
@@ -494,7 +451,8 @@ async def build_gene_profile(
             project_row = project_result.mappings().first()
 
     preferred_assembly_id = project_row["assembly_id"] if project_row is not None else None
-    species_row, assemblies = await _get_human_context(session)
+    human = await _get_human_context(session)
+    species_row, assemblies = human.species, human.assemblies
     human_assembly_ids = [assembly["id"] for assembly in assemblies]
     if preferred_assembly_id and preferred_assembly_id not in human_assembly_ids:
         preferred_assembly_id = None
