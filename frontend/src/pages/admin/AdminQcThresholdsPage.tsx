@@ -8,8 +8,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import type { ApiQcThresholdCatalogue } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
 import ModalDialog from '../../components/ModalDialog';
-
-type StatusTone = 'success' | 'error';
+import type { StatusTone } from './dataManagementTypes';
 
 const QUERY_KEY = ['admin', 'qc-thresholds'];
 

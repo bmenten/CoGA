@@ -11,7 +11,7 @@ import type {
   ClickHouseIntegrityMonitorOut,
   ClickHouseIntegrityMonitorResultOut,
 } from '../../lib/apiSchema.generated';
-import { formatCount } from '../../lib/format';
+import { formatCount, formatTimestamp } from '../../lib/format';
 
 const INTEGRITY_LABELS: Record<ClickHouseVariantIntegrity['status'], string> = {
   ok: 'Healthy',
@@ -22,12 +22,6 @@ const INTEGRITY_LABELS: Record<ClickHouseVariantIntegrity['status'], string> = {
 
 const integrityLabel = (status: string): string =>
   INTEGRITY_LABELS[status as ClickHouseVariantIntegrity['status']] ?? status;
-
-const formatCheckedAt = (value: string | null | undefined): string => {
-  if (!value) return '—';
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
-};
 
 const formatInterval = (seconds: number): string => {
   if (seconds % 3600 === 0) {
@@ -45,7 +39,7 @@ const scheduledCheckSummary = (monitor: ClickHouseIntegrityMonitorOut): string =
   }
   const cadence = `The scheduled integrity check runs ${formatInterval(monitor.interval_seconds)}`;
   const lastRun = monitor.last_sweep_at
-    ? `${cadence}; it last ran ${formatCheckedAt(monitor.last_sweep_at)}.`
+    ? `${cadence}; it last ran ${formatTimestamp(monitor.last_sweep_at)}.`
     : `${cadence}; it has not run since the server started.`;
   return monitor.last_sweep_error ? `${lastRun} ${monitor.last_sweep_error}` : lastRun;
 };
@@ -98,7 +92,7 @@ const ScheduledIntegrityResult: React.FC<{
         <span className="badge-chip">
           Scheduled check: {scheduled.report ? integrityLabel(scheduled.report.status) : 'Could not run'}
         </span>
-        <span className="badge-chip">Checked {formatCheckedAt(scheduled.checked_at)}</span>
+        <span className="badge-chip">Checked {formatTimestamp(scheduled.checked_at)}</span>
       </div>
       {scheduled.error && <p className="table-empty">{scheduled.error}</p>}
       {scheduled.report && scheduled.report.notes.length > 0 && (

@@ -141,6 +141,10 @@ export type StatusTone = 'success' | 'error';
 
 export const EMPTY_PROJECTS: ProjectOption[] = [];
 
+/** Project ids without duplicates, in a stable order, for comparing and saving a selection. */
+export const normalizeProjectIds = (projectIds: string[]): string[] =>
+  Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right));
+
 export const SAMPLE_TRACK_ORDER: SampleTrackType[] = [
   'coverage',
   'segments',

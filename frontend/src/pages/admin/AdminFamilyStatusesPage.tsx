@@ -7,8 +7,7 @@ import FamilyStatusBadge from '../../components/FamilyStatusBadge';
 import { getErrorMessage } from '../../lib/errorMessage';
 import type { ApiFamilyStatusDefinition } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
-
-type StatusTone = 'success' | 'error';
+import type { StatusTone } from './dataManagementTypes';
 
 interface StatusDraft {
   label: string;
