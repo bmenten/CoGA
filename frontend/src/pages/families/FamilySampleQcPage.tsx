@@ -494,7 +494,8 @@ const FamilySampleQcPage: React.FC = () => {
           <p className="table-subtle">
             Pairwise kinship (φ) and IBS0, coloured by the inferred relationship (lower triangle —
             the matrix is symmetric). Pairs whose observed relationship contradicts the pedigree —
-            including co-parents who look related (consanguinity) — are outlined in red.
+            including co-parents who look related (consanguinity) — are outlined: red for a fail,
+            amber for a warning.
           </p>
           <RelatednessMatrix samples={relatednessSamples} checks={qc.relatedness_checks} />
         </section>
