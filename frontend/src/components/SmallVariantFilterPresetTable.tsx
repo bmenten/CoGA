@@ -1,3 +1,4 @@
+import { formatDate } from '../lib/format';
 import { countPresetRules, type SmallVariantFilterPreset } from '../pages/families/smallVariantSearch';
 
 type SmallVariantFilterPresetTableProps = {
@@ -6,13 +7,6 @@ type SmallVariantFilterPresetTableProps = {
   showOwner?: boolean;
   deletingPresetId?: string | null;
   onDeletePreset?: (preset: SmallVariantFilterPreset) => Promise<void> | void;
-};
-
-const formatPresetDate = (value?: string) => {
-  if (!value) return '—';
-  const timestamp = new Date(value);
-  if (Number.isNaN(timestamp.getTime())) return value;
-  return timestamp.toLocaleDateString();
 };
 
 export default function SmallVariantFilterPresetTable({
@@ -55,7 +49,7 @@ export default function SmallVariantFilterPresetTable({
               </td>
               <td>{countPresetRules(preset)} rules</td>
               {showOwner ? <td>{preset.owner}</td> : null}
-              <td>{formatPresetDate(preset.created_at)}</td>
+              <td>{formatDate(preset.created_at, '—')}</td>
               {onDeletePreset ? (
                 <td>
                   <button

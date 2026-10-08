@@ -11,6 +11,7 @@ import type {
 } from '../../lib/apiTypes';
 import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { formatShortDate } from '../../lib/format';
 import { isAdmin } from '../../lib/auth';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
@@ -79,17 +80,6 @@ const getUserLabel = (user: User) => {
 const uploadedDateMs = (family: Project['families'][number]) => {
   const timestamp = family.created_at ? Date.parse(family.created_at) : 0;
   return Number.isFinite(timestamp) ? timestamp : 0;
-};
-
-const formatUploadedDate = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date);
 };
 
 const familySampleIds = (family: Project['families'][number]) =>
@@ -712,7 +702,7 @@ const ProjectsPage: React.FC = () => {
                             <tr key={family.family_id}>
                               <td>{family.family_id}</td>
                               <td className="project-family-uploaded-cell" title={family.created_at ?? undefined}>
-                                {formatUploadedDate(family.created_at)}
+                                {formatShortDate(family.created_at)}
                               </td>
                               <td>{family.members.length}</td>
                               <td>
