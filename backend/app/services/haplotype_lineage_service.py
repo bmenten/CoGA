@@ -336,16 +336,6 @@ class HomologResolver:
         return value
 
 
-def _as_resolver(
-    anchor_homologs: "HomologResolver | dict[int, HomologAssignment]",
-) -> HomologResolver:
-    """Accept either a position-aware resolver (BFS propagation) or a flat homolog
-    map (founders / existing test fixtures), normalising to a resolver."""
-    if isinstance(anchor_homologs, HomologResolver):
-        return anchor_homologs
-    return HomologResolver.from_flat(anchor_homologs)
-
-
 @dataclass(slots=True)
 class ColouredMember:
     """A member whose homologs have been assigned colours, usable as an anchor to
@@ -629,7 +619,7 @@ def _segment_relative_blocks(
     positions: list[int],
     rel_alleles: dict[int, tuple[int, int]],
     anc_alleles: dict[int, tuple[int, int]],
-    anchor_homologs: "HomologResolver | dict[int, HomologAssignment]",
+    anchor_homologs: HomologResolver,
     match: MatchResult,
     region_start: int,
     region_end: int,
@@ -645,10 +635,9 @@ def _segment_relative_blocks(
     colour for the matched anchor homolog; the other lane is grey. Adjacent blocks
     with the same colouring are merged.
 
-    The anchor's colour is resolved *per position* (``anchor_homologs`` may be a
-    :class:`HomologResolver` whose colour for a raw homolog changes mid-chromosome
-    because the anchor itself crossed over). A flat ``{idx: assignment}`` dict is also
-    accepted (founders / test fixtures) and treated as position-independent.
+    The anchor's colour is resolved *per position*: ``anchor_homologs`` is a
+    :class:`HomologResolver`, whose colour for a raw homolog changes mid-chromosome when
+    the anchor itself crossed over (a founder's is flat: ``HomologResolver.from_flat``).
 
     Returns ``(blocks, global_assignment, resolver)``:
       * ``global_assignment`` — the relative's chromosome-level homolog map (from the
@@ -657,7 +646,7 @@ def _segment_relative_blocks(
         per-segment crossover runs, so the NEXT hop reads the correct shade at each
         position instead of one wrong shade across a post-crossover span (fix H3).
     """
-    resolver = _as_resolver(anchor_homologs)
+    resolver = anchor_homologs
     rel_runs = _smooth_runs(
         _relative_index_pins(positions, rel_alleles, anc_alleles),
         fallback=match.relative_idx,
