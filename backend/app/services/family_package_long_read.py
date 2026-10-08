@@ -19,7 +19,6 @@ and ``family.relationships``, which the user checks and can edit first.
 from __future__ import annotations
 
 import gzip
-import logging
 import os
 from pathlib import Path
 import re
@@ -29,9 +28,6 @@ from fastapi import HTTPException
 
 from ..schemas import FamilyImportValidationIssue
 from .family_package_common import _issue, _resolve_package_path
-
-
-logger = logging.getLogger(__name__)
 
 
 # The pipeline's per-sample dataset folders: <dataset>/<sample>/[<subfolder>/]<sample>...

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
 
@@ -10,9 +9,6 @@ from ..schemas import (
 )
 
 from .family_package_common import PackageManifest, ParsedPed, PedMember, _issue, _metadata_dict, _normalize_header_key, sample_id_issues
-
-
-logger = logging.getLogger(__name__)
 
 
 _PED_SEX_CODES = {

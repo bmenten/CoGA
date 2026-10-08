@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import logging
 from pathlib import Path
 import re
 from typing import Any, Awaitable, Callable
@@ -23,9 +22,6 @@ from .family_metadata_context import (
 
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info
 from .import_progress import bytes_read_on_disk, file_size, read_stats
-
-
-logger = logging.getLogger(__name__)
 
 
 async def _delete_sample_interval_track(

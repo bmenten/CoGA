@@ -6,7 +6,6 @@ from dataclasses import dataclass
 from functools import partial
 import json
 from math import log2
-import logging
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
@@ -102,8 +101,6 @@ from .per_sample_small_variants import (
     upload_family_per_sample_small_variant_files,
 )
 
-
-logger = logging.getLogger(__name__)
 
 # What a per-sample file refused by ``per_sample_vcf_column`` asks of the operator.
 _PER_SAMPLE_COLUMN_REMEDY = (

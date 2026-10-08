@@ -4,7 +4,6 @@ import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 import json
-import logging
 import os
 from pathlib import Path
 import shutil
@@ -24,9 +23,6 @@ from ..core.object_storage import (
 
 from .family_package_common import PED_FOLDER, PackageManifest
 from .family_package_long_read import long_read_sample_ids
-
-
-logger = logging.getLogger(__name__)
 
 
 # Aligned reads and their indexes. Staging a remote package leaves these in the store:

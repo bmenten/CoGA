@@ -27,12 +27,10 @@ Postgres is transactional, so the whole restore commits atomically.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-import logging
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-logger = logging.getLogger(__name__)
 
 # Family-scoped tables the dataset importers write during the import loop. Every one
 # has a `family_id uuid` column and a plain `gen_random_uuid()` PK (not GENERATED

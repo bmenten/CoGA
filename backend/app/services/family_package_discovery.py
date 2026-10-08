@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import gzip
-import logging
 from pathlib import Path
 import re
 from typing import Any
@@ -26,9 +25,6 @@ from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
 from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict
 from .family_package_validation import validate_family_package
-
-
-logger = logging.getLogger(__name__)
 
 
 NAMING_SCHEMES: dict[str, dict[str, Any]] = {

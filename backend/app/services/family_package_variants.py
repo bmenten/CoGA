@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import replace
 import json
-import logging
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -27,9 +26,6 @@ from .variant_annotation_parser import (
 )
 
 from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
-
-
-logger = logging.getLogger(__name__)
 
 
 def _needlr_query_sample_id(info: dict[str, str], sample_ids: set[str]) -> str | None:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from pathlib import Path
 from typing import Any
 
@@ -27,9 +26,6 @@ from .family_package_manifest import _manifest_added_member_entries, _manifest_a
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
-
-
-logger = logging.getLogger(__name__)
 
 
 def _add_missing_optional_dataset_warnings(

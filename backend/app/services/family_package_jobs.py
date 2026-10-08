@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Iterable
 from datetime import datetime, timedelta, timezone
 import json
-import logging
 from typing import Any
 
 from fastapi import HTTPException
@@ -21,9 +20,6 @@ from .access_control import CurrentUser, is_admin_user
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_package_source import package_folder_path
 from .family_package_common import _dataset_summary_list, _issue_list, _json_dict, _json_list, _model_list_json
-
-
-logger = logging.getLogger(__name__)
 
 
 FAMILY_IMPORT_STALE_HEARTBEAT = timedelta(minutes=10)
