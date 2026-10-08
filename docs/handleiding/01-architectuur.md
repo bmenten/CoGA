@@ -30,8 +30,8 @@ Bij elk verzoek beslist Postgres eerst wie wat mag zien. Daarna haalt de backend
 Voorbeeld: een analist opent de small variants van een familie.
 
 1. **Klik in de browser.** De pagina (bv. `frontend/src/pages/families/FamilySmallVariantsPage.tsx`) vraagt data op via de gedeelde API-client.
-2. **De API-client verstuurt het verzoek.** Alle verzoeken gaan via één *axios*-instantie (axios is een JavaScript-bibliotheek voor HTTP-verzoeken) met het basisadres `/api`. Een *interceptor* (code die elk uitgaand verzoek onderschept) voegt het JWT-token toe als `Authorization: Bearer <token>`, behalve bij inloggen en registreren. Een JWT (*JSON Web Token*) is een ondertekend toegangsbewijs; [hoofdstuk 5](05-login-authenticatie.md) legt het uit.
-3. **Het verzoek bereikt de backend.** In ontwikkeling stuurt de Vite-ontwikkelserver `/api` door naar de backend; in de Docker-opstelling doet de frontendcontainer dat (`frontend/server.mjs`). Alle routers hangen onder `/api`. Eerst passeert het verzoek een reeks *middleware* (tussenlagen die elk verzoek en antwoord bewerken): client-IP-bepaling achter proxies (`TRUSTED_PROXY_HOPS`), security-headers, trailing-slash-normalisatie en request-logging/audit. [Hoofdstuk 7](07-backend-routers-en-services.md) beschrijft de volgorde.
+2. **De API-client verstuurt het verzoek.** Vrijwel alle verzoeken gaan via één *axios*-instantie (axios is een JavaScript-bibliotheek voor HTTP-verzoeken) met het basisadres `/api`. Een *interceptor* (code die elk uitgaand verzoek onderschept) voegt het JWT-token toe als `Authorization: Bearer <token>`, behalve bij inloggen en registreren. Alleen de ingebedde IGV-browser, die zijn alignments en tracks zelf ophaalt, en de laatste UI-events bij het verlaten van een pagina sturen het token zelf mee. Een JWT (*JSON Web Token*) is een ondertekend toegangsbewijs; [hoofdstuk 5](05-login-authenticatie.md) legt het uit.
+3. **Het verzoek bereikt de backend.** In ontwikkeling stuurt de Vite-ontwikkelserver `/api` door naar de backend; in de Docker-opstelling doet de frontendcontainer dat (`frontend/server.mjs`). Alle routers hangen onder `/api`, behalve `GET /metrics` voor de monitoring, dat er bewust buiten ligt (hoofdstuk 7). Eerst passeert het verzoek een reeks *middleware* (tussenlagen die elk verzoek en antwoord bewerken): client-IP-bepaling achter proxies (`TRUSTED_PROXY_HOPS`), security-headers, trailing-slash-normalisatie en request-logging/audit. [Hoofdstuk 7](07-backend-routers-en-services.md) beschrijft de volgorde.
 4. **De router controleert de toegang.** Elk beschermd endpoint vraagt de *dependency* `get_current_user` (een functie die FastAPI vóór het endpoint uitvoert). Die controleert het token en laadt de gebruiker vers uit Postgres. De toegang is **projectgebonden** (project-scoped RBAC, *Role-Based Access Control*); [hoofdstuk 2](02-beveiliging-rollen-rechten.md) legt uit hoe.
 5. **Een service doet het eigenlijke werk.** Routers blijven dun; de klinische logica zit in `backend/app/services/`, voor familievarianten bijvoorbeeld in `clickhouse_family_variants.py`.
 6. **De service bevraagt de juiste databank.** Metadata komt uit Postgres (via SQLAlchemy, asynchroon), varianten uit ClickHouse (via een directe client). Alle waarden gaan als parameter mee, nooit als tekst in de query (hoofdstuk 7).
@@ -43,7 +43,7 @@ Frontend en backend zijn aparte processen die alleen via HTTP en JSON met elkaar
 
 **CORS** (*Cross-Origin Resource Sharing*: welke websites de API mogen aanroepen) staat streng ingesteld. Een origin-patroon moet volledig verankerd zijn (beginnen met `^` en eindigen met `$`); anders weigert de configuratie het, omdat een te breed patroon samen met meegestuurde credentials een omweg zou openen. Buiten ontwikkeling start de backend niet zolang `CORS_ORIGINS` of `CORS_ORIGIN_REGEX` een lokale origin (`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`) of eender welke site toelaat: de ontwikkelinstellingen laten localhost toe, en een pagina op de eigen machine van de gebruiker zou dan als die aangemelde gebruiker de API kunnen aanroepen. Een deployment bedient de interface vanaf zijn eigen origin en heeft geen cross-origin toegang nodig; Terraform zet de eigen origin en een leeg patroon.
 
-**Waar in de code:** de `CORSMiddleware` in `backend/app/main.py` en `validate_cors_origin_regex` in `backend/app/core/config.py`.
+**Waar in de code:** de `CORSMiddleware` in `backend/app/main.py`; in `backend/app/core/config.py` `validate_cors_origin_regex` (de verankering) en `_cross_origin_exposures`, dat `validate_security_defaults` buiten ontwikkeling aanroept.
 
 ## De mappen op hoofdlijnen
 
@@ -68,7 +68,9 @@ De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de document
 
 De routering gebruikt `react-router`. Alleen `/login` en `/signup` zijn publiek. Alle andere schermen zitten achter de bewaker `RequireAuth`, en de beheerschermen (o.a. `/admin/...`, `/package-import` en `/projects`) daarbovenop achter `RequireAdmin`. Die bewakers zijn gebruiksgemak, geen beveiliging (hoofdstuk 2).
 
-**Waar in de code:** de routeboom in `frontend/src/index.tsx`.
+Er is geen navigatiebalk: de hoofdonderdelen (*Projects*, *Variant explorer*, *Gene explorer*, *CNV explorer*, *Panels*, voor een beheerder *Admin*, en *User guide*) staan in een menu achter een pijltje rechts in de kopbalk, en onder de kopbalk volgt een kruimelpad de route.
+
+**Waar in de code:** de routeboom in `frontend/src/index.tsx`; het menu in `frontend/src/components/HeaderMenu.tsx` en het kruimelpad in `Breadcrumbs.tsx`.
 
 ## Configuratie
 
@@ -99,7 +101,7 @@ Wat de backend bij het opstarten doet (schema, eerste beheerder, referentiedata,
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, react-router, TanStack Query (servertoestand en caching), axios, D3 (visualisaties) en igv (de ingebedde IGV-genoombrowser); tests met Vitest en Playwright.
 - **Backend:** FastAPI met Uvicorn, SQLAlchemy (asynchroon) met asyncpg voor Postgres, clickhouse-connect voor ClickHouse, Pydantic (validatie en instellingen), PyJWT (tokens), bcrypt (wachtwoorden) en cryptography (o.a. de handtekening van de integriteitsankers).
 
-De exacte versies staan in `frontend/package.json` en `backend/requirements.txt`; het SOUP-register (`docs/regulatory/TF-08-soup-register.md`) houdt ze bij voor het technisch dossier. De productversie staat in `VERSION`. Het veld `app_version` in de backend is de build-identiteit: die wordt bij het bouwen van de image ingevuld en in elk ondertekend rapport bevroren (hoofdstuk 11).
+De exacte versies staan in `frontend/package-lock.json` en `backend/requirements.txt`; het SOUP-register (`docs/regulatory/TF-08-soup-register.md`) houdt ze bij voor het technisch dossier. De productversie staat in `VERSION`. Het veld `app_version` in de backend is de build-identiteit: die wordt bij het bouwen van de image ingevuld en in elk ondertekend rapport bevroren (hoofdstuk 11).
 
 ## Belangrijkste bestanden
 
