@@ -44,6 +44,7 @@ from .clickhouse_variant_records import (
     SmallVariantRecord,
     _annotation_clinvar,
     _annotation_population_frequencies,
+    _coerce_float,
 )
 
 if TYPE_CHECKING:
@@ -443,12 +444,12 @@ def triage_annotation(record: SmallVariantRecord) -> DeNovoAnnotation:
         if value in _IMPACT_RANK and (impact is None or _IMPACT_RANK[value] > _IMPACT_RANK[impact]):
             impact = value
         for key in _SPLICEAI_KEYS:
-            score = _number(annotation.get(key))
+            score = _coerce_float(annotation.get(key))
             if score is not None and (spliceai is None or score > spliceai):
                 spliceai = score
         frequencies = _annotation_population_frequencies(annotation)
         for key in _POPULATION_AF_KEYS:
-            frequency = frequencies.get(key, _number(annotation.get(key)))
+            frequency = frequencies.get(key, _coerce_float(annotation.get(key)))
             if frequency is not None and (population_af is None or frequency > population_af):
                 population_af = frequency
         if annotation.get("rsid"):
@@ -500,15 +501,6 @@ def family_artifact_ids(
         else:
             protected[record.variant_id] = reason
     return removed, protected
-
-
-def _number(value: Any) -> float | None:
-    if value in (None, "", "."):
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
 
 
 # --------------------------------------------------------------------------- #

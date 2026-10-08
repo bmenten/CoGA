@@ -326,9 +326,10 @@ async def bulk_upsert_nipt_artifacts(
     return len(rows)
 
 
-async def _assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> dict[str, str]:
+async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> dict[str, str]:
     """The cfDNA samples whose artifact scope is ``assay_key``, keyed by each identifier
-    ClickHouse may store for them (name and UUID) -> the sample name.
+    ClickHouse may store for them (name and UUID) -> the sample name: whose calls count as
+    recurrence.
 
     A cfDNA sample is one tagged ``assay: nipt_cfdna``; its scope is its
     ``assay_panel``, resolved as ``nipt_assay_key`` resolves it for the analysis.
@@ -354,12 +355,6 @@ async def _assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str)
         carriers[str(sample_name)] = str(sample_name)
         carriers[str(sample_uuid)] = str(sample_name)
     return carriers
-
-
-async def assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> dict[str, str]:
-    """The cfDNA samples of an assay scope, keyed by each identifier ClickHouse may store
-    for them (name and UUID) -> the sample name: whose calls count as recurrence."""
-    return await _assay_cfdna_carrier_samples(session, assay_key=assay_key)
 
 
 async def auto_seed_nipt_artifacts(
@@ -400,7 +395,7 @@ async def auto_seed_nipt_artifacts(
     recurrent = await fetch_recurrent_small_variant_ids(
         assembly_name,
         min_carrier_samples=min_carrier_samples,
-        carrier_samples=await _assay_cfdna_carrier_samples(session, assay_key=assay_key),
+        carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
         exclude_common=True,
         exclude_clinvar_pathogenic=True,
     )

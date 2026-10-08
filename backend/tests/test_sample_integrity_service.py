@@ -178,7 +178,6 @@ def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> 
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
         return types.SimpleNamespace(
             category_counts={1: 1, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
-            paternal_evidence={7: 40, 8: 2},
             paternal_transmission=PaternalTransmissionEvidence(
                 hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
             ),
@@ -470,7 +469,6 @@ def test_service_sexes_a_haploid_called_nipt_father(monkeypatch) -> None:
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
         return types.SimpleNamespace(
             category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
-            paternal_evidence={7: 40, 8: 2},
             paternal_transmission=PaternalTransmissionEvidence(
                 hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
             ),
@@ -670,7 +668,6 @@ def test_service_sexes_a_per_sample_nipt_callset_from_its_allele_depths(monkeypa
     async def _fake_nipt(session, *, family_id, user, project_id=None, **kwargs):
         return types.SimpleNamespace(
             category_counts={2: 30, 3: 16, 4: 14, 7: 40, 8: 2},
-            paternal_evidence={7: 40, 8: 2},
             paternal_transmission=PaternalTransmissionEvidence(
                 hom_alt_transmitted=40, hom_alt_not_transmitted=1, het_transmitted=60, het_not_transmitted=55
             ),

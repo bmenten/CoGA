@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from .data_scope import normalize_chromosome
+from .nipt_analysis import _quantile
 
 TARGET_COVERAGE_TRACK_TYPE = "target_coverage"
 TARGET_COVERAGE_SOURCE = "coverage_table"
@@ -281,18 +282,6 @@ class TargetCoverageSummary:
     critical_mean_depth: float
     advisory_mean_depth: float
     genes: list[TargetGeneCoverage] = field(default_factory=list)
-
-
-def _quantile(sorted_values: Sequence[float], fraction: float) -> float | None:
-    """Linear-interpolated quantile (R type 7, numpy's default)."""
-    if not sorted_values:
-        return None
-    position = (len(sorted_values) - 1) * fraction
-    low = math.floor(position)
-    high = math.ceil(position)
-    if low == high:
-        return sorted_values[low]
-    return sorted_values[low] + (sorted_values[high] - sorted_values[low]) * (position - low)
 
 
 def summarize_target_coverage(
