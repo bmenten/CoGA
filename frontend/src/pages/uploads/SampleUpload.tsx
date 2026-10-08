@@ -4,6 +4,42 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
 import type { SmallVariantUploadResult } from '../../lib/apiSchema.generated';
 
+type UploadMessages<T> = {
+  /** Asked before data that already exist are overwritten. */
+  confirm: string;
+  done: (data: T) => string;
+  replaced: (data: T) => string;
+  failed: string;
+  cancelled: string;
+};
+
+/**
+ * Runs an upload. When the data already exist (409), asks before overwriting and runs it
+ * once more with overwrite set. Resolves to what the form then says.
+ */
+const uploadWithOverwrite = async <R extends { data: unknown }>(
+  runUpload: (overwrite: boolean) => Promise<R>,
+  messages: UploadMessages<R['data']>
+): Promise<string> => {
+  try {
+    const { data } = await runUpload(false);
+    return messages.done(data);
+  } catch (err: unknown) {
+    if ((err as { response?: { status?: number } })?.response?.status !== 409) {
+      return getErrorMessage(err, messages.failed);
+    }
+    if (!window.confirm(messages.confirm)) {
+      return messages.cancelled;
+    }
+    try {
+      const { data } = await runUpload(true);
+      return messages.replaced(data);
+    } catch (overwriteError: unknown) {
+      return getErrorMessage(overwriteError, messages.failed);
+    }
+  }
+};
+
 const SampleUpload: FC = () => {
   const [familyFile, setFamilyFile] = useState<File | null>(null);
   const [familyId, setFamilyId] = useState('');
@@ -35,45 +71,33 @@ const SampleUpload: FC = () => {
     formData.append('file', familyFile);
     setFamilyStatus('');
     setFamilyLoading(true);
-
-    const runUpload = async (overwrite: boolean) =>
-      api.post<SmallVariantUploadResult>(
-        apiPath`/families/${familyId.trim()}/small-variants/upload`,
-        formData,
-        {
-          params: {
-            overwrite,
-            source_format: familyFormat,
-          },
-          headers: { 'Content-Type': 'multipart/form-data' },
-        }
-      );
-
     try {
-      const { data } = await runUpload(false);
       setFamilyStatus(
-        `Imported ${data.inserted} small variants via ${data.source_format}${data.haplotypes_inserted ? ` and created ${data.haplotypes_inserted} haplotype blocks` : ''}.`
-      );
-    } catch (err: unknown) {
-      if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        const overwrite = window.confirm(
-          'Small variants already exist for this family. Overwrite the existing family small variants and haplotypes?'
-        );
-        if (overwrite) {
-          try {
-            const { data } = await runUpload(true);
-            setFamilyStatus(
-              `Replaced family small variants with ${data.inserted} records via ${data.source_format}${data.haplotypes_inserted ? ` and ${data.haplotypes_inserted} haplotype blocks` : ''}.`
-            );
-          } catch (overwriteError: unknown) {
-            setFamilyStatus(getErrorMessage(overwriteError, 'Family small-variant upload failed.'));
+        await uploadWithOverwrite(
+          (overwrite: boolean) =>
+            api.post<SmallVariantUploadResult>(
+              apiPath`/families/${familyId.trim()}/small-variants/upload`,
+              formData,
+              {
+                params: {
+                  overwrite,
+                  source_format: familyFormat,
+                },
+                headers: { 'Content-Type': 'multipart/form-data' },
+              }
+            ),
+          {
+            confirm:
+              'Small variants already exist for this family. Overwrite the existing family small variants and haplotypes?',
+            done: (data) =>
+              `Imported ${data.inserted} small variants via ${data.source_format}${data.haplotypes_inserted ? ` and created ${data.haplotypes_inserted} haplotype blocks` : ''}.`,
+            replaced: (data) =>
+              `Replaced family small variants with ${data.inserted} records via ${data.source_format}${data.haplotypes_inserted ? ` and ${data.haplotypes_inserted} haplotype blocks` : ''}.`,
+            failed: 'Family small-variant upload failed.',
+            cancelled: 'Family small-variant upload cancelled.',
           }
-        } else {
-          setFamilyStatus('Family small-variant upload cancelled.');
-        }
-      } else {
-        setFamilyStatus(getErrorMessage(err, 'Family small-variant upload failed.'));
-      }
+        )
+      );
     } finally {
       setFamilyLoading(false);
     }
@@ -86,41 +110,28 @@ const SampleUpload: FC = () => {
     formData.append('file', variantFile);
     setVariantStatus('');
     setVariantLoading(true);
-
-    const runUpload = async (overwrite: boolean) =>
-      api.post(apiPath`/structural-variants/upload/${variantSample.trim()}`, formData, {
-        params: {
-          overwrite,
-          source_format: variantFormat,
-        },
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
     try {
-      const { data } = await runUpload(false);
       setVariantStatus(
-        `Processed ${data.processed} variants via ${data.source_format} (${data.created} created, ${data.merged} merged).`
-      );
-    } catch (err: unknown) {
-      if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        const overwrite = window.confirm(
-          'Structural variants already exist for this sample and source. Overwrite them?'
-        );
-        if (overwrite) {
-          try {
-            const { data } = await runUpload(true);
-            setVariantStatus(
-              `Replaced structural variants with ${data.processed} records via ${data.source_format} (${data.created} created, ${data.merged} merged).`
-            );
-          } catch (overwriteError: unknown) {
-            setVariantStatus(getErrorMessage(overwriteError, 'Structural-variant upload failed.'));
+        await uploadWithOverwrite(
+          (overwrite: boolean) =>
+            api.post(apiPath`/structural-variants/upload/${variantSample.trim()}`, formData, {
+              params: {
+                overwrite,
+                source_format: variantFormat,
+              },
+              headers: { 'Content-Type': 'multipart/form-data' },
+            }),
+          {
+            confirm: 'Structural variants already exist for this sample and source. Overwrite them?',
+            done: (data) =>
+              `Processed ${data.processed} variants via ${data.source_format} (${data.created} created, ${data.merged} merged).`,
+            replaced: (data) =>
+              `Replaced structural variants with ${data.processed} records via ${data.source_format} (${data.created} created, ${data.merged} merged).`,
+            failed: 'Structural-variant upload failed.',
+            cancelled: 'Structural-variant upload cancelled.',
           }
-        } else {
-          setVariantStatus('Structural-variant upload cancelled.');
-        }
-      } else {
-        setVariantStatus(getErrorMessage(err, 'Structural-variant upload failed.'));
-      }
+        )
+      );
     } finally {
       setVariantLoading(false);
     }
@@ -134,34 +145,27 @@ const SampleUpload: FC = () => {
     setBedStatus('');
     setBedLoading(true);
     try {
-      const { data } = await api.post(apiPath`/bed/upload/${bedSample.trim()}/${bedType}`, formData, {
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-      setBedStatus(`Uploaded ${data.inserted} ${bedType} record(s).`);
-    } catch (err: unknown) {
-      if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        const overwrite = window.confirm(
-          'BED data already exist for this sample and track type. Overwrite them?'
-        );
-        if (overwrite) {
-          try {
-            const { data } = await api.post(
-              apiPath`/bed/upload/${bedSample.trim()}/${bedType}?overwrite=true`,
+      setBedStatus(
+        await uploadWithOverwrite(
+          (overwrite: boolean) =>
+            api.post(
+              overwrite
+                ? apiPath`/bed/upload/${bedSample.trim()}/${bedType}?overwrite=true`
+                : apiPath`/bed/upload/${bedSample.trim()}/${bedType}`,
               formData,
               {
                 headers: { 'Content-Type': 'multipart/form-data' },
               }
-            );
-            setBedStatus(`Replaced ${data.inserted} ${bedType} record(s).`);
-          } catch (overwriteError: unknown) {
-            setBedStatus(getErrorMessage(overwriteError, 'BED upload failed.'));
+            ),
+          {
+            confirm: 'BED data already exist for this sample and track type. Overwrite them?',
+            done: (data) => `Uploaded ${data.inserted} ${bedType} record(s).`,
+            replaced: (data) => `Replaced ${data.inserted} ${bedType} record(s).`,
+            failed: 'BED upload failed.',
+            cancelled: 'BED upload cancelled.',
           }
-        } else {
-          setBedStatus('BED upload cancelled.');
-        }
-      } else {
-        setBedStatus(getErrorMessage(err, 'BED upload failed.'));
-      }
+        )
+      );
     } finally {
       setBedLoading(false);
     }
@@ -174,34 +178,23 @@ const SampleUpload: FC = () => {
     formData.append('file', repeatFile);
     setRepeatStatus('');
     setRepeatLoading(true);
-
-    const runUpload = async (overwrite: boolean) =>
-      api.post(apiPath`/repeat-expansions/upload/${repeatSample.trim()}`, formData, {
-        params: { overwrite },
-        headers: { 'Content-Type': 'multipart/form-data' },
-      });
-
     try {
-      const { data } = await runUpload(false);
-      setRepeatStatus(`Imported ${data.inserted} TRGT repeat loci.`);
-    } catch (err: unknown) {
-      if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        const overwrite = window.confirm(
-          'Repeat expansion data already exist for this sample. Overwrite them?'
-        );
-        if (overwrite) {
-          try {
-            const { data } = await runUpload(true);
-            setRepeatStatus(`Replaced repeat expansion data with ${data.inserted} loci.`);
-          } catch (overwriteError: unknown) {
-            setRepeatStatus(getErrorMessage(overwriteError, 'TRGT upload failed.'));
+      setRepeatStatus(
+        await uploadWithOverwrite(
+          (overwrite: boolean) =>
+            api.post(apiPath`/repeat-expansions/upload/${repeatSample.trim()}`, formData, {
+              params: { overwrite },
+              headers: { 'Content-Type': 'multipart/form-data' },
+            }),
+          {
+            confirm: 'Repeat expansion data already exist for this sample. Overwrite them?',
+            done: (data) => `Imported ${data.inserted} TRGT repeat loci.`,
+            replaced: (data) => `Replaced repeat expansion data with ${data.inserted} loci.`,
+            failed: 'TRGT upload failed.',
+            cancelled: 'TRGT upload cancelled.',
           }
-        } else {
-          setRepeatStatus('TRGT upload cancelled.');
-        }
-      } else {
-        setRepeatStatus(getErrorMessage(err, 'TRGT upload failed.'));
-      }
+        )
+      );
     } finally {
       setRepeatLoading(false);
     }
