@@ -11,7 +11,7 @@ import tempfile
 from typing import Any
 
 import clickhouse_connect
-from clickhouse_connect.driver.exceptions import ClickHouseError, StreamClosedError, StreamFailureError
+from clickhouse_connect.driver.exceptions import StreamClosedError, StreamFailureError
 
 from .coga_logging import describe_error
 from .config import settings
@@ -237,7 +237,7 @@ async def insert_clickhouse(
                 column_names=columns,
             )
         except Exception as exc:
-            if attempt == 0 and _is_retryable_insert_error(exc):
+            if attempt == 0 and _is_retryable_error(exc, _INSERT_RETRY_ERROR_MARKERS):
                 await reset_clickhouse_client(client)
                 await asyncio.sleep(0.25)
                 continue
@@ -245,13 +245,13 @@ async def insert_clickhouse(
     return None
 
 
-def _is_retryable_insert_error(exc: Exception) -> bool:
+def _is_retryable_error(exc: Exception, markers: tuple[str, ...]) -> bool:
+    """A transient failure worth one retry on a fresh client: a broken stream, or an error
+    whose text names one of ``markers`` (the insert or the query list above)."""
     message = str(exc).lower()
     if isinstance(exc, (StreamClosedError, StreamFailureError)):
         return True
-    if isinstance(exc, ClickHouseError):
-        return any(marker in message for marker in _INSERT_RETRY_ERROR_MARKERS)
-    return any(marker in message for marker in _INSERT_RETRY_ERROR_MARKERS)
+    return any(marker in message for marker in markers)
 
 
 async def reset_clickhouse_client(client: Any | None = None) -> None:
@@ -267,13 +267,6 @@ async def reset_clickhouse_client(client: Any | None = None) -> None:
             await target.close()
 
 
-def _is_retryable_query_error(exc: Exception) -> bool:
-    message = str(exc).lower()
-    if isinstance(exc, (StreamClosedError, StreamFailureError)):
-        return True
-    return any(marker in message for marker in _QUERY_RETRY_ERROR_MARKERS)
-
-
 async def execute_clickhouse(query: str, parameters: Any = None) -> Any:
     if isinstance(parameters, list) and _INSERT_QUERY_PATTERN.match(query):
         return await insert_clickhouse(query, parameters)
@@ -286,7 +279,7 @@ async def execute_clickhouse(query: str, parameters: Any = None) -> Any:
                 return list(result.result_rows)
             return await client.command(query, parameters=parameters or {})
         except Exception as exc:
-            if attempt == 0 and _is_retryable_query_error(exc):
+            if attempt == 0 and _is_retryable_error(exc, _QUERY_RETRY_ERROR_MARKERS):
                 # Named, not quoted: a transport error's text can hold the request URL,
                 # whose query string carries the query's bound parameters.
                 logger.warning(
