@@ -295,10 +295,7 @@ async def _import_incomplete_state(
     at = flag.get("at")
     state: dict[str, Any] = {"at": str(at) if at else None}
     for key in _IMPORT_FLAG_DATASET_LISTS:
-        values = flag.get(key)
-        state[key] = (
-            sorted({str(value) for value in values if value}) if isinstance(values, list) else []
-        )
+        state[key] = _sorted_names(flag.get(key))
     job_id = flag.get("job_id")
     state["job_id"] = job_id if isinstance(job_id, str) and job_id else None
     jobs = flag.get("failed_jobs")
