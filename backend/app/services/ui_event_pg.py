@@ -261,8 +261,6 @@ async def list_ui_events(
     event_type: str | None = None,
     user_email: str | None = None,
     path_contains: str | None = None,
-    started_after: datetime | None = None,
-    started_before: datetime | None = None,
 ) -> UiEventPageOut:
     where_clauses: list[str] = []
     params: dict[str, Any] = {
@@ -281,12 +279,6 @@ async def list_ui_events(
             "(path ILIKE :path_contains OR to_path ILIKE :path_contains OR label ILIKE :path_contains)"
         )
         params["path_contains"] = f"%{path_contains.strip()}%"
-    if started_after is not None:
-        where_clauses.append("created_at >= :started_after")
-        params["started_after"] = started_after
-    if started_before is not None:
-        where_clauses.append("created_at <= :started_before")
-        params["started_before"] = started_before
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
