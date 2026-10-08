@@ -29,7 +29,12 @@ from .clickhouse_variant_storage import (
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_family_record
 from .access_control import CurrentUser
-from .ped_service import _record_family_structure_version, _require_storable_id
+from .ped_service import (
+    _phenotype_code_from_clinical_status,
+    _record_family_structure_version,
+    _require_storable_id,
+    _sex_code_from_label,
+)
 
 CLINICAL_STATUS_VALUES = {"unknown", "unaffected", "affected"}
 CARRIER_STATUS_VALUES = {"unknown", "not_carrier", "carrier"}
@@ -47,22 +52,6 @@ def _clean_sample_id(value: str, *, field_name: str = "sample_id") -> str:
 
 def _sample_key(sample_id: str) -> str:
     return sample_id.strip().lower()
-
-
-def _phenotype_code(clinical_status: str) -> str:
-    if clinical_status == "affected":
-        return "2"
-    if clinical_status == "unaffected":
-        return "1"
-    return "0"
-
-
-def _sex_code(sex: str) -> str:
-    if sex == "male":
-        return "1"
-    if sex == "female":
-        return "2"
-    return "0"
 
 
 def _normalize_carrier_state(
@@ -676,8 +665,8 @@ def _pedigree_text_from_target(
                     sample_id,
                     parents.get("father") or "0",
                     parents.get("mother") or "0",
-                    _sex_code(str(row.get("sex") or "und")),
-                    _phenotype_code(str(row.get("clinical_status") or "unknown")),
+                    _sex_code_from_label(str(row.get("sex") or "und")),
+                    _phenotype_code_from_clinical_status(str(row.get("clinical_status") or "unknown")),
                 ]
             )
         )
