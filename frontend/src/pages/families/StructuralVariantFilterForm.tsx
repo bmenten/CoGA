@@ -89,21 +89,6 @@ const REGION_FLAG_OPTIONS = [
   'HiConf',
 ] as const;
 
-const toggleCommaValue = (value: string, item: string) => {
-  const selected = new Set(
-    value
-      .split(',')
-      .map((entry) => entry.trim())
-      .filter(Boolean),
-  );
-  if (selected.has(item)) {
-    selected.delete(item);
-  } else {
-    selected.add(item);
-  }
-  return Array.from(selected).join(', ');
-};
-
 const StructuralVariantFilterForm = ({
   activeFilterChips,
   applyPreset,
@@ -737,12 +722,7 @@ const StructuralVariantFilterForm = ({
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() =>
-                          setDraftFilterValue(
-                            'region_flags',
-                            toggleCommaValue(draftFilters.region_flags, flag),
-                          )
-                        }
+                        onChange={() => toggleDraftFilterListValue('region_flags', flag)}
                       />
                       {flag}
                     </label>

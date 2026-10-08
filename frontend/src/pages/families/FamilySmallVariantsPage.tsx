@@ -26,12 +26,13 @@ import {
   type SmallVariantReview,
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
-  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildOptimisticReview,
   buildSmallVariantReviewPath,
+  fetchFamilyReviewTags,
   hasReviewContent,
+  quickTagTogglePayload,
   updateSmallVariantPageReview,
 } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -142,13 +143,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   const { data: tags = [] } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: variantQueryReady,
-    queryFn: async () => {
-      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
-      });
-      return res.data as SmallVariantTagDefinition[];
-    },
+    queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
 
   const { data, isLoading, isFetching, isError, error } = useQuery<SmallVariantPage>({
@@ -463,22 +458,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         tags={tags}
         totalPages={totalPages}
         onToggleReviewTag={async (variant, tagKey) => {
-          const nextTags = new Set(variant.review?.tags || []);
-          if (nextTags.has(tagKey)) {
-            nextTags.delete(tagKey);
-          } else {
-            nextTags.add(tagKey);
-          }
-          await reviewMutation.mutateAsync({
-            variant,
-            payload: {
-              classification:
-                normalizeReviewClassification(variant.review?.classification, variant.review?.tags) ||
-                undefined,
-              tags: Array.from(nextTags).sort((left, right) => left.localeCompare(right)),
-              note: variant.review?.note || undefined,
-            },
-          });
+          await reviewMutation.mutateAsync({ variant, payload: quickTagTogglePayload(variant.review, tagKey) });
         }}
         onOpenReview={() => reviewMutation.reset()}
         onSaveReview={async (variant, payload) => {

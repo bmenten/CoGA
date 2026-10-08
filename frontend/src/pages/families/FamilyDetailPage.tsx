@@ -33,6 +33,7 @@ import {
 } from '../../lib/reference';
 import { getTagDefinitionMap, type SmallVariantTagDefinition } from './smallVariantSearch';
 import { getReviewTagStyle } from './smallVariantResultUtils';
+import { fetchFamilyReviewTags } from './smallVariantReview';
 import { MONOGENIC_NIPT_ANALYSIS_TYPE } from './niptClassification';
 import type {
   CarrierStatus,
@@ -328,13 +329,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const { data: smallVariantTags = [] } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'small-variant-tags', 'summary', projectId || null],
     enabled: Boolean(familyId && hasSmallVariants),
-    queryFn: async () => {
-      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
-      });
-      return res.data as SmallVariantTagDefinition[];
-    },
+    queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
   const { data: structuralReviewSummary, isError: structuralReviewSummaryFailed } =
     useQuery<ApiSmallVariantReviewSummary>({
@@ -348,15 +343,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const { data: structuralVariantTags = [] } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'structural-variant-tags', 'summary', projectId || null],
     enabled: Boolean(familyId && hasVariants),
-    queryFn: async () => {
-      // Structural and small-variant tags share the same store; there is no
-      // separate structural endpoint.
-      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
-      });
-      return res.data as SmallVariantTagDefinition[];
-    },
+    queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
   const { data: hpoAnnotations = [], isError: hpoFailed } = useQuery<ApiHpoAnnotation[]>({
     queryKey: ['family', familyId, 'hpo'],
