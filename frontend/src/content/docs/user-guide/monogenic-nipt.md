@@ -19,7 +19,9 @@ must carry FORMAT/AD.
 
 - **The header** shows the fetal fraction, its 95% confidence interval and the number of sites it rests
   on, a *Low-confidence FF* chip when the estimate is weak, and the filter funnel (*Total*,
-  *Quality-filtered*, *Artifact-filtered*, *Analysed*).
+  *Quality-filtered*, *Artifact-filtered*, *Analysed*). As on every family page, it warns
+  *Import incomplete* while a data import has left the family partly loaded or has not finished,
+  and *Not validated for clinical use* for a family outside the validated scope.
 - **Quality checks** come first: the fetal fraction (with the per-site median and the de novo window),
   the fetal sex from the father's X alleles and from the chrY coverage, **paternity**, the maternal
   plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. A
@@ -62,7 +64,9 @@ coverage of the targets in scope, and the classified variants grouped as *De nov
 was made and the CoGA version that made it. Its *Scope* names the panel and genes you selected; your
 other filters do not apply. It lists up to 500 variants. When there are more, it says how many it lists
 of how many and where the list stops, on screen and in print: narrow the scope with a panel or a gene.
-**Print report** prints it. A NIPT report has no sign-out.
+**Print report** prints it. A NIPT report has no sign-out: an *Import incomplete* or
+*Not validated for clinical use* warning heads it, on screen and in print, whenever the family page
+would show one.
 
 > **Screening, not diagnosis.** A NIPT call must be confirmed by an invasive diagnostic test. Check the
 > fetal fraction and the quality checks before you read any variant, and a de novo candidate's absence
