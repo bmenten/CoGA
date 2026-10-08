@@ -21,7 +21,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -689,9 +689,14 @@ def _check_apcad_sample_vcf_columns(
 
 
 def _pcf_role_path(entry: dict[str, Any], role: str) -> Any:
-    if role == "maternal":
-        return entry.get("maternal") or entry.get("mat") or entry.get("maternal_file") or entry.get("mat_file")
-    return entry.get("paternal") or entry.get("pat") or entry.get("paternal_file") or entry.get("pat_file")
+    """The segment table a ``pcf`` entry names for one parent (``role``: ``maternal`` or
+    ``paternal``), under the first of its names (``PCF_ROLE_KEYS``) that gives one."""
+    value = None
+    for key in PCF_ROLE_KEYS[role]:
+        value = entry.get(key)
+        if value:
+            break
+    return value
 
 
 def _validate_pcf_dataset(
