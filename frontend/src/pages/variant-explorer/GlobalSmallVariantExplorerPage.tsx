@@ -23,6 +23,7 @@ import type {
   VariantExplorerAssembly,
 } from './types';
 import { apiPath, raw } from '../../lib/apiPath';
+import { saveCsvBlob } from '../../lib/csvExport';
 import QueryFailure from '../../components/QueryFailure';
 
 const EMPTY_PANELS: GenePanel[] = [];
@@ -73,14 +74,7 @@ const GlobalSmallVariantExplorerPage = () => {
       const res = await api.get(apiPath`/variant-explorer/small-variants/export?${raw(requestQueryString)}`, {
         responseType: 'blob',
       });
-      const url = window.URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = `variant-explorer-${assemblyId ?? 'export'}.csv`;
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-      window.URL.revokeObjectURL(url);
+      saveCsvBlob(res.data, `variant-explorer-${assemblyId ?? 'export'}.csv`);
     } catch {
       setExportError('Could not export variants. Try narrowing your filters and retry.');
     } finally {
