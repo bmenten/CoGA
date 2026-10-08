@@ -3240,8 +3240,3 @@ def _structural_segregation_modes(
         ):
             return [MODE_DOMINANT]
     return []
-    if "de" in inheritance and "novo" in inheritance:
-        return [MODE_DE_NOVO]
-    if any(token in inheritance for token in ("maternal", "paternal", "inherited")):
-        return [MODE_DOMINANT]
-    return []
