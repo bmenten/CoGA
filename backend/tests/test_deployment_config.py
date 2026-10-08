@@ -6,12 +6,19 @@ diff does not always catch a port that is published again or a mount that is wri
 
 from __future__ import annotations
 
+import base64
+import json
 import os
 import re
 import subprocess
 from pathlib import Path
+from secrets import token_hex, token_urlsafe
 
+import pytest
 import yaml
+from pydantic import ValidationError
+
+from app.core.config import Settings
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -295,20 +302,273 @@ def test_the_backend_image_ships_only_the_scripts_it_runs() -> None:
     for source in shipped:
         assert (REPO / source).is_file(), source
     # The admin rebuild runs the script where the image puts it.
-    from app.core.config import Settings
-
     assert Settings(_env_file=None).clinical_cnv_kb_script_path == "/app/scripts/clinical_cnv_knowledgebase.py"
 
 
-def test_terraform_gives_the_backend_no_cross_origin_access() -> None:
-    # Same-origin behind the load balancer: the app's own origin only, and no origin pattern
-    # (the backend refuses to start outside development with the localhost default).
-    cloudrun = (REPO / "terraform" / "cloudrun.tf").read_text()
-    assert re.search(
-        r'name\s*=\s*"CORS_ORIGINS"\s*\n\s*value\s*=\s*jsonencode\(\["https://\$\{var\.app_domain\}"\]\)',
-        cloudrun,
+# ---- The environment of every container that runs the backend image ------------------
+#
+# Each Cloud Run service and job that runs var.backend_image loads the backend's settings
+# first, and outside development they refuse to load without real secrets, the app's own
+# origin and the build's commit (Settings.validate_security_defaults). These read each such
+# container's environment from the .tf files, as Terraform would give it.
+
+# Strings (with their ${...} interpolations), heredocs and comments: the braces, commas and
+# names in them are not the configuration's own.
+_HCL_TEXT = re.compile(
+    r'"(?:[^"\\$]|\\.|\$\{[^}]*\}|\$)*"|<<-?(\w+)\n.*?\n\s*\1(?=\n)|#[^\n]*|//[^\n]*|/\*.*?\*/',
+    re.S,
+)
+
+# What Terraform computes from resources and the deployment's choices, given plausible values
+# here: the settings check none of them beyond their form. A reference the test cannot
+# evaluate fails it, so a new one is looked at and added on purpose.
+_COMPUTED: dict[str, object] = {
+    # db_runtime_role = "coga_app", the mode in which the db-migrate job exists.
+    "local.app_db_user": "coga_app",
+    "local.app_runs_migrations": False,
+    "local.family_import_roots": ["gs://coga-phi/imports"],
+    "google_storage_bucket.phi.name": "coga-phi",
+    "google_sql_database.coga.name": "coga",
+    "google_sql_user.coga.name": "coga_admin",
+    "google_sql_database_instance.postgres.private_ip_address": "10.10.0.3",
+    "google_sql_database_instance.postgres.connection_name": "coga-project:europe-west1:coga-postgres",
+    "google_compute_address.clickhouse.address": "10.10.0.4",
+    "tls_self_signed_cert.ca.cert_pem": "the private CA's certificate",
+}
+
+
+def _skeleton(text: str) -> str:
+    """``text`` with the insides of its strings, heredocs and comments blanked out, at the same
+    offsets, so the braces, commas and names left are the configuration's own."""
+
+    def blank(match: re.Match[str]) -> str:
+        inside = re.sub(r"[^\n]", " ", match.group())
+        return f'"{inside[1:-1]}"' if match.group().startswith('"') else inside
+
+    return _HCL_TEXT.sub(blank, text)
+
+
+def _block_body(text: str, opening: int) -> str:
+    """The body of the block or object whose ``{`` is at ``opening`` in ``text``."""
+    depth = 0
+    for index, char in enumerate(_skeleton(text)[opening:], start=opening):
+        depth += (char == "{") - (char == "}")
+        if depth == 0:
+            return text[opening + 1 : index]
+    raise AssertionError(f"no closing brace for {text[max(opening - 60, 0) : opening + 1]!r}")
+
+
+def _attributes(body: str) -> dict[str, str]:
+    """The attributes set at the top level of a block's or object's ``body``, as {name:
+    expression}: an object value whole, any other value as its line holds it."""
+    top, depth = [], 0
+    for char in _skeleton(body):
+        depth -= char == "}"
+        top.append(char if depth == 0 or char == "\n" else " ")
+        depth += char == "{"
+    attributes = {}
+    for match in re.finditer(r"^[ \t]*(\w+)[ \t]*=(?!=)[ \t]*(\S.*?)[ \t]*$", "".join(top), re.M):
+        start = match.start(2)
+        value = body[start : match.end(2)]
+        attributes[match[1]] = "{" + _block_body(body, start) + "}" if value.startswith("{") else value
+    return attributes
+
+
+def _blocks(text: str, kind: str) -> list[tuple[str | None, str]]:
+    """Every ``kind`` block in ``text``, at any depth, as (for_each, body): None and its body for
+    a plain block, and for a ``dynamic "kind"`` block its for_each and its content's body."""
+    blocks: list[tuple[str | None, str]] = []
+    for match in re.finditer(r'\b(?:(\w+)|dynamic\s+"([^"]*)")\s*\{', _skeleton(text)):
+        dynamic = match[1] is None
+        label = text[match.start(2) : match.end(2)] if dynamic else match[1]
+        if label != kind:
+            continue
+        body = _block_body(text, match.end() - 1)
+        if dynamic:
+            blocks.append((_attributes(body)["for_each"], _blocks(body, "content")[0][1]))
+        else:
+            blocks.append((None, body))
+    return blocks
+
+
+def _local(name: str) -> str:
+    """The expression a ``locals`` block of the configuration gives ``name``."""
+    for path in sorted((REPO / "terraform").glob("*.tf")):
+        for _, body in _blocks(path.read_text(), "locals"):
+            if name in (values := _attributes(body)):
+                return values[name]
+    raise AssertionError(f"no local {name}")
+
+
+def _items(text: str) -> list[str]:
+    """``text`` split at its top-level commas: a list's items, or a call's arguments."""
+    items, depth, start = [], 0, 0
+    for index, char in enumerate(_skeleton(text)):
+        depth += (char in "([{") - (char in ")]}")
+        if char == "," and depth == 0:
+            items.append(text[start:index])
+            start = index + 1
+    items.append(text[start:])
+    return [item.strip() for item in items if item.strip()]
+
+
+def _env_string(value: object) -> str:
+    """``value`` as an environment variable holds it, converted as Terraform converts it."""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    assert isinstance(value, (str, int)), f"{value!r} is no value an environment variable holds"
+    return str(value)
+
+
+def _evaluate(expression: str) -> object:
+    """``expression`` as Terraform evaluates it, for the forms the environments use: string
+    templates, lists, jsonencode/tostring/join, variables (their defaults), locals, and the
+    values Terraform computes (_COMPUTED)."""
+    expression = expression.strip()
+    if expression in _COMPUTED:
+        return _COMPUTED[expression]
+    if reference := re.fullmatch(r"(var|local)\.(\w+)", expression):
+        if reference[1] == "var":
+            return json.loads(_variable_default(reference[2]))
+        return _evaluate(_local(reference[2]))
+    if call := re.fullmatch(r"(jsonencode|tostring|join)\((.*)\)", expression, re.S):
+        arguments = [_evaluate(argument) for argument in _items(call[2])]
+        if call[1] == "jsonencode":
+            return json.dumps(*arguments, separators=(",", ":"))
+        if call[1] == "tostring":
+            return _env_string(*arguments)
+        separator, values = arguments
+        return separator.join(values)
+    if expression.startswith("[") and expression.endswith("]"):
+        return [_evaluate(item) for item in _items(expression[1:-1])]
+    if expression.startswith('"') and _HCL_TEXT.fullmatch(expression) and "\\" not in expression:
+        return re.sub(r"\$\{([^}]*)\}", lambda match: _env_string(_evaluate(match[1])), expression[1:-1])
+    raise AssertionError(f"this test cannot evaluate {expression!r}: give it a value in _COMPUTED")
+
+
+def _map(expression: str) -> dict[str, str]:
+    """The map a dynamic env block is repeated over, as {key: value expression}: a local written
+    as an object, or migrate.tf's, which names each app secret by the setting that reads it."""
+    local = re.fullmatch(r"local\.(\w+)", expression)
+    assert local, f"this test reads no environment from for_each = {expression}"
+    definition = _local(local[1])
+    assert definition.startswith("{"), f"local.{local[1]} is no map: {definition}"
+    renamed = re.fullmatch(
+        r'\{\s*for (\w+) in keys\(local\.(\w+)\)\s*:\s*\(\1 == "(\w+)" \? "(\w+)" : upper\(\1\)\) => \1\s*\}',
+        definition,
     )
-    assert re.search(r'name\s*=\s*"CORS_ORIGIN_REGEX"\s*\n\s*value\s*=\s*""', cloudrun)
+    if renamed:
+        _, source, special, setting = renamed.groups()
+        return {(setting if key == special else key.upper()): f'"{key}"' for key in _map(f"local.{source}")}
+    return _attributes(definition[1:-1])
+
+
+def _secret(setting: str) -> str:
+    """A strong value for ``setting`` read from Secret Manager, as deployment-gcp.md 5.5 has the
+    operator create it. Made at run time: the secret scan catches key-shaped literals."""
+    if setting == "INTEGRITY_ANCHOR_SIGNING_KEY":
+        return base64.b64encode(os.urandom(32)).decode()
+    return token_urlsafe(48)
+
+
+def _backend_containers() -> dict[str, str]:
+    """Each container of a Cloud Run service or job that runs the backend image, by the address
+    of its resource."""
+    containers: dict[str, str] = {}
+    for path in sorted((REPO / "terraform").glob("*.tf")):
+        text = path.read_text()
+        for resource in re.finditer(r'^resource "(google_cloud_run_v2_(?:service|job))" "(\w+)" \{', text, re.M):
+            for _, container in _blocks(_block_body(text, resource.end() - 1), "containers"):
+                if _attributes(container).get("image") == "var.backend_image":
+                    address = f"{resource[1]}.{resource[2]}"
+                    assert address not in containers, f"{address} runs the backend image twice"
+                    containers[address] = container
+    return containers
+
+
+def _environment(container: str, *, optional: bool) -> dict[str, str]:
+    """The environment Terraform gives ``container``, with a strong stand-in for each value read
+    from Secret Manager. ``optional`` sets the entries repeated over `<condition> ? [1] : []`
+    (the metrics token, the import roots), as their conditions do when they hold."""
+    environment: dict[str, str] = {}
+    for for_each, entry in _blocks(container, "env"):
+        if for_each is None:
+            repeats: dict = {None: None}
+        elif re.fullmatch(r".+ \? \[1\] : \[\]", for_each):
+            repeats = {None: None} if optional else {}
+        else:
+            repeats = _map(for_each)
+        attributes = _attributes(entry)
+        for key, value in repeats.items():
+            name = key if attributes["name"] == "env.key" else _env_string(_evaluate(attributes["name"]))
+            assert name not in environment, f"{name} is set twice"
+            if _blocks(entry, "value_source"):
+                environment[name] = _secret(name)
+            else:
+                expression = value if attributes["value"] == "env.value" else attributes["value"]
+                environment[name] = _env_string(_evaluate(expression))
+    return environment
+
+
+def _image_environment() -> dict[str, str]:
+    """What the backend image sets itself: the build identity build.yml stamps into it, through
+    ci/cloudbuild.backend.yaml's build arguments and the Dockerfile's ENV."""
+    dockerfile = (REPO / "backend" / "Dockerfile").read_text()
+    assert re.search(r"^ENV APP_VERSION=\$\{APP_VERSION\} \\\n\s*GIT_SHA=\$\{GIT_SHA\}$", dockerfile, re.M), (
+        "the image no longer sets the build identity it is built with"
+    )
+    cloudbuild = (REPO / "ci" / "cloudbuild.backend.yaml").read_text()
+    assert "- APP_VERSION=${_APP_VERSION}" in cloudbuild and "- GIT_SHA=${_GIT_SHA}" in cloudbuild, (
+        "Cloud Build no longer passes the build identity to the image"
+    )
+    workflow = (REPO / ".github" / "workflows" / "build.yml").read_text()
+    stamp = "_APP_VERSION=${{ needs.prepare.outputs.app_version }},_GIT_SHA=${{ needs.prepare.outputs.git_sha }}"
+    assert stamp in workflow, "build.yml no longer stamps the backend image with its version and commit"
+    # The VERSION file and `git rev-parse --short=12 HEAD`, as build.yml's metadata step reads them.
+    return {"APP_VERSION": (REPO / "VERSION").read_text().strip(), "GIT_SHA": token_hex(6)}
+
+
+def _load_settings(monkeypatch: pytest.MonkeyPatch, environment: dict[str, str]) -> Settings:
+    """The backend's settings as a process whose environment is exactly ``environment`` loads
+    them: nothing of this test run's own environment reaches them."""
+    names = {name.lower() for key, field in Settings.model_fields.items() for name in (key, field.alias) if name}
+    for name in list(os.environ):
+        if name.lower() in names:
+            monkeypatch.delenv(name)
+    for name, value in environment.items():
+        monkeypatch.setenv(name, value)
+    return Settings(_env_file=None)
+
+
+def test_every_container_of_the_backend_image_loads_its_settings_in_production(monkeypatch) -> None:
+    # The API and the db-migrate job. Terraform gave the job production mode without the
+    # cross-origin settings, so `python -m app.db_migrate` stopped at import and the switch to
+    # the restricted database role could not run. Each container's environment as the .tf
+    # files define it, with and without its optional entries, with strong stand-ins for its
+    # Secret Manager values and the commit build.yml stamps into the image.
+    containers = _backend_containers()
+    assert {"google_cloud_run_v2_service.backend", "google_cloud_run_v2_job.db_migrate"} <= containers.keys()
+    image = _image_environment()
+    for address, container in containers.items():
+        for optional in (True, False):
+            environment = _environment(container, optional=optional)
+            assert environment.keys().isdisjoint(image), f"{address} overrides the build identity of its image"
+            try:
+                settings = _load_settings(monkeypatch, {**image, **environment})
+            except ValidationError as error:
+                pytest.fail(f"{address} cannot start: {error}")
+            assert settings.is_development is False, f"{address} does not run in production mode"
+
+
+def test_terraform_gives_every_container_of_the_backend_image_no_cross_origin_access() -> None:
+    # Same-origin behind the load balancer: the app's own origin only, and no origin pattern
+    # (the backend refuses to start outside development with the localhost default), for the
+    # API and the db-migrate job alike.
+    domain = json.loads(_variable_default("app_domain"))
+    for address, container in _backend_containers().items():
+        environment = _environment(container, optional=True)
+        assert json.loads(environment.get("CORS_ORIGINS", "null")) == [f"https://{domain}"], address
+        assert environment.get("CORS_ORIGIN_REGEX") == "", address
 
 
 def _rendered_collector_config() -> dict:
