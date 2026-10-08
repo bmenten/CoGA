@@ -15,7 +15,7 @@ Enkele begrippen:
 CoGA houdt drie lagen strikt gescheiden:
 
 1. **Router (dun):** leest het pad en de parameters, laat ze valideren, dwingt de toegang af en geeft het antwoord als JSON terug.
-2. **Service (dik):** de klinische en bedrijfslogica, zoals filters, prioritering, ACMG-regels en hash-ketens. Alleen services praten met de opslag.
+2. **Service (dik):** de klinische en bedrijfslogica, zoals filters, prioritering, ACMG-regels en hash-ketens. Op enkele kleine, geparametriseerde opzoekingen in routers na (in `cram.py`, `signal_tracks.py`, `family_qc_reports.py`, `repeat_expansions.py`, `families.py` en `health.py`) praten alleen services met de opslag.
 3. **Opslag:** Postgres via SQLAlchemy (asynchroon) en ClickHouse via een directe client.
 
 Een voorbeeld: `GET /api/families/{family_id}/small-variants`.
@@ -46,7 +46,7 @@ Deze regels zijn niet per functie opnieuw bedacht, maar zitten in enkele gedeeld
 Waarden gaan nooit als tekst in een query, altijd als losse parameter.
 
 - **Postgres:** SQLAlchemy met benoemde parameters (`:naam`). Voor een lijst UUID's (bv. `IN :project_ids`) bestaat een hulpfunctie die een veilige, variabele lijst oplevert zonder tekst te plakken.
-- **ClickHouse:** parameters in de vorm `%(naam)s`, die de client bij de server bindt. De querytekst bevat de waarde nooit letterlijk.
+- **ClickHouse:** parameters in de vorm `%(naam)s`, die CoGA los van de querytekst aan de client (clickhouse-connect) geeft. De client zet elke waarde ge-escapet in de query die naar de server gaat (binding aan de kant van de client); de querytekst die CoGA zelf opbouwt, bevat de waarde nooit.
 - **Een UUID uit het verzoek:** een UUID in het pad, de querystring of de body (een bestand, een importjob, een HPO-annotatie, een panel, een project, de assembly van een NIPT-artefact, …) wordt één keer gelezen, daar waar het record wordt opgezocht en dus ná de toegangscontroles. Een waarde die geen UUID is, krijgt hetzelfde antwoord als een UUID zonder record (de 404 van de route, of de 400 die de route voor een ongeldige id geeft) en komt nooit in een query. Een UUID wordt in zijn canonieke vorm gebonden (kleine letters, met koppeltekens), zodat `{…}` of `urn:uuid:…` hetzelfde record vindt. Een schrijfactie die naar een record verwijst, zoekt dat record eerst op: een NIPT-artefact voor een onbestaande assembly of een importjob voor een onbestaand project wordt met een 404 geweigerd vóór er iets geschreven wordt, en de audittrail van de artefactlijst krijgt er geen event voor. Voordien liep zo'n verzoek uit op een 500.
 
 Het enige dat wél in de tekst staat, zijn tabelnamen; die worden afgeleid van de assemblynaam via één functie die alleen veilige tekens toelaat (hoofdstuk 3).
@@ -74,7 +74,7 @@ Paginagrenzen gaan altijd door `int(...)`, worden minstens 0 en staan zelf als p
 
 ## Alle routers
 
-Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. De router `families.py` bindt vijf deelrouters in onder hetzelfde pad `/families`; die hebben daarom geen eigen voorvoegsel. Alleen `health.py` en `lookups.py` hebben helemaal geen voorvoegsel.
+Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, behalve `metrics.py`, dat `main.py` bewust buiten `/api` hangt (zie *Metrics voor de monitoring*). De router `families.py` bindt vijf deelrouters in onder hetzelfde pad `/families`; die hebben daarom geen eigen voorvoegsel. Alleen `health.py` en `lookups.py` hebben helemaal geen voorvoegsel.
 
 | Router | Pad onder `/api` | Doel |
 | --- | --- | --- |
@@ -88,19 +88,18 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 | `families_reports.py` | `/families` (deel) | Annotatiemanifest, drift, klinische audit, sample-QC, rapport en ondertekening (hoofdstuk 11) |
 | `families_tracks.py` | `/families` (deel) | Tracks: haplotypes, gefaseerde markers, repeats, mtDNA, Paraphase (hoofdstuk 9) |
 | `family_qc_reports.py` | `/families` | Het QC-rapport van de pipeline, via een kortlevende link en afgeschermd (hoofdstuk 2) |
-| `structural_variants.py` | `/structural-variants` | Structurele varianten van één sample |
+| `structural_variants.py` | `/structural-variants` | Het SV-bestand van één sample uploaden (alleen beheerders); de SV's van één sample leest de SV-lijst van de familie met de parameter `sample` |
 | `cnvs.py` | `/cnvs` | De klinische-CNV-catalogus en CNV's per regio |
 | `variant_explorer.py` | `/variant-explorer` | Varianten over alle toegankelijke projecten heen (hoofdstuk 14) |
 | `genes.py` | `/genes` | Gene Explorer en genen per regio (hoofdstuk 13) |
-| `hpo.py` | `/hpo` | HPO-termen zoeken en importeren (hoofdstuk 12) |
+| `hpo.py` | `/hpo` | HPO-termen zoeken en opvragen (hoofdstuk 12); de ontologie importeren loopt via `POST /api/admin/hpo/sync` |
 | `panels.py` | `/panels` | Genpanels, versies, PanelApp |
 | `bed.py` | `/bed` | Interval-tracks ophalen en uploaden |
 | `chromosomes.py` | `/chromosomes` | Chromosoomgroottes en cytobanden |
 | `blacklist.py` · `segmental_duplications.py` · `dgv.py` | `/blacklist` · `/segmental-duplications` · `/dgv` | Referentietracks |
-| `repeat_expansions.py` | `/repeat-expansions` | Repeat-expansies uploaden, catalogus |
+| `repeat_expansions.py` | `/repeat-expansions` | De TRGT-repeats van één sample uploaden (alleen beheerders); de repeatcatalogus laadt de backend zelf bij het opstarten |
 | `projects.py` | `/projects` | Projecten, de eenheid van toegang |
 | `species.py` · `assemblies.py` | `/species` · `/assemblies` | Soorten en assemblies, met hun referentiestatus |
-| `reference.py` | `/reference` | Referentiesequentie en reads rond een positie |
 | `cram.py` | `/cram` | CRAM/BAM voor de genoombrowser, met toegangscontrole |
 | `signal_tracks.py` | `/signal-tracks` | De signaalbestanden van de CNV-caller (bigWig, bedGraph) voor IGV |
 | `family_imports.py` | `/family-imports` | Pakketimport (hoofdstuk 6) |
@@ -136,7 +135,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`. 
 
 Twee onderdelen zorgen dat elk HTTP-verzoek wordt gelogd en geaudit.
 
-**Gestructureerde logging.** Alle backendlogs verschijnen als JSON-regels. Stuurtekens (ook regeleinden) in waarden worden vervangen voordat ze in een logregel komen, zodat niemand valse logregels kan invoegen (*log forging*).
+**Gestructureerde logging.** De logregels van de backend zelf verschijnen als JSON-regels op stderr; de eigen regels van uvicorn (het opstarten, de toegangslog op stdout, de traceback van een onafgehandelde fout) houden het tekstformaat van uvicorn. Stuurtekens (ook regeleinden) in waarden worden vervangen voordat ze in een logregel komen, zodat niemand valse logregels kan invoegen (*log forging*).
 
 **De request-logging-middleware** legt elk verzoek vast in de append-only tabel `audit_log_events`:
 
@@ -158,7 +157,7 @@ In Starlette (waarop FastAPI draait) is de laatst geregistreerde middleware de b
 1. `CORSMiddleware` — alleen toegelaten origins mogen de API met credentials aanroepen.
 2. `log_request_response` — de request-logging hierboven.
 3. `normalize_api_collection_root_paths` — aanvaardt collectiepaden met én zonder slash op het einde.
-4. `security_headers_middleware` — zet de security-headers op elk antwoord (hoofdstuk 2).
+4. `security_headers_middleware` — zet de security-headers op elk antwoord, behalve op de kale `500` die Starlette zelf stuurt bij een onafgehandelde fout (hoofdstuk 2).
 5. `TrustedProxyClientMiddleware` — als laatste geregistreerd, dus de buitenste: bepaalt het echte client-IP (`TRUSTED_PROXY_HOPS`) voordat logging, rate limiting en audit het lezen.
 
 **Waar in de code:** het einde van `backend/app/main.py`; `backend/app/middleware/`.

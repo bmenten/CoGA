@@ -63,7 +63,7 @@ De korte levensduur is een bewuste keuze: het token staat in de browseropslag (n
 
 ### Het token controleren: `get_current_user`
 
-Elk beschermd endpoint hangt af van `get_current_user`. Die functie:
+Elk beschermd endpoint hangt af van `get_current_user`, op twee na: de download van het QC-rapport, die alleen zijn eigen ondertekende link van vijf minuten controleert (hoofdstuk 2), en `GET /metrics`, dat een eigen token vraagt (hoofdstuk 7). Die functie:
 
 1. haalt het token uit de header `Authorization: Bearer …`;
 2. controleert de handtekening en de geldigheid; een ongeldig of verlopen token geeft `401 Could not validate credentials`;
@@ -116,13 +116,13 @@ Iedereen kan zich registreren via `POST /auth/signup` (pagina `frontend/src/page
 - Het antwoord is altijd hetzelfde ("Registration received …"), of het adres nu nieuw is of al bestaat. Ook dat voorkomt het opsommen van accounts. Alleen bij een echt nieuw adres krijgt de beheerder een e-mail, als `ADMIN_EMAIL` is ingesteld.
 - De pagina toont die bevestiging: het account wacht op activatie.
 
-Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders). Rol en projecttoegang bepalen beheerders, niet de gebruiker. Projecttoegang loopt via de projectinstellingen, niet via dit endpoint.
+Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders); dat endpoint zet alleen actief of inactief. Een rol wijzigen kan in CoGA niet: er is geen endpoint of scherm voor, alleen een ingreep rechtstreeks in de databank. Projecttoegang regelt een beheerder in de projectinstellingen.
 
 **Waar in de code:** `signup` en `update_user` in `backend/app/routers/auth.py`; het aanmaken van het account in `backend/app/services/metadata_service.py`; de minimale lengte in `backend/app/schemas/auth.py`.
 
 ## Optioneel: Azure AD
 
-CoGA kan aanmelden via **Azure AD** (Microsofts identiteitsdienst) zodra `AZURE_TENANT_ID` en `AZURE_CLIENT_ID` zijn ingesteld. De backend controleert het token dan als een Azure-token: hij haalt Microsofts publieke sleutels op (met cache, en één keer opnieuw als Azure van sleutel wisselde), controleert de handtekening (RS256), de *audience* (de client-id) en de *issuer*, en leest het e-mailadres uit `preferred_username` of `email`. Is Azure ingesteld, dan aanvaardt de backend geen lokaal uitgegeven tokens meer, behalve via de noodoverride hieronder.
+De backend kan tokens van **Azure AD** (Microsofts identiteitsdienst) aanvaarden zodra `AZURE_TENANT_ID` en `AZURE_CLIENT_ID` zijn ingesteld. De webinterface kent geen aanmelding via Azure: de inlogpagina vraagt altijd een lokaal token (`POST /auth/login`). Met Azure ingesteld raakt via de interface dus alleen een beheerder binnen, en dan enkel met de noodoverride hieronder. De backend controleert het token dan als een Azure-token: hij haalt Microsofts publieke sleutels op (met cache, en één keer opnieuw als Azure van sleutel wisselde), controleert de handtekening (RS256), de *audience* (de client-id) en de *issuer*, en leest het e-mailadres uit `preferred_username` of `email`. Is Azure ingesteld, dan aanvaardt de backend geen lokaal uitgegeven tokens meer, behalve via de noodoverride hieronder.
 
 **Noodoverride.** Faalt de Azure-controle én staat `AZURE_ADMIN_OVERRIDE` aan (standaard uit), dan probeert de server het token als lokaal token te lezen. Dat werkt alleen voor beheerders, en elk gebruik schrijft een waarschuwing naar de log, zodat een per ongeluk ingeschakelde override opvalt. Het is bedoeld om binnen te raken als de koppeling met Azure stuk is.
 
