@@ -951,7 +951,6 @@ async def _fetch_family_rows(
     *,
     family_identifiers: list[str] | None = None,
     metadata_project_ids: list[str] | None = None,
-    family_uuids: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     clauses: list[str] = []
     bind_params = []
@@ -963,13 +962,6 @@ async def _fetch_family_rows(
         clauses.append("f.family_id IN :family_identifiers")
         bind_params.append(bindparam("family_identifiers", expanding=True))
         params["family_identifiers"] = family_identifiers
-
-    if family_uuids is not None:
-        if not family_uuids:
-            return []
-        clauses.append("f.id IN :family_uuids")
-        bind_params.append(uuid_list_bindparam("family_uuids"))
-        params["family_uuids"] = uuid_values(family_uuids)
 
     if metadata_project_ids is not None:
         if not metadata_project_ids:
@@ -1151,7 +1143,7 @@ async def _fetch_family_structure_version_rows(
 def _family_out_from_rows(
     family_row: dict[str, Any],
     sample_rows: list[dict[str, Any]],
-    project_ids: list[str] | None = None,
+    project_ids: list[str],
 ) -> FamilyOut:
     members: list[FamilyMemberOut] = []
     for row in sample_rows:
@@ -1159,7 +1151,7 @@ def _family_out_from_rows(
     return _family_out_from_mapping(
         family_row,
         members,
-        _string_list(project_ids if project_ids is not None else family_row.get("project_ids")),
+        _string_list(project_ids),
         family_row.get("relationships", []),
         family_row.get("structure_version"),
     )
