@@ -127,6 +127,18 @@ class SmallVariantFilterPresetOut(ApiDocumentModel):
     updated_at: datetime
 
 
+class StructuralVariantFilterPresetCreate(SmallVariantFilterPresetCreate):
+    # A structural-variant preset is its owner's, for the family it is saved in or, reusable,
+    # for every family they can open.
+    scope: Literal["family", "global"] = "family"
+
+
+class StructuralVariantFilterPresetOut(SmallVariantFilterPresetOut):
+    # The id of the family a family preset is for; None for a reusable one.
+    family_id: Optional[str] = None
+    scope: Literal["family", "global"]
+
+
 class SmallVariantTagDefinitionCreate(BaseModel):
     label: str = Field(min_length=1, max_length=40)
     description: Optional[str] = Field(default=None, max_length=160)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
+import type { StructuralVariantFilterPresetOut } from '../../lib/apiSchema.generated';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import { compareChromosomes } from '../../lib/chromosomes';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -13,7 +14,6 @@ import {
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
 import type {
-  SmallVariantFilterPreset,
   SmallVariantPriority,
   SmallVariantReview,
   SmallVariantReviewSavePayload,
@@ -84,11 +84,9 @@ export interface StructuralVariantAnnotationExtra {
 
 export type StructuralVariantFamilyMember = ApiFamilyMember;
 export type StructuralVariantFamily = Pick<ApiFamilyRecord, 'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata'>;
-// An SV preset is saved for one family or, reusable, for all of its owner's families.
-export interface StructuralVariantFilterPreset extends SmallVariantFilterPreset {
-  family_id?: string | null;
-  scope: 'family' | 'global';
-}
+// An SV preset is saved for one family or, reusable, for all of its owner's families. It is
+// read through its generated type, so tsc fails when the API stops serving its scope.
+export type StructuralVariantFilterPreset = StructuralVariantFilterPresetOut;
 
 export const getPresetScopeLabel = (scope: StructuralVariantFilterPreset['scope']) =>
   scope === 'family' ? 'Family' : 'Reusable';
