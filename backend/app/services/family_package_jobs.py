@@ -63,6 +63,27 @@ def _serialize_job(mapping: dict[str, Any]) -> FamilyPackageImportJobOut:
     )
 
 
+_PROJECT_NOT_FOUND = "Project not found"
+
+
+async def _require_import_project(session: AsyncSession, project_id: str) -> str:
+    """The canonical id of the project an import request names.
+
+    A value that spells no UUID, or a UUID of no project, is refused as an unknown project
+    (404) before the job is written; the insert's uuid cast refused the first, and its
+    foreign key the second, with a 500. Only an admin may queue an import, and an admin
+    sees every project: the answer tells the caller nothing they may not know.
+    """
+    project_uuid = require_uuid(project_id, _PROJECT_NOT_FOUND, status_code=404)
+    found = await session.execute(
+        text("SELECT 1 FROM projects WHERE id = CAST(:project_id AS uuid)"),
+        {"project_id": project_uuid},
+    )
+    if found.first() is None:
+        raise HTTPException(status_code=404, detail=_PROJECT_NOT_FOUND)
+    return project_uuid
+
+
 async def queue_family_import_job(
     session: AsyncSession,
     *,
@@ -83,6 +104,7 @@ async def queue_family_import_job(
                 status_code=400,
                 detail=f"family_id '{visible(requested_family_id)}' {problem}. {IDENTIFIER_RULE}",
             )
+    project_uuid = await _require_import_project(session, project_id) if project_id else None
     metadata = {
         "requested_family_id": requested_family_id,
         "conflict_mode": conflict_mode,
@@ -101,7 +123,7 @@ async def queue_family_import_job(
             )
             VALUES (
                 :submitted_path,
-                CAST(NULLIF(:project_id, '') AS uuid),
+                CAST(:project_id AS uuid),
                 'queued',
                 :dry_run,
                 CAST(:metadata AS jsonb),
@@ -131,7 +153,7 @@ async def queue_family_import_job(
         ),
         {
             "submitted_path": package_folder_path(folder_path),
-            "project_id": project_id or "",
+            "project_id": project_uuid,
             "dry_run": dry_run,
             "metadata": json.dumps(metadata),
             "requested_by": requested_by,
