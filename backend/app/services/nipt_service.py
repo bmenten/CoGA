@@ -48,7 +48,7 @@ from .clickhouse_variant_records import (
 )
 
 if TYPE_CHECKING:
-    from ..schemas import VariantOut
+    from ..schemas import FamilyOut, VariantOut
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
@@ -553,13 +553,15 @@ async def _load_family_records(context: FamilyMetadataContext) -> list[SmallVari
     return await _fetch_small_variant_rows(context, filters, limit=None)
 
 
-async def _resolve_trio_and_context(
+async def _resolve_family_trio_context(
     session: AsyncSession,
     *,
     family_id: str,
     user: CurrentUser,
     project_id: str | None,
-) -> tuple[NiptTrio, FamilyMetadataContext, str]:
+) -> tuple[FamilyOut, NiptTrio, FamilyMetadataContext]:
+    """The family, its NIPT trio and its metadata context; 400 when the family is not
+    configured for monogenic NIPT."""
     family = await get_family_record(session, family_id, user)
     trio = resolve_nipt_trio(family)
     if trio is None:
@@ -572,6 +574,19 @@ async def _resolve_trio_and_context(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+    )
+    return family, trio, context
+
+
+async def _resolve_trio_and_context(
+    session: AsyncSession,
+    *,
+    family_id: str,
+    user: CurrentUser,
+    project_id: str | None,
+) -> tuple[NiptTrio, FamilyMetadataContext, str]:
+    family, trio, context = await _resolve_family_trio_context(
+        session, family_id=family_id, user=user, project_id=project_id
     )
     return trio, context, nipt_assay_key(family, trio)
 
@@ -1236,15 +1251,8 @@ async def get_family_nipt_coverage(
     min_depth: float = DEFAULT_MIN_DEPTH,
     all_genes: bool = False,
 ) -> NiptCoverageResult:
-    family = await get_family_record(session, family_id, user)
-    trio = resolve_nipt_trio(family)
-    if trio is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Family is not configured for monogenic NIPT analysis",
-        )
-    context = await build_family_metadata_context(
-        session, family_identifier=family_id, user=user, project_id=project_id
+    family, trio, context = await _resolve_family_trio_context(
+        session, family_id=family_id, user=user, project_id=project_id
     )
     target_rows = await _load_target_rows(context, trio.cfdna_sample_id, with_metadata=True)
     if target_rows:
@@ -1292,15 +1300,8 @@ async def get_family_nipt_gene_targets(
 ) -> NiptGeneTargets:
     """One gene's targets with their depth, for the coverage page; none without a target
     table, or for a gene the panel does not capture."""
-    family = await get_family_record(session, family_id, user)
-    trio = resolve_nipt_trio(family)
-    if trio is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Family is not configured for monogenic NIPT analysis",
-        )
-    context = await build_family_metadata_context(
-        session, family_identifier=family_id, user=user, project_id=project_id
+    _family, trio, context = await _resolve_family_trio_context(
+        session, family_id=family_id, user=user, project_id=project_id
     )
     # This gene's rows alone: a panel's table holds tens of thousands of targets.
     target_rows = await _load_target_rows(
