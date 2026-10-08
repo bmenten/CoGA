@@ -255,10 +255,6 @@ async def write_audit_log_event(payload: AuditLogEventPayload) -> None:
     )
 
 
-async def _insert_audit_log_event(session: AsyncSession, payload: AuditLogEventPayload) -> None:
-    await session.execute(_INSERT_AUDIT_LOG_SQL, _audit_log_insert_params(payload))
-
-
 def _audit_log_out_from_mapping(row: dict[str, Any]) -> AuditLogEventOut:
     return AuditLogEventOut(
         id=str(row["id"]),

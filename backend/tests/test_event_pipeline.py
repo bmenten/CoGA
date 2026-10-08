@@ -6,10 +6,10 @@ import logging
 import pytest
 
 from app.core.config import settings
+from app.services import event_pipeline
 from app.services.event_pipeline import (
     dropped_event_count,
     enqueue_event,
-    reset_dropped_event_counts,
     write_event_batch_with_retry,
     write_event_now,
 )
@@ -18,10 +18,9 @@ NAME = "test_pipe"
 
 
 @pytest.fixture(autouse=True)
-def _reset_counts():
-    reset_dropped_event_counts()
-    yield
-    reset_dropped_event_counts()
+def _reset_counts(monkeypatch):
+    # Each test counts from zero, on tallies of its own, as the other pipeline tests do.
+    monkeypatch.setattr(event_pipeline, "_dropped_counts", {})
 
 
 def _recorder():
