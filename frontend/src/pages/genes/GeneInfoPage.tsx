@@ -9,16 +9,7 @@ import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
-
-interface GeneSuggestion {
-  symbol: string;
-  gene_id: string;
-  chr: string;
-  start: number;
-  end: number;
-  transcript_count: number;
-  assembly_count: number;
-}
+import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
 
 interface GeneTranscript {
   transcript_id: string;
@@ -103,8 +94,6 @@ interface GeneClingenCurationCounts {
 
 interface GeneClingenFacts {
   hgnc_name?: string | null;
-  gene_type?: string | null;
-  locus_type?: string | null;
   previous_symbols?: string[];
   alias_symbols?: string[];
   gencc_classifications?: Record<string, number>;
@@ -112,11 +101,7 @@ interface GeneClingenFacts {
   pli?: number | null;
   loeuf?: number | null;
   acmg_secondary_finding?: boolean | null;
-  cytoband?: string | null;
-  mane_select_transcript?: string | null;
-  mane_plus_clinical_transcript?: string | null;
   function?: string | null;
-  genomic_coordinates?: Record<string, string>;
 }
 
 interface GeneConstraintMetrics {
@@ -249,14 +234,11 @@ interface GeneDbnsfpExpression {
 interface GeneProfileExtra {
   hgnc_name?: string | null;
   hgnc_gene_group?: string[];
-  ensembl_canonical_transcript?: string | null;
   ensembl_description?: string | null;
   ncbi_other_designations?: string[];
   clingen_curation_counts?: GeneClingenCurationCounts;
   clingen_gene_facts?: GeneClingenFacts;
-  // HGNC's identifiers live in their own block, mirroring the complete set. The flat
-  // hgnc_vega_id above it is a leftover promotion from the per-gene HGNC REST payload,
-  // kept only so caches written before that lookup was removed still render.
+  // HGNC's identifiers live in their own block, mirroring the complete set.
   hgnc_identifiers?: {
     vega_id?: string | null;
     ucsc_id?: string | null;
@@ -265,7 +247,6 @@ interface GeneProfileExtra {
     uniprot_ids?: string[];
     mane_select?: string[];
   };
-  hgnc_vega_id?: string | null;
   refseq_accessions?: string[];
   omim_diseases?: Array<string | GeneOmimDiseaseEntry>;
   dbnsfp_disease_associations?: Array<string | GeneDbnsfpAssociationEntry>;
@@ -351,9 +332,6 @@ interface TranscriptBadge {
 }
 
 interface TranscriptAnnotationContext {
-  maneSelect?: string | null;
-  manePlusClinical?: string | null;
-  ensemblCanonical?: string | null;
   // HGNC-curated RefSeq accessions (the representative / RefSeq Select set).
   refseqSelect?: string[];
 }
@@ -425,14 +403,13 @@ const matchesAnyTranscript = (transcriptId: string, references?: string[] | null
   Boolean(references?.some((reference) => isSameTranscript(transcriptId, reference)));
 
 /**
- * Badge a transcript from the annotation's own flags first, falling back to matching
- * its id against the gene-level references.
+ * Badge a transcript from the annotation's own flags (MANE Select, MANE Plus Clinical,
+ * Ensembl Canonical, CCDS), which the annotation states per transcript for every gene,
+ * and RefSeq Select by matching its id against HGNC's curated RefSeq accessions.
  *
- * The id-matching path alone left these badges almost never shown: the MANE and
- * canonical transcript ids come from a per-gene ClinGen scrape and an Ensembl lookup
- * that only run for genes the local dbNSFP file does not cover — so the well-known
- * genes people look up were exactly the ones with nothing to match against. The
- * annotation states the same facts per transcript, for every gene, with no network call.
+ * MANE and canonical were once also matched against gene-level ids from a per-gene
+ * ClinGen page scrape and Ensembl lookup; those lookups were removed, and nothing writes
+ * those ids any more.
  */
 const transcriptBadgesFor = (
   transcript: Pick<
@@ -443,16 +420,14 @@ const transcriptBadgesFor = (
 ): TranscriptBadge[] => {
   const transcriptId = transcript.transcript_id;
   return [
-    transcript.mane_select || isSameTranscript(transcriptId, context.maneSelect)
-      ? { label: 'MANE Select', tone: 'success' as const }
-      : null,
-    transcript.mane_plus_clinical || isSameTranscript(transcriptId, context.manePlusClinical)
+    transcript.mane_select ? { label: 'MANE Select', tone: 'success' as const } : null,
+    transcript.mane_plus_clinical
       ? { label: 'MANE Plus Clinical', tone: 'accent' as const }
       : null,
     matchesAnyTranscript(transcriptId, context.refseqSelect)
       ? { label: 'RefSeq Select', tone: 'strong' as const }
       : null,
-    transcript.ensembl_canonical || isSameTranscript(transcriptId, context.ensemblCanonical)
+    transcript.ensembl_canonical
       ? { label: 'Ensembl Canonical', tone: 'warning' as const }
       : null,
     transcript.ccds_id ? { label: 'CCDS', tone: 'neutral' as const } : null,
@@ -509,14 +484,8 @@ const pickAssemblyLocation = (
   matcher: (location: GeneAssemblyLocation) => boolean,
 ) => locations.find((location) => matcher(location)) || null;
 
-const formatAssemblyCoordinate = (
-  location: GeneAssemblyLocation | null,
-  fallback?: string | null,
-) => {
-  if (location) return `${formatLocus(location)} (${formatAssemblyLabel(location)})`;
-  if (fallback) return fallback;
-  return 'Not imported';
-};
+const formatAssemblyCoordinate = (location: GeneAssemblyLocation | null) =>
+  location ? `${formatLocus(location)} (${formatAssemblyLabel(location)})` : 'Not imported';
 
 const MONARCH_PREDICATE_LABELS: Record<string, string> = {
   causes: 'Causes',
@@ -689,9 +658,8 @@ const PubmedLinks: React.FC<{ pmids?: string[] }> = ({ pmids }) => {
 const CompactStringGroup: React.FC<{
   group: NamedStringGroup;
   expanded: boolean;
-  limit?: number;
-}> = ({ group, expanded, limit = 4 }) => {
-  const visibleItems = expanded ? group.items : group.items.slice(0, limit);
+}> = ({ group, expanded }) => {
+  const visibleItems = expanded ? group.items : group.items.slice(0, 4);
   if (!visibleItems.length) return null;
 
   return (
@@ -750,14 +718,14 @@ const GeneInfoPage: React.FC = () => {
     ? familyReference.projectId || undefined
     : projectIdParam || undefined;
 
-  const { data: suggestions = [] } = useQuery<GeneSuggestion[]>({
+  const { data: suggestions = [] } = useQuery<GeneSearchResultOut[]>({
     queryKey: ['gene-search', draftGene],
     enabled: draftGene.trim().length >= 2,
     queryFn: async () => {
       const response = await api.get('/genes/search', {
         params: { q: draftGene.trim() },
       });
-      return response.data as GeneSuggestion[];
+      return response.data as GeneSearchResultOut[];
     },
   });
 
@@ -831,7 +799,6 @@ const GeneInfoPage: React.FC = () => {
           profile.assembly_locations,
           (location) => /grch38|hg38/i.test(formatAssemblyLabel(location)),
         ),
-        clingenFacts?.genomic_coordinates?.['GRCh38/hg38'],
       )
     : '—';
   const t2tLocation = profile
@@ -990,7 +957,7 @@ const GeneInfoPage: React.FC = () => {
         ? [
             { label: 'hg38 locus', value: hg38Location },
             { label: 'T2T locus', value: t2tLocation },
-            { label: 'Cytoband', value: clingenFacts?.cytoband || profile.location || '—' },
+            { label: 'Cytoband', value: profile.location || '—' },
             {
               label: 'OMIM gene',
               value: profile.omim_gene_id ? (
@@ -1026,22 +993,18 @@ const GeneInfoPage: React.FC = () => {
             },
             {
               label: 'Vega',
-              value:
-                profile.extra.hgnc_identifiers?.vega_id || profile.extra.hgnc_vega_id || '—',
+              value: profile.extra.hgnc_identifiers?.vega_id || '—',
             },
             {
               label: 'Canonical transcript',
               value:
                 profile.transcripts.find((transcript) => transcript.ensembl_canonical)
-                  ?.transcript_id ||
-                profile.extra.ensembl_canonical_transcript ||
-                '—',
+                  ?.transcript_id || '—',
             },
             {
               label: 'MANE transcript',
               value:
                 profile.transcripts.find((transcript) => transcript.mane_select)?.transcript_id ||
-                clingenFacts?.mane_select_transcript ||
                 '—',
             },
             // Rare — 74 transcripts genome-wide — but when a gene has one it is the
@@ -1055,7 +1018,7 @@ const GeneInfoPage: React.FC = () => {
             },
           ]
         : [],
-    [clingenFacts?.cytoband, clingenFacts?.mane_select_transcript, hg38Location, profile, t2tLocation],
+    [hg38Location, profile, t2tLocation],
   );
 
   const genccRows = useMemo<DetailRow[]>(
@@ -1121,18 +1084,8 @@ const GeneInfoPage: React.FC = () => {
   );
 
   const transcriptBadgeContext = useMemo<TranscriptAnnotationContext>(
-    () => ({
-      maneSelect: clingenFacts?.mane_select_transcript,
-      manePlusClinical: clingenFacts?.mane_plus_clinical_transcript,
-      ensemblCanonical: profile?.extra.ensembl_canonical_transcript,
-      refseqSelect: profile?.extra.refseq_accessions,
-    }),
-    [
-      clingenFacts?.mane_select_transcript,
-      clingenFacts?.mane_plus_clinical_transcript,
-      profile?.extra.ensembl_canonical_transcript,
-      profile?.extra.refseq_accessions,
-    ],
+    () => ({ refseqSelect: profile?.extra.refseq_accessions }),
+    [profile?.extra.refseq_accessions],
   );
 
   const orderedTranscripts = useMemo(() => {
@@ -1144,11 +1097,7 @@ const GeneInfoPage: React.FC = () => {
         // Plus Clinical, RefSeq Select, Ensembl Canonical), then by source.
         const annotated =
           transcriptBadgesFor(transcript, transcriptBadgeContext).length > 0 ? 0 : 1;
-        const mane =
-          transcript.mane_select ||
-          isSameTranscript(transcript.transcript_id, transcriptBadgeContext.maneSelect)
-            ? 0
-            : 1;
+        const mane = transcript.mane_select ? 0 : 1;
         const sourceRank = /^ENS/i.test(transcript.transcript_id)
           ? 0
           : /^(NM_|NR_|XM_|XR_)/i.test(transcript.transcript_id)
@@ -1262,13 +1211,13 @@ const GeneInfoPage: React.FC = () => {
                   {profile.display_name || clingenFacts?.hgnc_name || 'No descriptive name cached.'}
                 </p>
                 <p className="gene-compact-locus-line">
-                  hg38 {hg38Location} · T2T {t2tLocation} · {clingenFacts?.cytoband || profile.location || 'No cytoband cached'}
+                  hg38 {hg38Location} · T2T {t2tLocation} · {profile.location || 'No cytoband cached'}
                 </p>
               </div>
 
               <div className="gene-compact-title-meta">
                 <span className="gene-compact-meta-chip">
-                  {profile.gene_type || clingenFacts?.gene_type || profile.biotype || 'Gene'}
+                  {profile.gene_type || profile.biotype || 'Gene'}
                 </span>
                 <span className="gene-compact-meta-chip">
                   {profile.transcript_count} transcript{profile.transcript_count === 1 ? '' : 's'}
