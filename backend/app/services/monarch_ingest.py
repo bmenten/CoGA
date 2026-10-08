@@ -38,8 +38,8 @@ _DISEASE_TSV_BASE = f"{MONARCH_KG_BASE_URL}/tsv/disease_associations"
 # human (9606); the noncausal file is cross-species but gene -> disease rows are
 # HGNC-subject and we filter to those.
 MONARCH_GENE_DISEASE_FILES = (
-    (f"{_GENE_TSV_BASE}/gene_disease.9606.tsv.gz", True),
-    (f"{_GENE_TSV_BASE}/gene_disease.noncausal.tsv.gz", False),
+    f"{_GENE_TSV_BASE}/gene_disease.9606.tsv.gz",
+    f"{_GENE_TSV_BASE}/gene_disease.noncausal.tsv.gz",
 )
 
 # Disease -> phenotype (HPO). Cross-species file; filtered to MONDO -> HP rows.
@@ -187,7 +187,6 @@ async def _replace_gene_disease_rows(
     associations: Iterable[_Association],
     release_version: str | None,
     now: datetime,
-    commit: bool = True,
 ) -> int:
     rows = [
         {
@@ -239,27 +238,24 @@ async def _replace_gene_disease_rows(
             ),
             rows,
         )
-    if commit:
-        await session.commit()
     return len(rows)
 
 
 async def refresh_monarch_gene_disease(
     session: AsyncSession,
     *,
-    release_version: str | None = None,
-    commit: bool = True,
+    release_version: str,
 ) -> dict[str, Any]:
-    """Download, parse, and replace the Monarch gene -> disease table.
+    """Download, parse, and replace the Monarch gene -> disease table, in the caller's
+    transaction (``refresh_monarch`` resolves the release and commits).
 
     Returns a summary dict suitable for an admin response.
     """
     started_at = datetime.now(timezone.utc)
-    release_version = await _resolve_release_version(release_version)
 
     associations: dict[tuple[str, str], _Association] = {}
     files_loaded = 0
-    for url, _causal in MONARCH_GENE_DISEASE_FILES:
+    for url in MONARCH_GENE_DISEASE_FILES:
         text_value = await _download_gzip_tsv(url)
         parse_gene_disease_tsv(text_value, associations=associations)
         files_loaded += 1
@@ -270,7 +266,6 @@ async def refresh_monarch_gene_disease(
         associations=records,
         release_version=release_version,
         now=started_at,
-        commit=commit,
     )
 
     completed_at = datetime.now(timezone.utc)
@@ -348,7 +343,6 @@ async def _replace_disease_phenotype_rows(
     phenotypes: Iterable[_DiseasePhenotype],
     release_version: str | None,
     now: datetime,
-    commit: bool = True,
 ) -> int:
     rows = [
         {
@@ -394,20 +388,17 @@ async def _replace_disease_phenotype_rows(
         )
         for start in range(0, len(rows), chunk):
             await session.execute(insert, rows[start : start + chunk])
-    if commit:
-        await session.commit()
     return len(rows)
 
 
 async def refresh_monarch_disease_phenotype(
     session: AsyncSession,
     *,
-    release_version: str | None = None,
-    commit: bool = True,
+    release_version: str,
 ) -> dict[str, Any]:
-    """Download, parse, and replace the Monarch disease -> phenotype table."""
+    """Download, parse, and replace the Monarch disease -> phenotype table, in the caller's
+    transaction (``refresh_monarch`` resolves the release and commits)."""
     started_at = datetime.now(timezone.utc)
-    release_version = await _resolve_release_version(release_version)
 
     phenotypes: dict[tuple[str, str], _DiseasePhenotype] = {}
     text_value = await _download_gzip_tsv(MONARCH_DISEASE_PHENOTYPE_FILE)
@@ -419,7 +410,6 @@ async def refresh_monarch_disease_phenotype(
         phenotypes=records,
         release_version=release_version,
         now=started_at,
-        commit=commit,
     )
 
     completed_at = datetime.now(timezone.utc)
@@ -454,12 +444,8 @@ async def refresh_monarch(session: AsyncSession) -> dict[str, Any]:
 
     # Stage both table swaps in one transaction so a failure can't leave the tables on
     # mismatched releases (gene_disease new, disease_phenotype old/empty).
-    gene_disease = await refresh_monarch_gene_disease(
-        session, release_version=release_version, commit=False
-    )
-    disease_phenotype = await refresh_monarch_disease_phenotype(
-        session, release_version=release_version, commit=False
-    )
+    gene_disease = await refresh_monarch_gene_disease(session, release_version=release_version)
+    disease_phenotype = await refresh_monarch_disease_phenotype(session, release_version=release_version)
     await session.commit()
     # The information-content map is derived from disease_phenotype; drop the cache so
     # the next scoring request recomputes it against the new release.
