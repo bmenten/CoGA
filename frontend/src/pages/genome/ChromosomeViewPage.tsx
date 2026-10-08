@@ -28,7 +28,11 @@ import ChromosomeViewSidebar, {
 } from './ChromosomeViewSidebar';
 import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
 import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
-import { DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING } from './viewerShared';
+import {
+  DEFAULT_TRACK_WIDTH,
+  TRACK_WIDTH_PADDING,
+  searchWithResolvedProject,
+} from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface ChromInfo {
@@ -177,14 +181,10 @@ const ChromosomeViewPage: React.FC = () => {
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(data?.projects as string[] | undefined, projectIdParam);
-  const resolvedSearch = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    params.delete('project_id');
-    if (resolvedProjectId) {
-      params.set('project_id', resolvedProjectId);
-    }
-    return params.toString();
-  }, [location.search, resolvedProjectId]);
+  const resolvedSearch = useMemo(
+    () => searchWithResolvedProject(location.search, resolvedProjectId),
+    [location.search, resolvedProjectId],
+  );
   const backSearch = useMemo(() => {
     const params = new URLSearchParams(resolvedSearch);
     params.delete('start');
@@ -401,9 +401,6 @@ const ChromosomeViewPage: React.FC = () => {
     const center = region.start + span / 2;
     setClampedRegion(center - targetSpan / 2, center + targetSpan / 2);
   };
-
-  // Zoom keeping the genomic position under the cursor fixed. focus is a 0..1
-  // fraction of the visible window (0 = left edge, 1 = right edge).
 
   const visibleRoi = useMemo(() => {
     if (!data?.roi) return null;

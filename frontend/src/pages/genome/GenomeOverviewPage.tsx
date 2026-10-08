@@ -17,21 +17,36 @@ import {
 import { useFamilyReference } from '../../lib/reference';
 import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility } from './GenomeOverviewSidebar';
-import GenomeOverviewWorkspace from './GenomeOverviewWorkspace';
+import GenomeOverviewWorkspace, { type Layout } from './GenomeOverviewWorkspace';
 import { normalizeChrom } from '../../lib/chromosomes';
-import { CHROMS, DEFAULT_TRACK_WIDTH, TRACK_WIDTH_PADDING } from './viewerShared';
+import {
+  CHROMS,
+  DEFAULT_TRACK_WIDTH,
+  TRACK_WIDTH_PADDING,
+  searchWithResolvedProject,
+} from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
-
-interface Layout {
-  offsets: Record<string, number>;
-  lengths: Record<string, number>;
-  total: number;
-  chroms: string[];
-}
 
 // Inter-chromosome gap in px. Module-level so it is referentially stable and
 // does not need to appear in render memo dependency arrays.
 const CHROM_GAP_PX = 8;
+
+/** Every chromosome, each set to `selected`. */
+const allChroms = (selected: boolean): Record<string, boolean> =>
+  CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: selected }), {} as Record<string, boolean>);
+
+/** The chromosomes the page's `?chrom=` list selects: all of them when it names none. */
+const chromSelectionFromSearch = (search: string): Record<string, boolean> => {
+  const chromParams = new URLSearchParams(search).getAll('chrom');
+  if (chromParams.length === 0) {
+    return allChroms(true);
+  }
+  const selectedChroms = new Set(chromParams.map(normalizeChrom));
+  return CHROMS.reduce(
+    (acc, chrom) => ({ ...acc, [chrom]: selectedChroms.has(chrom) }),
+    {} as Record<string, boolean>,
+  );
+};
 
 const GenomeOverviewPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -60,33 +75,14 @@ const GenomeOverviewPage: React.FC = () => {
     repeatExpansions: true,
   });
   const [layout, setLayout] = useState<Layout | null>(null);
-  const [chromSelected, setChromSelected] = useState<Record<string, boolean>>(() => {
-    const params = new URLSearchParams(location.search);
-    const chromParams = params.getAll('chrom');
-    if (chromParams.length === 0) {
-      return CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: true }), {} as Record<string, boolean>);
-    }
-    const selectedChroms = new Set(chromParams.map(normalizeChrom));
-    return CHROMS.reduce(
-      (acc, chrom) => ({ ...acc, [chrom]: selectedChroms.has(chrom) }),
-      {} as Record<string, boolean>,
-    );
-  });
+  const [chromSelected, setChromSelected] = useState<Record<string, boolean>>(() =>
+    chromSelectionFromSearch(location.search),
+  );
 
   const chroms = useMemo(() => CHROMS.filter((chrom) => chromSelected[chrom]), [chromSelected]);
 
   useEffect(() => {
-    const params = new URLSearchParams(location.search);
-    const chromParams = params.getAll('chrom');
-    if (chromParams.length === 0) {
-      setChromSelected(CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: true }), {} as Record<string, boolean>));
-      return;
-    }
-
-    const next = new Set(chromParams.map(normalizeChrom));
-    setChromSelected(
-      CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: next.has(chrom) }), {} as Record<string, boolean>),
-    );
+    setChromSelected(chromSelectionFromSearch(location.search));
   }, [location.search]);
 
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
@@ -158,14 +154,10 @@ const GenomeOverviewPage: React.FC = () => {
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(data?.projects as string[] | undefined, projectIdParam);
-  const resolvedSearch = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    params.delete('project_id');
-    if (resolvedProjectId) {
-      params.set('project_id', resolvedProjectId);
-    }
-    return params.toString();
-  }, [location.search, resolvedProjectId]);
+  const resolvedSearch = useMemo(
+    () => searchWithResolvedProject(location.search, resolvedProjectId),
+    [location.search, resolvedProjectId],
+  );
   const backSearch = useMemo(() => {
     const params = new URLSearchParams(resolvedSearch);
     params.delete('sample');
@@ -524,12 +516,8 @@ const GenomeOverviewPage: React.FC = () => {
             [chrom]: !current[chrom],
           }))
         }
-        onSelectAllChroms={() =>
-          setChromSelected(CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: true }), {} as Record<string, boolean>))
-        }
-        onDeselectAllChroms={() =>
-          setChromSelected(CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: false }), {} as Record<string, boolean>))
-        }
+        onSelectAllChroms={() => setChromSelected(allChroms(true))}
+        onDeselectAllChroms={() => setChromSelected(allChroms(false))}
       />
       <GenomeOverviewWorkspace
         trackAreaRef={trackAreaRef}

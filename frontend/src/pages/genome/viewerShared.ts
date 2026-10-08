@@ -16,6 +16,19 @@ export const formatRoiCoordinates = (roi: ApiFamilyRegionOfInterest): string => 
   return `${formatChromosomeLabel(roi.chr)}:${roi.start.toLocaleString()}-${roi.end.toLocaleString()}`;
 };
 
+/**
+ * The page's query string with its `project_id` replaced by the project the family's
+ * reference was resolved from (or dropped when there is none), for the links between views.
+ */
+export const searchWithResolvedProject = (search: string, projectId?: string): string => {
+  const params = new URLSearchParams(search);
+  params.delete('project_id');
+  if (projectId) {
+    params.set('project_id', projectId);
+  }
+  return params.toString();
+};
+
 export const buildTrackFilterSummary = (
   variantFilters: Record<string, string>,
   sampleFilter?: string,
