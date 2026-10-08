@@ -72,9 +72,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   answer is the one an unknown record gets, whether or not a record of that id exists in a
   project the caller cannot see (`test_request_uuid.py`,
   `e2e/test_e2e_request_malformed_uuid.py`). The ids a project, assembly, family-project or
-  family-status body carries are read the same way; the `assembly_id` of a NIPT artifact and
-  the `project_id` of an import request are not checked yet, and one that names nothing still
-  fails with a 500.
+  family-status body carries are read the same way, and so are the `assembly_id` of a NIPT
+  artifact (its add, auto-seed and table import) and the `project_id` of an import request:
+  one that spells no UUID or names no record is refused as an unknown assembly or project
+  (404) before anything is written, so the artifact list's audit chain holds no event for it,
+  and each audit event records the canonical id (`test_request_body_uuid.py`,
+  `e2e/test_e2e_request_body_uuid.py`, which also sweeps every UUID a request body carries).
 - ✅ **Scoped downloads.** The CRAM/BAM and signal-track endpoints check family and sample
   access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
   They sign a location the import recorded only when it names an object in the configured

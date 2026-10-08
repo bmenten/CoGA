@@ -45,7 +45,7 @@ async def test_load_nipt_artifact_ids_returns_variant_id_set() -> None:
     session = _FakeSession([("1-100-A-G",), ("2-200-C-T",)])
     ids = await load_nipt_artifact_ids(
         session,  # type: ignore[arg-type]
-        assembly_id="assembly-uuid",
+        assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
     )
     assert ids == {"1-100-A-G", "2-200-C-T"}
@@ -199,7 +199,7 @@ async def test_auto_seed_nipt_artifacts_upserts_recurrent(
 
     result = await auto_seed_nipt_artifacts(
         session,  # type: ignore[arg-type]
-        assembly_id="assembly-uuid",
+        assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
         min_carrier_samples=5,
         actor="curator",
@@ -244,7 +244,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
     session = _AutoSeedSession("GRCh38", cfdna)
     result = await auto_seed_nipt_artifacts(
         session,  # type: ignore[arg-type]
-        assembly_id="assembly-uuid",
+        assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
     )
     assert session.sample_queries == [{"assay": "nipt_cfdna"}]
@@ -255,7 +255,7 @@ async def test_auto_seed_counts_recurrence_among_the_assays_own_cfdna_samples(
 
     await auto_seed_nipt_artifacts(
         _AutoSeedSession("GRCh38", cfdna),  # type: ignore[arg-type]
-        assembly_id="assembly-uuid",
+        assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="PANEL_A",
     )
     assert seen["carrier_samples"] == {"CF2": "CF2", "uuid-2": "CF2"}
@@ -274,7 +274,7 @@ async def test_auto_seed_without_cfdna_samples_for_the_assay_seeds_nothing(
 
     result = await auto_seed_nipt_artifacts(
         session,  # type: ignore[arg-type]
-        assembly_id="assembly-uuid",
+        assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
     )
 
@@ -296,7 +296,7 @@ async def test_auto_seed_nipt_artifacts_missing_assembly_raises(
     with pytest.raises(Exception) as excinfo:
         await auto_seed_nipt_artifacts(
             session,  # type: ignore[arg-type]
-            assembly_id="missing",
+            assembly_id="5e6f7a8b-9c0d-4e1f-8a2b-3c4d5e6f7a8b",
             assay_key="nipt_cfdna",
             min_carrier_samples=5,
         )
@@ -308,7 +308,7 @@ async def test_bulk_upsert_nipt_artifacts_empty_is_noop() -> None:
     session = _AutoSeedSession("GRCh38")
     seeded = await bulk_upsert_nipt_artifacts(
         session,  # type: ignore[arg-type]
-        assembly_id="assembly-uuid",
+        assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="nipt_cfdna",
         items=[],
     )
@@ -381,7 +381,7 @@ async def test_import_never_lists_a_common_or_pathogenic_allele(
     session = _Session()
     summary = await nipt_artifact_pg.import_nipt_artifact_table(
         session,  # type: ignore[arg-type]
-        assembly_id="assembly-uuid",
+        assembly_id="0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d",
         assay_key="panel-v1",
         text_value=_R_TABLE,
         filename="recurrent.tsv",

@@ -20,7 +20,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import canonical_uuid
+from ..core.sql import canonical_uuid, require_uuid
 from .clickhouse_family_variants import fetch_artifact_protection_flags, fetch_recurrent_small_variant_ids
 from .clickhouse_variant_ids import build_small_variant_id
 from .clinical_audit_service import record_clinical_event
@@ -82,6 +82,34 @@ async def _record_artifact_event(
         after=after,
         metadata=metadata,
     )
+
+
+async def _resolve_assembly_name(session: AsyncSession, assembly_id: str) -> str | None:
+    result = await session.execute(
+        text("SELECT assembly_name FROM assemblies WHERE id = CAST(:id AS uuid)"),
+        {"id": assembly_id},
+    )
+    row = result.first()
+    return str(row[0]) if row else None
+
+
+_ASSEMBLY_NOT_FOUND = "Assembly not found"
+
+
+async def _require_assembly(session: AsyncSession, assembly_id: str) -> tuple[str, str]:
+    """The canonical id and the name of the assembly a request scopes the list by.
+
+    A value that spells no UUID, or a UUID of no assembly, is refused with a 404 before
+    anything is written: there is no entry and no audit event for an unknown assembly
+    (asyncpg's uuid codec refused the first, and an add's foreign key the second, with a
+    500). Each statement binds the canonical id and each audit event records it, so every
+    spelling of an assembly's id names one scope, in the list and in its audit trail.
+    """
+    assembly_uuid = require_uuid(assembly_id, _ASSEMBLY_NOT_FOUND, status_code=404)
+    assembly_name = await _resolve_assembly_name(session, assembly_uuid)
+    if assembly_name is None:
+        raise HTTPException(status_code=404, detail=_ASSEMBLY_NOT_FOUND)
+    return assembly_uuid, assembly_name
 
 
 async def load_nipt_artifact_ids(
@@ -148,6 +176,7 @@ async def add_nipt_artifact(
     actor: str = "system",
 ) -> dict[str, Any]:
     """Insert (or update on conflict) an artifact within its scope, and audit it."""
+    assembly_uuid, _ = await _require_assembly(session, assembly_id)
     existing = (
         await session.execute(
             text(
@@ -159,7 +188,7 @@ async def add_nipt_artifact(
                   AND variant_id = :variant_id
                 """
             ),
-            {"assembly_id": assembly_id, "assay_key": assay_key, "variant_id": variant_id},
+            {"assembly_id": assembly_uuid, "assay_key": assay_key, "variant_id": variant_id},
         )
     ).mappings().first()
     result = await session.execute(
@@ -180,7 +209,7 @@ async def add_nipt_artifact(
             """
         ),
         {
-            "assembly_id": assembly_id,
+            "assembly_id": assembly_uuid,
             "assay_key": assay_key,
             "variant_id": variant_id,
             "recurrence_count": recurrence_count,
@@ -205,7 +234,7 @@ async def add_nipt_artifact(
             variant_id=variant_id,
             before=before,
             after=after,
-            metadata={"assembly_id": assembly_id, "assay_key": assay_key},
+            metadata={"assembly_id": assembly_uuid, "assay_key": assay_key},
         )
     await session.commit()
     return row
@@ -297,15 +326,6 @@ async def bulk_upsert_nipt_artifacts(
     return len(rows)
 
 
-async def _resolve_assembly_name(session: AsyncSession, assembly_id: str) -> str | None:
-    result = await session.execute(
-        text("SELECT assembly_name FROM assemblies WHERE id = CAST(:id AS uuid)"),
-        {"id": assembly_id},
-    )
-    row = result.first()
-    return str(row[0]) if row else None
-
-
 async def _assay_cfdna_carrier_samples(session: AsyncSession, *, assay_key: str) -> dict[str, str]:
     """The cfDNA samples whose artifact scope is ``assay_key``, keyed by each identifier
     ClickHouse may store for them (name and UUID) -> the sample name.
@@ -376,9 +396,7 @@ async def auto_seed_nipt_artifacts(
     not called pathogenic, can still be seeded, and is then excluded from this assay's
     NIPT analyses. A cfDNA sample counts only when tagged ``assay: nipt_cfdna``.
     """
-    assembly_name = await _resolve_assembly_name(session, assembly_id)
-    if assembly_name is None:
-        raise HTTPException(status_code=404, detail="Assembly not found")
+    assembly_uuid, assembly_name = await _require_assembly(session, assembly_id)
     recurrent = await fetch_recurrent_small_variant_ids(
         assembly_name,
         min_carrier_samples=min_carrier_samples,
@@ -388,7 +406,7 @@ async def auto_seed_nipt_artifacts(
     )
     seeded = await bulk_upsert_nipt_artifacts(
         session,
-        assembly_id=assembly_id,
+        assembly_id=assembly_uuid,
         assay_key=assay_key,
         items=recurrent,
         source="auto",
@@ -411,7 +429,7 @@ async def auto_seed_nipt_artifacts(
                 ]
             },
             metadata={
-                "assembly_id": assembly_id,
+                "assembly_id": assembly_uuid,
                 "assay_key": assay_key,
                 "min_carrier_samples": min_carrier_samples,
             },
@@ -530,9 +548,7 @@ async def import_nipt_artifact_table(
     common or ClinVar-pathogenic stays in that family's analysis, flagged). An entry
     already on the list keeps its source and label and takes the table's recurrence count.
     """
-    assembly_name = await _resolve_assembly_name(session, assembly_id)
-    if assembly_name is None:
-        raise HTTPException(status_code=404, detail="Assembly not found")
+    assembly_uuid, assembly_name = await _require_assembly(session, assembly_id)
     table = parse_artifact_table(text_value)
     protected = await fetch_artifact_protection_flags(
         assembly_name, [item.variant_id for item in table.items]
@@ -555,7 +571,7 @@ async def import_nipt_artifact_table(
             ),
             [
                 {
-                    "assembly_id": assembly_id,
+                    "assembly_id": assembly_uuid,
                     "assay_key": assay_key,
                     "variant_id": item.variant_id,
                     "recurrence_count": item.recurrence_count,
@@ -590,7 +606,7 @@ async def import_nipt_artifact_table(
                 ]
             },
             metadata={
-                "assembly_id": assembly_id,
+                "assembly_id": assembly_uuid,
                 "assay_key": assay_key,
                 "filename": filename,
                 "protected": sorted(protected),
