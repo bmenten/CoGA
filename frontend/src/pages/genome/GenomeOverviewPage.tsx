@@ -15,15 +15,15 @@ import {
   getTrackSegmentLimit,
 } from '../../lib/trackSampling';
 import { useFamilyReference } from '../../lib/reference';
-import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import GenomeOverviewWorkspace, { type Layout } from './GenomeOverviewWorkspace';
 import { normalizeChrom } from '../../lib/chromosomes';
 import {
   CHROMS,
   DEFAULT_TRACK_WIDTH,
-  TRACK_WIDTH_PADDING,
+  roiOnAssembly,
   searchWithResolvedProject,
+  useTrackWidth,
 } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
 
@@ -122,11 +122,7 @@ const GenomeOverviewPage: React.FC = () => {
     return parseExplicitSampleFilterMap(params);
   }, [location.search]);
 
-  const [trackAreaRef, trackAreaWidth] = useMeasuredWidth<HTMLElement>();
-  const trackWidth = useMemo(() => {
-    if (trackAreaWidth <= 0) return DEFAULT_TRACK_WIDTH;
-    return Math.max(Math.round(trackAreaWidth - TRACK_WIDTH_PADDING), DEFAULT_TRACK_WIDTH);
-  }, [trackAreaWidth]);
+  const [trackAreaRef, trackWidth] = useTrackWidth();
 
   const trackHeight = 120;
   const svTrackHeight = 80;
@@ -386,13 +382,7 @@ const GenomeOverviewPage: React.FC = () => {
     return Array.from(tracks);
   }, [availability, orderedMembers]);
 
-  const visibleRoi = useMemo(() => {
-    if (!data?.roi) return null;
-    if (data.roi.assembly_id && assemblyId && data.roi.assembly_id !== assemblyId) {
-      return null;
-    }
-    return data.roi;
-  }, [assemblyId, data?.roi]);
+  const visibleRoi = useMemo(() => roiOnAssembly(data?.roi, assemblyId), [assemblyId, data?.roi]);
   const inheritanceModel = (data?.metadata?.pgt as { inheritance_model?: string | null } | undefined)
     ?.inheritance_model;
 

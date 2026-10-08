@@ -21,18 +21,13 @@ import {
   getTrackSegmentLimit,
 } from '../../lib/trackSampling';
 import { useFamilyReference } from '../../lib/reference';
-import { useMeasuredWidth } from '../../lib/useMeasuredWidth';
 import ChromosomeViewSidebar, {
   type ChromosomeTrackKey,
   type ChromosomeTrackVisibility,
 } from './ChromosomeViewSidebar';
 import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
 import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
-import {
-  DEFAULT_TRACK_WIDTH,
-  TRACK_WIDTH_PADDING,
-  searchWithResolvedProject,
-} from './viewerShared';
+import { roiOnAssembly, searchWithResolvedProject, useTrackWidth } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
 
 interface ChromInfo {
@@ -120,12 +115,7 @@ const ChromosomeViewPage: React.FC = () => {
     start: 0,
     end: 0,
   });
-  const [trackAreaRef, trackAreaWidth] = useMeasuredWidth<HTMLElement>();
-
-  const trackWidth = useMemo(() => {
-    if (trackAreaWidth <= 0) return DEFAULT_TRACK_WIDTH;
-    return Math.max(Math.round(trackAreaWidth - TRACK_WIDTH_PADDING), DEFAULT_TRACK_WIDTH);
-  }, [trackAreaWidth]);
+  const [trackAreaRef, trackWidth] = useTrackWidth();
 
   const win = useMemo(() => getChromosomeWindow(), []);
   const regionSpan = Math.max(region.end - region.start, 1);
@@ -402,13 +392,7 @@ const ChromosomeViewPage: React.FC = () => {
     setClampedRegion(center - targetSpan / 2, center + targetSpan / 2);
   };
 
-  const visibleRoi = useMemo(() => {
-    if (!data?.roi) return null;
-    if (data.roi.assembly_id && assemblyId && data.roi.assembly_id !== assemblyId) {
-      return null;
-    }
-    return data.roi;
-  }, [assemblyId, data?.roi]);
+  const visibleRoi = useMemo(() => roiOnAssembly(data?.roi, assemblyId), [assemblyId, data?.roi]);
   const phaseCorrections = useMemo(
     () => phaseCorrectionsFromMetadata(data?.metadata as Record<string, unknown> | undefined),
     [data?.metadata],
