@@ -10,25 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.sql import uuid_list_bindparam, uuid_values
 from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS_KEY, corrections_from_metadata
 from .metadata_service import get_accessible_family_mapping, get_accessible_sample_mapping
-from .access_control import CurrentUser, is_admin_user
-
-
-def _string_list(values: list[Any] | tuple[Any, ...] | None) -> list[str]:
-    result: list[str] = []
-    for value in values or []:
-        if value is None:
-            continue
-        text_value = str(value)
-        if text_value and text_value not in result:
-            result.append(text_value)
-    return result
-
-
-def _visible_project_ids(project_ids: list[str], user: CurrentUser) -> list[str]:
-    if is_admin_user(user):
-        return project_ids
-    allowed_project_ids = set(_string_list(user.metadata_project_ids))
-    return [project_id for project_id in project_ids if project_id in allowed_project_ids]
+from .access_control import CurrentUser, visible_metadata_project_ids
 
 
 @dataclass(slots=True)
@@ -145,7 +127,7 @@ async def build_family_metadata_context(
 ) -> FamilyMetadataContext:
     family_row = await get_accessible_family_mapping(session, family_identifier, user)
     family_uuid = str(family_row["id"])
-    project_ids = _visible_project_ids(_string_list(family_row.get("project_ids")), user)
+    project_ids = visible_metadata_project_ids(family_row.get("project_ids"), user)
 
     if project_id is not None and project_id not in set(project_ids):
         raise HTTPException(status_code=400, detail="Project is not linked to this family")
@@ -269,7 +251,7 @@ async def build_sample_metadata_context(
     if row is None:
         raise HTTPException(status_code=404, detail="Sample not found")
 
-    project_ids = _visible_project_ids(_string_list(row["project_ids"]), user)
+    project_ids = visible_metadata_project_ids(row["project_ids"], user)
     assembly_id, assembly_name = await _resolve_family_assembly(
         session,
         family_uuid=str(row["family_uuid"]),
