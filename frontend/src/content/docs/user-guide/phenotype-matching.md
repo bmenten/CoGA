@@ -11,8 +11,9 @@ page, and under **HPO Phenotypes** search a term, choose *present*, *absent* or 
 
 The **Panel catalog** holds reusable gene lists; administrators create them or import them from
 PanelApp. Choose a panel in the **Locations** filter of the small-variant or structural-variant page to
-limit a search to its genes. The **Mendeliome** — every gene Monarch links to a disease — is the default
-scope of both pages.
+limit a search to its genes. The **Mendeliome** — every gene that Monarch says causes a disease or is
+associated with one — is the default scope of both pages. A gene Monarch links to a disease only as
+contributing to it or raising its likelihood is not in it.
 
 ### Phenotype matching
 
