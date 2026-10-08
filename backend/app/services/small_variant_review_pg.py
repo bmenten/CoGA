@@ -361,11 +361,6 @@ async def upsert_small_variant_review(
             normalized_compound_het_tags, (existing or {}).get("compound_het_tags")
         )
         if compound_het_partner_id:
-            if variant is None or not context.assembly_name:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Compound-het review requires a ClickHouse-backed variant identity",
-                )
             if compound_het_partner_id == variant_id:
                 raise HTTPException(status_code=400, detail="Compound-het partner must be a different variant")
             partner_variant = await get_small_variant_family_record(
@@ -520,7 +515,7 @@ async def upsert_small_variant_review(
         cleared_state: dict[str, Any] = {"acmg_class": None, "acmg": None, "tags": [], "note": None}
         if existing is not None and _document_has_compound_het_review(existing):
             data = {
-                "variant_key": variant.variant_key if variant is not None else None,
+                "variant_key": variant.variant_key,
                 "variant_id": variant_id,
                 "classification": None,
                 "tags": [],
@@ -556,7 +551,7 @@ async def upsert_small_variant_review(
         return SmallVariantReviewOut(variant_id=variant_id, tags=[])
 
     data = {
-        "variant_key": variant.variant_key if variant is not None else None,
+        "variant_key": variant.variant_key,
         "variant_id": variant_id,
         "classification": normalized_classification,
         "tags": normalized_tags,

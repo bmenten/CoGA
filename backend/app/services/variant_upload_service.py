@@ -136,10 +136,6 @@ def _upload_metadata(source: str, file: UploadFile) -> str:
     )
 
 
-async def _decode_upload_text(file: UploadFile, *, kind: str) -> str:
-    return await decode_upload_text(file, kind=kind)
-
-
 def _iter_bounded_lines(handle, *, kind: str):
     # `for line in handle` buffers a whole line before yielding, so a VCF with no
     # newlines (or a gzip that inflates to one enormous line) could exhaust memory
@@ -278,32 +274,6 @@ def _has_phasing_source_hint(header_lines: list[str], filename: str | None = Non
         marker in header_preview or marker in file_name
         for marker in ("glimpse", "shapeit", "phased")
     )
-
-
-def _detect_small_variant_format(
-    text: str,
-    format_hint: SmallVariantUploadFormat,
-) -> ResolvedSmallVariantFormat:
-    if format_hint != "auto":
-        return format_hint
-    header_lines: list[str] = []
-    for line in text.splitlines():
-        if not line:
-            continue
-        if line.startswith("#"):
-            header_lines.append(line)
-            continue
-        parts = line.split("\t")
-        if len(parts) < 9:
-            break
-        fmt = parts[8].split(":")
-        if "GP" in fmt or (
-            _has_phasing_source_hint(header_lines)
-            and _format_has_phased_gt(fmt, parts[9:])
-        ):
-            return "glimpse2"
-        return "clair3"
-    raise HTTPException(status_code=400, detail="No valid VCF records found")
 
 
 def _detect_small_variant_format_from_upload(
@@ -1275,7 +1245,7 @@ async def upload_structural_variant_file(
             detail="Could not resolve a single assembly for this family",
         )
 
-    text_value = await _decode_upload_text(file, kind="Structural variant")
+    text_value = await decode_upload_text(file, kind="Structural variant")
     resolved_format = _detect_structural_variant_format(text_value, file.filename, format_hint)
     source_label = STRUCTURAL_VARIANT_SOURCE_LABELS[resolved_format]
     # One write of the family's SVs at a time, from the read below until the commit at the

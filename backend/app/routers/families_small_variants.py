@@ -1,12 +1,10 @@
-import csv
-import io
 from typing import Any, Dict, List
 
 from fastapi import APIRouter, Depends, File, Query, Response, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.csv_export import csv_safe_cell, export_response_headers
+from ..core.csv_export import csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import (
@@ -344,14 +342,8 @@ async def export_family_small_variants_csv(
         if prioritize
         else _FAMILY_EXPORT_COLUMNS
     )
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow([label for _, label in columns])
-    for variant in export.rows:
-        writer.writerow([csv_safe_cell(_family_export_cell(variant, field)) for field, _ in columns])
-
     return StreamingResponse(
-        iter([buffer.getvalue()]),
+        iter([csv_document(columns, export.rows, _family_export_cell)]),
         media_type="text/csv",
         headers=export_response_headers(
             f"family-{family_id}-small-variants",

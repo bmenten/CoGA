@@ -35,7 +35,8 @@ haplotype they share; elsewhere such a relative stays grey.
 Only an administrator edits a member: click the sample name to open **Family member details**, change
 the fields, press **Apply to pending**, then **Save pending updates** on the family page. HPO terms are
 added in the same dialog. Affected status and carrier status are separate: an unaffected person can be a
-carrier. Adding or removing members is done in **Admin → Family & Sample Data**.
+carrier. **Remove member** in the dialog takes the person out of the family at once, after you confirm.
+Members are added in **Admin → Family & Sample Data**.
 
 Further down are the **Phenotype match (Monarch)** panel and, closed by default, the **Analysis
 pipeline settings** recorded at import.

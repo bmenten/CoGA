@@ -105,7 +105,6 @@ from backend.app.services.variant_upload_service import (
 )
 
 DEFAULT_BUNDLE_ROOT = ROOT / "demo" / "quartet_family"
-DEFAULT_BED_TYPES = ("coverage", "segments", "apcad")
 SPECIES_DEFAULTS = {
     "Homo sapiens": {"common_name": "Human", "tax_id": 9606},
     "Mus musculus": {"common_name": "Mouse", "tax_id": 10090},

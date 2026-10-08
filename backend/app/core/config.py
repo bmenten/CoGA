@@ -239,8 +239,9 @@ class Settings(BaseSettings):
         ge=1,
         alias="LOGIN_RATE_LIMIT_MAX_BACKOFF_SECONDS",
     )
-    # Outbound resilience for external reference APIs (HGNC/Ensembl/NCBI/ClinGen/...):
-    # per-phase timeouts + capped exponential-backoff retry (idempotent requests only).
+    # Outbound resilience for the gene-info refresh's per-gene NCBI E-utilities requests
+    # (core/http_resilience.py): per-phase timeouts + capped exponential-backoff retry
+    # (idempotent requests only). The bulk reference downloads keep their own timeouts.
     external_http_connect_timeout_seconds: float = Field(
         default=5.0, gt=0, alias="EXTERNAL_HTTP_CONNECT_TIMEOUT_SECONDS"
     )

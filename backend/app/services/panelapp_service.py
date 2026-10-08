@@ -48,22 +48,15 @@ def panelapp_summary(payload: dict[str, Any]) -> PanelAppPanelSummaryOut:
     )
 
 
-def _raise_panelapp_error(exc: Exception) -> HTTPException:
-    _ = exc
-    return HTTPException(status_code=502, detail="Failed to retrieve PanelApp data")
-
-
 async def _get_panelapp_json(path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         async with httpx.AsyncClient(timeout=20.0, follow_redirects=True) as client:
             response = await client.get(f"{PANELAPP_API_ROOT}{path}", params=params)
             response.raise_for_status()
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code == 404:
-            raise HTTPException(status_code=404, detail="PanelApp panel not found") from exc
-        raise _raise_panelapp_error(exc) from exc
     except httpx.HTTPError as exc:
-        raise _raise_panelapp_error(exc) from exc
+        if isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 404:
+            raise HTTPException(status_code=404, detail="PanelApp panel not found") from exc
+        raise HTTPException(status_code=502, detail="Failed to retrieve PanelApp data") from exc
     payload = response.json()
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail="Unexpected PanelApp response")

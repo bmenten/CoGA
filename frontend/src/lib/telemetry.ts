@@ -194,10 +194,6 @@ const handleDocumentClick = (event: MouseEvent): void => {
 };
 
 /**
- * Start global UI telemetry. Idempotent — safe to call from a React effect that
- * may run more than once. Returns a cleanup function.
- */
-/**
  * Send everything queued now, with the current session's token, surviving a
  * navigation. Called on logout before the session is cleared, so the logout click
  * and the events before it are recorded under the user who made them (#521).
@@ -209,6 +205,10 @@ export const flushUiEventsNow = (): void => {
 /** Flush the queue through the API client now (what the interval timer does). */
 export const flushUiEvents = (): Promise<void> => flush();
 
+/**
+ * Start global UI telemetry. Idempotent — safe to call from a React effect that
+ * may run more than once. Returns a cleanup function.
+ */
 export const startUiTelemetry = (): (() => void) => {
   if (started || typeof document === 'undefined') {
     return () => {};

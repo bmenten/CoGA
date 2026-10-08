@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apcadAxisMax, coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
+import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
 import Ideogram from '../../components/visualizations/Ideogram';
@@ -26,11 +27,11 @@ import { normalizeHaplotypeChrom, resolveHaplotypeInheritanceModel } from '../..
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import ViewerMemberSection from './ViewerMemberSection';
-import ViewerTrackBlock from './ViewerTrackBlock';
+import ViewerTrackBlock, { TrackMeta, type ViewerRoiRange } from './ViewerTrackBlock';
 import ViewerInteractionSurface from './ViewerInteractionSurface';
 import type { ChromosomeTrackVisibility } from './ChromosomeViewSidebar';
 import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
-import { CHROMS, buildTrackFilterSummary, formatBp, formatRoiCoordinates } from './viewerShared';
+import { CHROMS, formatBp, formatRoiCoordinates } from './viewerShared';
 
 const TRACK_HEIGHT = 120;
 const NO_PHASE_CORRECTIONS: HaplotypePhaseCorrection[] = [];
@@ -66,11 +67,6 @@ interface ChromosomeTrackAvailability {
   repeatExpansions: boolean;
 }
 
-interface ChromosomeRoiRange {
-  startX: number;
-  endX: number;
-}
-
 interface ChromosomeViewWorkspaceProps {
   familyId: string;
   familyDisplayId: string;
@@ -91,8 +87,8 @@ interface ChromosomeViewWorkspaceProps {
   inheritanceModel?: string | null;
   /** The parents' phase switches the haplotype blocks undid. */
   phaseCorrections?: HaplotypePhaseCorrection[];
-  chromosomeRoiRange: ChromosomeRoiRange | null;
-  regionRoiRange: ChromosomeRoiRange | null;
+  chromosomeRoiRange: ViewerRoiRange | null;
+  regionRoiRange: ViewerRoiRange | null;
   onChromChange: (chrom: string) => void;
   onRegionStartChange: (value: number) => void;
   onRegionEndChange: (value: number) => void;
@@ -120,31 +116,12 @@ interface ChromosomeViewWorkspaceProps {
   tracksFailure?: { what: string; error: unknown; retry: () => void } | null;
 }
 
-interface GeneSuggestion {
-  symbol: string;
-  gene_id: string;
-  chr: string;
-  start: number;
-  end: number;
-  transcript_count: number;
-  assembly_count: number;
-}
-
 interface GeneJumpProfile {
   symbol: string;
   chr: string;
   start: number;
   end: number;
 }
-
-const TrackMeta: React.FC<{
-  variantFilters: Record<string, string>;
-  sampleFilter?: string;
-}> = ({ variantFilters, sampleFilter }) => {
-  const summary = buildTrackFilterSummary(variantFilters, sampleFilter);
-  if (!summary) return null;
-  return <span className="viewer-track-meta">{summary}</span>;
-};
 
 // normalizeChrom already trims, strips `chr`, maps m/mt→MT, collapses numeric
 // strings, and uppercases — so no further post-processing is needed here.
@@ -280,14 +257,14 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
     familyMembers.find((member) => (member.role || '').toLowerCase() === 'father')?.sample_id ?? null;
   const motherSampleId =
     familyMembers.find((member) => (member.role || '').toLowerCase() === 'mother')?.sample_id ?? null;
-  const { data: geneSuggestions = [] } = useQuery<GeneSuggestion[]>({
+  const { data: geneSuggestions = [] } = useQuery<GeneSearchResultOut[]>({
     queryKey: ['chromosome-jump-suggestions', assemblyId, trimmedJumpQuery],
     enabled: trimmedJumpQuery.length >= 2 && !isLocationJump,
     queryFn: async () => {
       const response = await api.get('/genes/search', {
         params: { q: trimmedJumpQuery },
       });
-      return response.data as GeneSuggestion[];
+      return response.data as GeneSearchResultOut[];
     },
     retry: false,
   });

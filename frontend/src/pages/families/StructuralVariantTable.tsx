@@ -2,12 +2,10 @@ import { useMemo } from 'react';
 import { formatGt } from '../../lib/genotypes';
 import { isFiniteNumber } from '../../lib/number';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import ReviewTagChip from './ReviewTagChip';
 import {
-  buildReviewTagTooltip,
   formatFrequency,
-  formatReviewTagLabel,
   getReviewClassificationTone,
-  getReviewTagStyle,
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
@@ -371,18 +369,13 @@ export default function StructuralVariantTable({
                     {visibleReviewTags.length ? (
                       <div className="table-chip-list">
                         {visibleReviewTags.map((tagKey) => (
-                          <span
+                          <ReviewTagChip
                             key={tagKey}
                             className="table-chip table-chip--tag"
-                            style={getReviewTagStyle(tagKey, tagMap)}
-                            title={buildReviewTagTooltip({
-                              tagKey,
-                              tagMap,
-                              tagMetadata: variant.review?.tag_metadata,
-                            })}
-                          >
-                            {formatReviewTagLabel(tagKey, tagMap)}
-                          </span>
+                            tagKey={tagKey}
+                            tagMap={tagMap}
+                            tagMetadata={variant.review?.tag_metadata}
+                          />
                         ))}
                       </div>
                     ) : null}

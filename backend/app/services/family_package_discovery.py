@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import gzip
-import logging
 from pathlib import Path
 import re
 from typing import Any
@@ -18,7 +16,7 @@ from ..schemas import (
     FamilyPackageManifestWriteOut,
 )
 
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, PED_FOLDER, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, family_id_issue, sample_id_issues
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, package_text_handle, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
@@ -26,9 +24,6 @@ from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
 from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict
 from .family_package_validation import validate_family_package
-
-
-logger = logging.getLogger(__name__)
 
 
 NAMING_SCHEMES: dict[str, dict[str, Any]] = {
@@ -578,10 +573,7 @@ def _glob_candidate_paths(root: Path, pattern: str) -> list[str]:
             value = str(hit.relative_to(root_resolved))
         except ValueError:
             continue
-        try:
-            resolved = _resolve_package_path(root_resolved, value)
-        except HTTPException:
-            continue
+        resolved = _package_path_or_none(root_resolved, value)
         if resolved is None or not resolved.is_file():
             continue
         matches.append(value)
@@ -720,10 +712,7 @@ def _availability_from_manifest_dataset(
             # directly: a manifest declaring `../../etc/passwd` must not have its
             # existence stat'd outside the package root. An escaping path resolves to
             # None here and is reported as not-present.
-            try:
-                resolved = _resolve_package_path(root, value)
-            except HTTPException:
-                resolved = None
+            resolved = _package_path_or_none(root, value)
             files.append(
                 FamilyManifestFileAvailability(
                     role=role,
@@ -1063,11 +1052,7 @@ def _declared_filters(path: Path) -> set[str]:
     """The FILTER ids a VCF's header declares, read from its header only."""
     declared: set[str] = set()
     try:
-        with (
-            gzip.open(path, "rt", encoding="utf-8", errors="replace")
-            if path.name.endswith(".gz")
-            else path.open("r", encoding="utf-8", errors="replace")
-        ) as handle:
+        with package_text_handle(path) as handle:
             for line in handle:
                 if not line.startswith("##"):
                     break
@@ -1427,13 +1412,7 @@ def _build_manifest_payload(
         datasets[dataset_type] = block
 
     # Long-read datasets: primary artefact required, companions recorded when present.
-    long_read_roles: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-        "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
-        "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
-        "alignments": (("file",), ("index",)),
-        "qc": ((), QC_SAMPLE_ROLES),
-    }
-    for dataset_type, (required_roles, optional_roles) in long_read_roles.items():
+    for dataset_type, (required_roles, optional_roles) in LONG_READ_DATASET_ROLES.items():
         item, block = _optional_role_dataset_availability(
             root=root,
             family_id=family_id,
@@ -1806,7 +1785,7 @@ def discover_family_package_manifest(
         warnings.extend(folder_warnings)
         added_source = "the name of its per-sample folder"
     if not family_block and parsed_ped is not None and pipeline_roles:
-        family_block, _added_ids, pgt_warnings = pgt_family_block(
+        family_block, pgt_warnings = pgt_family_block(
             root=root,
             family_id=family_id,
             ped=parsed_ped,

@@ -285,7 +285,3 @@ export const PATHOGENIC_CRITERIA = ACMG_CRITERIA.filter(
   (def) => def.direction === 'pathogenic',
 );
 export const BENIGN_CRITERIA = ACMG_CRITERIA.filter((def) => def.direction === 'benign');
-
-export function isAcmgCriterionCode(value: string): value is AcmgCriterionCode {
-  return Object.prototype.hasOwnProperty.call(ACMG_CRITERIA_BY_CODE, value);
-}

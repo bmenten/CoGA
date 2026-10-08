@@ -11,9 +11,12 @@ haplotypes apart. Both are in the samplesheet the pipeline ran from, which it co
 
 Discovery turns them into the manifest's ``family`` block: the embryos get the embryo
 role, and an index the PED lacks is added under ``family.add_members``. How the index is
-related is not in any of the pipeline's files, so it is added without parents; the
-warning says what KING measured, for whoever completes the pedigree. Nothing here is
-read at import: the import reads only the manifest, which the user can edit first.
+related is not in any of the pipeline's files, so KING decides: first-degree to both
+parents makes it the couple's child (the proband, with both parents); otherwise it is
+linked as a relative of unknown degree through the parent it is related to (or, failing
+that, the affected parent). The warning says what KING measured, for whoever completes
+the pedigree. Nothing here is read at import: the import reads only the manifest, which
+the user can edit first.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from fastapi import HTTPException
 
 from ..core.coga_logging import scrub_log
 from ..schemas import FamilyImportValidationIssue
-from .family_package_common import ParsedPed, _issue, _resolve_package_path
+from .family_package_common import ParsedPed, _issue, _package_path_or_none
 from .family_package_qc import _csv_rows, parse_king_kin0_text, parse_ngsbits_sample_gender_text
 from .sample_integrity_qc import KINSHIP_FIRST_DEGREE, KINSHIP_SECOND_DEGREE, KINSHIP_THIRD_DEGREE
 from .upload_safety import read_path_text_bounded
@@ -50,10 +53,7 @@ _INDEX_STATUS_NOTE = (
 
 def _read_package_file(root: Path, relative_path: str, *, kind: str) -> str | None:
     """A small package file's text, or None when it is absent or unreadable."""
-    try:
-        path = _resolve_package_path(root, relative_path)
-    except HTTPException:
-        return None
+    path = _package_path_or_none(root, relative_path)
     if path is None or not path.is_file():
         return None
     try:
@@ -199,9 +199,9 @@ def pgt_family_block(
     ped: ParsedPed,
     roles: dict[str, str],
     affected_parent: str | None = None,
-) -> tuple[dict[str, Any], list[str], list[FamilyImportValidationIssue]]:
-    """The manifest ``family`` block the pipeline's roles call for, the sample ids it adds
-    to the PED's, and the warnings for what the user still has to supply.
+) -> tuple[dict[str, Any], list[FamilyImportValidationIssue]]:
+    """The manifest ``family`` block the pipeline's roles call for, and the warnings for
+    what the user still has to supply.
 
     - An embryo gets the embryo role. The PED alone cannot say so: the pipeline writes the
       embryos' sex into it, and CoGA reads a child of the couple as an embryo only when
@@ -350,7 +350,7 @@ def pgt_family_block(
         block["add_members"] = added
     if relatives:
         block["relationships"] = {"relatives": relatives}
-    return block, [entry["sample_id"] for entry in added], warnings
+    return block, warnings
 
 
 def _latest_params(root: Path) -> tuple[str, dict[str, Any]] | None:

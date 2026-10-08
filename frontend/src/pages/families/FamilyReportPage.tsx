@@ -7,8 +7,8 @@ import ModalDialog from '../../components/ModalDialog';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import SignedFamilyReport from './SignedFamilyReport';
+import { useAnnotationManifest } from './AnnotationProvenanceSummary';
 import type {
-  ApiAnnotationManifest,
   ApiClassificationDrift,
   ApiClinicalAudit,
   ApiStructuralClassificationDriftItem,
@@ -314,16 +314,8 @@ const LiveFamilyReport: React.FC = () => {
   });
 
   // Provenance footer: which annotation/reference modules + versions backed the report.
-  const {
-    data: manifest,
-    isError: manifestFailed,
-    refetch: refetchManifest,
-  } = useQuery<ApiAnnotationManifest>({
-    queryKey: ['family', familyId, 'annotation-manifest'],
-    enabled: Boolean(familyId),
-    queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
-  });
+  const { data: manifest, isError: manifestFailed, refetch: refetchManifest } =
+    useAnnotationManifest(familyId);
   // The moment the report was produced (becomes the frozen sign-out time in Phase 3).
   const generatedAt = useMemo(() => new Date(), []);
   // The build that renders the report, named in its footer (TF-15 §1).

@@ -16,11 +16,12 @@ import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import ViewerMemberSection from './ViewerMemberSection';
-import ViewerTrackBlock from './ViewerTrackBlock';
-import { buildTrackFilterSummary, formatRoiCoordinates } from './viewerShared';
+import ViewerTrackBlock, { TrackMeta, type ViewerRoiRange } from './ViewerTrackBlock';
+import { formatRoiCoordinates } from './viewerShared';
 import { clamp } from '../../lib/number';
 
-interface Layout {
+/** The selected chromosomes laid end to end on one axis, in bp (gaps included). */
+export interface Layout {
   offsets: Record<string, number>;
   lengths: Record<string, number>;
   total: number;
@@ -42,11 +43,6 @@ interface GenomeTrackAvailability {
   repeatExpansions: boolean;
 }
 
-interface GenomeRoiRange {
-  startX: number;
-  endX: number;
-}
-
 interface GenomeRegionSelection {
   chrom: string;
   start: number;
@@ -64,7 +60,7 @@ interface GenomeOverviewWorkspaceProps {
   backDest: string;
   visibleRoi: ApiFamilyRegionOfInterest | null;
   inheritanceModel?: string | null;
-  genomeRoiRange: GenomeRoiRange | null;
+  genomeRoiRange: ViewerRoiRange | null;
   navigateToChromosome: (chrom: string, region?: { start: number; end: number }) => void;
   familyMembers: ApiFamilyMember[];
   visibleMembers: ApiFamilyMember[];
@@ -142,7 +138,7 @@ const resolveGenomeRegionSelection = (
 };
 
 const GenomeRegionSelectionSurface: React.FC<{
-  layout: Layout | null;
+  layout: Layout;
   width: number;
   height: number;
   onSelectRegion: (chrom: string, region: { start: number; end: number }) => void;
@@ -161,7 +157,6 @@ const GenomeRegionSelectionSurface: React.FC<{
   };
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!layout) return;
     const nextX = getLocalX(event);
     setDragRange({ startX: nextX, currentX: nextX });
   };
@@ -173,7 +168,7 @@ const GenomeRegionSelectionSurface: React.FC<{
 
   const finishDrag = (endX: number) => {
     setDragRange((current) => {
-      if (!current || !layout) {
+      if (!current) {
         return null;
       }
       if (Math.abs(endX - current.startX) < MIN_REGION_SELECT_WIDTH_PX) {
@@ -227,15 +222,6 @@ const GenomeRegionSelectionSurface: React.FC<{
       )}
     </div>
   );
-};
-
-const TrackMeta: React.FC<{
-  variantFilters: Record<string, string>;
-  sampleFilter?: string;
-}> = ({ variantFilters, sampleFilter }) => {
-  const summary = buildTrackFilterSummary(variantFilters, sampleFilter);
-  if (!summary) return null;
-  return <span className="viewer-track-meta">{summary}</span>;
 };
 
 const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({

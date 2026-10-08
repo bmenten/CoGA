@@ -40,7 +40,8 @@ De bron is de tabel `entries` in ClickHouse, niet een vooraf berekende samenvatt
 
 - worden de genotypes per sample uitgevouwen tot één regel per sample;
 - tellen alleen echte dragers mee; *Het*, *Hom* en drager volgen de genotypeklassen van `backend/app/services/genotypes.py` (hoofdstuk 8), zodat bv. een haploïde `1` als homozygoot telt;
-- wordt elk sample en elke familie maar één keer geteld, ook als het onder meerdere toegankelijke projecten voorkomt.
+- wordt elk sample en elke familie maar één keer geteld, ook als het onder meerdere toegankelijke projecten voorkomt;
+- tellen geïmputeerde en gefaseerde calls (bron `glimpse2` of `shapeit`) niet mee, tenzij de gebruiker *Include imputed variants (GLIMPSE2 / SHAPEIT)* aanvinkt; dat geldt voor de tellers, de voorwaarden per sample en het dragervenster.
 
 **De dragers per familie.** Het dragervenster haalt de dragers van één variant op (begrensd, met een melding als er meer zijn), houdt per familie en sample één record over (homozygoot gaat voor), en koppelt die aan de namen van familie, project en lid uit Postgres. Een familie die de gebruiker niet mag zien, ontbreekt in die koppeling, en haar drager wordt dan overgeslagen. De koppeling is dus tegelijk een tweede toegangscontrole.
 
@@ -49,18 +50,18 @@ De bron is de tabel `entries` in ClickHouse, niet een vooraf berekende samenvatt
 Bovenop de gewone annotatiefilters (gen, panel, impact, ClinVar, gnomAD, CADD, REVEL, SpliceAI, …) kent de Explorer twee soorten filters:
 
 1. **Tags en classificaties.** Die staan in Postgres, per familie. Filtert de gebruiker erop, dan zoekt de Explorer eerst in Postgres de bijbehorende variant-id's binnen de toegankelijke projecten, en geeft die lijst mee aan de ClickHouse-vraag. Een lege lijst betekent meteen een leeg resultaat.
-2. **Genotype per sample.** De gebruiker voegt regels toe als *sample: Het, Hom of Het+Hom*. Elke regel wordt een aparte voorwaarde; een variant moet aan alle regels voldoen.
+2. **Genotype per sample.** De gebruiker voegt regels toe van de vorm sample met *Het*, *Hom* of *Het + Hom*. Elke regel wordt een aparte voorwaarde; een variant moet aan alle regels voldoen.
 
 Met de standaardinstelling "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter" gebruikt de Explorer dezelfde ClinVar-termen als de familiepagina.
 
-Elke waarde die de gebruiker aanlevert, gaat als benoemde parameter (`%(naam)s`) in de query en wordt door de ClickHouse-client gebonden, nooit in de tekst geplakt (hoofdstuk 7).
+Elke waarde die de gebruiker aanlevert, gaat als benoemde parameter (`%(naam)s`) naar de ClickHouse-client, die ze ge-escapet in de query zet; de code van CoGA plakt ze nooit zelf in de tekst (hoofdstuk 7).
 
 ## Afscherming tussen projecten
 
 Dit is voor een auditor het belangrijkste deel. Elke vraag is hard beperkt tot de projecten van de gebruiker:
 
 - De scope wordt op één plaats bepaald. **Beheerders** (`admin` of `superuser`) zien alle projecten; **andere gebruikers** alleen hun eigen projecten. Heeft een gebruiker geen projecten, dan is het resultaat gegarandeerd leeg.
-- Elke ClickHouse-vraag krijgt die projecten verplicht mee (`project_guid IN …`): de lijstvraag, de begrensde telling, de voorwaarden per sample en de dragervraag. Omdat `project_guid` gelijk is aan de project-UUID in Postgres, vallen rijen van andere projecten weg voordat er iets geteld wordt.
+- Elke vraag naar `entries` krijgt die projecten verplicht mee (`project_guid IN …`): de lijstvraag, de begrensde telling, de voorwaarden per sample en de dragervraag. Omdat `project_guid` gelijk is aan de project-UUID in Postgres, vallen rijen van andere projecten weg voordat er iets geteld wordt. De annotatie van de zichtbare pagina komt daarna per variantsleutel uit de annotatie-index, die geen project-, familie- of samplegegevens bevat.
 - De frontend toont alleen een melding als er niets is ("… in your accessible projects"); de afscherming zit volledig op de server.
 
 Het bestand `backend/app/services/data_scope.py` gaat, ondanks de naam, niet over deze afscherming maar over chromosoomnamen. Wie de toegangsscope zoekt, kijkt in `variant_explorer_service.py` (`resolve_scope`).

@@ -5,14 +5,15 @@ import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyPageHeader from './FamilyPageHeader';
+import FilterCollapseToggle from './FilterCollapseToggle';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
-import LoadingBar from '../../components/LoadingBar';
 import QueryFailure from '../../components/QueryFailure';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import StructuralVariantFilterForm from './StructuralVariantFilterForm';
 import StructuralVariantResults from './StructuralVariantResults';
+import VariantResultsLoading from './VariantResultsLoading';
 import {
   buildStructuralPresetPayload,
   structuralLocationProblem,
@@ -26,10 +27,8 @@ import {
   type StructuralVariantReviewSavePayload,
   type StructuralVariantTagDefinition,
 } from './structuralVariantSearch';
-import {
-  addableTagDefinitions,
-  normalizeReviewClassification,
-} from './smallVariantSearch';
+import { addableTagDefinitions } from './smallVariantSearch';
+import { fetchFamilyReviewTags, quickTagTogglePayload } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
 import type { CandidateCapFlags } from './CandidateCapNotice';
 
@@ -183,15 +182,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   const { data: tags = [] } = useQuery<StructuralVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'structural-variant-tags', projectId || null],
     enabled: Boolean(familyId),
-    queryFn: async () => {
-      // Structural and small-variant tags share the same store (small_variant_tag_definitions);
-      // there is no separate structural endpoint.
-      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
-      });
-      return res.data as StructuralVariantTagDefinition[];
-    },
+    queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
 
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery<StructuralVariantPage>({
@@ -355,19 +346,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         footer={
           <>
 
-        <div className="variant-filter-collapse-bar">
-          <button
-            type="button"
-            className="variant-filter-collapse-toggle"
-            aria-expanded={!filtersCollapsed}
-            onClick={() => setFiltersCollapsed((current) => !current)}
-          >
-            <span className="variant-filter-dropdown-caret" aria-hidden="true">
-              ▾
-            </span>
-            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
-          </button>
-        </div>
+        <FilterCollapseToggle
+          collapsed={filtersCollapsed}
+          onToggle={() => setFiltersCollapsed((current) => !current)}
+        />
         {!filtersCollapsed && (
         <StructuralVariantFilterForm
           activeFilterChips={activeFilterChips}
@@ -418,28 +400,11 @@ const FamilyStructuralVariantsPage: React.FC = () => {
       ) : null}
 
       <div className="variant-results-region">
-        {isFetching ? <LoadingBar label="Loading variants" /> : null}
         {isFetching ? (
-          <>
-            <div className="variant-results-overlay" aria-hidden="true" />
-            <div
-              className="variant-results-loading-card"
-              role="status"
-              aria-live="polite"
-              aria-busy="true"
-            >
-              <span
-                className="viz-loading-spinner viz-loading-spinner--lg"
-                aria-hidden="true"
-              />
-              <div className="variant-results-overlay-text">
-                <span className="variant-results-overlay-title">Loading variants…</span>
-                <span className="variant-results-overlay-sub">
-                  Applying your filters to this family’s structural-variant calls.
-                </span>
-              </div>
-            </div>
-          </>
+          <VariantResultsLoading
+            title="Loading variants"
+            message="Applying your filters to this family’s structural-variant calls."
+          />
         ) : null}
         {/* A failed search is said as such: its variants used to render as an empty
             table, a family without SVs (#606). */}
@@ -472,19 +437,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         totalPages={totalPages}
         variants={data?.variants || []}
         onToggleReviewTag={async (variant, tagKey) => {
-          const nextTags = new Set(variant.review?.tags || []);
-          if (nextTags.has(tagKey)) nextTags.delete(tagKey);
-          else nextTags.add(tagKey);
-          await reviewMutation.mutateAsync({
-            variant,
-            payload: {
-              classification:
-                normalizeReviewClassification(variant.review?.classification, variant.review?.tags) ||
-                undefined,
-              tags: Array.from(nextTags).sort((left, right) => left.localeCompare(right)),
-              note: variant.review?.note || undefined,
-            },
-          });
+          await reviewMutation.mutateAsync({ variant, payload: quickTagTogglePayload(variant.review, tagKey) });
         }}
         onOpenReview={() => reviewMutation.reset()}
         onSaveReview={async (variant, payload) => {

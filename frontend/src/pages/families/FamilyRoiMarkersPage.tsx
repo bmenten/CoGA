@@ -225,8 +225,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
   );
 
   // Only the informative markers drive the segregation call; the rest are noise here.
-  const baseSites = informativeSites;
-  const shownSites = useMemo(() => baseSites.slice(0, MAX_COLUMNS), [baseSites]);
+  const shownSites = useMemo(() => informativeSites.slice(0, MAX_COLUMNS), [informativeSites]);
   const siteByPos = useMemo(() => new Map(shownSites.map((s) => [s.pos, s])), [shownSites]);
   const sampleOrder = useMemo(() => (phased?.samples ?? []).map((s) => s.sample), [phased?.samples]);
   const qcBySample = useMemo(
@@ -520,9 +519,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
         )}
       </div>
 
-      {shownSites.length < baseSites.length && (
+      {shownSites.length < informativeSites.length && (
         <div className="segregation-note segregation-note--error">
-          Showing the first {shownSites.length.toLocaleString()} of {baseSites.length.toLocaleString()} informative
+          Showing the first {shownSites.length.toLocaleString()} of {informativeSites.length.toLocaleString()} informative
           markers.
         </div>
       )}

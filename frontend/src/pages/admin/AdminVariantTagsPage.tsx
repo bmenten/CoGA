@@ -34,6 +34,62 @@ const EMPTY_NEW_TAG: EditableTagDraft = {
   color: '#5b6b79',
 };
 
+// The edits the create form and the table's edit row both make to a tag draft. A project tag
+// keeps its primary project (or takes the fallback); a global one has none, and the primary
+// project is never also among the projects the tag is shared with.
+const withScope = (
+  draft: EditableTagDraft,
+  scope: string,
+  fallbackProjectId: string,
+): EditableTagDraft => ({
+  ...draft,
+  scope: scope as 'project' | 'global',
+  project_id: scope === 'project' ? draft.project_id || fallbackProjectId : '',
+  shared_project_ids: scope === 'project' ? draft.shared_project_ids : [],
+});
+
+const withPrimaryProject = (draft: EditableTagDraft, projectId: string): EditableTagDraft => ({
+  ...draft,
+  project_id: projectId,
+  shared_project_ids: draft.shared_project_ids.filter((id) => id !== projectId),
+});
+
+const withSharedProjectToggled = (
+  draft: EditableTagDraft,
+  projectId: string,
+  shared: boolean,
+): EditableTagDraft => ({
+  ...draft,
+  shared_project_ids: shared
+    ? draft.shared_project_ids.filter((id) => id !== projectId)
+    : [...draft.shared_project_ids, projectId],
+});
+
+/** A checkbox per project other than the draft's primary one, ticked when it is shared. */
+const SharedProjectChecklist: React.FC<{
+  projects: Array<{ id: string; name: string }>;
+  draft: EditableTagDraft;
+  onToggle: (projectId: string, shared: boolean) => void;
+}> = ({ projects, draft, onToggle }) => (
+  <div className="variant-checkbox-grid variant-checkbox-grid--small">
+    {projects
+      .filter((project) => project.id !== draft.project_id)
+      .map((project) => {
+        const checked = draft.shared_project_ids.includes(project.id);
+        return (
+          <label key={project.id} className="analysis-checkbox variant-compact-checkbox">
+            <input
+              type="checkbox"
+              checked={checked}
+              onChange={() => onToggle(project.id, checked)}
+            />
+            {project.name}
+          </label>
+        );
+      })}
+  </div>
+);
+
 const AdminVariantTagsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: projects = [], isLoading: projectsLoading, error: projectsError } = useProjectCatalog();
@@ -331,15 +387,9 @@ const AdminVariantTagsPage: React.FC = () => {
                 <select
                   value={newTag.scope}
                   onChange={(event) =>
-                    setNewTag((current) => ({
-                      ...current,
-                      scope: event.target.value as 'project' | 'global',
-                      project_id:
-                        event.target.value === 'project'
-                          ? current.project_id || selectedProjectId || ''
-                          : '',
-                      shared_project_ids: event.target.value === 'project' ? current.shared_project_ids : [],
-                    }))
+                    setNewTag((current) =>
+                      withScope(current, event.target.value, selectedProjectId || ''),
+                    )
                   }
                 >
                   <option value="project">Project</option>
@@ -352,13 +402,7 @@ const AdminVariantTagsPage: React.FC = () => {
                   value={newTag.project_id}
                   disabled={newTag.scope !== 'project'}
                   onChange={(event) =>
-                    setNewTag((current) => ({
-                      ...current,
-                      project_id: event.target.value,
-                      shared_project_ids: current.shared_project_ids.filter(
-                        (projectId) => projectId !== event.target.value,
-                      ),
-                    }))
+                    setNewTag((current) => withPrimaryProject(current, event.target.value))
                   }
                 >
                   <option value="">Select project</option>
@@ -408,30 +452,13 @@ const AdminVariantTagsPage: React.FC = () => {
             {newTag.scope === 'project' && (
               <div className="space-y-2">
                 <p className="section-copy">Share with other projects (optional)</p>
-                <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                  {projects
-                    .filter((project) => project.id !== newTag.project_id)
-                    .map((project) => {
-                      const checked = newTag.shared_project_ids.includes(project.id);
-                      return (
-                        <label key={project.id} className="analysis-checkbox variant-compact-checkbox">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() =>
-                              setNewTag((current) => ({
-                                ...current,
-                                shared_project_ids: checked
-                                  ? current.shared_project_ids.filter((projectId) => projectId !== project.id)
-                                  : [...current.shared_project_ids, project.id],
-                              }))
-                            }
-                          />
-                          {project.name}
-                        </label>
-                      );
-                    })}
-                </div>
+                <SharedProjectChecklist
+                  projects={projects}
+                  draft={newTag}
+                  onToggle={(projectId, shared) =>
+                    setNewTag((current) => withSharedProjectToggled(current, projectId, shared))
+                  }
+                />
               </div>
             )}
             <div className="inline-actions">
@@ -545,16 +572,9 @@ const AdminVariantTagsPage: React.FC = () => {
                               <select
                                 value={editingTagDraft.scope}
                                 onChange={(event) =>
-                                  setEditingTagDraft((current) => ({
-                                    ...current,
-                                    scope: event.target.value as 'project' | 'global',
-                                    project_id:
-                                      event.target.value === 'project'
-                                        ? current.project_id || selectedProjectId || ''
-                                        : '',
-                                    shared_project_ids:
-                                      event.target.value === 'project' ? current.shared_project_ids : [],
-                                  }))
+                                  setEditingTagDraft((current) =>
+                                    withScope(current, event.target.value, selectedProjectId || ''),
+                                  )
                                 }
                               >
                                 <option value="project">Project</option>
@@ -570,13 +590,9 @@ const AdminVariantTagsPage: React.FC = () => {
                                 <select
                                   value={editingTagDraft.project_id}
                                   onChange={(event) =>
-                                    setEditingTagDraft((current) => ({
-                                      ...current,
-                                      project_id: event.target.value,
-                                      shared_project_ids: current.shared_project_ids.filter(
-                                        (projectId) => projectId !== event.target.value,
-                                      ),
-                                    }))
+                                    setEditingTagDraft((current) =>
+                                      withPrimaryProject(current, event.target.value),
+                                    )
                                   }
                                 >
                                   <option value="">Select project</option>
@@ -600,36 +616,15 @@ const AdminVariantTagsPage: React.FC = () => {
                           <td>
                             {isEditing ? (
                               editingTagDraft.scope === 'project' ? (
-                                <div className="variant-checkbox-grid variant-checkbox-grid--small">
-                                  {projects
-                                    .filter((project) => project.id !== editingTagDraft.project_id)
-                                    .map((project) => {
-                                      const checked =
-                                        editingTagDraft.shared_project_ids.includes(project.id);
-                                      return (
-                                        <label
-                                          key={project.id}
-                                          className="analysis-checkbox variant-compact-checkbox"
-                                        >
-                                          <input
-                                            type="checkbox"
-                                            checked={checked}
-                                            onChange={() =>
-                                              setEditingTagDraft((current) => ({
-                                                ...current,
-                                                shared_project_ids: checked
-                                                  ? current.shared_project_ids.filter(
-                                                      (projectId) => projectId !== project.id,
-                                                    )
-                                                  : [...current.shared_project_ids, project.id],
-                                              }))
-                                            }
-                                          />
-                                          {project.name}
-                                        </label>
-                                      );
-                                    })}
-                                </div>
+                                <SharedProjectChecklist
+                                  projects={projects}
+                                  draft={editingTagDraft}
+                                  onToggle={(projectId, shared) =>
+                                    setEditingTagDraft((current) =>
+                                      withSharedProjectToggled(current, projectId, shared),
+                                    )
+                                  }
+                                />
                               ) : (
                                 <span className="table-empty">—</span>
                               )

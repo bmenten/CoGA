@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, Field
 
 from .auth import (
     UserRefOut,
@@ -114,8 +114,6 @@ class FamilyMetadataUpdate(BaseModel):
     assigned_to: Optional[ApiId] = None
     reviewed_by: Optional[ApiId] = None
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
 class FamilyStatusOut(BaseModel):
     """An admin-managed family status value."""
@@ -127,8 +125,6 @@ class FamilyStatusOut(BaseModel):
     color: str
     sort_order: int
     is_active: bool
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
 
 
 class FamilyStatusCreate(BaseModel):

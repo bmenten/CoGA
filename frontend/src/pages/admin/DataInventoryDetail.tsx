@@ -7,6 +7,7 @@ import {
   FAMILY_TRACK_ORDER,
   SAMPLE_TRACK_ORDER,
   TRACK_LABELS,
+  normalizeProjectIds,
   phenotypeLabel,
   roleLabel,
 } from './dataManagementTypes';
@@ -79,12 +80,10 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
     );
   }
 
-  const normalizedDraftProjectIds = Array.from(
-    new Set(familyProjectDrafts[selectedFamily.family_id] ?? selectedFamily.projects),
-  ).sort((left, right) => left.localeCompare(right));
-  const normalizedSavedProjectIds = Array.from(new Set(selectedFamily.projects)).sort((left, right) =>
-    left.localeCompare(right),
+  const normalizedDraftProjectIds = normalizeProjectIds(
+    familyProjectDrafts[selectedFamily.family_id] ?? selectedFamily.projects,
   );
+  const normalizedSavedProjectIds = normalizeProjectIds(selectedFamily.projects);
   const hasProjectDraftChanges =
     normalizedDraftProjectIds.length !== normalizedSavedProjectIds.length ||
     normalizedDraftProjectIds.some((projectId, index) => projectId !== normalizedSavedProjectIds[index]);

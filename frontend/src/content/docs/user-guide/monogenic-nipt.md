@@ -24,8 +24,9 @@ must carry FORMAT/AD.
   the fetal sex from the father's X alleles and from the chrY coverage, **paternity**, the maternal
   plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. A
   failed paternity check means another father or a sample mix-up: do not read the variants.
-- **The filters** are the small-variant filters plus **Maternal/fetal categories** (tick any of the
-  eight; each shows its count) and an **Inheritance** view:
+- **The filters** are the small-variant page's *Pathogenicity*, *Annotations*, *In Silico*, *Frequency*,
+  *Locations* and *Exclude* filters, plus **Maternal/fetal categories** (tick any of the eight; each
+  shows its count), a minimum classification confidence and an **Inheritance** view:
   - *De novo in the fetus*: calls in the fetal window without a supported call in the father, triaged
     and ranked by score. **List de novo candidates of priority** picks high, high and medium, or every
     candidate.

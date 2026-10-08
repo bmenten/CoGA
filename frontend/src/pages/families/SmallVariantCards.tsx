@@ -13,7 +13,6 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
-  buildReviewTagTooltip,
   buildSmallVariantExternalLinks,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
@@ -24,19 +23,18 @@ import {
   formatGenomicChange,
   formatLocus,
   formatPredictionScore,
-  formatReviewTagLabel,
   formatScore,
   formatTokenLabel,
   getClinvarHighlightTone,
   getClinvarTone,
   getImpactTone,
   getReviewClassificationTone,
-  getReviewTagStyle,
   parseVariantIds,
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import ReviewTagChip from './ReviewTagChip';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
@@ -782,18 +780,13 @@ export default function SmallVariantCards({
                   <span className="variant-card-chip variant-card-chip--impact">Comp-het pair</span>
                 ) : null}
                 {visibleReviewTags.map((tagKey) => (
-                  <span
+                  <ReviewTagChip
                     key={tagKey}
                     className="variant-card-chip variant-card-chip--tag"
-                    style={getReviewTagStyle(tagKey, tagMap)}
-                    title={buildReviewTagTooltip({
-                      tagKey,
-                      tagMap,
-                      tagMetadata: variant.review?.tag_metadata,
-                    })}
-                  >
-                    {formatReviewTagLabel(tagKey, tagMap)}
-                  </span>
+                    tagKey={tagKey}
+                    tagMap={tagMap}
+                    tagMetadata={variant.review?.tag_metadata}
+                  />
                 ))}
               </div>
             ) : null}

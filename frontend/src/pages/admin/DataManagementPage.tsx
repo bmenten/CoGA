@@ -9,15 +9,12 @@ import DataInventoryDetail from './DataInventoryDetail';
 import DeleteFamilyDialog from './DeleteFamilyDialog';
 import {
   EMPTY_PROJECTS,
+  normalizeProjectIds,
   type FamilyData,
   type ProjectOption,
+  type StatusTone,
 } from './dataManagementTypes';
 import { apiPath } from '../../lib/apiPath';
-
-type StatusTone = 'success' | 'error';
-
-const normalizeProjectIds = (projectIds: string[]) =>
-  Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right));
 
 const DataManagementPage: React.FC = () => {
   const queryClient = useQueryClient();

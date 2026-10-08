@@ -203,7 +203,8 @@ status. Hover a cell for the explanation. The genetic sex carries a mark for its
 
 **Relatedness matrix.** A sample × sample grid (lower half only; it is symmetric). Each cell shows the
 inferred relationship, the kinship φ and the IBS0. A pair that contradicts the pedigree — including
-parents who look related — is outlined in red.
+parents who look related — is outlined: red for a fail, amber for a warning (for example parents who
+look second or third degree, or a pair with too few shared sites).
 
 **NIPT cards.** For a cfDNA family the page adds *Paternity*, *Fetal sex* and *cfDNA category QC*
 cards, and the parent-sex rows appear in the per-sample table.
@@ -212,8 +213,9 @@ cards, and the parent-sex rows appear in the per-sample table.
 
 ## Sign-out and limits
 
-- **Sample QC gates sign-out.** A failed Sample QC, or a pedigree check that could not run for lack of
-  data, stops sign-out until someone acknowledges it with a reason (see the
+- **Sample QC gates sign-out.** A failed Sample QC, or a check of the pedigree or of a sample's identity
+  that could not run for lack of data (such as a NIPT parent's sex, see *Parent sex*), stops sign-out
+  until someone acknowledges it with a reason (see the
   [traceability reference](/docs/reference/clinical-traceability)).
 - **Missing data gives a warning, not an error.** If the genotypes or the cfDNA analysis cannot be
   loaded, the page says so and shows what it could compute.

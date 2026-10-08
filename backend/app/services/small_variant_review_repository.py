@@ -179,6 +179,28 @@ async def _delete_review_row(session: AsyncSession, review_id: str) -> None:
     )
 
 
+def _review_row_params(fields: dict[str, Any]) -> dict[str, Any]:
+    """The bind parameters a review row's INSERT and UPDATE share: the fields as given, the
+    key bounded to a Postgres bigint, and the JSONB columns serialised."""
+    return {
+        **fields,
+        "variant_key": _postgres_bigint_or_none(fields.get("variant_key")),
+        "tags_json": _json_payload(fields.get("tags", [])),
+        "tag_metadata_json": _json_payload(fields.get("tag_metadata", {})),
+        "compound_het_partner_variant_ids_json": _json_payload(
+            fields.get("compound_het_partner_variant_ids", [])
+        ),
+        "compound_het_tags_json": _json_payload(fields.get("compound_het_tags", [])),
+        "compound_het_tag_metadata_json": _json_payload(
+            fields.get("compound_het_tag_metadata", {})
+        ),
+        "acmg_json": _acmg_json_or_none(fields.get("acmg")),
+        "acmg_point_total": fields.get("acmg_point_total"),
+        "acmg_class": fields.get("acmg_class"),
+        "acmg_evidence_snapshot_json": _json_or_none(fields.get("acmg_evidence_snapshot")),
+    }
+
+
 async def _update_review_row(
     session: AsyncSession,
     *,
@@ -216,24 +238,7 @@ async def _update_review_row(
             WHERE id = CAST(:review_id AS uuid)
             """
         ),
-        {
-            **fields,
-            "variant_key": _postgres_bigint_or_none(fields.get("variant_key")),
-            "tags_json": _json_payload(fields.get("tags", [])),
-            "tag_metadata_json": _json_payload(fields.get("tag_metadata", {})),
-            "compound_het_partner_variant_ids_json": _json_payload(
-                fields.get("compound_het_partner_variant_ids", [])
-            ),
-            "compound_het_tags_json": _json_payload(fields.get("compound_het_tags", [])),
-            "compound_het_tag_metadata_json": _json_payload(
-                fields.get("compound_het_tag_metadata", {})
-            ),
-            "acmg_json": _acmg_json_or_none(fields.get("acmg")),
-            "acmg_point_total": fields.get("acmg_point_total"),
-            "acmg_class": fields.get("acmg_class"),
-            "acmg_evidence_snapshot_json": _json_or_none(fields.get("acmg_evidence_snapshot")),
-            "review_id": review_id,
-        },
+        {**_review_row_params(fields), "review_id": review_id},
     )
 
 
@@ -303,25 +308,7 @@ async def _insert_review_row(
             )
             """
         ),
-        {
-            **fields,
-            "variant_key": _postgres_bigint_or_none(fields.get("variant_key")),
-            "tags_json": _json_payload(fields.get("tags", [])),
-            "tag_metadata_json": _json_payload(fields.get("tag_metadata", {})),
-            "compound_het_partner_variant_ids_json": _json_payload(
-                fields.get("compound_het_partner_variant_ids", [])
-            ),
-            "compound_het_tags_json": _json_payload(fields.get("compound_het_tags", [])),
-            "compound_het_tag_metadata_json": _json_payload(
-                fields.get("compound_het_tag_metadata", {})
-            ),
-            "acmg_json": _acmg_json_or_none(fields.get("acmg")),
-            "acmg_point_total": fields.get("acmg_point_total"),
-            "acmg_class": fields.get("acmg_class"),
-            "acmg_evidence_snapshot_json": _json_or_none(fields.get("acmg_evidence_snapshot")),
-            "family_id": family_uuid,
-            "created_at": created_at,
-        },
+        {**_review_row_params(fields), "family_id": family_uuid, "created_at": created_at},
     )
 
 

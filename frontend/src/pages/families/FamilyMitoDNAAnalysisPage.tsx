@@ -25,6 +25,7 @@ import type {
   SmallVariantReview,
   SmallVariantReviewSavePayload,
 } from './smallVariantSearch';
+import { buildSmallVariantReviewPath } from './smallVariantReview';
 import { apiPath } from '../../lib/apiPath';
 
 // gnomAD allele-frequency cut-offs offered in the "common variant" filter.
@@ -195,13 +196,7 @@ const isClinicalVariant = (variant: ApiMitoDNAVariant): boolean =>
   ) || variant.annotation.disorders.length > 0;
 
 const orderedByFamilyRole = (samples: ApiMitoDNASample[]): ApiMitoDNASample[] => {
-  const memberLike = samples.map((sample) => ({
-    sample_id: sample.sample_id,
-    role: sample.role || 'relative',
-    affected: Boolean(sample.affected),
-    sex: sample.sex || 'und',
-  }));
-  const ordered = sortFamilyMembersProbandFirst(memberLike);
+  const ordered = sortFamilyMembersProbandFirst(samplesToMembers(samples));
   const rank = new Map(ordered.map((member, index) => [member.sample_id, index]));
   return [...samples].sort(
     (left, right) => (rank.get(left.sample_id) ?? 999) - (rank.get(right.sample_id) ?? 999),
@@ -438,9 +433,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
       if (!familyId) {
         throw new Error('Family id is required');
       }
-      const path = `/families/${encodeURIComponent(familyId)}/small-variants/${encodeURIComponent(
-        variantId,
-      )}/review`;
+      const path = buildSmallVariantReviewPath(familyId, variantId);
       const body = withReviewVersion(payload, review);
       const res = resolvedProjectId
         ? await api.put(path, body, { params: { project_id: resolvedProjectId } })

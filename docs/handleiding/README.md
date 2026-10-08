@@ -29,7 +29,7 @@ pip install markdown
 python docs/handleiding/build_site.py
 ```
 
-Werk je een hoofdstuk bij of verandert `VERSION`, bouw de pagina dan opnieuw en commit ze mee. Gebruik dezelfde versie van `markdown` als CI (de stap *catalogue* in `.github/workflows/ci.yml`), zodat de uitvoer overeenkomt.
+Werk je een hoofdstuk bij of verandert `VERSION`, bouw de pagina dan opnieuw en commit ze mee. Gebruik dezelfde versie van `markdown` als CI (de job *catalogue* in `.github/workflows/ci.yml`), zodat de uitvoer overeenkomt.
 
 ## Inhoudstabel
 

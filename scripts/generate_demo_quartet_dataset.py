@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a dense deterministic demo family dataset for CoGA."""
+"""Generate the deterministic demo family dataset for CoGA (demo/quartet_family)."""
 
 from __future__ import annotations
 
@@ -725,14 +725,6 @@ def generate_apcad(sample_id: str, rng: random.Random, transmissions: Mapping[st
     return upload_lines, import_lines
 
 
-def membership_counts_per_sample() -> Dict[str, int]:
-    counts = {sample["sample_id"]: 0 for sample in SAMPLES}
-    for _, members, count in STRUCTURAL_CATEGORY_COUNTS:
-        for member in members:
-            counts[member] += count
-    return counts
-
-
 def expand_structural_memberships() -> List[Tuple[str, Tuple[str, ...]]]:
     memberships: List[Tuple[str, Tuple[str, ...]]] = []
     for label, members, count in STRUCTURAL_CATEGORY_COUNTS:
@@ -1120,11 +1112,6 @@ def build_small_variant_specs(rng: random.Random) -> List[SmallVariantSpec]:
 
 def genotype_string(a: int, b: int) -> str:
     return f"{a}|{b}"
-
-
-def gt_tuple(gt: str) -> Tuple[int, int]:
-    left, right = gt.split("|", 1)
-    return int(left), int(right)
 
 
 def build_clair3_sample_field(gt: str, ps: int | None, rng: random.Random) -> str:

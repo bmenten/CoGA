@@ -1605,8 +1605,8 @@ def _clinical_cnv_out(row: Mapping[str, Any], *, assembly: str | None) -> Clinic
         end=int(row["end"]),
         type=row.get("type"),
         label=row["label"],
-        # Sanitise again on the way out so legacy rows stored before ingest sanitisation
-        # (or any bypassed write path) can never serve unsafe HTML to the render sink.
+        # Sanitise again on the way out (defence in depth): a row written by a path that
+        # bypassed ingest sanitisation can never serve unsafe HTML to the render sink.
         details_html=sanitize_reference_html(row.get("details_html")),
         assembly=assembly,
         omim_id=row.get("omim_id"),

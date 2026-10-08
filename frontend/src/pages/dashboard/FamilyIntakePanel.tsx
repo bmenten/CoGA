@@ -450,6 +450,67 @@ const FamilyIntakePanel: React.FC = () => {
     );
   };
 
+  // Saves a family with `run(false)`. When it already exists (409), an admin is asked before
+  // it is replaced with `run(true)`; anyone else is told to ask one. Says what happened, and
+  // resets the form after a family was saved.
+  const submitFamily = async (
+    run: (overwrite: boolean) => Promise<{ data: PedUploadResult }>,
+    messages: {
+      createdVerb: string;
+      noFamily: string;
+      failed: string;
+      cancelled: string;
+      reset: () => void;
+    }
+  ) => {
+    const reportSaved = (response: { data: PedUploadResult }, verb: string) => {
+      const result = response.data.families[0];
+      if (!result) {
+        setStatusTone('error');
+        setStatus(messages.noFamily);
+        return;
+      }
+      setStatusTone('success');
+      setStatus(
+        `${verb} ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
+      );
+      messages.reset();
+    };
+
+    setStatus('');
+    setLoading(true);
+    try {
+      reportSaved(await run(false), messages.createdVerb);
+    } catch (err: unknown) {
+      if ((err as { response?: { status?: number } })?.response?.status === 409) {
+        if (!userIsAdmin) {
+          setStatusTone('error');
+          setStatus('Family already exists; ask an admin to update or replace it.');
+          return;
+        }
+        const overwrite = window.confirm(
+          'This family already exists. Do you want to overwrite the existing family and samples?'
+        );
+        if (overwrite) {
+          try {
+            reportSaved(await run(true), 'Replaced');
+          } catch (overwriteError: unknown) {
+            setStatusTone('error');
+            setStatus(getErrorMessage(overwriteError, messages.failed));
+          }
+        } else {
+          setStatusTone('error');
+          setStatus(messages.cancelled);
+        }
+      } else {
+        setStatusTone('error');
+        setStatus(getErrorMessage(err, messages.failed));
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const submitPedUpload = async () => {
     if (!userIsAdmin) {
       setStatusTone('error');
@@ -494,68 +555,20 @@ const FamilyIntakePanel: React.FC = () => {
       });
     };
 
-    setStatus('');
-    setLoading(true);
-    try {
-      const response = await runUpload(false);
-      const result = response.data.families[0];
-      if (!result) {
-        setStatusTone('error');
-        setStatus('No families were parsed from the PED file. Check that each row has at least six space-separated columns.');
-        return;
-      }
-      setStatusTone('success');
-      setStatus(
-        `Imported ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
-      );
-      setPedFile(null);
-      setPedRoiQuery('');
-      setPedInheritanceModel('');
-      setPedObligateCarriers('');
-      setPedProvenCarriers('');
-    } catch (err: unknown) {
-      if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        if (!userIsAdmin) {
-          setStatusTone('error');
-          setStatus('Family already exists; ask an admin to update or replace it.');
-          return;
-        }
-        const overwrite = window.confirm(
-          'This family already exists. Do you want to overwrite the existing family and samples?'
-        );
-        if (overwrite) {
-          try {
-            const response = await runUpload(true);
-            const result = response.data.families[0];
-            if (!result) {
-              setStatusTone('error');
-              setStatus('No families were parsed from the PED file. Check that each row has at least six space-separated columns.');
-              return;
-            }
-            setStatusTone('success');
-            setStatus(
-              `Replaced ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
-            );
-            setPedFile(null);
-            setPedRoiQuery('');
-            setPedInheritanceModel('');
-            setPedObligateCarriers('');
-            setPedProvenCarriers('');
-          } catch (overwriteError: unknown) {
-            setStatusTone('error');
-            setStatus(getErrorMessage(overwriteError, 'PED upload failed.'));
-          }
-        } else {
-          setStatusTone('error');
-          setStatus('PED upload cancelled.');
-        }
-      } else {
-        setStatusTone('error');
-        setStatus(getErrorMessage(err, 'PED upload failed.'));
-      }
-    } finally {
-      setLoading(false);
-    }
+    await submitFamily(runUpload, {
+      createdVerb: 'Imported',
+      noFamily:
+        'No families were parsed from the PED file. Check that each row has at least six space-separated columns.',
+      failed: 'PED upload failed.',
+      cancelled: 'PED upload cancelled.',
+      reset: () => {
+        setPedFile(null);
+        setPedRoiQuery('');
+        setPedInheritanceModel('');
+        setPedObligateCarriers('');
+        setPedProvenCarriers('');
+      },
+    });
   };
 
   const submitManualFamily = async () => {
@@ -604,66 +617,18 @@ const FamilyIntakePanel: React.FC = () => {
       return api.post<PedUploadResult>(url, payload);
     };
 
-    setStatus('');
-    setLoading(true);
-    try {
-      const response = await runCreate(false);
-      const result = response.data.families[0];
-      if (!result) {
-        setStatusTone('error');
-        setStatus('Family creation returned no family. Please try again.');
-        return;
-      }
-      setStatusTone('success');
-      setStatus(
-        `Created ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
-      );
-      setFamilyId('');
-      setMonogenicNipt(false);
-      setMembers([createDraftMember({ isProband: true, affected: true })]);
-      setCouples([]);
-    } catch (err: unknown) {
-      if ((err as { response?: { status?: number } })?.response?.status === 409) {
-        if (!userIsAdmin) {
-          setStatusTone('error');
-          setStatus('Family already exists; ask an admin to update or replace it.');
-          return;
-        }
-        const overwrite = window.confirm(
-          'This family already exists. Do you want to overwrite the existing family and samples?'
-        );
-        if (overwrite) {
-          try {
-            const response = await runCreate(true);
-            const result = response.data.families[0];
-            if (!result) {
-              setStatusTone('error');
-              setStatus('Family creation returned no family. Please try again.');
-              return;
-            }
-            setStatusTone('success');
-            setStatus(
-              `Replaced ${result.family_id} with ${result.samples.length} sample(s) in ${selectedProject?.name ?? 'the selected project'}.`
-            );
-            setFamilyId('');
-            setMonogenicNipt(false);
-            setMembers([createDraftMember({ isProband: true, affected: true })]);
-            setCouples([]);
-          } catch (overwriteError: unknown) {
-            setStatusTone('error');
-            setStatus(getErrorMessage(overwriteError, 'Family creation failed.'));
-          }
-        } else {
-          setStatusTone('error');
-          setStatus('Family creation cancelled.');
-        }
-      } else {
-        setStatusTone('error');
-        setStatus(getErrorMessage(err, 'Family creation failed.'));
-      }
-    } finally {
-      setLoading(false);
-    }
+    await submitFamily(runCreate, {
+      createdVerb: 'Created',
+      noFamily: 'Family creation returned no family. Please try again.',
+      failed: 'Family creation failed.',
+      cancelled: 'Family creation cancelled.',
+      reset: () => {
+        setFamilyId('');
+        setMonogenicNipt(false);
+        setMembers([createDraftMember({ isProband: true, affected: true })]);
+        setCouples([]);
+      },
+    });
   };
 
   const validationErrors = useMemo(
@@ -678,7 +643,7 @@ const FamilyIntakePanel: React.FC = () => {
   const pedigreeMembers = useMemo(() => pedigreeMembersFor(members), [members]);
   const pedigreeRelationships = useMemo(() => pedigreeRelationshipsFor(couples), [couples]);
   const selectableMembers = members.filter((member) => member.sampleId.trim());
-  const namedMembersCount = members.filter((member) => member.sampleId.trim()).length;
+  const namedMembersCount = selectableMembers.length;
   const affectedCount = members.filter((member) => member.affected).length;
 
   return (

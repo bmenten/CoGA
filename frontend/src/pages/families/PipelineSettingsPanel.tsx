@@ -1,9 +1,7 @@
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
 
-import api from '../../lib/api';
-import type { ApiAnnotationManifest, ApiAnnotationModule } from '../../lib/apiTypes';
-import { apiPath } from '../../lib/apiPath';
+import type { ApiAnnotationModule } from '../../lib/apiTypes';
+import { useAnnotationManifest } from './AnnotationProvenanceSummary';
 
 /**
  * Settings of the upstream analysis pipeline, recorded per family at package import
@@ -189,16 +187,8 @@ const PipelineSettingsPanel: React.FC<PipelineSettingsPanelProps> = ({
 }) => {
   // Tool versions live in the family's annotation manifest, separately from the run
   // parameters — a run is only traceable with both, so show them together.
-  const {
-    data: manifest,
-    isError: manifestFailed,
-    refetch: refetchManifest,
-  } = useQuery<ApiAnnotationManifest>({
-    queryKey: ['family', familyId, 'annotation-manifest'],
-    enabled: Boolean(familyId),
-    queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/annotation-manifest`)).data as ApiAnnotationManifest,
-  });
+  const { data: manifest, isError: manifestFailed, refetch: refetchManifest } =
+    useAnnotationManifest(familyId);
 
   const versioned = (manifest?.modules ?? []).filter((module) => module.version);
   // A failed manifest is not a run without tool versions: the panel says so rather than

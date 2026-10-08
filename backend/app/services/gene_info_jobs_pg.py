@@ -131,19 +131,6 @@ async def _get_human_context(session: AsyncSession) -> HumanGeneContext:
     return HumanGeneContext(species=dict(species_row), assemblies=assemblies)
 
 
-async def _fetch_species_rows(session: AsyncSession) -> list[dict[str, Any]]:
-    result = await session.execute(
-        text(
-            """
-            SELECT id::text AS id, name, common_name
-            FROM species
-            ORDER BY lower(name)
-            """
-        )
-    )
-    return [dict(row) for row in result.mappings().all()]
-
-
 def _expand_groups_with_hgnc(
     grouped_by_symbol: dict[str, list[dict[str, Any]]],
     *,
@@ -206,10 +193,9 @@ async def _load_human_gene_groups(
     *,
     symbol: str | None = None,
     bulk_context: HumanGeneBulkContext | None = None,
-) -> tuple[HumanGeneContext, list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+) -> tuple[HumanGeneContext, dict[str, list[dict[str, Any]]]]:
     human_context = await _get_human_context(session)
     assembly_ids = [assembly["id"] for assembly in human_context.assemblies]
-    species_docs = await _fetch_species_rows(session)
     # Only the fields the refresh writes from a gene row: its locus and the annotation it
     # falls back on. A whole-cohort refresh holds every gene row of every human assembly
     # (over half a million) for the hours it runs; their exon lists and extra were most
@@ -266,7 +252,7 @@ async def _load_human_gene_groups(
         bulk_context=bulk_context,
         symbol=symbol,
     )
-    return human_context, species_docs, grouped_by_symbol
+    return human_context, grouped_by_symbol
 
 
 async def _count_distinct_human_gene_symbols(
@@ -748,7 +734,6 @@ async def _refresh_grouped_human_gene_info(
     job_id: str,
     worker_id: str,
     human_context: HumanGeneContext,
-    species_docs: list[dict[str, Any]],
     grouped_by_symbol: dict[str, list[dict[str, Any]]],
     bulk_context: HumanGeneBulkContext,
 ) -> GeneBulkRefreshOut:
@@ -810,7 +795,6 @@ async def _refresh_grouped_human_gene_info(
         external_bundle = await fetch_external_gene_bundle(
             symbol=symbol,
             species_document=human_context.species,
-            species_docs=species_docs,
             bulk_context=bulk_context,
         )
         now = datetime.now(timezone.utc)
@@ -879,7 +863,7 @@ async def run_gene_reference_refresh_job(
             bulk_context = await load_human_gene_bulk_context(
                 symbols=[job_symbol] if job_symbol else None
             )
-            human_context, species_docs, grouped_by_symbol = await _load_human_gene_groups(
+            human_context, grouped_by_symbol = await _load_human_gene_groups(
                 session,
                 symbol=job_symbol,
                 bulk_context=bulk_context,
@@ -889,7 +873,6 @@ async def run_gene_reference_refresh_job(
                 job_id=job_id,
                 worker_id=worker_id,
                 human_context=human_context,
-                species_docs=species_docs,
                 grouped_by_symbol=grouped_by_symbol,
                 bulk_context=bulk_context,
             )

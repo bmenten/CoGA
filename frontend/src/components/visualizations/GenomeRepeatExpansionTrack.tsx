@@ -2,23 +2,17 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
-import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
-import { RepeatLocusTooltip, STATUS_COLORS, describeRepeatLoci } from './repeatExpansionHelpers';
+import type { GenomeLayout } from './genomeBinLayout';
+import { RepeatLocusTooltip, describeRepeatLoci, repeatTrackColors } from './repeatExpansionHelpers';
 import { apiPath, raw } from '../../lib/apiPath';
-
-interface Layout {
-  offsets: Record<string, number>;
-  lengths: Record<string, number>;
-  total: number;
-}
 
 interface Props {
   familyId: string;
   sampleId: string;
   chroms: string[];
-  layout: Layout | null;
+  layout: GenomeLayout | null;
   width: number;
   height: number;
   projectId?: string;
@@ -65,20 +59,8 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
     y: number;
   } | null>(null);
 
-  // Resolve the status palette once: STATUS_COLORS values call cssVar()
-  // (getComputedStyle), so they must not run per locus inside the render map.
-  const statusColors = useMemo(
-    () => ({
-      normal: STATUS_COLORS.normal(),
-      review: STATUS_COLORS.review(),
-      intermediate: STATUS_COLORS.intermediate(),
-      premutation: STATUS_COLORS.premutation(),
-      pathogenic: STATUS_COLORS.pathogenic(),
-      unknown: STATUS_COLORS.unknown(),
-      grid: cssVar('--color-grid'),
-    }),
-    [],
-  );
+  // Resolved once: not per locus inside the render map.
+  const statusColors = useMemo(() => repeatTrackColors(), []);
 
   const items = useMemo(() => {
     if (!layout) return [];

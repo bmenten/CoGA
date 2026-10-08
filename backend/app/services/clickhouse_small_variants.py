@@ -1,15 +1,21 @@
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass
 from typing import Any
 
 from ..core.clickhouse import clickhouse_dataset_key, execute_clickhouse
 from ..core.config import settings
-from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
+from .clickhouse_variant_queries import (
+    IMPUTED_SMALL_VARIANT_SOURCES,
+    _collect_annotations,
+    _decode_json_payload,
+)
 from .genotypes import HET, classify_genotype
 
-# "HET" is what a legacy/non-VCF source may store; VCF genotypes are classified (#511).
+# Genotypes are stored as the VCF's GT field has them, unchecked (genotypes.py), so a file
+# can store a word such as "HET". classify_genotype reads it as no call; the compound-het
+# partner check below still reads "HET" as het, as _normalize_gt
+# (clickhouse_variant_queries) shows it on the variant list.
 _HET_WORDS = {"HET"}
 
 
@@ -29,40 +35,6 @@ class SmallVariantFamilyRecord:
     # is the drift key for "evidence changed since classification".
     annotation_version: str | None = None
     annotation_set_hash: str | None = None
-
-
-def _decode_json_payload(raw_value: Any) -> Any:
-    if raw_value in (None, "", b""):
-        return None
-    if isinstance(raw_value, (dict, list)):
-        return raw_value
-    if isinstance(raw_value, bytes):
-        raw_value = raw_value.decode()
-    try:
-        return json.loads(str(raw_value))
-    except json.JSONDecodeError:
-        return None
-
-
-def _collect_annotations(payload: Any) -> list[dict[str, Any]]:
-    if isinstance(payload, list):
-        return [item for item in payload if isinstance(item, dict)]
-    if not isinstance(payload, dict):
-        return []
-    for key in (
-        "annotations",
-        "sortedTranscriptConsequences",
-        "transcriptConsequences",
-        "transcripts",
-    ):
-        value = payload.get(key)
-        if isinstance(value, list):
-            return [item for item in value if isinstance(item, dict)]
-    for value in payload.values():
-        annotations = _collect_annotations(value)
-        if annotations:
-            return annotations
-    return []
 
 
 def _collect_gene_ids(annotations: list[dict[str, Any]]) -> set[str]:

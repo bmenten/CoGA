@@ -8,14 +8,16 @@ files (not curated in-app), so it is treated as untrusted input and is a stored-
 tags and attributes, dropping every element (``script``, ``img``, ``iframe`` …), attribute
 (``onerror``, ``style`` …) and URL scheme (``javascript:``, ``data:`` …) that is not
 explicitly permitted. It is applied at ingest (so stored data is clean at rest) and again
-at read time (so any pre-existing/legacy rows are also served safely) — the API therefore
-never returns unsanitised ``details_html``.
+at read time, as defence in depth (a row that reached the table any other way is served
+safely too) — the API therefore never returns unsanitised ``details_html``.
 
 Implemented on the stdlib :class:`html.parser.HTMLParser` (default-deny, re-serialise with
 proper escaping) so the sanitiser is self-contained and has no third-party dependency: a
-security control should not hinge on an optional package being installed. Because attribute
-values arrive already entity-decoded from the tokeniser, obfuscated schemes such as
-``javascript&#58;`` are resolved before the scheme check, then re-escaped on output.
+security control should not hinge on an optional package being installed. The parser runs
+with ``convert_charrefs=True``, so character references reach ``handle_data`` decoded and
+are escaped again there (``handle_charref``/``handle_entityref`` are never called). Because
+attribute values arrive already entity-decoded from the tokeniser, obfuscated schemes such
+as ``javascript&#58;`` are resolved before the scheme check, then re-escaped on output.
 """
 
 from __future__ import annotations
@@ -103,12 +105,6 @@ class _AllowlistSanitizer(HTMLParser):
         # Re-escape text (incl. inert content of dropped script/style elements) so it can
         # only ever render as text, never as markup.
         self._parts.append(escape(data, quote=False))
-
-    def handle_entityref(self, name: str) -> None:  # pragma: no cover - convert_charrefs
-        self._parts.append(escape(f"&{name};", quote=False))
-
-    def handle_charref(self, name: str) -> None:  # pragma: no cover - convert_charrefs
-        self._parts.append(escape(f"&#{name};", quote=False))
 
     def result(self) -> str:
         return "".join(self._parts)

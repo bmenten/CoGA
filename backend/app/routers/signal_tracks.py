@@ -20,8 +20,9 @@ Two things differ from the alignment endpoints next door:
 In remote mode (STORAGE_BACKEND=gcs/s3) the files are served from the object store
 through signed URLs, as the alignments are: the staging copy of a package imported
 from a bucket is deleted after the import. The location the import recorded (``uris``)
-comes first, under the CRAM endpoint's rules, so a tampered row cannot get any other
-object signed; the fallback is the package layout under the storage prefix,
+comes first, under the CRAM endpoint's rules (an object with the file's own extension
+under the configured import roots), so a tampered row can at most point at another file of
+that kind there, never at any other object; the fallback is the package layout under the storage prefix,
 ``<prefix>/<family>/<recorded path>``, where the CRAM endpoint probes too. The manifest
 hands out the signed URLs; the GET redirects to one; the HEAD answers the object's
 size itself, since a URL signed for GET cannot be used for a HEAD.
@@ -31,7 +32,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path, PurePosixPath
-from typing import Any, Literal
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, RedirectResponse
@@ -89,8 +90,6 @@ _TRACK_KINDS: dict[str, dict[str, Any]] = {
         "extensions": (".bedgraph", ".bedGraph", ".bg"),
     },
 }
-
-TrackKind = Literal["depth_bigwig", "maf_bigwig", "copy_number_bedgraph"]
 
 
 def _family_package_root(family_id: str) -> Path:
@@ -181,14 +180,6 @@ def _track_uris(rows: list[tuple[str, dict[str, Any]]]) -> dict[str, dict[str, d
         if by_source:
             recorded[sample_id] = by_source
     return recorded
-
-
-async def _recorded_signal_tracks(
-    session: AsyncSession, sample_ids: list[str]
-) -> dict[str, dict[str, dict[str, str]]]:
-    """``sample_id -> source -> kind -> package-relative path``, as the import left it."""
-
-    return _track_paths(await _signal_track_rows(session, sample_ids))
 
 
 def _resolve_track_path(family_id: str, relative_path: str) -> Path | None:

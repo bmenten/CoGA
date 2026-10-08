@@ -117,18 +117,6 @@ export interface ApiFamilyMemberDetail {
   impact: ApiFamilyMemberImpact;
 }
 
-export interface ApiFamilyMemberUpdateResponse {
-  family: ApiFamilyRecord;
-  member: ApiFamilyMember;
-  father_id?: string | null;
-  mother_id?: string | null;
-  impact: ApiFamilyMemberImpact;
-  warnings?: string[];
-  stale_analysis_scopes?: string[];
-  data_counts?: Record<string, number>;
-  cleared_data_counts?: Record<string, number>;
-}
-
 export interface ApiFamilyMemberBatchUpdateItem {
   sample_id: string;
   new_sample_id?: string | null;
@@ -253,13 +241,6 @@ export interface ApiHpoAnnotation {
   note?: string | null;
   created_at: string;
   updated_at: string;
-}
-
-export interface ApiHpoFamilyQuery {
-  hpo_id: string;
-  include_descendants: boolean;
-  sample_ids: string[];
-  annotations: ApiHpoAnnotation[];
 }
 
 export interface ApiSmallVariantReviewSummary {
@@ -943,8 +924,8 @@ export interface ApiMitoDNAStructuralVariant {
 export interface ApiFamilyMitoDNAAnalysis {
   samples: ApiMitoDNASample[];
   variants: ApiMitoDNAVariant[];
-  // chrM large deletions and duplications; absent from older responses.
-  structural_variants?: ApiMitoDNAStructuralVariant[];
+  // chrM large deletions and duplications.
+  structural_variants: ApiMitoDNAStructuralVariant[];
   qc_notes: string[];
   heteroplasmy_threshold: number;
   homoplasmy_threshold: number;
@@ -1038,14 +1019,4 @@ export interface GenePanelVersionList {
   panel_id: string;
   current_version: number;
   versions: GenePanelVersionSummary[];
-}
-
-export interface MendeliomeRegenerateResponse {
-  panel: GenePanel;
-  message: string;
-  changed: boolean;
-  version: number;
-  monarch_release?: string | null;
-  gene_count: number;
-  missing_genes: string[];
 }

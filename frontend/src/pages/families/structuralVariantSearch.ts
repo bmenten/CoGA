@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type { StructuralVariantFilterPresetOut } from '../../lib/apiSchema.generated';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
@@ -19,6 +19,7 @@ import type {
   SmallVariantReviewSavePayload,
   SmallVariantTagDefinition,
 } from './smallVariantSearch';
+import { setLocationParams } from './variantFilterFormUtils';
 
 export interface StructuralVariantGenotype {
   sample?: string;
@@ -410,22 +411,7 @@ export const buildStructuralVariantQueryParams = (
   params.set('page', String(nextPage));
   if (includePageSize) params.set('page_size', '100');
 
-  if (currentFilters.locus) {
-    params.set('locus', currentFilters.locus);
-    const parsedLocus = parseGeneOrRegionInput(currentFilters.locus);
-    if (parsedLocus?.kind === 'region') {
-      params.set('chr', parsedLocus.chr);
-      params.set('start', parsedLocus.start);
-      params.set('end', parsedLocus.end);
-    } else if (parsedLocus?.kind === 'gene') {
-      params.set('gene', parsedLocus.gene);
-    }
-  } else {
-    if (currentFilters.gene) params.set('gene', currentFilters.gene);
-    if (currentFilters.chr) params.set('chr', currentFilters.chr);
-    if (currentFilters.start) params.set('start', currentFilters.start);
-    if (currentFilters.end) params.set('end', currentFilters.end);
-  }
+  setLocationParams(params, currentFilters);
 
   if (currentFilters.length) params.set('length', currentFilters.length);
   if (currentFilters.minLength) params.set('min_length', currentFilters.minLength);
@@ -444,11 +430,9 @@ export const buildStructuralVariantQueryParams = (
     params.set('max_population_af', currentFilters.max_population_af);
   }
   if (currentFilters.min_pli) params.set('min_pli', currentFilters.min_pli);
-  currentFilters.region_flags
-    .split(',')
-    .map((entry) => entry.trim())
-    .filter(Boolean)
-    .forEach((flag) => params.append('region_flag', flag));
+  parseCommaSeparatedValues(currentFilters.region_flags).forEach((flag) => {
+    params.append('region_flag', flag);
+  });
   parseCommaSeparatedValues(currentFilters.classification).forEach((value) => {
     params.append('classification', value);
   });
@@ -692,11 +676,6 @@ export const useStructuralVariantSearchState = ({
     });
   };
 
-  const handleFilterChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = event.target;
-    setDraftFilterValue(name as keyof StructuralFilterState, value);
-  };
-
   const handleSampleFieldChange = (
     sample: string,
     field: Exclude<keyof StructuralSampleFilter, 'gt'>,
@@ -827,10 +806,8 @@ export const useStructuralVariantSearchState = ({
     applyPreset,
     applySavedPreset,
     draftFilters,
-    emptyFilters,
     filters,
     goToPage,
-    handleFilterChange,
     handleGtToggle,
     handleReset,
     handleSampleFieldChange,

@@ -2,7 +2,7 @@
 Structural variants | Filter and review CNVs and other SVs with their genotypes, rank them by phenotype, classify copy-number changes, and tag them for the report.
 Repeat expansions (TRGT) | Per-sample repeat calls, scored against the STRchive catalogue of disease loci.
 Paraphase | Genes in paralogous or duplicated regions, where standard variant calling is unreliable.
-Mitochondrial DNA | mtDNA variants with their heteroplasmy, and each sample's mtDNA coverage.
+Mitochondrial DNA | mtDNA variants and large chrM deletions and duplications, each with its heteroplasmy per member, and each sample's mtDNA coverage.
 ```
 
 ### Structural variants
@@ -13,10 +13,12 @@ the affected members as carriers. Its filters are **Phenotype**, **Inheritance a
 *Mendeliome*, *Dominant*, *Recessive-like* and *Any affected*. **Phenotype prioritization** ranks SVs by
 the same phenotype score as small variants. **Clear all filters** removes the default.
 
-A filtered search reads at most 50,000 SVs of the callset before it applies the filters. When it reads
-that many, a warning says *"Results may be incomplete"*, the count shows a `+`, and an SV beyond the cap
-is not shown: narrow the search with a region, a gene panel or a gene. The clinical report's list of
-reported SVs is not cut by this cap: it reads the reported SVs themselves, not the first 50,000.
+A filtered search reads at most 50,000 SVs of the callset before it applies the filters, and with
+**Phenotype prioritization** on (the default) it ranks at most 5,000 of the SVs that match. When a
+search reaches either limit, a warning says *"Results may be incomplete"* (*"Ranking may be incomplete"*
+when the list is ranked), the count shows a `+`, and an SV beyond the limit is not shown: narrow the
+search with a region, a gene panel or a gene. The clinical report's list of reported SVs is not cut by
+this cap: it reads the reported SVs themselves, not the first 50,000.
 
 **ACMG (CNV)** on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose
 *Copy-number loss* or *Copy-number gain*, check the pre-selected criteria and add the rest.

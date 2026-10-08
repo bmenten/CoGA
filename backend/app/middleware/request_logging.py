@@ -41,6 +41,10 @@ _SENSITIVE_QUERY_KEYS = (
     "auth",
 )
 _MAX_REQUEST_BODY_BYTES = 25_000
+# Methods whose request body is recorded (and whose audit row carries a db_update).
+_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
+# Bodies never read into the audit row: uploads and binary payloads, recorded by size only.
+_UNCAPTURED_CONTENT_TYPES = ("multipart/form-data", "application/octet-stream", "application/pdf")
 
 
 def _sanitize_for_logging(value: Any) -> Any:
@@ -94,11 +98,8 @@ def _query_string_for_logging(request: Request) -> str | None:
     return urlencode(sanitized_items) or None
 
 
-def _request_url_for_logging(request: Request, query_string: str | None = None) -> str:
-    # The middleware threads in the already-sanitized query_string so it is not
-    # parsed/sorted a second time on the hot path; standalone callers compute it.
-    if query_string is None:
-        query_string = _query_string_for_logging(request)
+def _request_url_for_logging(request: Request, query_string: str | None) -> str:
+    # ``query_string`` is the already-sanitized one (``_query_string_for_logging``).
     if not query_string:
         return request.url.path
     return f"{request.url.path}?{query_string}"
@@ -109,10 +110,7 @@ def _parse_request_body(request: Request, body_bytes: bytes) -> Any | None:
         return None
 
     content_type = request.headers.get("content-type", "")
-    if any(
-        marker in content_type
-        for marker in ("multipart/form-data", "application/octet-stream", "application/pdf")
-    ):
+    if any(marker in content_type for marker in _UNCAPTURED_CONTENT_TYPES):
         return {"_content_type": content_type, "_bytes": len(body_bytes)}
 
     if len(body_bytes) > _MAX_REQUEST_BODY_BYTES:
@@ -145,13 +143,10 @@ def _parse_request_body(request: Request, body_bytes: bytes) -> Any | None:
 
 
 def _should_capture_body(request: Request) -> bool:
-    if request.method.upper() not in {"POST", "PUT", "PATCH", "DELETE"}:
+    if request.method.upper() not in _MUTATING_METHODS:
         return False
     content_type = request.headers.get("content-type", "")
-    if any(
-        marker in content_type
-        for marker in ("multipart/form-data", "application/octet-stream", "application/pdf")
-    ):
+    if any(marker in content_type for marker in _UNCAPTURED_CONTENT_TYPES):
         return False
     try:
         content_length = int(request.headers.get("content-length", "0") or "0")
@@ -178,7 +173,7 @@ def _derive_db_update(
     request_body: Any | None,
 ) -> dict[str, Any] | None:
     method = request.method.upper()
-    if method not in {"POST", "PUT", "PATCH", "DELETE"}:
+    if method not in _MUTATING_METHODS:
         return None
 
     update_type = {
@@ -227,7 +222,7 @@ async def log_request_response(request: Request, call_next) -> Response:
         except Exception:  # noqa: BLE001 - a body that cannot be read is recorded as empty
             raw_body = b""
         request_body = _parse_request_body(request, raw_body)
-    elif request.method.upper() in {"POST", "PUT", "PATCH", "DELETE"}:
+    elif request.method.upper() in _MUTATING_METHODS:
         request_body = {"_captured": False, "_reason": "stream_or_large_body"}
 
     response: Response | None = None

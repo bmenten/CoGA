@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import FamilyPageHeader from './FamilyPageHeader';
+import FilterCollapseToggle from './FilterCollapseToggle';
 import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
@@ -26,12 +27,13 @@ import {
   type SmallVariantReview,
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
-  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildOptimisticReview,
   buildSmallVariantReviewPath,
+  fetchFamilyReviewTags,
   hasReviewContent,
+  quickTagTogglePayload,
   updateSmallVariantPageReview,
 } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -142,13 +144,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   const { data: tags = [] } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: variantQueryReady,
-    queryFn: async () => {
-      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
-      });
-      return res.data as SmallVariantTagDefinition[];
-    },
+    queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
 
   const { data, isLoading, isFetching, isError, error } = useQuery<SmallVariantPage>({
@@ -329,19 +325,10 @@ const FamilySmallVariantsPage: React.FC = () => {
         className="variant-workbench-card"
         footer={
           <>
-        <div className="variant-filter-collapse-bar">
-          <button
-            type="button"
-            className="variant-filter-collapse-toggle"
-            aria-expanded={!filtersCollapsed}
-            onClick={() => setFiltersCollapsed((current) => !current)}
-          >
-            <span className="variant-filter-dropdown-caret" aria-hidden="true">
-              ▾
-            </span>
-            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
-          </button>
-        </div>
+        <FilterCollapseToggle
+          collapsed={filtersCollapsed}
+          onToggle={() => setFiltersCollapsed((current) => !current)}
+        />
         {!filtersCollapsed && (
         <SmallVariantFilterForm
           activeFilterChips={activeFilterChips}
@@ -463,22 +450,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         tags={tags}
         totalPages={totalPages}
         onToggleReviewTag={async (variant, tagKey) => {
-          const nextTags = new Set(variant.review?.tags || []);
-          if (nextTags.has(tagKey)) {
-            nextTags.delete(tagKey);
-          } else {
-            nextTags.add(tagKey);
-          }
-          await reviewMutation.mutateAsync({
-            variant,
-            payload: {
-              classification:
-                normalizeReviewClassification(variant.review?.classification, variant.review?.tags) ||
-                undefined,
-              tags: Array.from(nextTags).sort((left, right) => left.localeCompare(right)),
-              note: variant.review?.note || undefined,
-            },
-          });
+          await reviewMutation.mutateAsync({ variant, payload: quickTagTogglePayload(variant.review, tagKey) });
         }}
         onOpenReview={() => reviewMutation.reset()}
         onSaveReview={async (variant, payload) => {

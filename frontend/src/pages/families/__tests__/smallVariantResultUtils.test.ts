@@ -8,6 +8,8 @@ import {
   formatPredictionScore,
   formatReviewTagLabel,
   formatVariantTotal,
+  getClinvarHighlightTone,
+  getClinvarTone,
   getReviewTagStyle,
   isDeletedReviewTag,
   parseVariantIds,
@@ -394,5 +396,25 @@ describe('review tag chips', () => {
         tagMetadata: { probe_x: { updated_by: 'reviewer', updated_at: null } },
       }),
     ).toBe('Probe X (deleted) · reviewer');
+  });
+});
+
+// The chip tone and the table-row highlight read ClinVar's significance the same way.
+describe('ClinVar tones', () => {
+  it.each([
+    ['Pathogenic', 'critical', 'pathogenic'],
+    ['Likely_pathogenic', 'critical', 'pathogenic'],
+    ['Pathogenic/Likely_pathogenic', 'critical', 'pathogenic'],
+    ['likely pathogenic, low penetrance', 'critical', 'pathogenic'],
+    ['risk_factor', 'warning', 'neutral'],
+    ['Benign', 'success', 'benign'],
+    ['Likely_benign', 'success', 'benign'],
+    ['Benign/Likely_benign', 'success', 'benign'],
+    ['Uncertain_significance', 'neutral', 'neutral'],
+    ['Conflicting_classifications_of_pathogenicity', 'neutral', 'neutral'],
+    [undefined, 'neutral', 'neutral'],
+  ])('reads %s as a %s chip and a %s row', (clinvar, tone, highlight) => {
+    expect(getClinvarTone(clinvar)).toBe(tone);
+    expect(getClinvarHighlightTone(clinvar)).toBe(highlight);
   });
 });

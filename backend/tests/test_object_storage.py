@@ -67,13 +67,13 @@ def test_object_key_honours_prefix_per_backend(monkeypatch):
 
 def test_backend_flags(monkeypatch):
     monkeypatch.setattr(s.settings, "storage_backend", "local")
-    assert not s.storage_is_remote() and not s.storage_is_s3() and not s.storage_is_gcs()
+    assert not s.storage_is_remote() and not s.storage_is_gcs()
 
     monkeypatch.setattr(s.settings, "storage_backend", "s3")
-    assert s.storage_is_remote() and s.storage_is_s3() and not s.storage_is_gcs()
+    assert s.storage_is_remote() and not s.storage_is_gcs()
 
     monkeypatch.setattr(s.settings, "storage_backend", "gcs")
-    assert s.storage_is_remote() and s.storage_is_gcs() and not s.storage_is_s3()
+    assert s.storage_is_remote() and s.storage_is_gcs()
 
 
 # --- Settings validation ----------------------------------------------------

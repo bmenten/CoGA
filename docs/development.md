@@ -24,9 +24,10 @@ cp .env.example .env
 and serves the interactive API docs at <http://localhost:8000/docs>. With any other value it
 refuses to start until `SECRET_KEY`, `INTEGRITY_ANCHOR_SIGNING_KEY`, `POSTGRES_PASSWORD`,
 `CLICKHOUSE_PASSWORD` and `ADMIN_PASSWORD` hold real values, with the first two different;
-`.env.example` shows how to generate those two. It also refuses `AUDIT_LOG_MODE=off`. The
-same check applies to anything that loads the backend settings on your machine, such as the
-demo loader.
+`.env.example` shows how to generate those two. It also refuses `AUDIT_LOG_MODE=off`, the
+local origins `.env.example` allows (`CORS_ORIGINS`, and the default `CORS_ORIGIN_REGEX`), and
+a build without its commit (`GIT_SHA`). The same check applies to anything that loads the
+backend settings on your machine, such as the demo loader.
 
 ## Run everything in Docker
 

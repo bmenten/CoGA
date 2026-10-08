@@ -14,17 +14,18 @@ Sources:
     - Optional Orphanet XML enrichment
     - Optional DECIPHER manual mapping TSV
 
-Install:
-    pip install pandas requests beautifulsoup4 intervaltree tqdm
+Install: the backend's environment (backend/requirements.txt pins pandas, requests,
+beautifulsoup4, intervaltree and tqdm).
 
-Usage:
-    python build_clinical_cnv_kb.py \
+Usage (the admin "rebuild knowledgebase" action runs it the same way, with --out in a
+temporary folder):
+    python scripts/clinical_cnv_knowledgebase.py \
         --assembly GRCh38 \
         --out clinical_cnv_knowledgebase.tsv
 
 Optional:
     export OMIM_API_KEY=your_key
-    python build_clinical_cnv_kb.py --orphanet-xml en_product6.xml --decipher-map decipher_map.tsv
+    python scripts/clinical_cnv_knowledgebase.py --orphanet-xml en_product6.xml --decipher-map decipher_map.tsv
 
 The ClinGen dosage curation and the recurrent CNV regions are the knowledgebase's backbone: when
 either cannot be loaded the build stops with a non-zero exit, rather than write a knowledgebase

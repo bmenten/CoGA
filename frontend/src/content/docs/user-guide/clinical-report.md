@@ -34,7 +34,8 @@ stops for five things:
 3. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
    re-review, or acknowledge with a reason.
-4. **Sample QC** that failed, or could not confirm the pedigree: acknowledge with a reason.
+4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity: acknowledge with
+   a reason.
 5. **An incomplete import** (the page says *Import incomplete*): import what failed again, or
    acknowledge with a reason. After an import that stopped part-way, re-run it with **overwrite**: an
    update skips data that is already there, partly written data too.

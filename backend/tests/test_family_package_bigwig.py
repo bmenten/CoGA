@@ -15,7 +15,6 @@ import pytest
 
 from app.services.family_package_bigwig import (
     BigWigUnavailableError,
-    bigwig_chrom_summary,
     iter_bigwig_intervals,
     open_bigwig,
 )
@@ -126,10 +125,6 @@ def test_zero_length_intervals_are_dropped() -> None:
         intervals={"chr1": [(10, 10, 5.0), (10, 20, 6.0)]},
     )
     assert list(iter_bigwig_intervals(reader)) == [("1", 10, 20, 6.0)]
-
-
-def test_chrom_summary_reports_primary_contigs_only() -> None:
-    assert bigwig_chrom_summary(_reader()) == {"1": 1000, "2": 1000, "X": 500}
 
 
 def test_a_missing_reader_is_named_not_swallowed(monkeypatch: pytest.MonkeyPatch) -> None:

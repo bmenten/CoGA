@@ -7,9 +7,11 @@ states, or the relationships between them. All the edits below are admin-only.
 
 A family's graph is split across three Postgres tables: `family_members` (active
 membership, role, clinical and carrier status), `samples` and `family_relationships`
-(parent-child and couple edges; `sample_id_a` is the parent or first partner, `sample_id_b`
-the child or second partner). The family's PED text is rebuilt into `families.pedigree`
-after every change, and each change adds a row to `family_structure_versions`.
+(parent-child and couple edges, and links of unknown degree, `relative`; `sample_id_a` is the
+parent, the first partner or the member a link of unknown degree goes through, `sample_id_b`
+the child, the second partner or the relative). The family's PED text is rebuilt into
+`families.pedigree` after every change, and each change adds a row to
+`family_structure_versions`.
 
 These also refer to a member:
 
@@ -41,6 +43,10 @@ unknown.
 - Relationships must name active members. A child has at most two parents, at most one
   father and one mother. Parent-child links cannot form a cycle, and no one is their own
   parent. Duplicate couples are refused.
+- A link of unknown degree (`relationships.relatives`: a `member` and the member it is
+  `related_to`) joins two different members once, and never two the family already links as
+  parent and child or as a couple. A structure update without `relatives` keeps the family's
+  links of unknown degree between active members; a list replaces them.
 - A father cannot be a member recorded as female, and a mother cannot be one recorded as
   male. A member of unknown sex may be either.
 - Removing a member makes them inactive. The sample row is kept for auditability.

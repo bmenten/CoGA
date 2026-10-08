@@ -6,6 +6,7 @@ import {
   formatDateTime,
   formatDuration,
   formatRegionSize,
+  formatShortDate,
   formatTimestamp,
   joinWithAnd,
 } from '../format';
@@ -37,6 +38,24 @@ describe('formatDate', () => {
     expect(formatDate(iso)).toBe(new Date(iso).toLocaleDateString());
     expect(formatDate(null, 'Not installed')).toBe('Not installed');
     expect(formatDate('garbage')).toBe('garbage');
+  });
+});
+
+describe('formatShortDate', () => {
+  it('shows the date with its month abbreviated, in the locale', () => {
+    const iso = '2024-01-15T09:30:00Z';
+    expect(formatShortDate(iso)).toBe(
+      new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'short', day: 'numeric' }).format(
+        new Date(iso),
+      ),
+    );
+  });
+
+  it('shows an em dash for a missing or unparseable value', () => {
+    expect(formatShortDate(undefined)).toBe('—');
+    expect(formatShortDate(null)).toBe('—');
+    expect(formatShortDate('')).toBe('—');
+    expect(formatShortDate('not a date')).toBe('—');
   });
 });
 

@@ -4,7 +4,9 @@ import {
   STRUCTURAL_ALL_GT_GROUPS,
   STRUCTURAL_REF_GT_GROUP,
   buildStructuralPresetPayload,
+  buildStructuralVariantQueryParams,
   cloneSingleSampleFilter,
+  createEmptyStructuralFilters,
   structuralLocationProblem,
   structuralVariantRowKey,
   useStructuralVariantSearchState,
@@ -140,5 +142,24 @@ describe('structuralVariantRowKey', () => {
       structuralVariantRowKey({ _id: id, source: 'sniffles' }),
     );
     expect(structuralVariantRowKey({ _id: id })).toBe(`${id}|`);
+  });
+});
+
+// The location filters and the region flags as the SV search sends them.
+describe('buildStructuralVariantQueryParams', () => {
+  const query = (overrides: Partial<ReturnType<typeof createEmptyStructuralFilters>>) =>
+    buildStructuralVariantQueryParams({ ...createEmptyStructuralFilters(), ...overrides }, {}, 1, true).toString();
+
+  it('sends a region locus with the chromosome, start and end it reads as', () => {
+    expect(query({ locus: 'chr1:1,000-2,000', gene: 'BRCA2' })).toBe(
+      'page=1&page_size=100&locus=chr1%3A1%2C000-2%2C000&chr=1&start=1000&end=2000&prioritize=true',
+    );
+  });
+
+  it('without a locus, sends the separate fields, and each region flag on its own', () => {
+    expect(query({ gene: 'BRCA2', chr: '13', start: '100', end: '200', region_flags: ' Segdup , Repeat,' })).toBe(
+      'page=1&page_size=100&gene=BRCA2&chr=13&start=100&end=200&region_flag=Segdup&region_flag=Repeat' +
+        '&prioritize=true',
+    );
   });
 });

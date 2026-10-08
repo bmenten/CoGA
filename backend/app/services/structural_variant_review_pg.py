@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import json
 from typing import Any, Sequence
 
 from fastapi import HTTPException
@@ -27,9 +26,9 @@ from .review_pg_utils import (
     _lock_review,
     _raise_on_stale_review,
     _json_payload,
-    _log_unreadable_classification,
     _merge_tag_metadata,
     _normalize_tags,
+    _read_stored_classification,
 )
 from .small_variant_review_tags import list_small_variant_tag_definitions
 from .clickhouse_variant_records import StructuralVariantRecord
@@ -87,26 +86,8 @@ def _cnv_json_or_none(value: Any) -> str | None:
 
 
 def _deserialize_cnv_acmg(value: Any) -> CnvAcmgClassificationPayload | None:
-    """The stored classification, or None when there is none or it cannot be read.
-
-    ``None`` alone cannot tell those apart, so an unreadable record is logged here and
-    the review serializer marks it (``acmg_unreadable``) instead of dropping it (#514).
-    """
-    if not value:
-        return None
-    if isinstance(value, str):
-        try:
-            value = json.loads(value)
-        except (ValueError, TypeError) as exc:
-            _log_unreadable_classification("CNV classification", exc)
-            return None
-        if value is None:  # a stored JSON null is no record, not a broken one
-            return None
-    try:
-        return CnvAcmgClassificationPayload.model_validate(value)
-    except Exception as exc:  # noqa: BLE001 - served as unreadable, never raised
-        _log_unreadable_classification("CNV classification", exc)
-        return None
+    """The stored CNV classification, or None (see ``_read_stored_classification``)."""
+    return _read_stored_classification(value, CnvAcmgClassificationPayload, "CNV classification")
 
 
 def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:

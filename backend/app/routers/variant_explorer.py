@@ -4,15 +4,13 @@ A variant-centric, cross-project aggregation view over small variants. See
 ``app/services/variant_explorer_service.py`` for the aggregation strategy.
 """
 
-import csv
-import io
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.csv_export import csv_safe_cell
+from ..core.csv_export import csv_document
 from ..core.postgres import get_postgres_session
 from ..core.sql import canonical_uuid
 from ..dependencies import get_current_user
@@ -266,15 +264,9 @@ async def export_global_small_variants_csv(
         order=order,
     )
 
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow([label for _, label in _EXPORT_COLUMNS])
-    for row in rows:
-        writer.writerow([csv_safe_cell(_export_cell(row, field)) for field, _ in _EXPORT_COLUMNS])
-
     filename = f"variant-explorer-{assembly_name or 'export'}.csv"
     return StreamingResponse(
-        iter([buffer.getvalue()]),
+        iter([csv_document(_EXPORT_COLUMNS, rows, _export_cell)]),
         media_type="text/csv",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

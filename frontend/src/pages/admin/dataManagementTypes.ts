@@ -140,7 +140,10 @@ export interface RawFileVerifyResult {
 export type StatusTone = 'success' | 'error';
 
 export const EMPTY_PROJECTS: ProjectOption[] = [];
-export const DEFAULT_PAGE_SIZE = 25;
+
+/** Project ids without duplicates, in a stable order, for comparing and saving a selection. */
+export const normalizeProjectIds = (projectIds: string[]): string[] =>
+  Array.from(new Set(projectIds)).sort((left, right) => left.localeCompare(right));
 
 export const SAMPLE_TRACK_ORDER: SampleTrackType[] = [
   'coverage',

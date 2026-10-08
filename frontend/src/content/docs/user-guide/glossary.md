@@ -35,8 +35,8 @@
   Select** and **Ensembl Canonical** are each database's representative transcript.
 - **Mendelian error** — a child's genotype that cannot come from its parents' genotypes; many of them
   point to a sample swap or a wrong pedigree.
-- **Mendeliome** — CoGA's built-in panel of every gene Monarch links to a disease; the default scope of
-  the variant pages.
+- **Mendeliome** — CoGA's built-in panel of every gene that Monarch says causes a disease or is associated
+  with one; the default scope of the variant pages.
 - **MNV** — multi-nucleotide variant: neighbouring bases changed together.
 - **Monarch Initiative** — a knowledge graph that links genes, diseases and HPO phenotypes.
 - **NeedLR** — the structural-variant annotation tool of the long-read pipeline; its annotations fill

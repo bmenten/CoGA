@@ -307,7 +307,8 @@ Notes:
   refuses to start.
 - You do **not** create `coga-clickhouse-tls-*` — Terraform generates the ClickHouse
   TLS cert/key itself.
-- The `coga-admin-password` is the first login password for user **`coga-admin`**.
+- The `coga-admin-password` is the first login password of the admin user **`coga-admin`**,
+  who signs in with the email `admin@<app_domain>` (Section 9).
 
 ### 5.6 (CI only) Workload Identity Federation
 
@@ -452,7 +453,8 @@ curl -s https://coga.cmgg.be/api/version        # the version and git commit tha
 
 Then open `https://coga.cmgg.be` in a browser and log in with:
 
-- **Username:** `coga-admin`
+- **Email:** `admin@<app_domain>` (`admin@coga.cmgg.be` by default; Terraform sets it as
+  `ADMIN_EMAIL`, and CoGA signs in by email, not by the username `coga-admin`)
 - **Password:** the `coga-admin-password` value you set in 5.5
 
 If the page loads and you can log in, the deployment is live. **Change/rotate the
@@ -799,7 +801,7 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 |---------|--------------------|
 | Managed cert stuck `PROVISIONING` | DNS A record not pointing at `load_balancer_ip` yet, or domain not resolving. Fix DNS; wait up to ~60 min. |
 | Backend revision won't go healthy | A required secret has no `latest` version (Section 5.5), or the DB/ClickHouse isn't reachable. Check `gcloud run services logs read coga-backend`. |
-| "Refusing to start outside development/test with missing or weak secrets: …" | The named secrets are placeholders or malformed: `SECRET_KEY` needs 32+ characters, `INTEGRITY_ANCHOR_SIGNING_KEY` the base64 of 32 bytes, and the Postgres, ClickHouse and admin passwords real values. Add correct secret versions (5.5) and roll the backend (12.2). |
+| "Refusing to start outside development/test with missing or weak secrets: …" | The named secrets are placeholders or malformed: `SECRET_KEY` needs 32+ characters, `INTEGRITY_ANCHOR_SIGNING_KEY` the base64 of 32 bytes, `METRICS_TOKEN` (when set) 32+ characters, and the Postgres, ClickHouse and admin passwords real values. Add correct secret versions (5.5) and roll the backend (12.2). |
 | "Refusing to start outside development/test: INTEGRITY_ANCHOR_SIGNING_KEY is the same value as SECRET_KEY…" | Both secrets hold one value. Add a new anchor key as a version of `coga-integrity-anchor-key` (5.5) and roll the backend (12.2). |
 | "Refusing to start outside development/test with AUDIT_LOG_MODE=off…" | The backend's environment switches the request and UI-event audit logs off. Remove the setting (the default is `async`) and roll the backend (12.2). |
 | "Refusing to start outside development/test with cross-origin access open…" | `CORS_ORIGINS` or `CORS_ORIGIN_REGEX` admits localhost or any site; the development defaults do. The UI is same-origin behind the load balancer: Terraform sets `CORS_ORIGINS` to the app's domain and `CORS_ORIGIN_REGEX` empty. Remove any override and roll the backend (12.2). |

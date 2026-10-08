@@ -19,14 +19,13 @@ the importer keeps the paternal calls at a plasma call position or at
 
 from __future__ import annotations
 
-import gzip
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
 from .clickhouse_variant_records import SmallVariantCall
 from .data_scope import normalize_chromosome
-from .family_package_common import FamilyPackageBundle, ParsedPed, _display_path, read_vcf_sample_columns
+from .family_package_common import FamilyPackageBundle, ParsedPed, _display_path, package_text_handle, read_vcf_sample_columns
 from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
 
 if TYPE_CHECKING:
@@ -55,12 +54,7 @@ def scan_vcf_positions(path: Path) -> set[tuple[str, int]]:
     every base an MNV (REF and ALT of one length) spans: the father's VCF can hold its
     alleles as SNVs."""
     positions: set[tuple[str, int]] = set()
-    handle = (
-        gzip.open(path, "rt", encoding="utf-8", errors="replace")
-        if path.name.endswith(".gz")
-        else path.open("r", encoding="utf-8", errors="replace")
-    )
-    with handle:
+    with package_text_handle(path) as handle:
         for line in handle:
             if not line or line.startswith("#"):
                 continue

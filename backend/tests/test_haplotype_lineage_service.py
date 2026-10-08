@@ -526,7 +526,7 @@ def test_segment_relative_blocks_splits_at_a_crossover():
     for pos in seg1 + seg2:
         anc_alleles[pos + 5_000] = (0, 1)  # anchor het
         rel_alleles[pos + 5_000] = (1, 1)  # relative hom 1 -> shared anchor homolog = idx 1
-    anchor_homologs = {0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)}
+    anchor_homologs = HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)})
     match = MatchResult(relative_idx=0, anchor_idx=1, informative=140, confidence=1.0)
     positions = sorted(rel_alleles)
     region_end = positions[-1] + 1
@@ -563,7 +563,7 @@ def test_segment_relative_blocks_single_block_without_recombination():
         positions=positions,
         rel_alleles=rel_alleles,
         anc_alleles=anc_alleles,
-        anchor_homologs={0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)},
+        anchor_homologs=HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)}),
         match=MatchResult(relative_idx=0, anchor_idx=0, informative=40, confidence=1.0),
         region_start=1_000_000,
         region_end=positions[-1] + 1,
@@ -590,7 +590,7 @@ def test_segment_relative_blocks_greys_shared_lane_when_anchor_shade_unresolved(
         positions=sorted(rel_alleles),
         rel_alleles=rel_alleles,
         anc_alleles=anc_alleles,
-        anchor_homologs={0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)},
+        anchor_homologs=HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)}),
         # The coin-flip seed the reviewer reproduced.
         match=MatchResult(relative_idx=0, anchor_idx=0, informative=40, confidence=1.0),
         region_start=1_000_000,
@@ -647,7 +647,7 @@ def test_segment_relative_blocks_resolver_carries_anchor_crossover():
     region_start = positions[0]
     region_end = positions[-1] + 1
     # A is the founder: homolog 0 = dark blue (shade 0), homolog 1 = light blue (shade 1).
-    anchor_homologs = {0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)}
+    anchor_homologs = HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)})
     match = MatchResult(relative_idx=0, anchor_idx=0, informative=len(positions), confidence=1.0)
 
     b_blocks, _b_global, b_resolver = _segment_relative_blocks(
@@ -701,7 +701,7 @@ def test_three_generation_propagation_tracks_mid_region_crossover():
         positions=b_positions,
         rel_alleles=rel_alleles,
         anc_alleles=anc_alleles,
-        anchor_homologs={0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)},
+        anchor_homologs=HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: HomologAssignment(PATERNAL, 1)}),
         match=MatchResult(relative_idx=0, anchor_idx=0, informative=len(b_positions), confidence=1.0),
         region_start=region_start,
         region_end=region_end,
@@ -745,7 +745,7 @@ def test_three_generation_propagation_tracks_mid_region_crossover():
     # Regression guard: a FLAT (position-blind) propagation — the pre-fix behaviour —
     # would colour C with a single shade across the whole region. Feeding B's flat
     # chromosome-level map reproduces that, proving the resolver is what fixes it.
-    flat_anchor = {0: HomologAssignment(PATERNAL, 0), 1: GREY}  # B's single-shade global map
+    flat_anchor = HomologResolver.from_flat({0: HomologAssignment(PATERNAL, 0), 1: GREY})  # B's single-shade global map
     flat_blocks, _g, _r = _segment_relative_blocks(
         chrom="1",
         positions=c_positions,

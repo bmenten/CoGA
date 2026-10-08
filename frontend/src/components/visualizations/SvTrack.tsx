@@ -6,7 +6,8 @@ import { fetchTrackJson } from '../../lib/trackFetch';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
-import { SV_TYPE_ORDER, describeSvTypes, type SvTypeKey } from './svTypes';
+import type { GenomeLayout } from './genomeBinLayout';
+import { SV_TYPE_ORDER, describeSvTypes, svTypeColors, type SvTypeKey } from './svTypes';
 
 interface Genotype {
   sample: string;
@@ -22,15 +23,9 @@ interface Variant {
   genotypes?: Genotype[];
 }
 
-interface Layout {
-  offsets: Record<string, number>;
-  lengths: Record<string, number>;
-  total: number;
-}
-
 interface Props {
   url: string;
-  layout: Layout | null;
+  layout: GenomeLayout | null;
   sampleId: string;
   width?: number;
   height?: number;
@@ -58,16 +53,7 @@ const SvTrack: React.FC<Props> = ({
   // Without a layout no SV can be placed yet (the genome overview is still sizing it),
   // and without a URL none is asked for: neither is a finding of no SVs (#602).
   const canRequest = Boolean(layout) && Boolean(url);
-  const typeColors = useMemo<Record<string, string>>(
-    () => ({
-      DEL: cssVar('--color-variant-del'),
-      DUP: cssVar('--color-variant-dup'),
-      INS: cssVar('--color-variant-ins'),
-      INV: cssVar('--color-variant-inv'),
-      BND: cssVar('--color-variant-bnd'),
-    }),
-    [],
-  );
+  const typeColors = useMemo(() => svTypeColors(), []);
 
   // React Query caches/dedupes by URL (was a raw fetch in useEffect that ALSO
   // re-fetched on every layout / sampleId / typeColors change). Fetch only depends

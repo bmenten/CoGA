@@ -35,7 +35,7 @@ export function describeCsvExport(
   const truncated = String(headers?.['x-coga-export-truncated'] ?? '') === 'true';
   const rows = headerNumber(headers, 'x-coga-export-rows');
   const limit = headerNumber(headers, 'x-coga-export-limit');
-  // An older backend sends no reason: its only truncation was the row cap.
+  // A truncation without a stated reason is the row cap, as on the server (core/csv_export.py).
   let reason: CsvTruncationReason | null = null;
   if (truncated) {
     reason =

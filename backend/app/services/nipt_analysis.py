@@ -310,11 +310,10 @@ class NiptAnalysisResult:
     fetal_sex: FetalSexResult = field(
         default_factory=lambda: FetalSexResult("indeterminate", 0, 0, 0)
     )
-    # The paternity evidence: category-7 (transmitted) and category-8 (absent) sites
-    # whose father call is confident -- called, at min_father_dp or deeper. A missing
-    # or thin call lands in category 7 on the de novo prior alone, which says nothing
-    # about who the father is, so category_counts[7] is not paternity evidence.
-    paternal_evidence: dict[int, int] = field(default_factory=lambda: {7: 0, 8: 0})
+    # The paternity evidence (see PaternalTransmissionEvidence): only sites with a
+    # confident father call count. A missing or thin call lands in category 7 on the de
+    # novo prior alone, which says nothing about who the father is, so
+    # category_counts[7] is not paternity evidence.
     paternal_transmission: PaternalTransmissionEvidence = field(
         default_factory=PaternalTransmissionEvidence
     )
@@ -368,10 +367,6 @@ _CANDIDATE_PRIORS: dict[str, dict[int, float]] = {
     "hom_alt": {3: 0.5, 4: 0.5, 6: 1.0, 7: 1.0},
     "missing": {1: _DE_NOVO_PRIOR_WEIGHT, 2: 1 / 3, 3: 1 / 3, 4: 1 / 3, 5: 0.5, 6: 0.5, 7: 0.5},
 }
-
-
-def _candidate_categories(father_state: str) -> tuple[int, ...]:
-    return tuple(_CANDIDATE_PRIORS.get(father_state, _CANDIDATE_PRIORS["missing"]))
 
 
 def trusted_father_state(site: NiptSiteObservation, qc: NiptQualityThresholds) -> str:
@@ -436,7 +431,8 @@ def _wilson_interval(successes: int, trials: int, z: float = 1.96) -> tuple[floa
 
 
 def _quantile(sorted_values: Sequence[float], fraction: float) -> float | None:
-    """Linear-interpolated quantile (R type 7, as the R pipeline computes it)."""
+    """Linear-interpolated quantile (R type 7, numpy's default, as the R pipeline computes
+    it). The target coverage QC (nipt_target_coverage) reads it too."""
     if not sorted_values:
         return None
     position = (len(sorted_values) - 1) * fraction
@@ -1098,17 +1094,9 @@ def run_nipt_analysis(
     ]
 
     category_counts = {category: 0 for category in range(1, 9)}
-    paternal_evidence = {7: 0, 8: 0}
-    for site, classification in zip(filtered.passed, classifications):
-        if classification.category is None:
-            continue
-        category_counts[classification.category] += 1
-        if (
-            classification.category in paternal_evidence
-            and site.representation not in _NOT_PLASMA_EVIDENCE
-            and trusted_father_state(site, qc) in ("het", "hom_alt")
-        ):
-            paternal_evidence[classification.category] += 1
+    for classification in classifications:
+        if classification.category is not None:
+            category_counts[classification.category] += 1
 
     return NiptAnalysisResult(
         fetal_fraction=ff_estimate,
@@ -1116,7 +1104,6 @@ def run_nipt_analysis(
         filter_counts=filtered.filter_counts,
         classifications=classifications,
         fetal_sex=infer_fetal_sex(filtered.passed, ff_estimate, qc),
-        paternal_evidence=paternal_evidence,
         paternal_transmission=paternal_transmission_evidence(
             filtered.passed, ff_estimate, qc, overdispersion=overdispersion
         ),

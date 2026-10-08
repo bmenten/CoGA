@@ -99,7 +99,9 @@ async def test_only_known_kinds_are_read_out_of_the_recorded_metadata() -> None:
         async def execute(self, *args, **kwargs):
             return FakeResult()
 
-    recorded = await signal_tracks._recorded_signal_tracks(FakeSession(), ["HG002", "OTHER"])
+    recorded = signal_tracks._track_paths(
+        await signal_tracks._signal_track_rows(FakeSession(), ["HG002", "OTHER"])
+    )
 
     # sample -> source -> kind -> package-relative path. The unknown kind, the empty
     # path and the non-mapping source are all dropped, and a sample left with
@@ -115,7 +117,7 @@ async def test_no_samples_means_no_query(monkeypatch: pytest.MonkeyPatch) -> Non
         async def execute(self, *args, **kwargs):  # pragma: no cover - must not run
             raise AssertionError("should not query for an empty sample list")
 
-    assert await signal_tracks._recorded_signal_tracks(ExplodingSession(), []) == {}
+    assert await signal_tracks._signal_track_rows(ExplodingSession(), []) == []
 
 
 # ---------------------------------------------------------------------------

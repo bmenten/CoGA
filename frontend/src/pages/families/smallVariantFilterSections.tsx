@@ -5,6 +5,9 @@ import type { ChangeEvent, ReactNode, SyntheticEvent } from 'react';
 import { joinFilterValues, parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import {
   COLLABORATION_QUICK_TAGS,
+  HET_GT_GROUP,
+  HOM_GT_GROUP,
+  REF_GT_GROUP,
   REVIEW_CLASSIFICATION_OPTIONS,
   resolveCarrierScreeningCoupleMembers,
   type FamilyMember,
@@ -90,10 +93,12 @@ const CODING_CONSEQUENCE_SET = new Set<string>([
   'coding_sequence_variant',
 ]);
 
+// The genotype groups the per-sample toggles and the inheritance quick filters set: the
+// same lists the search state toggles (handleGtToggle), so the three always agree.
 export const GT_GROUP_OPTIONS = [
-  { id: 'hom-group', values: ['1/1', '1|1'] },
-  { id: 'het-group', values: ['0/1', '1/0', '0|1', '1|0'] },
-  { id: 'ref-group', values: ['0/0', '0|0', './.', 'absent'] },
+  { id: 'hom-group', values: HOM_GT_GROUP },
+  { id: 'het-group', values: HET_GT_GROUP },
+  { id: 'ref-group', values: REF_GT_GROUP },
 ] as const;
 
 export type GtGroupId = (typeof GT_GROUP_OPTIONS)[number]['id'];
@@ -532,17 +537,9 @@ export const InheritanceFilterSection = ({ form }: { form: FilterSectionForm }) 
                 <div className="variant-sample-controls">
                   <div className="variant-gt-toggle-row">
                     {[
-                      { value: 'hom-group', label: 'Hom', group: ['1/1', '1|1'] },
-                      {
-                        value: 'het-group',
-                        label: 'Het',
-                        group: ['0/1', '1/0', '0|1', '1|0'],
-                      },
-                      {
-                        value: 'ref-group',
-                        label: 'WT',
-                        group: ['0/0', '0|0', './.', 'absent'],
-                      },
+                      { value: 'hom-group', label: 'Hom', group: HOM_GT_GROUP },
+                      { value: 'het-group', label: 'Het', group: HET_GT_GROUP },
+                      { value: 'ref-group', label: 'WT', group: REF_GT_GROUP },
                     ].map((option) => (
                       <label
                         key={option.value}

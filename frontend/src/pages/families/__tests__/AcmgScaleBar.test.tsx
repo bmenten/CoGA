@@ -7,12 +7,16 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
-import AcmgScaleBar, {
-  SCALE_TICKS,
-  posteriorForPoints,
-  scalePositionPct,
-} from '../AcmgScaleBar';
+import AcmgScaleBar, { SCALE_TICKS, scalePositionPct } from '../AcmgScaleBar';
 import type { AcmgClassification } from '../../../lib/acmg';
+
+// The reference the hard-coded tick labels are checked against: the posterior probability
+// of pathogenicity for a point total (Tavtigian: prior 0.10, odds 350^(points/8)).
+const posteriorForPoints = (points: number): number => {
+  const prior = 0.1;
+  const odds = 350 ** (points / 8);
+  return (odds * prior) / ((odds - 1) * prior + 1);
+};
 
 describe('AcmgScaleBar', () => {
   it('shows the class label and signed point total for a pathogenic call', () => {

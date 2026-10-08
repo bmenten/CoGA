@@ -58,16 +58,11 @@ export function scalePositionPct(points: number): number {
   return 100;
 }
 
-// Posterior probability of pathogenicity for a point total (prior 0.10).
-export function posteriorForPoints(points: number): number {
-  const prior = 0.1;
-  const odds = 350 ** (points / 8);
-  return (odds * prior) / ((odds - 1) * prior + 1);
-}
-
 // Ticks sit on the lower edge of a point's cell and carry that point's
 // posterior (0 → 10%, 1 → 18.8%, … 6 → 90%). The two outer class boundaries
-// carry the class definitions instead: Benign < 0.1%, Pathogenic > 99%.
+// carry the class definitions instead: Benign < 0.1%, Pathogenic > 99%. The
+// labels are fixed text; the test checks them against the formula (prior 0.10,
+// odds 350^(points/8)).
 type Tick = { points: number; label: string; boundary: boolean };
 
 export const SCALE_TICKS: Tick[] = [

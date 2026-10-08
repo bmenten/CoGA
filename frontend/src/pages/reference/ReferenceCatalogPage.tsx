@@ -128,6 +128,22 @@ interface ReferenceAutoImportResult {
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
 
+// The assembly table's count columns, in order: the status count each shows and the
+// dataset its refresh or upload action targets.
+const REFERENCE_COUNT_COLUMNS: Array<
+  [
+    'chromosomes' | 'genes' | 'blacklist_regions' | 'clinical_cnvs' | 'segmental_duplications' | 'dgv',
+    string,
+  ]
+> = [
+  ['chromosomes', 'cytobands'],
+  ['genes', 'genes'],
+  ['blacklist_regions', 'blacklist'],
+  ['clinical_cnvs', 'clinical_cnvs'],
+  ['segmental_duplications', 'segmental_duplications'],
+  ['dgv', 'dgv'],
+];
+
 // Static copy table — hoisted to module scope so it is not reallocated on every
 // render (two 3 s polling queries re-render this page while jobs run).
 const datasetCopy: Record<string, { title: string; description: string }> = {
@@ -192,6 +208,8 @@ const ReferenceCatalogPage: React.FC = () => {
   const [importing, setImporting] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
+  // Opened only from admin controls (the toolbar and renderCountAction), so the modals'
+  // forms need no admin check of their own.
   const [activeModal, setActiveModal] = useState<'add' | 'manual' | 'upload' | null>(null);
   const [confirmAction, setConfirmAction] = useState<{
     title: string;
@@ -874,42 +892,14 @@ const ReferenceCatalogPage: React.FC = () => {
                                             <td className="table-mono">
                                               {assembly.release_date || '—'}
                                             </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.chromosomes)}
-                                                {renderCountAction(assembly, entry.tax_id, 'cytobands')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.genes)}
-                                                {renderCountAction(assembly, entry.tax_id, 'genes')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.blacklist_regions)}
-                                                {renderCountAction(assembly, entry.tax_id, 'blacklist')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.clinical_cnvs)}
-                                                {renderCountAction(assembly, entry.tax_id, 'clinical_cnvs')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.segmental_duplications)}
-                                                {renderCountAction(assembly, entry.tax_id, 'segmental_duplications')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.dgv)}
-                                                {renderCountAction(assembly, entry.tax_id, 'dgv')}
-                                              </span>
-                                            </td>
+                                            {REFERENCE_COUNT_COLUMNS.map(([countKey, datasetType]) => (
+                                              <td key={datasetType} className="table-mono">
+                                                <span className="reference-count-with-action">
+                                                  {catalogCount(status?.[countKey])}
+                                                  {renderCountAction(assembly, entry.tax_id, datasetType)}
+                                                </span>
+                                              </td>
+                                            ))}
                                             <td className="table-mono" title={lastUpdatedTooltip || undefined}>
                                               {latestImport ? (
                                                 <span>
@@ -964,87 +954,81 @@ const ReferenceCatalogPage: React.FC = () => {
                 {autoImportSuccess}
               </p>
             )}
-            {userIsAdmin ? (
-              <form onSubmit={handleReferenceImport} className="field-grid">
-                <label className="field-label">
-                  Source organism
-                  <select
-                    value={autoImportForm.tax_id}
-                    onChange={(e) =>
-                      setAutoImportForm({
-                        tax_id: e.target.value,
-                        ucsc_genome: '',
-                        overwrite: autoImportForm.overwrite,
-                      })
-                    }
-                    disabled={importing}
-                  >
-                    <option value="">Select organism</option>
-                    {sourceOrganisms.map((entry) => (
-                      <option key={entry.tax_id} value={entry.tax_id}>
-                        {entry.scientific_name}
-                        {entry.common_name ? ` (${entry.common_name})` : ''} • {entry.assembly_count} assemblies
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Source assembly
-                  <select
-                    value={autoImportForm.ucsc_genome}
-                    onChange={(e) =>
-                      setAutoImportForm((current) => ({
-                        ...current,
-                        ucsc_genome: e.target.value,
-                      }))
-                    }
-                    disabled={!autoImportForm.tax_id || importing}
-                  >
-                    <option value="">Select assembly</option>
-                    {sourceAssemblies.map((entry) => (
-                      <option key={entry.ucsc_genome} value={entry.ucsc_genome}>
-                        {entry.assembly_name} {entry.assembly_version} ({entry.ucsc_genome})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Replace existing cytobands and genes
-                  <input
-                    type="checkbox"
-                    checked={autoImportForm.overwrite}
-                    onChange={(e) =>
-                      setAutoImportForm((current) => ({
-                        ...current,
-                        overwrite: e.target.checked,
-                      }))
-                    }
-                    disabled={importing}
-                  />
-                </label>
-                <button
-                  type="submit"
-                  className="form-button"
-                  disabled={importing || !autoImportForm.ucsc_genome}
+            <form onSubmit={handleReferenceImport} className="field-grid">
+              <label className="field-label">
+                Source organism
+                <select
+                  value={autoImportForm.tax_id}
+                  onChange={(e) =>
+                    setAutoImportForm({
+                      tax_id: e.target.value,
+                      ucsc_genome: '',
+                      overwrite: autoImportForm.overwrite,
+                    })
+                  }
+                  disabled={importing}
                 >
-                  {importing ? 'Downloading from UCSC…' : 'Download cytobands and genes'}
-                </button>
-                {importing && (
-                  <div className="reference-import-progress" aria-live="polite">
-                    <div className="reference-import-progress-shell">
-                      <div className="reference-import-progress-bar" />
-                    </div>
-                    <p className="dashboard-link-note">
-                      Fetching cytobands and gene tables from UCSC — this can take up to a minute.
-                    </p>
+                  <option value="">Select organism</option>
+                  {sourceOrganisms.map((entry) => (
+                    <option key={entry.tax_id} value={entry.tax_id}>
+                      {entry.scientific_name}
+                      {entry.common_name ? ` (${entry.common_name})` : ''} • {entry.assembly_count} assemblies
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field-label">
+                Source assembly
+                <select
+                  value={autoImportForm.ucsc_genome}
+                  onChange={(e) =>
+                    setAutoImportForm((current) => ({
+                      ...current,
+                      ucsc_genome: e.target.value,
+                    }))
+                  }
+                  disabled={!autoImportForm.tax_id || importing}
+                >
+                  <option value="">Select assembly</option>
+                  {sourceAssemblies.map((entry) => (
+                    <option key={entry.ucsc_genome} value={entry.ucsc_genome}>
+                      {entry.assembly_name} {entry.assembly_version} ({entry.ucsc_genome})
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field-label">
+                Replace existing cytobands and genes
+                <input
+                  type="checkbox"
+                  checked={autoImportForm.overwrite}
+                  onChange={(e) =>
+                    setAutoImportForm((current) => ({
+                      ...current,
+                      overwrite: e.target.checked,
+                    }))
+                  }
+                  disabled={importing}
+                />
+              </label>
+              <button
+                type="submit"
+                className="form-button"
+                disabled={importing || !autoImportForm.ucsc_genome}
+              >
+                {importing ? 'Downloading from UCSC…' : 'Download cytobands and genes'}
+              </button>
+              {importing && (
+                <div className="reference-import-progress" aria-live="polite">
+                  <div className="reference-import-progress-shell">
+                    <div className="reference-import-progress-bar" />
                   </div>
-                )}
-              </form>
-            ) : (
-              <p className="section-copy">
-                Admin access is required to import organisms and assemblies from upstream sources.
-              </p>
-            )}
+                  <p className="dashboard-link-note">
+                    Fetching cytobands and gene tables from UCSC — this can take up to a minute.
+                  </p>
+                </div>
+              )}
+            </form>
             {selectedSourceAssembly && (
               <div className="dashboard-link-stack">
                 <p className="dashboard-link-note">
@@ -1080,63 +1064,57 @@ const ReferenceCatalogPage: React.FC = () => {
                 {uploadSuccess}
               </p>
             )}
-            {userIsAdmin ? (
-              <form onSubmit={handleReferenceUpload} className="field-grid">
-                <label className="field-label">
-                  Assembly
-                  <select
-                    value={referenceUpload.assembly_id}
-                    onChange={(e) =>
-                      setReferenceUpload((current) => ({
-                        ...current,
-                        assembly_id: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Select assembly</option>
-                    {assemblies.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.assembly_name} {entry.version}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Dataset
-                  <select
-                    value={referenceUpload.dataset_type}
-                    onChange={(e) =>
-                      setReferenceUpload((current) => ({
-                        ...current,
-                        dataset_type: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="cytobands">Cytobands</option>
-                    <option value="genes">Genes</option>
-                    <option value="blacklist">Blacklist</option>
-                    <option value="clinical_cnvs">Clinical CNVs</option>
-                    <option value="segmental_duplications">Segmental duplications/LCRs</option>
-                    <option value="dgv">DGV variants</option>
-                  </select>
-                </label>
-                <label className="field-label">
-                  Reference file
-                  <input
-                    type="file"
-                    accept=".txt,.tsv,.bed,.gz"
-                    onChange={(e) => setReferenceFile(e.target.files?.[0] || null)}
-                  />
-                </label>
-                <button type="submit" className="form-button">
-                  Upload file
-                </button>
-              </form>
-            ) : (
-              <p className="section-copy">
-                Admin access is required to upload reference files.
-              </p>
-            )}
+            <form onSubmit={handleReferenceUpload} className="field-grid">
+              <label className="field-label">
+                Assembly
+                <select
+                  value={referenceUpload.assembly_id}
+                  onChange={(e) =>
+                    setReferenceUpload((current) => ({
+                      ...current,
+                      assembly_id: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select assembly</option>
+                  {assemblies.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.assembly_name} {entry.version}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field-label">
+                Dataset
+                <select
+                  value={referenceUpload.dataset_type}
+                  onChange={(e) =>
+                    setReferenceUpload((current) => ({
+                      ...current,
+                      dataset_type: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="cytobands">Cytobands</option>
+                  <option value="genes">Genes</option>
+                  <option value="blacklist">Blacklist</option>
+                  <option value="clinical_cnvs">Clinical CNVs</option>
+                  <option value="segmental_duplications">Segmental duplications/LCRs</option>
+                  <option value="dgv">DGV variants</option>
+                </select>
+              </label>
+              <label className="field-label">
+                Reference file
+                <input
+                  type="file"
+                  accept=".txt,.tsv,.bed,.gz"
+                  onChange={(e) => setReferenceFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              <button type="submit" className="form-button">
+                Upload file
+              </button>
+            </form>
             <div className="dashboard-link-stack">
               <p className="dashboard-link-note">
                 <strong>{datasetCopy[referenceUpload.dataset_type]?.title ?? 'Reference data'}:</strong>{' '}
@@ -1159,120 +1137,108 @@ const ReferenceCatalogPage: React.FC = () => {
             <div className="space-y-4">
             <div className="space-y-3">
             <h3 className="section-title">Add organism manually</h3>
-            {userIsAdmin ? (
-              <form onSubmit={handleSpeciesSubmit} className="field-grid">
-                <label className="field-label">
-                  Scientific name
-                  <input
-                    value={speciesForm.name}
-                    onChange={(e) =>
-                      setSpeciesForm((current) => ({ ...current, name: e.target.value }))
-                    }
-                    placeholder="Homo sapiens"
-                  />
-                </label>
-                <label className="field-label">
-                  Common name
-                  <input
-                    value={speciesForm.common_name}
-                    onChange={(e) =>
-                      setSpeciesForm((current) => ({ ...current, common_name: e.target.value }))
-                    }
-                    placeholder="human"
-                  />
-                </label>
-                <label className="field-label">
-                  Taxonomy id
-                  <input
-                    value={speciesForm.tax_id}
-                    onChange={(e) =>
-                      setSpeciesForm((current) => ({ ...current, tax_id: e.target.value }))
-                    }
-                    placeholder="9606"
-                  />
-                </label>
-                <button type="submit" className="form-button">
-                  Add species
-                </button>
-              </form>
-            ) : (
-              <p className="section-copy">
-                Admin access is required to add a new species entry.
-              </p>
-            )}
+            <form onSubmit={handleSpeciesSubmit} className="field-grid">
+              <label className="field-label">
+                Scientific name
+                <input
+                  value={speciesForm.name}
+                  onChange={(e) =>
+                    setSpeciesForm((current) => ({ ...current, name: e.target.value }))
+                  }
+                  placeholder="Homo sapiens"
+                />
+              </label>
+              <label className="field-label">
+                Common name
+                <input
+                  value={speciesForm.common_name}
+                  onChange={(e) =>
+                    setSpeciesForm((current) => ({ ...current, common_name: e.target.value }))
+                  }
+                  placeholder="human"
+                />
+              </label>
+              <label className="field-label">
+                Taxonomy id
+                <input
+                  value={speciesForm.tax_id}
+                  onChange={(e) =>
+                    setSpeciesForm((current) => ({ ...current, tax_id: e.target.value }))
+                  }
+                  placeholder="9606"
+                />
+              </label>
+              <button type="submit" className="form-button">
+                Add species
+              </button>
+            </form>
             </div>
 
             <div className="space-y-3">
             <h3 className="section-title">Add assembly manually</h3>
-            {userIsAdmin ? (
-              <form onSubmit={handleAssemblySubmit} className="field-grid">
-                <label className="field-label">
-                  Species
-                  <select
-                    value={assemblyForm.species_id}
-                    onChange={(e) =>
-                      setAssemblyForm((current) => ({
-                        ...current,
-                        species_id: e.target.value,
-                      }))
-                    }
-                  >
-                    <option value="">Select species</option>
-                    {species.map((entry) => (
-                      <option key={entry.id} value={entry.id}>
-                        {entry.name}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="field-label">
-                  Assembly name
-                  <input
-                    value={assemblyForm.assembly_name}
-                    onChange={(e) =>
-                      setAssemblyForm((current) => ({
-                        ...current,
-                        assembly_name: e.target.value,
-                      }))
-                    }
-                    placeholder="GRCh38"
-                  />
-                </label>
-                <label className="field-label">
-                  Version
-                  <input
-                    value={assemblyForm.version}
-                    onChange={(e) =>
-                      setAssemblyForm((current) => ({
-                        ...current,
-                        version: e.target.value,
-                      }))
-                    }
-                    placeholder="p14"
-                  />
-                </label>
-                <label className="field-label">
-                  Release date
-                  <input
-                    type="date"
-                    value={assemblyForm.release_date}
-                    onChange={(e) =>
-                      setAssemblyForm((current) => ({
-                        ...current,
-                        release_date: e.target.value,
-                      }))
-                    }
-                  />
-                </label>
-                <button type="submit" className="form-button">
-                  Add assembly
-                </button>
-              </form>
-            ) : (
-              <p className="section-copy">
-                Admin access is required to attach a new assembly to the catalog.
-              </p>
-            )}
+            <form onSubmit={handleAssemblySubmit} className="field-grid">
+              <label className="field-label">
+                Species
+                <select
+                  value={assemblyForm.species_id}
+                  onChange={(e) =>
+                    setAssemblyForm((current) => ({
+                      ...current,
+                      species_id: e.target.value,
+                    }))
+                  }
+                >
+                  <option value="">Select species</option>
+                  {species.map((entry) => (
+                    <option key={entry.id} value={entry.id}>
+                      {entry.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="field-label">
+                Assembly name
+                <input
+                  value={assemblyForm.assembly_name}
+                  onChange={(e) =>
+                    setAssemblyForm((current) => ({
+                      ...current,
+                      assembly_name: e.target.value,
+                    }))
+                  }
+                  placeholder="GRCh38"
+                />
+              </label>
+              <label className="field-label">
+                Version
+                <input
+                  value={assemblyForm.version}
+                  onChange={(e) =>
+                    setAssemblyForm((current) => ({
+                      ...current,
+                      version: e.target.value,
+                    }))
+                  }
+                  placeholder="p14"
+                />
+              </label>
+              <label className="field-label">
+                Release date
+                <input
+                  type="date"
+                  value={assemblyForm.release_date}
+                  onChange={(e) =>
+                    setAssemblyForm((current) => ({
+                      ...current,
+                      release_date: e.target.value,
+                    }))
+                  }
+                />
+              </label>
+              <button type="submit" className="form-button">
+                Add assembly
+              </button>
+            </form>
             </div>
             </div>
           </AdminModal>

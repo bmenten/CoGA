@@ -45,7 +45,6 @@ export type ApiContract = [
   Check<Fits<Api.ApiFamilyStatusRef, Schema.FamilyStatusRef>>,
   Check<Fits<Api.ApiHpoTerm, Schema.HpoTermOut>>,
   Check<Fits<Api.ApiHpoAnnotation, Schema.HpoAnnotationOut>>,
-  Check<Fits<Api.ApiHpoFamilyQuery, Schema.HpoFamilyQueryOut>>,
   Check<Fits<Api.ApiSmallVariantReviewSummary, Schema.SmallVariantReviewSummaryOut>>,
   Check<Fits<Api.ApiNiptFetalFraction, Schema.NiptFetalFractionOut>>,
   Check<Fits<Api.ApiNiptSummary, Schema.NiptSummaryOut>>,
@@ -101,7 +100,6 @@ export type ApiContract = [
   Check<Fits<Api.GenePanel, Schema.GenePanelOut>>,
   Check<Fits<Api.GenePanelVersionSummary, Schema.GenePanelVersionSummary>>,
   Check<Fits<Api.GenePanelVersionList, Schema.GenePanelVersionListOut>>,
-  Check<Fits<Api.MendeliomeRegenerateResponse, Schema.MendeliomeRegenerateResponse>>,
 ]
 
 // Not checked: ApiMitoDNAVariant (<- MitoDNAVariantOut) and ApiFamilyMitoDNAAnalysis

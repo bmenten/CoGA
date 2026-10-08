@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field
 
 from .common import (
     ApiId,
@@ -41,8 +41,6 @@ class UserRead(BaseModel):
     projects: List[str] = Field(default_factory=list)
     created_at: datetime
 
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
 
 class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
@@ -73,5 +71,3 @@ class UserRefOut(BaseModel):
     email: EmailStr
     first_name: str = ""
     last_name: str = ""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)

@@ -33,8 +33,8 @@ _SEG_WEIGHT_NONE = 0.6
 # Weight of the phenotype term in the combined score. Like Exomiser, phenotype
 # relevance reorders candidates: a variant in a phenotype-matched gene can outrank an
 # equally deleterious variant in a phenotype-irrelevant gene. Genes with no Monarch
-# phenotype data score 0 on the phenotype axis (shown explicitly in the UI), so users
-# can re-sort by the raw variant score when chasing novel-gene candidates.
+# phenotype data score 0 on the phenotype axis (shown explicitly in the UI, beside the
+# variant score in the score breakdown); the variant score breaks ties in the ranking.
 _PHENOTYPE_WEIGHT = 0.5
 # Predictor-only evidence is capped below 1.0; a perfect score is reserved for ClinVar
 # pathogenic assertions, so variant scores spread out instead of saturating.
@@ -205,7 +205,7 @@ def combine(variant_score: float, phenotype_score: float | None) -> float:
     Phenotype relevance reorders candidates (Exomiser-style): a phenotype-matched gene
     can outrank an equally deleterious variant in an unrelated gene. A gene with no
     Monarch phenotype data scores 0 on the phenotype axis; the raw ``variant_score`` is
-    surfaced separately so novel-gene candidates remain findable by re-sorting.
+    shown separately in the score breakdown and breaks ties between equal combined scores.
     """
     phenotype = phenotype_score or 0.0
     return (1.0 - _PHENOTYPE_WEIGHT) * variant_score + _PHENOTYPE_WEIGHT * phenotype

@@ -13,7 +13,7 @@ remote mode the raw family data lives in a bucket and is read two ways:
   the aligned reads there, since it only records where they lie.
 
 Object keys mirror the local layout (``<family_id>/<file>``) under the optional
-``STORAGE_PREFIX`` (``S3_PREFIX`` / ``GCS_PREFIX``). Remote URIs use the store's
+storage prefix (``S3_PREFIX`` or ``GCS_PREFIX``). Remote URIs use the store's
 native scheme: ``s3://`` or ``gs://``. An imported package's alignments are instead
 addressed by the URI the import recorded (``configured_object_key``).
 
@@ -57,17 +57,9 @@ _MANIFEST_NAMES = ("manifest.yaml", "manifest.yml", "manifest.json")
 # Backend selection
 # ---------------------------------------------------------------------------
 
-def storage_backend() -> str:
-    return settings.storage_backend
-
-
 def storage_is_remote() -> bool:
     """True when a cloud object store (S3 or GCS) backs raw family data."""
     return settings.storage_backend in ("s3", "gcs")
-
-
-def storage_is_s3() -> bool:
-    return settings.storage_backend == "s3"
 
 
 def storage_is_gcs() -> bool:

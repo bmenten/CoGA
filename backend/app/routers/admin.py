@@ -68,6 +68,7 @@ from ..services.qc_threshold_service import (
 from ..services.clinical_audit_service import verify_clinical_audit_chain
 from ..services.family_metadata_context import build_family_metadata_context
 from ..services.integrity_anchor_service import (
+    AnchorVerification,
     create_integrity_anchor,
     verify_against_latest_anchor,
     verify_anchor_chain,
@@ -206,6 +207,16 @@ async def create_integrity_anchor_endpoint(
     return IntegrityAnchorOut(**{k: record[k] for k in IntegrityAnchorOut.model_fields})
 
 
+def _anchor_verify_out(result: AnchorVerification) -> IntegrityAnchorVerifyOut:
+    return IntegrityAnchorVerifyOut(
+        status=result.status,
+        anchor_seq=result.anchor_seq,
+        chain_count=result.chain_count,
+        diverged=result.diverged,
+        reason=result.reason,
+    )
+
+
 @router.get("/integrity/anchor/verify", response_model=IntegrityAnchorVerifyOut)
 async def verify_integrity_anchor_endpoint(
     session: AsyncSession = Depends(get_postgres_session),
@@ -214,14 +225,7 @@ async def verify_integrity_anchor_endpoint(
     """Verify the live chains against the latest signed anchor (signature + per-family
     prefix check). ``diverged`` localises any re-chained / truncated family since the
     anchor; ``status`` is a finding, not an error."""
-    result = await verify_against_latest_anchor(session)
-    return IntegrityAnchorVerifyOut(
-        status=result.status,
-        anchor_seq=result.anchor_seq,
-        chain_count=result.chain_count,
-        diverged=result.diverged,
-        reason=result.reason,
-    )
+    return _anchor_verify_out(await verify_against_latest_anchor(session))
 
 
 @router.get("/integrity/anchor/verify-chain", response_model=IntegrityAnchorVerifyOut)
@@ -232,14 +236,7 @@ async def verify_integrity_anchor_chain_endpoint(
     """Verify the anchor chain itself: sequence contiguity, prev_anchor_hash continuity,
     and every signed anchor's signature. Detects deletion/re-linking of an INTERIOR anchor
     — which the latest-anchor check cannot see. ``status`` is a finding, not an error."""
-    result = await verify_anchor_chain(session)
-    return IntegrityAnchorVerifyOut(
-        status=result.status,
-        anchor_seq=result.anchor_seq,
-        chain_count=result.chain_count,
-        diverged=result.diverged,
-        reason=result.reason,
-    )
+    return _anchor_verify_out(await verify_anchor_chain(session))
 
 
 @router.get("/nipt/artifacts", response_model=List[NiptArtifactOut])

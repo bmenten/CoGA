@@ -1,11 +1,23 @@
 import React, { useEffect, useRef } from 'react';
 import RoiMarkerOverlay from '../../components/visualizations/RoiMarkerOverlay';
 import { useViewerInteractionSurface } from './ViewerInteractionSurface';
+import { buildTrackFilterSummary } from './viewerShared';
 
-interface ViewerRoiRange {
+/** The family ROI's horizontal extent on a track, in px. */
+export interface ViewerRoiRange {
   startX: number;
   endX: number;
 }
+
+/** A variant track's filters, for its `meta` slot; nothing when none apply. */
+export const TrackMeta: React.FC<{
+  variantFilters: Record<string, string>;
+  sampleFilter?: string;
+}> = ({ variantFilters, sampleFilter }) => {
+  const summary = buildTrackFilterSummary(variantFilters, sampleFilter);
+  if (!summary) return null;
+  return <span className="viewer-track-meta">{summary}</span>;
+};
 
 type ViewerInteractionMode = 'pan' | 'zoom';
 
@@ -25,8 +37,6 @@ interface ViewerTrackBlockProps {
     mode?: ViewerInteractionMode;
     // Commit a new [start, end] window (drag-to-zoom result or pan result).
     onChange: (start: number, end: number) => void;
-    // Wheel zoom, keeping the genomic position under the cursor fixed. focus is a
-    // 0..1 fraction of the track width; factor < 1 zooms in, > 1 zooms out.
   };
 }
 

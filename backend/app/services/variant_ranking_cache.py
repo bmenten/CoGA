@@ -198,30 +198,6 @@ async def compute_ranking_hashes(
     return inputs_hash, base_hash
 
 
-async def compute_inputs_hash(
-    session: AsyncSession,
-    *,
-    context: Any,
-    filters: Any,
-    patient_terms: Any,
-    variant_data_version: str | None = None,
-    review_variant_ids: Any = None,
-    excluded_review_variant_ids: Any = None,
-    include_review_filter_active: bool = False,
-) -> str:
-    inputs_hash, _base = await compute_ranking_hashes(
-        session,
-        context=context,
-        filters=filters,
-        patient_terms=patient_terms,
-        variant_data_version=variant_data_version,
-        review_variant_ids=review_variant_ids,
-        excluded_review_variant_ids=excluded_review_variant_ids,
-        include_review_filter_active=include_review_filter_active,
-    )
-    return inputs_hash
-
-
 async def get_cached_ranking(
     session: AsyncSession, *, family_uuid: str, inputs_hash: str
 ) -> dict[str, Any] | None:

@@ -91,6 +91,17 @@ describe('FamilySampleQcPage', () => {
           status: 'fail',
           message: 'Recorded parent-child but genotypes look unrelated.',
         },
+        {
+          sample_a: 'FATHER',
+          sample_b: 'MOTHER',
+          expected_relationship: 'unrelated',
+          inferred_relationship: 'third-degree',
+          kinship: 0.03,
+          ibs0_rate: 0.12,
+          informative_sites: 80000,
+          status: 'warn',
+          message: 'Parents look third-degree — possible consanguinity.',
+        },
       ],
       mendelian_checks: [
         {
@@ -125,6 +136,10 @@ describe('FamilySampleQcPage', () => {
     // Symmetric matrix: the observed relationship shows in both mirror cells.
     expect(screen.getAllByText('unrelated').length).toBeGreaterThanOrEqual(1);
     expect(container.querySelector('.qc-matrix-cell--fail')).toBeTruthy();
+    // A warning (here, co-parents who look related) is outlined amber, not red, and the
+    // page says which outline means what.
+    expect(container.querySelector('.qc-matrix-cell--warn')).toBeTruthy();
+    expect(screen.getByText(/are outlined: red for a fail, amber for a warning\./)).toBeInTheDocument();
   });
 
   it('opens with the shared family header', async () => {

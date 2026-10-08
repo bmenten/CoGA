@@ -470,7 +470,9 @@ these statuses to find the risk haplotype. Mitochondrial inheritance gives no st
 status recorded for the parent wins: under `family.members`, in the carrier lists, or in
 the PED; where it contradicts the model, validation warns. Without an inheritance model the
 parent keeps its status, and validation says the model is missing. Validation also lists
-each status it derives, and the family keeps the list under `metadata.pgt`.
+each status it derives, as a warning; a derived carrier status names the model in the
+member's `carrier_evidence`. The family keeps the model, the carriers, the affected parents
+and the indexes under its own `metadata.pgt`.
 
 `metadata.pgt.indexes` names the index, the relative whose haplotypes the risk haplotype is
 read from (the samplesheet's `index`, which Discover copies), and gives it the status the
@@ -634,10 +636,14 @@ other set of members gets no link, and a member without a TRGT VCF no sex. The w
 `snv.per_sample` with `source_format: clair3`
 ([per_sample_small_variants.py](../backend/app/services/per_sample_small_variants.py)):
 
-- The files are read side by side, each sorted in the order of its `##contig` lines; a file
-  sorted otherwise, or whose contigs are listed in another order, fails the dataset before
-  anything is written. Each file must hold one sample column, and that column must be the
-  entry's sample (`per_sample_vcf_column`): the partner's file under an entry is refused.
+- The files are read side by side, each sorted in the order of its `##contig` lines. A file
+  whose contigs are listed in another order than the others' fails the dataset before
+  anything is written. A record out of that order is found only as the files are read, once
+  writing has begun (an `overwrite` has then already deleted the stored callset): it fails
+  the dataset there, the rows already written are removed, and the family is put back or
+  flagged as for any failed dataset ([The import job](#the-import-job)). Each file must hold
+  one sample column, and that column must be the entry's sample (`per_sample_vcf_column`):
+  the partner's file under an entry is refused.
 - The records of one site (chromosome, position, REF and ALT) become one row holding the call
   of each sample whose file has a record there. Two records of one position whose alleles
   differ (`A>G`, `A>G,T`) are two rows; a multi-allelic record is not split.
@@ -874,7 +880,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `ped_missing_path` | The manifest names no PED and no members under `family.add_members`. |
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when they are of opposite sex). Check them before writing the manifest. |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
-| `dataset_vcf_not_single_sample` | A VCF of a NIPT pair holds no sample column or more than one. |
+| `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
 | A per-target coverage import fails on `sample_interval_track_sources_track_type_check` | The Postgres database is older than the `target_coverage` track type; reset it ([database.md](database.md)). |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |

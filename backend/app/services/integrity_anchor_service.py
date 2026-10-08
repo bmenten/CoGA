@@ -34,7 +34,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
@@ -50,8 +49,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
 from . import hash_chain
-
-logger = logging.getLogger(__name__)
 
 # The two append-only tables that carry per-family hash chains, mapped to the canonical
 # chain-order COLUMNS (ascending). The head is the LAST row in this order; the prefix check

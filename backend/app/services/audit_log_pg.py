@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
 import json
 from typing import Any
 
@@ -255,10 +254,6 @@ async def write_audit_log_event(payload: AuditLogEventPayload) -> None:
     )
 
 
-async def _insert_audit_log_event(session: AsyncSession, payload: AuditLogEventPayload) -> None:
-    await session.execute(_INSERT_AUDIT_LOG_SQL, _audit_log_insert_params(payload))
-
-
 def _audit_log_out_from_mapping(row: dict[str, Any]) -> AuditLogEventOut:
     return AuditLogEventOut(
         id=str(row["id"]),
@@ -292,8 +287,6 @@ async def list_audit_log_events(
     status_code: int | None = None,
     user_email: str | None = None,
     path_contains: str | None = None,
-    started_after: datetime | None = None,
-    started_before: datetime | None = None,
 ) -> AuditLogPageOut:
     where_clauses: list[str] = []
     params: dict[str, Any] = {
@@ -313,12 +306,6 @@ async def list_audit_log_events(
     if path_contains:
         where_clauses.append("(path ILIKE :path_contains OR route_path ILIKE :path_contains)")
         params["path_contains"] = f"%{path_contains.strip()}%"
-    if started_after is not None:
-        where_clauses.append("created_at >= :started_after")
-        params["started_after"] = started_after
-    if started_before is not None:
-        where_clauses.append("created_at <= :started_before")
-        params["started_before"] = started_before
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 

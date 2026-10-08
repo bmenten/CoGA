@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import csv
 import json
-import logging
 from pathlib import Path
 import re
 from typing import Any, Awaitable, Callable
@@ -23,9 +22,6 @@ from .family_metadata_context import (
 
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info
 from .import_progress import bytes_read_on_disk, file_size, read_stats
-
-
-logger = logging.getLogger(__name__)
 
 
 async def _delete_sample_interval_track(
@@ -522,7 +518,6 @@ async def _import_bigwig_interval_track(
     skip_zero: bool = False,
     value_transform: Callable[[float], float] | None = None,
     extra_metadata: dict[str, Any] | None = None,
-    progress: Callable[[dict[str, int]], Awaitable[None]] | None = None,
 ) -> dict[str, int]:
     """Import a bigWig signal file as interval-track rows.
 
@@ -553,7 +548,6 @@ async def _import_bigwig_interval_track(
 
     processed = 0
     inserted = 0
-    last_reported = 0
     batch: list[dict[str, Any]] = []
     reader = open_bigwig(path)
     try:
@@ -585,9 +579,6 @@ async def _import_bigwig_interval_track(
                 await _insert_interval_track_rows(session, batch)
                 inserted += len(batch)
                 batch = []
-                if progress is not None and processed - last_reported >= 50000:
-                    last_reported = processed
-                    await progress({"processed": processed, "inserted": inserted, "skipped": 0})
     finally:
         reader.close()
     if batch:
@@ -610,10 +601,7 @@ async def _import_bigwig_interval_track(
         },
     )
     await session.commit()
-    result = {"processed": processed, "inserted": inserted, "skipped": processed - inserted}
-    if progress is not None:
-        await progress(result)
-    return result
+    return {"processed": processed, "inserted": inserted, "skipped": processed - inserted}
 
 
 _APCAD_VALUE_KEYS = (

@@ -742,7 +742,6 @@ async def import_hpo_ontology(
     path: str | Path,
     release_version: str | None = None,
     release_date: date | None = None,
-    commit: bool = True,
 ) -> dict[str, int]:
     ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
     if not ontology.terms:
@@ -848,8 +847,7 @@ async def import_hpo_ontology(
             closure_rows,
         )
 
-    if commit:
-        await session.commit()
+    await session.commit()
     return {
         "terms": len(term_rows),
         "synonyms": len(synonym_rows),
@@ -1760,7 +1758,6 @@ async def create_individual_hpo_annotation(
     family_uuid: str,
     sample_id: str,
     payload: Any,
-    commit: bool = True,
 ) -> dict[str, Any]:
     await _ensure_hpo_schema_available(session)
     sample_uuid = await _sample_uuid_for(session, family_uuid=family_uuid, sample_id=sample_id)
@@ -1807,8 +1804,7 @@ async def create_individual_hpo_annotation(
         sample_id=sample_id,
         reason="hpo_annotation_created",
     )
-    if commit:
-        await session.commit()
+    await session.commit()
     annotation = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
     assert annotation is not None
     return annotation
@@ -1820,7 +1816,6 @@ async def update_individual_hpo_annotation(
     family_uuid: str,
     annotation_id: str,
     payload: Any,
-    commit: bool = True,
 ) -> dict[str, Any]:
     await _ensure_hpo_schema_available(session)
     existing = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
@@ -1884,8 +1879,7 @@ async def update_individual_hpo_annotation(
         sample_id=str(existing["sample_id"]),
         reason="hpo_annotation_updated",
     )
-    if commit:
-        await session.commit()
+    await session.commit()
     updated = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
     assert updated is not None
     return updated
@@ -1896,7 +1890,6 @@ async def delete_individual_hpo_annotation(
     *,
     family_uuid: str,
     annotation_id: str,
-    commit: bool = True,
 ) -> None:
     annotation_uuid = require_uuid(annotation_id, _ANNOTATION_NOT_FOUND, status_code=404)
     result = await session.execute(
@@ -1917,8 +1910,7 @@ async def delete_individual_hpo_annotation(
         sample_id=None,
         reason="hpo_annotation_deleted",
     )
-    if commit:
-        await session.commit()
+    await session.commit()
 
 
 async def query_family_hpo_annotations(
@@ -1988,7 +1980,6 @@ async def import_family_hpo_annotations(
     sample_uuids_by_id: Mapping[str, str],
     rows: Iterable[HpoAnnotationImportRow],
     issues: Iterable[HpoAnnotationImportIssue] = (),
-    commit: bool = True,
 ) -> dict[str, Any]:
     row_list = list(rows)
     issue_list = list(issues)
@@ -2072,8 +2063,7 @@ async def import_family_hpo_annotations(
             ),
             list(insert_rows.values()),
         )
-    if commit:
-        await session.commit()
+    await session.commit()
     return {
         "imported": imported,
         "skipped": skipped,

@@ -89,7 +89,6 @@ def _ordered_primary_chroms(chroms: dict[str, int]) -> list[str]:
 def iter_bigwig_intervals(
     reader: BigWigReader,
     *,
-    chromosomes: list[str] | None = None,
     skip_zero: bool = False,
 ) -> Iterator[tuple[str, int, int, float]]:
     """Yield ``(chrom, start, end, value)`` for every primary-contig interval.
@@ -106,8 +105,7 @@ def iter_bigwig_intervals(
     """
 
     available = reader.chroms() or {}
-    names = chromosomes if chromosomes is not None else _ordered_primary_chroms(available)
-    for name in names:
+    for name in _ordered_primary_chroms(available):
         length = available.get(name)
         if not length:
             continue
@@ -149,14 +147,3 @@ def autosomal_median(reader: BigWigReader, *, skip_zero: bool = True) -> float |
     if not values:
         return None
     return float(median(values))
-
-
-def bigwig_chrom_summary(reader: BigWigReader) -> dict[str, int]:
-    """Primary-contig name → length, for recording what a track actually spans."""
-
-    available = reader.chroms() or {}
-    return {
-        normalize_chromosome(name): int(length)
-        for name, length in available.items()
-        if is_primary_chromosome(name) and length
-    }
