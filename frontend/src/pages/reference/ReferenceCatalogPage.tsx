@@ -128,6 +128,22 @@ interface ReferenceAutoImportResult {
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
 
+// The assembly table's count columns, in order: the status count each shows and the
+// dataset its refresh or upload action targets.
+const REFERENCE_COUNT_COLUMNS: Array<
+  [
+    'chromosomes' | 'genes' | 'blacklist_regions' | 'clinical_cnvs' | 'segmental_duplications' | 'dgv',
+    string,
+  ]
+> = [
+  ['chromosomes', 'cytobands'],
+  ['genes', 'genes'],
+  ['blacklist_regions', 'blacklist'],
+  ['clinical_cnvs', 'clinical_cnvs'],
+  ['segmental_duplications', 'segmental_duplications'],
+  ['dgv', 'dgv'],
+];
+
 // Static copy table — hoisted to module scope so it is not reallocated on every
 // render (two 3 s polling queries re-render this page while jobs run).
 const datasetCopy: Record<string, { title: string; description: string }> = {
@@ -876,42 +892,14 @@ const ReferenceCatalogPage: React.FC = () => {
                                             <td className="table-mono">
                                               {assembly.release_date || '—'}
                                             </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.chromosomes)}
-                                                {renderCountAction(assembly, entry.tax_id, 'cytobands')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.genes)}
-                                                {renderCountAction(assembly, entry.tax_id, 'genes')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.blacklist_regions)}
-                                                {renderCountAction(assembly, entry.tax_id, 'blacklist')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.clinical_cnvs)}
-                                                {renderCountAction(assembly, entry.tax_id, 'clinical_cnvs')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.segmental_duplications)}
-                                                {renderCountAction(assembly, entry.tax_id, 'segmental_duplications')}
-                                              </span>
-                                            </td>
-                                            <td className="table-mono">
-                                              <span className="reference-count-with-action">
-                                                {catalogCount(status?.dgv)}
-                                                {renderCountAction(assembly, entry.tax_id, 'dgv')}
-                                              </span>
-                                            </td>
+                                            {REFERENCE_COUNT_COLUMNS.map(([countKey, datasetType]) => (
+                                              <td key={datasetType} className="table-mono">
+                                                <span className="reference-count-with-action">
+                                                  {catalogCount(status?.[countKey])}
+                                                  {renderCountAction(assembly, entry.tax_id, datasetType)}
+                                                </span>
+                                              </td>
+                                            ))}
                                             <td className="table-mono" title={lastUpdatedTooltip || undefined}>
                                               {latestImport ? (
                                                 <span>
