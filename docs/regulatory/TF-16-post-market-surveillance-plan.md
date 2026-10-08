@@ -27,7 +27,9 @@
 This is the **operationele fase** of H11.1-OP5 §6: incidents and feature requests are managed
 via **CMGGMC** (probleemmeldingen / suggestions), and monitoring and logging track execution and
 errors (on Google Cloud through Cloud Logging, [deployment-gcp.md §12.6](../deployment-gcp.md)).
-**🔲 Alerting is not yet configured** and must be set up before go-live. A hard requirement:
+**🔲 Alerting is not yet live:** its alert policies and uptime check are codified in
+`terraform/monitoring.tf` but not yet applied ([TF-13 §3](TF-13-cybersecurity.md)), and it must
+be live before go-live. A hard requirement:
 **every analysed sample is linked to the software version (`Sxxxx` `x.y.z`) used for it**, so
 any signal can be scoped to the exact version. CoGA meets it through the signed report
 ([TF-18 §2](TF-18-change-configuration-management.md)).
