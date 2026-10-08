@@ -2001,7 +2001,10 @@ export const heldTagOptions = (
     .map((key) => ({ value: key, label: byKey[key] ? tagDefinitionLabel(byKey[key]) : key }));
 };
 
-const LEGACY_CLASSIFICATION_MAP: Record<string, string> = {
+// A classification stored as the bare class word ("Pathogenic", "VUS") rather than the class
+// label the review dialog writes: the review API takes free text, so any client can store
+// one. It reads as the class it names, in the live lists and in a signed version's SVs alike.
+const CLASS_WORD_TAG_KEYS: Record<string, string> = {
   pathogenic: 'acmg_class_5',
   'likely pathogenic': 'acmg_class_4',
   vus: 'acmg_class_3',
@@ -2012,7 +2015,7 @@ const LEGACY_CLASSIFICATION_MAP: Record<string, string> = {
 export const getClassificationTagKeyFromClassification = (value?: string | null) => {
   const normalized = value?.trim().toLowerCase() || '';
   if (!normalized) return '';
-  return LEGACY_CLASSIFICATION_MAP[normalized] || '';
+  return CLASS_WORD_TAG_KEYS[normalized] || '';
 };
 
 export const getClassificationTagKeyFromTags = (tags: Iterable<string>) =>

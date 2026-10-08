@@ -22,8 +22,9 @@ function modalityVersion(module: ApiAnnotationModule, modality?: string): string
 
 /**
  * Whether a module belongs on a modality-scoped footer. Platform/reference modules
- * (assembly, Monarch, …) and flat/legacy modules with no per-modality detail are
- * shared across pages; pipeline modules show only on the modality that cited them.
+ * (assembly, Monarch, …) and modules recorded without per-modality detail (as in a
+ * manifest an admin entered by hand) are shared across pages; pipeline modules show
+ * only on the modality that cited them.
  */
 function showsOnModality(module: ApiAnnotationModule, modality?: string): boolean {
   if (!modality) return true;
