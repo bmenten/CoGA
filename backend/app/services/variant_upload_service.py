@@ -136,10 +136,6 @@ def _upload_metadata(source: str, file: UploadFile) -> str:
     )
 
 
-async def _decode_upload_text(file: UploadFile, *, kind: str) -> str:
-    return await decode_upload_text(file, kind=kind)
-
-
 def _iter_bounded_lines(handle, *, kind: str):
     # `for line in handle` buffers a whole line before yielding, so a VCF with no
     # newlines (or a gzip that inflates to one enormous line) could exhaust memory
@@ -1249,7 +1245,7 @@ async def upload_structural_variant_file(
             detail="Could not resolve a single assembly for this family",
         )
 
-    text_value = await _decode_upload_text(file, kind="Structural variant")
+    text_value = await decode_upload_text(file, kind="Structural variant")
     resolved_format = _detect_structural_variant_format(text_value, file.filename, format_hint)
     source_label = STRUCTURAL_VARIANT_SOURCE_LABELS[resolved_format]
     # One write of the family's SVs at a time, from the read below until the commit at the

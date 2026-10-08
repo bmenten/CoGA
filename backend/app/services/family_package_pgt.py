@@ -27,7 +27,7 @@ from fastapi import HTTPException
 
 from ..core.coga_logging import scrub_log
 from ..schemas import FamilyImportValidationIssue
-from .family_package_common import ParsedPed, _issue, _resolve_package_path
+from .family_package_common import ParsedPed, _issue, _package_path_or_none
 from .family_package_qc import _csv_rows, parse_king_kin0_text, parse_ngsbits_sample_gender_text
 from .sample_integrity_qc import KINSHIP_FIRST_DEGREE, KINSHIP_SECOND_DEGREE, KINSHIP_THIRD_DEGREE
 from .upload_safety import read_path_text_bounded
@@ -50,10 +50,7 @@ _INDEX_STATUS_NOTE = (
 
 def _read_package_file(root: Path, relative_path: str, *, kind: str) -> str | None:
     """A small package file's text, or None when it is absent or unreadable."""
-    try:
-        path = _resolve_package_path(root, relative_path)
-    except HTTPException:
-        return None
+    path = _package_path_or_none(root, relative_path)
     if path is None or not path.is_file():
         return None
     try:

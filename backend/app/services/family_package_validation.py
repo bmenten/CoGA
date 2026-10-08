@@ -21,7 +21,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, QC_FAMILY_ROLES, QC_SAMPLE_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -94,7 +94,6 @@ def _require_file(
                 path=path,
             )
         )
-        return path
     return path
 
 
@@ -131,6 +130,34 @@ def _validate_vcf_index(
             path=vcf_path,
         )
     )
+
+
+def _note_family_vcf_index(
+    *,
+    root: Path,
+    dataset_type: str,
+    vcf_path: Path | None,
+    index_value: str | None,
+    errors: list[FamilyImportValidationIssue],
+    files: list[str],
+) -> None:
+    """The index of a family VCF the import reads without one (APCAD, the phased
+    haplotypes): required when the dataset declares it, else listed when one lies beside
+    the VCF."""
+    if index_value:
+        _require_file(
+            root=root,
+            dataset_type=dataset_type,
+            value=index_value,
+            field_name="index",
+            errors=errors,
+            files=files,
+        )
+    elif vcf_path is not None:
+        for candidate in _vcf_index_candidates(vcf_path):
+            if candidate.is_file():
+                files.append(_display_path(root, candidate))
+                break
 
 
 def _validate_family_vcf_dataset(
@@ -541,20 +568,14 @@ def _validate_apcad_dataset(
             errors=errors,
             files=files,
         )
-        if dataset.index:
-            _require_file(
-                root=root,
-                dataset_type="apcad",
-                value=dataset.index,
-                field_name="index",
-                errors=errors,
-                files=files,
-            )
-        elif family_vcf_path is not None:
-            for candidate in _vcf_index_candidates(family_vcf_path):
-                if candidate.is_file():
-                    files.append(_display_path(root, candidate))
-                    break
+        _note_family_vcf_index(
+            root=root,
+            dataset_type="apcad",
+            vcf_path=family_vcf_path,
+            index_value=dataset.index,
+            errors=errors,
+            files=files,
+        )
     elif dataset.per_sample:
         for sample_id, raw_entry in dataset.per_sample.items():
             samples.append(sample_id)
@@ -633,10 +654,7 @@ def _check_apcad_sample_vcf_columns(
     value = entry.get("vcf") or entry.get("bed") or entry.get("file")
     if not isinstance(value, str) or not value.lower().endswith((".vcf", ".vcf.gz")):
         return
-    try:
-        path = _resolve_package_path(root, value)
-    except HTTPException:
-        return
+    path = _package_path_or_none(root, value)
     columns = _vcf_columns_if_readable(path)
     if not columns:
         return
@@ -751,20 +769,14 @@ def _validate_haplotypes_dataset(
             errors=errors,
             files=files,
         )
-        if dataset.index:
-            _require_file(
-                root=root,
-                dataset_type="haplotypes",
-                value=dataset.index,
-                field_name="index",
-                errors=errors,
-                files=files,
-            )
-        elif family_vcf_path is not None:
-            for candidate in _vcf_index_candidates(family_vcf_path):
-                if candidate.is_file():
-                    files.append(_display_path(root, candidate))
-                    break
+        _note_family_vcf_index(
+            root=root,
+            dataset_type="haplotypes",
+            vcf_path=family_vcf_path,
+            index_value=dataset.index,
+            errors=errors,
+            files=files,
+        )
         unknown_columns = [
             column for column in (_vcf_columns_if_readable(family_vcf_path) or []) if column not in ped_sample_ids
         ]
@@ -911,15 +923,11 @@ def _validate_paraphase_dataset(
     )
 
 
-# Per-sample roles each long-read dataset expects. The first entry of each tuple is
-# required; the rest are optional companions (index, annotation, auxiliary output)
-# that are validated only when the manifest declares them.
+# Per-sample roles each per-sample dataset expects: (required roles, optional roles). The
+# optional companions (index, annotation, auxiliary output) are validated only when the
+# manifest declares them.
 _PER_SAMPLE_DATASET_ROLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
-    # dataset_type: (required roles, optional roles)
-    "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
-    "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
-    "alignments": (("file",), ("index",)),
-    "qc": ((), QC_SAMPLE_ROLES),
+    **LONG_READ_DATASET_ROLES,
     # repeats_trgt is family-level by default; the long-read pipeline writes it per
     # sample (repeats/<sample>/<sample>_tr.vcf.gz), so both shapes are accepted.
     "repeats_trgt": (("file",), ("index",)),
