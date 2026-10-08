@@ -2960,6 +2960,29 @@ export interface StructuralClassificationDriftOut {
   drifted: StructuralClassificationDriftItem[];
 }
 
+export interface StructuralVariantFilterPresetCreate {
+  name: string;
+  description?: string | null;
+  filters?: Record<string, unknown>;
+  sample_filters?: Record<string, unknown>;
+  sample_templates?: Record<string, unknown>;
+  scope?: "family" | "global";
+}
+
+export interface StructuralVariantFilterPresetOut {
+  _id: string;
+  owner: string;
+  name: string;
+  description: string | null;
+  filters: Record<string, unknown>;
+  sample_filters: Record<string, unknown>;
+  sample_templates: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+  family_id: string | null;
+  scope: "family" | "global";
+}
+
 /**
  * The gene of this small variant is also hit by a structural variant — the cross-type
  * "second hit" that can complete a recessive (compound-het) genotype.

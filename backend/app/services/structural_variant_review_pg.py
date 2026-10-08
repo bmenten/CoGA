@@ -11,11 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.sql import require_uuid
 from ..schemas import (
     CnvAcmgClassificationPayload,
-    SmallVariantFilterPresetCreate,
-    SmallVariantFilterPresetOut,
     SmallVariantReviewOut,
     SmallVariantReviewSummaryOut,
     SmallVariantReviewUpdate,
+    StructuralVariantFilterPresetCreate,
+    StructuralVariantFilterPresetOut,
 )
 from . import cnv_acmg_points
 from .clinical_audit_service import record_structural_review_changes
@@ -124,8 +124,26 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
     )
 
 
-def _serialize_preset(row: dict[str, Any]) -> SmallVariantFilterPresetOut:
-    return SmallVariantFilterPresetOut(
+# A structural-variant preset is its owner's, for the family it is saved in (scope 'family')
+# or, reusable, for every family they can open (scope 'global', no family): one per family,
+# scope, owner and name.
+_PRESET_COLUMNS = """
+    id::text AS id,
+    family_id::text AS family_id,
+    scope,
+    owner,
+    name,
+    description,
+    filters,
+    sample_filters,
+    sample_templates,
+    created_at,
+    updated_at
+"""
+
+
+def _serialize_preset(row: dict[str, Any]) -> StructuralVariantFilterPresetOut:
+    return StructuralVariantFilterPresetOut(
         _id=str(row["id"]),
         family_id=row.get("family_id"),
         scope=row["scope"],
@@ -506,22 +524,11 @@ async def list_structural_variant_filter_presets(
     *,
     family_uuid: str,
     user: CurrentUser,
-) -> list[SmallVariantFilterPresetOut]:
+) -> list[StructuralVariantFilterPresetOut]:
     result = await session.execute(
         text(
-            """
-            SELECT
-                id::text AS id,
-                family_id::text AS family_id,
-                scope,
-                owner,
-                name,
-                description,
-                filters,
-                sample_filters,
-                sample_templates,
-                created_at,
-                updated_at
+            f"""
+            SELECT {_PRESET_COLUMNS}
             FROM structural_variant_filter_presets
             WHERE (scope = 'family' AND family_id = CAST(:family_id AS uuid) AND owner = :owner)
                OR (scope = 'global' AND owner = :owner)
@@ -537,40 +544,17 @@ async def save_structural_variant_filter_preset(
     session: AsyncSession,
     *,
     family_uuid: str,
-    payload: SmallVariantFilterPresetCreate,
+    payload: StructuralVariantFilterPresetCreate,
     user: CurrentUser,
-) -> SmallVariantFilterPresetOut:
+) -> StructuralVariantFilterPresetOut:
+    """Create the owner's preset of that name and scope, for this family or reusable, or
+    replace its content if it exists."""
     normalized_name = payload.name.strip()
     if not normalized_name:
         raise HTTPException(status_code=400, detail="Preset name cannot be blank")
     now = datetime.now(timezone.utc)
-    scoped_family_uuid = family_uuid if payload.scope == "family" else None
-    family_match_sql = (
-        "family_id = CAST(:family_id AS uuid)"
-        if scoped_family_uuid is not None
-        else "family_id IS NULL"
-    )
-    result = await session.execute(
-        text(
-            f"""
-            SELECT id::text AS id
-            FROM structural_variant_filter_presets
-            WHERE scope = :scope
-              AND owner = :owner
-              AND name = :name
-              AND {family_match_sql}
-            """
-        ),
-        {
-            "scope": payload.scope,
-            "owner": user.username,
-            "name": normalized_name,
-            "family_id": scoped_family_uuid,
-        },
-    )
-    existing_id = result.scalar_one_or_none()
     params = {
-        "family_id": scoped_family_uuid,
+        "family_id": family_uuid if payload.scope == "family" else None,
         "scope": payload.scope,
         "owner": user.username,
         "name": normalized_name,
@@ -578,63 +562,14 @@ async def save_structural_variant_filter_preset(
         "filters_json": _json_payload(payload.filters),
         "sample_filters_json": _json_payload(payload.sample_filters),
         "sample_templates_json": _json_payload(payload.sample_templates),
-        "updated_at": now,
+        "now": now,
     }
-    if existing_id is not None:
-        await session.execute(
-            text(
-                """
-                UPDATE structural_variant_filter_presets
-                SET description = :description,
-                    filters = CAST(:filters_json AS jsonb),
-                    sample_filters = CAST(:sample_filters_json AS jsonb),
-                    sample_templates = CAST(:sample_templates_json AS jsonb),
-                    updated_at = :updated_at
-                WHERE id = CAST(:preset_id AS uuid)
-                """
-            ),
-            {**params, "preset_id": existing_id},
-        )
-    else:
-        family_insert_sql = "CAST(:family_id AS uuid)" if scoped_family_uuid is not None else "NULL"
-        await session.execute(
-            text(
-                f"""
-                INSERT INTO structural_variant_filter_presets (
-                    family_id,
-                    scope,
-                    owner,
-                    name,
-                    description,
-                    filters,
-                    sample_filters,
-                    sample_templates,
-                    created_at,
-                    updated_at
-                )
-                VALUES (
-                    {family_insert_sql},
-                    :scope,
-                    :owner,
-                    :name,
-                    :description,
-                    CAST(:filters_json AS jsonb),
-                    CAST(:sample_filters_json AS jsonb),
-                    CAST(:sample_templates_json AS jsonb),
-                    :created_at,
-                    :updated_at
-                )
-                """
-            ),
-            {**params, "created_at": now},
-        )
-    await session.commit()
-    refreshed = await session.execute(
+    # The conflict target is the table's unique index (idx_structural_variant_filter_presets_unique).
+    result = await session.execute(
         text(
             f"""
-            SELECT
-                id::text AS id,
-                family_id::text AS family_id,
+            INSERT INTO structural_variant_filter_presets (
+                family_id,
                 scope,
                 owner,
                 name,
@@ -644,21 +579,38 @@ async def save_structural_variant_filter_preset(
                 sample_templates,
                 created_at,
                 updated_at
-            FROM structural_variant_filter_presets
-            WHERE scope = :scope
-              AND owner = :owner
-              AND name = :name
-              AND {family_match_sql}
+            )
+            VALUES (
+                CAST(:family_id AS uuid),
+                :scope,
+                :owner,
+                :name,
+                :description,
+                CAST(:filters_json AS jsonb),
+                CAST(:sample_filters_json AS jsonb),
+                CAST(:sample_templates_json AS jsonb),
+                :now,
+                :now
+            )
+            ON CONFLICT (
+                COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid),
+                scope,
+                owner,
+                name
+            )
+            DO UPDATE SET
+                description = EXCLUDED.description,
+                filters = EXCLUDED.filters,
+                sample_filters = EXCLUDED.sample_filters,
+                sample_templates = EXCLUDED.sample_templates,
+                updated_at = EXCLUDED.updated_at
+            RETURNING {_PRESET_COLUMNS}
             """
         ),
-        {
-            "scope": payload.scope,
-            "owner": user.username,
-            "name": normalized_name,
-            "family_id": scoped_family_uuid,
-        },
+        params,
     )
-    row = refreshed.mappings().first()
+    row = result.mappings().first()
+    await session.commit()
     if row is None:
         raise HTTPException(status_code=500, detail="Preset update failed")
     return _serialize_preset(dict(row))

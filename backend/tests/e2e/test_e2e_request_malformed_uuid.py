@@ -328,6 +328,12 @@ async def _collect(run: str) -> dict[str, Any]:
                 )
                 assert preset.status_code == 200, preset.text
                 ids[key] = preset.json()["_id"]
+            sv_preset = await ac.post(
+                f"/api/families/{family_a}/structural-variant-filter-presets",
+                json={"name": f"e2e-uuid-{run}", "scope": "family"},
+            )
+            assert sv_preset.status_code == 200, sv_preset.text
+            ids["sv_preset"] = sv_preset.json()["_id"]
             artifact = await ac.post(
                 "/api/admin/nipt/artifacts", json={"assembly_id": assembly_id, "variant_id": f"chr1-{run}-A-T"}
             )
@@ -338,16 +344,6 @@ async def _collect(run: str) -> dict[str, Any]:
                     await session.execute(text("SELECT id::text FROM families WHERE family_id = :f"), {"f": family_a})
                 ).scalar_one()
                 inserts = {
-                    # Saving a structural-variant preset through the API fails on its own: it
-                    # is made here.
-                    "sv_preset": (
-                        """
-                        INSERT INTO structural_variant_filter_presets (family_id, scope, owner, name)
-                        VALUES (CAST(:family AS uuid), 'family', :owner, :name)
-                        RETURNING id::text
-                        """,
-                        {"family": family_a_uuid, "owner": settings.admin_username, "name": f"e2e-uuid-{run}"},
-                    ),
                     "file": (
                         """
                         INSERT INTO raw_import_files (family_id, scope, file_name, storage_path)
