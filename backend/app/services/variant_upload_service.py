@@ -49,6 +49,7 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .family_package_common import VcfSampleColumnError, known_vcf_sample_ids, per_sample_vcf_column
 from .family_variant_write_lock import (
     SMALL_VARIANTS,
     STRUCTURAL_VARIANTS,
@@ -116,6 +117,13 @@ STRUCTURAL_VARIANT_SOURCE_LABELS: dict[str, str] = {
     "sniffles": "sniffles",
     "spectre": "spectre",
 }
+# How a refusal names an uploaded SV VCF whose sample columns do not hold the sample, and
+# what it asks of the admin (the TRGT upload's words).
+_STRUCTURAL_VARIANT_VCF_LABELS: dict[str, str] = {
+    "sniffles": "Sniffles VCF",
+    "spectre": "Spectre VCF",
+}
+_SV_UPLOAD_COLUMN_REMEDY = "Upload this sample's own file."
 SMALL_VARIANT_UPLOAD_BATCH_SIZE = 1_000
 SMALL_VARIANT_PROGRESS_INTERVAL = 10_000
 # Upper bound on a single streamed upload line. Real VCF lines are KB-scale even with
@@ -1230,6 +1238,60 @@ def _structural_variant_header_provenance(text_value: str) -> dict[str, dict[str
     )
 
 
+def _structural_variant_vcf_columns(text_value: str, *, label: str) -> list[str]:
+    """The sample columns an uploaded SV VCF's ``#CHROM`` line names. The line must come
+    once, before every record the reader reads (a line of ten fields or more), so that it
+    describes them all. A file without it, with a record before it or with a second one is
+    refused (400): whose calls the file holds cannot be checked."""
+    columns: list[str] | None = None
+    record_before_header = False
+    for line in text_value.splitlines():
+        if line.startswith("#CHROM"):
+            if columns is not None:
+                raise HTTPException(status_code=400, detail=f"{label} has more than one #CHROM line")
+            columns = line.strip().split("\t")[9:]
+        elif columns is None and not line.startswith("#") and len(line.strip().split("\t")) >= 10:
+            record_before_header = True
+    if columns is None:
+        raise HTTPException(status_code=400, detail=f"{label} has no #CHROM line")
+    if record_before_header:
+        raise HTTPException(status_code=400, detail=f"{label} has a record before its #CHROM line")
+    return columns
+
+
+async def _structural_variant_sample_column(
+    session: AsyncSession,
+    *,
+    text_value: str,
+    record_format: StructuralVariantRecordFormat,
+    sample_context: SampleMetadataContext,
+) -> int:
+    """The ``#CHROM`` column of an uploaded Sniffles or Spectre VCF that holds the sample's
+    calls, by the rule of the TRGT upload and a package's per-sample files
+    (``per_sample_vcf_column``): the column named after the sample, at any position; a lone
+    column that names no known sample. A file whose columns name other samples and none
+    this one -- another member's, or a joint VCF without it -- or two columns for it, is
+    refused (400). A manual TSV has no sample column: each row is the sample's call."""
+    if record_format == "manual":
+        return 0
+    label = _STRUCTURAL_VARIANT_VCF_LABELS[record_format]
+    columns = _structural_variant_vcf_columns(text_value, label=label)
+    try:
+        return per_sample_vcf_column(
+            columns,
+            target_sample_id=sample_context.sample_id,
+            known_sample_ids=await known_vcf_sample_ids(
+                session,
+                family_uuid=sample_context.family_uuid,
+                header_samples=columns,
+            ),
+            label=label,
+            remedy=_SV_UPLOAD_COLUMN_REMEDY,
+        )
+    except VcfSampleColumnError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
 async def upload_structural_variant_file(
     session: AsyncSession,
     *,
@@ -1239,6 +1301,9 @@ async def upload_structural_variant_file(
     overwrite: bool,
     format_hint: StructuralVariantFormat,
 ) -> dict[str, Any]:
+    """Store one sample's SV calls from one caller's file, replacing (with ``overwrite``)
+    that sample's calls from that source only. A Sniffles or Spectre VCF is read from the
+    sample's own column (``_structural_variant_sample_column``)."""
     if not family_context.assembly_name:
         raise HTTPException(
             status_code=400,
@@ -1248,6 +1313,14 @@ async def upload_structural_variant_file(
     text_value = await decode_upload_text(file, kind="Structural variant")
     resolved_format = _detect_structural_variant_format(text_value, file.filename, format_hint)
     source_label = STRUCTURAL_VARIANT_SOURCE_LABELS[resolved_format]
+    # The file's column for this sample, chosen before anything is read or written: a joint
+    # VCF, or another member's file, must never be stored as this sample's calls.
+    sample_column = await _structural_variant_sample_column(
+        session,
+        text_value=text_value,
+        record_format=resolved_format,
+        sample_context=sample_context,
+    )
     # One write of the family's SVs at a time, from the read below until the commit at the
     # end: no other write's read, delete or insert falls in between. The sample must still
     # be stored once it is this upload's turn.
@@ -1283,7 +1356,9 @@ async def upload_structural_variant_file(
     }
 
     uploaded: dict[str, StructuralVariantRecord] = {}
-    parsed_records = list(iter_structural_variant_records(text_value, resolved_format))
+    parsed_records = list(
+        iter_structural_variant_records(text_value, resolved_format, sample_column=sample_column)
+    )
     # Resolve overlapping gene symbols up front: one query for the genes on the
     # chromosomes this file touches, then in-memory interval overlap, instead of a
     # per-record range query against `genes`.
