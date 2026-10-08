@@ -19,8 +19,8 @@ The `##` header lines are parsed by
 | Input | Captured by | What is read |
 | --- | --- | --- |
 | Small variants (SNV/indel), package or direct upload | `variant_upload_service.upload_family_small_variant_file` (a monogenic NIPT pair's files one by one); for a long-read package's one VCF per sample read as one callset, `per_sample_small_variants.upload_family_per_sample_small_variant_files` | the VCF header: caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine`), annotation engine (`##VEP=…` with the gnomAD, ClinVar, dbNSFP, SpliceAI, dbSNP, COSMIC, SIFT, PolyPhen, assembly and GENCODE releases it embeds; `##SnpEffVersion`; `##bcftools_*Version`); and, when the annotation comes as a separate VEP table, that file's `## … version …` lines (`extract_vep_tab_provenance`) |
-| Structural variants, from a package (NeedlR, and the `mito` dataset's chrM SV files) or a per-sample upload (Sniffles, Spectre) | `family_package_datasets._import_sv_needlr_dataset`, `_import_mito_structural_variants`, `variant_upload_service.upload_structural_variant_file` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR), `##reference`, `##fileDate`, and database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
-| Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##trgtCommand`, `##source=TRGT`, `##reference` |
+| Structural variants, from a package (NeedlR, and the `mito` dataset's chrM SV files) or a per-sample upload (Sniffles, Spectre) | `family_package_datasets._import_sv_needlr_dataset`, `_import_mito_structural_variants`, `variant_upload_service.upload_structural_variant_file` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR) and `##reference`; for NeedlR and an upload also the database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
+| Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##source=TRGT`, `##reference` |
 | The pipeline run record of a long-read or PGT package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml` (the PGT pipeline's `copgtm_software_mqc_versions.yml`), recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
 The parser is best-effort and never raises: a header it does not recognise yields less
@@ -126,6 +126,14 @@ VCF `##reference` line), the pipeline's value is the one listed.
   the allowlist of databases.
 - An unknown tool is still captured, under its key as written, so a new caller or annotator
   shows up without a code change.
+- `##fileformat`, `##fileDate` and a bare command line (Sniffles' `##command=…`) are read but
+  not stored: the manifest keeps only the modules (`HeaderProvenance.as_modules`).
+- A `##<tool>Command` or `##<tool>Cmd` line without a reading of its own (all but
+  `##GATKCommandLine` and `##SnpEffCmd`) names no version, yet the parser takes its first word
+  (the program or subcommand, such as `trgt` in `##trgtCommand=trgt genotype …`) as the
+  tool's version (`_parse_generic`). These lines do not overwrite a version already read, so
+  that word is what is recorded when the command line comes before the tool's
+  `##<tool>Version` line.
 
 ## Tests
 
