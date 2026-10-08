@@ -546,10 +546,10 @@ and admin enforcement, and decide how independence is met, by the first beta at 
   links fall back to the owner's repository, and the footer's *Contact* is the owner's own
   address (allowed for now; a role mailbox or a build variable would fit the roles-not-names
   rule).
-- **OPS-17 ·** Five reference files under `data/ref-data/` that nothing reads: two cytoband
-  files, which deployment-gcp.md §11 uploads although nothing reads them (T2T falls back to one
-  band per chromosome), and three files of a superseded clinical-CNV bundle. Delete them, or
-  wire the cytobands in as an offline fallback (owner).
+- **OPS-17 ·** `REFERENCE_CLINICAL_CNVS_PATH` defaults to a
+  `clinical_cnv_syndromes_hg38_combined.tsv` that was never shipped, so the startup bootstrap
+  of clinical CNVs never runs (the knowledgebase rebuild fills that table); drop the default
+  or the bootstrap. Without UCSC, GRCh38 has no cytobands and T2T one band per chromosome.
 - **OPS-18 ·** Rebuild the clinical CNV knowledgebase for both assemblies on each database
   after #721.
 - **OPS-19 ·** eslint 10 and TypeScript 7 are blocked upstream (eslint-plugin-react,
@@ -627,4 +627,5 @@ parent sex check (#781), 403 for another project's record (#785), 500s on malfor
 audit found (the stale-job wording in ROADMAP.md and monitoring.md, TF-16's alerting status, the Sample
 QC relatedness copy, which said a warning is outlined red,
 the handleiding, the in-app user guide, the test catalogue and the technical file's code
-references), and removes the dead code it proved dead.
+references), removes the dead code it proved dead, and removes five reference files nothing
+read (two cytoband files and three files of a superseded clinical-CNV bundle).
