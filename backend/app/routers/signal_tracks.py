@@ -20,8 +20,9 @@ Two things differ from the alignment endpoints next door:
 In remote mode (STORAGE_BACKEND=gcs/s3) the files are served from the object store
 through signed URLs, as the alignments are: the staging copy of a package imported
 from a bucket is deleted after the import. The location the import recorded (``uris``)
-comes first, under the CRAM endpoint's rules, so a tampered row cannot get any other
-object signed; the fallback is the package layout under the storage prefix,
+comes first, under the CRAM endpoint's rules (an object with the file's own extension
+under the configured import roots), so a tampered row can at most point at another file of
+that kind there, never at any other object; the fallback is the package layout under the storage prefix,
 ``<prefix>/<family>/<recorded path>``, where the CRAM endpoint probes too. The manifest
 hands out the signed URLs; the GET redirects to one; the HEAD answers the object's
 size itself, since a URL signed for GET cannot be used for a HEAD.

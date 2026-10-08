@@ -11,9 +11,12 @@ haplotypes apart. Both are in the samplesheet the pipeline ran from, which it co
 
 Discovery turns them into the manifest's ``family`` block: the embryos get the embryo
 role, and an index the PED lacks is added under ``family.add_members``. How the index is
-related is not in any of the pipeline's files, so it is added without parents; the
-warning says what KING measured, for whoever completes the pedigree. Nothing here is
-read at import: the import reads only the manifest, which the user can edit first.
+related is not in any of the pipeline's files, so KING decides: first-degree to both
+parents makes it the couple's child (the proband, with both parents); otherwise it is
+linked as a relative of unknown degree through the parent it is related to (or, failing
+that, the affected parent). The warning says what KING measured, for whoever completes
+the pedigree. Nothing here is read at import: the import reads only the manifest, which
+the user can edit first.
 """
 
 from __future__ import annotations

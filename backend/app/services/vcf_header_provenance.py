@@ -24,8 +24,9 @@ Design notes
 * The variant caller is additionally tagged with the modality it came from
   (``detail="snv caller"``) so the same family can record an SNV caller and an
   SV caller side by side.
-* Raw captured lines are preserved (truncated) under ``raw`` for auditability —
-  nothing the header stated is silently dropped.
+* Raw captured lines are kept (truncated) under ``raw`` while a header is read, but
+  ``as_modules`` stores neither them nor ``fileformat`` and ``file_date``: what reaches the
+  manifest is the per-tool versions and details.
 """
 
 from __future__ import annotations

@@ -34,7 +34,7 @@ PyJWT[crypto]
 bcrypt>=5.0.0,<6
 python-multipart
 # The Prometheus exposition behind GET /metrics (operations monitoring, outside the
-# clinical path; app/core/metrics.py). It has no dependencies of its own.
+# clinical path; app/services/operational_metrics.py). It has no dependencies of its own.
 prometheus-client==0.26.0
 # Reads the .env file (config.py passes env_file to pydantic-settings, which calls it).
 python-dotenv
