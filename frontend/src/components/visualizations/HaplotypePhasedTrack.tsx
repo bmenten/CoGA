@@ -3,13 +3,17 @@ import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
-import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
+import {
+  drawHaplotypeRiskOverlay,
+  haplotypeLaneColor,
+  haplotypeRiskPattern,
+  readHaplotypePalette,
+} from '../../lib/haplotypeCanvas';
 import { segregationStateLabel } from '../../lib/embryoSegregation';
 import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import {
   defaultHaplotypeRiskRegion,
   diseaseHaplotypeKindForLane,
-  getHaplotypeLaneSignature,
   getRenderableHaplotypeLanes,
   inferDiseaseHaplotypes,
   interpretSampleHaplotypeRisk,
@@ -393,27 +397,12 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   const showQc = showMarkers && !markersTruncated && !!sampleQc;
   const mendelWarning = !!sampleQc && sampleQc.mendel_rate > MENDEL_WARN_RATE;
 
-  // Haplotype-block palette, shared by the canvas and the tooltip so the tooltip
-  // swatches exactly match the rendered blocks.
-  const palette = useMemo(
-    () => ({
-      father: [cssVar('--color-haplotype-father-dark'), cssVar('--color-haplotype-father-light')],
-      mother: [cssVar('--color-haplotype-mother-dark'), cssVar('--color-haplotype-mother-light')],
-      unknown: cssVar('--color-haplotype-unknown'),
-      deleted: cssVar('--color-haplotype-deleted-fill'),
-    }),
-    [],
-  );
+  // The palette and lane colours the canvas draws the blocks with, for the tooltip, so
+  // its swatches exactly match the rendered blocks.
+  const palette = useMemo(() => readHaplotypePalette(), []);
   const laneColor = useCallback(
-    (member: HaplotypeMemberLike, seg: Segment, lane: HaplotypeLane): string => {
-      const value = seg[lane];
-      if (isDeletedHaplotype(value)) return palette.deleted;
-      const signature = getHaplotypeLaneSignature(member, seg, lane, chrom);
-      if (!signature) return palette.unknown;
-      const parsed = parseInt(value, 10);
-      const pal = signature.origin === 'paternal' ? palette.father : palette.mother;
-      return Number.isNaN(parsed) ? palette.unknown : pal[parsed] || palette.unknown;
-    },
+    (member: HaplotypeMemberLike, seg: Segment, lane: HaplotypeLane): string =>
+      haplotypeLaneColor(palette, member, seg, lane, chrom),
     [palette, chrom],
   );
   // Does a member's raw marker agree with its cleaned block here? They agree when
@@ -447,36 +436,13 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
 
     const span = regionEnd - regionStart || 1;
     const half = height / 2;
-    const fatherColors = [
-      cssVar('--color-haplotype-father-dark'),
-      cssVar('--color-haplotype-father-light'),
-    ];
-    const motherColors = [
-      cssVar('--color-haplotype-mother-dark'),
-      cssVar('--color-haplotype-mother-light'),
-    ];
-    const riskColors: Record<DiseaseHaplotypeKind, string> = {
-      dominant: cssVar('--color-haplotype-affected'),
-      'recessive-maternal': cssVar('--color-haplotype-carrier'),
-      'recessive-paternal': cssVar('--color-haplotype-carrier'),
-      'x-linked': cssVar('--color-haplotype-affected'),
-    };
-    const unknownColor = cssVar('--color-haplotype-unknown');
-    const deletedFill = cssVar('--color-haplotype-deleted-fill');
-    const deletedStroke = cssVar('--color-haplotype-deleted-stroke');
+    const colors = readHaplotypePalette();
 
     const laneCenter = (lane: HaplotypeLane, single: boolean): number =>
       single ? half : lane === 'hap1' ? half / 2 : half + half / 2;
 
-    const baseColorForLane = (seg: Segment, lane: HaplotypeLane): string => {
-      const value = seg[lane];
-      if (isDeletedHaplotype(value)) return deletedFill;
-      const parsed = parseInt(value, 10);
-      const signature = getHaplotypeLaneSignature(currentMember, seg, lane, chrom);
-      if (!signature) return unknownColor;
-      const palette = signature.origin === 'paternal' ? fatherColors : motherColors;
-      return Number.isNaN(parsed) ? unknownColor : palette[parsed] || unknownColor;
-    };
+    const baseColorForLane = (seg: Segment, lane: HaplotypeLane): string =>
+      haplotypeLaneColor(colors, currentMember, seg, lane, chrom);
     const laneRiskKind = (seg: Segment, lane: HaplotypeLane): DiseaseHaplotypeKind | null =>
       diseaseHaplotypeKindForLane(diseaseModel, currentMember, seg, lane, chrom);
 
@@ -507,7 +473,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         ctx.fillStyle = baseColorForLane(seg, lane);
         ctx.fillRect(x1, y, w, BAND_THICKNESS);
         if (isDeletedHaplotype(seg[lane])) {
-          ctx.strokeStyle = deletedStroke;
+          ctx.strokeStyle = colors.deletedStroke;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(x1 + 0.75, y);
@@ -517,7 +483,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         const riskKind = laneRiskKind(seg, lane);
         // The band is thin, so the risk line goes just below it and the band stays whole.
         if (riskKind) {
-          drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, riskColors[riskKind], {
+          drawHaplotypeRiskOverlay(ctx, x1, y, w, BAND_THICKNESS, colors.risk[riskKind], {
             pattern: haplotypeRiskPattern(riskKind),
             placement: 'below',
           });
@@ -610,7 +576,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         cy - markerHalfHeight,
         MARKER_WIDTH,
         markerHalfHeight * 2,
-        riskColors[kind],
+        colors.risk[kind],
         { pattern: haplotypeRiskPattern(kind) },
       );
     };

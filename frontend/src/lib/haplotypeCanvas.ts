@@ -1,4 +1,12 @@
-import type { DiseaseHaplotypeKind } from './haplotypeRisk';
+import { cssVar } from './colors';
+import {
+  getHaplotypeLaneSignature,
+  type DiseaseHaplotypeKind,
+  type HaplotypeLane,
+  type HaplotypeMemberLike,
+  type HaplotypeSegmentLike,
+} from './haplotypeRisk';
+import { isDeletedHaplotype } from './phasedMarkers';
 
 /**
  * Mark a haplotype band as an affected/carrier (risk) allele with a thin line in the
@@ -70,4 +78,52 @@ export const drawHaplotypeRiskOverlay = (
     fillRiskLine(ctx, x, lineY, width, RISK_LINE_THICKNESS, pattern);
   }
   ctx.restore();
+};
+
+/** The haplotype tracks' colours, read from the theme once per draw. */
+export interface HaplotypePalette {
+  /** A homolog's colour by its value ('0' dark, '1' light), on the father's side. */
+  father: string[];
+  /** The same on the mother's side. */
+  mother: string[];
+  /** The risk line's colour, by the kind of disease haplotype. */
+  risk: Record<DiseaseHaplotypeKind, string>;
+  unknown: string;
+  deletedFill: string;
+  deletedStroke: string;
+}
+
+/** The palette of the chromosome and the whole-genome haplotype tracks. */
+export const readHaplotypePalette = (): HaplotypePalette => ({
+  father: [cssVar('--color-haplotype-father-dark'), cssVar('--color-haplotype-father-light')],
+  mother: [cssVar('--color-haplotype-mother-dark'), cssVar('--color-haplotype-mother-light')],
+  risk: {
+    dominant: cssVar('--color-haplotype-affected'),
+    'recessive-maternal': cssVar('--color-haplotype-carrier'),
+    'recessive-paternal': cssVar('--color-haplotype-carrier'),
+    'x-linked': cssVar('--color-haplotype-affected'),
+  },
+  unknown: cssVar('--color-haplotype-unknown'),
+  deletedFill: cssVar('--color-haplotype-deleted-fill'),
+  deletedStroke: cssVar('--color-haplotype-deleted-stroke'),
+});
+
+/**
+ * A lane's base fill: the deleted fill for a deleted lane ('.'), else its parent of origin's
+ * colour for its homolog, else the unknown grey (a lane without an origin or a homolog).
+ */
+export const haplotypeLaneColor = (
+  palette: HaplotypePalette,
+  member: HaplotypeMemberLike,
+  segment: HaplotypeSegmentLike,
+  lane: HaplotypeLane,
+  chrom?: string | null,
+): string => {
+  const value = segment[lane];
+  if (isDeletedHaplotype(value)) return palette.deletedFill;
+  const parsed = parseInt(value, 10);
+  const signature = getHaplotypeLaneSignature(member, segment, lane, chrom);
+  if (!signature) return palette.unknown;
+  const colors = signature.origin === 'paternal' ? palette.father : palette.mother;
+  return Number.isNaN(parsed) ? palette.unknown : colors[parsed] || palette.unknown;
 };
