@@ -41,7 +41,7 @@ for the assembly is left alone.
 | Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/` | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` |
 | Clinical CNV syndromes | Only if the file exists; it is not shipped | `REFERENCE_CLINICAL_CNVS_PATH` |
 | HPO ontology | `data/ref-data/hpo/hp.obo`, else downloaded over HTTPS | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_ONTOLOGY_URL`, `HPO_ONTOLOGY_SHA256` |
-| TRGT repeat catalogue | `data/ref-data/STRchive-loci.json`, refreshed on every start | `TRGT_STRCHIVE_LOCI_PATH` |
+| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and `data/ref-data/STRchive-loci.json`, both refreshed on every start. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
 The segmental duplications and clinical CNVs are loaded into the assembly named by

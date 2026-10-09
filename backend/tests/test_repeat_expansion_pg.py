@@ -427,7 +427,7 @@ _FMR1_LOCUS = {
     "motif": "CGG",
     "motif_index": 0,
     "warning_min": 55,
-    "pathogenic_min": 200,
+    "pathogenic_min": 201,
     "metadata": {},
 }
 
@@ -519,7 +519,7 @@ async def test_repeat_table_notes_a_male_with_two_chrx_alleles() -> None:
                             {"repeat_count": 32, "status": "normal"},
                         ],
                         "warning_min": 55,
-                        "pathogenic_min": 200,
+                        "pathogenic_min": 201,
                         "status": "normal",
                     }
                 ]

@@ -333,7 +333,7 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
                 end: 147912110,
                 motif: 'CGG',
                 warning_min: 55,
-                pathogenic_min: 200,
+                pathogenic_min: 201,
                 // A mosaic male: the premutation-sized and full-mutation alleles.
                 status: 'pathogenic',
                 calls: {
