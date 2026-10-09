@@ -222,15 +222,26 @@ has run. The time left is the running dataset's: the datasets after it are not e
 the page says how many follow. It is first given after half a minute of reading.
 
 Jobs run on background workers: one job at a time per backend process, or more with
-`FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. A job
-whose heartbeat is ten minutes old belongs to a process that has stopped (a restart, a
-crash, running out of memory), and the next worker to look takes it over:
+`FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. The
+database's clock stamps it and judges its age, so workers on hosts whose clocks differ agree
+on it. A job whose heartbeat is ten minutes old is taken for one whose process has stopped (a
+restart, a crash, running out of memory), and the next worker to look takes it over:
 
 - If the import had not begun writing the family (the job was still `validating`), the
   worker runs it again from the start. The job keeps the earlier attempt's log lines.
 - If it had (the job was `running`), the job ends as `failed`, interrupted, and is not run
   again: a run from the start would not undo what it wrote. Its log and dataset summaries
   stay as the import left them.
+
+The process may instead be alive, and only unable to write the heartbeat for those ten
+minutes (no database connection for it, or an event loop held by other work). Its import is
+then stopped too: as soon as its heartbeat reaches the database again and finds the job no
+longer its worker's, the import is stopped where it is, as a stopped process would be. None
+of the clean-up below runs and it writes nothing more, so the family keeps the import's
+`import_unfinished` entry, as the job's *Interrupted* record says, and the family's
+variant-write locks are released with their connection. Until then the import may have gone
+on: an update of the job that matches no row (its progress, or how it ended) changes nothing,
+and the backend log says so, naming the job.
 
 If a dataset fails, the job ends as `failed` and CoGA does not leave a half-loaded family
 that looks complete:
@@ -266,6 +277,13 @@ it ends. One whose process stopped could not: the worker that ends its job drops
 every start drops the backups no running import owns. The family is not put back from such a
 backup: the part held in Postgres was lost with the process, and the family may have been
 written since.
+
+An import that was still alive when its job was ended can reach its restore before its
+heartbeat stops it, its backups already dropped. So a restore first checks that every backup
+table is there, and deletes nothing when one is missing: the family keeps what the import
+left, and is flagged import-incomplete with the datasets that failed and those that did
+import. A restore that fails part-way may have removed rows of any of the family's datasets,
+so the flag it leaves names no dataset as imported.
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).

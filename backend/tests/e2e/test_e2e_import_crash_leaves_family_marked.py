@@ -401,7 +401,7 @@ def test_the_worker_ends_the_stopped_job_instead_of_running_it_again(snap) -> No
     # Before: the claim ran it again; the cancel refused the family the first attempt had
     # created and the job ended "Package validation failed", its log replaced.
     assert (after["status"], after["worker_id"]) == ("failed", None), after
-    assert after["error"].startswith("Interrupted: the process running this import stopped")
+    assert after["error"].startswith("Interrupted: the import's heartbeat stopped")
     assert run["claimed"] == {"status": "failed", "claimed_from": "running"}
     assert after["ended"]
     stopped = run["job_after_stop"]
