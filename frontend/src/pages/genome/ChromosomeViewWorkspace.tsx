@@ -22,6 +22,7 @@ import SmallVariantLegend from '../../components/visualizations/SmallVariantLege
 import RepeatExpansionTrack from '../../components/visualizations/RepeatExpansionTrack';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { normalizeHaplotypeChrom, resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
@@ -75,6 +76,10 @@ interface ChromosomeViewWorkspaceProps {
   assemblyVersion?: string;
   assembly: string;
   assemblyId?: string;
+  /** Inside the validated scope; undefined while unknown. */
+  assemblyValidated?: boolean;
+  /** The family record's metadata, where an import records what it left incomplete. */
+  familyMetadata?: unknown;
   projectId?: string;
   trackAreaRef: React.Ref<HTMLElement>;
   region: { start: number; end: number };
@@ -164,6 +169,8 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
   assemblyVersion,
   assembly,
   assemblyId,
+  assemblyValidated,
+  familyMetadata,
   projectId,
   trackAreaRef,
   region,
@@ -330,6 +337,10 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
             </Link>
           </div>
         </div>
+        <FamilyPageBanners
+          metadata={familyMetadata}
+          assemblyScope={{ name: assembly, validated: assemblyValidated }}
+        />
         <div className="analysis-toolbar mt-5 items-end">
           <label className="field-label">
             Chromosome

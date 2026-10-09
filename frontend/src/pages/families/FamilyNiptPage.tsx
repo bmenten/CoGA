@@ -39,6 +39,7 @@ import {
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
 import FilterCollapseToggle from './FilterCollapseToggle';
@@ -181,9 +182,15 @@ const FamilyNiptPage: React.FC = () => {
     (family?.metadata as { analysis_type?: string } | undefined)?.analysis_type ===
     MONOGENIC_NIPT_ANALYSIS_TYPE;
 
-  const { speciesName, assemblyName, assemblyVersion, projectId } = useFamilyReference(
-    family?.projects as string[] | undefined,
-  );
+  const {
+    speciesName,
+    assemblyName,
+    assemblyValidated,
+    assemblyVersion,
+    projectId,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects as string[] | undefined);
 
   // The shared small-variant filter state drives the reused SmallVariantFilterForm.
   const {
@@ -502,6 +509,17 @@ const FamilyNiptPage: React.FC = () => {
                 </Link>
               </div>
             </div>
+            {/* As on every family page: a NIPT family can be partly imported like any other,
+                or be on an assembly outside the validated scope. */}
+            <FamilyPageBanners
+              metadata={family.metadata}
+              assemblyScope={{
+                name: assemblyName,
+                validated: assemblyValidated,
+                unavailable: referenceFailed,
+                onRetry: retryReference,
+              }}
+            />
           </div>
           {pedRows.length > 0 && (
             <div className="page-top-card-visual">
