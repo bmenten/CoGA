@@ -11,6 +11,11 @@ from typing import Any
 PREMUTATION_MIN_BY_GENE: dict[str, int] = {"FMR1": 55}
 
 
+# The catalogue rows every start upserts into ``repeat_loci``, next to the STRchive loci. A
+# call's TRID decides which row classifies it (for FMR1, TRID "FMR1" finds the built-in row
+# below and "FXS_FMR1" the STRchive one). ``warning_min`` and ``pathogenic_min`` are the
+# FIRST count of the grey zone and of the pathogenic range: the classifier tests ``>=``, as
+# STRchive's inclusive ranges read. A range published as "more than N" starts at N + 1.
 BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
     {
         "locus_id": "HTT",
@@ -120,7 +125,8 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "inheritance": "X-linked",
         "motif": "CGG",
         "warning_min": 45,
-        "pathogenic_min": 200,
+        # A full mutation is more than 200 repeats; 55-200 is a premutation (STRchive 201).
+        "pathogenic_min": 201,
         "x_linked": True,
         "aliases": ["Fragile X"],
     },
