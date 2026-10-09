@@ -54,6 +54,8 @@ Bovenop de gewone annotatiefilters (gen, panel, impact, ClinVar, gnomAD, CADD, R
 
 Met de standaardinstelling "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter" gebruikt de Explorer dezelfde ClinVar-termen als de familiepagina.
 
+Ook *MANE only* volgt de familiepagina: een variant blijft staan als een van zijn transcripten MANE Select of MANE Plus Clinical is. Beide lezen die vlaggen uit één lijst, `MANE_ONLY_TRANSCRIPT_FLAGS` in `backend/app/services/clickhouse_variant_records.py`.
+
 Elke waarde die de gebruiker aanlevert, gaat als benoemde parameter (`%(naam)s`) naar de ClickHouse-client, die ze ge-escapet in de query zet; de code van CoGA plakt ze nooit zelf in de tekst (hoofdstuk 7).
 
 ## De CSV-export

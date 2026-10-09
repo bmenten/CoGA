@@ -49,6 +49,7 @@ from ..core.object_storage import (
     storage_is_remote,
 )
 from ..core.postgres import get_postgres_session
+from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import SignalTrackManifestEntryOut
 from ..services.family_package_source import within_remote_import_roots
@@ -248,13 +249,14 @@ def _track_url(
 ) -> str | None:
     """Where the browser fetches a track, or ``None`` when there is nothing to serve: a
     signed URL of its object in remote mode, else the backend route to the file in the
-    data directory. Blocking (store requests, file checks)."""
+    data directory, each value percent-encoded as one segment (an ID may hold `/`, `?`,
+    `#`, `%` or `..`). Blocking (store requests, file checks)."""
     if storage_is_remote():
         key = _remote_track_key(family_id, kind, relative_path, uri)
         return presigned_get_url(key, filename=PurePosixPath(key).name) if key else None
     if not relative_path or _resolve_track_path(family_id, relative_path) is None:
         return None
-    return f"/signal-tracks/{family_id}/{sample_id}/{source}/{kind}"
+    return url_path("signal-tracks", family_id, sample_id, source, kind)
 
 
 @router.get("/{family_id}/manifest", response_model=list[SignalTrackManifestEntryOut])

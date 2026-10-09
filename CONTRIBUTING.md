@@ -78,7 +78,8 @@ The rules these gates enforce, and the ones they cannot:
   `backend/requirements-dev.txt`, and commit the regenerated types.
 - **API paths are encoded.** Build every frontend API path with ``apiPath`…` ``
   (`frontend/src/lib/apiPath.ts`), so an identifier from imported data cannot change which
-  endpoint is called.
+  endpoint is called. A URL the backend hands the browser to follow is built with `url_path`
+  (`backend/app/core/url_path.py`), which encodes each value the same way.
 - **No lint warnings.** `npm run lint` fails on any ESLint warning (`--max-warnings 0` in
   `frontend/package.json`); type what you would have typed `any`.
 - **Clinical-critical modules keep their coverage.** A module listed under `[tool.mypy]` in

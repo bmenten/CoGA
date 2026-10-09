@@ -16,6 +16,12 @@ PREMUTATION_MIN_BY_GENE: dict[str, int] = {"FMR1": 55}
 # below and "FXS_FMR1" the STRchive one). ``warning_min`` and ``pathogenic_min`` are the
 # FIRST count of the grey zone and of the pathogenic range: the classifier tests ``>=``, as
 # STRchive's inclusive ranges read. A range published as "more than N" starts at N + 1.
+#
+# Where STRchive has the locus (every row below, today) the row carries STRchive's two
+# thresholds, so a call reads the same whichever row its TRID finds (the owner's decision of
+# 2026-10-09, CLIN-22). Change them together with ``STRchive-loci.json``, never apart:
+# test_repeat_thresholds_follow_strchive.py fails when the two disagree. ``None`` where
+# STRchive gives no such range (SCA31, BEAN1: no intermediate range).
 BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
     {
         "locus_id": "HTT",
@@ -35,8 +41,8 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 1",
         "inheritance": "AD",
         "motif": "CAG",
-        "warning_min": 39,
-        "pathogenic_min": 45,
+        "warning_min": 36,
+        "pathogenic_min": 39,
         "aliases": ["SCA1"],
     },
     {
@@ -46,8 +52,8 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 2",
         "inheritance": "AD",
         "motif": "CAG",
-        "warning_min": 32,
-        "pathogenic_min": 34,
+        "warning_min": 29,
+        "pathogenic_min": 35,
         "aliases": ["SCA2"],
     },
     {
@@ -69,7 +75,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "inheritance": "AD",
         "motif": "CAG",
         "warning_min": 19,
-        "pathogenic_min": 20,
+        "pathogenic_min": 21,
         "aliases": ["SCA6"],
     },
     {
@@ -79,8 +85,8 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 7",
         "inheritance": "AD",
         "motif": "CAG",
-        "warning_min": 20,
-        "pathogenic_min": 36,
+        "warning_min": 28,
+        "pathogenic_min": 37,
         "aliases": ["SCA7"],
     },
     {
@@ -90,7 +96,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 17",
         "inheritance": "AD",
         "motif": "CAG",
-        "warning_min": 42,
+        "warning_min": 41,
         "pathogenic_min": 49,
         "aliases": ["SCA17"],
     },
@@ -149,7 +155,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "inheritance": "AD",
         "motif": "CTG",
         "warning_min": 50,
-        "pathogenic_min": 80,
+        "pathogenic_min": 71,
         "aliases": ["SCA8", "ATXN8"],
     },
     {
@@ -159,7 +165,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Myotonic dystrophy type 2",
         "inheritance": "AD",
         "motif": "CCTG",
-        "warning_min": 55,
+        "warning_min": 27,
         "pathogenic_min": 75,
         "aliases": ["ZNF9", "DM2"],
     },
@@ -171,7 +177,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "inheritance": "AR",
         "motif": "GAA",
         "warning_min": 34,
-        "pathogenic_min": 66,
+        "pathogenic_min": 56,
         "aliases": [],
     },
     {
@@ -182,7 +188,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "inheritance": "AD",
         "motif": "GGGGCC",
         "warning_min": 24,
-        "pathogenic_min": 30,
+        "pathogenic_min": 31,
         "aliases": ["ALS-FTD"],
     },
     {
@@ -192,7 +198,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 10",
         "inheritance": "AD",
         "motif": "ATTCT",
-        "warning_min": 280,
+        "warning_min": 33,
         "pathogenic_min": 800,
         "aliases": ["SCA10"],
     },
@@ -203,8 +209,8 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 31",
         "inheritance": "AD",
         "motif": "TGGAA",
-        "warning_min": 300,
-        "pathogenic_min": 500,
+        "warning_min": None,
+        "pathogenic_min": 110,
         "aliases": ["SCA31", "TK2"],
     },
     {
@@ -214,7 +220,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 12",
         "inheritance": "AD",
         "motif": "CAG",
-        "warning_min": 44,
+        "warning_min": 40,
         "pathogenic_min": 51,
         "aliases": ["SCA12"],
     },
@@ -225,7 +231,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Spinocerebellar ataxia type 36",
         "inheritance": "AD",
         "motif": "GGCCTG",
-        "warning_min": 31,
+        "warning_min": 15,
         "pathogenic_min": 650,
         "aliases": ["SCA36"],
     },
@@ -236,8 +242,8 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "disease": "Huntington disease-like 2",
         "inheritance": "AD",
         "motif": "CTG",
-        "warning_min": 36,
-        "pathogenic_min": 41,
+        "warning_min": 29,
+        "pathogenic_min": 40,
         "aliases": ["HDL2"],
     },
     {
@@ -248,7 +254,7 @@ BUILTIN_REPEAT_LOCI: list[dict[str, Any]] = [
         "inheritance": "AD",
         "motif": "GCN",
         "warning_min": 11,
-        "pathogenic_min": 13,
+        "pathogenic_min": 12,
         "aliases": ["OPMD"],
     },
 ]

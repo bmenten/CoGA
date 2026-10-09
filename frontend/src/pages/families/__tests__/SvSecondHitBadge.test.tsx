@@ -55,6 +55,34 @@ describe('SvSecondHitBadge', () => {
     expect(screen.getByRole('tooltip').textContent).toMatch(/by read phasing/i);
   });
 
+  it('shows no phase when none was decided, as for a half call the reads cannot place', () => {
+    // The backend reports a deletion next to a half-called SV (`.|1`) in a singleton as
+    // phase unknown: no chip, no read-phasing mark, and nothing biallelic.
+    const { container } = render(
+      <SvSecondHitBadge
+        hit={{
+          sv_count: 1,
+          sv_types: ['DEL'],
+          affected_zygosity: 'het',
+          has_deletion: true,
+          phase: 'unknown',
+          phase_evidence: null,
+          deletion_unmasked: false,
+        }}
+      />,
+    );
+    const badge = container.querySelector('.sv-second-hit-badge') as HTMLElement;
+    expect(badge.textContent).toBe('SV: DEL');
+    expect(container.querySelector('.sv-second-hit-phase')).toBeNull();
+    expect(badge.classList.contains('sv-second-hit-badge--del')).toBe(true);
+    expect(badge.classList.contains('sv-second-hit-badge--unmasked')).toBe(false);
+    fireEvent.mouseEnter(badge);
+    const tooltip = screen.getByRole('tooltip').textContent ?? '';
+    expect(tooltip).toBe(
+      'This gene is also hit by a structural variant (DEL · het) — a possible cross-type second hit.',
+    );
+  });
+
   it('shows the cis phase and tooltip for a duplication-only hit, on focus', () => {
     const { container } = render(
       <SvSecondHitBadge
