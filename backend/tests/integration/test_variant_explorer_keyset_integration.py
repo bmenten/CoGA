@@ -25,17 +25,19 @@ _ASSEMBLY = "GRCh38"
 
 def _run_with_ch_cleanup(run) -> None:
     """Run a coroutine factory under its own loop, resetting the module-global ClickHouse
-    client afterwards (it binds to the loop, so the next asyncio.run would otherwise hit a
-    closed loop)."""
+    client and Postgres engine afterwards (both bind to the loop, so the next asyncio.run
+    would otherwise reuse a connection of a closed loop)."""
     import asyncio as _asyncio
 
     from backend.app.core.clickhouse import close_clickhouse_client
+    from backend.app.core.postgres import close_postgres_engine
 
     async def _wrapped() -> None:
         try:
             await run()
         finally:
             await close_clickhouse_client()
+            await close_postgres_engine()
 
     _asyncio.run(_wrapped())
 
