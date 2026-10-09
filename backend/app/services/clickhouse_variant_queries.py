@@ -30,6 +30,7 @@ from .compound_het_phase import (
     UNKNOWN_CARRIAGE,
     Carriage,
     FamilyPedigree,
+    phased_alt_haplotype,
     segregation_phase,
     small_variant_carriage,
 )
@@ -1365,29 +1366,6 @@ def _record_matches_x_linked_recessive(
     return True
 
 
-def _phased_alt_haplotype(gt: str | None) -> int | None:
-    """Which haplotype carries the alt in a phased het call, or None.
-
-    ``0|1`` -> 1 and ``1|0`` -> 0. None when the call cannot place a single alt on one
-    haplotype: unphased (``0/1``), homozygous, no-call, or multi-allelic with an alt on
-    both haplotypes (``1|2``), where "the" alt is ambiguous.
-    """
-    text = str(gt or "").strip()
-    if "|" not in text:
-        return None
-    alleles = text.split("|")
-    if len(alleles) != 2:
-        return None
-    left, right = (allele.strip() for allele in alleles)
-    if left in ("", ".") or right in ("", "."):
-        return None
-    left_is_alt = left != "0"
-    right_is_alt = right != "0"
-    if left_is_alt == right_is_alt:
-        return None
-    return 0 if left_is_alt else 1
-
-
 def _pair_phase_for_sample(
     left_call: SmallVariantCall | None,
     right_call: SmallVariantCall | None,
@@ -1396,14 +1374,15 @@ def _pair_phase_for_sample(
 
     Both calls must sit in the same phase set (the caller's PS tag) for their haplotype
     indices to be comparable at all — indices from different phase blocks say nothing
-    about each other.
+    about each other. Each call is read by ``compound_het_phase.phased_alt_haplotype``,
+    as the SNV + SV second hit reads its calls.
     """
     if left_call is None or right_call is None:
         return None
     if left_call.ps is None or right_call.ps is None or left_call.ps != right_call.ps:
         return None
-    left_haplotype = _phased_alt_haplotype(left_call.gt)
-    right_haplotype = _phased_alt_haplotype(right_call.gt)
+    left_haplotype = phased_alt_haplotype(left_call.gt)
+    right_haplotype = phased_alt_haplotype(right_call.gt)
     if left_haplotype is None or right_haplotype is None:
         return None
     return COMPOUND_HET_PHASE_CIS if left_haplotype == right_haplotype else COMPOUND_HET_PHASE_TRANS
