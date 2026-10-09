@@ -553,6 +553,12 @@ The track viewers draw one track per caller (`GET /families/{family_id}/track-av
 lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
 from the bucket for a package in a bucket.
 
+Every file a dataset names, per sample or for the whole family, is recorded in
+`raw_import_files` with its size and SHA-256 ([database.md](database.md)), whichever of its
+names the entry uses: a NIPT pair's coverage table under `target_table`, a PCF table under
+`maternal_file` as under `maternal`. The admin page lists these files with the family's data,
+and **Verify** checks them later.
+
 ### Monogenic NIPT pairs
 
 A NIPT pair's manifest, as Discover drafts it (`assay_panel` added by hand):
