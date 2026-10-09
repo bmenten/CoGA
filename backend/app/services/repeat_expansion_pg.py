@@ -1192,8 +1192,14 @@ async def get_family_repeat_expansion_table_response(
                 repeat_expansions.start,
                 repeat_expansions."end",
                 COALESCE(catalog.motif, repeat_expansions.motif) AS motif,
-                COALESCE(catalog.warning_min, repeat_expansions.warning_min) AS warning_min,
-                COALESCE(catalog.pathogenic_min, repeat_expansions.pathogenic_min) AS pathogenic_min,
+                -- Both thresholds from the catalogue row when one matched, a missing one
+                -- included, so a stored threshold the row no longer has (the old BEAN1
+                -- intermediate 300, CLIN-22) does not come back. The stored pair only
+                -- when no row matched.
+                CASE WHEN catalog.locus_id IS NULL THEN repeat_expansions.warning_min
+                     ELSE catalog.warning_min END AS warning_min,
+                CASE WHEN catalog.locus_id IS NULL THEN repeat_expansions.pathogenic_min
+                     ELSE catalog.pathogenic_min END AS pathogenic_min,
                 catalog.benign_min AS benign_min,
                 catalog.benign_max AS benign_max,
                 catalog.pathogenic_max AS pathogenic_max,

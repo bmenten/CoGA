@@ -118,7 +118,7 @@ describe('FamilyRepeatExpansionsPage', () => {
                 start: 170561906,
                 end: 170561944,
                 motif: 'CAG',
-                warning_min: 42,
+                warning_min: 41,
                 pathogenic_min: 49,
                 status: 'normal',
                 calls: {
