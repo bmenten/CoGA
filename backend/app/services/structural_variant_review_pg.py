@@ -46,6 +46,10 @@ def _normalize_cnv_acmg_payload(
 
     Returns ``(blob, point_total, class_key)`` — ``blob`` is the JSON to store, or
     ``None`` to clear. The client-supplied total is ignored.
+
+    Each criterion must be one of the kind's catalogue and listed once, as the dialog sends
+    them (refused with 400 otherwise); its points are kept within the criterion's range.
+    Only a save is checked: a stored classification is read back as it was written.
     """
 
     if payload is None or not payload.criteria:
@@ -54,10 +58,16 @@ def _normalize_cnv_acmg_payload(
     if not cnv_acmg_points.is_valid_kind(kind):
         raise HTTPException(status_code=400, detail=f"Invalid CNV kind: {payload.kind}")
     normalized_criteria: list[dict[str, Any]] = []
+    listed: set[str] = set()
     for criterion in payload.criteria:
         code = (criterion.code or "").strip()
         if not cnv_acmg_points.is_valid_code(kind, code):
             raise HTTPException(status_code=400, detail=f"Unknown CNV criterion: {criterion.code}")
+        # The range caps one entry's points; a repeated code would count twice past it
+        # (2B at its 0.90 maximum, sent twice, scores 1.80). The dialog sends each code once.
+        if code in listed:
+            raise HTTPException(status_code=400, detail=f"Repeated CNV criterion: {code}")
+        listed.add(code)
         normalized_criteria.append(
             {
                 "code": code,
