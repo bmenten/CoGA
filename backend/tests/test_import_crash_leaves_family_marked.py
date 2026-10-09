@@ -559,7 +559,10 @@ async def test_after_a_failed_restore_nothing_the_import_wrote_counts_as_importe
     await _import(family, conflict_mode="overwrite", job_id="job-2")
 
     assert family.incomplete["failed_datasets"] == ["coverage", "snv"]
-    assert family.incomplete["failed_jobs"] == {"coverage": "job-2", "snv": "job-1"}
+    assert family.incomplete["imported_datasets"] == []
+    # Its restore may have removed the rows of any of its datasets, so the overwrite names
+    # each as failed itself (SAFE-13): snv now with job-2, whose record says why.
+    assert family.incomplete["failed_jobs"] == {"coverage": "job-2", "snv": "job-2"}
 
 
 # --- the job: its heartbeat, its record, and a worker that finds it stopped -------------
