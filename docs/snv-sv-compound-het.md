@@ -22,10 +22,12 @@ implementation.
   `sv_second_hit`, summarised by `summarize_second_hit` (`sv_gene_index_service.py`). The
   `require_sv_second_hit` filter restricts the query to `get_sv_hit_genes`.
 - **Phase.** `_read_phase_verdict` compares the SNV's and the SV's haplotype within a shared phase set
-  in an affected sample. Otherwise `_phase_verdict` applies `segregation_phase`
-  (`compound_het_phase.py`) to the SNV genotypes and `_sv_carriage`, with the pedigree from
-  `_family_pedigree` (the parent links the de novo check uses). `deletion_unmasked` marks a deletion in
-  trans. SNV + SNV pairs go through the same `segregation_phase` after read phasing, in
-  `_compound_het_pair_verdict` (`clickhouse_variant_queries.py`), which also sets `phase_evidence`
-  (`read` or `segregation`); a pair traced to one parent is dropped. The rule itself is described for
-  lab users in the in-app reference.
+  in an affected sample. It reads each call with `phased_alt_haplotype` (`compound_het_phase.py`), as
+  `_pair_phase_for_sample` does for an SNV + SNV pair: a call places its alt only when it is phased, both
+  alleles are called and exactly one is an alt, so a half call (`.|1`, `1|.`) places nothing. Otherwise
+  `_phase_verdict` applies `segregation_phase` (`compound_het_phase.py`) to the SNV genotypes and
+  `_sv_carriage`, with the pedigree from `_family_pedigree` (the parent links the de novo check
+  uses). `deletion_unmasked` marks a deletion in trans. SNV + SNV pairs go through the same
+  `segregation_phase` after read phasing, in `_compound_het_pair_verdict`
+  (`clickhouse_variant_queries.py`), which also sets `phase_evidence` (`read` or `segregation`); a pair
+  traced to one parent is dropped. The rule itself is described for lab users in the in-app reference.
