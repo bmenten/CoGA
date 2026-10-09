@@ -212,6 +212,16 @@ are colleagues, so there is no tenant boundary to protect.
   with the kind, because a formatter that fails makes `logging` print the logged exception's
   full text to stderr. The one exception is a row the audit table cannot store: it is logged at
   ERROR with its masked payload, body and error text included, so it can be restored (S-5).
+  What an event loop reports to its exception handler (a task's exception that nobody
+  retrieved, a callback that raised, a transport's error) is logged by
+  `log_event_loop_exception`, which the lifespan installs on the loop uvicorn runs the app on;
+  every background worker runs there as a task. asyncio's own handler, and uvloop's, wrote
+  each object's repr into the message: a task's holds its exception's message, and the
+  callback's line quotes its arguments (uvloop; asyncio on Python 3.12). The line now gives
+  asyncio's fixed message up to the first object it quotes (a message it does not know is not
+  written), the task by its name and coroutine, other objects by their type, and the exception
+  by its kind and frames. asyncio's debug mode, which writes reprs in lines of its own, is never
+  turned on.
 - 🟡 **Request bodies are logged with their clinical content**; only secret-like keys are
   masked. Consider masking PHI fields if bodies are kept long-term.
 - ⛔ **Byte-level downloads (S-4).** The backend logs that it issued a signed URL, but the
