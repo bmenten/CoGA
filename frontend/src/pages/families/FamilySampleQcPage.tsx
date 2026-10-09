@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
-import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstQcStatus } from '../../lib/qcStatus';
+import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstIntegrityStatus } from '../../lib/qcStatus';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import InfoTip from '../../components/InfoTip';
@@ -21,12 +21,29 @@ import { apiPath } from '../../lib/apiPath';
 import { useFamilyReference } from '../../lib/reference';
 import { parsePedigree } from '../../lib/pedigree';
 
+// A check that could not run makes the overall a warning, so "skip" means no check ran.
 const OVERALL_COPY: Record<QcStatus, string> = {
   pass: 'All sample-integrity checks passed. No swaps or mislabelled relationships detected.',
   warn: 'Some checks need attention — review the warnings before interpretation.',
   fail: 'A check failed. Resolve possible sample swaps or pedigree errors before interpretation.',
-  skip: 'Sample-integrity QC could not run (no genotypes available).',
+  skip: 'No sample-integrity check could run for this family.',
 };
+
+const checkStatuses = (qc: ApiSampleIntegrityQc): QcStatus[] => [
+  ...qc.sex_checks.map((check) => check.status),
+  ...qc.relatedness_checks.map((check) => check.status),
+  ...qc.mendelian_checks.map((check) => check.status),
+  ...[qc.paternity_check, qc.fetal_sex_check, qc.category_qc_check].flatMap((check) =>
+    check ? [check.status] : [],
+  ),
+];
+
+// The overall verdict is the backend's: it is what a sign-out freezes, and it counts a check
+// that could not run as a warning. A pass beside such a check (a backend from before that
+// rule) is shown as a warning as well, so the page never says every check passed when one
+// did not run.
+const overallStatus = (qc: ApiSampleIntegrityQc): QcStatus =>
+  qc.overall_status === 'pass' && checkStatuses(qc).includes('skip') ? 'warn' : qc.overall_status;
 
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
   <span className={QC_STATUS_CHIP[status]}>{QC_STATUS_LABEL[status]}</span>
@@ -70,8 +87,10 @@ const sexCheckNote = (check: ApiSampleIntegritySexCheck): string => {
   return check.message;
 };
 
-// Roll each sample's sex / Mendelian / relatedness checks into one ring status
-// for the pedigree, with a tooltip summarising why.
+// Roll each sample's sex / Mendelian / relatedness checks into one ring status for the
+// pedigree, with a tooltip summarising why. As in the overall verdict, a check that could
+// not run counts as a warning: a sample whose sex was not checked never shows a passing
+// ring. A sample with no check gets no ring.
 const buildQcStatusBySample = (
   qc: ApiSampleIntegrityQc,
 ): Record<string, PedigreeQcStatus> => {
@@ -104,8 +123,8 @@ const buildQcStatusBySample = (
 
   const result: Record<string, PedigreeQcStatus> = {};
   byId.forEach((entry, id) => {
-    const status = worstQcStatus(entry.statuses);
-    if (status === 'skip') return; // no ring when nothing actually ran for this sample
+    const status = worstIntegrityStatus(entry.statuses);
+    if (status === 'skip') return; // no verdict the ring can draw
     result[id] = {
       status,
       label: entry.notes.join(' · ') || undefined,
@@ -411,6 +430,7 @@ const FamilySampleQcPage: React.FC = () => {
   }
 
   const perSample = buildQcStatusBySample(qc);
+  const overall = overallStatus(qc);
   const members = family?.members ?? [];
   const pedRows = parsePedigree(family?.pedigree);
   const hasPedigree = members.length > 0 || pedRows.length > 0;
@@ -452,10 +472,10 @@ const FamilySampleQcPage: React.FC = () => {
         </p>
       </FamilyPageHeader>
 
-      <section className={`surface-card qc-overall qc-overall--${qc.overall_status}`}>
+      <section className={`surface-card qc-overall qc-overall--${overall}`}>
         <div className="qc-overall-head">
-          <StatusChip status={qc.overall_status} />
-          <p className="report-paragraph">{OVERALL_COPY[qc.overall_status]}</p>
+          <StatusChip status={overall} />
+          <p className="report-paragraph">{OVERALL_COPY[overall]}</p>
         </div>
         {qc.application_summary ? <p className="table-subtle">{qc.application_summary}</p> : null}
         {qc.notes.length ? (

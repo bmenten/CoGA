@@ -4,6 +4,7 @@ import random
 
 from backend.app.services.sample_integrity_qc import (
     PedigreeSpec,
+    SexCheck,
     classify_relatedness,
     evaluate_fetal_sex,
     evaluate_nipt_category_qc,
@@ -329,3 +330,105 @@ def test_wgs_keeps_coparent_check_and_flags_consanguinity() -> None:
     coparent2 = [c for c in report2.relatedness_checks if {c.sample_a, c.sample_b} == {"FATHER", "MOTHER"}]
     assert len(coparent2) == 1
     assert coparent2[0].status == "fail" and "consanguinity" in coparent2[0].message.lower()
+
+
+# --- The overall verdict: a check that could not run is a warning ------------
+
+# The sentence that closes the note naming the samples whose sex was not checked.
+_NOT_A_PASS = "A check that could not run counts as a warning, not a pass."
+
+
+def test_a_sex_check_that_could_not_run_makes_the_overall_a_warning_and_names_the_sample() -> None:
+    # The father has no chrX genotypes, so his sex check could not run ("skip"), and every
+    # other check passes. A skip ranked below a pass, so the family read "All
+    # sample-integrity checks passed", and that pass was frozen into the signed report.
+    father, mother, child = _trio(10)
+    x = {"MOTHER": _founder(random.Random(11)), "CHILD": [(0, 0)] * N_SITES}
+    spec = _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"})
+    report = evaluate_sample_integrity(
+        {"FATHER": father, "MOTHER": mother, "CHILD": child}, x, spec, profile=_WGS
+    )
+
+    assert {c.sample_id: c.status for c in report.sex_checks} == {
+        "CHILD": "pass",
+        "FATHER": "skip",
+        "MOTHER": "pass",
+    }
+    ran = report.relatedness_checks + report.mendelian_checks
+    assert ran and all(c.status == "pass" for c in ran)
+    assert report.overall_status == "warn"
+    assert report.notes == [f"Sex could not be checked for sample FATHER. {_NOT_A_PASS}"]
+
+
+def test_the_note_names_every_sample_whose_sex_could_not_be_checked() -> None:
+    # A call set without chrX: no sample is sexed, while relatedness and the Mendelian
+    # check confirm the trio. A single sample whose only check could not run warns too
+    # (it read "not run" before, as if nothing had been asked of it).
+    father, mother, child = _trio(10)
+    spec = _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"})
+    trio = evaluate_sample_integrity(
+        {"FATHER": father, "MOTHER": mother, "CHILD": child}, {}, spec, profile=_WGS
+    )
+    assert all(c.status == "skip" for c in trio.sex_checks)
+    assert all(c.status == "pass" for c in trio.relatedness_checks + trio.mendelian_checks)
+    assert trio.overall_status == "warn"
+    assert trio.notes == [
+        f"Sex could not be checked for samples CHILD, FATHER and MOTHER. {_NOT_A_PASS}"
+    ]
+
+    single = evaluate_sample_integrity(
+        {"S": _founder(random.Random(20))},
+        {},
+        PedigreeSpec(recorded_sex={"S": "male"}, parents_of={}),
+        profile=profile_for("single"),
+    )
+    assert [c.status for c in single.sex_checks] == ["skip"]
+    assert single.overall_status == "warn"
+    assert single.notes == [f"Sex could not be checked for sample S. {_NOT_A_PASS}"]
+
+
+def test_a_nipt_parent_sex_check_that_could_not_run_makes_the_overall_a_warning() -> None:
+    # Paternity, fetal sex and the category check pass, and the cfDNA sample reads female;
+    # the father's sex check could not run (no chrX genotypes). The family read pass.
+    report = evaluate_sample_integrity(
+        {},
+        {},
+        PedigreeSpec(recorded_sex={}, parents_of={}),
+        profile=profile_for("nipt"),
+        paternity_check=_paternity((485, 15), (1020, 980)),
+        fetal_sex_check=evaluate_fetal_sex("female", 12, 0, 12),
+        category_qc_check=evaluate_nipt_category_qc({1: 0, 2: 30, 3: 16, 4: 14, 7: 40, 8: 2}),
+        extra_sex_checks=[
+            SexCheck("FATHER", "male", "indeterminate", None, 0, "skip",
+                     "No chrX genotypes available for sex inference."),
+            SexCheck("CFDNA", "female", "female", 0.3, 400, "pass",
+                     "Genotype-inferred sex matches the record (30.0% chrX het over 400 sites)."),
+        ],
+    )
+
+    assert report.paternity_check is not None and report.paternity_check.status == "pass"
+    assert report.overall_status == "warn"
+    assert report.notes == [f"Sex could not be checked for sample FATHER. {_NOT_A_PASS}"]
+
+
+def test_the_overall_is_not_run_only_when_no_check_ran_at_all() -> None:
+    # A NIPT family whose trio could not be resolved has no check: the overall stays "skip"
+    # (not run), and no sample is named. The sign-out gate holds that case on its own.
+    report = evaluate_sample_integrity(
+        {}, {}, PedigreeSpec(recorded_sex={}, parents_of={}), profile=profile_for("nipt")
+    )
+    assert report.overall_status == "skip"
+    assert report.notes == []
+    # A fail still outranks a check that could not run.
+    father, mother, _child = _trio(12)
+    stranger = _founder(random.Random(123))
+    swapped = evaluate_sample_integrity(
+        {"FATHER": father, "MOTHER": mother, "CHILD": stranger},
+        {},
+        _trio_spec({"FATHER": "male", "MOTHER": "female", "CHILD": "male"}),
+        profile=_WGS,
+    )
+    assert swapped.overall_status == "fail"
+    assert swapped.notes == [
+        f"Sex could not be checked for samples CHILD, FATHER and MOTHER. {_NOT_A_PASS}"
+    ]

@@ -98,6 +98,9 @@ def _patch(monkeypatch, *, swap_child: bool, metadata: dict | None = None):
 # A value a failed query was given, which the error's text quotes.
 _QUOTED_VALUE = "SYNTHETIC-VALUE-17"
 
+# The sentence that closes the note naming the samples whose sex was not checked.
+_NOT_A_PASS = "A check that could not run counts as a warning, not a pass."
+
 
 def _frozen(report) -> str:
     """The Sample QC as sign-out freezes it into the signed report snapshot."""
@@ -334,7 +337,10 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
 
     assert report.paternity_check is not None and report.paternity_check.status == "pass"
     assert report.overall_status == "warn"
-    assert report.notes == ["The NIPT parents' sex could not be checked."]
+    assert report.notes == [
+        "The NIPT parents' sex could not be checked.",
+        f"Sex could not be checked for samples FATHER and MOTHER. {_NOT_A_PASS}",
+    ]
     not_checked = "Sex could not be checked: the genotypes could not be loaded."
     assert [
         (c.sample_id, c.recorded_sex, c.inferred_sex, c.x_sites, c.status, c.message)
@@ -363,6 +369,74 @@ def test_service_nipt_parent_sex_without_a_callset_adds_nothing(monkeypatch) -> 
     )
     assert report.sex_checks == []
     assert report.notes == []
+
+
+def _without_chrx_calls(monkeypatch) -> None:
+    """The family's callset holds no chrX site: every sex check has nothing to read."""
+
+    async def _autosomes_only(context, *, scope, limit, source):
+        if scope == "chrX":
+            return []
+        return _autosomal_rows(2_400, seed=11, swap_child=False)
+
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _autosomes_only)
+
+
+def test_service_nipt_parents_without_chrx_calls_warn_and_are_named(monkeypatch) -> None:
+    # Paternity, fetal sex and the category check pass, but the callset has no chrX site
+    # for the parents: both sex checks could not run. The family read "All sample-integrity
+    # checks passed", and the signed report froze that pass. It reads warn, and a note names
+    # the parents. The sign-out gate already held both (no relatedness check anchors a
+    # NIPT parent), and still does.
+    from backend.app.services.report_signout_service import _unverifiable_swap_checks
+
+    _patch_passing_nipt(monkeypatch)
+    _without_chrx_calls(monkeypatch)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+    )
+
+    assert [c.status for c in (report.paternity_check, report.fetal_sex_check, report.category_qc_check)] == [
+        "pass",
+        "pass",
+        "pass",
+    ]
+    no_chrx = "No chrX genotypes available for sex inference."
+    assert [(c.sample_id, c.status, c.message) for c in report.sex_checks] == [
+        ("FATHER", "skip", no_chrx),
+        ("MOTHER", "skip", no_chrx),
+    ]
+    assert report.overall_status == "warn"
+    assert report.notes == [f"Sex could not be checked for samples FATHER and MOTHER. {_NOT_A_PASS}"]
+    frozen = _canonical_sample_qc(report)
+    assert frozen["overall_status"] == "warn"
+    assert frozen["notes"] == report.notes
+    assert _unverifiable_swap_checks(frozen) == [no_chrx, no_chrx]
+
+
+def test_service_trio_without_chrx_calls_warns_and_the_signed_snapshot_records_it(monkeypatch) -> None:
+    # Relatedness and the Mendelian check confirm the trio, but no sample could be sexed.
+    # The overall read pass. It is a warning now, in the report and in the Sample QC that
+    # sign-out freezes, with a note naming the samples. Every sample is anchored by a
+    # parent-child check, so the sign-out gate stays open: a warning does not block.
+    from backend.app.services.report_signout_service import _unverifiable_swap_checks
+
+    _patch(monkeypatch, swap_child=False)
+    _without_chrx_calls(monkeypatch)
+
+    report = asyncio.run(
+        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+    )
+
+    assert {c.sample_id: c.status for c in report.sex_checks} == dict.fromkeys(SAMPLES, "skip")
+    assert all(c.status == "pass" for c in report.relatedness_checks + report.mendelian_checks)
+    assert report.overall_status == "warn"
+    note = f"Sex could not be checked for samples CHILD, FATHER and MOTHER. {_NOT_A_PASS}"
+    assert report.notes == [note]
+    frozen = _canonical_sample_qc(report)
+    assert (frozen["overall_status"], frozen["notes"]) == ("warn", [note])
+    assert _unverifiable_swap_checks(frozen) == []
 
 
 def _nipt_site(variant_id: str, *, father_state: str, father_dp: int | None, present: bool):

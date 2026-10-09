@@ -33,6 +33,20 @@ export const worstQcStatus = (statuses: QcStatus[]): QcStatus =>
     'skip',
   );
 
+/**
+ * The sample-integrity roll-up. A Sample QC check that could not run (`skip`, such as a sex
+ * check without chrX genotypes) confirmed nothing about the sample, so it counts as a
+ * warning: never a pass beside checks that passed. Only no check at all stays `skip`. The
+ * backend rolls the overall verdict up the same way (`sample_integrity_qc._overall_status`).
+ *
+ * `worstQcStatus` keeps the plain order, in which `skip` ranks lowest: for sequencing QC it
+ * means nothing to measure or no limit configured, which is not a sample-identity question.
+ */
+export const worstIntegrityStatus = (statuses: QcStatus[]): QcStatus =>
+  statuses.length
+    ? worstQcStatus(statuses.map((status) => (status === 'skip' ? 'warn' : status)))
+    : 'skip';
+
 /** Shared chip styling, so one verdict looks the same wherever it is shown. */
 export const QC_STATUS_CHIP: Record<QcStatus, string> = {
   pass: 'table-chip table-chip--success',
