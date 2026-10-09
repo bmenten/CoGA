@@ -201,9 +201,11 @@ deployment-gcp.md §12.8) fails. `test_deployment_config.py` checks only `cloudr
 ### OPS-2 · No container image has ever been built
 
 `build.yml` skips build, push and deploy while `GCP_WIF_PROVIDER` is unset (the repository
-has no secrets), and no CI job builds the Dockerfiles, so a broken Dockerfile would surface
-only at the RC. **Next:** a pull-request job that builds both production images without
-pushing (a workflow edit for the owner); configure Google Cloud.
+has no secrets). The `images` job of `ci.yml` builds both production images on every pull
+request and push to `main`, as Cloud Build would, without pushing; it is not a required
+check, so a broken Dockerfile fails that check but does not block a merge. **Next:** make
+`images` a required check (the owner, in branch protection; TF-18 §6 then names it);
+configure Google Cloud.
 
 ### OPS-3 · Terraform never applied; one environment; every push would deploy
 

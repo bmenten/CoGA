@@ -307,12 +307,13 @@ What the application relies on there:
 ## 5. CI enforcement of the gates
 
 Every pull request and push to `main` runs the gates in `ci.yml` (backend, frontend, smoke,
-e2e, e2e-playwright, catalogue, plus coverage and the SBOM) and `security.yml` (`deps`:
-blocking `pip-audit --require-hashes` and production `npm audit`; `secret-scan`: gitleaks over
-the full history; `codeql` for Python and JavaScript/TypeScript). Ten of these are required
-status checks on `main` with strict, up-to-date-before-merge enforcement (S-6); coverage and
-the SBOM are not. The list is in [docs/testing.md](testing.md); the policy and its open gaps
-are in [TF-18 §6](regulatory/TF-18-change-configuration-management.md).
+e2e, e2e-playwright, catalogue, plus coverage, the SBOM and a build of both production images
+that pushes nothing) and `security.yml` (`deps`: blocking `pip-audit --require-hashes` and
+production `npm audit`; `secret-scan`: gitleaks over the full history; `codeql` for Python and
+JavaScript/TypeScript). Ten of these are required status checks on `main` with strict,
+up-to-date-before-merge enforcement (S-6); coverage, the SBOM and the image build are not.
+The list is in [docs/testing.md](testing.md); the policy and its open gaps are in
+[TF-18 §6](regulatory/TF-18-change-configuration-management.md).
 `build.yml` checks the Terraform (`fmt`, `validate`) on pull requests and deploys from `main`.
 Every suppressed advisory is recorded in
 [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md).
