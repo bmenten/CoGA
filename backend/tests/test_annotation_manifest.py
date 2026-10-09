@@ -82,6 +82,19 @@ def test_refresh_modules_new_version_wins_and_preserves_untouched() -> None:
     assert out["sniffles"]["version"] == "2.2"  # new module added
 
 
+def test_a_reimported_header_with_only_a_command_line_keeps_the_recorded_version() -> None:
+    # A re-import whose TRGT header has a command line but no version line states no
+    # version, so the recorded one stays: the command's first word ("trgt") taken for a
+    # version would replace it, and the next sign-out would freeze it.
+    from backend.app.services.vcf_header_provenance import extract_header_provenance
+
+    current = {"trgt": {"version": "0.7.0", "by_modality": {"repeats": "0.7.0"}}}
+    header = ["##fileformat=VCFv4.2", "##trgtCommand=trgt genotype --genome ref.fa --karyotype XX"]
+    incoming = extract_header_provenance(header, modality="repeats").as_modules()
+    out = ams._refresh_modules(current, incoming, modality="repeats")
+    assert out["trgt"] == {"version": "0.7.0", "by_modality": {"repeats": "0.7.0"}}
+
+
 def test_get_family_manifest_falls_back_to_family_metadata(monkeypatch) -> None:
     # No explicit family_annotation_manifest row -> read the import-captured manifest
     # from family.metadata.annotation_manifest.

@@ -23,6 +23,17 @@ The `##` header lines are parsed by
 | Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##source=TRGT`, `##reference` |
 | The pipeline run record of a long-read or PGT package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml` (the PGT pipeline's `copgtm_software_mqc_versions.yml`), recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
+A version is read only from a line that states one: a `##<tool>Version` or
+`##<tool>_version` line, the `Version` field of a structured line (`##GATKCommandLine`,
+DRAGEN's `##DRAGENVersion=<…>`), the `##VEP=` line, or a version-shaped token in `##source`
+(`Sniffles2_2.2`). A version line gives its first version-shaped word, one that starts with a
+digit, or with a `v` and a digit: `1.21+htslib-1.21`, `v1.4.1-0-g68e25e5`, and `5.1d` from
+SnpSift's `"SnpSift 5.1d (build …)"`. A value without one counts only as a single word with a
+digit that is not the tool's own name, such as the release tag `r0.8`. A command line
+(`##bcftools_viewCommand=view …`, `##SnpSiftCmd="SnpSift annotate …"`,
+`##trgtCommand=trgt genotype …`) starts with the program or subcommand, so it gives no
+version; the tool's version line gives it, whether it comes before or after the command line.
+
 The parser is best-effort and never raises: a header it does not recognise yields less
 information, never an error, so capture cannot fail an import.
 
@@ -128,20 +139,19 @@ VCF `##reference` line), the pipeline's value is the one listed.
   shows up without a code change.
 - `##fileformat`, `##fileDate` and a bare command line (Sniffles' `##command=…`) are read but
   not stored: the manifest keeps only the modules (`HeaderProvenance.as_modules`).
-- A `##<tool>Command` or `##<tool>Cmd` line without a reading of its own (all but
-  `##GATKCommandLine` and `##SnpEffCmd`) names no version, yet the parser takes its first word
-  (the program or subcommand, such as `trgt` in `##trgtCommand=trgt genotype …`) as the
-  tool's version (`_parse_generic`). These lines do not overwrite a version already read, so
-  that word is what is recorded when the command line comes before the tool's
-  `##<tool>Version` line.
+- A tool that a header names only in a command line, with no version line, has no version in
+  that header, and the manifest does not list it from that file. The package's pipeline run
+  record, or an admin's replacement, can state it.
 
 ## Tests
 
 - [test_vcf_header_provenance.py](../backend/tests/test_vcf_header_provenance.py): the
-  parsers, with realistic headers for every input, and the merge rules.
+  parsers, with realistic headers for every input, and the merge rules; a version only from a
+  line that states one, never from a command line, wherever it stands.
 - [test_annotation_manifest.py](../backend/tests/test_annotation_manifest.py): the refresh
-  rules, the module list, the reference modules with their `unavailable` states, the replacement's audit
-  event and the lock both writers take.
+  rules (a re-import whose header names a tool only in a command line keeps its recorded
+  version), the module list, the reference modules with their `unavailable` states, the
+  replacement's audit event and the lock both writers take.
 - [integration/test_hpo_release_provenance.py](../backend/tests/integration/test_hpo_release_provenance.py):
   the HPO release read from a real database, after a re-import of an older release and after an
   import without one.
