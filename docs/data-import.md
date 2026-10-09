@@ -769,19 +769,19 @@ page asks before it sends that.
 | Repeat expansions (TRGT VCF) | `POST /repeat-expansions/upload/{sample_id}` | Postgres |
 | Interval tracks (BED) | `POST /bed/upload/{sample_id}/{bed_type}` | ClickHouse |
 
-A file stored as one sample's -- a TRGT upload, and a package's per-sample `repeats_trgt`,
-`mito` (its chrM VCF and its chrM SV VCF) and `cnv` (HiFiCNV) files -- is read from that
-sample's own column (`per_sample_vcf_column`; a `mito` dataset checks all its files before it
-writes any):
+A file stored as one sample's -- a TRGT upload, a Sniffles or Spectre structural-variant
+upload, and a package's per-sample `repeats_trgt`, `mito` (its chrM VCF and its chrM SV VCF)
+and `cnv` (HiFiCNV) files -- is read from that sample's own column (`per_sample_vcf_column`; a
+`mito` dataset checks all its files before it writes any):
 
 - the column the shared sample-name rules resolve to the sample (`<sample>_sort`,
-  `<sample>_sv_phased`) is read, at any position, so a family TRGT or chrM VCF can serve each
-  member in turn;
+  `<sample>_sv_phased`) is read, at any position, so a family TRGT, Sniffles or chrM VCF can
+  serve each member in turn;
 - a single column that names no stored sample (a caller's placeholder, such as HiFiCNV's
   `Sample0`) belongs to the sample;
 - a file whose columns name other samples and none this one (a family member, or a sample
   of another family: sample ids are unique) is refused before anything is written, as is a
-  file with two columns for it: the upload with 400, a package dataset as failed;
+  file with two columns for it: an upload with 400, a package dataset as failed;
 - a package entry's `vcf_sample` is the operator's recorded word: the column it names is
   read, or, set to the entry's own sample, the file's one column. A lab that verified its
   tubes and maps a sample to a file named after another tube sets it.
@@ -812,6 +812,11 @@ calls are checked and replaced:
 - `source_format` is `sniffles`, `spectre`, `manual` (a TSV, stored as source `manual_upload`)
   or `auto`, the default, which works the caller out from the file. Any other value is
   refused (400).
+- A Sniffles or Spectre VCF is read from the sample's own column, by the rule above. A file
+  with no column for the sample (another member's, or a joint VCF without it) or with two, and
+  a VCF without exactly one `#CHROM` line before its records, is refused (400) before anything
+  is read or replaced. A manual TSV has no sample column: each of its rows is the sample's
+  call.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another
@@ -874,7 +879,8 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
-| "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. |
+| "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
+| "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the sample it took for the maternal plasma and the one it took for the father. |
 | `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt` and does not say `source_format: clair3`; for the long-read pipeline's per-sample calls set `source_format: clair3`, else give a joint VCF as `snv.family_vcf`. |
 | `ped_missing_path` | The manifest names no PED and no members under `family.add_members`. |
