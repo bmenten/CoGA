@@ -76,9 +76,10 @@ Op de pagina *Sequencing QC thresholds* stelt een beheerder per QC-metriek een *
 - **De metrieken staan in de code, de grenzen in de databank.** Welke metrieken bestaan en of een lage of een hoge waarde de foutkant is, volgt uit wat de QC-parsers schrijven; een beheerder kan de richting niet omdraaien.
 - **Geen standaardgrenzen.** Een grens is een klinische beslissing; er worden er geen meegeleverd. Zonder grens wordt een metriek gemeld als *niet beoordeeld*, nooit als geslaagd.
 - **Eén oordeel voor iedereen.** De backend evalueert de grenzen, zodat de werkruimte, de sample-QC en het rapport hetzelfde oordeel tonen. Ook de mtDNA-grenzen komen van hier.
+- **Het oordeel in de ledentabel.** De chip *Seq. QC* van de familiepagina toont per sample het slechtste oordeel naast de gemiddelde diepte. Een geslaagd sample toont alleen het getal; elk ander oordeel staat er als woord: *Warning* (oranje) en *Fail* (rood), en *Not run* (grijs) voor een sample dat niet beoordeeld werd, omdat voor geen van zijn metrieken een grens is ingesteld of omdat de server geen oordeel teruggaf. Zo leest een niet beoordeeld sample nooit als geslaagd, ook niet zonder kleur. De tooltip verschijnt bij de muis en bij de toetsenbordfocus, ook op een chip zonder QC-rapport. Hij noemt elke metriek over haar grens, met haar waarde afgerond zoals op de chip en de grens zoals ingesteld, in de eenheid van de metriek (*Mean depth 18.6x below 20x*), of zegt waarom het sample niet beoordeeld werd.
 - **Streng vastgelegd.** Een wijziging vraagt een bevestiging die beide waarden herhaalt en een **reden**. Ze komt in de append-only tabel `qc_threshold_changes`, samen met de waarde die ze vervangt en de reden. Een trigger weigert wijzigen en wissen, en de runtime-rol `coga_app` heeft er geen rechten voor (hoofdstuk 2). De HTTP-auditlog kent de vorige waarde niet: alleen hier is te zien wie een grens verlaagde en van welke waarde.
 
-**Waar in de code:** `backend/app/services/qc_threshold_service.py`; de pagina `AdminQcThresholdsPage.tsx`.
+**Waar in de code:** `backend/app/services/qc_threshold_service.py`; de pagina `AdminQcThresholdsPage.tsx`; de chip `frontend/src/pages/families/SampleQcCell.tsx`.
 
 ### Presets en tags
 

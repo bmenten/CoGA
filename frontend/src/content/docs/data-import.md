@@ -228,10 +228,13 @@ heteroplasmy.
 ### After the import
 
 - **Sequencing QC** appears per sample in the **Family members** table as a chip with the QC verdict and
-  the mean depth. Hover it for every metric and the cut-offs; click it to open the pipeline's QC report.
-  The chip turns amber or red when a metric crosses a warning or error cut-off. Cut-offs are set per assay
-  under **Admin → Sequencing QC Thresholds**; none ship by default, and a metric without a cut-off reads
-  as *not assessed*, not as a pass.
+  the mean depth. Hover it, or move the keyboard focus to it, for every metric and the cut-offs; click it
+  to open the pipeline's QC report. The chip reads *Warning* (amber) or *Fail* (red) when a metric
+  crosses a warning or error cut-off, and the tooltip names each such metric with its value, rounded as
+  on the chip, and the cut-off it crossed, in the metric's unit (*Mean depth 18.6x below 20x*). Cut-offs
+  are set per assay under **Admin → Sequencing QC Thresholds**; none ship by default, and a metric
+  without a cut-off reads as *not assessed*, not as a pass. A sample with no cut-off for any of its
+  metrics, or with no verdict from the server, reads *Not run* in grey, and the tooltip says which.
 - **Analysis pipeline settings** — the pipeline's configuration (genome build, which caller produced
   what, VEP cache, repeat catalogue, stages run) is recorded at import. It shows in a panel on the family
   page and in the same section of the clinical report. Tool versions are in the report's provenance

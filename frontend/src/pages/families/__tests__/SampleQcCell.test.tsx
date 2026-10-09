@@ -19,6 +19,11 @@ vi.mock('../../../lib/api', async () => {
 
 const mockedGet = vi.mocked(api.get);
 
+/**
+ * A member with its recorded QC and no served verdict (`judged` below adds one). The family
+ * read serves none when it has nothing to judge or the evaluation failed, so such a chip
+ * reads "Not run".
+ */
 const member = (sampleMetadata?: Record<string, unknown>): ApiFamilyRecord['members'][number] =>
   ({
     sample_id: 'HG002',
@@ -75,10 +80,17 @@ const judged = (
   sampleMetadata: Record<string, unknown> = QC,
 ): ApiFamilyRecord['members'][number] => ({ ...member(sampleMetadata), sequencing_qc: verdict });
 
-/** The breach sentence leads the tooltip; the metrics and the profile follow after a dash. */
+/**
+ * The breach sentence, or why the sample was not assessed, leads the tooltip; the metrics
+ * and the profile follow after a dash.
+ */
 const breachSentence = (tooltip: HTMLElement): string => (tooltip.textContent ?? '').split(' — ')[0];
 
-const TONES = ['family-qc-chip--neutral', 'table-chip--warning', 'table-chip--critical'];
+const NOT_RUN_NO_LIMIT =
+  "Not run: not assessed, because no limit is configured for any of this sample's metrics";
+const NOT_RUN_NO_VERDICT = 'Not run: not assessed, because the server returned no QC verdict for this sample';
+
+const TONES = ['family-qc-chip--neutral', 'table-chip--neutral', 'table-chip--warning', 'table-chip--critical'];
 
 describe('SampleQcCell', () => {
   beforeEach(() => {
@@ -101,8 +113,9 @@ describe('SampleQcCell', () => {
     render(<SampleQcCell familyId="pacbio" member={member(QC)} />);
 
     // The chip sits beside the Status pill and must stay that narrow, so it carries one
-    // number; N50, quality and yield are on hover.
-    expect(screen.getByText('18.6x')).toBeInTheDocument();
+    // number, after the verdict word (no verdict was served: Not run); N50, quality and
+    // yield are on hover.
+    expect(screen.getByText('Not run 18.6x')).toBeInTheDocument();
     expect(screen.queryByText(/N50/)).not.toBeInTheDocument();
     // The rest is revealed on hover through InfoTip, which appears immediately —
     // the native `title` tooltip only shows after a browser-controlled delay.
@@ -169,12 +182,12 @@ describe('SampleQcCell', () => {
       />,
     );
 
-    expect(screen.getByText('30.0x')).toBeInTheDocument();
+    expect(screen.getByText('Not run 30.0x')).toBeInTheDocument();
     // Nothing to open, so the chip must not look like a control.
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
   });
 
-  it('offers the report even when no metrics were parsed', () => {
+  it('offers the report even when no metrics were parsed', async () => {
     render(
       <SampleQcCell
         familyId="pacbio"
@@ -182,7 +195,13 @@ describe('SampleQcCell', () => {
       />,
     );
 
-    expect(screen.getByRole('button', { name: /QC report/i })).toBeInTheDocument();
+    // With no metric there is nothing to judge, so no verdict: the chip says Not run, and
+    // its tooltip says why and that it opens the report.
+    const chip = screen.getByRole('button', { name: 'Not run' });
+    await userEvent.hover(chip);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(tooltip).toHaveTextContent(/^Not run: not assessed, because the server returned no QC verdict/);
+    expect(tooltip).toHaveTextContent('Click to open the pipeline QC report in a new tab');
   });
 
   it("puts an embryo's PGT pipeline QC in the tooltip", async () => {
@@ -207,7 +226,7 @@ describe('SampleQcCell', () => {
     );
 
     // Depth stays the one number on the chip.
-    expect(screen.getByText('9.5x')).toBeInTheDocument();
+    expect(screen.getByText('Not run 9.5x')).toBeInTheDocument();
     await userEvent.hover(screen.getByRole('button'));
     const tooltip = await screen.findByRole('tooltip');
     expect(tooltip).toHaveTextContent('99.0% mapped');
@@ -227,6 +246,28 @@ describe('SampleQcCell', () => {
   });
 });
 
+const LOWER: ApiSampleSequencingQcMetric['direction'] = 'lower_is_worse';
+const HIGHER: ApiSampleSequencingQcMetric['direction'] = 'higher_is_worse';
+
+/** A breaching metric per unit, and how the breach sentence writes it against its limit. */
+const UNIT_CASES = [
+  { unit: 'x', label: 'Mean depth', direction: LOWER, value: 18.57, limit: 20, says: '18.6x below 20x' },
+  { unit: '%', label: 'Duplicate reads', direction: HIGHER, value: 14.46, limit: 12, says: '14.5% above 12%' },
+  { unit: 'Q', label: 'Median read quality', direction: LOWER, value: 28.4, limit: 30, says: 'Q28 below Q30' },
+  { unit: 'bp', label: 'Median read length', direction: LOWER, value: 812.4, limit: 900, says: '812 bp below 900 bp' },
+  { unit: 'reads', label: 'Read count', direction: LOWER, value: 640, limit: 750, says: '640 reads below 750 reads' },
+  { unit: 'fraction', label: 'Fraction bases aligned', direction: LOWER, value: 0.91234, limit: 0.95, says: '0.912 below 0.95' },
+  // The limit is never rounded.
+  { unit: 'x', label: 'Mean depth', direction: LOWER, value: 18.57, limit: 19.25, says: '18.6x below 19.25x' },
+  // Where the rounding would put the value on its limit, it keeps the decimals that show the
+  // breach: never "20.0x below 20x".
+  { unit: 'x', label: 'Mean depth', direction: LOWER, value: 19.96, limit: 20, says: '19.96x below 20x' },
+  { unit: '%', label: 'Duplicate reads', direction: HIGHER, value: 12.04, limit: 12, says: '12.04% above 12%' },
+  { unit: 'Q', label: 'Median read quality', direction: LOWER, value: 29.6, limit: 30, says: 'Q29.6 below Q30' },
+  // A unit the chip does not know: the value as served, with its unit.
+  { unit: 'kb', label: 'Some metric', direction: LOWER, value: 4.567, limit: 5, says: '4.567 kb below 5 kb' },
+];
+
 // REQ-QC-005 (TF-09a): the members table shows each sample's worst sequencing-QC state,
 // distinguishable without relying on colour alone, and on inspection names the breaching
 // metrics with their values and the limits they crossed.
@@ -237,42 +278,43 @@ describe('SampleQcCell sequencing-QC verdict', () => {
       verdict: evaluation('pass', [metric({ warn_value: 15, error_value: 10, verdict: 'pass' })]),
       name: '18.6x',
       tone: 'family-qc-chip--neutral',
-      breach: null,
+      lead: null,
     },
     {
       state: 'warn',
       verdict: evaluation('warn', [metric({ warn_value: 20, error_value: 10, verdict: 'warn' })]),
       name: 'Warning 18.6x',
       tone: 'table-chip--warning',
-      breach: 'Warning: Mean depth 18.57 below 20',
+      lead: 'Warning: Mean depth 18.6x below 20x',
     },
     {
       state: 'fail',
       verdict: evaluation('fail', [metric({ warn_value: 30, error_value: 20, verdict: 'fail' })]),
       name: 'Fail 18.6x',
       tone: 'table-chip--critical',
-      breach: 'Failed: Mean depth 18.57 below 20',
+      lead: 'Failed: Mean depth 18.6x below 20x',
     },
     {
       state: 'not run (no limit configured)',
       verdict: evaluation('skip', [metric({ warn_value: null, error_value: null, verdict: 'skip' })]),
-      name: '18.6x',
-      tone: 'family-qc-chip--neutral',
-      breach: null,
+      name: 'Not run 18.6x',
+      tone: 'table-chip--neutral',
+      lead: NOT_RUN_NO_LIMIT,
     },
     {
       state: 'not run (no verdict served)',
       verdict: null,
-      name: '18.6x',
-      tone: 'family-qc-chip--neutral',
-      breach: null,
+      name: 'Not run 18.6x',
+      tone: 'table-chip--neutral',
+      lead: NOT_RUN_NO_VERDICT,
     },
-  ])('$state: the chip reads "$name" in tone $tone', async ({ verdict, name, tone, breach }) => {
+  ])('$state: the chip reads "$name" in tone $tone', async ({ verdict, name, tone, lead }) => {
     render(<SampleQcCell familyId="pacbio" member={judged(verdict)} />);
 
     const chip = screen.getByRole('button');
-    // A problem verdict is a word on the chip, so it does not rest on colour alone; a
-    // passing or unassessed chip carries the number only.
+    // Every state but a pass is a word on the chip, so none rests on colour alone, and a
+    // sample that was not assessed never reads as a pass; a passing chip carries the
+    // number only.
     expect(chip).toHaveAccessibleName(name);
     expect(chip).toHaveClass('table-chip', 'family-qc-chip', tone);
     for (const other of TONES.filter((candidate) => candidate !== tone)) {
@@ -281,11 +323,12 @@ describe('SampleQcCell sequencing-QC verdict', () => {
 
     await userEvent.hover(chip);
     const tooltip = await screen.findByRole('tooltip');
-    if (breach) {
-      // A warning is named against its warning limit, a failure against its error limit.
-      expect(breachSentence(tooltip)).toBe(breach);
+    if (lead) {
+      // A warning is named against its warning limit, a failure against its error limit;
+      // a sample that was not assessed is said to be, with the reason.
+      expect(breachSentence(tooltip)).toBe(lead);
     } else {
-      expect(tooltip).not.toHaveTextContent(/Warning:|Failed:/);
+      expect(tooltip).not.toHaveTextContent(/Warning:|Failed:|Not run|not assessed/);
     }
   });
 
@@ -333,7 +376,7 @@ describe('SampleQcCell sequencing-QC verdict', () => {
     // Each on the side its direction makes worse; the passing and the unassessed metric
     // are not named.
     expect(breachSentence(tooltip)).toBe(
-      'Failed: Mean depth 8.2 below 10; Duplicate reads 14.5 above 12',
+      'Failed: Mean depth 8.2x below 10x; Duplicate reads 14.5% above 12%',
     );
     expect(tooltip).toHaveTextContent('Thresholds: Default profile');
   });
@@ -361,27 +404,59 @@ describe('SampleQcCell sequencing-QC verdict', () => {
     expect(chip).toHaveClass('table-chip--critical');
     await userEvent.hover(chip);
     expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
-      'Failed: Duplicate reads 25 above 20',
+      'Failed: Duplicate reads 25.0% above 20%',
     );
   });
 
-  it('marks a chip with no report to open the same way', async () => {
+  it.each([
+    {
+      state: 'pass',
+      verdict: evaluation('pass', [metric({ warn_value: 15, error_value: 10, verdict: 'pass' })]),
+      text: '18.6x',
+      tone: 'family-qc-chip--neutral',
+      lead: null,
+    },
+    {
+      state: 'warn',
+      verdict: evaluation('warn', [metric({ verdict: 'warn' })]),
+      text: 'Warning 18.6x',
+      tone: 'table-chip--warning',
+      lead: 'Warning: Mean depth 18.6x below 20x',
+    },
+    {
+      state: 'not run (no limit configured)',
+      verdict: evaluation('skip', [metric({ warn_value: null, error_value: null, verdict: 'skip' })]),
+      text: 'Not run 18.6x',
+      tone: 'table-chip--neutral',
+      lead: NOT_RUN_NO_LIMIT,
+    },
+    {
+      state: 'not run (no verdict served)',
+      verdict: null,
+      text: 'Not run 18.6x',
+      tone: 'table-chip--neutral',
+      lead: NOT_RUN_NO_VERDICT,
+    },
+  ])('$state: a chip with no report to open reads "$text" too', async ({ verdict, text, tone, lead }) => {
     render(
       <SampleQcCell
         familyId="pacbio"
-        member={judged(evaluation('warn', [metric({ verdict: 'warn' })]), {
-          sequencing_qc: { depth: { mean_depth: 18.57 } },
-        })}
+        member={judged(verdict, { sequencing_qc: { depth: { mean_depth: 18.57 } } })}
       />,
     );
 
-    const chip = screen.getByText('Warning 18.6x');
-    expect(chip).toHaveClass('table-chip', 'family-qc-chip-static', 'table-chip--warning');
-    expect(chip).not.toHaveClass('family-qc-chip--neutral');
+    const chip = screen.getByText(text);
+    expect(chip).toHaveClass('table-chip', 'family-qc-chip-static', tone);
+    for (const other of TONES.filter((candidate) => candidate !== tone)) {
+      expect(chip).not.toHaveClass(other);
+    }
     await userEvent.hover(chip);
-    expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
-      'Warning: Mean depth 18.57 below 20',
-    );
+    const tooltip = await screen.findByRole('tooltip');
+    if (lead) {
+      expect(breachSentence(tooltip)).toBe(lead);
+    } else {
+      expect(tooltip).not.toHaveTextContent(/Warning:|Failed:|Not run|not assessed/);
+    }
   });
 
   it('names the breach when the chip takes keyboard focus', async () => {
@@ -396,7 +471,57 @@ describe('SampleQcCell sequencing-QC verdict', () => {
     await user.tab();
     expect(screen.getByRole('button')).toHaveFocus();
     expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
-      'Failed: Mean depth 18.57 below 20',
+      'Failed: Mean depth 18.6x below 20x',
     );
   });
+
+  // ENG-10: without a report the chip took no keyboard focus, so its tooltip was mouse-only.
+  it.each([
+    {
+      state: 'fail',
+      verdict: evaluation('fail', [metric({ warn_value: 30, error_value: 20, verdict: 'fail' })]),
+      text: 'Fail 18.6x',
+      lead: 'Failed: Mean depth 18.6x below 20x',
+    },
+    { state: 'not run', verdict: null, text: 'Not run 18.6x', lead: NOT_RUN_NO_VERDICT },
+  ])(
+    '$state: a chip with no report to open takes keyboard focus, which shows its tooltip',
+    async ({ verdict, text, lead }) => {
+      const user = userEvent.setup();
+      render(
+        <SampleQcCell
+          familyId="pacbio"
+          member={judged(verdict, { sequencing_qc: { depth: { mean_depth: 18.57 } } })}
+        />,
+      );
+
+      await user.tab();
+      const chip = screen.getByText(text);
+      expect(chip).toHaveFocus();
+      const tooltip = await screen.findByRole('tooltip');
+      expect(breachSentence(tooltip)).toBe(lead);
+      // A screen reader reads the tooltip as the chip's description. The chip is still no
+      // button: there is nothing to open.
+      expect(chip).toHaveAccessibleDescription(tooltip.textContent ?? '');
+      expect(screen.queryByRole('button')).not.toBeInTheDocument();
+
+      await user.tab();
+      expect(chip).not.toHaveFocus();
+      expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+    },
+  );
+
+  // ENG-10: the sentence gave the value as served, without its unit ("18.57" beside a chip
+  // reading 18.6x). It now writes the value as the chip and the metric list round it, and
+  // the limit exactly as configured, both in the metric's unit.
+  it.each(UNIT_CASES)(
+    '$label in $unit: "$says"',
+    async ({ unit, label, direction, value, limit, says }) => {
+      const breached = metric({ label, unit, direction, value, warn_value: limit, error_value: null, verdict: 'warn' });
+      render(<SampleQcCell familyId="pacbio" member={judged(evaluation('warn', [breached]))} />);
+
+      await userEvent.hover(screen.getByRole('button'));
+      expect(breachSentence(await screen.findByRole('tooltip'))).toBe(`Warning: ${label} ${says}`);
+    },
+  );
 });
