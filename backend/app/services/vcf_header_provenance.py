@@ -24,6 +24,13 @@ Design notes
 * The variant caller is additionally tagged with the modality it came from
   (``detail="snv caller"``) so the same family can record an SNV caller and an
   SV caller side by side.
+* A version is read only where a header states one: a version line
+  (``##<tool>Version=…``, the ``Version`` field of a structured value, the
+  ``##VEP=`` line) or a version-shaped token (``##source=Sniffles2_2.2``). A
+  command line (``##<tool>Command=…``, ``##<tool>Cmd=…``) names the program and
+  its arguments, so it records the tool without a version and never stands in
+  for the version line before or after it. The manifest is frozen into every
+  sign-out, so a word that is not a version must never be recorded as one.
 * Raw captured lines are kept (truncated) under ``raw`` while a header is read, but
   ``as_modules`` stores neither them nor ``fileformat`` and ``file_date``: what reaches the
   manifest is the per-tool versions and details.
@@ -119,6 +126,18 @@ _VEP_DB_KEYS: dict[str, str] = {
 
 # Tokens that mark a generic ``##key=…`` line as version/provenance-bearing.
 _VERSION_TOKEN = re.compile(r"(?i)(version|_v$|cmd|command|commandline|pipeline)")
+# A tool's version line (``##bcftools_normVersion``, ``##trgtVersion``,
+# ``##DeepVariant_version``) or command line (``##bcftools_normCommand``,
+# ``##trgtCommand``, ``##SnpSiftCmd``), matched on the lower-cased key: the tool, and
+# which of the two lines it is.
+_TOOL_LINE = re.compile(r"^([a-z][a-z0-9]*)(?:[_-][a-z0-9]+)*?[_-]?(version|cmd|command)$")
+# A version-shaped word: a digit first, or a ``v`` and then a digit — ``1.21``,
+# ``v4.6.1.0``, ``5.1d``, ``1.21+htslib-1.21``, ``0.7.0-a1b2c3d``. A program, a
+# subcommand or a tool's name (``view``, ``trgt``, ``SnpSift``) never is one.
+_VERSION_SHAPED = re.compile(r"(?i)^v?\d[\w.+-]*$")
+# The fields of a structured value, ``<ID=dragen,Version="SW: …, HW: …">``: each field
+# starts after the ``<`` or a comma, and a quoted value may hold commas.
+_STRUCTURED_FIELD = re.compile(r'[<,]\s*([A-Za-z0-9_.:-]+)=("(?:[^"\\]|\\.)*"|[^,>]*)')
 # A trailing version embedded in a "source"/name token, e.g. ``Sniffles2_2.2`` or
 # ``DeepVariant-1.6.0`` or ``TRGT v0.7.0``.
 _NAME_VERSION = re.compile(r"(?i)^(?P<name>[a-z][a-z0-9]*?)[ _v-]*v?(?P<version>\d[\w.+-]*)$")
@@ -246,15 +265,51 @@ def _parse_source(value: str, prov: HeaderProvenance) -> None:
             prov.caller = {"name": key, "version": version or ""}
 
 
+def _stated_version(tool: str, value: str) -> str | None:
+    """The version a ``##<tool>Version=…`` line states, or None when it states none.
+
+    * A structured value states it in its ``Version`` field:
+      ``<ID=dragen,Version="SW: 07.021.624.3.10.4, HW: 07.021.624">``.
+    * Otherwise it is the value's first version-shaped word: ``1.21+htslib-1.21``, and
+      ``5.1d`` both from snpEff's ``"5.1d (build …), by …"`` and from SnpSift's
+      ``"SnpSift 5.1d (build …), by …"``, which names the tool first.
+    * A value without a version-shaped word is a version only when it is a single word
+      with a digit that is not the tool's own name: a release tag or a commit, such as
+      ``r2.1.1``.
+    """
+    text = _clean(value)
+    if text.startswith("<"):
+        for field_match in _STRUCTURED_FIELD.finditer(text):
+            if field_match.group(1).lower() == "version":
+                return _clean(field_match.group(2)) or None
+        return None
+    words = [word.strip("\"'").rstrip(",;") for word in text.split()]
+    for word in words:
+        if _VERSION_SHAPED.match(word):
+            return word
+    if (
+        len(words) == 1
+        and any(char.isdigit() for char in words[0])
+        and _canonical_key(words[0]) != _canonical_key(tool)
+    ):
+        return words[0]
+    return None
+
+
 def _parse_generic(key: str, value: str, prov: HeaderProvenance) -> None:
-    """Catch-all for ``##<tool>Version=…`` / ``##<tool>_version=…`` / command lines."""
+    """Catch-all for ``##<tool>Version=…`` / ``##<tool>_version=…`` / command lines.
+
+    Only the version line gives the tool's version. A command line
+    (``##bcftools_viewCommand=view …``, ``##SnpSiftCmd="SnpSift annotate …"``,
+    ``##trgtCommand=trgt genotype …``) starts with the program or subcommand, not a
+    version: it records only that the tool ran, so the version line, before it or after
+    it, gives the version.
+    """
     low = key.lower()
-    # e.g. bcftools_normVersion, trgtVersion, DeepVariant_version, SnpEffVersion
-    m = re.match(r"^([a-z][a-z0-9]*)(?:[_-][a-z0-9]+)*?[_-]?(?:version|cmd|command)$", low)
+    m = _TOOL_LINE.match(low)
     if m:
-        tool = m.group(1)
-        # value may be "1.17+htslib-1.17" or '5.1d (build …)'
-        version = value.split()[0] if value else ""
+        tool, line_kind = m.group(1), m.group(2)
+        version = _stated_version(tool, value) if line_kind == "version" else None
         _set_module(prov.modules, tool, version=version, overwrite=False)
         return
     if low in {"source", "fileformat", "filedate", "reference"}:
@@ -300,7 +355,7 @@ def extract_header_provenance(
             elif low.startswith("gatkcommandline"):
                 _parse_gatk_line(value, prov)
             elif low == "snpeffversion":
-                _set_module(prov.modules, "snpeff", version=value.split()[0] if value else "")
+                _set_module(prov.modules, "snpeff", version=_stated_version("snpeff", value))
             elif low == "snpeffcmd":
                 # genome db, e.g. SnpEff GRCh38.105
                 gm = re.search(r"GRCh\d+\.\d+|GRCm\d+\.\d+", value)
