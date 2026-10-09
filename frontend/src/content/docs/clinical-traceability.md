@@ -227,6 +227,12 @@ A reference module CoGA starts recording after a version was signed is not in th
 version says so (*… (signed before CoGA recorded its version)*), and that alone does not count as a
 change.
 
+A part CoGA now computes differently does count. The Sample QC now counts a check that could not run
+as a warning and names each sample whose sex could not be checked, so for a family with such a check
+the page says the *sample-integrity QC* changed since a version signed before: that version holds no
+such note, and *Pass* where the other checks passed. The signed version still shows what was signed.
+Sign out again to record the new verdict.
+
 **When part of the report cannot be loaded.** The page never shows a part it could not load as empty.
 If a signed version cannot be loaded, the page shows only *Signed version N could not be loaded*, with
 **Retry**. If the family or a list of reported variants cannot be loaded, the live report shows only

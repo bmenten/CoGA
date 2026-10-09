@@ -13,8 +13,10 @@ The page first works out what kind of case it is and runs only the checks that f
 
 ### Reading the page
 
+- **Overall verdict** — the worst of the checks. A check that could not run counts as a warning, never as
+  a pass, and a note names each sample whose sex could not be checked.
 - **Pedigree** — each person's symbol carries a ring and a badge: green ✓ pass, amber ! warning, red ✕
-  fail. Hover a symbol for the reason.
+  fail. A check that could not run counts as a warning here too. Hover a symbol for the reason.
 - **Per-sample table** — recorded sex against genetic sex, and the Mendelian-error rate. The genetic sex
   carries green ✓ when it matches the record, red ✗ when it does not, amber ! when it could not be
   confirmed and grey ? when it was not checked. Hover a cell for the reason.
@@ -24,8 +26,8 @@ The page first works out what kind of case it is and runs only the checks that f
 
 > **What to do with a warning or a fail.** A fail points to a real problem: re-check the sample sheet,
 > the pedigree and the genotypes before you interpret. A warning usually means too little data to decide
-> (few informative sites, a low fetal fraction); it weakens the analysis but does not invalidate it. A
-> fail, or a check of the pedigree or of a sample's identity that could not run (a NIPT parent's sex,
-> for example), also stops sign-out until someone records a reason.
+> (few informative sites, a low fetal fraction, a check that could not run); it weakens the analysis but
+> does not invalidate it. A fail, or a check of the pedigree or of a sample's identity that could not run
+> (a NIPT parent's sex, for example), also stops sign-out until someone records a reason.
 
 [Sample-integrity QC reference (checks, thresholds)](/docs/reference/sample-qc "further-reading")

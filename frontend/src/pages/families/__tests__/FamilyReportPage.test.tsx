@@ -1037,6 +1037,40 @@ describe('FamilyReportPage', () => {
       ).toBeInTheDocument();
     });
 
+    it('shows the Sample QC verdict as signed, before and after a check not run counted as a warning', async () => {
+      const noChrX = 'No chrX genotypes available for sex inference.';
+      const note =
+        'Sex could not be checked for sample PROBAND. A check that could not run counts as a warning, not a pass.';
+      const signedQc = (overall: string, notes: string[]) => ({
+        ...SIGNED_SNAPSHOT,
+        sample_qc: {
+          ...SIGNED_SNAPSHOT.sample_qc,
+          overall_status: overall,
+          sex_checks: [{ sample_id: 'PROBAND', status: 'skip', message: noChrX }],
+          notes,
+        },
+      });
+      const checksAtSignOut = async () =>
+        (await screen.findByRole('heading', { name: 'Checks at sign-out' })).closest('section')!;
+
+      // Signed before: the record froze a pass beside the check that did not run. The page
+      // shows that verdict as the record holds it, never one re-derived from the checks.
+      mockSignedCase({ snapshot: signedQc('pass', []) });
+      const { unmount } = renderPage();
+      const before = await checksAtSignOut();
+      expect(before).toHaveTextContent('Overall: Pass (Trio WGS).');
+      expect(before).toHaveTextContent(`Sex of PROBAND: Not run — ${noChrX}`);
+      unmount();
+
+      // Signed since: a warning, with the note naming the sample.
+      mockSignedCase({ versions: [{ ...SIGNED_ENTRY, qc_status: 'warn' }], snapshot: signedQc('warn', [note]) });
+      renderPage();
+      const after = await checksAtSignOut();
+      expect(after).toHaveTextContent('Overall: Warning (Trio WGS).');
+      expect(after).toHaveTextContent(`Sex of PROBAND: Not run — ${noChrX}`);
+      expect(within(after).getByText(note)).toBeInTheDocument();
+    });
+
     it('says what a record that does not hold a section lacks', async () => {
       const older = {
         family_id: 'F1',

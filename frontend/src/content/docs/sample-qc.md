@@ -47,7 +47,9 @@ sites, so a signed report holds the result the page showed.
 ## The checks
 
 Each check returns **pass**, **warn**, **fail** or **not run**, and the page rolls the worst of them up
-into the overall verdict.
+into the overall verdict. A check that did not run confirmed nothing, so it counts as a **warn** there:
+the page never reads *All sample-integrity checks passed* beside it, and a note names each sample whose
+sex could not be checked. The overall verdict is **not run** only when no check could run at all.
 
 ### Sex
 
@@ -60,7 +62,8 @@ heterozygotes, a woman many.
   no-call or a half call (`./1`) is left out.
 - A recorded sex that differs from the genetic sex is a **fail** — most often a sample swap or a
   mislabelled tube. No recorded sex is a **warn**.
-- A sample with no X genotypes at all is **not run**: its sex is indeterminate.
+- A sample with no X genotypes at all is **not run**: its sex is indeterminate, and the overall verdict
+  is at least **warn**.
 
 ### Relatedness against the pedigree
 
@@ -160,8 +163,8 @@ DNA, so it should read female. Because it is a mixture, this catches a gross pro
 woman) but can end up indeterminate on sparse data.
 
 No relatedness check covers either sample, so a parent whose sex is indeterminate stops sign-out until
-someone records a reason. If their genotypes cannot be loaded, both parents read indeterminate and the
-page notes that the parents' sex could not be checked.
+someone records a reason. If their genotypes cannot be loaded, both parents read indeterminate (**not
+run**), and the page notes that the parents' sex could not be checked and names them.
 
 ### cfDNA category check
 
@@ -187,12 +190,15 @@ A sanity check on the shape of the category counts:
 | Warn | dashed, amber | ! |
 | Fail | thick, solid, red | ✕ |
 
-A person without a ring was not assessed. Line and badge tell the verdicts apart as well as colour. The
+The ring is the worst of the person's checks, a check that did not run counting as a warning: a parent
+whose relatedness passed but whose sex could not be checked gets the amber ring, not the green one. A
+person without a ring was not assessed. Line and badge tell the verdicts apart as well as colour. The
 symbol keeps its clinical meaning (black for affected, the carrier half-fill in its carrier colour).
 Hover a symbol for the reason.
 
 **Per-sample table.** Recorded sex against genetic sex, and the Mendelian-error rate, coloured by
-status. Hover a cell for the explanation. The genetic sex carries a mark for its verdict:
+status, and in the last column the person's verdict, rolled up as the ring is. Hover a cell for the
+explanation. The genetic sex carries a mark for its verdict:
 
 | Verdict | Mark | Meaning |
 | --- | --- | --- |
@@ -218,7 +224,9 @@ cards, and the parent-sex rows appear in the per-sample table.
   until someone acknowledges it with a reason (see the
   [traceability reference](/docs/reference/clinical-traceability)).
 - **Missing data gives a warning, not an error.** If the genotypes or the cfDNA analysis cannot be
-  loaded, the page says so and shows what it could compute.
+  loaded, the page says so and shows what it could compute. A check that did not run makes the overall
+  verdict a warning, which the signed report records; it stops sign-out only in the cases of the point
+  above.
 - **A screening check, not an identity test.** Relatedness and Mendelian errors use a sample of up to
   90,000 sites from all autosomes, and sex up to 20,000 X sites (see *Which sites are read*). A call set
   that covers only part of the genome (a few chromosomes or a region) cannot give a genome-wide sample;

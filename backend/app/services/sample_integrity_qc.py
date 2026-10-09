@@ -241,6 +241,33 @@ def _worst(statuses: list[Status]) -> Status:
     return worst
 
 
+def _overall_status(statuses: list[Status]) -> Status:
+    """The Sample QC verdict: the worst of its checks, where a check that could not run
+    ("skip") counts as a warning.
+
+    A check that could not run confirmed nothing. Ranked below a pass, a sex check without
+    chrX genotypes beside passing checks read "all checks passed", and that pass was frozen
+    into the signed report. With no check at all, nothing ran: "skip".
+    """
+    if not statuses:
+        return "skip"
+    return _worst(["warn" if status == "skip" else status for status in statuses])
+
+
+def _join_names(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else f"{', '.join(names[:-1])} and {names[-1]}"
+
+
+def _unchecked_sex_note(sample_ids: list[str]) -> str:
+    """The fixed note naming the samples whose sex check could not run. Like every note,
+    it is frozen into the signed report, so it holds the sample IDs and nothing else."""
+    noun = "sample" if len(sample_ids) == 1 else "samples"
+    return (
+        f"Sex could not be checked for {noun} {_join_names(sample_ids)}. "
+        "A check that could not run counts as a warning, not a pass."
+    )
+
+
 def _is_het(gt: Genotype) -> bool:
     return gt[0] != gt[1]
 
@@ -742,7 +769,8 @@ def evaluate_sample_integrity(
     extra_sex_checks: list[SexCheck] | None = None,
     extra_notes: list[str] | None = None,
 ) -> SampleIntegrityReport:
-    """Run the checks the application profile enables and roll up an overall status."""
+    """Run the checks the application profile enables and roll up an overall status, in
+    which a check that could not run counts as a warning (``_overall_status``)."""
     samples = sorted(autosomal)
     notes: list[str] = list(extra_notes or [])
 
@@ -818,6 +846,11 @@ def evaluate_sample_integrity(
                 f"Only {autosomal_sites} autosomal sites were available; "
                 "relatedness estimates may be unreliable."
             )
+    # A sex check that could not run makes the overall a warning (below); the note says
+    # whose sex was not checked, on the page and in the signed report.
+    unchecked_sex = list(dict.fromkeys(c.sample_id for c in sex_checks if c.status == "skip"))
+    if unchecked_sex:
+        notes.append(_unchecked_sex_note(unchecked_sex))
 
     all_statuses = (
         [c.status for c in sex_checks]
@@ -830,7 +863,7 @@ def evaluate_sample_integrity(
         # visible warning rather than a silent skip.
         + (["warn"] if extra_notes else [])
     )
-    overall = _worst(all_statuses) if all_statuses else "skip"
+    overall = _overall_status(all_statuses)
 
     return SampleIntegrityReport(
         overall_status=overall,
