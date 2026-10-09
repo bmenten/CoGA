@@ -43,7 +43,7 @@ from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import record_raw_import_file
 
-from .family_package_common import FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, _display_path, _issue, _metadata_dict, _resolve_package_path
 from .family_package_manifest import _manifest_carrier_types, _manifest_member_status_overrides, _manifest_pgt_metadata, _manifest_relationships, _manifest_roi_value, _normalize_manifest_samples, _ped_carrier_type, _ped_is_carrier, _ped_members_for_import
 
 
@@ -145,54 +145,48 @@ def _sample_provenance(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]
     return sample_payloads
 
 
-_PROVENANCE_PATH_KEYS = {
-    "bins",
-    "segments",
-    "file",
-    "index",
-    "bcf_index",
-    "json",
-    "bed",
-    "vcf",
-    "family_vcf",
-    "annotation_tsv",
-    "maternal",
-    "paternal",
-    "mat",
-    "pat",
-    # Long-read roles. Without these the files validate and import but leave no
-    # raw-file provenance row, so the traceability record would not name the CNV
-    # callset, the mitochondrial annotation, the alignment or the QC report a
-    # released interpretation rests on.
-    "bam",
-    "sv_vcf",
-    "sv_index",
-    "sv_annotation_tsv",
-    "copy_number_bedgraph",
-    "depth_bigwig",
-    "maf_bigwig",
-    "summary_html",
-    "report",
-    "read_stats",
-    "depth_summary",
-    "depth_regions",
-    "depth_global_dist",
-    "params",
-    "versions",
-    "execution_trace",
-    "execution_report",
-    # PGT pipeline (nf-cmgg/copgtm) roles: the per-sample QC files, the family's QC
-    # tables, and its reading of the affected haplotype.
-    "qualimap_summary",
-    "mean_coverage",
-    "sex_check",
-    "ado_adi",
-    "concordance",
-    "imputed_concordance",
-    "kinship",
-    "haplotype_origin",
-    "haplotype_conclusion",
-}
+# The keys under which a dataset of the manifest names a package file, per sample or at
+# the dataset's top level: each file named under one gets its raw_import_files row and is
+# listed in its sample's package record. A key validation checks a file under that this set
+# lacks lets the file validate and import with neither, and the traceability record would
+# not name a file a released interpretation rests on; test_family_package_raw_files.py
+# explores every key validation reads as a file. The role lists are the ones discovery,
+# validation and the importers use.
+_PROVENANCE_PATH_KEYS = frozenset(
+    {
+        # ManifestDataset's own file fields (``json`` is its ``json_path``), which the
+        # per-sample entries use too.
+        "family_vcf",
+        "annotation_tsv",
+        "index",
+        "bed",
+        "vcf",
+        "file",
+        "json",
+        # The copy-number callers' bins and segments, and a GLIMPSE2 BCF's index.
+        "bins",
+        "segments",
+        "bcf_index",
+        # A capture panel's per-target coverage table (monogenic NIPT), which gives the
+        # NIPT analysis its depths.
+        "target_table",
+        # Each parent's PCF segment table, under any of its names.
+        *(key for keys in PCF_ROLE_KEYS.values() for key in keys),
+        # The Paraphase BAM Discover lists beside the JSON.
+        "bam",
+        # The long-read datasets' files, and each sample's QC files of either pipeline.
+        *(role for required, optional in LONG_READ_DATASET_ROLES.values() for role in (*required, *optional)),
+        # The PGT pipeline's (nf-cmgg/copgtm) family files: its QC tables and its reading
+        # of the affected haplotype.
+        *QC_FAMILY_ROLES,
+        *HAPLOTYPE_ORIGIN_ROLES,
+        # The Nextflow run record.
+        "params",
+        "versions",
+        "execution_trace",
+        "execution_report",
+    }
+)
 
 
 def _dataset_top_level_files(dataset: ManifestDataset) -> dict[str, str]:
