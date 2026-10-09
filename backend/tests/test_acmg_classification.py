@@ -116,6 +116,91 @@ def test_normalize_rejects_invalid_strength() -> None:
     assert exc.value.status_code == 400
 
 
+# --- each criterion once, at a strength it takes (CLIN-3) ------------------------------------
+# The dialog holds one selection per criterion and offers each criterion only its
+# `allowedStrengths` (frontend/src/lib/acmg/criteria.ts). Another payload is refused, so a
+# client calling the API cannot count PVS1 twice or apply BS1 at very strong.
+
+
+def test_normalize_refuses_a_repeated_criterion() -> None:
+    # Counted twice, PVS1 alone would score +16: Pathogenic.
+    with pytest.raises(HTTPException) as refused:
+        _normalize_acmg_payload(
+            AcmgClassificationPayload(criteria=[crit("PVS1", "very_strong"), crit("PVS1", "very_strong")])
+        )
+    assert refused.value.status_code == 400
+    assert refused.value.detail == "Repeated ACMG criterion: PVS1"
+
+
+@pytest.mark.parametrize(
+    "criteria",
+    [
+        # The same code once its case and spacing are normalised.
+        [crit("PM2", "supporting"), crit(" pm2 ", "supporting")],
+        # Once accepted and once not: the record would hold PVS1 both applied and rejected.
+        [crit("PVS1", "very_strong"), crit("PS3", "strong"), crit("PVS1", "strong", accepted=False)],
+    ],
+)
+def test_normalize_refuses_a_criterion_listed_twice_in_any_form(criteria) -> None:
+    with pytest.raises(HTTPException) as refused:
+        _normalize_acmg_payload(AcmgClassificationPayload(criteria=criteria))
+    assert refused.value.status_code == 400
+    assert refused.value.detail.startswith("Repeated ACMG criterion: ")
+
+
+@pytest.mark.parametrize(
+    ("code", "strength"),
+    [
+        ("BS1", "very_strong"),  # −8 on its own: Benign
+        ("PM2", "very_strong"),  # +8 on its own: Likely pathogenic
+        ("PVS1", "stand_alone"),  # applied, yet 0 points
+        ("BA1", "strong"),  # BA1 is stand-alone only
+        ("BS1", "stand_alone"),  # and stand-alone is BA1's alone
+        ("BP7", "strong"),
+    ],
+)
+def test_normalize_refuses_a_strength_the_criterion_does_not_take(code: str, strength: str) -> None:
+    with pytest.raises(HTTPException) as refused:
+        _normalize_acmg_payload(AcmgClassificationPayload(criteria=[crit(code, strength)]))
+    assert refused.value.status_code == 400
+    assert refused.value.detail == f"Invalid ACMG strength for {code}: {strength}"
+
+
+def test_an_unaccepted_criterion_must_take_its_strength_too() -> None:
+    # It scores nothing, but it is stored with the classification and shown again.
+    with pytest.raises(HTTPException) as refused:
+        _normalize_acmg_payload(
+            AcmgClassificationPayload(criteria=[crit("PS3", "strong"), crit("BS1", "very_strong", accepted=False)])
+        )
+    assert refused.value.status_code == 400
+
+
+def test_a_stored_classification_the_save_rules_refuse_is_still_served() -> None:
+    # Only a save is checked: a record written before CLIN-3, with a repeated criterion and a
+    # strength the criterion does not take, is read back as it was written.
+    from backend.app.services.small_variant_review_pg import _serialize_review
+
+    written_before = {
+        "criteria": [
+            {"code": "PVS1", "strength": "very_strong", "accepted": True},
+            {"code": "PVS1", "strength": "very_strong", "accepted": True},
+            {"code": "BS1", "strength": "very_strong", "accepted": False},
+        ],
+        "point_total": 16,
+        "classification": "Pathogenic - class 5",
+    }
+    review = _serialize_review(
+        {"variant_id": "1-2000-C-T", "classification": "acmg_class_5", "acmg": json.dumps(written_before)}
+    )
+    assert review.acmg is not None and review.acmg_unreadable is False
+    assert [(c.code, c.strength) for c in review.acmg.criteria] == [
+        ("PVS1", "very_strong"),
+        ("PVS1", "very_strong"),
+        ("BS1", "very_strong"),
+    ]
+    assert review.acmg.point_total == 16
+
+
 def test_blob_round_trips_through_storage_helpers() -> None:
     payload = AcmgClassificationPayload(criteria=[crit("PVS1", "very_strong")])
     blob, _, _ = _normalize_acmg_payload(payload)

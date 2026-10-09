@@ -66,6 +66,45 @@ CRITERION_DIRECTION.update(
 VALID_CODES = frozenset(CRITERION_DIRECTION)
 VALID_STRENGTHS = frozenset(STRENGTH_POINTS)
 
+# The strengths each criterion may be applied at: the ones the classification dialog offers,
+# mirrored from ``allowedStrengths`` in frontend/src/lib/acmg/criteria.ts
+# (backend/tests/test_acmg_frontend_parity.py fails when the two differ). A save that applies
+# a criterion at any other strength is refused: BS1 at very strong would score -8, PM2 at
+# very strong +8, and PVS1 at stand-alone nothing. Stand-alone is BA1's alone.
+_PATHOGENIC_STRENGTHS = frozenset({"very_strong", "strong", "moderate", "supporting"})
+_BENIGN_STRENGTHS = frozenset({"strong", "moderate", "supporting"})
+_SUPPORTING_OR_MODERATE = frozenset({"supporting", "moderate"})
+ALLOWED_STRENGTHS: dict[str, frozenset[str]] = {
+    "PVS1": _PATHOGENIC_STRENGTHS,
+    "PS1": _PATHOGENIC_STRENGTHS,
+    "PS2": _PATHOGENIC_STRENGTHS,
+    "PS3": _PATHOGENIC_STRENGTHS,
+    "PS4": _PATHOGENIC_STRENGTHS,
+    "PM1": _PATHOGENIC_STRENGTHS,
+    "PM2": frozenset({"moderate", "supporting"}),
+    "PM3": _PATHOGENIC_STRENGTHS,
+    "PM4": _PATHOGENIC_STRENGTHS,
+    "PM5": _PATHOGENIC_STRENGTHS,
+    "PM6": _PATHOGENIC_STRENGTHS,
+    "PP1": _PATHOGENIC_STRENGTHS,
+    "PP2": _PATHOGENIC_STRENGTHS,
+    "PP3": _PATHOGENIC_STRENGTHS,
+    "PP4": _PATHOGENIC_STRENGTHS,
+    "PP5": _PATHOGENIC_STRENGTHS,
+    "BA1": frozenset({"stand_alone"}),
+    "BS1": _BENIGN_STRENGTHS,
+    "BS2": _BENIGN_STRENGTHS,
+    "BS3": _BENIGN_STRENGTHS,
+    "BS4": _BENIGN_STRENGTHS,
+    "BP1": _SUPPORTING_OR_MODERATE,
+    "BP2": _SUPPORTING_OR_MODERATE,
+    "BP3": _SUPPORTING_OR_MODERATE,
+    "BP4": frozenset({"supporting", "moderate", "strong"}),
+    "BP5": _SUPPORTING_OR_MODERATE,
+    "BP6": _SUPPORTING_OR_MODERATE,
+    "BP7": _SUPPORTING_OR_MODERATE,
+}
+
 # Display labels matching the frontend ACMG_CLASS_LABELS / ACMG_CLASSIFICATION_TAGS.
 CLASS_LABELS: dict[str, str] = {
     "acmg_class_5": "Pathogenic - class 5",
@@ -78,6 +117,11 @@ CLASS_LABELS: dict[str, str] = {
 
 def is_valid_code(code: str) -> bool:
     return code in VALID_CODES
+
+
+def is_allowed_strength(code: str, strength: str) -> bool:
+    """Whether ``code`` may be applied at ``strength``: one the dialog offers for it."""
+    return strength in ALLOWED_STRENGTHS.get(code, frozenset())
 
 
 def selection_points(code: str, strength: str) -> int:
@@ -118,7 +162,9 @@ def compute_classification(
 ) -> tuple[int, str, str]:
     """Return (point_total, class_key, class_label) from accepted criteria.
 
-    Each item is a mapping with at least ``code``, ``strength`` and ``accepted``.
+    Each item is a mapping with at least ``code``, ``strength`` and ``accepted``. Every item
+    counts, so the caller passes each criterion once, at a strength it takes (a save is
+    checked so in ``small_variant_review_acmg._normalize_acmg_payload``).
     An accepted BA1 forces the Benign class regardless of the point total.
     """
 

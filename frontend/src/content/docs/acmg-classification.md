@@ -38,6 +38,18 @@ cell of the current total.
 **BA1 overrides the points.** An accepted BA1 (allele frequency 5% or more) makes the variant Benign,
 whatever the other criteria say.
 
+**Each criterion counts once, at a strength it allows.** The dialog offers each criterion only these
+strengths. The server checks the same when you save, and refuses a classification that lists a
+criterion twice or gives it another strength.
+
+| Criteria | Strengths |
+| --- | --- |
+| PVS1, PS1–PS4, PM1, PM3–PM6, PP1–PP5 | Very strong, Strong, Moderate, Supporting |
+| PM2 | Moderate, Supporting |
+| BA1 | Stand-alone |
+| BS1–BS4, BP4 | Strong, Moderate, Supporting |
+| BP1–BP3, BP5–BP7 | Moderate, Supporting |
+
 When you save, CoGA writes the class to the variant as its classification and as the matching review
 tag. It also stores every criterion with its strength and your note, for the audit trail (see the
 [traceability reference](/docs/reference/clinical-traceability)). If you accept no criterion, no class
@@ -259,8 +271,9 @@ ACMG technical standard for copy-number variants (Riggs et al. 2020). Choose **C
 **Copy-number gain** at the top: the two have different criteria and point values. CoGA picks gain for a
 duplication or insertion and loss otherwise.
 
-Each criterion carries a point value, some with a range you can adjust. The server keeps each value
-within its allowed range and recomputes the total when you save. Saving also freezes the evidence the
+Each criterion carries a point value, some with a range you can adjust, and counts once. The server
+keeps each value within its allowed range, refuses a classification that lists a criterion twice, and
+recomputes the total when you save. Saving also freezes the evidence the
 pre-selection reads, so the report can tell when it changes (see the
 [traceability reference](/docs/reference/clinical-traceability)).
 

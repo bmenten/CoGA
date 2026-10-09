@@ -20,27 +20,37 @@ the code. This note covers the implementation.
 | --- | --- |
 | Small-variant engine (pure, unit-tested) | `frontend/src/lib/acmg/` — `criteria.ts` (criterion catalogue), `evaluate.ts` (nuclear pre-evaluation), `evaluateMito.ts` (mtDNA rules), `pedigree.ts` (the proband's parents from the pedigree links), `score.ts` (points, class, VUS tier), `index.ts` (initial selections); `frontend/src/lib/clinvar.ts` (the ClinVar reading for PP5 / BP6) |
 | Small-variant dialog | `frontend/src/pages/families/AcmgClassificationModal.tsx`, `AcmgScaleBar.tsx` |
-| Small-variant server scoring | `backend/app/services/acmg_points.py` (codes, strengths, class bands, `vus_tier_for_points`), `small_variant_review_acmg.py` (payload normalisation, evidence snapshot) |
+| Small-variant server scoring | `backend/app/services/acmg_points.py` (codes, strengths, the strengths each criterion takes, class bands, `vus_tier_for_points`), `small_variant_review_acmg.py` (payload normalisation, evidence snapshot) |
 | CNV engine | `frontend/src/lib/cnvAcmg/` (criteria for loss and gain, auto-suggestions, scorer) |
 | CNV dialog | `frontend/src/pages/families/CnvAcmgClassificationModal.tsx`, `CnvScaleBar.tsx` |
 | CNV server scoring | `backend/app/services/cnv_acmg_points.py` (criterion catalogues with allowed point ranges, clamping, class bands), `structural_variant_review_pg.py` |
 
 The frontend and backend scorers must agree. Each side has its own tests (listed in
-[testing.md](testing.md)); change both together.
+[testing.md](testing.md)); change both together. The criterion tables exist twice: the
+codes, directions, points and `allowedStrengths` of `lib/acmg/criteria.ts` are mirrored in
+`acmg_points.py` (`CRITERION_DIRECTION`, `STRENGTH_POINTS`, `ALLOWED_STRENGTHS`), and the
+loss and gain catalogues of `lib/cnvAcmg/criteria.ts` in `cnv_acmg_points.py`.
+`backend/tests/test_acmg_frontend_parity.py` reads the two TypeScript files and fails when a
+table differs.
 
 ## Persistence
 
 - Small variants: `small_variant_reviews.acmg` (JSONB, the per-criterion record), `acmg_point_total`,
   `acmg_class` and `acmg_evidence_snapshot` (baseline `backend/db/schema/postgres/03_assay.sql`). The
-  save reuses `PUT /families/{family_id}/small-variants/{variant_id}/review`. The server validates the
-  criterion codes and strengths, recomputes the points and class, stores the VUS tier in the JSON
-  record, and freezes the evidence snapshot (`build_evidence_snapshot`) that the report's drift check
-  compares against later.
+  save reuses `PUT /families/{family_id}/small-variants/{variant_id}/review`. The server refuses
+  (`400`) an unknown criterion or strength, a criterion listed twice (every entry is scored, so PVS1
+  sent twice would score +16) and a strength the criterion does not take (`ALLOWED_STRENGTHS`, the
+  dialog's `allowedStrengths`: BS1 at very strong would score −8). It then recomputes the points and
+  class, stores the VUS tier in the JSON record, and freezes the evidence snapshot
+  (`build_evidence_snapshot`) that the report's drift check compares against later.
 - CNVs: `structural_variant_reviews.cnv_acmg` (JSONB), `cnv_point_total`, `cnv_class` and
-  `cnv_evidence_snapshot`. The server clamps each submitted point value to the criterion's allowed
-  range before summing, and freezes the evidence the classification reads
+  `cnv_evidence_snapshot`. The server refuses a criterion listed twice (`400`; the range caps one
+  entry, and a repeat would count past it), clamps each submitted point value to the criterion's
+  allowed range before summing, and freezes the evidence the classification reads
   (`build_structural_evidence_snapshot` in `backend/app/services/structural_variant_evidence.py`) for
   the same drift check.
+- Only a save is checked. A classification stored before these checks is read and served as it was
+  written, and a save that leaves `acmg` or `cnv_acmg` out keeps it.
 - Every list of small variants serves each review with the columns of a single-review read
   (`_fetch_review_rows_for_variants` in `small_variant_review_repository.py`), the ACMG record
   included. The dialog opened from a list is seeded from that record: without it, a classified variant
