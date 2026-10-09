@@ -1,5 +1,11 @@
 // Static catalog of the 28 ACMG/AMP 2015 criteria plus the strength→points
 // mapping used by the Bayesian points scorer.
+//
+// The server keeps its own copy of the directions, the points and each criterion's
+// allowedStrengths (backend/app/services/acmg_points.py), and refuses a save that
+// applies a criterion at a strength not listed here.
+// backend/tests/test_acmg_frontend_parity.py reads this file and fails when the two
+// differ: change both together.
 
 import type {
   AcmgClassKey,

@@ -83,6 +83,20 @@ def test_an_unknown_criterion_code_is_refused() -> None:
     assert refused.value.status_code == 400
 
 
+def test_a_repeated_criterion_code_is_refused() -> None:
+    # CLIN-3: the dialog holds one entry per criterion, and the range caps that entry. Counted
+    # twice, 2B at its 0.90 maximum would score 1.80: Pathogenic instead of Likely pathogenic.
+    with pytest.raises(HTTPException) as refused:
+        svr._normalize_cnv_acmg_payload(_payload("loss", ("2B", 0.9, True), ("2B", 0.9, True)))
+    assert refused.value.status_code == 400
+    assert refused.value.detail == "Repeated CNV criterion: 2B"
+
+    # Accepted once and not the other time is still the criterion twice.
+    with pytest.raises(HTTPException) as refused:
+        svr._normalize_cnv_acmg_payload(_payload("gain", ("2A", 1.0, True), ("3A", 0.0, True), ("2A", 1.0, False)))
+    assert refused.value.detail == "Repeated CNV criterion: 2A"
+
+
 def test_an_unknown_kind_is_refused_even_past_the_schema() -> None:
     payload = CnvAcmgClassificationPayload.model_construct(
         kind="duplication", criteria=[CnvAcmgCriterion(code="2A", points=1.0, accepted=True)]
@@ -300,6 +314,40 @@ def test_an_unreadable_stored_scoring_survives_a_save_that_leaves_it_out() -> No
 
     assert table.rows["sv1"]["cnv_acmg"] == "{not json"
     assert review.acmg_unreadable is True
+
+
+def test_a_scoring_with_a_repeated_criterion_is_refused_and_writes_nothing() -> None:
+    table = _ReviewTable()
+    scored = _scored(table)
+    audited = len(table.audit)
+    repeated = _payload("loss", ("2B", 0.9, True), ("2B", 0.9, True))
+    with pytest.raises(HTTPException) as refused:
+        _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="scored", cnv_acmg=repeated))
+    assert refused.value.status_code == 400
+    assert table.rows["sv1"] == scored
+    assert len(table.audit) == audited
+
+
+def test_a_stored_scoring_with_a_repeated_criterion_is_still_served_and_kept() -> None:
+    # Only a save that sends a scoring is checked: one written before repeated codes were
+    # refused is read back as stored, and a save that leaves the scoring out keeps it.
+    table = _ReviewTable()
+    _scored(table)
+    written_before = {
+        "kind": "loss",
+        "criteria": [
+            {"code": "2B", "points": 0.9, "accepted": True},
+            {"code": "2B", "points": 0.9, "accepted": True},
+        ],
+        "point_total": 1.8,
+        "classification": "Pathogenic - class 5",
+    }
+    table.rows["sv1"]["cnv_acmg"] = written_before
+    review = _save(table, SmallVariantReviewUpdate(classification="Pathogenic - class 5", note="noted"))
+
+    assert table.rows["sv1"]["cnv_acmg"] == written_before
+    assert review.acmg_unreadable is False and review.cnv_acmg is not None
+    assert [(c.code, c.points) for c in review.cnv_acmg.criteria] == [("2B", 0.9), ("2B", 0.9)]
 
 
 def test_a_save_against_a_changed_review_is_refused_and_writes_nothing() -> None:
