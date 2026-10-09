@@ -18,6 +18,7 @@ import type {
   QcStatus,
 } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import { useFamilyReference } from '../../lib/reference';
 import { parsePedigree } from '../../lib/pedigree';
 
 // A check that could not run makes the overall a warning, so "skip" means no check ran.
@@ -390,6 +391,13 @@ const FamilySampleQcPage: React.FC = () => {
       return res.data as ApiFamilyRecord;
     },
   });
+  // The family's assembly, for the validated-scope warning every family page carries.
+  const {
+    assemblyName,
+    assemblyValidated,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects);
 
   if (!familyId) {
     return <PageState kicker="Sample QC" title="Family not specified" />;
@@ -447,6 +455,12 @@ const FamilySampleQcPage: React.FC = () => {
   return (
     <div className="page-shell space-y-6">
       <FamilyPageHeader
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker={`Sample-integrity QC · ${qc.application_label || qc.application}`}
         familyId={familyId}
         family={family}

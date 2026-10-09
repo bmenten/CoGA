@@ -106,6 +106,18 @@ At sign-out, a reported classification that has no snapshot counts as drift too
   otherwise for each its import job, when it began, its datasets and those it finished;
 - the signer, the time, and any acknowledgement with its reason.
 
+Sign-out exists for the family report only. Its snapshot holds no PGT embryo call (REQ-PGT-005):
+the embryo calls are derived in the browser from the family's haplotype blocks
+(`frontend/src/lib/embryoSegregation.ts`) and shown on the family page, and the family report
+does not include them. It holds no NIPT result either: the monogenic NIPT report page
+(`FamilyNiptReportPage.tsx`) has no sign-out, and the snapshot of a NIPT family holds no
+fetal-fraction estimate and no variant's category, fetal-inheritance probability, de novo
+priority or recessive fetal risk. Of the NIPT analysis it holds only the sample-integrity checks
+in `sample_qc` (`paternity_check`, `fetal_sex_check` from the father's X alleles,
+`category_qc_check`). A NIPT variant whose review is tagged `report` is frozen like any reported
+small variant: with its classification, not with its category or probabilities. What the signed
+record is to hold per application is an open decision (*Known limitations*).
+
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
 An amendment is a new sign-out; no version is ever changed. The sign-out is also written to the
 clinical audit trail. A stored hash is always checked against the snapshot as it was stored, so
@@ -284,4 +296,10 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   reference import records the release its source states in `reference_dataset_imports`,
   but the manifest does not read it; the clinical-CNV knowledgebase states none.
 - Any user who can open the family can sign out; sign-out is not limited to a role.
-- Sign-out exists for the family report only; the monogenic NIPT report page has none.
+- Sign-out exists for the family report only; the monogenic NIPT report page has none. The PGT
+  embryo calls and the NIPT results (the fetal fraction, each variant's category and
+  fetal-inheritance probabilities, the de novo candidates, the recessive fetal risk) are
+  therefore part of no signed record (see *Sign-out*). What each application's signed record is
+  to hold is pending the owner's decision (REG-2 in [open-issues.md](open-issues.md);
+  [TF-02 §6](regulatory/TF-02-device-description.md),
+  [TF-06](regulatory/TF-06-risk-management-plan.md) H5, H6 and H9).
