@@ -30,6 +30,11 @@ startup drops every backup no running import owns (``orphaned_import_backups``).
 backup is of no further use: the family cannot be put back from it, as the Postgres half
 of the snapshot was in the stopped process's memory and other writes of the family may
 have run since; the family stays marked until an import completes it.
+
+An import whose process is alive but whose heartbeat went stale is ended the same way, and
+may reach its restore before its heartbeat stops it, its backups dropped. A restore
+therefore checks that every backup table it needs exists before its first delete, and
+deletes nothing when one is missing (``FamilyRestoreRefused``).
 """
 
 from __future__ import annotations
@@ -92,6 +97,11 @@ class FamilyClickHouseSnapshot:
     specs: list[tuple[str, str]]
 
 
+class FamilyRestoreRefused(RuntimeError):
+    """A restore that deleted nothing: a backup table it needs is missing, so the family
+    keeps what the import left."""
+
+
 def _snapshot_owner(owner: str | None) -> str:
     """The owner segment of a new backup's name: the import's key, or a random token."""
     token = owner or uuid4().hex
@@ -100,15 +110,22 @@ def _snapshot_owner(owner: str | None) -> str:
     return token
 
 
+def _backup_table_names(assembly_name: str, token: str) -> list[str]:
+    """The names of a snapshot's backup tables, in ``_FAMILY_TABLE_RELS`` order: as
+    ``system.tables`` lists them, without the database."""
+    dataset = _require_clickhouse_identifier(assembly_name)
+    return [f"{dataset}/SNAPSHOT/{token}/{rel}" for rel in _FAMILY_TABLE_RELS]
+
+
 def _snapshot_specs(assembly_name: str, token: str) -> list[tuple[str, str]]:
     database = settings.clickhouse_database
     dataset = _require_clickhouse_identifier(assembly_name)
-    specs: list[tuple[str, str]] = []
-    for rel in _FAMILY_TABLE_RELS:
-        source = f"{database}.`{dataset}/{rel}`"
-        backup = f"{database}.`{dataset}/SNAPSHOT/{token}/{rel}`"
-        specs.append((source, backup))
-    return specs
+    return [
+        (f"{database}.`{dataset}/{rel}`", f"{database}.`{backup}`")
+        for rel, backup in zip(
+            _FAMILY_TABLE_RELS, _backup_table_names(assembly_name, token), strict=True
+        )
+    ]
 
 
 async def snapshot_family_clickhouse_state(
@@ -148,16 +165,45 @@ async def snapshot_family_clickhouse_state(
     return snapshot
 
 
+async def _missing_backup_tables(snapshot: FamilyClickHouseSnapshot) -> list[str]:
+    """The tables of the snapshot's backup that the database does not hold, as
+    ``_FAMILY_TABLE_RELS`` names them; one bound query over ``system.tables``. The
+    snapshot's ``specs`` are made from the same assembly and owner (``_snapshot_specs``)."""
+    names = _backup_table_names(snapshot.assembly_name, snapshot.token)
+    rows = await execute_clickhouse(
+        """
+        SELECT name
+        FROM system.tables
+        WHERE database = %(database)s AND name IN %(names)s
+        """,
+        {"database": settings.clickhouse_database, "names": tuple(names)},
+    )
+    present = {str(row[0]) for row in rows or []}
+    return [rel for rel, name in zip(_FAMILY_TABLE_RELS, names, strict=True) if name not in present]
+
+
 async def restore_family_clickhouse_state(snapshot: FamilyClickHouseSnapshot) -> None:
     """Roll every family-scoped table back to the snapshot.
 
-    For each table: synchronously delete the family's current rows (whatever the
-    failed import wrote) then re-insert the snapshotted rows. The rebuildable
-    small-variant summaries are recomputed from the restored ``entries`` afterwards,
-    which also moves the small-variant data version; the SV data version is moved
-    explicitly, since the restore rewrites the SV tables without the storage helpers.
-    Raises on any failure so the caller can fall back to the incomplete flag.
+    First, before anything is deleted, every backup table must exist: they can be gone
+    when the worker that ended the import's job as interrupted dropped them while the
+    import still ran. If one is missing, nothing is deleted and ``FamilyRestoreRefused``
+    is raised: the family keeps what the import left. Otherwise, for each table:
+    synchronously delete the family's current rows (whatever the failed import wrote)
+    then re-insert the snapshotted rows. The rebuildable small-variant summaries are
+    recomputed from the restored ``entries`` afterwards, which also moves the
+    small-variant data version; the SV data version is moved explicitly, since the
+    restore rewrites the SV tables without the storage helpers. Raises on any failure so
+    the caller can fall back to the incomplete flag; any failure but
+    ``FamilyRestoreRefused`` may come after a delete.
     """
+    missing = await _missing_backup_tables(snapshot)
+    if missing:
+        raise FamilyRestoreRefused(
+            f"The import's backup of the family lacks {len(missing)} of its "
+            f"{len(_FAMILY_TABLE_RELS)} tables ({', '.join(missing)}), so the restore "
+            "deleted nothing."
+        )
     family_guid = snapshot.family_uuid
     for source, backup in snapshot.specs:
         await execute_clickhouse(
