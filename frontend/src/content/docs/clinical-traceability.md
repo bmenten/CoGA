@@ -140,7 +140,9 @@ report, which has no sign-out to stop on it.
 Results on such a family can lack whole datasets, for example all its structural variants. Import
 the datasets that failed again to complete the family: the warning goes once each has been imported
 again, and an import without them leaves it. If a later import fails too, the warning names both,
-each with its import job. Signing out before then needs an acknowledgement with a reason, and the
+each with its import job. A failed overwrite is put back as it was before the import; if that fails
+too, any of its datasets may have lost data, so the warning names every one of them as failed, the
+ones that imported too. Signing out before then needs an acknowledgement with a reason, and the
 signed version records which datasets were missing.
 
 An import also marks the family before it writes anything of it, and removes the mark when it ends.

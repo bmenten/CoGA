@@ -17,7 +17,11 @@ restore had just deleted. Now:
 * a restore checks every backup table before its first delete, and deletes nothing when one
   is missing;
 * after a failed restore the flag names as imported only what the restore provably left
-  alone: all of it when the restore deleted nothing, none when it failed part-way;
+  alone: all of it when the restore deleted nothing, none when it failed in any other way
+  (part-way, say); such a restore may have removed rows of any dataset, so its flag names
+  every dataset of the import as failed, and the family stays flagged until an import has
+  imported each again (SAFE-13; before, it named only the one that had failed, whose import
+  alone cleared the flag);
 * the heartbeat and the stale check use the database's clock, and an update of the job that
   matches no row is said in the log, by the job and the outcome alone.
 
@@ -756,7 +760,7 @@ def _snapshot_postgres(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     return restored
 
 
-async def _overwrite_import(job: _Store) -> Any:
+async def _overwrite_import(job: _Store, job_id: str = JOB) -> Any:
     return await package_import.execute_family_package_import(
         _Session(job),  # type: ignore[arg-type]
         folder_path=job.job["submitted_path"],
@@ -764,8 +768,13 @@ async def _overwrite_import(job: _Store) -> Any:
         dry_run=False,
         user=_admin(),
         conflict_mode="overwrite",
-        job_id=JOB,
+        job_id=job_id,
     )
+
+
+def _reinserts_from_a_backup(sql: str) -> bool:
+    """A restore's re-insert of a live table from its backup."""
+    return sql.startswith("INSERT INTO") and "/SNAPSHOT/" in sql.partition(" FROM ")[2]
 
 
 @pytest.mark.asyncio
@@ -803,21 +812,140 @@ async def test_an_overwrite_whose_backup_is_gone_deletes_nothing_and_its_flag_cl
     assert any("the restore deleted nothing" in line for line in result.logs)
 
 
+REIMPORT_COVERAGE = "00000000-0000-0000-0000-0000000000c1"
+REIMPORT_SNV = "00000000-0000-0000-0000-0000000000c2"
+
+
+class _FlagRead:
+    """The family's ``import_incomplete`` as the sign-out reads it (one scalar)."""
+
+    def __init__(self, flag: Any) -> None:
+        self.flag = flag
+
+    async def execute(self, *_args: Any, **_kwargs: Any) -> Any:
+        return SimpleNamespace(scalar_one_or_none=lambda: copy.deepcopy(self.flag))
+
+
+async def _sign_out_reads(job: _Store) -> dict[str, Any] | None:
+    """The import state a sign-out freezes and gates on (None: the gate is open)."""
+    from backend.app.services import report_signout_service
+
+    return await report_signout_service._import_incomplete_state(
+        _FlagRead(job.incomplete),  # type: ignore[arg-type]
+        FAMILY_UUID,
+    )
+
+
 @pytest.mark.asyncio
-async def test_a_restore_that_fails_part_way_leaves_a_flag_naming_nothing_as_imported(
-    job, clickhouse, monkeypatch
+@pytest.mark.parametrize("failing", ["the ClickHouse restore, part-way", "the Postgres restore"])
+async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
+    job, clickhouse, monkeypatch, failing
 ) -> None:
-    # ClickHouse fails the restore's first re-insert, after its delete of the family's
-    # small variants: the overwrite's snv rows are gone, and so are the ones from before.
-    _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": RuntimeError("bad BED")})
+    # SAFE-13. The overwrite imports snv, registers sv_needlr only (it writes no rows),
+    # fails coverage and imports paraphase after it. Then its restore fails: ClickHouse
+    # fails its first re-insert, after its delete of the family's small variants (the
+    # overwrite's snv rows are gone, and so are the ones from before); or the ClickHouse
+    # restore is done and the Postgres one fails.
+    outcomes = {
+        "snv": _overwrite(clickhouse),
+        "sv_needlr": "registered",
+        "coverage": RuntimeError("bad BED"),
+        "paraphase": "imported",
+    }
+    _datasets(monkeypatch, job, outcomes)
     _snapshot_postgres(monkeypatch)
-    clickhouse.fail = lambda sql: sql.startswith("INSERT INTO") and "/SNAPSHOT/" in sql.split(" FROM ", 1)[1]
+    if failing == "the Postgres restore":
+
+        async def postgres_restore_fails(*_args: Any, **_kwargs: Any) -> None:
+            raise OperationalError("DELETE FROM repeat_expansions", {}, ConnectionResetError())
+
+        monkeypatch.setattr(package_import, "restore_family_postgres_state", postgres_restore_fails)
+    else:
+        clickhouse.fail = _reinserts_from_a_backup
 
     result = await _overwrite_import(job)
 
     assert result.completed is False
+    assert result.error == "Family package import failed for dataset(s): coverage"
+    if failing == "the Postgres restore":
+        assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv before")] * 2
+    else:
+        assert clickhouse.family_rows("SNV_INDEL/entries") == []
+    # Before: the flag named coverage alone as failed, so an import of coverage alone
+    # cleared it. Now every dataset the import set out to import is named as failed, the
+    # ones it imported (before the failure and after it) and the one it only registered
+    # too, each with this import's job and the scope an import of it again must cover;
+    # none is named as imported.
+    every = sorted(outcomes)
+    flag = job.incomplete
+    assert flag is not None
+    assert (flag["failed_datasets"], flag["imported_datasets"]) == (every, [])
+    assert flag["failed_jobs"] == dict.fromkeys(every, JOB)
+    assert sorted(flag["scopes"]) == every
+    # The import's entry made way for the flag, and the sign-out reads every dataset failed.
+    assert job.unfinished == {}
+    state = await _sign_out_reads(job)
+    assert state is not None and state["failed_datasets"] == every
+    (line,) = [line for line in result.logs if "restore also failed" in line]
+    assert "the flag names every one of them as failed" in line
+    assert "coverage, paraphase, snv, sv_needlr" in line
+    assert "again with overwrite" in line
+
+
+@pytest.mark.asyncio
+async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_dataset_is_imported_again(
+    job, clickhouse, monkeypatch
+) -> None:
+    # SAFE-13, the issue's case: the restore removed the family's small variants and
+    # failed, and only coverage, the dataset that had failed, is imported again.
+    _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": RuntimeError("bad BED")})
+    _snapshot_postgres(monkeypatch)
+    clickhouse.fail = _reinserts_from_a_backup
+    await _overwrite_import(job)
     assert clickhouse.family_rows("SNV_INDEL/entries") == []
-    # Before: the flag named snv as imported, its rows deleted by the restore.
     assert job.incomplete is not None
-    assert (job.incomplete["failed_datasets"], job.incomplete["imported_datasets"]) == (["coverage"], [])
-    assert any("names none of them as imported" in line for line in result.logs)
+    clickhouse.fail = lambda _sql: False
+
+    _datasets(monkeypatch, job, {"coverage": "imported"})
+    coverage_again = await _overwrite_import(job, REIMPORT_COVERAGE)
+
+    assert coverage_again.completed is True
+    # Before: that import cleared the flag, and the family signed out without the gate,
+    # its small variants gone. Now snv stays flagged, with the job that flagged it.
+    assert job.incomplete is not None
+    assert job.incomplete["failed_datasets"] == ["snv"]
+    assert job.incomplete["failed_jobs"] == {"snv": JOB}
+    state = await _sign_out_reads(job)
+    assert state is not None and state["failed_datasets"] == ["snv"]
+    assert any(
+        "stays flagged import-incomplete" in line and f"snv in import job {JOB}" in line
+        for line in coverage_again.logs
+    )
+
+    _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse)})
+    snv_again = await _overwrite_import(job, REIMPORT_SNV)
+
+    # The last dataset imported again: the flag goes, and the gate with it.
+    assert snv_again.completed is True
+    assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv overwrite")]
+    assert job.incomplete is None and job.unfinished == {}
+    assert await _sign_out_reads(job) is None
+
+
+@pytest.mark.asyncio
+async def test_a_restore_that_succeeds_still_puts_the_family_back_without_a_flag(
+    job, clickhouse, monkeypatch
+) -> None:
+    # Unchanged: the restore puts the family back as it was before the import, so nothing
+    # is flagged and the import's entry goes.
+    _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": RuntimeError("bad BED")})
+    postgres_restored = _snapshot_postgres(monkeypatch)
+
+    result = await _overwrite_import(job)
+
+    assert result.completed is False
+    assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv before")] * 2
+    assert postgres_restored == ["postgres restored"]
+    assert job.incomplete is None and job.unfinished == {}
+    assert ("ended",) in job.events
+    assert any("atomically restored" in line for line in result.logs)
