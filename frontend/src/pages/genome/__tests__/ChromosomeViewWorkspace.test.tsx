@@ -6,6 +6,11 @@ import { describe, expect, it, vi, type Mock } from 'vitest';
 import ChromosomeViewWorkspace from '../ChromosomeViewWorkspace';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+} from '../../../test/familyPageBanners';
 
 const coverageSegmentsChartMock = vi.hoisted(() => vi.fn());
 
@@ -179,6 +184,27 @@ describe('ChromosomeViewWorkspace', () => {
     });
 
     expect(screen.getByText('No BED data for selected samples.')).toBeInTheDocument();
+  });
+
+  // The view draws the family's data like any family page: a partly imported family, or one
+  // off the validated scope, is said so in its header.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    renderWorkspace(vi.fn(), {
+      assembly: 'GRCh37',
+      assemblyValidated: false,
+      familyMetadata: INCOMPLETE_IMPORT_METADATA,
+    });
+
+    const header = screen.getByRole('heading', { name: 'Chromosome view for family F1' }).closest('.page-top-card');
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
+  });
+
+  it('shows neither warning for a complete family inside the validated scope', () => {
+    renderWorkspace(vi.fn(), { assemblyValidated: true, familyMetadata: {} });
+
+    expect(screen.queryByText('Import incomplete.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not validated for clinical use.')).not.toBeInTheDocument();
   });
 
   it('requests coverage and segments for the active chromosome window', () => {

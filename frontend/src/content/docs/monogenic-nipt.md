@@ -388,6 +388,10 @@ at the top of a printout: how many it lists of how many, where the list stops, a
 counts only the candidates it lists. Narrow the scope with a gene panel or a gene, then open the report
 again.
 
+Its header carries the warnings of every family page when they apply, *Import incomplete* and
+*Not validated for clinical use*, and prints them: the report has no sign-out to stop on a partly
+imported family.
+
 ---
 
 ## Artifact list

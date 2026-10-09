@@ -12,6 +12,7 @@ import GenomeRepeatExpansionTrack from '../../components/visualizations/GenomeRe
 import Ideogram from '../../components/visualizations/Ideogram';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
@@ -55,6 +56,10 @@ interface GenomeOverviewWorkspaceProps {
   speciesName?: string;
   assemblyVersion?: string;
   assembly: string;
+  /** Inside the validated scope; undefined while unknown. */
+  assemblyValidated?: boolean;
+  /** The family record's metadata, where an import records what it left incomplete. */
+  familyMetadata?: unknown;
   projectId?: string;
   trackAreaRef: React.Ref<HTMLElement>;
   backDest: string;
@@ -230,6 +235,8 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   speciesName,
   assemblyVersion,
   assembly,
+  assemblyValidated,
+  familyMetadata,
   projectId,
   trackAreaRef,
   backDest,
@@ -303,6 +310,10 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
             </span>
           </div>
         )}
+        <FamilyPageBanners
+          metadata={familyMetadata}
+          assemblyScope={{ name: assembly, validated: assemblyValidated }}
+        />
       </section>
       <section ref={trackAreaRef} className="surface-card genome-visualization-panel space-y-6">
         <section className="viz-shell">
