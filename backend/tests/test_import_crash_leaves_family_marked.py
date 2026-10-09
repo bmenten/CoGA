@@ -602,8 +602,9 @@ def _run_job_with(monkeypatch: pytest.MonkeyPatch, row: dict[str, Any], execute:
     async def user(_session: Any, _email: str) -> CurrentUser:
         return _admin()
 
-    async def update_job_progress(_session: Any, **kwargs: Any) -> None:
+    async def update_job_progress(_session: Any, **kwargs: Any) -> bool:
         updates.append(kwargs)
+        return True  # recorded: the job is this worker's
 
     monkeypatch.setattr(package_import, "get_postgres_sessionmaker", lambda: lambda: _JobSession(row))
     monkeypatch.setattr(package_import, "get_current_user_by_email", user)
@@ -671,8 +672,9 @@ async def test_a_running_job_keeps_its_heartbeat_until_it_ends(monkeypatch) -> N
 
 
 @pytest.mark.asyncio
-async def test_the_heartbeat_stops_once_the_job_is_no_longer_this_workers(monkeypatch) -> None:
+async def test_the_heartbeat_stops_with_the_import_once_the_job_is_no_longer_this_workers(monkeypatch) -> None:
     beats: list[str] = []
+    ended: list[str] = []
 
     async def beat(_session: Any, *, job_id: str, worker_id: str) -> bool:
         beats.append(job_id)
@@ -680,15 +682,19 @@ async def test_the_heartbeat_stops_once_the_job_is_no_longer_this_workers(monkey
 
     async def execute(_session: Any, **_kwargs: Any) -> Any:
         await asyncio.sleep(0.15)
+        ended.append("the import ran to its end")
         return SimpleNamespace(error=None, family_id=FAMILY, validation=None, datasets=[], logs=[])
 
-    _run_job_with(monkeypatch, _job_row([]), execute)
+    updates = _run_job_with(monkeypatch, _job_row([]), execute)
     monkeypatch.setattr(package_import, "_beat_family_import_job", beat)
     monkeypatch.setattr(package_import, "FAMILY_IMPORT_HEARTBEAT_SECONDS", 0.02)
 
     await package_import.run_family_import_job(job_id="job-1", worker_id="worker-1")
 
     assert beats == ["job-1"]
+    # Before: the heartbeat alone stopped, and the import went on to its end
+    # (test_import_stale_heartbeat.py follows such an import through the family).
+    assert ended == [] and updates == []
 
 
 @pytest.mark.asyncio

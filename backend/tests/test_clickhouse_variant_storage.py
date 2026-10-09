@@ -321,6 +321,8 @@ async def test_restoring_a_family_snapshot_moves_the_sv_data_version(monkeypatch
 
     async def fake_execute(query, params=None):
         executed.append(" ".join(query.split()))
+        if "FROM system.tables" in query:  # the restore's check: every backup table is there
+            return [(name,) for name in params["names"]]
         return []
 
     async def fake_refresh(assembly_name, family_uuid):

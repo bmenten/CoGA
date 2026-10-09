@@ -57,7 +57,7 @@ def _a_sign_out_finds_the_import(row: dict[str, Any]) -> bool:
 
 _SELECT = re.compile(r"^SELECT .+? FROM family_import_jobs WHERE (?P<where>.+)$")
 _UPDATE = re.compile(r"^UPDATE family_import_jobs SET (?P<set>.+?) WHERE (?P<where>.+)$")
-_ASSIGNMENT = re.compile(r"(\w+) = (?:CAST\(:(\w+) AS \w+\)|:(\w+)|'([^']*)'|(NULL))")
+_ASSIGNMENT = re.compile(r"(\w+) = (?:CAST\(:(\w+) AS \w+\)|:(\w+)|'([^']*)'|(NULL)|(now\(\)))")
 _CONDITION = re.compile(
     r"^(\w+) (?:= CAST\(:(\w+) AS uuid\)|= :(\w+)|= '([^']*)'|IN \(([^)]*)\))$"
 )
@@ -67,13 +67,15 @@ def _assignments(clause: str, params: dict[str, Any]) -> dict[str, Any]:
     found = _ASSIGNMENT.findall(clause)
     assert len(found) == clause.count(" = "), f"unmodelled assignment in: {clause}"
     changes: dict[str, Any] = {}
-    for column, cast_param, param, literal, null in found:
+    for column, cast_param, param, literal, null, now in found:
         if cast_param:
             changes[column] = params[cast_param]
         elif param:
             changes[column] = params[param]
         elif null:
             changes[column] = None
+        elif now:  # the database's clock
+            changes[column] = datetime.now(timezone.utc)
         else:
             changes[column] = literal
     return changes

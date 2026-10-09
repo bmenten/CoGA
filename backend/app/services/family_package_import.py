@@ -31,6 +31,7 @@ from .access_control import CurrentUser
 from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
 from .clickhouse_family_snapshot import (
+    FamilyRestoreRefused,
     discard_family_clickhouse_snapshot,
     drop_import_backup_tables,
     is_job_owned,
@@ -91,7 +92,8 @@ logger = logging.getLogger(__name__)
 FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
 # How often a running job's heartbeat is written, whatever its import is doing (waiting
 # for another writer's locks, copying a snapshot): a heartbeat older than
-# FAMILY_IMPORT_STALE_HEARTBEAT means the process running it has stopped.
+# FAMILY_IMPORT_STALE_HEARTBEAT means the process running it has stopped, or could not
+# write it; such an import is stopped when its heartbeat finds the job ended.
 FAMILY_IMPORT_HEARTBEAT_SECONDS = 60.0
 # How long a backup table of an import run outside a job is kept: nothing records whether
 # that import still runs (drop_orphaned_import_backups).
@@ -509,7 +511,10 @@ async def _import_family_datasets(
     #   * Failed OVERWRITE of a PRE-EXISTING family (we took a snapshot above) ->
     #     atomically restore the family's ClickHouse variant/interval rows to their
     #     pre-import state, so a destructive delete-then-insert can't leave prior data
-    #     mangled. If the restore itself fails, fall back to the incomplete flag.
+    #     mangled. If the restore itself fails, fall back to the incomplete flag, which
+    #     names as imported only what the restore provably left alone: everything this
+    #     import imported when the restore refused to start (a backup table was gone, so
+    #     it deleted nothing), nothing when it failed part-way.
     #   * Any OTHER failure that left the family in place — a partial success (some
     #     datasets imported, some failed) or a failed update (skip-if-exists, no
     #     snapshot) of a PRE-EXISTING family — is NOT torn down (successfully-imported
@@ -549,33 +554,48 @@ async def _import_family_datasets(
             logs.append(
                 "Import failed; atomically restored the family's data to its pre-import state."
             )
-        except Exception:  # restore failed; fall back to the flag
+        except Exception as exc:  # restore failed; fall back to the flag
+            # A restore refused for a missing backup table deleted nothing (and the Postgres
+            # restore, which follows it, did not run): the family holds what this import
+            # left, so what it imported did import. Any other failure may have come after
+            # the restore's first delete, which removes the family's rows from a table
+            # whichever dataset wrote them: what the restore left of the datasets this
+            # import wrote is not known, so the flag names none of them as imported, and
+            # none counts as imported again for an earlier failure.
+            untouched = isinstance(exc, FamilyRestoreRefused)
             logger.warning(
-                "Failed to restore family %s after a failed overwrite; flagging "
+                "Failed to restore family %s after a failed overwrite (%s); flagging "
                 "import-incomplete",
                 family_context.family_id,
+                "nothing was deleted" if untouched else "rows may have been deleted",
                 exc_info=True,
             )
             # A mid-restore Postgres error leaves the session in a failed transaction;
             # clear it so the flag write below can run.
             with suppress(Exception):
                 await session.rollback()
-            # What the restore left of the datasets this import wrote is not known, so
-            # none of them counts as imported again for an earlier failure.
             await _flag_family_import_incomplete(
                 session,
                 family_context,
                 failed_datasets=failed_datasets,
-                imported_datasets=imported_datasets,
+                imported_datasets=imported_datasets if untouched else [],
                 job_id=job_id,
                 import_key=import_key,
                 scopes=mark_scopes,
-                imported_scopes={},
+                imported_scopes=imported_scopes if untouched else {},
             )
-            logs.append(
-                "Import failed and the snapshot restore also failed; flagged the family "
-                "metadata as import-incomplete."
-            )
+            if untouched:
+                logs.append(
+                    "Import failed, and the family could not be put back: a table of its "
+                    "backup was missing, so the restore deleted nothing. Flagged the family "
+                    "metadata as import-incomplete; the datasets that imported are kept."
+                )
+            else:
+                logs.append(
+                    "Import failed and the snapshot restore also failed; flagged the family "
+                    "metadata as import-incomplete. The restore may have removed rows of the "
+                    "datasets this import wrote, so the flag names none of them as imported."
+                )
     elif failed_datasets:
         await _flag_family_import_incomplete(
             session,
@@ -667,11 +687,33 @@ async def _import_family_datasets(
     )
 
 
+def _log_unrecorded_job_end(job_id: str, outcome: str) -> None:
+    """Say in the log how an import ended that its job could not record: the update matched
+    no row. Names the job and the outcome only, nothing of the import."""
+    logger.warning(
+        "Family package import job %s ended %s, but its job could not record it: the update "
+        "matched no row, as the job is no longer this worker's (another worker ended it as "
+        "interrupted, or claimed it again). The job keeps the record it has.",
+        job_id,
+        outcome,
+    )
+
+
 async def run_family_import_job(
     *,
     job_id: str,
     worker_id: str,
 ) -> None:
+    """Run a claimed job's import while its heartbeat is written, and record how it ended.
+
+    When the heartbeat finds the job no longer this worker's -- it went stale, as the
+    process could not write it for FAMILY_IMPORT_STALE_HEARTBEAT, and another worker ended
+    the job as interrupted or claimed it again -- it stops the import where it is, as a
+    stopped process would be: none of the import's fail-clean runs and it writes nothing
+    more, so its family keeps the import's ``import_unfinished`` entry, as the job's
+    "Interrupted" record says, and the variant-write locks go with their connection. A
+    progress or final update of the job that matches no row is said in the log.
+    """
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
         job_result = await session.execute(
@@ -699,22 +741,34 @@ async def run_family_import_job(
         # A job claimed again after its worker stopped keeps what its earlier attempt
         # logged: this run's lines follow them rather than replace them.
         earlier_logs = [str(line) for line in _json_list(job_row.get("logs"))]
+        # Set by the heartbeat once it has found the job no longer this worker's, and by
+        # the import once it has ended and only its end is left to record.
+        job_lost = asyncio.Event()
+        ending = asyncio.Event()
 
-        async def keep_alive() -> None:
+        async def keep_alive(run: asyncio.Task[None]) -> None:
             # The heartbeat, whatever the import is doing (waiting for another writer's
-            # locks, copying a snapshot): a stale one means this process has stopped, and
-            # the worker that finds it so ends the job or runs it again. Stops once the job
-            # is no longer this worker's.
+            # locks, copying a snapshot): a stale one means this process has stopped or
+            # cannot write it, and the worker that finds it so ends the job or runs it
+            # again. A beat that fails is logged and tried again. One that matches no row
+            # finds the job no longer this worker's: the import, which may have gone on
+            # meanwhile, is stopped where it is -- unless it has ended, and only its end is
+            # left to record (an end the job cannot record is said in the log).
             while True:
                 await asyncio.sleep(FAMILY_IMPORT_HEARTBEAT_SECONDS)
                 try:
                     async with session_factory() as heartbeat_session:
-                        if not await _beat_family_import_job(
+                        still_ours = await _beat_family_import_job(
                             heartbeat_session, job_id=job_id, worker_id=worker_id
-                        ):
-                            return
+                        )
                 except Exception:
                     logger.warning("Family package import heartbeat failed", exc_info=True)
+                    continue
+                if not still_ours:
+                    if not ending.is_set():
+                        job_lost.set()
+                        run.cancel()
+                    return
 
         async def record_family(family_id: str) -> None:
             # The job reads `running` on the family, committed, before the import writes
@@ -743,6 +797,8 @@ async def run_family_import_job(
                     "was written."
                 )
 
+        progress_lost = False
+
         async def progress(
             validation: FamilyPackageValidationOut | None,
             datasets: list[FamilyImportDatasetSummary],
@@ -753,9 +809,10 @@ async def run_family_import_job(
             # summaries and the heartbeat. A sign-out reads the job's status and family,
             # which only record_family sets before the import writes anything, and this
             # leaves as they are.
+            nonlocal progress_lost
             try:
                 async with session_factory() as progress_session:
-                    await _update_job_progress(
+                    recorded = await _update_job_progress(
                         progress_session,
                         job_id=job_id,
                         worker_id=worker_id,
@@ -766,9 +823,31 @@ async def run_family_import_job(
                     )
             except Exception:
                 logger.exception("Family package import progress update failed")
+                return
+            if not recorded and not progress_lost:
+                # Said once: the import reports often, and its heartbeat stops it soon.
+                progress_lost = True
+                logger.warning(
+                    "Family package import job %s: a progress update matched no row, as the "
+                    "job is no longer this worker's (another worker ended it as interrupted, "
+                    "or claimed it again). The job's record no longer follows the import.",
+                    job_id,
+                )
 
-        heartbeat = asyncio.create_task(keep_alive())
-        try:
+        async def record_end(outcome: str, **fields: Any) -> None:
+            # The import has ended: only this update is left, which the heartbeat lets be.
+            ending.set()
+            if not await _update_job_progress(
+                session,
+                job_id=job_id,
+                worker_id=worker_id,
+                status=outcome,
+                completed=True,
+                **fields,
+            ):
+                _log_unrecorded_job_end(job_id, outcome)
+
+        async def run_import() -> None:
             user = await get_current_user_by_email(session, str(job_row["requested_by"]))
             if user is None:
                 raise RuntimeError("Requesting user no longer exists")
@@ -786,17 +865,13 @@ async def run_family_import_job(
                 record_family=record_family,
             )
             if result.error:
-                await _update_job_progress(
-                    session,
-                    job_id=job_id,
-                    worker_id=worker_id,
-                    status="failed",
+                await record_end(
+                    "failed",
                     family_id=result.family_id,
                     validation=result.validation,
                     datasets=result.datasets,
                     logs=[*earlier_logs, *result.logs],
                     error=result.error,
-                    completed=True,
                 )
                 return
             # Warm the genome-overview lineage cache so the first view is instant and
@@ -820,29 +895,46 @@ async def run_family_import_job(
                         "overview will use the fast grey-relatives fallback",
                         result.family_id,
                     )
-            await _update_job_progress(
-                session,
-                job_id=job_id,
-                worker_id=worker_id,
-                status="completed",
+            await record_end(
+                "completed",
                 family_id=result.family_id,
                 validation=result.validation,
                 datasets=result.datasets,
                 logs=[*earlier_logs, *result.logs],
-                completed=True,
             )
+
+        # The import runs as a task of its own, so that its heartbeat can stop it without
+        # stopping this worker.
+        run = asyncio.create_task(run_import())
+        heartbeat = asyncio.create_task(keep_alive(run))
+        try:
+            await run
+        except asyncio.CancelledError:
+            this_worker = asyncio.current_task()
+            if job_lost.is_set() and this_worker is not None and not this_worker.cancelling():
+                # Stopped by its heartbeat, not by this worker's own stop.
+                logger.warning(
+                    "Family package import job %s was stopped where it was: the job is no "
+                    "longer this worker's (another worker ended it as interrupted, or claimed "
+                    "it again), so the import wrote nothing more and left its family as a "
+                    "stopped process does.",
+                    job_id,
+                )
+                return
+            raise
         except Exception as exc:
             logger.exception("Family package import job failed")
             await session.rollback()
             # Ends the job only while it is this worker's: the update names the worker.
-            await _update_job_progress(
+            if not await _update_job_progress(
                 session,
                 job_id=job_id,
                 worker_id=worker_id,
                 status="failed",
                 error=str(exc),
                 completed=True,
-            )
+            ):
+                _log_unrecorded_job_end(job_id, "failed")
             raise
         finally:
             heartbeat.cancel()
@@ -852,8 +944,10 @@ async def run_family_import_job(
 
 async def handle_claimed_family_import_job(job_row: Mapping[str, Any], *, worker_id: str) -> None:
     """Do what a claimed job needs: run it, or, when the claim ended it as interrupted (its
-    import had begun writing the family when its process stopped), drop the backup tables
-    that import made of the family and could not drop itself."""
+    heartbeat went stale while its import was running on the family), drop the backup
+    tables that import made of the family and could not drop itself: its process stopped,
+    or its heartbeat stops it once it finds the job ended, and a restore it reaches before
+    then deletes nothing without them."""
     if job_row["status"] == "validating":
         await run_family_import_job(job_id=str(job_row["id"]), worker_id=worker_id)
         return

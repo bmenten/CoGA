@@ -147,11 +147,15 @@ Five gates run first, in this order:
    is still this worker's and can be updated (#736). The job's later updates (its logs,
    dataset summaries and heartbeat) are informational: one that fails leaves the status and
    the family as they are. A job whose worker stopped keeps refusing until a worker claims it
-   again. A running job writes its heartbeat every minute, so a job whose heartbeat is ten
-   minutes old belongs to a process that has stopped. The worker that claims it runs it again
-   only if its import had not begun writing the family (`validating`); one that was
-   `running` it ends `failed`, interrupted, keeping its log, and the family stays marked
-   (gate 5).
+   again. A running job writes its heartbeat every minute (the database's clock stamps and
+   judges it), so a job whose heartbeat is ten minutes old is taken for one whose process has
+   stopped. The worker that claims it runs it again only if its import had not begun writing
+   the family (`validating`); one that was `running` it ends `failed`, interrupted, keeping
+   its log, and the family stays marked (gate 5). An import whose process is alive but could
+   not write the heartbeat is stopped where it is once its heartbeat reaches the database
+   again and finds the job ended, and leaves the family marked the same way (#746). Between
+   the claim and that stop the job no longer refuses a sign-out, but the import's
+   variant-write locks do (`variant_writes_in_progress`) while their connection holds them.
 3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
    variant or of a structural variant or CNV, gives 409, unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One

@@ -17,16 +17,23 @@ drives the real statements against the real schema:
 - of three stale jobs, the one that was running is ended (its log kept, a line added), the
   validating one is claimed again (its log kept, a line added), the queued one is claimed
   as before; a running job whose heartbeat is fresh is left alone, and only the job's
-  worker can beat its heartbeat.
+  worker can beat its heartbeat;
+- the heartbeat is stamped, and its age judged, by the database's clock: with this host's
+  clock an hour ahead, a job whose heartbeat is nine minutes old is left alone and one
+  eleven minutes old is ended, at the database's time; a beat and a progress update stamp
+  the database's time, and an update the job's worker no longer holds changes nothing and
+  says so (#746).
 
-The e2e test (test_e2e_import_crash_leaves_family_marked.py) runs the whole path. Skipped
-unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
+The e2e tests (test_e2e_import_crash_leaves_family_marked.py,
+test_e2e_import_stale_heartbeat.py) run the whole path. Skipped unless
+``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import re
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from uuid import uuid4
@@ -393,5 +400,133 @@ def test_a_stale_job_is_run_again_only_if_its_import_had_written_nothing() -> No
                 {"ids": list(mine)},
             )
             await s.commit()
+
+    _run(scenario)
+
+
+def test_the_heartbeat_is_stamped_and_judged_by_the_databases_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services import family_package_jobs
+    from backend.app.services.family_package_jobs import (
+        FAMILY_IMPORT_INTERRUPTED_ERROR,
+        _beat_family_import_job,
+        _update_job_progress,
+        claim_next_family_import_job,
+    )
+
+    host_clock = family_package_jobs.datetime
+
+    class _HostClockAhead(host_clock):  # type: ignore[misc, valid-type]
+        """This host's clock, an hour ahead of the database's."""
+
+        @classmethod
+        def now(cls, tz=None):  # type: ignore[override]
+            return host_clock.now(tz) + timedelta(hours=1)
+
+    # Before: the claim judged the heartbeat by this host's clock, so it took a live import
+    # whose heartbeat is nine minutes old for stopped, and stamped the host's times.
+    monkeypatch.setattr(family_package_jobs, "datetime", _HostClockAhead)
+    long_ago = datetime(1990, 1, 1, tzinfo=timezone.utc)
+    worker = f"w-{uuid4().hex[:8]}"
+    ages = {"live": timedelta(minutes=9), "stale": timedelta(minutes=11)}
+
+    async def scenario() -> None:
+        sm = get_postgres_sessionmaker()
+        ids: dict[str, str] = {}
+        async with sm() as s:
+            for offset, (name, age) in enumerate(ages.items()):
+                ids[name] = (
+                    await s.execute(
+                        text(
+                            """
+                            INSERT INTO family_import_jobs (
+                                submitted_path, family_id, status, worker_id, requested_by,
+                                requested_at, started_at, heartbeat_at, logs
+                            )
+                            VALUES (
+                                :path, 'IMPORT_CLOCK', 'running', 'w-gone', 'admin@example.com',
+                                :requested_at, :requested_at,
+                                now() - CAST(:age AS interval), '[]'::jsonb
+                            )
+                            RETURNING id::text
+                            """
+                        ),
+                        {
+                            "path": f"/data/families/IMPORT_CLOCK_{name}",
+                            "requested_at": long_ago + timedelta(seconds=offset),
+                            "age": age,
+                        },
+                    )
+                ).scalar_one()
+            await s.commit()
+        mine = set(ids.values())
+        try:
+            claimed: dict[str, dict] = {}
+            for _ in range(20):
+                async with sm() as s:
+                    row = await claim_next_family_import_job(s, worker_id=worker)
+                if row is None:
+                    break
+                if row["id"] in mine:
+                    claimed[row["id"]] = row
+                if ids["stale"] in claimed:
+                    break
+
+            # Nine minutes old by the database's clock: the live import is left alone.
+            assert ids["live"] not in claimed
+            ended = claimed[ids["stale"]]
+            assert (ended["claimed_from"], ended["status"], ended["error"]) == (
+                "running",
+                "failed",
+                FAMILY_IMPORT_INTERRUPTED_ERROR,
+            )
+            async with sm() as s:
+                database_now = (await s.execute(text("SELECT now()"))).scalar_one()
+            # Ended at the database's time, in its columns and in the line added to its log.
+            assert abs(ended["completed_at"] - database_now) < timedelta(minutes=5)
+            assert abs(ended["heartbeat_at"] - database_now) < timedelta(minutes=5)
+            logged = re.search(
+                r"Ended (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) UTC instead of run again", ended["logs"][-1]
+            )
+            assert logged, ended["logs"]
+            at = datetime.strptime(logged[1], "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+            assert abs(at - ended["completed_at"]) < timedelta(minutes=2)
+
+            # A beat and a progress update of the live job, once this worker's, stamp the
+            # database's time; an update from a worker that no longer holds it changes
+            # nothing, and says so.
+            async with sm() as s:
+                await s.execute(
+                    text("UPDATE family_import_jobs SET worker_id = :w WHERE id = CAST(:j AS uuid)"),
+                    {"w": worker, "j": ids["live"]},
+                )
+                await s.commit()
+                assert await _beat_family_import_job(s, job_id=ids["live"], worker_id=worker) is True
+                assert (
+                    await _update_job_progress(s, job_id=ids["live"], worker_id=worker, logs=["progress"])
+                    is True
+                )
+                assert (
+                    await _update_job_progress(s, job_id=ids["live"], worker_id="w-other", logs=["lost"])
+                    is False
+                )
+                beat_at, logs, database_now = (
+                    await s.execute(
+                        text(
+                            "SELECT heartbeat_at, logs, now() FROM family_import_jobs "
+                            "WHERE id = CAST(:j AS uuid)"
+                        ),
+                        {"j": ids["live"]},
+                    )
+                ).one()
+            assert abs(beat_at - database_now) < timedelta(minutes=5)
+            assert logs == ["progress"]
+        finally:
+            async with sm() as s:
+                await s.execute(
+                    text("DELETE FROM family_import_jobs WHERE id::text = ANY(:ids)"),
+                    {"ids": list(mine)},
+                )
+                await s.commit()
 
     _run(scenario)

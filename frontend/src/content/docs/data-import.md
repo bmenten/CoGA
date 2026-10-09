@@ -243,9 +243,10 @@ heteroplasmy.
   without them leaves the warning, and says so in its log.
 - **An import that stopped part-way** (the server restarted, or ran out of memory, while it ran) is not
   run again: about ten minutes later its job ends as *failed*, interrupted, with its log as the import
-  left it. The family shows *Import incomplete*, naming the datasets the import had not finished: they
-  may be partly written. Import them again with **overwrite** to complete the family; **update** skips
-  a dataset that already has data, partly written data too.
+  left it. An import that was still running, but could not record that it was for those ten minutes,
+  is then stopped too, where it is. The family shows *Import incomplete*, naming the datasets the
+  import had not finished: they may be partly written. Import them again with **overwrite** to
+  complete the family; **update** skips a dataset that already has data, partly written data too.
 - **While an import is queued or runs**, the family's report cannot be signed out: the data is not yet
   complete. Sign out once the job has finished.
 
