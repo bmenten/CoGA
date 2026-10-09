@@ -5,6 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import FamilyNiptPage from '../FamilyNiptPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+  offScopeProject,
+} from '../../../test/familyPageBanners';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -358,6 +364,44 @@ describe('FamilyNiptPage', () => {
     });
     expect(await screen.findByRole('heading', { name: /family NIPT001/i })).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Loading the NIPT analysis' })).not.toBeInTheDocument();
+  });
+
+  // A NIPT family can be partly imported like any other, and on an assembly outside the
+  // validated scope: the header warns of both, as on every family page.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [],
+            projects: ['p1'],
+            metadata: { analysis_type: 'monogenic_nipt', ...INCOMPLETE_IMPORT_METADATA },
+          },
+        });
+      }
+      if (url === '/projects') return Promise.resolve({ data: [offScopeProject('p1')] });
+      if (url === '/families/NIPT001/nipt/summary') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            fetal_fraction: FETAL_FRACTION,
+            category_counts: {},
+            filter_counts: { total_in: 0, failed_quality: 0, failed_artifact: 0, passed: 0 },
+          },
+        });
+      }
+      if (url === '/families/NIPT001/nipt/variants') {
+        return Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    renderPage('NIPT001');
+
+    const header = (await screen.findByRole('heading', { name: /family NIPT001/i })).closest('.page-top-card');
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
   });
 
   it('shows a not-configured message for a non-NIPT family', async () => {

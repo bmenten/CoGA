@@ -143,6 +143,7 @@ const GenomeOverviewPage: React.FC = () => {
   const {
     speciesName,
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     assemblyId,
     projectId: resolvedProjectId,
@@ -516,6 +517,8 @@ const GenomeOverviewPage: React.FC = () => {
         speciesName={speciesName}
         assemblyVersion={assemblyVersion}
         assembly={assemblyName}
+        assemblyValidated={assemblyValidated}
+        familyMetadata={data.metadata}
         projectId={resolvedProjectId}
         backDest={`/families/${familyId}/structural-variants${backSearch ? `?${backSearch}` : ''}`}
         visibleRoi={visibleRoi}
