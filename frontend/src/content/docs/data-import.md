@@ -73,7 +73,7 @@ Each layer is optional and switches on part of CoGA.
 | --- | --- |
 | **Small variants (SNV/indel)** | the small-variant page, its review, and the Sample QC page |
 | **Structural variants** | the structural-variant page, its review, CNV classification and the variant summary |
-| **Repeat expansions (TRGT)** | the repeat-expansion page, scored against the STRchive loci |
+| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`) |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |

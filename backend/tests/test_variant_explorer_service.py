@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+import re
+
 from clickhouse_connect.driver.binding import bind_query
 
+from backend.app.services.clickhouse_variant_queries import _small_detail_filter_clauses
+from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services.variant_explorer_service import (
     _CLASSIFICATION_RANK,
     _CLINVAR_RANK,
@@ -247,3 +251,27 @@ def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
     params = {}
     assert _annotation_index_clauses(GlobalVariantFilters(clinvar_overrides_frequency=True), params) == []
     assert params == {}
+
+
+def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript() -> None:
+    # CLIN-5: the explorer's *MANE only* read has_mane_select alone, so a variant whose MANE
+    # transcript is MANE Plus Clinical was dropped, while the family search keeps it.
+    params: dict = {}
+    clauses = _annotation_index_clauses(GlobalVariantFilters(mane_only=True), params)
+    assert clauses == ["(ai.has_mane_select OR ai.has_mane_plus_clinical)"]
+    assert params == {}
+    # Off, it adds nothing.
+    assert _annotation_index_clauses(GlobalVariantFilters(), {}) == []
+
+
+def test_mane_only_reads_the_transcript_flags_the_family_search_reads() -> None:
+    # The family search tests each transcript (annotations, alias a); the explorer each
+    # variant (annotation_index, alias ai, one has_<flag> per transcript flag). Both read
+    # the same flags.
+    explorer = " ".join(_annotation_index_clauses(GlobalVariantFilters(mane_only=True), {}))
+    family_clauses, _params = _small_detail_filter_clauses(
+        SmallVariantQueryFilters(page=1, page_size=100, mane_only=True)
+    )
+    family = " ".join(family_clauses)
+    assert re.findall(r"\bai\.has_(\w+)", explorer) == ["mane_select", "mane_plus_clinical"]
+    assert re.findall(r"\ba\.(\w+)", family) == ["mane_select", "mane_plus_clinical"]
