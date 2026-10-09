@@ -21,6 +21,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from urllib.parse import urlencode
 
 import jwt
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -31,6 +32,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_remote
 from ..core.postgres import get_postgres_session
+from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import FamilyQcReportLinkOut
 from ..services.family_package_common import _metadata_dict, _resolve_package_path
@@ -173,8 +175,10 @@ async def get_family_qc_report_link(
     # Confirm the file is there before handing out a link that would 404 on click.
     _resolve_report_file(family_id, relative_path)
     token = _qc_report_token(family_id, sample_id)
+    # Each ID one encoded segment: an ID may hold `/`, `?`, `#`, `%` or `..`.
+    path = url_path("families", family_id, "qc-report", sample_id)
     return FamilyQcReportLinkOut(
-        url=f"/families/{family_id}/qc-report/{sample_id}?token={token}",
+        url=f"{path}?{urlencode({'token': token})}",
         expires_at=expires_at,
         filename=Path(relative_path).name,
     )
