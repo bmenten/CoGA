@@ -668,7 +668,7 @@
   "title": "Sample-integrity QC",
   "summary": "Check, before you interpret, that the samples are who the pedigree says: swaps, wrong relationships, wrong sex, contamination and consanguinity.",
   "quickLinks": [],
-  "text": "OpenafamilyandpressSampleQCtocheckthatthesamplesarewhothepedigreesays.Aswappedtube,awrongparent,amislabelledsex,contaminationorunexpectedrelatednessquietlyinvalidateseverythingdownstream,sorunitbeforeyouinterpret.Thepagefirstworksoutwhatkindofcaseitisandrunsonlythechecksthatfit:Long-readWGSfamily—sex,relatednessagainstthepedigree,Mendelianerrors.Shallow-WGSPGT—embryosexandparentage(eachembryoachildofbothparents),Mendelianerrors.MonogenicNIPT—paternity,fetalsex,parentsexandacheckofthecfDNAcategories.Carriercouple—sexperpartner,andthatthetwoareunrelated.Singlesample—sexonly.ReadingthepagePedigree—eachperson'ssymbolcarriesaringandabadge:green✓pass,amber!warning,red✕fail.Hoverasymbolforthereason.Per-sampletable—recordedsexagainstgeneticsex,andtheMendelian-errorrate.Thegeneticsexcarriesgreen✓whenitmatchestherecord,red✗whenitdoesnot,amber!whenitcouldnotbeconfirmedandgrey?whenitwasnotchecked.Hoveracellforthereason.Relatednessmatrix—eachpair'sinferredrelationship,kinshipandIBS0.Apairthatcontradictsthepedigree,includingparentswholookrelated,isoutlined:redforafail,amberforawarning.NIPTcards—paternity,fetalsexandthecategorycheck,foracfDNAfamily.Whattodowithawarningorafail.Afailpointstoarealproblem:re-checkthesamplesheet,thepedigreeandthegenotypesbeforeyouinterpret.Awarningusuallymeanstoolittledatatodecide(fewinformativesites,alowfetalfraction);itweakenstheanalysisbutdoesnotinvalidateit.Afail,oracheckofthepedigreeorofasample'sidentitythatcouldnotrun(aNIPTparent'ssex,forexample),alsostopssign-outuntilsomeonerecordsareason.In-depthreferenceSample-integrityQCreference(checks,thresholds)→",
+  "text": "OpenafamilyandpressSampleQCtocheckthatthesamplesarewhothepedigreesays.Aswappedtube,awrongparent,amislabelledsex,contaminationorunexpectedrelatednessquietlyinvalidateseverythingdownstream,sorunitbeforeyouinterpret.Thepagefirstworksoutwhatkindofcaseitisandrunsonlythechecksthatfit:Long-readWGSfamily—sex,relatednessagainstthepedigree,Mendelianerrors.Shallow-WGSPGT—embryosexandparentage(eachembryoachildofbothparents),Mendelianerrors.MonogenicNIPT—paternity,fetalsex,parentsexandacheckofthecfDNAcategories.Carriercouple—sexperpartner,andthatthetwoareunrelated.Singlesample—sexonly.ReadingthepageOverallverdict—theworstofthechecks.Acheckthatcouldnotruncountsasawarning,neverasapass,andanotenameseachsamplewhosesexcouldnotbechecked.Pedigree—eachperson'ssymbolcarriesaringandabadge:green✓pass,amber!warning,red✕fail.Acheckthatcouldnotruncountsasawarningheretoo.Hoverasymbolforthereason.Per-sampletable—recordedsexagainstgeneticsex,andtheMendelian-errorrate.Thegeneticsexcarriesgreen✓whenitmatchestherecord,red✗whenitdoesnot,amber!whenitcouldnotbeconfirmedandgrey?whenitwasnotchecked.Hoveracellforthereason.Relatednessmatrix—eachpair'sinferredrelationship,kinshipandIBS0.Apairthatcontradictsthepedigree,includingparentswholookrelated,isoutlined:redforafail,amberforawarning.NIPTcards—paternity,fetalsexandthecategorycheck,foracfDNAfamily.Whattodowithawarningorafail.Afailpointstoarealproblem:re-checkthesamplesheet,thepedigreeandthegenotypesbeforeyouinterpret.Awarningusuallymeanstoolittledatatodecide(fewinformativesites,alowfetalfraction,acheckthatcouldnotrun);itweakenstheanalysisbutdoesnotinvalidateit.Afail,oracheckofthepedigreeorofasample'sidentitythatcouldnotrun(aNIPTparent'ssex,forexample),alsostopssign-outuntilsomeonerecordsareason.In-depthreferenceSample-integrityQCreference(checks,thresholds)→",
   "paragraphs": [
    "Open a family and press Sample QC to check that the samples are who the pedigree says. A swapped tube, a wrong parent, a mislabelled sex, contamination or unexpected relatedness quietly invalidates everything downstream, so run it before you interpret.",
    "The page first works out what kind of case it is and runs only the checks that fit:"
@@ -700,7 +700,11 @@
    ],
    [
     "li",
-    "Pedigree — each person's symbol carries a ring and a badge: green ✓ pass, amber ! warning, red ✕ fail. Hover a symbol for the reason."
+    "Overall verdict — the worst of the checks. A check that could not run counts as a warning, never as a pass, and a note names each sample whose sex could not be checked."
+   ],
+   [
+    "li",
+    "Pedigree — each person's symbol carries a ring and a badge: green ✓ pass, amber ! warning, red ✕ fail. A check that could not run counts as a warning here too. Hover a symbol for the reason."
    ],
    [
     "li",
@@ -716,7 +720,7 @@
    ],
    [
     "callout",
-    "What to do with a warning or a fail. A fail points to a real problem: re-check the sample sheet, the pedigree and the genotypes before you interpret. A warning usually means too little data to decide (few informative sites, a low fetal fraction); it weakens the analysis but does not invalidate it. A fail, or a check of the pedigree or of a sample's identity that could not run (a NIPT parent's sex, for example), also stops sign-out until someone records a reason."
+    "What to do with a warning or a fail. A fail points to a real problem: re-check the sample sheet, the pedigree and the genotypes before you interpret. A warning usually means too little data to decide (few informative sites, a low fetal fraction, a check that could not run); it weakens the analysis but does not invalidate it. A fail, or a check of the pedigree or of a sample's identity that could not run (a NIPT parent's sex, for example), also stops sign-out until someone records a reason."
    ]
   ],
   "inline": [
@@ -743,6 +747,10 @@
    [
     "strong",
     "Single sample"
+   ],
+   [
+    "strong",
+    "Overall verdict"
    ],
    [
     "strong",

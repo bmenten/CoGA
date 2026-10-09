@@ -233,7 +233,7 @@ describe('FamilySampleQcPage', () => {
             message: notRecorded,
           },
         ],
-        // The father's identity rests on a passing parent-child check, so his ring is green.
+        // The father's parent-child check passes, but his sex could not be checked.
         relatedness_checks: [
           {
             sample_a: 'CHILD',
@@ -285,13 +285,122 @@ describe('FamilySampleQcPage', () => {
     );
     expect(pedigreeTooltip(container, 'MOTHER')).toBe(indeterminate);
     expect(pedigreeTooltip(container, 'CHILD')).toBe(notRecorded);
+    // A check that could not run counts as a warning, so the passing parent-child check
+    // does not turn the father's ring green.
     expect(container.querySelector('[data-pedigree-node="FATHER"]')).toHaveAttribute(
       'data-qc-status',
-      'pass',
+      'warn',
     );
     expect(pedigreeTooltip(container, 'FATHER')).toBe(noChrX);
     expect(within(memberRow('MOTHER')).getByText('Warning')).toBeInTheDocument();
     expect(container.innerHTML).not.toMatch(/matches record/);
+  });
+
+  describe('a sex check that could not run (CLIN-1)', () => {
+    const noChrX = 'No chrX genotypes available for sex inference.';
+    const unchecked =
+      'Sex could not be checked for sample FATHER. A check that could not run counts as a warning, not a pass.';
+    const passingSex = (sampleId: string, sex: string) => ({
+      sample_id: sampleId,
+      recorded_sex: sex,
+      inferred_sex: sex,
+      x_het_rate: sex === 'male' ? 0.01 : 0.3,
+      x_sites: 500,
+      status: 'pass',
+      message: 'Genotype-inferred sex matches the record.',
+    });
+    const parentChild = (parent: string) => ({
+      sample_a: 'CHILD',
+      sample_b: parent,
+      expected_relationship: 'parent-child',
+      inferred_relationship: 'parent-child',
+      kinship: 0.25,
+      ibs0_rate: 0.001,
+      informative_sites: 80000,
+      status: 'pass',
+      message: 'Confirmed parent-child.',
+    });
+    // Every check passes but the father's sex check, which had no chrX genotypes to read.
+    const qc = (overall: 'pass' | 'warn', notes: string[]) => ({
+      family_id: 'FAM1',
+      overall_status: overall,
+      application: 'wgs',
+      application_label: 'Long-read WGS family',
+      application_summary: 'Full pedigree QC on the SNV call set.',
+      genotype_source: 'clair3',
+      paternity_check: null,
+      autosomal_sites: 90000,
+      notes,
+      sex_checks: [
+        {
+          sample_id: 'FATHER',
+          recorded_sex: 'male',
+          inferred_sex: 'indeterminate',
+          x_het_rate: null,
+          x_sites: 0,
+          status: 'skip',
+          message: noChrX,
+        },
+        passingSex('MOTHER', 'female'),
+        passingSex('CHILD', 'male'),
+      ],
+      relatedness_checks: [parentChild('FATHER'), parentChild('MOTHER')],
+      mendelian_checks: [
+        {
+          child: 'CHILD',
+          parents: ['FATHER', 'MOTHER'],
+          informative_sites: 80000,
+          mendel_errors: 40,
+          mendel_rate: 0.0005,
+          status: 'pass',
+          message: 'Mendelian-error rate within tolerance.',
+        },
+      ],
+    });
+
+    it('reads a warning that names the sample, never "all checks passed"', async () => {
+      mockApi(qc('warn', [unchecked]));
+      const { container } = renderPage();
+
+      expect(await screen.findByText(unchecked)).toBeInTheDocument();
+      const overall = container.querySelector('.qc-overall') as HTMLElement;
+      expect(overall).toHaveClass('qc-overall--warn');
+      expect(within(overall).getByText('Warning')).toBeInTheDocument();
+      expect(overall).toHaveTextContent('Some checks need attention');
+      expect(container).not.toHaveTextContent(/All sample-integrity checks passed/);
+
+      // The father's own verdict is a warning too, ring and table alike; the samples whose
+      // every check passed stay green.
+      await waitFor(() =>
+        expect(container.querySelector('[data-pedigree-node="FATHER"]')).toHaveAttribute(
+          'data-qc-status',
+          'warn',
+        ),
+      );
+      expect(pedigreeTooltip(container, 'FATHER')).toBe(noChrX);
+      expect(within(memberRow('FATHER')).getByText('Warning')).toBeInTheDocument();
+      expect(within(memberRow('FATHER')).queryByText('Pass')).not.toBeInTheDocument();
+      for (const sampleId of ['MOTHER', 'CHILD']) {
+        expect(container.querySelector(`[data-pedigree-node="${sampleId}"]`)).toHaveAttribute(
+          'data-qc-status',
+          'pass',
+        );
+        expect(within(memberRow(sampleId)).getByText('Pass')).toBeInTheDocument();
+      }
+    });
+
+    it('shows a warning even when the verdict it is given is a pass', async () => {
+      // A verdict rolled up before a check that could not run counted as a warning.
+      mockApi(qc('pass', []));
+      const { container } = renderPage();
+
+      expect(await screen.findByText('Family members & per-sample checks')).toBeInTheDocument();
+      const overall = container.querySelector('.qc-overall') as HTMLElement;
+      expect(overall).toHaveClass('qc-overall--warn');
+      expect(within(overall).getByText('Warning')).toBeInTheDocument();
+      expect(container).not.toHaveTextContent(/All sample-integrity checks passed/);
+      expect(within(memberRow('FATHER')).getByText('Warning')).toBeInTheDocument();
+    });
   });
 
   it('adapts to NIPT: paternity, fetal sex, parent sex + category QC, no relatedness matrix', async () => {
