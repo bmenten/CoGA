@@ -12,6 +12,7 @@ import {
 } from '../../lib/reference';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import { apiPath } from '../../lib/apiPath';
 
 const FamilyIgvPage: React.FC = () => {
@@ -23,12 +24,12 @@ const FamilyIgvPage: React.FC = () => {
   const backPathParam = searchParams.get('back_path') || undefined;
 
   const { data, isLoading, isError, error, refetch } = useQuery<
-    Pick<ApiFamilyRecord, 'members' | 'projects'>
+    Pick<ApiFamilyRecord, 'members' | 'projects' | 'metadata'>
   >({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
-      return res.data as Pick<ApiFamilyRecord, 'members' | 'projects'>;
+      return res.data as Pick<ApiFamilyRecord, 'members' | 'projects' | 'metadata'>;
     },
     enabled: !!familyId,
   });
@@ -36,6 +37,7 @@ const FamilyIgvPage: React.FC = () => {
   const {
     speciesName,
     assemblyName,
+    assemblyValidated,
     assemblyVersion,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -133,6 +135,10 @@ const FamilyIgvPage: React.FC = () => {
             Back
           </Link>
         </div>
+        <FamilyPageBanners
+          metadata={data.metadata}
+          assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+        />
       </section>
       <section className="viz-panel">
         <IgvViewer

@@ -3,6 +3,11 @@ import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import GenomeOverviewWorkspace from '../GenomeOverviewWorkspace';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+} from '../../../test/familyPageBanners';
 
 vi.mock('../../../components/visualizations/CoverageSegmentsChart', () => ({
   default: () => <div data-testid="coverage-chart" />,
@@ -136,6 +141,27 @@ describe('GenomeOverviewWorkspace', () => {
     expect(screen.getByRole('alert')).toHaveTextContent(
       "Could not load the chromosome lengths — this is not an empty result. HTTP 500 The samples' tracks are not shown until it loads.",
     );
+  });
+
+  // The overview draws the family's data like any family page: a partly imported family, or
+  // one off the validated scope, is said so in its header.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    renderWithoutTracks({
+      assembly: 'GRCh37',
+      assemblyValidated: false,
+      familyMetadata: INCOMPLETE_IMPORT_METADATA,
+    });
+
+    const header = screen.getByRole('heading', { name: 'Genome overview for family F1' }).closest('.page-top-card');
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
+  });
+
+  it('shows neither warning for a complete family inside the validated scope', () => {
+    renderWithoutTracks({ assemblyValidated: true, familyMetadata: {} });
+
+    expect(screen.queryByText('Import incomplete.')).not.toBeInTheDocument();
+    expect(screen.queryByText('Not validated for clinical use.')).not.toBeInTheDocument();
   });
 
   it('says a sample without tracks has no data once availability is known', () => {

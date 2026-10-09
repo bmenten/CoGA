@@ -4,7 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 import type { ApiNiptCoverageRegion, ApiNiptCoverageSummary, GenePanel } from '../../lib/apiTypes';
-import type { NiptGeneTargetsOut, NiptTargetCoverageGeneOut } from '../../lib/apiSchema.generated';
+import type { FamilyOut, NiptGeneTargetsOut, NiptTargetCoverageGeneOut } from '../../lib/apiSchema.generated';
+import { useFamilyReference } from '../../lib/reference';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
 import { depth, lowCoverageChipClass, lowCoverageDetail, niptGeneTerms, targetExon } from './niptClassification';
@@ -249,6 +252,29 @@ const FamilyNiptCoveragePage: React.FC = () => {
   const backTo = (location.state as { from?: string } | null)?.from || `/families/${familyId}/nipt`;
   const [filter, setFilter] = useState('');
 
+  // The family record, for what every family page warns of: an import of the family that
+  // partly failed or has not finished, and an assembly outside the validated scope.
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<Pick<FamilyOut, 'projects' | 'metadata'>>({
+    queryKey: ['family', familyId],
+    enabled: Boolean(familyId),
+    queryFn: async () => {
+      const res = await api.get(apiPath`/families/${familyId}`);
+      return res.data as Pick<FamilyOut, 'projects' | 'metadata'>;
+    },
+  });
+  const {
+    assemblyName,
+    assemblyValidated,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects, projectId);
+
   const {
     data: coverage,
     isLoading,
@@ -308,18 +334,45 @@ const FamilyNiptCoveragePage: React.FC = () => {
             </Link>
           </div>
         </div>
+        <FamilyPageBanners
+          metadata={family?.metadata}
+          assemblyScope={{
+            name: assemblyName,
+            validated: assemblyValidated,
+            unavailable: referenceFailed,
+            onRetry: retryReference,
+          }}
+        />
         {body}
       </section>
     );
   };
 
-  if (isLoading) {
+  if (isLoading || familyLoading) {
     return (
       <PageState
         loading
         kicker="Monogenic NIPT"
         title="Loading coverage"
         message="Reading the plasma's coverage of the capture targets."
+      />
+    );
+  }
+  // Without the family it is not known whether its import is complete: the coverage is not
+  // shown as if it were.
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Monogenic NIPT"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
+        action={
+          <Link className="button-secondary" to={backTo}>
+            Back to NIPT
+          </Link>
+        }
       />
     );
   }
