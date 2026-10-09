@@ -470,7 +470,9 @@ these statuses to find the risk haplotype. Mitochondrial inheritance gives no st
 status recorded for the parent wins: under `family.members`, in the carrier lists, or in
 the PED; where it contradicts the model, validation warns. Without an inheritance model the
 parent keeps its status, and validation says the model is missing. Validation also lists
-each status it derives, and the family keeps the list under `metadata.pgt`.
+each status it derives, as a warning; a derived carrier status names the model in the
+member's `carrier_evidence`. The family keeps the model, the carriers, the affected parents
+and the indexes under its own `metadata.pgt`.
 
 `metadata.pgt.indexes` names the index, the relative whose haplotypes the risk haplotype is
 read from (the samplesheet's `index`, which Discover copies), and gives it the status the
@@ -550,6 +552,12 @@ SV with both calls, and a sample's new SV file replaces only that sample's calls
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
 lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
 from the bucket for a package in a bucket.
+
+Every file a dataset names, per sample or for the whole family, is recorded in
+`raw_import_files` with its size and SHA-256 ([database.md](database.md)), whichever of its
+names the entry uses: a NIPT pair's coverage table under `target_table`, a PCF table under
+`maternal_file` as under `maternal`. The admin page lists these files with the family's data,
+and **Verify** checks them later.
 
 ### Monogenic NIPT pairs
 
@@ -634,10 +642,14 @@ other set of members gets no link, and a member without a TRGT VCF no sex. The w
 `snv.per_sample` with `source_format: clair3`
 ([per_sample_small_variants.py](../backend/app/services/per_sample_small_variants.py)):
 
-- The files are read side by side, each sorted in the order of its `##contig` lines; a file
-  sorted otherwise, or whose contigs are listed in another order, fails the dataset before
-  anything is written. Each file must hold one sample column, and that column must be the
-  entry's sample (`per_sample_vcf_column`): the partner's file under an entry is refused.
+- The files are read side by side, each sorted in the order of its `##contig` lines. A file
+  whose contigs are listed in another order than the others' fails the dataset before
+  anything is written. A record out of that order is found only as the files are read, once
+  writing has begun (an `overwrite` has then already deleted the stored callset): it fails
+  the dataset there, the rows already written are removed, and the family is put back or
+  flagged as for any failed dataset ([The import job](#the-import-job)). Each file must hold
+  one sample column, and that column must be the entry's sample (`per_sample_vcf_column`):
+  the partner's file under an entry is refused.
 - The records of one site (chromosome, position, REF and ALT) become one row holding the call
   of each sample whose file has a record there. Two records of one position whose alleles
   differ (`A>G`, `A>G,T`) are two rows; a multi-allelic record is not split.
@@ -763,19 +775,19 @@ page asks before it sends that.
 | Repeat expansions (TRGT VCF) | `POST /repeat-expansions/upload/{sample_id}` | Postgres |
 | Interval tracks (BED) | `POST /bed/upload/{sample_id}/{bed_type}` | ClickHouse |
 
-A file stored as one sample's -- a TRGT upload, and a package's per-sample `repeats_trgt`,
-`mito` (its chrM VCF and its chrM SV VCF) and `cnv` (HiFiCNV) files -- is read from that
-sample's own column (`per_sample_vcf_column`; a `mito` dataset checks all its files before it
-writes any):
+A file stored as one sample's -- a TRGT upload, a Sniffles or Spectre structural-variant
+upload, and a package's per-sample `repeats_trgt`, `mito` (its chrM VCF and its chrM SV VCF)
+and `cnv` (HiFiCNV) files -- is read from that sample's own column (`per_sample_vcf_column`; a
+`mito` dataset checks all its files before it writes any):
 
 - the column the shared sample-name rules resolve to the sample (`<sample>_sort`,
-  `<sample>_sv_phased`) is read, at any position, so a family TRGT or chrM VCF can serve each
-  member in turn;
+  `<sample>_sv_phased`) is read, at any position, so a family TRGT, Sniffles or chrM VCF can
+  serve each member in turn;
 - a single column that names no stored sample (a caller's placeholder, such as HiFiCNV's
   `Sample0`) belongs to the sample;
 - a file whose columns name other samples and none this one (a family member, or a sample
   of another family: sample ids are unique) is refused before anything is written, as is a
-  file with two columns for it: the upload with 400, a package dataset as failed;
+  file with two columns for it: an upload with 400, a package dataset as failed;
 - a package entry's `vcf_sample` is the operator's recorded word: the column it names is
   read, or, set to the entry's own sample, the file's one column. A lab that verified its
   tubes and maps a sample to a file named after another tube sets it.
@@ -806,6 +818,11 @@ calls are checked and replaced:
 - `source_format` is `sniffles`, `spectre`, `manual` (a TSV, stored as source `manual_upload`)
   or `auto`, the default, which works the caller out from the file. Any other value is
   refused (400).
+- A Sniffles or Spectre VCF is read from the sample's own column, by the rule above. A file
+  with no column for the sample (another member's, or a joint VCF without it) or with two, and
+  a VCF without exactly one `#CHROM` line before its records, is refused (400) before anything
+  is read or replaced. A manual TSV has no sample column: each of its rows is the sample's
+  call.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another
@@ -868,13 +885,14 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
-| "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. |
+| "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
+| "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
 | `nipt_pair_detected` (warning) | Discover took the folder for a monogenic NIPT pair. Check the sample it took for the maternal plasma and the one it took for the father. |
 | `dataset_per_sample_unsupported` | `snv.per_sample` in a family that is not `analysis_type: monogenic_nipt` and does not say `source_format: clair3`; for the long-read pipeline's per-sample calls set `source_format: clair3`, else give a joint VCF as `snv.family_vcf`. |
 | `ped_missing_path` | The manifest names no PED and no members under `family.add_members`. |
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when they are of opposite sex). Check them before writing the manifest. |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
-| `dataset_vcf_not_single_sample` | A VCF of a NIPT pair holds no sample column or more than one. |
+| `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
 | A per-target coverage import fails on `sample_interval_track_sources_track_type_check` | The Postgres database is older than the `target_coverage` track type; reset it ([database.md](database.md)). |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |

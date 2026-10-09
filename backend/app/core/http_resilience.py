@@ -1,14 +1,17 @@
-"""Resilient outbound HTTP for the external reference APIs (HGNC / Ensembl / NCBI /
-ClinGen / PanelApp / ...).
+"""Resilient outbound HTTP for the gene-info refresh's per-gene NCBI E-utilities requests
+(``services/gene_info_external.py``), the only caller. Every other outbound call (the bulk
+HGNC/ClinGen/GenCC/GENCODE/HPO downloads, Monarch, PanelApp, UCSC, GitHub releases) uses
+its own client with a fixed timeout and no retry; the ``EXTERNAL_HTTP_*`` settings do not
+apply to them.
 
 Standardised connect/read timeouts plus capped exponential-backoff retry with jitter on
 TRANSIENT failures (connection/timeout errors and 429/5xx). Retries are limited to
 IDEMPOTENT methods — a non-idempotent request is never retried, since a retry could
 double-execute it. The worst case is BOUNDED — roughly ``max_attempts × (connect + read)``
 (per-attempt request time dominates) plus the inter-attempt backoffs — so a slow or
-flapping upstream can neither stall a request indefinitely nor be hammered. The only
-current consumers are the background gene-info refresh job's reference lookups (not a
-user-blocking request handler), where that bound is comfortably acceptable.
+flapping upstream can neither stall a request indefinitely nor be hammered. The caller is
+the background gene-info refresh job (not a user-blocking request handler), where that
+bound is comfortably acceptable.
 
 Callers still call ``response.raise_for_status()`` — this layer only retries; it does not
 decide what a non-transient HTTP error means.

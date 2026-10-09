@@ -50,7 +50,7 @@ def swagger_token_client(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(
         auth_router,
         "create_access_token",
-        lambda data, expires_delta=None: "signed-token",
+        lambda data: "signed-token",
     )
 
     app.dependency_overrides[get_postgres_session] = override_get_postgres_session

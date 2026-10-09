@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from dataclasses import dataclass, field
 from typing import Any, Sequence
@@ -10,9 +9,6 @@ from .variant_annotation_parser import _spliceai_delta
 from .family_variant_filters import (
     SmallVariantQueryFilters,
 )
-
-
-logger = logging.getLogger(__name__)
 
 
 _KNOWN_ANNOTATION_KEYS = {

@@ -33,7 +33,7 @@ describe('ReferenceDocPage', () => {
   });
 
   // Every registered reference doc renders without error and exposes its title heading.
-  it.each(referenceDocs.map((doc) => [doc.slug, doc.title] as const))(
+  it.each(referenceDocs.map((doc) => doc.slug))(
     'renders the "%s" reference doc with an h1 ending in "— reference"',
     (slug) => {
       renderAt(`/docs/reference/${slug}`);

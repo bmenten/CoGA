@@ -175,6 +175,87 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(JSON.parse(JSON.stringify(body))).not.toHaveProperty('cnv_acmg');
   });
 
+  it('sends a quick tag toggle with the rest of the review: its class, its tags in order, its note', async () => {
+    const get = api.get as unknown as Mock;
+    const workingGet = get.getMockImplementation()!;
+    get.mockImplementation((url: string) =>
+      url.startsWith('/families/F1/structural-variants?page=1&page_size=100')
+        ? (workingGet(url) as Promise<{ data: { variants: Record<string, unknown>[] } }>).then((res) => ({
+            data: {
+              ...res.data,
+              variants: res.data.variants.map((variant) => ({
+                ...variant,
+                review: {
+                  variant_id: 'v1',
+                  // Stored as the bare class word: sent back as the class label.
+                  classification: 'likely pathogenic',
+                  tags: ['mosaic'],
+                  tag_metadata: {},
+                  note: 'Breakpoint in intron 10.',
+                  updated_at: '2026-10-01T10:00:00Z',
+                },
+              })),
+            },
+          }))
+        : workingGet(url),
+    );
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+            <Routes>
+              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+      fireEvent.click(screen.getAllByRole('button', { name: /^review$/i })[0]);
+      await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
+
+      const [path, body] = (api.put as unknown as Mock).mock.calls.at(-1)!;
+      expect(path).toBe('/families/F1/structural-variants/v1/review');
+      expect(JSON.parse(JSON.stringify(body))).toEqual({
+        classification: 'Likely Pathogenic - class 4',
+        tags: ['mosaic', 'review'],
+        note: 'Breakpoint in intron 10.',
+        expected_updated_at: '2026-10-01T10:00:00Z',
+      });
+    } finally {
+      get.mockImplementation(workingGet);
+    }
+  });
+
+  it('searches the region flags left ticked, each as its own parameter', async () => {
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    fireEvent.click(screen.getByLabelText('Segdup'));
+    fireEvent.click(screen.getByLabelText('Repeat'));
+    fireEvent.click(screen.getByLabelText('Segdup'));
+    expect(screen.getByLabelText('Segdup')).not.toBeChecked();
+    expect(screen.getByLabelText('Repeat')).toBeChecked();
+    fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+
+    const get = api.get as unknown as Mock;
+    await waitFor(() =>
+      expect(
+        get.mock.calls.some(([url]) => String(url).includes('region_flag=Repeat')),
+      ).toBe(true),
+    );
+    const searched = get.mock.calls
+      .map(([url]) => String(url))
+      .filter((url) => url.includes('region_flag='));
+    expect(searched.every((url) => !url.includes('Segdup'))).toBe(true);
+  });
+
   // #725 follow-up — a search that read only part of the callset says so above the table.
   describe('when the search read only part of the callset', () => {
     const get = api.get as unknown as Mock;

@@ -1,5 +1,6 @@
-# Copy to terraform.tfvars (gitignored) or pass via -var / CI. Image vars and
-# passwords are supplied by CI; you typically only set the project-level values here.
+# Copy to terraform.tfvars (gitignored) or pass via -var / CI. CI passes project_id,
+# region, cmek_key_self_link and the two images; no secret is a variable (the values live
+# in Secret Manager, docs/deployment-gcp.md section 5.5).
 
 project_id = "my-coga-project"
 region     = "europe-west1"

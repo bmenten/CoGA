@@ -537,6 +537,20 @@ def _verify_object_in_store(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _unlink_files(paths: Iterable[str]) -> int:
+    """Unlink each of ``paths`` that is a file; returns the number unlinked."""
+    removed = 0
+    for raw in paths:
+        try:
+            candidate = Path(raw)
+            if candidate.is_file():
+                candidate.unlink()
+                removed += 1
+        except OSError:
+            continue
+    return removed
+
+
 async def purge_family_managed_files(session: AsyncSession, family_uuid: str) -> int:
     """Delete managed file copies owned by a family from disk. Database rows cascade
     away when the family is removed. Returns the number of files unlinked."""
@@ -551,21 +565,7 @@ async def purge_family_managed_files(session: AsyncSession, family_uuid: str) ->
         ),
         {"family_uuid": family_uuid},
     )
-    paths: Iterable[str] = [row[0] for row in result.fetchall()]
-
-    def _unlink_all() -> int:
-        removed = 0
-        for raw in paths:
-            try:
-                candidate = Path(raw)
-                if candidate.is_file():
-                    candidate.unlink()
-                    removed += 1
-            except OSError:
-                continue
-        return removed
-
-    return await asyncio.to_thread(_unlink_all)
+    return await asyncio.to_thread(_unlink_files, [row[0] for row in result.fetchall()])
 
 
 async def purge_sample_managed_files(session: AsyncSession, sample_uuid: str) -> int:
@@ -582,18 +582,4 @@ async def purge_sample_managed_files(session: AsyncSession, sample_uuid: str) ->
         ),
         {"sample_uuid": sample_uuid},
     )
-    paths: Iterable[str] = [row[0] for row in result.fetchall()]
-
-    def _unlink_all() -> int:
-        removed = 0
-        for raw in paths:
-            try:
-                candidate = Path(raw)
-                if candidate.is_file():
-                    candidate.unlink()
-                    removed += 1
-            except OSError:
-                continue
-        return removed
-
-    return await asyncio.to_thread(_unlink_all)
+    return await asyncio.to_thread(_unlink_files, [row[0] for row in result.fetchall()])

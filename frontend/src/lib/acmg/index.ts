@@ -9,7 +9,6 @@ export {
   BENIGN_CRITERIA,
   STRENGTH_LABELS,
   STRENGTH_POINTS,
-  isAcmgCriterionCode,
 } from './criteria';
 export { computeClassification, selectionPoints, vusTierForPoints } from './score';
 export { evaluateAcmg, type AcmgVariantInput } from './evaluate';

@@ -88,6 +88,19 @@ def _gunzip_bounded(data: bytes, max_bytes: int, *, kind: str) -> bytes:
     return bytes(out)
 
 
+def _decoded_text(raw: bytes, max_decompressed_bytes: int, *, kind: str) -> str:
+    """``raw`` as UTF-8 text, gunzipped first (bounded) when its magic bytes say gzip."""
+    if raw[:2] == _GZIP_MAGIC:
+        raw = _gunzip_bounded(raw, max_decompressed_bytes, kind=kind)
+    try:
+        return raw.decode()
+    except UnicodeDecodeError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{kind} file must be UTF-8 text or gzipped UTF-8 text",
+        ) from exc
+
+
 def _read_stream_bounded(handle, max_bytes: int, *, kind: str) -> bytes:
     chunks: list[bytes] = []
     total = 0
@@ -129,15 +142,7 @@ def read_path_text_bounded(
     )
     with open(path, "rb") as handle:
         raw = _read_stream_bounded(handle, max_bytes, kind=kind)
-    if raw[:2] == _GZIP_MAGIC:
-        raw = _gunzip_bounded(raw, max_decompressed_bytes, kind=kind)
-    try:
-        return raw.decode()
-    except UnicodeDecodeError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{kind} file must be UTF-8 text or gzipped UTF-8 text",
-        ) from exc
+    return _decoded_text(raw, max_decompressed_bytes, kind=kind)
 
 
 async def decode_upload_text(file: UploadFile, *, kind: str) -> str:
@@ -148,12 +153,4 @@ async def decode_upload_text(file: UploadFile, *, kind: str) -> str:
     Raises 400 if the content is neither valid UTF-8 text nor valid gzip.
     """
     raw = await _read_upload_bounded(file, settings.max_upload_bytes, kind=kind)
-    if raw[:2] == _GZIP_MAGIC:
-        raw = _gunzip_bounded(raw, settings.max_decompressed_upload_bytes, kind=kind)
-    try:
-        return raw.decode()
-    except UnicodeDecodeError as exc:
-        raise HTTPException(
-            status_code=400,
-            detail=f"{kind} file must be UTF-8 text or gzipped UTF-8 text",
-        ) from exc
+    return _decoded_text(raw, settings.max_decompressed_upload_bytes, kind=kind)

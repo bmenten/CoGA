@@ -2,17 +2,20 @@ import type { ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
 
-// Repeat-expansion status palette. Each value is a getter so cssVar() (a
-// getComputedStyle flush) is only resolved when the palette is read. Shared by
-// RepeatExpansionTrack and GenomeRepeatExpansionTrack.
-export const STATUS_COLORS = {
-  normal: () => cssVar('--color-repeat-normal'),
-  review: () => cssVar('--color-repeat-review'),
-  intermediate: () => cssVar('--color-repeat-intermediate'),
-  premutation: () => cssVar('--color-repeat-premutation'),
-  pathogenic: () => cssVar('--color-repeat-pathogenic'),
-  unknown: () => cssVar('--color-repeat-unknown'),
-};
+/**
+ * The repeat tracks' colours: one per status, and the track's grid line. Each is a cssVar()
+ * (a getComputedStyle flush), so a track reads them once, in a memo, and never per locus in
+ * its render. Shared by RepeatExpansionTrack and GenomeRepeatExpansionTrack.
+ */
+export const repeatTrackColors = () => ({
+  normal: cssVar('--color-repeat-normal'),
+  review: cssVar('--color-repeat-review'),
+  intermediate: cssVar('--color-repeat-intermediate'),
+  premutation: cssVar('--color-repeat-premutation'),
+  pathogenic: cssVar('--color-repeat-pathogenic'),
+  unknown: cssVar('--color-repeat-unknown'),
+  grid: cssVar('--color-grid'),
+});
 
 // The statuses a track draws in their own colour; any other is drawn, and counted, as unknown.
 const CALLED_STATUSES = new Set<string>(['normal', 'review', 'intermediate', 'premutation', 'pathogenic']);

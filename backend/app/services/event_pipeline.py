@@ -49,11 +49,6 @@ def dropped_event_count(name: str) -> int:
     return _dropped_counts.get(name, 0)
 
 
-def reset_dropped_event_counts() -> None:
-    """Test hook: clear the drop tallies."""
-    _dropped_counts.clear()
-
-
 def _increment_drop(name: str) -> int:
     _dropped_counts[name] = _dropped_counts.get(name, 0) + 1
     return _dropped_counts[name]

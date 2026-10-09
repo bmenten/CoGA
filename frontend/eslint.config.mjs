@@ -1,6 +1,6 @@
-// Flat ESLint config (ESLint 9). Ports the former .eslintrc.cjs — eslint:recommended
-// + @typescript-eslint/recommended + react/recommended + prettier — scoped to the
-// TypeScript sources (matching the old `eslint . --ext .ts,.tsx`).
+// Flat ESLint config (ESLint 9) over the TypeScript sources: eslint:recommended,
+// typescript-eslint's recommended, the react, react-hooks and jsx-a11y rules below, and
+// eslint-config-prettier last, which turns off the rules that only concern formatting.
 //
 // typescript-eslint's recommended config also disables the core ESLint rules that the
 // TypeScript compiler already covers (no-undef, core no-unused-vars, …); tsc runs as a
@@ -35,8 +35,8 @@ export default tseslint.config(
       'jsx-a11y/aria-role': ['error', { ignoreNonDOM: true }],
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'error',
-      // Still a warning: the remaining `any`s are counted by the --max-warnings budget
-      // in package.json, which only ever goes down.
+      // A warning, but `npm run lint` allows none (--max-warnings 0 in package.json), so
+      // an `any` fails the gate like an error.
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': 'error',
       'react/react-in-jsx-scope': 'off',

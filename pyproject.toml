@@ -20,7 +20,7 @@ select = ["E9", "E402", "F", "B023", "B904", "ASYNC", "BLE001", "RUF100"]
 "scripts/**" = ["ASYNC"]
 # Its backend imports follow ensure_backend_runtime(), which re-runs the script under the
 # backend's virtualenv when the current interpreter lacks the dependencies.
-"scripts/load_demo_quartet.py" = ["ASYNC", "E402"]
+"scripts/load_demo_quartet.py" = ["E402"]
 "backend/tests/**" = ["ASYNC"]
 
 # Type-check gate (#526), run by the `backend` CI job over the clinical-critical modules:

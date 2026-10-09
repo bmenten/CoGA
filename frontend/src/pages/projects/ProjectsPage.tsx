@@ -11,7 +11,7 @@ import type {
 } from '../../lib/apiTypes';
 import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
-import { isAdmin } from '../../lib/auth';
+import { formatShortDate } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
 
@@ -81,22 +81,12 @@ const uploadedDateMs = (family: Project['families'][number]) => {
   return Number.isFinite(timestamp) ? timestamp : 0;
 };
 
-const formatUploadedDate = (value?: string) => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date);
-};
-
 const familySampleIds = (family: Project['families'][number]) =>
   family.members.map((member) => member.sample_id);
 
+// Mounted only behind RequireAdmin (/admin/access/projects and /projects in index.tsx), so
+// every control is an administrator's.
 const ProjectsPage: React.FC = () => {
-  const userIsAdmin = isAdmin();
   const queryClient = useQueryClient();
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -143,7 +133,6 @@ const ProjectsPage: React.FC = () => {
       const res = await api.get('/auth/users');
       return (res.data as User[]).map((entry) => withEntityId(entry));
     },
-    enabled: userIsAdmin,
   });
 
   const speciesNameById = useMemo(
@@ -362,18 +351,16 @@ const ProjectsPage: React.FC = () => {
               <span className="badge-chip">Families {projectTotals.families}</span>
               <span className="badge-chip">Samples {projectTotals.samples}</span>
             </div>
-            {userIsAdmin && (
-              <button
-                type="button"
-                className={createFormOpen ? 'button-secondary' : 'form-button'}
-                onClick={() => {
-                  setCreateFormOpen((current) => !current);
-                  setStatus(null);
-                }}
-              >
-                {createFormOpen ? 'Close new project form' : 'Create new project'}
-              </button>
-            )}
+            <button
+              type="button"
+              className={createFormOpen ? 'button-secondary' : 'form-button'}
+              onClick={() => {
+                setCreateFormOpen((current) => !current);
+                setStatus(null);
+              }}
+            >
+              {createFormOpen ? 'Close new project form' : 'Create new project'}
+            </button>
           </div>
         </div>
       </section>
@@ -384,7 +371,7 @@ const ProjectsPage: React.FC = () => {
         </p>
       )}
 
-      {userIsAdmin && createFormOpen && (
+      {createFormOpen && (
         <section className="surface-card-flat space-y-5">
           <div className="page-header">
             <div className="space-y-2">
@@ -615,26 +602,24 @@ const ProjectsPage: React.FC = () => {
                   {pluralize(selectedProject.families.length, 'family', 'families')} ·{' '}
                   {pluralize(getProjectSampleCount(selectedProject), 'sample')}
                 </span>
-                {userIsAdmin && (
-                  <div className="inline-actions">
-                    <button
-                      type="button"
-                      className="button-secondary"
-                      disabled={busy === `save:${selectedProject.id}`}
-                      onClick={handleSaveProject}
-                    >
-                      {busy === `save:${selectedProject.id}` ? 'Saving…' : 'Save settings'}
-                    </button>
-                    <button
-                      type="button"
-                      className="button-danger"
-                      disabled={busy === `delete:${selectedProject.id}`}
-                      onClick={() => handleDeleteProject(selectedProject.id)}
-                    >
-                      Delete project
-                    </button>
-                  </div>
-                )}
+                <div className="inline-actions">
+                  <button
+                    type="button"
+                    className="button-secondary"
+                    disabled={busy === `save:${selectedProject.id}`}
+                    onClick={handleSaveProject}
+                  >
+                    {busy === `save:${selectedProject.id}` ? 'Saving…' : 'Save settings'}
+                  </button>
+                  <button
+                    type="button"
+                    className="button-danger"
+                    disabled={busy === `delete:${selectedProject.id}`}
+                    onClick={() => handleDeleteProject(selectedProject.id)}
+                  >
+                    Delete project
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -712,7 +697,7 @@ const ProjectsPage: React.FC = () => {
                             <tr key={family.family_id}>
                               <td>{family.family_id}</td>
                               <td className="project-family-uploaded-cell" title={family.created_at ?? undefined}>
-                                {formatUploadedDate(family.created_at)}
+                                {formatShortDate(family.created_at)}
                               </td>
                               <td>{family.members.length}</td>
                               <td>
@@ -736,103 +721,93 @@ const ProjectsPage: React.FC = () => {
               </div>
 
               <div className="project-detail-side">
-                {userIsAdmin && (
-                  <div className="surface-card-muted space-y-4">
-                    <h3 className="section-title">Settings</h3>
-                    <div className="field-grid project-form-grid">
-                      <label className="field-label">
-                        Title
-                        <input
-                          value={editForm.name}
-                          onChange={(event) =>
-                            setEditForm((current) => ({ ...current, name: event.target.value }))
-                          }
-                        />
-                      </label>
-                      <label className="field-label">
-                        Notes
-                        <textarea
-                          value={editForm.description}
-                          onChange={(event) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              description: event.target.value,
-                            }))
-                          }
-                        />
-                      </label>
-                      <label className="field-label">
-                        Organism
-                        <select
-                          value={editForm.speciesId}
-                          onChange={(event) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              speciesId: event.target.value,
-                              assemblyId: '',
-                            }))
-                          }
-                        >
-                          <option value="">Select organism</option>
-                          {species.map((entry) => (
-                            <option key={entry.id} value={entry.id}>
-                              {entry.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      <label className="field-label">
-                        Assembly
-                        <select
-                          value={editForm.assemblyId}
-                          onChange={(event) =>
-                            setEditForm((current) => ({
-                              ...current,
-                              assemblyId: event.target.value,
-                            }))
-                          }
-                          disabled={!editForm.speciesId}
-                        >
-                          <option value="">Select assembly</option>
-                          {editAssemblies.map((entry) => (
-                            <option key={entry.id} value={entry.id}>
-                              {entry.assembly_name} {entry.version}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    </div>
+                <div className="surface-card-muted space-y-4">
+                  <h3 className="section-title">Settings</h3>
+                  <div className="field-grid project-form-grid">
+                    <label className="field-label">
+                      Title
+                      <input
+                        value={editForm.name}
+                        onChange={(event) =>
+                          setEditForm((current) => ({ ...current, name: event.target.value }))
+                        }
+                      />
+                    </label>
+                    <label className="field-label">
+                      Notes
+                      <textarea
+                        value={editForm.description}
+                        onChange={(event) =>
+                          setEditForm((current) => ({
+                            ...current,
+                            description: event.target.value,
+                          }))
+                        }
+                      />
+                    </label>
+                    <label className="field-label">
+                      Organism
+                      <select
+                        value={editForm.speciesId}
+                        onChange={(event) =>
+                          setEditForm((current) => ({
+                            ...current,
+                            speciesId: event.target.value,
+                            assemblyId: '',
+                          }))
+                        }
+                      >
+                        <option value="">Select organism</option>
+                        {species.map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            {entry.name}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field-label">
+                      Assembly
+                      <select
+                        value={editForm.assemblyId}
+                        onChange={(event) =>
+                          setEditForm((current) => ({
+                            ...current,
+                            assemblyId: event.target.value,
+                          }))
+                        }
+                        disabled={!editForm.speciesId}
+                      >
+                        <option value="">Select assembly</option>
+                        {editAssemblies.map((entry) => (
+                          <option key={entry.id} value={entry.id}>
+                            {entry.assembly_name} {entry.version}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
                   </div>
-                )}
+                </div>
 
                 <div className="surface-card-muted space-y-4">
                   <h3 className="section-title">User access</h3>
-                  {userIsAdmin ? (
-                    users.length > 0 ? (
-                      <div className="table-checkbox-grid project-access-grid">
-                        {users.map((user) => {
-                          const checked = editForm.userIds.includes(user.id);
-                          return (
-                            <label key={user.id} className="admin-project-chip">
-                              <input
-                                type="checkbox"
-                                checked={checked}
-                                onChange={() => toggleUserId(setEditForm, user.id)}
-                              />
-                              <span>{getUserLabel(user)}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                    ) : (
-                      <p className="table-empty">No users are available for project assignment.</p>
-                    )
+                  {users.length > 0 ? (
+                    <div className="table-checkbox-grid project-access-grid">
+                      {users.map((user) => {
+                        const checked = editForm.userIds.includes(user.id);
+                        return (
+                          <label key={user.id} className="admin-project-chip">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleUserId(setEditForm, user.id)}
+                            />
+                            <span>{getUserLabel(user)}</span>
+                          </label>
+                        );
+                      })}
+                    </div>
                   ) : (
-                    <p className="catalog-card-copy">
-                      {(selectedProject.user_ids ?? []).length > 0
-                        ? 'This project has restricted user access configured by an administrator.'
-                        : 'No explicit user list is shown in viewer mode.'}
-                    </p>
+                    <p className="table-empty">No users are available for project assignment.</p>
                   )}
                 </div>
               </div>

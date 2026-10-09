@@ -256,7 +256,7 @@ project yet. Each item below is therefore written and reviewable, without deploy
 | --- | --- |
 | S-1 encryption at rest | 🟡 CMEK on the database, the disks and both buckets, in Terraform |
 | S-2 TLS to the datastores | 🟡 supported by the app; set in Terraform |
-| S-3 secrets | 🟡 six application secrets in Secret Manager, their values added by hand, plus the ClickHouse TLS key and certificate that Terraform generates; Cloud Run reads them by reference; no rotation automation |
+| S-3 secrets | 🟡 seven application secrets in Secret Manager (the metrics token among them), their values added by hand, plus the ClickHouse TLS key and certificate that Terraform generates; Cloud Run reads them by reference; no rotation automation |
 | S-4 byte-level download audit | ⛔ open: configured only in the central infra template, and PHI is not yet served from a bucket |
 | S-8 network | 🟡 private database and ClickHouse, no SSH, Cloud Run reachable only through the load balancer, Cloud Armor; the WAF enforcement, the institutional IP allowlist and the ClickHouse egress lockdown are go-live switches |
 

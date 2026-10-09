@@ -4,6 +4,7 @@ import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { apiPath } from '../../lib/apiPath';
 import { getErrorMessage } from '../../lib/errorMessage';
+import type { ProjectOption } from './dataManagementTypes';
 
 interface User {
   id: string;
@@ -14,11 +15,6 @@ interface User {
   role: string;
   is_active: boolean;
   projects: string[];
-}
-
-interface Project {
-  id: string;
-  name: string;
 }
 
 const UserListPage: React.FC = () => {
@@ -47,7 +43,7 @@ const UserListPage: React.FC = () => {
     data: projects = [],
     isLoading: projectsLoading,
     error: projectsError,
-  } = useQuery<Project[]>({
+  } = useQuery<ProjectOption[]>({
     queryKey: ['admin', 'projects'],
     queryFn: async () => {
       const response = await api.get('/projects');

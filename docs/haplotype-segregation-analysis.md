@@ -13,9 +13,10 @@ the code. This note covers the implementation.
 Pedigree IBD matching reads every phased site and re-derives each relative's colour, which is too slow
 for the genome overview on every page load. So:
 
-- **Genome overview** — served from a precompute. After a family import, a PED upload, a structure save or a member edit,
-  CoGA runs the genome-wide IBD once in the background and stores it as a `haplotype_lineage` interval
-  track (the two lane tags packed into the `origin` column).
+- **Genome overview** — served from a precompute. After a family import, a PED upload, a structure save,
+  a member edit or a change of the region of interest, CoGA runs the genome-wide IBD once in the
+  background and stores it as a `haplotype_lineage` interval track (the two lane tags packed into the
+  `origin` column).
 - **Chromosome view and ROI** — computed on demand for the visible window only, which is cheap and gives
   untruncated breakpoints where the clinical call is made.
 
@@ -108,7 +109,7 @@ overlay is hidden.
   (`precompute_family_haplotype_lineage`, the hash-guarded read `_fetch_precomputed_lineage` used by
   `_apply_haplotype_lineage_genomewide`, and the best-effort background refresh
   `precompute_family_lineage_safe`). Triggered by `family_package_import.py`, `routers/families.py`
-  (member and structure edits) and `routers/ped.py`.
+  (member, structure and region-of-interest edits) and `routers/ped.py`.
 - **Raw phased markers and per-child QC** — `backend/app/services/phased_marker_service.py`
   (`compute_phased_markers`: per-site lane values for the couple's children, trio and single-parent
   modes, the informative-site count and Mendel-error rate, the fetch cap).

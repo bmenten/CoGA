@@ -51,6 +51,10 @@ export const NIPT_INHERITANCE_GROUPS: NiptInheritanceGroup[] = [
   },
 ];
 
+/** The terms of a NIPT search's gene query, split as the backend splits it. */
+export const niptGeneTerms = (gene?: string): string[] =>
+  gene ? gene.split(/[\s,;]+/).filter(Boolean) : [];
+
 export const pct = (value?: number | null): string =>
   value == null ? '—' : `${(value * 100).toFixed(1)}%`;
 

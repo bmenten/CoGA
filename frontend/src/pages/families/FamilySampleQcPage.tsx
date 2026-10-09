@@ -18,6 +18,7 @@ import type {
   QcStatus,
 } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import { useFamilyReference } from '../../lib/reference';
 import { parsePedigree } from '../../lib/pedigree';
 
 const OVERALL_COPY: Record<QcStatus, string> = {
@@ -26,8 +27,6 @@ const OVERALL_COPY: Record<QcStatus, string> = {
   fail: 'A check failed. Resolve possible sample swaps or pedigree errors before interpretation.',
   skip: 'Sample-integrity QC could not run (no genotypes available).',
 };
-
-const worstStatus = worstQcStatus;
 
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
   <span className={QC_STATUS_CHIP[status]}>{QC_STATUS_LABEL[status]}</span>
@@ -105,7 +104,7 @@ const buildQcStatusBySample = (
 
   const result: Record<string, PedigreeQcStatus> = {};
   byId.forEach((entry, id) => {
-    const status = worstStatus(entry.statuses);
+    const status = worstQcStatus(entry.statuses);
     if (status === 'skip') return; // no ring when nothing actually ran for this sample
     result[id] = {
       status,
@@ -373,6 +372,13 @@ const FamilySampleQcPage: React.FC = () => {
       return res.data as ApiFamilyRecord;
     },
   });
+  // The family's assembly, for the validated-scope warning every family page carries.
+  const {
+    assemblyName,
+    assemblyValidated,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects);
 
   if (!familyId) {
     return <PageState kicker="Sample QC" title="Family not specified" />;
@@ -429,6 +435,12 @@ const FamilySampleQcPage: React.FC = () => {
   return (
     <div className="page-shell space-y-6">
       <FamilyPageHeader
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker={`Sample-integrity QC · ${qc.application_label || qc.application}`}
         familyId={familyId}
         family={family}
@@ -496,7 +508,8 @@ const FamilySampleQcPage: React.FC = () => {
           <p className="table-subtle">
             Pairwise kinship (φ) and IBS0, coloured by the inferred relationship (lower triangle —
             the matrix is symmetric). Pairs whose observed relationship contradicts the pedigree —
-            including co-parents who look related (consanguinity) — are outlined in red.
+            including co-parents who look related (consanguinity) — are outlined: red for a fail,
+            amber for a warning.
           </p>
           <RelatednessMatrix samples={relatednessSamples} checks={qc.relatedness_checks} />
         </section>

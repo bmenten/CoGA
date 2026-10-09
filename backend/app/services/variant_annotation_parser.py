@@ -239,20 +239,17 @@ def update_annotation_header_state(state: AnnotationHeaderState, line: str) -> N
 def _annotation_entries(
     info: Dict[str, str],
     state: AnnotationHeaderState,
-) -> tuple[List[str], List[Dict[str, str]]]:
-    if state.csq_fields and info.get("CSQ"):
-        raw_entries = [entry for entry in info["CSQ"].split(",") if entry]
-        return state.csq_fields, [
-            {field: value for field, value in zip(state.csq_fields, entry.split("|"))}
-            for entry in raw_entries
-        ]
-    if state.ann_fields and info.get("ANN"):
-        raw_entries = [entry for entry in info["ANN"].split(",") if entry]
-        return state.ann_fields, [
-            {field: value for field, value in zip(state.ann_fields, entry.split("|"))}
-            for entry in raw_entries
-        ]
-    return [], []
+) -> List[Dict[str, str]]:
+    """The record's ``CSQ`` entries (VEP), else its ``ANN`` entries (snpEff), each as a
+    field -> value map by the field list its header declares; none without either."""
+    for fields, key in ((state.csq_fields, "CSQ"), (state.ann_fields, "ANN")):
+        if fields and info.get(key):
+            return [
+                {field: value for field, value in zip(fields, entry.split("|"))}
+                for entry in info[key].split(",")
+                if entry
+            ]
+    return []
 
 
 def _apply_numeric_and_population_aliases(
@@ -340,9 +337,6 @@ def _base_info_annotation(info: Dict[str, str]) -> Dict[str, Any]:
             annotation[key] = value
 
     _apply_numeric_and_population_aliases(info, annotation, extra_seed={}, population_seed={})
-
-    if not annotation:
-        return {}
     return annotation
 
 
@@ -384,7 +378,7 @@ def extract_small_variant_annotations(
     state: AnnotationHeaderState,
 ) -> List[Dict[str, Any]]:
     base_annotation = _base_info_annotation(info)
-    _, raw_entries = _annotation_entries(info, state)
+    raw_entries = _annotation_entries(info, state)
 
     if raw_entries:
         annotations = [

@@ -96,9 +96,9 @@ def _string_list(values: list[Any] | tuple[Any, ...] | None) -> list[str]:
 async def _family_rows(
     session: AsyncSession,
     *,
-    search: str | None = None,
-    page: int | None = None,
-    page_size: int | None = None,
+    search: str | None,
+    page: int,
+    page_size: int,
 ) -> tuple[int, list[dict[str, Any]]]:
     pattern = _search_pattern(search)
     where_clause = ""
@@ -130,11 +130,8 @@ async def _family_rows(
     )
     total = int(total_result.scalar_one() or 0)
 
-    pagination = ""
-    if page is not None and page_size is not None:
-        pagination = " OFFSET :offset LIMIT :limit"
-        params["offset"] = max(page - 1, 0) * page_size
-        params["limit"] = page_size
+    params["offset"] = max(page - 1, 0) * page_size
+    params["limit"] = page_size
 
     result = await session.execute(
         text(
@@ -162,7 +159,7 @@ async def _family_rows(
             {where_clause}
             GROUP BY f.id
             ORDER BY lower(f.family_id)
-            {pagination}
+            OFFSET :offset LIMIT :limit
             """
         ),
         params,
@@ -503,42 +500,39 @@ async def get_family_data_inventory_detail(
     *,
     family_id: str,
 ) -> FamilyInventoryDetailOut:
-    total, family_rows = await _family_rows(session, search=family_id)
-    family_row = next((row for row in family_rows if row["family_id"] == family_id), None)
-    if family_row is None:
-        result = await session.execute(
-            text(
-                """
-                SELECT
-                    f.id::text AS family_uuid,
-                    f.family_id,
-                    f.metadata,
-                    COALESCE(
-                        ARRAY_AGG(DISTINCT fp.project_id::text)
-                        FILTER (WHERE fp.project_id IS NOT NULL),
-                        '{}'::text[]
-                    ) AS project_ids,
-                    COALESCE(
-                        ARRAY_AGG(DISTINCT a.assembly_name)
-                        FILTER (WHERE a.assembly_name IS NOT NULL),
-                        '{}'::text[]
-                    ) AS assembly_names,
-                    COUNT(DISTINCT fm.sample_id) AS sample_count
-                FROM families f
-                LEFT JOIN family_projects fp ON fp.family_id = f.id
-                LEFT JOIN projects p ON p.id = fp.project_id
-                LEFT JOIN assemblies a ON a.id = p.assembly_id
-                LEFT JOIN family_members fm ON fm.family_id = f.id
-                WHERE f.family_id = :family_id
-                GROUP BY f.id
-                """
-            ),
-            {"family_id": family_id},
-        )
-        family_row = result.mappings().first()
-        if family_row is None:
-            raise HTTPException(status_code=404, detail="Family not found")
-        family_row = dict(family_row)
+    result = await session.execute(
+        text(
+            """
+            SELECT
+                f.id::text AS family_uuid,
+                f.family_id,
+                f.metadata,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT fp.project_id::text)
+                    FILTER (WHERE fp.project_id IS NOT NULL),
+                    '{}'::text[]
+                ) AS project_ids,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT a.assembly_name)
+                    FILTER (WHERE a.assembly_name IS NOT NULL),
+                    '{}'::text[]
+                ) AS assembly_names,
+                COUNT(DISTINCT fm.sample_id) AS sample_count
+            FROM families f
+            LEFT JOIN family_projects fp ON fp.family_id = f.id
+            LEFT JOIN projects p ON p.id = fp.project_id
+            LEFT JOIN assemblies a ON a.id = p.assembly_id
+            LEFT JOIN family_members fm ON fm.family_id = f.id
+            WHERE f.family_id = :family_id
+            GROUP BY f.id
+            """
+        ),
+        {"family_id": family_id},
+    )
+    found = result.mappings().first()
+    if found is None:
+        raise HTTPException(status_code=404, detail="Family not found")
+    family_row = dict(found)
 
     sample_rows = (await _sample_rows_by_family(session, [family_row["family_uuid"]]))[family_row["family_uuid"]]
     contexts = await _family_assembly_contexts(
@@ -878,13 +872,7 @@ async def delete_family_data_by_type(
         raise HTTPException(status_code=400, detail="Invalid data type")
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
-    result = await session.execute(
-        text("SELECT id::text AS family_uuid FROM families WHERE family_id = :family_id"),
-        {"family_id": family_id},
-    )
-    family_uuid = result.scalar_one_or_none()
-    if family_uuid is None:
-        raise HTTPException(status_code=404, detail="Family not found")
+    family_uuid = await _resolve_family_uuid(session, family_id)
     sample_rows = (await _sample_rows_by_family(session, [family_uuid]))[family_uuid]
     contexts = await _family_assembly_contexts(
         session,
@@ -929,7 +917,6 @@ async def delete_sample_with_data(
     # sample is gone.
     await lock_family_variant_writes(session, sample_row["family_uuid"], VARIANT_TYPES)
 
-    bed_deleted = 0
     for context in contexts:
         if not context.assembly_name:
             continue
@@ -1017,13 +1004,7 @@ async def delete_family_with_data(
 ) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
-    result = await session.execute(
-        text("SELECT id::text AS family_uuid FROM families WHERE family_id = :family_id"),
-        {"family_id": family_id},
-    )
-    family_uuid = result.scalar_one_or_none()
-    if family_uuid is None:
-        raise HTTPException(status_code=404, detail="Family not found")
+    family_uuid = await _resolve_family_uuid(session, family_id)
     sample_rows = (await _sample_rows_by_family(session, [family_uuid]))[family_uuid]
     contexts = await _family_assembly_contexts(
         session,

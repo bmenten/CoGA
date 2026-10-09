@@ -4,11 +4,10 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
-import { cssVar } from '../../lib/colors';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
-import { RepeatLocusTooltip, STATUS_COLORS, describeRepeatLoci } from './repeatExpansionHelpers';
+import { RepeatLocusTooltip, describeRepeatLoci, repeatTrackColors } from './repeatExpansionHelpers';
 import { apiPath } from '../../lib/apiPath';
 
 interface Props {
@@ -115,21 +114,9 @@ const RepeatExpansionTrack: React.FC<Props> = ({
     y: number;
   } | null>(null);
 
-  // Resolve the status palette once: STATUS_COLORS values call cssVar()
-  // (getComputedStyle), so they must not run per locus inside the render map —
-  // which re-runs on every mousemove tooltip update.
-  const statusColors = useMemo(
-    () => ({
-      normal: STATUS_COLORS.normal(),
-      review: STATUS_COLORS.review(),
-      intermediate: STATUS_COLORS.intermediate(),
-      premutation: STATUS_COLORS.premutation(),
-      pathogenic: STATUS_COLORS.pathogenic(),
-      unknown: STATUS_COLORS.unknown(),
-      grid: cssVar('--color-grid'),
-    }),
-    [],
-  );
+  // Resolved once: not per locus inside the render map, which re-runs on every
+  // mousemove tooltip update.
+  const statusColors = useMemo(() => repeatTrackColors(), []);
 
   const trackY = Math.max(2, Math.floor(height * 0.28));
   const trackHeight = Math.max(height - trackY * 2, 6);

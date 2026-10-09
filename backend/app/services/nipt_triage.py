@@ -272,7 +272,8 @@ class RecessiveGeneRisk:
     maternal: list[RecessiveAllele]
     paternal: list[RecessiveAllele]
     # P(the fetus inherited a maternal and a paternal allele), the highest over the
-    # gene's allele pairs; None when no pair's inheritances could both be read.
+    # gene's allele pairs (recessive_gene_risks always sets it: an inheritance the cfDNA
+    # did not tell is read with the 1/2 prior, risk_uses_prior below).
     risk: float | None
     maternal_variant_id: str | None
     paternal_variant_id: str | None

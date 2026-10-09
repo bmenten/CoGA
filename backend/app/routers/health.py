@@ -1,13 +1,15 @@
 """Liveness and readiness probes (unauthenticated, no PHI).
 
-``/api/health`` is a pure liveness check used by the container healthcheck, the
-CI smoke test and the frontend proxy. It returns 200 as soon as the application
-has finished starting up — exactly the signal that was missing when the backend
-crash-looped on startup and the only symptom was "Unable to reach API".
+``/api/health`` is a pure liveness check: the compose healthcheck, the Cloud Run startup
+probe and the uptime check (terraform/), the CI smoke test and the Playwright harness
+poll it. It returns 200 as soon as the application has finished starting up — exactly
+the signal that was missing when the backend crash-looped on startup and the only
+symptom was "Unable to reach API".
 
-``/api/health/ready`` additionally confirms Postgres and ClickHouse are
-reachable, returning 503 when a datastore is down so an orchestrator can hold
-traffic until the backend is truly ready.
+``/api/health/ready`` additionally confirms Postgres and ClickHouse are reachable,
+returning 503 when a datastore is down, so an orchestrator could hold traffic until the
+backend is truly ready. No probe polls it: only the CI smoke test and the manual check in
+docs/deployment-gcp.md read it.
 """
 
 from __future__ import annotations

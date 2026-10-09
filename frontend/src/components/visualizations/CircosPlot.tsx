@@ -10,6 +10,7 @@ import { getStainColor } from '../../lib/stainColors';
 import { escapeHtml } from '../../lib/escapeHtml';
 import { countOf } from '../../lib/countOf';
 import { NUCLEAR_CHROMOSOMES } from '../../lib/chromosomes';
+import { svTypeColors } from './svTypes';
 
 interface IdeogramBand {
   name: string;
@@ -343,16 +344,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
   onChromosomeClickRef.current = onChromosomeClick;
   onVariantClickRef.current = onVariantClick;
 
-  const typeColors = useMemo<Record<string, string>>(
-    () => ({
-      DEL: cssVar('--color-variant-del'),
-      DUP: cssVar('--color-variant-dup'),
-      INS: cssVar('--color-variant-ins'),
-      INV: cssVar('--color-variant-inv'),
-      BND: cssVar('--color-variant-bnd'),
-    }),
-    [],
-  );
+  const typeColors = useMemo(() => svTypeColors(), []);
 
   const sortedChroms = useMemo<Chromosome[]>(
     () =>

@@ -336,16 +336,6 @@ class HomologResolver:
         return value
 
 
-def _as_resolver(
-    anchor_homologs: "HomologResolver | dict[int, HomologAssignment]",
-) -> HomologResolver:
-    """Accept either a position-aware resolver (BFS propagation) or a flat homolog
-    map (founders / existing test fixtures), normalising to a resolver."""
-    if isinstance(anchor_homologs, HomologResolver):
-        return anchor_homologs
-    return HomologResolver.from_flat(anchor_homologs)
-
-
 @dataclass(slots=True)
 class ColouredMember:
     """A member whose homologs have been assigned colours, usable as an anchor to
@@ -629,7 +619,7 @@ def _segment_relative_blocks(
     positions: list[int],
     rel_alleles: dict[int, tuple[int, int]],
     anc_alleles: dict[int, tuple[int, int]],
-    anchor_homologs: "HomologResolver | dict[int, HomologAssignment]",
+    anchor_homologs: HomologResolver,
     match: MatchResult,
     region_start: int,
     region_end: int,
@@ -645,10 +635,9 @@ def _segment_relative_blocks(
     colour for the matched anchor homolog; the other lane is grey. Adjacent blocks
     with the same colouring are merged.
 
-    The anchor's colour is resolved *per position* (``anchor_homologs`` may be a
-    :class:`HomologResolver` whose colour for a raw homolog changes mid-chromosome
-    because the anchor itself crossed over). A flat ``{idx: assignment}`` dict is also
-    accepted (founders / test fixtures) and treated as position-independent.
+    The anchor's colour is resolved *per position*: ``anchor_homologs`` is a
+    :class:`HomologResolver`, whose colour for a raw homolog changes mid-chromosome when
+    the anchor itself crossed over (a founder's is flat: ``HomologResolver.from_flat``).
 
     Returns ``(blocks, global_assignment, resolver)``:
       * ``global_assignment`` — the relative's chromosome-level homolog map (from the
@@ -657,7 +646,7 @@ def _segment_relative_blocks(
         per-segment crossover runs, so the NEXT hop reads the correct shade at each
         position instead of one wrong shade across a post-crossover span (fix H3).
     """
-    resolver = _as_resolver(anchor_homologs)
+    resolver = anchor_homologs
     rel_runs = _smooth_runs(
         _relative_index_pins(positions, rel_alleles, anc_alleles),
         fallback=match.relative_idx,
@@ -1091,7 +1080,7 @@ def annotate_lineage(
 
     if not two_parent and single_known is None:
         # No identifiable parent at all — cannot ground founder colours.
-        return _grey_remaining(result, segments_by_name, chrom, region_start, region_end)
+        return _grey_remaining(result, segments_by_name)
 
     if not _is_autosome(chrom):
         # Sex chromosomes / mitochondrion break the diploid two-homolog assumption
@@ -1099,7 +1088,7 @@ def annotate_lineage(
         # Rather than mis-colour, leave relatives grey on non-autosomes. The core
         # itself keeps its role-based stored-block tags from step 1.
         # TODO(follow-up): proper hemizygous-X handling (single-homolog matching).
-        return _grey_remaining(result, segments_by_name, chrom, region_start, region_end)
+        return _grey_remaining(result, segments_by_name)
 
     alleles = _alleles_by_member(genotype_rows)
     eff_start, eff_end = _region_bounds(
@@ -1251,7 +1240,7 @@ def annotate_lineage(
                 segs = segs + [_grey_tail_block(chrom, eff_end, region_full_end)]
             result[neighbor] = segs
 
-    return _grey_remaining(result, segments_by_name, chrom, region_start, region_end)
+    return _grey_remaining(result, segments_by_name)
 
 
 def _normalize_chrom(value: Any) -> str:
@@ -1342,12 +1331,9 @@ def _founder_parent_blocks(chrom: str, origin: str, start: int, end: int) -> lis
 def _grey_remaining(
     result: dict[str, list[dict[str, Any]] | None],
     segments_by_name: dict[str, list[dict[str, Any]]],
-    chrom: str,
-    region_start: int | None,
-    region_end: int | None,
 ) -> dict[str, list[dict[str, Any]]]:
-    """Any member still without lineage (a relative we couldn't place) is rendered
-    as a single grey block spanning the region — never mis-coloured."""
+    """Any member still without lineage (a relative we couldn't place) keeps its stored
+    segments, both lanes tagged ``unknown`` (rendered grey) — never mis-coloured."""
     final: dict[str, list[dict[str, Any]]] = {}
     for name, segs in result.items():
         if segs is not None:

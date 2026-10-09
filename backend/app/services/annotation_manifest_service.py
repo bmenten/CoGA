@@ -483,7 +483,7 @@ def _manifest_changes(before: Mapping[str, Any], after: Mapping[str, Any]) -> li
     ordered = [k for k in _MODULE_ORDER if k in keys] + sorted(k for k in keys if k not in _MODULE_ORDER)
     changes: list[str] = []
     for key in ordered:
-        label = _MODULE_LABELS.get(key, _fallback_module_label(key))
+        label = module_label(key)
         if key not in before:
             changes.append(f"{label} added")
         elif key not in after:

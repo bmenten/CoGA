@@ -291,7 +291,6 @@ async def test_fetch_external_gene_bundle_uses_dbnsfp_without_online_fallback(
     result = await gene_info_external.fetch_external_gene_bundle(
         symbol="BRCA1",
         species_document={"name": "Homo sapiens"},
-        species_docs=[],
         bulk_context=bulk_context,
     )
 
@@ -389,7 +388,6 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
     result = await gene_info_external.fetch_external_gene_bundle(
         symbol="BRCA1",
         species_document={"name": "Homo sapiens"},
-        species_docs=[],
         bulk_context=bulk_context,
     )
 
@@ -674,7 +672,6 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     result = await gene_info_external.fetch_external_gene_bundle(
         symbol="BRCA1",
         species_document={"name": "Homo sapiens"},
-        species_docs=[],
         bulk_context=bulk_context,
     )
 

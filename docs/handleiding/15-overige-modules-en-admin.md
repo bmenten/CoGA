@@ -82,16 +82,16 @@ Op de pagina *Sequencing QC thresholds* stelt een beheerder per QC-metriek een *
 
 ### Presets en tags
 
-Een overzicht van de gedeelde filterpresets, en het beheer van de eigen varianttags (hoofdstuk 10).
+Een overzicht van de bewaarde filterpresets voor small variants van alle gebruikers, met hun eigenaar, en het beheer van de eigen varianttags (hoofdstuk 10).
 
 ### Auditlogs en integriteit
 
-- **Auditlogs** (`AdminAuditLogsPage.tsx`): de HTTP-auditlog (*Requests*), te filteren op methode, status, gebruiker en pad, met per verzoek de afgeleide databankwijziging; en de UI-telemetrie (*Interactions*).
+- **Auditlogs** (`AdminAuditLogsPage.tsx`): de HTTP-auditlog (*API requests*), te filteren op methode, status, gebruiker en pad, met per verzoek de afgeleide databankwijziging; en de UI-telemetrie (*UI interactions*).
 - **Integriteit:** de hash-keten van een familie nalopen, en integriteitsankers maken en controleren (hoofdstuk 11). Daarvoor bestaan alleen endpoints, geen scherm.
 
 ### Overige
 
-Het beheer van de NIPT-artefacten (de lijst terugkerende artefacten per assay; op aanvraag stelt de API kandidaten voor uit de cfDNA-samples van dezelfde assay, of leest hij de lijst van terugkerende artefacten van de NIPT-M-pipeline in (`POST /api/admin/nipt/artifacts/import`), telkens zonder frequente varianten en zonder varianten met een ClinVar-melding pathogeen, waarschijnlijk pathogeen of conflicterend; omdat een allel dat nog geen familie draagt bij het opnemen niet te controleren is, controleert elke familie-analyse de gelijste allelen opnieuw met haar eigen annotatie en houdt ze een frequent of ClinVar-pathogeen allel, gemarkeerd `artifact_list_protected`; een import is één klinische auditgebeurtenis, `nipt_artifacts_imported`; hoofdstuk 8 en `docs/data-import.md`), de synchronisatie van de genreferentie (hoofdstuk 13), en het beheer van HPO en Monarch (hoofdstuk 12).
+Het beheer van de NIPT-artefacten (de lijst terugkerende artefacten per assay; op aanvraag vult de API de lijst aan met de varianten die in meerdere cfDNA-samples van dezelfde assay terugkomen (standaard minstens vijf), of leest hij de lijst van terugkerende artefacten van de NIPT-M-pipeline in (`POST /api/admin/nipt/artifacts/import`), telkens zonder frequente varianten en zonder varianten met een ClinVar-melding pathogeen, waarschijnlijk pathogeen of conflicterend; omdat een allel dat nog geen familie draagt bij het opnemen niet te controleren is, controleert elke familie-analyse de gelijste allelen opnieuw met haar eigen annotatie en houdt ze een frequent of ClinVar-pathogeen allel, gemarkeerd `artifact_list_protected`; een import is één klinische auditgebeurtenis, `nipt_artifacts_imported`; hoofdstuk 8 en `docs/data-import.md`), de synchronisatie van de genreferentie (hoofdstuk 13), en het beheer van HPO en Monarch (hoofdstuk 12).
 
 ## In-app documentatie
 

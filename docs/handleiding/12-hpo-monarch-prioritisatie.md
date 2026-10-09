@@ -56,9 +56,9 @@ De scoring zit in `backend/app/services/variant_prioritization.py`, een zuivere 
 De eerste drie vormen samen de variantscore; de eindscore is een gewogen combinatie met de fenotypescore. Twee keuzes bewaken de klinische betrouwbaarheid:
 
 - **ClinVar gaat voor.** Alleen een pathogene ClinVar-uitspraak geeft de volle pathogeniciteitsscore; bewijs dat alleen uit voorspellers komt, blijft daaronder. "Conflicting interpretations of pathogenicity" telt niet als pathogeen.
-- **Nieuwe kandidaatgenen verdwijnen niet.** Een gen zonder Monarch-data scoort 0 op fenotype, maar de variantscore blijft apart zichtbaar, zodat de analist erop kan sorteren.
+- **Nieuwe kandidaatgenen verdwijnen niet.** Een gen zonder Monarch-data scoort 0 op fenotype, maar de variantscore blijft apart zichtbaar in de uitsplitsing van de score (*Variant*); sorteren kan op de gecombineerde score (*Score*), met de variantscore als tweede sleutel.
 
-De prioritering draait bij `GET /api/families/{family_id}/small-variants?prioritize=true` (standaard aan): de service haalt de gefilterde kandidaten op, bepaalt de segregatie en de fenotypescores, rangschikt en geeft per variant een scoreblok terug. De kandidatenset is begrensd; loopt ze erover, dan meldt het antwoord de echte telling en zegt de UI dat de rangschikking onvolledig is en de filters verfijnd moeten worden. De scores rangschikken binnen één familie; het zijn geen gekalibreerde kansen.
+De prioritering draait bij `GET /api/families/{family_id}/small-variants?prioritize=true` (de pagina zet dit standaard aan; de API zelf staat standaard uit): de service haalt de gefilterde kandidaten op, bepaalt de segregatie en de fenotypescores, rangschikt en geeft per variant een scoreblok terug. De kandidatenset is begrensd; loopt ze erover, dan meldt het antwoord de echte telling en zegt de UI dat de rangschikking onvolledig is en de filters verfijnd moeten worden. De scores rangschikken binnen één familie; het zijn geen gekalibreerde kansen.
 
 **Waar in de code:** `variant_prioritization.py`; de prioritering in `clickhouse_family_variants.py`; de score-uitsplitsing in de reviewdialoog.
 

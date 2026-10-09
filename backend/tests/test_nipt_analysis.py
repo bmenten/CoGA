@@ -444,7 +444,9 @@ def test_paternity_evidence_counts_only_sites_with_a_confident_father_call() -> 
 
     assert result.category_counts[7] == 70  # the prior still places the thin/no calls here
     assert result.category_counts[8] == 3
-    assert result.paternal_evidence == {7: 40, 8: 3}
+    # Paternity reads only the 40 confident het calls (the absent hom-alt sites are too
+    # shallow to count either way: 120 x FF/2 expects 6 alt reads, under 10).
+    assert result.paternal_transmission == PaternalTransmissionEvidence(het_transmitted=40)
 
 
 def test_run_nipt_analysis_end_to_end_recovers_ff_and_categories() -> None:

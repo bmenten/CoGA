@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 import re
 from typing import Any
 
@@ -10,9 +9,6 @@ from ..schemas import (
 )
 
 from .family_package_common import PackageManifest, ParsedPed, PedMember, _issue, _metadata_dict, _normalize_header_key, sample_id_issues
-
-
-logger = logging.getLogger(__name__)
 
 
 _PED_SEX_CODES = {
@@ -84,29 +80,24 @@ def _ped_clinical_status(
     *,
     annotations: dict[str, str],
     flags: set[str],
-    numeric_status_values: dict[str, str],
 ) -> str | None:
     for key in ("clinicalstatus", "status", "phenotype"):
         value = annotations.get(key)
         if value is None:
             continue
-        normalized = _normalize_ped_status(value, numeric_status_values)
+        normalized = _normalize_ped_status(value)
         if normalized is not None:
             return normalized
     for flag in flags:
-        normalized = _normalize_ped_status(flag, numeric_status_values)
+        normalized = _normalize_ped_status(flag)
         if normalized is not None:
             return normalized
-    return _normalize_ped_status(phenotype, numeric_status_values)
+    return _normalize_ped_status(phenotype)
 
 
-def _normalize_ped_status(value: str, numeric_status_values: dict[str, str]) -> str | None:
+def _normalize_ped_status(value: str) -> str | None:
     token = value.strip().lower()
-    return numeric_status_values.get(token) or _PED_STATUS_VALUES.get(token)
-
-
-def _ped_numeric_status_values() -> dict[str, str]:
-    return _PED_NUMERIC_STATUS_VALUES
+    return _PED_NUMERIC_STATUS_VALUES.get(token) or _PED_STATUS_VALUES.get(token)
 
 
 def _ped_role_hint(
@@ -849,18 +840,12 @@ def _parse_ped_text_strict(text_value: str) -> tuple[ParsedPed | None, list[Fami
             continue
         rows.append((line_no, parts))
 
-    numeric_status_values = _ped_numeric_status_values()
     for line_no, parts in rows:
         family_id, individual_id, father_id, mother_id, sex, phenotype = parts[:6]
         extra_columns = parts[6:]
         annotations, flags = _parse_ped_annotations(extra_columns)
         normalized_sex = _normalize_ped_sex(sex)
-        clinical_status = _ped_clinical_status(
-            phenotype,
-            annotations=annotations,
-            flags=flags,
-            numeric_status_values=numeric_status_values,
-        )
+        clinical_status = _ped_clinical_status(phenotype, annotations=annotations, flags=flags)
         role_hint = _ped_role_hint(annotations=annotations, flags=flags)
         if individual_id in seen_samples:
             duplicate_samples.add(individual_id)

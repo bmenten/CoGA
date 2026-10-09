@@ -634,12 +634,7 @@ async def _apply_haplotype_lineage(
             ]
             if stored and start is not None and end is not None:
                 annotated[member] = _clip_segments(stored, int(start), int(end))
-    name_to_uuid = context.sample_name_to_uuid
-    return {
-        name_to_uuid[name]: segs
-        for name, segs in annotated.items()
-        if name in name_to_uuid
-    }
+    return _segments_by_uuid(context, annotated)
 
 
 def _clip_segments(segments: list[dict[str, Any]], start: int, end: int) -> list[dict[str, Any]]:
@@ -677,6 +672,18 @@ def _mark_hemizygous_blocks(
     return segments_by_uuid
 
 
+def _haplotype_segment(row: dict[str, Any]) -> dict[str, Any]:
+    """A stored haplotype (or haplotype-lineage) track row as a display segment."""
+    return {
+        "chr": row["chr"],
+        "start": int(row["start"]),
+        "end": int(row["end"]),
+        "hap1": str(row.get("hap1") or ""),
+        "hap2": str(row.get("hap2") or ""),
+        "ps": row.get("ps"),
+    }
+
+
 async def get_family_haplotypes_response(
     session: AsyncSession,
     *,
@@ -699,16 +706,7 @@ async def get_family_haplotypes_response(
     )
     segments: dict[str, list[dict[str, Any]]] = {sample_uuid: [] for sample_uuid in sample_ids}
     for row in rows:
-        segments[row["sample_uuid"]].append(
-            {
-                "chr": row["chr"],
-                "start": int(row["start"]),
-                "end": int(row["end"]),
-                "hap1": str(row.get("hap1") or ""),
-                "hap2": str(row.get("hap2") or ""),
-                "ps": row.get("ps"),
-            }
-        )
+        segments[row["sample_uuid"]].append(_haplotype_segment(row))
     segments = await _apply_haplotype_lineage(
         context, segments_by_uuid=segments, chrom=chr, start=start, end=end
     )
@@ -747,16 +745,7 @@ async def get_family_haplotypes_batch_response(
     )
     segments: dict[str, list[dict[str, Any]]] = {sample_uuid: [] for sample_uuid in sample_ids}
     for row in rows:
-        segments[row["sample_uuid"]].append(
-            {
-                "chr": row["chr"],
-                "start": int(row["start"]),
-                "end": int(row["end"]),
-                "hap1": str(row.get("hap1") or ""),
-                "hap2": str(row.get("hap2") or ""),
-                "ps": row.get("ps"),
-            }
-        )
+        segments[row["sample_uuid"]].append(_haplotype_segment(row))
     # Genome-wide view: tag the nuclear core by role and recolour relatives by
     # per-chromosome IBD matching (with recombination segmentation).
     segments = await _apply_haplotype_lineage_genomewide(
@@ -959,16 +948,7 @@ async def precompute_family_haplotype_lineage(context: FamilyMetadataContext) ->
         name = context.sample_uuid_to_name.get(row["sample_uuid"])
         if name is None:
             continue
-        segments_by_name[name].append(
-            {
-                "chr": row["chr"],
-                "start": int(row["start"]),
-                "end": int(row["end"]),
-                "hap1": str(row.get("hap1") or ""),
-                "hap2": str(row.get("hap2") or ""),
-                "ps": row.get("ps"),
-            }
-        )
+        segments_by_name[name].append(_haplotype_segment(row))
     annotated = await _compute_genomewide_lineage(context, segments_by_name=segments_by_name)
     lineage_rows = _lineage_interval_rows(context, annotated, lineage_hash=_lineage_hash(context))
     await delete_interval_tracks(
@@ -1042,12 +1022,7 @@ async def _fetch_precomputed_lineage(
         hap1_lineage, _, hap2_lineage = str(row.get("origin") or "").partition("|")
         by_uuid[uuid].append(
             {
-                "chr": row["chr"],
-                "start": int(row["start"]),
-                "end": int(row["end"]),
-                "hap1": str(row.get("hap1") or ""),
-                "hap2": str(row.get("hap2") or ""),
-                "ps": row.get("ps"),
+                **_haplotype_segment(row),
                 "hap1_lineage": hap1_lineage or None,
                 "hap2_lineage": hap2_lineage or None,
             }

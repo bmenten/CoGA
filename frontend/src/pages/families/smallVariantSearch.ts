@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { ChangeEvent, FormEvent } from 'react';
+import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import type { NiptDeNovoTriageOut, NiptRecessiveGeneOut } from '../../lib/apiSchema.generated';
@@ -14,6 +14,7 @@ import {
 } from '../../lib/sampleFilterState';
 import { intervalListProblems, parseGeneOrRegionInput } from '../../lib/variantSearch';
 import type { AcmgMitoContext } from '../../lib/acmg';
+import { setLocationParams } from './variantFilterFormUtils';
 
 export interface SmallVariantGenotype {
   sample?: string;
@@ -694,6 +695,14 @@ export const MULTI_VALUE_FILTER_KEYS = new Set<
   'category',
 ]);
 
+// The on/off filters a saved preset stores as booleans: true when ticked, read back as 'true'.
+const BOOLEAN_PRESET_FILTER_KEYS = new Set<keyof SmallFilterState>([
+  'has_notes',
+  'expanded_carrier_screening',
+  'prioritize',
+  'require_sv_second_hit',
+]);
+
 const cloneSingleSampleFilter = (
   filter?: Partial<SmallVariantSampleFilter> | null,
 ): SmallVariantSampleFilter => ({
@@ -751,17 +760,8 @@ const normalizeStoredFilterValue = (
     if (typeof value === 'string') return joinFilterValues(parseCommaSeparatedValues(value));
     return '';
   }
-  if (key === 'has_notes') {
-    if (value === true || value === 'true') return 'true';
-    return '';
-  }
-  if (key === 'expanded_carrier_screening') {
-    if (value === true || value === 'true') return 'true';
-    return '';
-  }
-  if (key === 'prioritize' || key === 'require_sv_second_hit') {
-    if (value === true || value === 'true') return 'true';
-    return '';
+  if (BOOLEAN_PRESET_FILTER_KEYS.has(key)) {
+    return value === true || value === 'true' ? 'true' : '';
   }
   return String(value);
 };
@@ -1181,22 +1181,7 @@ export const buildSmallVariantQueryParams = (
     params.set('project_id', projectId);
   }
 
-  if (currentFilters.locus) {
-    params.set('locus', currentFilters.locus);
-    const parsedLocus = parseGeneOrRegionInput(currentFilters.locus);
-    if (parsedLocus?.kind === 'region') {
-      params.set('chr', parsedLocus.chr);
-      params.set('start', parsedLocus.start);
-      params.set('end', parsedLocus.end);
-    } else if (parsedLocus?.kind === 'gene') {
-      params.set('gene', parsedLocus.gene);
-    }
-  } else {
-    if (currentFilters.gene) params.set('gene', currentFilters.gene);
-    if (currentFilters.chr) params.set('chr', currentFilters.chr);
-    if (currentFilters.start) params.set('start', currentFilters.start);
-    if (currentFilters.end) params.set('end', currentFilters.end);
-  }
+  setLocationParams(params, currentFilters);
   if (currentFilters.intervals) params.set('intervals', currentFilters.intervals);
   if (currentFilters.inheritance) params.set('inheritance', currentFilters.inheritance);
   // Monogenic NIPT filters; round-trip through the URL so they survive Apply.
@@ -1423,12 +1408,7 @@ export const serializePresetFilters = (filters: SmallFilterState): Record<string
         if (MULTI_VALUE_FILTER_KEYS.has(key)) {
           return [key, parseCommaSeparatedValues(value)];
         }
-        if (
-          key === 'has_notes' ||
-          key === 'expanded_carrier_screening' ||
-          key === 'prioritize' ||
-          key === 'require_sv_second_hit'
-        ) {
+        if (BOOLEAN_PRESET_FILTER_KEYS.has(key)) {
           return [key, value === 'true'];
         }
         return [key, value];
@@ -1750,11 +1730,6 @@ export const useSmallVariantSearchState = ({
     });
   };
 
-  const handleFilterChange = (event: ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = event.target;
-    setDraftFilterValue(name as keyof SmallFilterState, value);
-  };
-
   const handleSampleFieldChange = (
     sample: string,
     field: keyof SmallVariantSampleFilter,
@@ -1909,12 +1884,10 @@ export const useSmallVariantSearchState = ({
     applyPreset,
     applySavedPreset,
     draftFilters,
-    emptyFilters,
     filters,
     goToPage,
     handleApply,
     draftLocationProblems,
-    handleFilterChange,
     handleGtToggle,
     handleReset,
     handleSampleFieldChange,
@@ -2008,7 +1981,10 @@ export const heldTagOptions = (
     .map((key) => ({ value: key, label: byKey[key] ? tagDefinitionLabel(byKey[key]) : key }));
 };
 
-const LEGACY_CLASSIFICATION_MAP: Record<string, string> = {
+// A classification stored as the bare class word ("Pathogenic", "VUS") rather than the class
+// label the review dialog writes: the review API takes free text, so any client can store
+// one. It reads as the class it names, in the live lists and in a signed version's SVs alike.
+const CLASS_WORD_TAG_KEYS: Record<string, string> = {
   pathogenic: 'acmg_class_5',
   'likely pathogenic': 'acmg_class_4',
   vus: 'acmg_class_3',
@@ -2019,7 +1995,7 @@ const LEGACY_CLASSIFICATION_MAP: Record<string, string> = {
 export const getClassificationTagKeyFromClassification = (value?: string | null) => {
   const normalized = value?.trim().toLowerCase() || '';
   if (!normalized) return '';
-  return LEGACY_CLASSIFICATION_MAP[normalized] || '';
+  return CLASS_WORD_TAG_KEYS[normalized] || '';
 };
 
 export const getClassificationTagKeyFromTags = (tags: Iterable<string>) =>

@@ -9,6 +9,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyNiptCoveragePage from '../FamilyNiptCoveragePage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+  offScopeProject,
+} from '../../../test/familyPageBanners';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -70,8 +76,11 @@ const GENEA_TARGETS = {
   ],
 };
 
+const FAMILY = { family_id: 'NIPT001', members: [], metadata: { analysis_type: 'monogenic_nipt' } };
+
 const respond = (coverage: unknown) =>
   apiMock.get.mockImplementation((url: string) => {
+    if (url === '/families/NIPT001') return Promise.resolve({ data: FAMILY });
     if (url === '/families/NIPT001/nipt/coverage') return Promise.resolve({ data: coverage });
     if (url === '/families/NIPT001/nipt/coverage/targets') return Promise.resolve({ data: GENEA_TARGETS });
     if (url === '/panels') return Promise.resolve({ data: [{ _id: 'panel-1', name: 'Skeletal dysplasia', version: 3 }] });
@@ -202,12 +211,57 @@ describe('FamilyNiptCoveragePage', () => {
     expect(within(above).getByText('BRCA1')).toBeInTheDocument();
   });
 
+  // Read for a partly imported family, or one on an assembly outside the validated scope,
+  // the coverage must not pass for that of a complete, validated one.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/NIPT001') {
+        return Promise.resolve({
+          data: {
+            family_id: 'NIPT001',
+            members: [],
+            projects: ['project-1'],
+            metadata: { analysis_type: 'monogenic_nipt', ...INCOMPLETE_IMPORT_METADATA },
+          },
+        });
+      }
+      if (url === '/projects') return Promise.resolve({ data: [offScopeProject('project-1')] });
+      if (url === '/families/NIPT001/nipt/coverage') return Promise.resolve({ data: COVERAGE });
+      return Promise.resolve({ data: [] });
+    });
+    renderPage('/families/NIPT001/nipt/coverage?project_id=project-1');
+
+    const header = (
+      await screen.findByRole('heading', { name: 'On-target coverage · Family NIPT001' })
+    ).closest('.page-top-card');
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
+    expect(screen.getByRole('table', { name: 'Genes below target' })).toBeInTheDocument();
+  });
+
+  // Without the family record it is not known whether its import is complete: the page says
+  // the family could not be loaded, as the NIPT page does, rather than showing the coverage.
+  it('says the family could not be loaded, not the coverage without its warnings', async () => {
+    apiMock.get.mockImplementation((url: string) =>
+      url === '/families/NIPT001'
+        ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+        : url === '/families/NIPT001/nipt/coverage'
+          ? Promise.resolve({ data: COVERAGE })
+          : Promise.resolve({ data: [] }),
+    );
+    renderPage('/families/NIPT001/nipt/coverage');
+
+    expect(await screen.findByRole('heading', { name: 'Family could not be loaded' })).toBeInTheDocument();
+    expect(screen.queryByRole('table', { name: 'Genes below target' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
   // #606 — a failed request is said as such, never as a page without weak genes.
   it('says the coverage could not be loaded', async () => {
     apiMock.get.mockImplementation((url: string) =>
       url === '/families/NIPT001/nipt/coverage'
         ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: url === '/families/NIPT001' ? FAMILY : [] }),
     );
     renderPage('/families/NIPT001/nipt/coverage');
 

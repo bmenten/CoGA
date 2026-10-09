@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
-import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import type { ApiNiptCoverageSummary, ApiNiptSummary, GenePanel } from '../../lib/apiTypes';
@@ -16,6 +16,7 @@ import {
   NIPT_INHERITANCE_GROUPS,
   depth,
   lowCoverageDetail,
+  niptGeneTerms,
   pct,
 } from './niptClassification';
 import { formatLocus } from './smallVariantResultUtils';
@@ -31,8 +32,6 @@ import { formatCount, joinWithAnd } from '../../lib/format';
 
 // A report lists one page of candidates, the first ones in genomic order.
 const REPORT_PAGE_SIZE = 500;
-// The gene query splits into terms as the backend splits it.
-const GENE_TERM_SPLIT = /[\s,;]+/;
 
 // Where a list in genomic order stops: the chromosome and position of its last variant.
 const stopLocus = (variant: Pick<SmallVariant, 'chr' | 'start'>): string =>
@@ -170,7 +169,7 @@ const FamilyNiptReportPage: React.FC = () => {
   const preferredProjectId = searchParams.get('project_id') || undefined;
   const panelId = searchParams.get('panel_id') || undefined;
   const gene = searchParams.get('gene') || undefined;
-  const geneTerms = useMemo(() => (gene ? gene.split(GENE_TERM_SPLIT).filter(Boolean) : []), [gene]);
+  const geneTerms = useMemo(() => niptGeneTerms(gene), [gene]);
 
   const {
     data: family,
@@ -413,11 +412,16 @@ const FamilyNiptReportPage: React.FC = () => {
           <p className="page-kicker">Monogenic NIPT report</p>
           <h1 className="page-state-title">Family {familyId}</h1>
           <p className="report-header-meta">{referenceLabel}</p>
-          <AssemblyScopeBanner
-            assemblyName={assemblyName}
-            assemblyValidated={assemblyValidated}
-            unavailable={referenceFailed}
-            onRetry={retryReference}
+          {/* In the header, which prints: a NIPT report has no sign-out to stop on a partly
+              imported family, so the printout itself must say so. */}
+          <FamilyPageBanners
+            metadata={family?.metadata}
+            assemblyScope={{
+              name: assemblyName,
+              validated: assemblyValidated,
+              unavailable: referenceFailed,
+              onRetry: retryReference,
+            }}
           />
         </div>
         <div className="report-header-actions no-print">

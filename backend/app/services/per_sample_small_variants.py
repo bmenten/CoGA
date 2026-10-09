@@ -76,6 +76,7 @@ from .variant_upload_service import (
     _parse_info,
     _parse_int_list,
     _parse_qual,
+    _sample_call_ids,
 )
 from .vcf_call_metrics import record_filter_values, single_sample_call_metrics
 from .vcf_header_provenance import extract_header_provenance, merge_module_maps
@@ -345,10 +346,6 @@ class _MergeCounts:
     skipped_filtered: int = 0
     excluded_calls_kept: int = 0
     per_sample_calls: dict[str, int] = field(default_factory=dict)
-
-
-def _sample_call_ids(samples: Sequence[SampleMetadataContext]) -> set[str]:
-    return {value for sample in samples for value in (sample.sample_id, sample.sample_uuid) if value}
 
 
 async def upload_family_per_sample_small_variant_files(

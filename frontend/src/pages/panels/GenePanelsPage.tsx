@@ -51,6 +51,18 @@ const apiErrorMessage = (err: unknown, fallback: string) => {
   return fallback;
 };
 
+// A refused panel write: its detail as said, or its message naming the genes concerned
+// (for example the genes a panel still uses); the fallback otherwise.
+const panelWriteErrorMessage = (err: unknown, fallback: string): string => {
+  const detail = panelErrorDetail(err);
+  if (typeof detail === 'string') return detail;
+  if (detail && !Array.isArray(detail) && detail.message) {
+    const genes = Array.isArray(detail.genes) ? `: ${detail.genes.join(', ')}` : '';
+    return `${detail.message}${genes}`;
+  }
+  return fallback;
+};
+
 const GenePanelsPage: React.FC = () => {
   const { data: panels, refetch, isError: panelsFailed, error: panelsError } = useQuery<GenePanel[]>({
     queryKey: ['panels'],
@@ -121,17 +133,7 @@ const GenePanelsPage: React.FC = () => {
       setStatus('Panel deleted');
       refetch();
     } catch (err) {
-      const detail = panelErrorDetail(err);
-      if (typeof detail === 'string') {
-        setStatus(detail);
-      } else if (detail && !Array.isArray(detail) && detail.message) {
-        const genes = Array.isArray(detail.genes)
-          ? `: ${detail.genes.join(', ')}`
-          : '';
-        setStatus(`${detail.message}${genes}`);
-      } else {
-        setStatus('Error deleting panel');
-      }
+      setStatus(panelWriteErrorMessage(err, 'Error deleting panel'));
     }
   };
 
@@ -197,17 +199,7 @@ const GenePanelsPage: React.FC = () => {
       setStatus(msg);
       refetch();
     } catch (err) {
-      const detail = panelErrorDetail(err);
-      if (typeof detail === 'string') {
-        setStatus(detail);
-      } else if (detail && !Array.isArray(detail) && detail.message) {
-        const genes = Array.isArray(detail.genes)
-          ? `: ${detail.genes.join(', ')}`
-          : '';
-        setStatus(`${detail.message}${genes}`);
-      } else {
-        setStatus('Error creating panel');
-      }
+      setStatus(panelWriteErrorMessage(err, 'Error creating panel'));
     }
   };
 

@@ -1,6 +1,5 @@
 import React, { useId, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import api from "../../lib/api";
+import type { ApiChromosomeBand } from "../../lib/apiTypes";
 import { cssVar } from "../../lib/colors";
 import {
   collapseBandsForResolution,
@@ -11,21 +10,8 @@ import {
 import { getStainColor } from "../../lib/stainColors";
 import VizTooltip from "./VizTooltip";
 import VizErrorOverlay from "./VizErrorOverlay";
-import { apiPath } from '../../lib/apiPath';
+import { useChromosome } from "./useChromosome";
 import { clamp } from '../../lib/number';
-
-interface IdeogramBand {
-  name: string;
-  start: number;
-  end: number;
-  stain: string;
-}
-
-interface Chromosome {
-  chr: string;
-  size: number;
-  bands: IdeogramBand[];
-}
 
 interface Props {
   assembly: string;
@@ -58,7 +44,7 @@ const buildChromosomeOutlinePath = ({
   ideogramInnerHeight: number;
   capsuleRadius: number;
   chromLength: number;
-  acenBands: IdeogramBand[];
+  acenBands: ApiChromosomeBand[];
 }) => {
   if (acenBands.length !== 2) return null;
 
@@ -133,15 +119,7 @@ const Ideogram: React.FC<Props> = ({
   const [bandTooltip, setBandTooltip] = useState<{ x: number; y: number; name: string } | null>(
     null,
   );
-  const { data, isError, refetch } = useQuery<Chromosome>({
-    queryKey: ["chromosome", assembly, chrom],
-    queryFn: async () => {
-      const res = await api.get(apiPath`/chromosomes/${assembly}/${chrom}`);
-      return res.data as Chromosome;
-    },
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
+  const { data, isError, refetch } = useChromosome(assembly, chrom);
   const chromLength = data?.size ?? 1;
   const axisHeight = showAxis ? AXIS_HEIGHT : 0;
   const ideogramHeight = Math.max(height - axisHeight, 0);

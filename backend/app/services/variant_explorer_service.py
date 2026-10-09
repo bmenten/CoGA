@@ -49,6 +49,7 @@ from ..schemas import (
     VariantExplorerAssemblyOut,
 )
 from .clickhouse_variant_ids import _small_table_name
+from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
 from .clickhouse_variant_records import CLINVAR_FREQUENCY_RESCUE_TERMS, _status_filter_terms
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
@@ -67,10 +68,6 @@ def _gt_is_hom(column: str, params: dict[str, Any]) -> str:
 
 def _gt_is_het(column: str, params: dict[str, Any]) -> str:
     return clickhouse_genotype_condition(column, {HET}, param="gt_het", params=params)
-
-# `entries.source` values produced by genotype imputation/phasing tools. These
-# are hidden by default and only included when the caller opts in.
-_IMPUTED_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
 
 _SORT_EXPR = {
     "total_samples": "total_samples",
@@ -456,6 +453,25 @@ async def _variant_ids_matching_reviews(
     return {str(row[0]).strip() for row in result.all() if str(row[0] or "").strip()}
 
 
+async def _review_filter_variant_ids(
+    session: AsyncSession, scope: ExplorerScope, filters: GlobalVariantFilters
+) -> list[str] | None:
+    """The review (tag/classification) filter as a variant_id allow-list: None without a
+    review filter, [] when it matches nothing."""
+    if not filters.has_review_filter():
+        return None
+    matched = await _variant_ids_matching_reviews(
+        session,
+        project_ids=scope.project_ids,
+        classifications=filters.classifications,
+        tags=filters.review_tags,
+    )
+    if len(matched) > _MAX_TAG_FILTER_VARIANT_IDS:
+        # Defensive cap: an extreme tag set would blow up the IN clause.
+        matched = set(list(matched)[:_MAX_TAG_FILTER_VARIANT_IDS])
+    return list(matched)
+
+
 async def _review_display_map(
     session: AsyncSession,
     *,
@@ -663,7 +679,7 @@ def _entries_where(
         clauses.append("variantId IN %(tag_variant_ids)s")
 
     if not filters.include_imputed:
-        params["imputed_sources"] = _IMPUTED_SOURCES
+        params["imputed_sources"] = IMPUTED_SMALL_VARIANT_SOURCES
         clauses.append("lowerUTF8(source) NOT IN %(imputed_sources)s")
 
     sample_source = (
@@ -752,26 +768,14 @@ async def search_global_small_variants(
     if scope is None:
         return GlobalVariantPageOut(total=0, page_size=page_size, assembly_id=assembly_id)
 
-    # Resolve review (tag/classification) filter to a variant_id allow-list.
-    tag_variant_ids: list[str] | None = None
-    if filters.has_review_filter():
-        matched = await _variant_ids_matching_reviews(
-            session,
-            project_ids=scope.project_ids,
-            classifications=filters.classifications,
-            tags=filters.review_tags,
+    tag_variant_ids = await _review_filter_variant_ids(session, scope, filters)
+    if tag_variant_ids == []:
+        return GlobalVariantPageOut(
+            total=0,
+            page_size=page_size,
+            assembly_id=scope.assembly_id,
+            assembly_name=scope.assembly_name,
         )
-        if not matched:
-            return GlobalVariantPageOut(
-                total=0,
-                page_size=page_size,
-                assembly_id=scope.assembly_id,
-                assembly_name=scope.assembly_name,
-            )
-        if len(matched) > _MAX_TAG_FILTER_VARIANT_IDS:
-            # Defensive cap: an extreme tag set would blow up the IN clause.
-            matched = set(list(matched)[:_MAX_TAG_FILTER_VARIANT_IDS])
-        tag_variant_ids = list(matched)
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
 
@@ -1023,19 +1027,9 @@ async def export_global_small_variants(
     if scope is None:
         return None, []
 
-    tag_variant_ids: list[str] | None = None
-    if filters.has_review_filter():
-        matched = await _variant_ids_matching_reviews(
-            session,
-            project_ids=scope.project_ids,
-            classifications=filters.classifications,
-            tags=filters.review_tags,
-        )
-        if not matched:
-            return scope.assembly_name, []
-        if len(matched) > _MAX_TAG_FILTER_VARIANT_IDS:
-            matched = set(list(matched)[:_MAX_TAG_FILTER_VARIANT_IDS])
-        tag_variant_ids = list(matched)
+    tag_variant_ids = await _review_filter_variant_ids(session, scope, filters)
+    if tag_variant_ids == []:
+        return scope.assembly_name, []
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
     params: dict[str, Any] = {}
@@ -1131,7 +1125,7 @@ async def get_variant_carriers(
         genotype_clause = f" AND {_gt_is_het('gt', params)}"
     source_clause = ""
     if not include_imputed:
-        params["imputed_sources"] = _IMPUTED_SOURCES
+        params["imputed_sources"] = IMPUTED_SMALL_VARIANT_SOURCES
         source_clause = " AND lowerUTF8(source) NOT IN %(imputed_sources)s"
 
     params["carrier_limit"] = _VARIANT_CARRIER_ROW_LIMIT + 1

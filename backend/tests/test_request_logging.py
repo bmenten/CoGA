@@ -180,7 +180,7 @@ def test_query_string_for_logging_omits_values_by_default(monkeypatch) -> None:
     )
 
     assert _query_string_for_logging(request) is None
-    assert _request_url_for_logging(request) == "/families/demo_family"
+    assert _request_url_for_logging(request, _query_string_for_logging(request)) == "/families/demo_family"
 
 
 def test_query_string_for_logging_can_keep_keys_only(monkeypatch) -> None:

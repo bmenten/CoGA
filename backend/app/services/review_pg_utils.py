@@ -9,16 +9,18 @@ from __future__ import annotations
 import json
 import logging
 from datetime import datetime, timezone
-from typing import Any, Callable, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence, TypeVar
 
 from fastapi import HTTPException
 from fastapi.encoders import jsonable_encoder
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from sqlalchemy import text
 
 from ..core.coga_logging import scrub_log
 
 logger = logging.getLogger(__name__)
+
+_ClassificationT = TypeVar("_ClassificationT", bound=BaseModel)
 
 
 def _normalize_tags(tags: Iterable[str]) -> list[str]:
@@ -121,6 +123,32 @@ def _log_unreadable_classification(kind: str, exc: BaseException) -> None:
     logger.error(
         "Stored %s could not be read and is served as unreadable (%s)", kind, scrub_log(detail)
     )
+
+
+def _read_stored_classification(
+    value: Any, model: type[_ClassificationT], kind: str
+) -> _ClassificationT | None:
+    """The stored classification, or None when there is none or it cannot be read.
+
+    ``None`` alone cannot tell those apart, so an unreadable record is logged here and
+    the review serializer marks it (``acmg_unreadable``) instead of dropping it (#514).
+    ``kind`` names the record in that log line ("ACMG classification").
+    """
+    if not value:
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (ValueError, TypeError) as exc:
+            _log_unreadable_classification(kind, exc)
+            return None
+        if value is None:  # a stored JSON null is no record, not a broken one
+            return None
+    try:
+        return model.model_validate(value)
+    except Exception as exc:  # noqa: BLE001 - served as unreadable, never raised
+        _log_unreadable_classification(kind, exc)
+        return None
 
 
 def _merge_tag_metadata(

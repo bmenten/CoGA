@@ -44,8 +44,8 @@ for the assembly is missing. Load it before you load a family.
   present on the server. Otherwise an administrator loads them. An empty *Clinical CNV explorer* means
   they are not loaded for that assembly.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
-  downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs and
-  segmental duplications. Everyone else sees the catalogue read-only.
+  downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
+  segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
 
 **Clinical CNV knowledgebase.** The clinical CNVs can come from a knowledgebase that CoGA builds from
 ClinGen, UCSC and ClinVar. An administrator rebuilds it with the ↻ button next to the clinical-CNV count
@@ -157,8 +157,9 @@ lacks is added. The pipeline does not say how the index is related, so Discover 
 what KING measured against the couple: the couple's child when it is first-degree to both parents,
 otherwise a relative of unknown degree (**Related to**, a dotted arc in the pedigree) of the parent it is
 related to, or of the affected parent. The warning says which link it proposed; change it before you
-write the manifest, or on the family page afterwards. Without a link, the index's haplotype stays grey
-and does not help find the risk haplotype. The parent the pipeline traced is recorded as the affected
+write the manifest, or afterwards in **Admin → Family & Sample Data**. Without a link, the index's
+haplotype stays grey and does not help find the risk haplotype. The parent the pipeline traced is
+recorded as the affected
 parent (`metadata.pgt.affected_parents`) and its index as the index (`metadata.pgt.indexes`). Set the
 inheritance model (`metadata.pgt.inheritance_model`) and both get the status it asks: the parent is
 recorded as affected (AD, XLD, or a father under XLR) or as a proven carrier (AR, or a mother under
@@ -177,7 +178,7 @@ dropped silently.
 ### The steps
 
 1. **Family folder.** Pick the folder from the list of families found in the import folder (or type
-   its path). The PED is found automatically.
+   its path), and the **Project** the family goes into. The PED is found automatically.
 2. **Family destination.** Choose *New family* or *Existing family*, and the **Existing data policy**
    (table below).
 3. **HPO terms and notes** for the family (optional). To add a phenotype file or HPO terms per person,
@@ -271,12 +272,15 @@ calls apart:
   call: the SV list shows the SV once per caller, with that caller's genotypes, and both rows share
   the SV's review, tags and note.
 
-A repeat-expansion (TRGT) file is read for the sample you upload it for: CoGA takes the column named
-after that sample (TRGT writes `<sample>_sort`), wherever it is in the file, so a family TRGT VCF can be
-uploaded member by member. A file with one column that names no sample (such as `Sample0`) is taken
-as that sample's. A file whose column names another sample, of this family or another, is refused, and
-nothing is replaced. A package's per-sample TRGT, mitochondrial and HiFiCNV files follow the same rule;
-when a file is that sample's after all (a lab that verified its tubes), the entry's `vcf_sample` says so.
+A Sniffles or Spectre VCF, and a repeat-expansion (TRGT) file, are read for the sample you upload them
+for: CoGA takes the column named after that sample (TRGT writes `<sample>_sort`), wherever it is in the
+file, so a family Sniffles or TRGT VCF can be uploaded member by member. A file with one column that
+names no sample (such as `Sample0`) is taken as that sample's. A file whose columns name other samples
+and not this one, of this family or another, or that has two columns for it, is refused, and nothing is
+replaced; so is a Sniffles or Spectre VCF without its `#CHROM` header line, once, before its records. A
+manual TSV has no sample column: each of its rows is the sample's call. A package's per-sample TRGT,
+mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
+verified its tubes), the entry's `vcf_sample` says so.
 
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls

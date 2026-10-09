@@ -17,7 +17,6 @@ import { parsePedigree } from '../../lib/pedigree';
 import {
   buildPresetPayload,
   NIPT_BUILT_IN_PRESETS,
-  normalizeReviewClassification,
   useSmallVariantSearchState,
   type GenePanel,
   type SmallFilterState,
@@ -32,14 +31,18 @@ import {
 import {
   buildOptimisticReview,
   buildSmallVariantReviewPath,
+  fetchFamilyReviewTags,
   hasReviewContent,
+  quickTagTogglePayload,
   updateSmallVariantPageReview,
 } from './smallVariantReview';
 import Pedigree from '../../components/visualizations/Pedigree';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import QueryFailure from '../../components/QueryFailure';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
+import FilterCollapseToggle from './FilterCollapseToggle';
 import SmallVariantResults from './SmallVariantResults';
 import NiptQcPanel from './NiptQcPanel';
 import NiptRecessiveGenes from './NiptRecessiveGenes';
@@ -179,9 +182,15 @@ const FamilyNiptPage: React.FC = () => {
     (family?.metadata as { analysis_type?: string } | undefined)?.analysis_type ===
     MONOGENIC_NIPT_ANALYSIS_TYPE;
 
-  const { speciesName, assemblyName, assemblyVersion, projectId } = useFamilyReference(
-    family?.projects as string[] | undefined,
-  );
+  const {
+    speciesName,
+    assemblyName,
+    assemblyValidated,
+    assemblyVersion,
+    projectId,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects as string[] | undefined);
 
   // The shared small-variant filter state drives the reused SmallVariantFilterForm.
   const {
@@ -245,13 +254,7 @@ const FamilyNiptPage: React.FC = () => {
   const { data: tags = [] } = useQuery<SmallVariantTagDefinition[]>({
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: Boolean(familyId && isMonogenicNipt),
-    queryFn: async () => {
-      // Deleted tags too, flagged inactive: a review that still holds one shows it, marked.
-      const res = await api.get(apiPath`/families/${familyId}/small-variant-tags`, {
-        params: { include_inactive: true, ...(projectId ? { project_id: projectId } : {}) },
-      });
-      return res.data as SmallVariantTagDefinition[];
-    },
+    queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
 
   // Custom saved filter settings reuse the small-variant preset store (per
@@ -506,6 +509,17 @@ const FamilyNiptPage: React.FC = () => {
                 </Link>
               </div>
             </div>
+            {/* As on every family page: a NIPT family can be partly imported like any other,
+                or be on an assembly outside the validated scope. */}
+            <FamilyPageBanners
+              metadata={family.metadata}
+              assemblyScope={{
+                name: assemblyName,
+                validated: assemblyValidated,
+                unavailable: referenceFailed,
+                onRetry: retryReference,
+              }}
+            />
           </div>
           {pedRows.length > 0 && (
             <div className="page-top-card-visual">
@@ -517,17 +531,10 @@ const FamilyNiptPage: React.FC = () => {
           )}
         </div>
 
-        <div className="variant-filter-collapse-bar">
-          <button
-            type="button"
-            className="variant-filter-collapse-toggle"
-            aria-expanded={!filtersCollapsed}
-            onClick={() => setFiltersCollapsed((current) => !current)}
-          >
-            <span className="variant-filter-dropdown-caret" aria-hidden="true">▾</span>
-            <span>{filtersCollapsed ? 'Show filters' : 'Hide filters'}</span>
-          </button>
-        </div>
+        <FilterCollapseToggle
+          collapsed={filtersCollapsed}
+          onToggle={() => setFiltersCollapsed((current) => !current)}
+        />
 
         {!filtersCollapsed && (
           <SmallVariantFilterForm
@@ -635,24 +642,7 @@ const FamilyNiptPage: React.FC = () => {
               : null
           }
           onToggleReviewTag={async (variant, tagKey) => {
-            const nextTags = new Set(variant.review?.tags || []);
-            if (nextTags.has(tagKey)) {
-              nextTags.delete(tagKey);
-            } else {
-              nextTags.add(tagKey);
-            }
-            await reviewMutation.mutateAsync({
-              variant,
-              payload: {
-                classification:
-                  normalizeReviewClassification(
-                    variant.review?.classification,
-                    variant.review?.tags,
-                  ) || undefined,
-                tags: Array.from(nextTags).sort((left, right) => left.localeCompare(right)),
-                note: variant.review?.note || undefined,
-              },
-            });
+            await reviewMutation.mutateAsync({ variant, payload: quickTagTogglePayload(variant.review, tagKey) });
           }}
           onOpenReview={() => reviewMutation.reset()}
           onSaveReview={async (variant, payload) => {

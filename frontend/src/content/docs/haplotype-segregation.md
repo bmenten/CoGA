@@ -45,7 +45,8 @@ likely by chance from their other switches, CoGA reads a phase switch in the par
 parent's haplotypes back from there: the spurious crossovers disappear, and a child that did not switch
 there turns out to have crossed over there. The same swap applies to every child, so no embryo's call
 changes; the raw dots follow the corrected phase too, while the genotypes in their tooltip stay as
-called.
+called. CoGA looks for phase switches on the autosomes only: on chrX a parent's phase switch is not
+undone, and every embryo still seems to cross over there.
 
 The parent's track marks each correction with a solid line and a small triangle in the warning colour;
 hovering it says how many children switched and where. When a correction lies inside or close to the
@@ -153,10 +154,6 @@ call appears as a badge in the **Family members** table on the family page.
 | **Unaffected** | Carries none of the disease haplotypes, and its own haplotype is seen across the ROI. |
 | **Uninformative** | No call is made: the disease haplotype could not be resolved, or the embryo's own haplotype does not cover the ROI. |
 
-Next to the call, **⚠ recombination** says a crossover falls inside or close to the ROI, and **⚠ phase
-corrected** that a parent's phase switch was undone there (see [Phase switches in a
-parent](#phase-switches-in-a-parent)).
-
 ### What a call rests on
 
 A call that the embryo carries a disease haplotype needs only that haplotype, seen anywhere in the ROI.
@@ -181,10 +178,13 @@ daughter a carrier. So an embryo whose sex is not recorded is called both ways. 
 that is the call. If they differ, CoGA assumes neither sex: the embryo reads *Affected / at risk* when
 either call is, and *Uninformative* otherwise. Record the embryo's sex to resolve it.
 
-Three warnings can sit next to the badge:
+Four warnings can sit next to the badge:
 
 - **⚠ recombination** — a haplotype block boundary lies inside the ROI or within 250 kb of it. The
   embryo's haplotype may change across the locus; use the markers to see where the breakpoint falls.
+- **⚠ phase corrected** — a parent's phase switch was undone inside or close to the ROI (see [Phase
+  switches in a parent](#phase-switches-in-a-parent)). Its tooltip says how many children switched and
+  where.
 - **⚠ uninformative** — no call is made. Its tooltip says why: no disease haplotype could be resolved
   at the ROI, or the embryo's own haplotype does not cover it.
 - **⚠ sex unknown** — an X-linked recessive call depends on the embryo's sex, which is not recorded. Its

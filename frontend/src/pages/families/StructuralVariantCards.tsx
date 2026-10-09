@@ -2,12 +2,9 @@ import { Link, useLocation } from 'react-router';
 import { formatGt, genotypeZygosity } from '../../lib/genotypes';
 import {
   buildGnomadSvRegionHref,
-  buildReviewTagTooltip,
   formatFrequency,
-  formatReviewTagLabel,
   formatScore,
   getReviewClassificationTone,
-  getReviewTagStyle,
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
@@ -23,6 +20,7 @@ import {
   type StructuralVariantFamilyMember,
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
+import ReviewTagChip from './ReviewTagChip';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { formatStructuralLength } from './StructuralVariantTable';
 import VariantPriorityBlock from './VariantPriorityBlock';
@@ -177,18 +175,13 @@ export default function StructuralVariantCards({
             {visibleReviewTags.length ? (
               <div className="variant-card-chip-row variant-card-tag-row">
                 {visibleReviewTags.map((tagKey) => (
-                  <span
+                  <ReviewTagChip
                     key={tagKey}
                     className="variant-card-chip variant-card-chip--tag"
-                    style={getReviewTagStyle(tagKey, tagMap)}
-                    title={buildReviewTagTooltip({
-                      tagKey,
-                      tagMap,
-                      tagMetadata: variant.review?.tag_metadata,
-                    })}
-                  >
-                    {formatReviewTagLabel(tagKey, tagMap)}
-                  </span>
+                    tagKey={tagKey}
+                    tagMap={tagMap}
+                    tagMetadata={variant.review?.tag_metadata}
+                  />
                 ))}
               </div>
             ) : null}

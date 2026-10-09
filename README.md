@@ -42,9 +42,11 @@ is Google Cloud, deployed with Terraform.
   browser.
 - **Sign-out** — a versioned record of the report, bound to the software version and the
   annotation and reference versions. Sign-out is refused for a family on an assembly outside
-  the validated scope, and needs an acknowledgement with a reason when the evidence behind a
-  classification has changed or sample QC flags a possible sample swap. Sign-outs and changes
-  to small-variant classifications are kept in an append-only, hash-chained audit trail.
+  the validated scope or while its data is being written, and needs an acknowledgement with a
+  reason when the evidence behind a classification has changed, sample QC flags a possible
+  sample swap, or an import left the family's data incomplete. Sign-outs and changes to the
+  classifications, tags and notes of small variants, structural variants and CNVs are kept in
+  an append-only, hash-chained audit trail.
 - **Explorers** — genes (with MANE and RefSeq transcript badges), small variants across every
   project you can access, clinical CNVs, HPO terms and gene panels.
 - **Administration** — users and projects, family-package import, reference data, ClickHouse

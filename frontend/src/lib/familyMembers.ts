@@ -14,9 +14,6 @@ const ROLE_PRIORITY: Record<string, number> = {
   embryo: 5,
 };
 
-export const isProband = (member: Pick<FamilyMemberLike, 'role'>): boolean =>
-  `${member.role || ''}`.toLowerCase() === 'proband';
-
 export function sortFamilyMembersProbandFirst<T extends FamilyMemberLike>(members: T[]): T[] {
   return [...members].sort((left, right) => {
     const leftRole = `${left.role || ''}`.toLowerCase();

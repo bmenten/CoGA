@@ -140,9 +140,6 @@ def _build_ped_text_from_manual_family(family: ManualPedFamilyCreate) -> str:
     )
 
 
-_PED_ROLE_SORT_RANK = {"father": 0, "mother": 1, "proband": 2, "sibling": 3}
-
-
 async def build_pedigree_text(session: AsyncSession, *, family_id: str) -> str:
     """Reconstruct PED text for a family from its current database structure.
 
@@ -240,14 +237,8 @@ def _normalize_carrier_status(status: str | None, carrier_type: str | None = Non
     return "carrier" if carrier_type else "unknown"
 
 
-def _normalize_parent_id(value: str | None) -> str | None:
-    if value is None:
-        return None
-    stripped = value.strip()
-    return stripped or None
-
-
-def _normalize_project_id(value: str | None) -> str | None:
+def _stripped_or_none(value: str | None) -> str | None:
+    """An optional ID without the whitespace around it, or None when nothing is left."""
     if value is None:
         return None
     stripped = value.strip()
@@ -259,7 +250,7 @@ async def _resolve_accessible_project_id(
     user: CurrentUser,
     project_id: str | None,
 ) -> str | None:
-    normalized_project_id = _normalize_project_id(project_id)
+    normalized_project_id = _stripped_or_none(project_id)
     if normalized_project_id is None:
         if is_admin_user(user):
             return None
@@ -322,8 +313,8 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
             member.model_copy(
                 update={
                     "sample_id": sample_id,
-                    "father_id": _normalize_parent_id(member.father_id),
-                    "mother_id": _normalize_parent_id(member.mother_id),
+                    "father_id": _stripped_or_none(member.father_id),
+                    "mother_id": _stripped_or_none(member.mother_id),
                     "clinical_status": clinical_status,
                     "affected": clinical_status == "affected",
                     "carrier_status": carrier_status,

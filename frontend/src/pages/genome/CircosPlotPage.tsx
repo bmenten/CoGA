@@ -5,12 +5,14 @@ import api from '../../lib/api';
 import type { ChromosomeOut, FamilyOut } from '../../lib/apiSchema.generated';
 import CircosPlot, { Chromosome, Variant, CHROMS } from '../../components/visualizations/CircosPlot';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import VizErrorOverlay from '../../components/visualizations/VizErrorOverlay';
 import { compareChromosomes, formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath, raw } from '../../lib/apiPath';
+import { searchWithResolvedProject } from './viewerShared';
 
 // A nuclear chromosome's name without "chr": a number, a number with a letter (2A) or one
 // letter (X, W). Contigs (1_KI270706v1_random, Un_GL000195v1, EBV) and the mitochondrion
@@ -55,11 +57,11 @@ const CircosPlotPage: FC = () => {
     isError: familyFailed,
     error: familyError,
     refetch: refetchFamily,
-  } = useQuery<Pick<FamilyOut, 'projects'>>({
+  } = useQuery<Pick<FamilyOut, 'projects' | 'metadata'>>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
-      const response = await api.get<Pick<FamilyOut, 'projects'>>(apiPath`/families/${familyId}`);
+      const response = await api.get<Pick<FamilyOut, 'projects' | 'metadata'>>(apiPath`/families/${familyId}`);
       return response.data;
     },
   });
@@ -68,6 +70,7 @@ const CircosPlotPage: FC = () => {
   // chromosomes, never on a default one.
   const {
     assemblyName,
+    assemblyValidated,
     projectId: resolvedProjectId,
     isLoading: referenceLoading,
     isError: referenceFailed,
@@ -83,14 +86,10 @@ const CircosPlotPage: FC = () => {
     return p;
   }, [location.search, resolvedProjectId]);
 
-  const resolvedSearch = useMemo(() => {
-    const params = new URLSearchParams(location.search);
-    params.delete('project_id');
-    if (resolvedProjectId) {
-      params.set('project_id', resolvedProjectId);
-    }
-    return params.toString();
-  }, [location.search, resolvedProjectId]);
+  const resolvedSearch = useMemo(
+    () => searchWithResolvedProject(location.search, resolvedProjectId),
+    [location.search, resolvedProjectId],
+  );
 
   const [selected, setSelected] = useState<Record<string, boolean>>(() =>
     CHROMS.reduce(
@@ -327,6 +326,10 @@ const CircosPlotPage: FC = () => {
               Back to variants
             </Link>
           </div>
+          <FamilyPageBanners
+            metadata={family?.metadata}
+            assemblyScope={{ name: assemblyName, validated: assemblyValidated }}
+          />
         </section>
         <section className="viz-panel">
           {tooManyVariants && (

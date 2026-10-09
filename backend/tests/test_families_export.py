@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from backend.app.routers.families import (
+from backend.app.routers.families_small_variants import (
     _FAMILY_EXPORT_COLUMNS,
     _family_export_cell,
 )

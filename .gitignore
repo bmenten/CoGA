@@ -14,9 +14,6 @@ Thumbs.db
 # Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
-*.pyc
 .Python
 env/
 venv/

@@ -29,6 +29,21 @@ export const formatDate = (value?: string | null, missing = ''): string => {
 };
 
 /**
+ * A date with its month abbreviated, in the viewer's locale: "Jan 15, 2024" in English. A
+ * missing value, and one that does not parse, shows an em dash.
+ */
+export const formatShortDate = (value?: string | null): string => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return new Intl.DateTimeFormat(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  }).format(date);
+};
+
+/**
  * A count with the locale's digit grouping: 12345 → "12,345". It uses Intl.NumberFormat, so a
  * count a payload left out renders "NaN" rather than throwing as `toLocaleString` would.
  */

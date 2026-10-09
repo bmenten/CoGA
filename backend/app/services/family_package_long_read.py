@@ -18,20 +18,13 @@ and ``family.relationships``, which the user checks and can edit first.
 
 from __future__ import annotations
 
-import gzip
-import logging
 import os
 from pathlib import Path
 import re
 from typing import Any
 
-from fastapi import HTTPException
-
 from ..schemas import FamilyImportValidationIssue
-from .family_package_common import _issue, _resolve_package_path
-
-
-logger = logging.getLogger(__name__)
+from .family_package_common import _issue, _package_path_or_none, package_text_handle
 
 
 # The pipeline's per-sample dataset folders: <dataset>/<sample>/[<subfolder>/]<sample>...
@@ -95,9 +88,8 @@ def long_read_sample_ids(root: Path) -> list[str]:
 def trgt_karyotype_sex(path: Path) -> str | None:
     """``female`` or ``male`` from the karyotype a TRGT VCF was genotyped with, read from its
     header only; None when the header does not name XX or XY."""
-    opener = gzip.open if path.name.endswith(".gz") else open
     try:
-        with opener(path, "rt", encoding="utf-8", errors="replace") as handle:  # type: ignore[operator]
+        with package_text_handle(path) as handle:
             for line in handle:
                 if not line.startswith("##"):
                     break
@@ -112,10 +104,7 @@ def trgt_karyotype_sex(path: Path) -> str | None:
 def long_read_sample_sex(root: Path, sample_id: str) -> str | None:
     """The sex a long-read sample's TRGT VCF names (see :func:`trgt_karyotype_sex`)."""
     for pattern in _TRGT_VCF_PATTERNS:
-        try:
-            path = _resolve_package_path(root, pattern.format(sample_id=sample_id))
-        except HTTPException:
-            continue
+        path = _package_path_or_none(root, pattern.format(sample_id=sample_id))
         if path is not None and path.is_file():
             return trgt_karyotype_sex(path)
     return None

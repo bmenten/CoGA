@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
@@ -10,6 +11,7 @@ import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
 import { alleleBase, nucleotideColor } from '../../lib/phasedMarkers';
+import { useFamilyReference } from '../../lib/reference';
 
 // Floor on the zoomed-in window so the view can't collapse to nothing.
 const MIN_SPAN = 2_000;
@@ -143,6 +145,14 @@ const FamilyRoiMarkersPage: React.FC = () => {
     queryFn: async () => (await api.get(apiPath`/families/${familyId}`)).data as ApiFamilyRecord,
   });
 
+  // The family's assembly, for the validated-scope warning every family page carries.
+  const {
+    assemblyName,
+    assemblyValidated,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects, projectId ?? undefined);
+
   const roi = family?.roi ?? null;
   // The user-adjustable view window. `null` means "follow the ROI default" (ROI ± flank);
   // zoom/pan write an explicit span here, and Reset clears it back to the default.
@@ -225,8 +235,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
   );
 
   // Only the informative markers drive the segregation call; the rest are noise here.
-  const baseSites = informativeSites;
-  const shownSites = useMemo(() => baseSites.slice(0, MAX_COLUMNS), [baseSites]);
+  const shownSites = useMemo(() => informativeSites.slice(0, MAX_COLUMNS), [informativeSites]);
   const siteByPos = useMemo(() => new Map(shownSites.map((s) => [s.pos, s])), [shownSites]);
   const sampleOrder = useMemo(() => (phased?.samples ?? []).map((s) => s.sample), [phased?.samples]);
   const qcBySample = useMemo(
@@ -443,6 +452,15 @@ const FamilyRoiMarkersPage: React.FC = () => {
           ← Back to {family?.family_id ?? 'family'}
         </Link>
         <h1 className="section-title">ROI marker review — {roi.label}</h1>
+        <FamilyPageBanners
+          metadata={family?.metadata}
+          assemblyScope={{
+            name: assemblyName,
+            validated: assemblyValidated,
+            unavailable: referenceFailed,
+            onRetry: retryReference,
+          }}
+        />
         <p className="segregation-note">
           Informative phased markers for every family member across the ROI {roi.chr}:
           {roi.start.toLocaleString()}–{roi.end.toLocaleString()}. The view opens on the ROI; use the zoom and
@@ -520,9 +538,9 @@ const FamilyRoiMarkersPage: React.FC = () => {
         )}
       </div>
 
-      {shownSites.length < baseSites.length && (
+      {shownSites.length < informativeSites.length && (
         <div className="segregation-note segregation-note--error">
-          Showing the first {shownSites.length.toLocaleString()} of {baseSites.length.toLocaleString()} informative
+          Showing the first {shownSites.length.toLocaleString()} of {informativeSites.length.toLocaleString()} informative
           markers.
         </div>
       )}

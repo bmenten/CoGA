@@ -9,7 +9,7 @@ import logging
 import math
 from pathlib import Path
 import re
-from typing import Any, Awaitable, Callable, Iterable
+from typing import Any, Awaitable, Callable, Iterable, TextIO
 
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field
@@ -81,11 +81,31 @@ QC_SAMPLE_ROLES = (
 QC_FAMILY_ROLES = ("ado_adi", "concordance", "imputed_concordance", "kinship")
 
 
+# The long-read datasets, which the pipeline writes per sample: each sample's required
+# roles, and the optional companions (an index, an annotation, an auxiliary output) that
+# are read only when present. Discovery proposes and validation checks them alike.
+LONG_READ_DATASET_ROLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
+    "cnv": (("vcf",), ("index", "copy_number_bedgraph", "depth_bigwig", "maf_bigwig", "summary_html")),
+    "mito": (("vcf",), ("index", "annotation_tsv", "sv_vcf", "sv_index", "sv_annotation_tsv")),
+    "alignments": (("file",), ("index",)),
+    "qc": ((), QC_SAMPLE_ROLES),
+}
+
+
 # Optional family-level files of the ``haplotypes`` dataset: the PGT pipeline's reading
 # of which haplotype of the affected parent is the affected one (a table of the sites
 # each haplotype shares with the index, and its one-line conclusion). Recorded as
 # pipeline evidence; CoGA's own risk-haplotype inference does not use it.
 HAPLOTYPE_ORIGIN_ROLES = ("haplotype_origin", "haplotype_conclusion")
+
+
+# The names a ``pcf`` entry may give each parent's segment table, in the order they are
+# read: validation and the importer take the first one the entry gives
+# (``_pcf_role_path``), and the raw-file provenance names the file under any of them.
+PCF_ROLE_KEYS: dict[str, tuple[str, ...]] = {
+    "maternal": ("maternal", "mat", "maternal_file", "mat_file"),
+    "paternal": ("paternal", "pat", "paternal_file", "pat_file"),
+}
 
 
 APCAD_PCF_TRACK_TYPE = "apcad_pcf"
@@ -507,6 +527,14 @@ def vcf_sample_alias_map(
     return aliases, unresolved
 
 
+def package_text_handle(path: Path) -> TextIO:
+    """A package file opened as UTF-8 text, undecodable bytes replaced, through gzip when
+    its name ends in ``.gz``. The caller closes it."""
+    if path.name.endswith(".gz"):
+        return gzip.open(path, "rt", encoding="utf-8", errors="replace")
+    return path.open("r", encoding="utf-8", errors="replace")
+
+
 def read_vcf_sample_columns(path: Path) -> list[str]:
     """Sample columns from a VCF's ``#CHROM`` line, reading only as far as that line.
 
@@ -514,11 +542,7 @@ def read_vcf_sample_columns(path: Path) -> list[str]:
     Returns ``[]`` for a headerless or sample-less file (the annotated NeedlR VCF has
     only the eight fixed columns).
     """
-    with (
-        gzip.open(path, "rt", encoding="utf-8", errors="replace")
-        if path.name.endswith(".gz")
-        else path.open("r", encoding="utf-8", errors="replace")
-    ) as handle:
+    with package_text_handle(path) as handle:
         for line in handle:
             if line.startswith("#CHROM"):
                 return line.rstrip("\n\r").split("\t")[9:]
@@ -547,6 +571,15 @@ def _resolve_package_path(root: Path, value: str | None) -> Path | None:
             detail="Package manifest paths must stay within the package directory",
         ) from exc
     return resolved
+
+
+def _package_path_or_none(root: Path, value: str | None) -> Path | None:
+    """``_resolve_package_path`` for a lookup that probes for a file rather than requires
+    one: a path that leaves the package is no path."""
+    try:
+        return _resolve_package_path(root, value)
+    except HTTPException:
+        return None
 
 
 def _display_path(root: Path, path: Path) -> str:
@@ -642,17 +675,14 @@ def _coerce_finite_float(value: Any) -> float | None:
 def _read_package_text(path: Path) -> str:
     # Bound the read + decompression so a crafted package `.gz` (decompression bomb)
     # can't inflate to exhaust the import worker's memory — mirrors the bounded path
-    # used for user uploads (upload_safety). Only the family SV VCF flows through here,
-    # and it is read whole (used twice: record parsing + header-provenance mining).
+    # used for user uploads (upload_safety). The SV VCFs (NeedlR, HiFiCNV, chrM) flow
+    # through here, each read whole.
     return read_path_text_bounded(path, kind="Package VCF")
 
 
 @asynccontextmanager
 async def _open_package_text(path: Path):
-    if path.name.endswith(".gz"):
-        handle = gzip.open(path, "rt", encoding="utf-8", errors="replace")
-    else:
-        handle = path.open("r", encoding="utf-8", errors="replace")
+    handle = package_text_handle(path)
     try:
         yield handle
     finally:

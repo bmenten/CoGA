@@ -3,23 +3,12 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import api from '../lib/api';
 import type { ApiFamilySummary } from '../lib/apiTypes';
+import { formatShortDate } from '../lib/format';
 import { useProjectCatalog } from '../lib/reference';
 import { formatUserRef } from '../lib/users';
 import FamilyStatusBadge from './FamilyStatusBadge';
 import PageState from './PageState';
 import VizTooltip from './visualizations/VizTooltip';
-
-/** Date a family was added to the system, e.g. "Jan 15, 2024" (matches ProjectsPage). */
-const formatAddedDate = (value?: string): string => {
-  if (!value) return '—';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '—';
-  return new Intl.DateTimeFormat(undefined, {
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-  }).format(date);
-};
 
 interface ProjectCatalogWorkspaceProps {
   embedded?: boolean;
@@ -149,7 +138,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
         <td className="family-catalog-assigned-cell">{formatUserRef(family.assigned_to)}</td>
         <td className="family-catalog-reviewed-cell">{formatUserRef(family.reviewed_by)}</td>
         <td className="family-catalog-added-cell" title="Date added to the system">
-          {formatAddedDate(family.created_at)}
+          {formatShortDate(family.created_at)}
         </td>
       </tr>
     );

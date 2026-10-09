@@ -12,15 +12,17 @@ import GenomeRepeatExpansionTrack from '../../components/visualizations/GenomeRe
 import Ideogram from '../../components/visualizations/Ideogram';
 import VizLoadingOverlay from '../../components/visualizations/VizLoadingOverlay';
 import QueryFailure from '../../components/QueryFailure';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import ViewerMemberSection from './ViewerMemberSection';
-import ViewerTrackBlock from './ViewerTrackBlock';
-import { buildTrackFilterSummary, formatRoiCoordinates } from './viewerShared';
+import ViewerTrackBlock, { TrackMeta, type ViewerRoiRange } from './ViewerTrackBlock';
+import { formatRoiCoordinates } from './viewerShared';
 import { clamp } from '../../lib/number';
 
-interface Layout {
+/** The selected chromosomes laid end to end on one axis, in bp (gaps included). */
+export interface Layout {
   offsets: Record<string, number>;
   lengths: Record<string, number>;
   total: number;
@@ -42,11 +44,6 @@ interface GenomeTrackAvailability {
   repeatExpansions: boolean;
 }
 
-interface GenomeRoiRange {
-  startX: number;
-  endX: number;
-}
-
 interface GenomeRegionSelection {
   chrom: string;
   start: number;
@@ -59,12 +56,16 @@ interface GenomeOverviewWorkspaceProps {
   speciesName?: string;
   assemblyVersion?: string;
   assembly: string;
+  /** Inside the validated scope; undefined while unknown. */
+  assemblyValidated?: boolean;
+  /** The family record's metadata, where an import records what it left incomplete. */
+  familyMetadata?: unknown;
   projectId?: string;
   trackAreaRef: React.Ref<HTMLElement>;
   backDest: string;
   visibleRoi: ApiFamilyRegionOfInterest | null;
   inheritanceModel?: string | null;
-  genomeRoiRange: GenomeRoiRange | null;
+  genomeRoiRange: ViewerRoiRange | null;
   navigateToChromosome: (chrom: string, region?: { start: number; end: number }) => void;
   familyMembers: ApiFamilyMember[];
   visibleMembers: ApiFamilyMember[];
@@ -142,7 +143,7 @@ const resolveGenomeRegionSelection = (
 };
 
 const GenomeRegionSelectionSurface: React.FC<{
-  layout: Layout | null;
+  layout: Layout;
   width: number;
   height: number;
   onSelectRegion: (chrom: string, region: { start: number; end: number }) => void;
@@ -161,7 +162,6 @@ const GenomeRegionSelectionSurface: React.FC<{
   };
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
-    if (!layout) return;
     const nextX = getLocalX(event);
     setDragRange({ startX: nextX, currentX: nextX });
   };
@@ -173,7 +173,7 @@ const GenomeRegionSelectionSurface: React.FC<{
 
   const finishDrag = (endX: number) => {
     setDragRange((current) => {
-      if (!current || !layout) {
+      if (!current) {
         return null;
       }
       if (Math.abs(endX - current.startX) < MIN_REGION_SELECT_WIDTH_PX) {
@@ -229,21 +229,14 @@ const GenomeRegionSelectionSurface: React.FC<{
   );
 };
 
-const TrackMeta: React.FC<{
-  variantFilters: Record<string, string>;
-  sampleFilter?: string;
-}> = ({ variantFilters, sampleFilter }) => {
-  const summary = buildTrackFilterSummary(variantFilters, sampleFilter);
-  if (!summary) return null;
-  return <span className="viewer-track-meta">{summary}</span>;
-};
-
 const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
   familyId,
   familyDisplayId,
   speciesName,
   assemblyVersion,
   assembly,
+  assemblyValidated,
+  familyMetadata,
   projectId,
   trackAreaRef,
   backDest,
@@ -317,6 +310,10 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
             </span>
           </div>
         )}
+        <FamilyPageBanners
+          metadata={familyMetadata}
+          assemblyScope={{ name: assembly, validated: assemblyValidated }}
+        />
       </section>
       <section ref={trackAreaRef} className="surface-card genome-visualization-panel space-y-6">
         <section className="viz-shell">

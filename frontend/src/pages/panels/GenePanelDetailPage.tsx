@@ -14,6 +14,15 @@ import type {
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
 
+// The region table's columns: the field each sorts and filters on, and its heading.
+const REGION_COLUMNS: Array<['gene' | 'assembly' | 'chr' | 'start' | 'end', string]> = [
+  ['gene', 'Gene'],
+  ['assembly', 'Assembly'],
+  ['chr', 'Chromosome'],
+  ['start', 'Start'],
+  ['end', 'End'],
+];
+
 const GenePanelDetailPage: React.FC = () => {
   const { panelId } = useParams();
   const queryClient = useQueryClient();
@@ -281,73 +290,23 @@ const GenePanelDetailPage: React.FC = () => {
           <table className="analysis-table table-sticky">
             <thead>
           <tr>
-            <th
-              className="table-sortable"
-              onClick={() => handleSort('gene')}
-            >
-              Gene {sortKey === 'gene' && (sortAsc ? '▲' : '▼')}
-            </th>
-            <th
-              className="table-sortable"
-              onClick={() => handleSort('assembly')}
-            >
-              Assembly {sortKey === 'assembly' && (sortAsc ? '▲' : '▼')}
-            </th>
-            <th
-              className="table-sortable"
-              onClick={() => handleSort('chr')}
-            >
-              Chromosome {sortKey === 'chr' && (sortAsc ? '▲' : '▼')}
-            </th>
-            <th
-              className="table-sortable"
-              onClick={() => handleSort('start')}
-            >
-              Start {sortKey === 'start' && (sortAsc ? '▲' : '▼')}
-            </th>
-            <th
-              className="table-sortable"
-              onClick={() => handleSort('end')}
-            >
-              End {sortKey === 'end' && (sortAsc ? '▲' : '▼')}
-            </th>
+            {REGION_COLUMNS.map(([key, label]) => (
+              <th key={key} className="table-sortable" onClick={() => handleSort(key)}>
+                {`${label} `}
+                {sortKey === key && (sortAsc ? '▲' : '▼')}
+              </th>
+            ))}
           </tr>
           <tr className="table-filter-row">
-            <th>
-              <input
-                placeholder="Filter gene"
-                value={filters.gene}
-                onChange={(e) => handleFilterChange(e, 'gene')}
-              />
-            </th>
-            <th>
-              <input
-                placeholder="Filter assembly"
-                value={filters.assembly}
-                onChange={(e) => handleFilterChange(e, 'assembly')}
-              />
-            </th>
-            <th>
-              <input
-                placeholder="Filter chr"
-                value={filters.chr}
-                onChange={(e) => handleFilterChange(e, 'chr')}
-              />
-            </th>
-            <th>
-              <input
-                placeholder="Filter start"
-                value={filters.start}
-                onChange={(e) => handleFilterChange(e, 'start')}
-              />
-            </th>
-            <th>
-              <input
-                placeholder="Filter end"
-                value={filters.end}
-                onChange={(e) => handleFilterChange(e, 'end')}
-              />
-            </th>
+            {REGION_COLUMNS.map(([key]) => (
+              <th key={key}>
+                <input
+                  placeholder={`Filter ${key}`}
+                  value={filters[key]}
+                  onChange={(e) => handleFilterChange(e, key)}
+                />
+              </th>
+            ))}
           </tr>
         </thead>
         <tbody>

@@ -9,21 +9,19 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import {
-  buildReviewTagTooltip,
   buildSmallVariantGeneInfoHref,
   buildSmallVariantNavigation,
   buildSvSecondHitHref,
   formatCompoundHetPhaseStatus,
-  formatReviewTagLabel,
   getClinvarHighlightTone,
   getReviewClassificationTone,
-  getReviewTagStyle,
   sortReviewTagKeys,
   sortSmallVariants,
   visibleReviewTagKeys,
   type TableSortKey,
 } from './smallVariantResultUtils';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import ReviewTagChip from './ReviewTagChip';
 import VariantScoreCell from './VariantScoreCell';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import { niptEvidenceSummary, pct } from './niptClassification';
@@ -278,18 +276,13 @@ export default function SmallVariantTable({
                     {visibleReviewTags.length ? (
                       <div className="table-chip-list">
                         {visibleReviewTags.map((tagKey) => (
-                          <span
+                          <ReviewTagChip
                             key={tagKey}
                             className="table-chip table-chip--tag"
-                            style={getReviewTagStyle(tagKey, tagMap)}
-                            title={buildReviewTagTooltip({
-                              tagKey,
-                              tagMap,
-                              tagMetadata: variant.review?.tag_metadata,
-                            })}
-                          >
-                            {formatReviewTagLabel(tagKey, tagMap)}
-                          </span>
+                            tagKey={tagKey}
+                            tagMap={tagMap}
+                            tagMetadata={variant.review?.tag_metadata}
+                          />
                         ))}
                       </div>
                     ) : null}
@@ -324,18 +317,13 @@ export default function SmallVariantTable({
                         {variant.review.compound_het.tags.length ? (
                           <div className="table-chip-list">
                             {sortReviewTagKeys(variant.review?.compound_het?.tags || [], tagMap).map((tagKey) => (
-                              <span
+                              <ReviewTagChip
                                 key={`compound-het-${tagKey}`}
                                 className="table-chip table-chip--tag"
-                                style={getReviewTagStyle(tagKey, tagMap)}
-                                title={buildReviewTagTooltip({
-                                  tagKey,
-                                  tagMap,
-                                  tagMetadata: variant.review?.compound_het?.tag_metadata,
-                                })}
-                              >
-                                {formatReviewTagLabel(tagKey, tagMap)}
-                              </span>
+                                tagKey={tagKey}
+                                tagMap={tagMap}
+                                tagMetadata={variant.review?.compound_het?.tag_metadata}
+                              />
                             ))}
                           </div>
                         ) : null}

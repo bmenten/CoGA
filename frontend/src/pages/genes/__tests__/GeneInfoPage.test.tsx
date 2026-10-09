@@ -217,8 +217,7 @@ describe('GeneInfoPage', () => {
                 ensembl_description: 'BRCA1 DNA repair associated',
                 ncbi_other_designations: ['breast cancer type 1 susceptibility protein'],
                 // As the API actually returns it for a dbNSFP-covered gene: HGNC's
-                // identifiers arrive in their own block. The flat hgnc_vega_id was only
-                // ever produced by the per-gene HGNC lookup, which no longer runs.
+                // identifiers arrive in their own block, which the Vega row reads.
                 hgnc_identifiers: { vega_id: 'OTTHUMG00000157426', mgd_id: 'MGI:104537' },
                 refseq_accessions: ['NM_007294.4'],
                 omim_diseases: [
@@ -329,8 +328,6 @@ describe('GeneInfoPage', () => {
                 },
                 clingen_gene_facts: {
                   hgnc_name: 'BRCA1 DNA repair associated',
-                  gene_type: 'protein coding',
-                  locus_type: 'gene with protein product',
                   previous_symbols: ['RNF53'],
                   alias_symbols: ['BRCC1'],
                   gencc_classifications: {
@@ -341,12 +338,7 @@ describe('GeneInfoPage', () => {
                   pli: 1.0,
                   loeuf: 0.16,
                   acmg_secondary_finding: true,
-                  cytoband: '17q21.31',
                   function: 'DNA repair and double-strand break signaling.',
-                  genomic_coordinates: {
-                    'GRCh37/hg19': 'chr17:41196311-41277499',
-                    'GRCh38/hg38': 'chr17:43044294-43125482',
-                  },
                 },
               },
               updated_at: '2026-03-27T10:00:00Z',

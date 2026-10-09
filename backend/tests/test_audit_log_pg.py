@@ -1,25 +1,12 @@
 import json
 
-import pytest
-
 from app.services.audit_log_pg import (
     AuditLogEventPayload,
     _audit_log_insert_params,
-    _insert_audit_log_event,
 )
 
 
-class _FakeSession:
-    def __init__(self) -> None:
-        self.params = None
-
-    async def execute(self, _query, params):
-        self.params = params
-
-
-@pytest.mark.asyncio
-async def test_insert_audit_log_event_serializes_jsonb_fields() -> None:
-    session = _FakeSession()
+def test_insert_params_serialize_the_jsonb_fields() -> None:
     payload = AuditLogEventPayload(
         method="PATCH",
         path="/families/F1/small-variant-tags/review",
@@ -31,11 +18,11 @@ async def test_insert_audit_log_event_serializes_jsonb_fields() -> None:
         user_email="admin@example.com",
     )
 
-    await _insert_audit_log_event(session, payload)
+    params = _audit_log_insert_params(payload)
 
-    assert isinstance(session.params["request_body"], str)
-    assert isinstance(session.params["request_meta"], str)
-    assert isinstance(session.params["db_update"], str)
+    assert isinstance(params["request_body"], str)
+    assert isinstance(params["request_meta"], str)
+    assert isinstance(params["db_update"], str)
 
 
 def test_insert_params_escape_what_postgres_refuses_and_flag_the_columns() -> None:

@@ -17,7 +17,6 @@ from backend.app.services.haplotype_block_builder import (
     _phased_haplotype_alleles,
 )
 from backend.app.services.variant_upload_service import (
-    _detect_small_variant_format,
     _detect_small_variant_format_from_upload,
     _iter_upload_text_lines,
     _parse_float_list,
@@ -206,7 +205,9 @@ def test_gt_only_shapeit_vcf_is_detected_as_glimpse2() -> None:
         "1\t100\t.\tA\tG\t.\tPASS\t.\tGT\t0|1\t0|0\n"
     )
 
-    assert _detect_small_variant_format(vcf_text, "auto") == "glimpse2"
+    # The header's SHAPEIT5 source alone says so, whatever the file is called.
+    upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="FAM001.vcf")
+    assert _detect_small_variant_format_from_upload(upload, "auto") == "glimpse2"
 
     upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="FAM001_phased_final.vcf")
     assert _detect_small_variant_format_from_upload(upload, "auto") == "glimpse2"
@@ -221,7 +222,8 @@ def test_gt_only_clair3_vcf_is_not_detected_as_glimpse2() -> None:
         "1\t100\t.\tA\tG\t.\tPASS\t.\tGT\t0/1\n"
     )
 
-    assert _detect_small_variant_format(vcf_text, "auto") == "clair3"
+    upload = UploadFile(file=BytesIO(vcf_text.encode()), filename="S1.vcf")
+    assert _detect_small_variant_format_from_upload(upload, "auto") == "clair3"
 
 
 def test_segregation_haplotype_switch_requires_repeated_evidence(

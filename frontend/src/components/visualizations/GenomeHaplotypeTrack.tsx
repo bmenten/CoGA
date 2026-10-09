@@ -2,25 +2,28 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
-import { drawHaplotypeRiskOverlay, haplotypeRiskPattern } from '../../lib/haplotypeCanvas';
+import {
+  drawHaplotypeRiskOverlay,
+  haplotypeLaneColor,
+  haplotypeRiskPattern,
+  readHaplotypePalette,
+} from '../../lib/haplotypeCanvas';
 import { segregationStateLabel } from '../../lib/embryoSegregation';
 import {
   defaultDiseaseHaplotypeModel,
   diseaseHaplotypeKindForLane,
-  getHaplotypeLaneSignature,
   getRenderableHaplotypeLanes,
   inferDiseaseHaplotypes,
   interpretSampleHaplotypeRisk,
   normalizeHaplotypeChrom,
   resolveHaplotypeInheritanceModel,
-  type DiseaseHaplotypeKind,
-  type HaplotypeLane,
   type HaplotypeMemberLike,
   type HaplotypeRiskRegion,
   type HaplotypeRiskState,
 } from '../../lib/haplotypeRisk';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
+import type { GenomeLayout } from './genomeBinLayout';
 import { NUCLEAR_CHROMOSOMES, formatChromosomeLabel } from '../../lib/chromosomes';
 import { isDeletedHaplotype } from '../../lib/phasedMarkers';
 
@@ -51,13 +54,6 @@ interface HaplotypeSourceResponse {
   samples?: HaplotypeSourceSample[];
 }
 
-interface Layout {
-  offsets: Record<string, number>;
-  lengths: Record<string, number>;
-  total: number;
-  chroms: string[];
-}
-
 interface Props {
   urls: string[];
   sampleId: string;
@@ -67,7 +63,7 @@ interface Props {
   carrierStatus?: boolean | null;
   carrierType?: string | null;
   highlightRiskHaplotype?: boolean;
-  layout: Layout | null;
+  layout: (GenomeLayout & { chroms: string[] }) | null;
   width?: number;
   height?: number;
   disorder?: 'dominant' | 'recessive';
@@ -193,17 +189,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     canvasRef.current.height = height;
     ctx.clearRect(0, 0, width, height);
 
-    const fatherColors = [cssVar('--color-haplotype-father-dark'), cssVar('--color-haplotype-father-light')];
-    const motherColors = [cssVar('--color-haplotype-mother-dark'), cssVar('--color-haplotype-mother-light')];
-    const riskColors: Record<DiseaseHaplotypeKind, string> = {
-      dominant: cssVar('--color-haplotype-affected'),
-      'recessive-maternal': cssVar('--color-haplotype-carrier'),
-      'recessive-paternal': cssVar('--color-haplotype-carrier'),
-      'x-linked': cssVar('--color-haplotype-affected'),
-    };
-    const unknownColor = cssVar('--color-haplotype-unknown');
-    const deletedFill = cssVar('--color-haplotype-deleted-fill');
-    const deletedStroke = cssVar('--color-haplotype-deleted-stroke');
+    const palette = readHaplotypePalette();
 
     const half = height / 2;
 
@@ -213,16 +199,6 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     // chromosome: found at the ROI, it means nothing on another chromosome, where it matched
     // unrelated homologs and drew them as the risk haplotype (#588).
     const riskChrom = analysisRegion ? normalizeHaplotypeChrom(analysisRegion.chr) : null;
-
-    const baseColorForLane = (seg: Segment, lane: HaplotypeLane): string => {
-      const value = seg[lane];
-      if (isDeletedHaplotype(value)) return deletedFill;
-      const parsed = parseInt(value, 10);
-      const signature = getHaplotypeLaneSignature(currentMember, seg, lane, seg.chr);
-      if (!signature) return unknownColor;
-      const palette = signature.origin === 'paternal' ? fatherColors : motherColors;
-      return isNaN(parsed) ? unknownColor : palette[parsed] || unknownColor;
-    };
 
     segments.forEach((seg) => {
       const chr = seg.chr;
@@ -245,10 +221,10 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
         const isSingleLane = lanes.length === 1;
         const y = isSingleLane ? 0 : lane === 'hap1' ? 0 : half + 1;
         const rectHeight = isSingleLane ? height : half - 1;
-        ctx.fillStyle = baseColorForLane(seg, lane);
+        ctx.fillStyle = haplotypeLaneColor(palette, currentMember, seg, lane, seg.chr);
         ctx.fillRect(x1, y, w, rectHeight);
         if (isDeletedHaplotype(seg[lane])) {
-          ctx.strokeStyle = deletedStroke;
+          ctx.strokeStyle = palette.deletedStroke;
           ctx.lineWidth = 1;
           ctx.beginPath();
           ctx.moveTo(x1 + 0.75, y + 1);
@@ -256,7 +232,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           ctx.stroke();
         }
         if (riskKind) {
-          drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, riskColors[riskKind], {
+          drawHaplotypeRiskOverlay(ctx, x1, y, w, rectHeight, palette.risk[riskKind], {
             pattern: haplotypeRiskPattern(riskKind),
           });
         }

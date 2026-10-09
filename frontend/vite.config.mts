@@ -70,7 +70,7 @@ export default defineConfig({
         'src/**/__tests__/**',
         'src/**/*.d.ts',
         // The entry point: the route table and bootstrap, driven end to end by the
-        // Playwright journeys (TF-09d). The exclude named a main.tsx that does not exist.
+        // Playwright journeys (TF-09d).
         'src/index.tsx',
         'src/setupTests.ts',
         'src/vite-env.d.ts'
