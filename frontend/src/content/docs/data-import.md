@@ -272,12 +272,15 @@ calls apart:
   call: the SV list shows the SV once per caller, with that caller's genotypes, and both rows share
   the SV's review, tags and note.
 
-A repeat-expansion (TRGT) file is read for the sample you upload it for: CoGA takes the column named
-after that sample (TRGT writes `<sample>_sort`), wherever it is in the file, so a family TRGT VCF can be
-uploaded member by member. A file with one column that names no sample (such as `Sample0`) is taken
-as that sample's. A file whose column names another sample, of this family or another, is refused, and
-nothing is replaced. A package's per-sample TRGT, mitochondrial and HiFiCNV files follow the same rule;
-when a file is that sample's after all (a lab that verified its tubes), the entry's `vcf_sample` says so.
+A Sniffles or Spectre VCF, and a repeat-expansion (TRGT) file, are read for the sample you upload them
+for: CoGA takes the column named after that sample (TRGT writes `<sample>_sort`), wherever it is in the
+file, so a family Sniffles or TRGT VCF can be uploaded member by member. A file with one column that
+names no sample (such as `Sample0`) is taken as that sample's. A file whose columns name other samples
+and not this one, of this family or another, or that has two columns for it, is refused, and nothing is
+replaced; so is a Sniffles or Spectre VCF without its `#CHROM` header line, once, before its records. A
+manual TSV has no sample column: each of its rows is the sample's call. A package's per-sample TRGT,
+mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
+verified its tubes), the entry's `vcf_sample` says so.
 
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls

@@ -163,15 +163,18 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
         )
 
 
-def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVariant]:
+def _iter_sniffles_records(
+    lines: Iterable[str], sample_column: int = 0
+) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
             continue
         parts = line.strip().split("\t")
-        if len(parts) < 10:
+        if len(parts) < 10 + sample_column:
             continue
 
-        chrom, pos, variant_id, ref, alt, qual, filt, info_f, fmt, sample_f = parts[:10]
+        chrom, pos, variant_id, ref, alt, qual, filt, info_f, fmt = parts[:9]
+        sample_f = parts[9 + sample_column]
         info = parse_info(info_f)
         fmt_vals = parse_format(fmt, sample_f)
         svtype = info.get("SVTYPE", alt.strip("<>"))
@@ -209,15 +212,18 @@ def _iter_sniffles_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVar
         )
 
 
-def _iter_spectre_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVariant]:
+def _iter_spectre_records(
+    lines: Iterable[str], sample_column: int = 0
+) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
             continue
         parts = line.strip().split("\t")
-        if len(parts) < 10:
+        if len(parts) < 10 + sample_column:
             continue
 
-        chrom_raw, pos, variant_id, ref, alt, qual, filt, info_f, fmt, sample_f = parts[:10]
+        chrom_raw, pos, variant_id, ref, alt, qual, filt, info_f, fmt = parts[:9]
+        sample_f = parts[9 + sample_column]
         info = parse_info(info_f)
         fmt_vals = parse_format(fmt, sample_f)
         try:
@@ -247,12 +253,18 @@ def _iter_spectre_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVari
 def iter_structural_variant_records(
     text: str,
     record_format: StructuralVariantRecordFormat,
+    *,
+    sample_column: int = 0,
 ) -> Iterator[ParsedStructuralVariant]:
+    """The records of an uploaded SV file. A Sniffles or Spectre VCF's call is read from
+    its ``#CHROM`` sample column ``sample_column`` (0 is the first), the one the upload
+    checked holds its sample (``per_sample_vcf_column``); a record without that column is
+    skipped. A manual TSV has no sample column: each row is one call of its sample."""
     lines = text.splitlines()
     if record_format == "manual":
         return _iter_manual_records(lines)
     if record_format == "sniffles":
-        return _iter_sniffles_records(lines)
+        return _iter_sniffles_records(lines, sample_column)
     if record_format == "spectre":
-        return _iter_spectre_records(lines)
+        return _iter_spectre_records(lines, sample_column)
     raise ValueError(f"Unsupported structural variant record format: {record_format}")

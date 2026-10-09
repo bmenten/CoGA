@@ -465,6 +465,11 @@ async def _no_genes(*_args, **_kwargs) -> dict:
     return {}
 
 
+async def _family_sample_ids(*_args, **_kwargs) -> set[str]:
+    """The sample ids an SV upload checks its file's columns against: the family's."""
+    return set(_SAMPLES)
+
+
 @pytest.fixture
 def sv_store(monkeypatch: pytest.MonkeyPatch):
     def install(
@@ -474,6 +479,7 @@ def sv_store(monkeypatch: pytest.MonkeyPatch):
         for module in (variant_upload_service, admin_service):
             monkeypatch.setattr(module, "fetch_family_structural_variant_rows", store.fetch)
             monkeypatch.setattr(module, "rewrite_family_structural_variants", store.rewrite)
+        monkeypatch.setattr(variant_upload_service, "known_vcf_sample_ids", _family_sample_ids)
         monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", _no_genes)
         monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", _nothing)
         return store
