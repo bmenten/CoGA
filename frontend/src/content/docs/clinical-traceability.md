@@ -132,9 +132,10 @@ If the family's project cannot be loaded, the assembly — and so the scope — 
 ### Import incomplete
 
 If a data import fails for some datasets and leaves the family partly loaded, CoGA keeps what did
-load and marks the family as incomplete. Every family page, the report included, then shows
+load and marks the family as incomplete. Every family page, the reports included, then shows
 *Import incomplete*: the datasets that failed and those that did import, when, and the import job
-whose record holds each dataset's error. The warning prints with the report.
+whose record holds each dataset's error. The warning prints with the report, and with the NIPT
+report, which has no sign-out to stop on it.
 
 Results on such a family can lack whole datasets, for example all its structural variants. Import
 the datasets that failed again to complete the family: the warning goes once each has been imported

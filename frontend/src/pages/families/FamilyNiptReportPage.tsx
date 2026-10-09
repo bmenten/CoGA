@@ -3,7 +3,7 @@ import { Link, useLocation, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
-import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
+import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import type { ApiNiptCoverageSummary, ApiNiptSummary, GenePanel } from '../../lib/apiTypes';
@@ -412,11 +412,16 @@ const FamilyNiptReportPage: React.FC = () => {
           <p className="page-kicker">Monogenic NIPT report</p>
           <h1 className="page-state-title">Family {familyId}</h1>
           <p className="report-header-meta">{referenceLabel}</p>
-          <AssemblyScopeBanner
-            assemblyName={assemblyName}
-            assemblyValidated={assemblyValidated}
-            unavailable={referenceFailed}
-            onRetry={retryReference}
+          {/* In the header, which prints: a NIPT report has no sign-out to stop on a partly
+              imported family, so the printout itself must say so. */}
+          <FamilyPageBanners
+            metadata={family?.metadata}
+            assemblyScope={{
+              name: assemblyName,
+              validated: assemblyValidated,
+              unavailable: referenceFailed,
+              onRetry: retryReference,
+            }}
           />
         </div>
         <div className="report-header-actions no-print">

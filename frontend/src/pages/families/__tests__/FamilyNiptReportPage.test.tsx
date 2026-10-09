@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import FamilyNiptReportPage from '../FamilyNiptReportPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { INCOMPLETE_IMPORT_METADATA, findImportIncompleteBanner } from '../../../test/familyPageBanners';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -413,6 +414,28 @@ describe('FamilyNiptReportPage', () => {
       'Manufacturer: Center for Medical Genetics, Ghent University Hospital, C. Heymanslaan 10, 9000 Ghent',
     );
     expect(screen.queryByText(/so this printout does not show the whole report/)).not.toBeInTheDocument();
+  });
+
+  // A NIPT report has no sign-out to stop on a partly imported family: the warning is what
+  // keeps it from reading as complete, on screen and on paper.
+  it('warns in its header that the import is incomplete, and prints the warning', async () => {
+    apiMock.get.mockImplementation((url: string) =>
+      url === '/families/NIPT001'
+        ? Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              members: [],
+              metadata: { analysis_type: 'monogenic_nipt', ...INCOMPLETE_IMPORT_METADATA },
+            },
+          })
+        : Promise.resolve({ data: { family_id: 'NIPT001', total: 0, variants: [] } }),
+    );
+    renderPage();
+
+    const banner = await findImportIncompleteBanner();
+    // In the header card, which prints with the report.
+    expect(banner.closest('.report-header')).not.toBeNull();
+    expect(banner.closest('.no-print')).toBeNull();
   });
 
   // A NIPT family whose candidate list answers with `variants`, and whose gene panel 1 is
