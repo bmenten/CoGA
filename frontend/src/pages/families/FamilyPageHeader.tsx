@@ -1,7 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router';
-import AssemblyScopeBanner from '../../components/AssemblyScopeBanner';
-import ImportIncompleteBanner from '../../components/ImportIncompleteBanner';
+import FamilyPageBanners, { type FamilyAssemblyScope } from '../../components/FamilyPageBanners';
 import Pedigree from '../../components/visualizations/Pedigree';
 import { parsePedigree } from '../../lib/pedigree';
 
@@ -49,7 +48,7 @@ const FamilyPageHeader: React.FC<{
   /** Samples whose phenotype ring the pedigree should draw (workspace only). */
   phenotypeSampleIds?: string[];
   /** The family's reference assembly and whether it is inside the validated scope. */
-  assemblyScope?: { name?: string; validated?: boolean; unavailable?: boolean; onRetry?: () => void };
+  assemblyScope?: FamilyAssemblyScope;
 }> = ({
   kicker,
   familyId,
@@ -94,15 +93,9 @@ const FamilyPageHeader: React.FC<{
               is a flex row, so anything nested inside it shrinks to its own content and
               a `repeat(auto-fit, …)` stat grid collapses to a single column. */}
           {children ? <div className="page-top-card-body">{children}</div> : null}
-          <AssemblyScopeBanner
-            assemblyName={assemblyScope?.name}
-            assemblyValidated={assemblyScope?.validated}
-            unavailable={assemblyScope?.unavailable}
-            onRetry={assemblyScope?.onRetry}
-          />
-          {/* A family whose package import partly failed: on every family page, so the
-              data is never read as complete (sign-out gates on the same flag). */}
-          <ImportIncompleteBanner metadata={family?.metadata} />
+          {/* An assembly off the validated scope, and an import that partly failed or has
+              not finished: on every family page, so the data is never read as complete. */}
+          <FamilyPageBanners metadata={family?.metadata} assemblyScope={assemblyScope} />
         </div>
         {hasPedigree && (
           <div className="page-top-card-visual">

@@ -8,6 +8,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyVariantSummaryPage from '../FamilyVariantSummaryPage';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+  offScopeProject,
+} from '../../../test/familyPageBanners';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn() } }));
 
@@ -118,6 +124,29 @@ describe('FamilyVariantSummaryPage', () => {
     // The page says what it summarises: the structural variants, not the small variants.
     expect(screen.getByText(/of this family's structural variants, from every caller/)).toBeInTheDocument();
     expect(await screen.findByText('Pedigree')).toBeInTheDocument();
+  });
+
+  // Like every family page, its header warns of a partly imported family and of one off the
+  // validated scope.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    mockedGet.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: { ...FAMILY, projects: ['p1'], metadata: INCOMPLETE_IMPORT_METADATA },
+        });
+      }
+      if (url === '/projects') return Promise.resolve({ data: [offScopeProject('p1')] });
+      if (url === '/families/F1/structural-variant-lengths') return Promise.resolve({ data: [sv('1', 'DEL')] });
+      if (url === '/families/F1/shared-structural-variant-counts') {
+        return Promise.resolve({ data: { S1: { S1: 1 } } });
+      }
+      return Promise.reject(new Error(`Unexpected GET ${url}`));
+    });
+    renderPage();
+
+    const header = (await screen.findByRole('heading', { name: 'Family F1' })).closest('.page-top-card');
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
   });
 
   it('shows a loading state until both the lengths and the sharing matrix have arrived', async () => {

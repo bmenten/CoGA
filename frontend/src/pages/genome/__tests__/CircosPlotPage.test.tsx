@@ -5,6 +5,11 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import CircosPlotPage from '../CircosPlotPage';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+} from '../../../test/familyPageBanners';
 
 const { circosSpy, mockedChroms } = vi.hoisted(() => ({
   circosSpy: vi.fn(),
@@ -63,6 +68,8 @@ const projectOn = (assemblyName: string) => ({
   assembly_id: 'asm-1',
   assembly_name: assemblyName,
   assembly_version: '',
+  // The validated scope the server reports: GRCh38 unless the laboratory set otherwise.
+  assembly_validated: assemblyName === 'GRCh38',
   families: [],
   samples: [],
 });
@@ -160,6 +167,20 @@ describe('CircosPlotPage', () => {
     expect(drawnChromosomes().map((chrom: { chr: string }) => chrom.chr)).toEqual(withoutY);
     const listed = screen.getAllByRole('checkbox').map((box) => box.closest('label')?.textContent);
     expect(listed).toEqual(withoutY.map((name) => `chr${name}`));
+  });
+
+  // The plot draws the family's SVs like any family page shows its data: a partly imported
+  // family, or one off the validated scope, is said so in its header.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    serve('GRCh37', { '/families/F1': ok({ projects: ['p1'], metadata: INCOMPLETE_IMPORT_METADATA }) });
+    renderPage();
+
+    const header = (await screen.findByRole('heading', { name: 'Circos plot for family F1' })).closest(
+      '.page-top-card',
+    );
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
+    expect(screen.getByTestId('circos-plot')).toBeInTheDocument();
   });
 
   it('preserves project scope in the structural-variant circos query', async () => {

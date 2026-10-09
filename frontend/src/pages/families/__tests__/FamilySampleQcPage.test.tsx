@@ -5,6 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import FamilySampleQcPage from '../FamilySampleQcPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+  offScopeProject,
+} from '../../../test/familyPageBanners';
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
 
@@ -149,6 +155,43 @@ describe('FamilySampleQcPage', () => {
     const title = await screen.findByRole('link', { name: 'Family FAM1' });
     expect(title).toHaveAttribute('href', '/families/FAM1');
     expect(screen.queryByRole('link', { name: /back to family/i })).not.toBeInTheDocument();
+  });
+
+  // Like every family page, its header warns of a partly imported family and of one off the
+  // validated scope.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/FAM1/qc/sample-integrity') {
+        return Promise.resolve({
+          data: {
+            family_id: 'FAM1',
+            overall_status: 'pass',
+            application: 'wgs',
+            application_label: 'Long-read WGS family',
+            application_summary: 'Full pedigree QC on the SNV call set.',
+            genotype_source: 'clair3',
+            paternity_check: null,
+            autosomal_sites: 90000,
+            notes: [],
+            sex_checks: [],
+            relatedness_checks: [],
+            mendelian_checks: [],
+          },
+        });
+      }
+      if (url === '/families/FAM1') {
+        return Promise.resolve({
+          data: { ...TRIO_FAMILY, projects: ['p1'], metadata: INCOMPLETE_IMPORT_METADATA },
+        });
+      }
+      if (url === '/projects') return Promise.resolve({ data: [offScopeProject('p1')] });
+      return Promise.resolve({ data: {} });
+    });
+    renderPage();
+
+    const header = (await screen.findByRole('heading', { name: 'Family FAM1' })).closest('.page-top-card');
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
   });
 
   it('shows an all-clear overall status and green rings when checks pass', async () => {
