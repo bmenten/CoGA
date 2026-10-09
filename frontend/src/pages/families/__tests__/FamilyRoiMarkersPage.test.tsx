@@ -6,6 +6,12 @@ import FamilyRoiMarkersPage from '../FamilyRoiMarkersPage';
 import api from '../../../lib/api';
 import { NUCLEOTIDE_FALLBACK_COLOR } from '../../../lib/phasedMarkers';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+  offScopeProject,
+} from '../../../test/familyPageBanners';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn() } }));
 
@@ -144,6 +150,31 @@ describe('FamilyRoiMarkersPage', () => {
       expect(await screen.findByText('Family could not be loaded')).toBeInTheDocument();
       expect(screen.queryByText('No region of interest')).not.toBeInTheDocument();
     });
+  });
+
+  // The markers a PGT call rests on: a partly imported family, or one off the validated
+  // scope, is said so under the title, as on every family page.
+  it('warns under its title that the import is incomplete and the assembly is not validated', async () => {
+    const working = (api.get as Mock).getMockImplementation()!;
+    (api.get as Mock).mockImplementation((url: string, config?: unknown) => {
+      if (url === '/families/co1') {
+        return Promise.resolve({
+          data: {
+            ...family,
+            projects: ['p1'],
+            metadata: { ...family.metadata, ...INCOMPLETE_IMPORT_METADATA },
+          },
+        });
+      }
+      if (url === '/projects') return Promise.resolve({ data: [offScopeProject('p1')] });
+      return working(url, config);
+    });
+    renderPage();
+
+    const header = (await screen.findByRole('heading', { name: 'ROI marker review — GENEX' })).parentElement;
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
+    expect(screen.getByText(/2 markers in view/)).toBeInTheDocument();
   });
 
   it('opens on the ROI with two homolog bands per member and an orange ROI line', async () => {

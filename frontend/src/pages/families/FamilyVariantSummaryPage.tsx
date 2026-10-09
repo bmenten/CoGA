@@ -7,7 +7,9 @@ import { compareChromosomes } from '../../lib/chromosomes';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import { apiPath } from '../../lib/apiPath';
+import type { FamilyOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { useFamilyReference } from '../../lib/reference';
 
 const VARIANT_LIMIT = 100000;
 
@@ -46,14 +48,21 @@ type SharedVariantCounts = Record<string, Record<string, number>>;
 
 const FamilyVariantSummaryPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
-  // For the shared header's pedigree — the other family pages already load this.
-  const { data: family } = useQuery<{ pedigree?: string | null; members?: unknown[] }>({
+  // For the shared header: the pedigree, and what every family page warns of — an import
+  // that left the family incomplete, and an assembly outside the validated scope.
+  const { data: family } = useQuery<Pick<FamilyOut, 'pedigree' | 'members' | 'projects' | 'metadata'>>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
       return res.data;
     },
   });
+  const {
+    assemblyName,
+    assemblyValidated,
+    isError: referenceFailed,
+    retry: retryReference,
+  } = useFamilyReference(family?.projects);
   const { data, isLoading, error: lengthsError, refetch: refetchLengths } = useQuery<VariantLength[]>({
     queryKey: ['family', familyId, 'structural-variant-lengths'],
     queryFn: async () => {
@@ -166,6 +175,12 @@ const FamilyVariantSummaryPage: React.FC = () => {
   return (
     <div className="page-shell analysis-shell">
       <FamilyPageHeader
+        assemblyScope={{
+          name: assemblyName,
+          validated: assemblyValidated,
+          unavailable: referenceFailed,
+          onRetry: retryReference,
+        }}
         kicker="Variant summary"
         familyId={familyId}
         family={family}
