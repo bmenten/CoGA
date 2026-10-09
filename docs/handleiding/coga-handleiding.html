@@ -3018,7 +3018,7 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td><code>GET /variant-explorer/small-variants/export</code></td>
-<td>Dezelfde resultaten als CSV (met een bovengrens op het aantal rijen)</td>
+<td>Dezelfde resultaten als CSV, tot 50.000 rijen; een bestand dat niet elke treffer bevat, zegt dat (zie <em>De CSV-export</em>)</td>
 </tr>
 <tr>
 <td><code>GET /variant-explorer/small-variants/{variant_key}/carriers</code></td>
@@ -3044,12 +3044,22 @@ python docs/handleiding/build_site.py
 <h2>Filters</h2>
 <p>Bovenop de gewone annotatiefilters (gen, panel, impact, ClinVar, gnomAD, CADD, REVEL, SpliceAI, …) kent de Explorer twee soorten filters:</p>
 <ol>
-<li><strong>Tags en classificaties.</strong> Die staan in Postgres, per familie. Filtert de gebruiker erop, dan zoekt de Explorer eerst in Postgres de bijbehorende variant-id's binnen de toegankelijke projecten, en geeft die lijst mee aan de ClickHouse-vraag. Een lege lijst betekent meteen een leeg resultaat.</li>
+<li><strong>Tags en classificaties.</strong> Die staan in Postgres, per familie. Filtert de gebruiker erop, dan zoekt de Explorer eerst in Postgres de bijbehorende variant-id's binnen de toegankelijke projecten, en geeft die lijst mee aan de ClickHouse-vraag. Een lege lijst betekent meteen een leeg resultaat. Omdat de lijst letterlijk in de query staat, telt ze hoogstens 200.000 id's: de eerste in de volgorde van de variant-id, zodat dezelfde filter altijd dezelfde lijst geeft. Postgres leest er één meer, om te weten of er meer matchten; dan kan de zoekopdracht treffers missen. De CSV-export meldt dat; de lijst op het scherm meldt het niet.</li>
 <li><strong>Genotype per sample.</strong> De gebruiker voegt regels toe van de vorm sample met <em>Het</em>, <em>Hom</em> of <em>Het + Hom</em>. Elke regel wordt een aparte voorwaarde; een variant moet aan alle regels voldoen.</li>
 </ol>
 <p>Met de standaardinstelling "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter" gebruikt de Explorer dezelfde ClinVar-termen als de familiepagina.</p>
 <p>Ook <em>MANE only</em> volgt de familiepagina: een variant blijft staan als een van zijn transcripten MANE Select of MANE Plus Clinical is. Beide lezen die vlaggen uit één lijst, <code>MANE_ONLY_TRANSCRIPT_FLAGS</code> in <code>backend/app/services/clickhouse_variant_records.py</code>.</p>
 <p>Elke waarde die de gebruiker aanlevert, gaat als benoemde parameter (<code>%(naam)s</code>) naar de ClickHouse-client, die ze ge-escapet in de query zet; de code van CoGA plakt ze nooit zelf in de tekst (hoofdstuk 7).</p>
+<h2>De CSV-export</h2>
+<p>De export gebruikt dezelfde filters en sortering als de lijst, zonder paginering, en schrijft hoogstens 50.000 rijen. Hij vraagt ClickHouse één rij meer: komt die terug, dan matchten er meer varianten dan het bestand bevat. Zo'n bestand zwijgt daar niet over, net zoals de exports van de familiepagina:</p>
+<ul>
+<li>de bestandsnaam zegt <code>TRUNCATED</code>: <code>variant-explorer-…-TRUNCATED-first-50000.csv</code>;</li>
+<li>de headers zeggen hoeveel rijen er geschreven zijn (<code>X-CoGA-Export-Rows</code>), dat er meer matchten (<code>X-CoGA-Export-Truncated</code>), de grens (<code>X-CoGA-Export-Limit</code>) en waarom (<code>X-CoGA-Export-Truncated-Reason</code>: <code>row-limit</code>);</li>
+<li>het scherm toont een waarschuwing die vraagt de filters te verfijnen.</li>
+</ul>
+<p>Was de lijst van de tag- of classificatiefilter afgekapt (zie <em>Filters</em>), dan kan een treffer overal in het bestand ontbreken, hoe weinig rijen het ook telt. De reden is dan <code>review-filter-limit</code>, de naam <code>…-TRUNCATED-partial-search.csv</code>, en de waarschuwing vraagt op minder tags of classificaties te filteren. Die reden gaat voor op <code>row-limit</code>.</p>
+<p>De reviews van de rijen (tags, classificatie, laatste review) zoekt de export in Postgres op met de variant-id's als één array-parameter. Met één parameter per id brak elke export van meer dan 32.767 rijen af: asyncpg weigert een vraag met meer parameters.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>export_global_small_variants</code> en <code>_review_filter_variant_ids</code> in <code>backend/app/services/variant_explorer_service.py</code>; <code>export_response_headers</code> in <code>backend/app/core/csv_export.py</code>; <code>describeCsvExport</code> en <code>truncatedExportMessage</code> in <code>frontend/src/lib/csvExport.ts</code>.</p>
 <h2>Afscherming tussen projecten</h2>
 <p>Dit is voor een auditor het belangrijkste deel. Elke vraag is hard beperkt tot de projecten van de gebruiker:</p>
 <ul>

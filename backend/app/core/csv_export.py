@@ -63,8 +63,11 @@ EXPORT_ROWS_HEADER = "X-CoGA-Export-Rows"
 EXPORT_TRUNCATED_HEADER = "X-CoGA-Export-Truncated"
 EXPORT_LIMIT_HEADER = "X-CoGA-Export-Limit"
 # Why a truncated export is incomplete: it hit its own row cap ("row-limit": the file is
-# the first ``limit`` rows), or the search behind it read a capped candidate window
-# ("candidate-limit": a match beyond the window is missing, however few rows the file has).
+# the first ``limit`` rows), the search behind it read a capped candidate window
+# ("candidate-limit": a match beyond the window is missing, however few rows the file has),
+# or its tag / classification filter matched more variants than the search takes
+# ("review-filter-limit": the Variant Explorer searched only part of them, so a match can
+# be missing however few rows the file has).
 EXPORT_TRUNCATED_REASON_HEADER = "X-CoGA-Export-Truncated-Reason"
 EXPORT_HEADERS = (
     "Content-Disposition",
@@ -76,6 +79,7 @@ EXPORT_HEADERS = (
 
 TRUNCATED_BY_ROW_LIMIT = "row-limit"
 TRUNCATED_BY_CANDIDATE_LIMIT = "candidate-limit"
+TRUNCATED_BY_REVIEW_FILTER_LIMIT = "review-filter-limit"
 
 
 def export_response_headers(
@@ -90,12 +94,14 @@ def export_response_headers(
 
     A truncated export says so in the file name as well as in the headers, so the file
     itself — once saved, forwarded or attached — cannot pass for the complete result.
-    A truncation without a stated reason is taken as the row cap.
+    A truncation without a stated reason is taken as the row cap. Only the row cap makes
+    the file "the first ``limit`` rows"; any other reason means the search itself was
+    partial, so a match can be missing anywhere in the file.
     """
 
     if truncated:
         reason = reason or TRUNCATED_BY_ROW_LIMIT
-        suffix = "partial-search" if reason == TRUNCATED_BY_CANDIDATE_LIMIT else f"first-{limit}"
+        suffix = f"first-{limit}" if reason == TRUNCATED_BY_ROW_LIMIT else "partial-search"
         filename = f"{filename_stem}-TRUNCATED-{suffix}.csv"
     else:
         reason = None
