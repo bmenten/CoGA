@@ -3,7 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import SampleQcCell from '../SampleQcCell';
 import api from '../../../lib/api';
-import type { ApiFamilyRecord } from '../../../lib/apiTypes';
+import type {
+  ApiFamilyRecord,
+  ApiSampleSequencingQcEvaluation,
+  ApiSampleSequencingQcMetric,
+} from '../../../lib/apiTypes';
 
 vi.mock('../../../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../../../lib/api')>('../../../lib/api');
@@ -31,6 +35,50 @@ const QC = {
     depth: { mean_depth: 18.57 },
   },
 };
+
+/** One metric as the backend judges it against its limits (`evaluate_sequencing_qc`). */
+const metric = (overrides: Partial<ApiSampleSequencingQcMetric> = {}): ApiSampleSequencingQcMetric => ({
+  metric_key: 'depth.mean_depth',
+  label: 'Mean depth',
+  unit: 'x',
+  direction: 'lower_is_worse',
+  value: 18.57,
+  warn_value: 20,
+  error_value: 10,
+  verdict: 'warn',
+  ...overrides,
+});
+
+const DUPLICATES = {
+  metric_key: 'alignment.duplicated_reads_percent',
+  label: 'Duplicate reads',
+  unit: '%',
+  direction: 'higher_is_worse',
+} as const;
+
+/** The overall verdict the family read serves beside a member's recorded QC. */
+const evaluation = (
+  verdict: ApiSampleSequencingQcEvaluation['verdict'],
+  metrics: ApiSampleSequencingQcMetric[],
+): ApiSampleSequencingQcEvaluation => ({
+  verdict,
+  metrics,
+  breached: metrics
+    .filter((entry) => entry.verdict === 'warn' || entry.verdict === 'fail')
+    .map((entry) => entry.metric_key),
+  profile_key: 'default',
+  profile_label: 'Default',
+});
+
+const judged = (
+  verdict: ApiSampleSequencingQcEvaluation | null,
+  sampleMetadata: Record<string, unknown> = QC,
+): ApiFamilyRecord['members'][number] => ({ ...member(sampleMetadata), sequencing_qc: verdict });
+
+/** The breach sentence leads the tooltip; the metrics and the profile follow after a dash. */
+const breachSentence = (tooltip: HTMLElement): string => (tooltip.textContent ?? '').split(' — ')[0];
+
+const TONES = ['family-qc-chip--neutral', 'table-chip--warning', 'table-chip--critical'];
 
 describe('SampleQcCell', () => {
   beforeEach(() => {
@@ -176,5 +224,179 @@ describe('SampleQcCell', () => {
     const buttons = screen.getAllByRole('button');
     expect(buttons).toHaveLength(1);
     expect(buttons[0]).toHaveAccessibleName(expect.stringContaining('18.6x'));
+  });
+});
+
+// REQ-QC-005 (TF-09a): the members table shows each sample's worst sequencing-QC state,
+// distinguishable without relying on colour alone, and on inspection names the breaching
+// metrics with their values and the limits they crossed.
+describe('SampleQcCell sequencing-QC verdict', () => {
+  it.each([
+    {
+      state: 'pass',
+      verdict: evaluation('pass', [metric({ warn_value: 15, error_value: 10, verdict: 'pass' })]),
+      name: '18.6x',
+      tone: 'family-qc-chip--neutral',
+      breach: null,
+    },
+    {
+      state: 'warn',
+      verdict: evaluation('warn', [metric({ warn_value: 20, error_value: 10, verdict: 'warn' })]),
+      name: 'Warning 18.6x',
+      tone: 'table-chip--warning',
+      breach: 'Warning: Mean depth 18.57 below 20',
+    },
+    {
+      state: 'fail',
+      verdict: evaluation('fail', [metric({ warn_value: 30, error_value: 20, verdict: 'fail' })]),
+      name: 'Fail 18.6x',
+      tone: 'table-chip--critical',
+      breach: 'Failed: Mean depth 18.57 below 20',
+    },
+    {
+      state: 'not run (no limit configured)',
+      verdict: evaluation('skip', [metric({ warn_value: null, error_value: null, verdict: 'skip' })]),
+      name: '18.6x',
+      tone: 'family-qc-chip--neutral',
+      breach: null,
+    },
+    {
+      state: 'not run (no verdict served)',
+      verdict: null,
+      name: '18.6x',
+      tone: 'family-qc-chip--neutral',
+      breach: null,
+    },
+  ])('$state: the chip reads "$name" in tone $tone', async ({ verdict, name, tone, breach }) => {
+    render(<SampleQcCell familyId="pacbio" member={judged(verdict)} />);
+
+    const chip = screen.getByRole('button');
+    // A problem verdict is a word on the chip, so it does not rest on colour alone; a
+    // passing or unassessed chip carries the number only.
+    expect(chip).toHaveAccessibleName(name);
+    expect(chip).toHaveClass('table-chip', 'family-qc-chip', tone);
+    for (const other of TONES.filter((candidate) => candidate !== tone)) {
+      expect(chip).not.toHaveClass(other);
+    }
+
+    await userEvent.hover(chip);
+    const tooltip = await screen.findByRole('tooltip');
+    if (breach) {
+      // A warning is named against its warning limit, a failure against its error limit.
+      expect(breachSentence(tooltip)).toBe(breach);
+    } else {
+      expect(tooltip).not.toHaveTextContent(/Warning:|Failed:/);
+    }
+  });
+
+  it('names every breaching metric with its value and the limit it crossed, and no other', async () => {
+    const verdict = evaluation('fail', [
+      metric({ value: 8.2, warn_value: 20, error_value: 10, verdict: 'fail' }),
+      metric({ ...DUPLICATES, value: 14.5, warn_value: 12, error_value: 20, verdict: 'warn' }),
+      metric({
+        metric_key: 'alignment.mapped_reads_percent',
+        label: 'Mapped reads',
+        unit: '%',
+        value: 99.1,
+        warn_value: 95,
+        error_value: 90,
+        verdict: 'pass',
+      }),
+      metric({
+        metric_key: 'reads.read_length_n50',
+        label: 'Read-length N50',
+        unit: 'bp',
+        value: 14283,
+        warn_value: null,
+        error_value: null,
+        verdict: 'skip',
+      }),
+    ]);
+    render(
+      <SampleQcCell
+        familyId="pacbio"
+        member={judged(verdict, {
+          sequencing_qc: {
+            report: 'qc/nanoplot/HG002/report.html',
+            depth: { mean_depth: 8.2 },
+            alignment: { duplicated_reads_percent: 14.5, mapped_reads_percent: 99.1 },
+            reads: { read_length_n50: 14283 },
+          },
+        })}
+      />,
+    );
+
+    const chip = screen.getByRole('button');
+    expect(chip).toHaveAccessibleName('Fail 8.2x');
+    await userEvent.hover(chip);
+    const tooltip = await screen.findByRole('tooltip');
+    // Each on the side its direction makes worse; the passing and the unassessed metric
+    // are not named.
+    expect(breachSentence(tooltip)).toBe(
+      'Failed: Mean depth 8.2 below 10; Duplicate reads 14.5 above 12',
+    );
+    expect(tooltip).toHaveTextContent('Thresholds: Default profile');
+  });
+
+  it('shows the worst state when a metric other than the depth on the chip breached', async () => {
+    const verdict = evaluation('fail', [
+      metric({ value: 30, warn_value: 20, error_value: 10, verdict: 'pass' }),
+      metric({ ...DUPLICATES, value: 25, warn_value: 12, error_value: 20, verdict: 'fail' }),
+    ]);
+    render(
+      <SampleQcCell
+        familyId="pacbio"
+        member={judged(verdict, {
+          sequencing_qc: {
+            report: 'qc/nanoplot/HG002/report.html',
+            depth: { mean_depth: 30 },
+            alignment: { duplicated_reads_percent: 25 },
+          },
+        })}
+      />,
+    );
+
+    const chip = screen.getByRole('button');
+    expect(chip).toHaveAccessibleName('Fail 30.0x');
+    expect(chip).toHaveClass('table-chip--critical');
+    await userEvent.hover(chip);
+    expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
+      'Failed: Duplicate reads 25 above 20',
+    );
+  });
+
+  it('marks a chip with no report to open the same way', async () => {
+    render(
+      <SampleQcCell
+        familyId="pacbio"
+        member={judged(evaluation('warn', [metric({ verdict: 'warn' })]), {
+          sequencing_qc: { depth: { mean_depth: 18.57 } },
+        })}
+      />,
+    );
+
+    const chip = screen.getByText('Warning 18.6x');
+    expect(chip).toHaveClass('table-chip', 'family-qc-chip-static', 'table-chip--warning');
+    expect(chip).not.toHaveClass('family-qc-chip--neutral');
+    await userEvent.hover(chip);
+    expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
+      'Warning: Mean depth 18.57 below 20',
+    );
+  });
+
+  it('names the breach when the chip takes keyboard focus', async () => {
+    const user = userEvent.setup();
+    render(
+      <SampleQcCell
+        familyId="pacbio"
+        member={judged(evaluation('fail', [metric({ warn_value: 30, error_value: 20, verdict: 'fail' })]))}
+      />,
+    );
+
+    await user.tab();
+    expect(screen.getByRole('button')).toHaveFocus();
+    expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
+      'Failed: Mean depth 18.57 below 20',
+    );
   });
 });
