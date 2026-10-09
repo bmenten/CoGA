@@ -77,7 +77,7 @@ Zonder soort en assembly is er geen coördinatenstelsel voor varianten. Bij het 
 ### Ingebouwde tracks en de repeatcatalogus
 
 - **Klinische CNV's en segmentale duplicaties** worden geladen uit bestanden (`REFERENCE_CLINICAL_CNVS_PATH` en `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH`), elk alleen als die dataset voor de assembly nog leeg is. Het standaardbestand voor de klinische CNV's zit niet in de repository. Zonder dat bestand start CoGA zonder klinische CNV's, en dat meldt het niet apart; een beheerder kan de kennisbank dan opbouwen op de pagina Referentiedata (hoofdstuk 15).
-- **De repeatcatalogus** combineert een ingebouwde lijst loci met de STRchive-loci (`data/ref-data/STRchive-loci.json`).
+- **De repeatcatalogus** combineert een ingebouwde lijst loci met de STRchive-loci (`data/ref-data/STRchive-loci.json`). Elke start schrijft beide opnieuw weg (per `locus_id` bijgewerkt), dus een gewijzigde drempel geldt vanaf de volgende start; calls die al geïmporteerd zijn, behouden hun opgeslagen status (hoofdstuk 8).
 
 **Waar in de code:** `seed_builtin_reference_tracks` in `backend/app/services/reference_metadata_service.py`; `seed_builtin_repeat_catalog` in `backend/app/services/repeat_expansion_pg.py`.
 
