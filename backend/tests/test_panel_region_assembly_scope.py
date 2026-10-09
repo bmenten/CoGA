@@ -35,6 +35,9 @@ class _Result:
     def one(self):
         return self._rows[0]
 
+    def first(self):
+        return self._rows[0] if self._rows else None
+
     def scalar_one_or_none(self):
         return self._scalar
 
