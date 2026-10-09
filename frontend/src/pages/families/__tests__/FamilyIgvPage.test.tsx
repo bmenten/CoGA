@@ -5,6 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import FamilyIgvPage from '../FamilyIgvPage';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import {
+  INCOMPLETE_IMPORT_METADATA,
+  findAssemblyScopeBanner,
+  findImportIncompleteBanner,
+  offScopeProject,
+} from '../../../test/familyPageBanners';
 
 const { apiGetMock } = vi.hoisted(() => ({
   apiGetMock: vi.fn((url: string) => {
@@ -146,6 +152,40 @@ describe('FamilyIgvPage', () => {
       expect(screen.getByText(/Homo sapiens • GRCh38 p14 • chr1:10-20/i)).toBeInTheDocument(),
     );
     expect(screen.queryByText(/Mus musculus • GRCm39 v1/i)).not.toBeInTheDocument();
+  });
+
+  // The viewer shows the family's reads like any family page shows its data: a partly
+  // imported family, or one off the validated scope, is said so above them.
+  it('warns in its header that the import is incomplete and the assembly is not validated', async () => {
+    apiGetMock.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            projects: ['p1'],
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }],
+            metadata: INCOMPLETE_IMPORT_METADATA,
+          },
+        });
+      }
+      if (url === '/projects') return Promise.resolve({ data: [offScopeProject('p1')] });
+      throw new Error(`Unexpected GET ${url}`);
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/igv']}>
+          <Routes>
+            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const header = (await screen.findByRole('heading', { name: 'IGV for family F1' })).closest('.page-top-card');
+    expect(header).toContainElement(await findImportIncompleteBanner());
+    expect(header).toContainElement(await findAssemblyScopeBanner());
+    expect(screen.getByTestId('igv-viewer')).toHaveTextContent('hg19|PROBAND');
   });
 
   // #610 — a server error is not a family that does not exist.
