@@ -346,6 +346,75 @@ jobs:
           path: sbom/*.cdx.json
           retention-days: 90
 
+  images:
+    # build.yml builds the release images in Cloud Build only after a merge, and not at all
+    # until Google Cloud is configured. This job builds both on every pull request and push
+    # to main, so a Dockerfile that no longer builds shows on its pull request instead of at
+    # the release candidate. Each `docker build` below is the one its ci/cloudbuild.*.yaml
+    # runs (Dockerfile, target, repository-root context, build arguments);
+    # backend/tests/test_deployment_config.py fails when the two drift apart. Nothing is
+    # pushed: the job has no registry credentials, and the images stay on the runner.
+    name: images (production Docker builds, not pushed)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Build the backend image (as ci/cloudbuild.backend.yaml)
+        # Stamped as build.yml stamps a release build (TF-18 §2): the version from VERSION,
+        # the commit as its 12-character hash.
+        run: |
+          docker build \
+            -f backend/Dockerfile \
+            --target production \
+            --build-arg APP_VERSION="$(cat VERSION)" \
+            --build-arg GIT_SHA="$(git rev-parse --short=12 HEAD)" \
+            -t coga-backend:ci \
+            .
+      - name: Check the backend image imports the app and reports its build
+        # Importing app.main loads the routers and the services they use, so a module or a
+        # package the image lacks fails here. Nothing is served and no datastore is needed.
+        # APP_ENV=development: outside development the settings refuse to load without real
+        # secrets.
+        run: |
+          docker run --rm \
+            -e APP_ENV=development \
+            -e EXPECTED_APP_VERSION="$(cat VERSION)" \
+            -e EXPECTED_GIT_SHA="$(git rev-parse --short=12 HEAD)" \
+            coga-backend:ci python -c '
+          import os
+          import app.main
+          from app.core.config import settings
+          assert os.getuid() != 0, "the production image runs as root"
+          assert settings.app_version == os.environ["EXPECTED_APP_VERSION"], settings.app_version
+          assert settings.git_sha == os.environ["EXPECTED_GIT_SHA"], settings.git_sha
+          '
+      - name: Build the frontend image (as ci/cloudbuild.frontend.yaml)
+        # The build arguments build.yml passes: the API under /api, no GitHub links, and the
+        # problem-report route from the same repository variable (empty while it is unset),
+        # passed via env and quoted.
+        env:
+          PROBLEM_REPORT_URL: ${{ vars.COGA_PROBLEM_REPORT_URL }}
+        run: |
+          docker build \
+            -f frontend/Dockerfile \
+            --target production \
+            --build-arg VITE_API_BASE_URL=/api \
+            --build-arg VITE_GITHUB_REPOSITORY_URL= \
+            --build-arg VITE_GITHUB_RELEASES_URL= \
+            --build-arg VITE_GITHUB_ISSUES_URL= \
+            --build-arg VITE_PROBLEM_REPORT_URL="${PROBLEM_REPORT_URL}" \
+            -t coga-frontend:ci \
+            .
+      - name: Check the frontend image holds the built app and its server's packages
+        # Importing server.mjs loads express and the proxy and header modules without
+        # listening: it listens only when run as `node server.mjs`.
+        run: |
+          docker run --rm coga-frontend:ci node --input-type=module -e '
+          import { existsSync } from "node:fs";
+          await import("./server.mjs");
+          if (!existsSync("dist/index.html")) throw new Error("dist/index.html is missing");
+          if (process.getuid() === 0) throw new Error("the production image runs as root");
+          '
+
   catalogue:
     # Guards the generated/derived docs that nothing else would catch drifting. Despite
     # the job name (kept verbatim — it is a required status check in branch protection,
