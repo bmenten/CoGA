@@ -11,6 +11,17 @@ locals {
   family_import_roots = length(var.family_import_roots) > 0 ? var.family_import_roots : (
     var.storage_backend == "gcs" ? ["gs://${google_storage_bucket.phi.name}/imports"] : []
   )
+
+  # Every container that runs the backend image gets these: the API below and the db-migrate
+  # job (migrate.tf). Production mode, and the cross-origin settings that mode requires: the
+  # app is same-origin behind the load balancer, so its own origin and no origin pattern.
+  # Outside development the backend's settings refuse the default ones, which admit
+  # localhost, so a container given APP_ENV without the other two cannot start.
+  backend_production_env = {
+    APP_ENV           = "production"
+    CORS_ORIGINS      = jsonencode(["https://${var.app_domain}"])
+    CORS_ORIGIN_REGEX = ""
+  }
 }
 
 # ---- Backend API ----------------------------------------------------------
@@ -79,9 +90,13 @@ resource "google_cloud_run_v2_service" "backend" {
         failure_threshold = 30
       }
 
-      env {
-        name  = "APP_ENV"
-        value = "production"
+      # APP_ENV, CORS_ORIGINS and CORS_ORIGIN_REGEX, as the db-migrate job gets them.
+      dynamic "env" {
+        for_each = local.backend_production_env
+        content {
+          name  = env.key
+          value = env.value
+        }
       }
       env {
         name  = "ENABLE_HSTS"
@@ -267,17 +282,7 @@ resource "google_cloud_run_v2_service" "backend" {
         }
       }
 
-      # --- Web / auth ---
-      env {
-        name  = "CORS_ORIGINS"
-        value = jsonencode(["https://${var.app_domain}"])
-      }
-      # Same-origin behind the load balancer, so no origin pattern either: the backend
-      # refuses to start outside development with the default one, which admits localhost.
-      env {
-        name  = "CORS_ORIGIN_REGEX"
-        value = ""
-      }
+      # --- Web / auth (CORS_ORIGINS and CORS_ORIGIN_REGEX: local.backend_production_env) ---
       env {
         name  = "AZURE_TENANT_ID"
         value = var.azure_ad_tenant_id
