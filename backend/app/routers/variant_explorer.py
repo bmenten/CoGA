@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.csv_export import csv_document
+from ..core.csv_export import csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
 from ..core.sql import canonical_uuid
 from ..dependencies import get_current_user
@@ -253,9 +253,16 @@ async def export_global_small_variants_csv(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> StreamingResponse:
-    """Download every filtered variant (with annotation data) as a CSV file."""
+    """Download the filtered variants (with annotation data) as a CSV file.
 
-    assembly_name, rows = await export_global_small_variants(
+    Up to the export cap (50,000 rows). A larger result is not cut silently: the file
+    name says TRUNCATED and the X-CoGA-Export-* headers report it, as for the family
+    exports. So is a result whose tag or classification filter matched more variants than
+    the search takes (X-CoGA-Export-Truncated-Reason: review-filter-limit), which can
+    miss matches however few rows it holds.
+    """
+
+    export = await export_global_small_variants(
         session,
         user=user,
         filters=filters,
@@ -264,11 +271,16 @@ async def export_global_small_variants_csv(
         order=order,
     )
 
-    filename = f"variant-explorer-{assembly_name or 'export'}.csv"
     return StreamingResponse(
-        iter([csv_document(_EXPORT_COLUMNS, rows, _export_cell)]),
+        iter([csv_document(_EXPORT_COLUMNS, export.rows, _export_cell)]),
         media_type="text/csv",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=export_response_headers(
+            f"variant-explorer-{export.assembly_name or 'export'}",
+            rows=len(export.rows),
+            truncated=export.truncated,
+            limit=export.limit,
+            reason=export.truncated_reason,
+        ),
     )
 
 

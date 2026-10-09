@@ -2320,7 +2320,7 @@
     "/cnv-explorer"
    ]
   ],
-  "text": "Threeexplorersanswerquestionsbeyondasinglecase.Openthemfromthemenuunderthearrowattherightofthetopbar,orfromthedashboard.GeneExplorerAprofilepergene:thetranscripts,badgedMANESelect,MANEPlusClinical,RefSeqSelectandEnsemblCanonical;constraintmetrics(pLI,LOEUF,missenseconstraint);diseaseassociationswithClinGenandGenCCevidenceandOMIMlinks;theMonarchgene–diseaseassociations(seePhenotypes,panelsandphenotypematching);andlinkstothemainexternalresources.VariantExplorerEverysmallvariantacrosstheprojectsyoucanaccess,onerowpervariant:gene,variant,classification,consequenceandtags,withthenumberofcarriers(hetandhom)andoffamilies.Filterasonthefamilypage(gene,consequence,ClinVar,frequency,in-silicoscores),plustagsandclassification—forexampleeveryvarianttaggedReport.Clickahet,homorfamilycounttoseethecarriersperfamily,withlinkstotheirfamilypages.ImputedcallsareleftoutunlessyoutickIncludeimputedvariants(GLIMPSE2/SHAPEIT).ClinicalCNVexplorerThecatalogueofknownclinicalCNVs(syndromesandrecurrentregions)foranassembly.Searchbyname,chromosomeortype;eachrowshowstheCNV,cytoband,location,sizeandClinVarP/LP.ClinVarP/LP,forexample12loss·3gain,countsthepathogenicorlikelypathogenicClinVarcopy-numbervariantsthatoverlaptheregionbyatleast30%bothways,ascountedwhentheknowledgebasewasbuilt.\"—\"meansthattheknowledgebasewasbuiltwithoutClinVar:notrecorded,notzero.ClickaCNVforitsdetailpage,withitsdescription,thesupportingClinVarrecordsandlinkstoOMIMandDECIPHER.ThesamepageopenswhenyouclickaclinicalCNVintheviewers.Countsfollowyouraccess.TheVariantExplorercountsonlytheprojectsyoucansee,soitscohortcountsreflectyouraccessiblecohort.",
+  "text": "Threeexplorersanswerquestionsbeyondasinglecase.Openthemfromthemenuunderthearrowattherightofthetopbar,orfromthedashboard.GeneExplorerAprofilepergene:thetranscripts,badgedMANESelect,MANEPlusClinical,RefSeqSelectandEnsemblCanonical;constraintmetrics(pLI,LOEUF,missenseconstraint);diseaseassociationswithClinGenandGenCCevidenceandOMIMlinks;theMonarchgene–diseaseassociations(seePhenotypes,panelsandphenotypematching);andlinkstothemainexternalresources.VariantExplorerEverysmallvariantacrosstheprojectsyoucanaccess,onerowpervariant:gene,variant,classification,consequenceandtags,withthenumberofcarriers(hetandhom)andoffamilies.Filterasonthefamilypage(gene,consequence,ClinVar,frequency,in-silicoscores),plustagsandclassification—forexampleeveryvarianttaggedReport.Clickahet,homorfamilycounttoseethecarriersperfamily,withlinkstotheirfamilypages.ImputedcallsareleftoutunlessyoutickIncludeimputedvariants(GLIMPSE2/SHAPEIT).DownloadCSVexportsthefilteredvariantswiththeirannotation,upto50,000rows.AfilethatmissesmatcheshasTRUNCATEDinitsname,andthepagesayswhy:morevariantsmatchedthanthe50,000rows(narrowthefilters),orthetagorclassificationfiltermatchedmorethanthe200,000variantsonesearchtakes(filteronfewertagsorclassifications).ClinicalCNVexplorerThecatalogueofknownclinicalCNVs(syndromesandrecurrentregions)foranassembly.Searchbyname,chromosomeortype;eachrowshowstheCNV,cytoband,location,sizeandClinVarP/LP.ClinVarP/LP,forexample12loss·3gain,countsthepathogenicorlikelypathogenicClinVarcopy-numbervariantsthatoverlaptheregionbyatleast30%bothways,ascountedwhentheknowledgebasewasbuilt.\"—\"meansthattheknowledgebasewasbuiltwithoutClinVar:notrecorded,notzero.ClickaCNVforitsdetailpage,withitsdescription,thesupportingClinVarrecordsandlinkstoOMIMandDECIPHER.ThesamepageopenswhenyouclickaclinicalCNVintheviewers.Countsfollowyouraccess.TheVariantExplorercountsonlytheprojectsyoucansee,soitscohortcountsreflectyouraccessiblecohort.",
   "paragraphs": [
    "Three explorers answer questions beyond a single case. Open them from the menu under the arrow at the right of the top bar, or from the dashboard.",
    "A profile per gene: the transcripts, badged MANE Select, MANE Plus Clinical, RefSeq Select and Ensembl Canonical; constraint metrics (pLI, LOEUF, missense constraint); disease associations with ClinGen and GenCC evidence and OMIM links; the Monarch gene–disease associations (see Phenotypes, panels and phenotype matching); and links to the main external resources.",
@@ -2347,6 +2347,10 @@
    [
     "li",
     "Imputed calls are left out unless you tick Include imputed variants (GLIMPSE2 / SHAPEIT)."
+   ],
+   [
+    "li",
+    "Download CSV exports the filtered variants with their annotation, up to 50,000 rows. A file that misses matches has TRUNCATED in its name, and the page says why: more variants matched than the 50,000 rows (narrow the filters), or the tag or classification filter matched more than the 200,000 variants one search takes (filter on fewer tags or classifications)."
    ],
    [
     "h3",
@@ -2402,6 +2406,14 @@
    [
     "strong",
     "Include imputed variants (GLIMPSE2 / SHAPEIT)"
+   ],
+   [
+    "strong",
+    "Download CSV"
+   ],
+   [
+    "em",
+    "TRUNCATED"
    ],
    [
     "strong",

@@ -26,7 +26,7 @@ Alle endpoints staan onder `/api/variant-explorer` en vragen een login.
 | `GET /variant-explorer/assemblies` | De toegankelijke assemblies, met het aantal projecten per assembly |
 | `GET /variant-explorer/samples` | De samples die de gebruiker mag zien (voor de genotypefilter) |
 | `GET /variant-explorer/small-variants` | De gepagineerde, geaggregeerde variantlijst |
-| `GET /variant-explorer/small-variants/export` | Dezelfde resultaten als CSV (met een bovengrens op het aantal rijen) |
+| `GET /variant-explorer/small-variants/export` | Dezelfde resultaten als CSV, tot 50.000 rijen; een bestand dat niet elke treffer bevat, zegt dat (zie *De CSV-export*) |
 | `GET /variant-explorer/small-variants/{variant_key}/carriers` | De dragers van één variant, per familie |
 | `GET /variant-explorer/small-variant-tags` | De tagdefinities van de toegankelijke projecten |
 
@@ -49,12 +49,26 @@ De bron is de tabel `entries` in ClickHouse, niet een vooraf berekende samenvatt
 
 Bovenop de gewone annotatiefilters (gen, panel, impact, ClinVar, gnomAD, CADD, REVEL, SpliceAI, …) kent de Explorer twee soorten filters:
 
-1. **Tags en classificaties.** Die staan in Postgres, per familie. Filtert de gebruiker erop, dan zoekt de Explorer eerst in Postgres de bijbehorende variant-id's binnen de toegankelijke projecten, en geeft die lijst mee aan de ClickHouse-vraag. Een lege lijst betekent meteen een leeg resultaat.
+1. **Tags en classificaties.** Die staan in Postgres, per familie. Filtert de gebruiker erop, dan zoekt de Explorer eerst in Postgres de bijbehorende variant-id's binnen de toegankelijke projecten, en geeft die lijst mee aan de ClickHouse-vraag. Een lege lijst betekent meteen een leeg resultaat. Omdat de lijst letterlijk in de query staat, telt ze hoogstens 200.000 id's: de eerste in de volgorde van de variant-id, zodat dezelfde filter altijd dezelfde lijst geeft. Postgres leest er één meer, om te weten of er meer matchten; dan kan de zoekopdracht treffers missen. De CSV-export meldt dat; de lijst op het scherm meldt het niet.
 2. **Genotype per sample.** De gebruiker voegt regels toe van de vorm sample met *Het*, *Hom* of *Het + Hom*. Elke regel wordt een aparte voorwaarde; een variant moet aan alle regels voldoen.
 
 Met de standaardinstelling "een (waarschijnlijk) pathogene ClinVar-variant passeert het frequentiefilter" gebruikt de Explorer dezelfde ClinVar-termen als de familiepagina.
 
 Elke waarde die de gebruiker aanlevert, gaat als benoemde parameter (`%(naam)s`) naar de ClickHouse-client, die ze ge-escapet in de query zet; de code van CoGA plakt ze nooit zelf in de tekst (hoofdstuk 7).
+
+## De CSV-export
+
+De export gebruikt dezelfde filters en sortering als de lijst, zonder paginering, en schrijft hoogstens 50.000 rijen. Hij vraagt ClickHouse één rij meer: komt die terug, dan matchten er meer varianten dan het bestand bevat. Zo'n bestand zwijgt daar niet over, net zoals de exports van de familiepagina:
+
+- de bestandsnaam zegt `TRUNCATED`: `variant-explorer-…-TRUNCATED-first-50000.csv`;
+- de headers zeggen hoeveel rijen er geschreven zijn (`X-CoGA-Export-Rows`), dat er meer matchten (`X-CoGA-Export-Truncated`), de grens (`X-CoGA-Export-Limit`) en waarom (`X-CoGA-Export-Truncated-Reason`: `row-limit`);
+- het scherm toont een waarschuwing die vraagt de filters te verfijnen.
+
+Was de lijst van de tag- of classificatiefilter afgekapt (zie *Filters*), dan kan een treffer overal in het bestand ontbreken, hoe weinig rijen het ook telt. De reden is dan `review-filter-limit`, de naam `…-TRUNCATED-partial-search.csv`, en de waarschuwing vraagt op minder tags of classificaties te filteren. Die reden gaat voor op `row-limit`.
+
+De reviews van de rijen (tags, classificatie, laatste review) zoekt de export in Postgres op met de variant-id's als één array-parameter. Met één parameter per id brak elke export van meer dan 32.767 rijen af: asyncpg weigert een vraag met meer parameters.
+
+**Waar in de code:** `export_global_small_variants` en `_review_filter_variant_ids` in `backend/app/services/variant_explorer_service.py`; `export_response_headers` in `backend/app/core/csv_export.py`; `describeCsvExport` en `truncatedExportMessage` in `frontend/src/lib/csvExport.ts`.
 
 ## Afscherming tussen projecten
 

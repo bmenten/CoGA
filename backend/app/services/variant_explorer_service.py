@@ -39,6 +39,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import execute_clickhouse
+from ..core.csv_export import TRUNCATED_BY_REVIEW_FILTER_LIMIT, TRUNCATED_BY_ROW_LIMIT
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
     GlobalVariantPageOut,
@@ -183,6 +184,9 @@ _CLINVAR_RANK = {
     "benign": 0,
 }
 
+# The tag / classification filter reaches ClickHouse as a variant_id list inlined into the
+# query, so it holds at most this many ids. Past it a search can miss matches: the export
+# then reports itself truncated.
 _MAX_TAG_FILTER_VARIANT_IDS = 200_000
 
 
@@ -409,20 +413,29 @@ async def _variant_ids_matching_reviews(
     project_ids: Sequence[str],
     classifications: Sequence[str],
     tags: Sequence[str],
-) -> set[str]:
-    """variant_id strings tagged/classified in any accessible family."""
+    limit: int,
+) -> tuple[list[str], bool]:
+    """variant_id strings tagged/classified in any accessible family, and whether more
+    matched than ``limit``.
+
+    At most ``limit`` ids, the first in variant_id order, so a capped list is the same
+    list on every request; the query reads one row more to know whether more matched.
+    """
 
     classifications = [value.strip() for value in classifications if str(value).strip()]
     tags = [value.strip() for value in tags if str(value).strip()]
     if not classifications and not tags:
-        return set()
+        return [], False
 
     clauses = [
         "r.variant_id IS NOT NULL",
         "r.variant_id <> ''",
         "fp.project_id IN :project_ids",
     ]
-    params: dict[str, Any] = {"project_ids": uuid_values(list(project_ids))}
+    params: dict[str, Any] = {
+        "project_ids": uuid_values(list(project_ids)),
+        "limit": int(limit) + 1,
+    }
     bind_params = [uuid_list_bindparam("project_ids")]
 
     if classifications:
@@ -447,29 +460,38 @@ async def _variant_ids_matching_reviews(
         FROM small_variant_reviews r
         JOIN family_projects fp ON fp.family_id = r.family_id
         WHERE {' AND '.join(clauses)}
+        ORDER BY r.variant_id
+        LIMIT :limit
         """
     ).bindparams(*bind_params)
     result = await session.execute(query, params)
-    return {str(row[0]).strip() for row in result.all() if str(row[0] or "").strip()}
+    rows = result.all()
+    variant_ids = dict.fromkeys(
+        str(row[0]).strip() for row in rows[:limit] if str(row[0] or "").strip()
+    )
+    return list(variant_ids), len(rows) > limit
 
 
 async def _review_filter_variant_ids(
     session: AsyncSession, scope: ExplorerScope, filters: GlobalVariantFilters
-) -> list[str] | None:
-    """The review (tag/classification) filter as a variant_id allow-list: None without a
-    review filter, [] when it matches nothing."""
+) -> tuple[list[str] | None, bool]:
+    """The review (tag/classification) filter as a variant_id allow-list, and whether more
+    variants matched it than the list holds.
+
+    The list is None without a review filter and [] when the filter matches nothing. It
+    holds at most ``_MAX_TAG_FILTER_VARIANT_IDS`` ids (an extreme tag set would blow up
+    the IN clause); past that a search through it can miss matches, which the export
+    reports.
+    """
     if not filters.has_review_filter():
-        return None
-    matched = await _variant_ids_matching_reviews(
+        return None, False
+    return await _variant_ids_matching_reviews(
         session,
         project_ids=scope.project_ids,
         classifications=filters.classifications,
         tags=filters.review_tags,
+        limit=_MAX_TAG_FILTER_VARIANT_IDS,
     )
-    if len(matched) > _MAX_TAG_FILTER_VARIANT_IDS:
-        # Defensive cap: an extreme tag set would blow up the IN clause.
-        matched = set(list(matched)[:_MAX_TAG_FILTER_VARIANT_IDS])
-    return list(matched)
 
 
 async def _review_display_map(
@@ -484,6 +506,9 @@ async def _review_display_map(
     if not variant_ids or not project_ids:
         return {}
 
+    # The ids go as one array parameter, not an expanding IN (one parameter per id): an
+    # export hydrates up to 50,001 rows, and asyncpg refuses a statement with more than
+    # 32,767 parameters, which failed every export of a larger result.
     query = text(
         """
         SELECT
@@ -496,12 +521,9 @@ async def _review_display_map(
         FROM small_variant_reviews r
         JOIN family_projects fp ON fp.family_id = r.family_id
         WHERE fp.project_id IN :project_ids
-          AND r.variant_id IN :variant_ids
+          AND r.variant_id = ANY(CAST(:variant_ids AS text[]))
         """
-    ).bindparams(
-        uuid_list_bindparam("project_ids"),
-        bindparam("variant_ids", expanding=True),
-    )
+    ).bindparams(uuid_list_bindparam("project_ids"))
     result = await session.execute(
         query,
         {"project_ids": uuid_values(list(project_ids)), "variant_ids": variant_ids},
@@ -768,7 +790,10 @@ async def search_global_small_variants(
     if scope is None:
         return GlobalVariantPageOut(total=0, page_size=page_size, assembly_id=assembly_id)
 
-    tag_variant_ids = await _review_filter_variant_ids(session, scope, filters)
+    # A capped tag set is reported by the export only: the page has no field for it.
+    tag_variant_ids, _review_filter_capped = await _review_filter_variant_ids(
+        session, scope, filters
+    )
     if tag_variant_ids == []:
         return GlobalVariantPageOut(
             total=0,
@@ -996,10 +1021,33 @@ async def _fetch_variant_rows(
     return variants, row_cursors
 
 
-# Hard cap on rows pulled into a single CSV export. Generous enough for any
-# realistic filtered result set, but bounds memory/response size for an
-# unfiltered "download everything" request.
+# Hard cap on rows pulled into a single CSV export, as for the family exports. Generous
+# enough for any realistic filtered result set, but bounds memory/response size for an
+# unfiltered "download everything" request. A larger result is reported, not cut silently.
 _MAX_EXPORT_ROWS = 50_000
+
+
+@dataclass(slots=True)
+class GlobalVariantExport:
+    """The rows of a Variant Explorer CSV export, and why, if at all, they are not every
+    filtered variant.
+
+    An export is never silently partial, as for the family exports (#512, #725): the route
+    names the file and sets the X-CoGA-Export-* headers from this.
+    ``truncated_reason`` is ``TRUNCATED_BY_ROW_LIMIT`` when more variants matched than
+    ``limit`` (the file holds the first ``limit``), and
+    ``TRUNCATED_BY_REVIEW_FILTER_LIMIT`` when the tag / classification filter matched more
+    variants than the search takes (a match can be missing however few rows the file has).
+    """
+
+    assembly_name: str | None
+    rows: list[GlobalVariantRowOut]
+    truncated_reason: str | None
+    limit: int
+
+    @property
+    def truncated(self) -> bool:
+        return self.truncated_reason is not None
 
 
 async def export_global_small_variants(
@@ -1011,12 +1059,14 @@ async def export_global_small_variants(
     sort: str = _DEFAULT_SORT,
     order: str = "desc",
     limit: int = _MAX_EXPORT_ROWS,
-) -> tuple[str | None, list[GlobalVariantRowOut]]:
-    """Fetch up to ``limit`` filtered variants for CSV export.
+) -> GlobalVariantExport:
+    """Fetch up to ``limit`` filtered variants for CSV export, and say whether that is all.
 
-    Returns ``(assembly_name, rows)``. Applies the same filtering/sorting as the
-    paginated search but ignores pagination so the caller gets the full result
-    set (capped at ``limit``).
+    Applies the same filtering and sorting as the paginated search, without pagination.
+    It asks for one row more than ``limit``: when that row comes back, more variants
+    matched than the file holds. A capped tag / classification filter makes the export
+    truncated too, and that reason wins: it says the file may lack matches anywhere, not
+    only past row ``limit``.
     """
 
     limit = max(1, min(limit, _MAX_EXPORT_ROWS))
@@ -1025,11 +1075,19 @@ async def export_global_small_variants(
 
     scope = await resolve_scope(session, user, assembly_id)
     if scope is None:
-        return None, []
+        return GlobalVariantExport(assembly_name=None, rows=[], truncated_reason=None, limit=limit)
 
-    tag_variant_ids = await _review_filter_variant_ids(session, scope, filters)
+    tag_variant_ids, review_filter_capped = await _review_filter_variant_ids(
+        session, scope, filters
+    )
+    review_filter_cut = TRUNCATED_BY_REVIEW_FILTER_LIMIT if review_filter_capped else None
     if tag_variant_ids == []:
-        return scope.assembly_name, []
+        return GlobalVariantExport(
+            assembly_name=scope.assembly_name,
+            rows=[],
+            truncated_reason=review_filter_cut,
+            limit=limit,
+        )
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
     params: dict[str, Any] = {}
@@ -1044,9 +1102,15 @@ async def export_global_small_variants(
         params=params,
         sort_expr=sort_expr,
         direction=direction,
+        limit=limit + 1,
+    )
+    row_cut = TRUNCATED_BY_ROW_LIMIT if len(variants) > limit else None
+    return GlobalVariantExport(
+        assembly_name=scope.assembly_name,
+        rows=variants[:limit],
+        truncated_reason=review_filter_cut or row_cut,
         limit=limit,
     )
-    return scope.assembly_name, variants
 
 
 async def _fetch_annotation_display(

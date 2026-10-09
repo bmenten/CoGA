@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import types
+
 from clickhouse_connect.driver.binding import bind_query
 
 from backend.app.services.variant_explorer_service import (
@@ -247,3 +250,66 @@ def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
     params = {}
     assert _annotation_index_clauses(GlobalVariantFilters(clinvar_overrides_frequency=True), params) == []
     assert params == {}
+
+
+_PROJECT = "11111111-1111-1111-1111-111111111111"
+
+
+class _RecordingSession:
+    """Records each statement with its parameters and answers with ``rows``."""
+
+    def __init__(self, rows=()) -> None:
+        self.rows = list(rows)
+        self.calls: list[tuple[object, dict]] = []
+
+    async def execute(self, statement, params=None):
+        self.calls.append((statement, dict(params or {})))
+        rows = self.rows
+        return types.SimpleNamespace(
+            all=lambda: list(rows),
+            mappings=lambda: types.SimpleNamespace(all=lambda: list(rows)),
+        )
+
+
+def test_review_filter_reads_one_id_past_its_cap_in_variant_id_order() -> None:
+    # The tag / classification filter takes at most `limit` ids. Postgres returns them in
+    # variant_id order with one more, so a capped list is the same on every request and the
+    # caller knows more matched (DATA-2; before, an arbitrary subset was kept silently).
+    from backend.app.services.variant_explorer_service import _variant_ids_matching_reviews
+
+    session = _RecordingSession(rows=[("1-100-A-G",), ("1-200-A-G",), ("1-300-A-G",)])
+    variant_ids, capped = asyncio.run(
+        _variant_ids_matching_reviews(
+            session, project_ids=[_PROJECT], classifications=[], tags=["report"], limit=2
+        )
+    )
+    assert (variant_ids, capped) == (["1-100-A-G", "1-200-A-G"], True)
+    statement, params = session.calls[0]
+    assert "ORDER BY r.variant_id" in str(statement)
+    assert "LIMIT :limit" in str(statement)
+    assert params["limit"] == 3
+
+    within = _RecordingSession(rows=[("1-100-A-G",), ("1-200-A-G",)])
+    assert asyncio.run(
+        _variant_ids_matching_reviews(
+            within, project_ids=[_PROJECT], classifications=["pathogenic"], tags=[], limit=2
+        )
+    ) == (["1-100-A-G", "1-200-A-G"], False)
+
+
+def test_review_display_map_binds_any_number_of_variant_ids_as_one_parameter() -> None:
+    # An export hydrates up to 50,001 rows. One bind parameter per id (an expanding IN) put
+    # more parameters in the statement than the 32,767 asyncpg takes, so every export of a
+    # result larger than that failed (DATA-2).
+    from sqlalchemy.dialects.postgresql.asyncpg import dialect as asyncpg_dialect
+
+    from backend.app.services.variant_explorer_service import _review_display_map
+
+    session = _RecordingSession()
+    variant_ids = [f"1-{100 + index}-A-G" for index in range(50_001)]
+    asyncio.run(_review_display_map(session, project_ids=[_PROJECT], variant_ids=variant_ids))
+    statement, params = session.calls[0]
+    expanded = statement.compile(dialect=asyncpg_dialect()).construct_expanded_state(params)
+    # One parameter for the project and one array holding every id.
+    assert len(expanded.positiontup) == 2
+    assert expanded.parameters["variant_ids"] == variant_ids
