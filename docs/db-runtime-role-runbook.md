@@ -98,7 +98,9 @@ and the switch is the variable `db_runtime_role`.
 `COGA_TFVARS` variable) and deploy, as a change-controlled deployment. That one apply:
 
 - grants `coga-db-migrate` the secrets it reads and creates the job: the backend image
-  running `python -m app.db_migrate` as the owner, over the Cloud SQL connector;
+  running `python -m app.db_migrate` as the owner, over the Cloud SQL connector, in
+  production mode with the backend's cross-origin settings, without which its settings
+  refuse to load;
 - runs the job and waits for it. It applies the schema, seeds the admin user and enables
   `coga_app`'s login from `POSTGRES_APP_PASSWORD` (step 2);
 - only then rolls the backend out as `coga_app` with startup migrations off, and removes
