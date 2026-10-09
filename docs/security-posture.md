@@ -95,7 +95,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   admits a loopback origin (`localhost`, `127.0.0.1`, `::1`, `0.0.0.0`) or any site (`*`, or a
   pattern matching an unrelated origin). The development defaults admit localhost with
   credentials, which would let a page served on the user's own machine call the API as the
-  signed-in user. Terraform sets the app's origin and an empty pattern.
+  signed-in user. Terraform sets the app's origin and an empty pattern for every container
+  of the backend image: the API and the schema-migration job.
 - ✅ **Every running build names its commit.** Outside development the backend refuses to
   start without a `GIT_SHA` (7–40 hex characters), which every signed report records
   (TF-18 §2). `build.yml` and `ci/cloudbuild.backend.yaml` stamp it.
