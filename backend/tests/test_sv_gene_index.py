@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import types
 
+import pytest
+
 from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services.sv_gene_index_service import summarize_second_hit
 
@@ -280,6 +282,71 @@ def test_read_phase_skipped_for_different_phase_sets() -> None:
     )
     assert summary["phase"] == "unknown"
     assert summary["phase_evidence"] is None
+
+
+# A half call has one allele missing, so it does not say which haplotype carries the alt:
+# the missing allele may be an alt too. The SNV + SNV pair declines it; the badge read
+# `1|.` as the alt on haplotype 0, and showed trans by read phasing — for a deletion,
+# "effectively biallelic" — from a call that places nothing.
+@pytest.mark.parametrize("sv_gt", ["1|.", ".|1", "|1", "1|", "2|.", ".|2"])
+def test_a_half_called_sv_next_to_a_phased_snv_gives_no_read_backed_phase(sv_gt: str) -> None:
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": sv_gt}, ps={"child": 1000})],
+        ["child"],
+        unaffected_samples=[],  # singleton: the family cannot decide either
+        snv_gt_by_sample={"child": "0|1"},
+        snv_ps_by_sample={"child": 1000},
+    )
+    assert summary["phase"] == "unknown"
+    assert summary["phase_evidence"] is None
+    assert summary["deletion_unmasked"] is False
+
+
+@pytest.mark.parametrize("snv_gt", ["1|.", ".|1"])
+def test_a_half_called_snv_next_to_a_phased_sv_gives_no_read_backed_phase(snv_gt: str) -> None:
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": "1|0"}, ps={"child": 1000})],
+        ["child"],
+        unaffected_samples=[],
+        snv_gt_by_sample={"child": snv_gt},
+        snv_ps_by_sample={"child": 1000},
+    )
+    assert summary["phase"] == "unknown"
+    assert summary["phase_evidence"] is None
+    assert summary["deletion_unmasked"] is False
+
+
+def test_a_half_called_sv_leaves_the_phase_to_the_parents() -> None:
+    # The reads place nothing, so the trio decides, as for calls without a phase set: the
+    # father passed on the SNV and has a reference call at the DEL, the mother the DEL.
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": ".|1", "mother": "0/1", "father": "0/0"}, ps={"child": 1000})],
+        ["child"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"child": "1|0", "mother": "0/0", "father": "0/1"},
+        snv_ps_by_sample={"child": 1000},
+        pedigree=_pedigree(TRIO),
+    )
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "segregation"
+
+
+@pytest.mark.parametrize(
+    ("snv_gt", "sv_gt", "phase"),
+    [("0|1", "1|0", "trans"), ("1|0", "0|1", "trans"), ("0|1", "0|1", "cis"), ("0|1", "2|0", "trans")],
+)
+def test_fully_called_phased_genotypes_keep_their_read_backed_phase(
+    snv_gt: str, sv_gt: str, phase: str
+) -> None:
+    summary = summarize_second_hit(
+        [_sv("DEL", {"child": sv_gt}, ps={"child": 1000})],
+        ["child"],
+        snv_gt_by_sample={"child": snv_gt},
+        snv_ps_by_sample={"child": 1000},
+    )
+    assert summary["phase"] == phase
+    assert summary["phase_evidence"] == "read"
+    assert summary["deletion_unmasked"] is (phase == "trans")
 
 
 def test_segregation_used_when_no_phasing() -> None:

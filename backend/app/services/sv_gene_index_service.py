@@ -8,7 +8,8 @@ Postgres rows + the badge summary; the ClickHouse scan that populates it lives i
 The index records the storage-level SV data version it was built from; a family whose SVs
 have changed since (any insert, delete or restore) gets it rebuilt on the next read. The
 badge's cis/trans verdict comes from the reads where the calls share a phase set, else
-from the family by the same rule as the SNV + SNV compound het (``compound_het_phase``).
+from the family, each by the same rule as the SNV + SNV compound het
+(``compound_het_phase``).
 """
 
 from __future__ import annotations
@@ -32,6 +33,7 @@ from .compound_het_phase import (
     Carriage,
     FamilyPedigree,
     Locus,
+    phased_alt_haplotype,
     segregation_phase,
     small_variant_carriage,
 )
@@ -42,20 +44,6 @@ def _gt_has_alt(gt: str | None) -> bool:
     return genotype_has_alt(str(gt or ""))
 
 
-def _phased_alt_index(gt: str | None) -> int | None:
-    """Haplotype index (0/1) carrying the alt allele of a phased heterozygous GT (``a|b``).
-
-    Returns None unless the GT is phased and a clean het (exactly one alt allele)."""
-    text_gt = str(gt or "").strip()
-    if "|" not in text_gt:
-        return None
-    alleles = text_gt.split("|")
-    if len(alleles) != 2:
-        return None
-    alt_positions = [index for index, allele in enumerate(alleles) if allele not in {"0", ".", ""}]
-    return alt_positions[0] if len(alt_positions) == 1 else None
-
-
 def _read_phase_verdict(
     svs: list[dict[str, Any]],
     affected: set[str],
@@ -63,17 +51,20 @@ def _read_phase_verdict(
     snv_ps_by_sample: dict[str, int] | None,
 ) -> str | None:
     """Read-based cis/trans: when the SNV and an SV share a phase set in an affected sample,
-    compare the haplotype each alt sits on. None when no phased pair is comparable."""
+    compare the haplotype each alt sits on. None when no phased pair is comparable.
+
+    Both calls are read by ``phased_alt_haplotype``, as the SNV + SNV pairs read theirs: a
+    half call such as ``.|1`` places nothing, so the family decides."""
     if not snv_gt_by_sample or not snv_ps_by_sample:
         return None
     verdicts: set[str] = set()
     for sample in affected:
-        snv_index = _phased_alt_index(snv_gt_by_sample.get(sample))
+        snv_index = phased_alt_haplotype(snv_gt_by_sample.get(sample))
         snv_ps = snv_ps_by_sample.get(sample)
         if snv_index is None or snv_ps is None:
             continue
         for sv in svs:
-            sv_index = _phased_alt_index((sv.get("gt") or {}).get(sample))
+            sv_index = phased_alt_haplotype((sv.get("gt") or {}).get(sample))
             sv_ps = (sv.get("ps") or {}).get(sample)
             if sv_index is None or sv_ps is None or int(sv_ps) != int(snv_ps):
                 continue
