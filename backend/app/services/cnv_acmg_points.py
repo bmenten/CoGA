@@ -9,7 +9,8 @@ value inside a suggested range, so the server clamps each submitted value to the
 criterion's allowed range and recomputes the total — a persisted classification
 never trusts a client-supplied total.
 
-Kept in parity with the frontend engine in ``frontend/src/lib/cnvAcmg``.
+Kept in parity with the frontend engine in ``frontend/src/lib/cnvAcmg``:
+``backend/tests/test_acmg_frontend_parity.py`` fails when the catalogues differ.
 """
 
 from __future__ import annotations
@@ -137,7 +138,9 @@ def compute_classification(
     """Return ``(point_total, class_key, class_label)`` from accepted criteria.
 
     Each item is a mapping with at least ``code``, ``points`` and ``accepted``.
-    Points are clamped to each criterion's allowed range before summing.
+    Points are clamped to each criterion's allowed range before summing. Every item
+    counts, so the caller passes each criterion once (a save is checked so in
+    ``structural_variant_review_pg._normalize_cnv_acmg_payload``).
     """
 
     total = 0.0
