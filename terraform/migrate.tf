@@ -64,9 +64,15 @@ resource "google_cloud_run_v2_job" "db_migrate" {
           }
         }
 
-        env {
-          name  = "APP_ENV"
-          value = "production"
+        # APP_ENV, CORS_ORIGINS and CORS_ORIGIN_REGEX, as the API gets them (cloudrun.tf). The
+        # job loads the backend's settings, which in production refuse the default cross-origin
+        # values; given APP_ENV alone, it stopped at import.
+        dynamic "env" {
+          for_each = local.backend_production_env
+          content {
+            name  = env.key
+            value = env.value
+          }
         }
         # The owner, over the Cloud SQL connector, exactly as the API connects in owner mode.
         env {
