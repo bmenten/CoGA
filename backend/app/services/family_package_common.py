@@ -99,6 +99,15 @@ LONG_READ_DATASET_ROLES: dict[str, tuple[tuple[str, ...], tuple[str, ...]]] = {
 HAPLOTYPE_ORIGIN_ROLES = ("haplotype_origin", "haplotype_conclusion")
 
 
+# The names a ``pcf`` entry may give each parent's segment table, in the order they are
+# read: validation and the importer take the first one the entry gives
+# (``_pcf_role_path``), and the raw-file provenance names the file under any of them.
+PCF_ROLE_KEYS: dict[str, tuple[str, ...]] = {
+    "maternal": ("maternal", "mat", "maternal_file", "mat_file"),
+    "paternal": ("paternal", "pat", "paternal_file", "pat_file"),
+}
+
+
 APCAD_PCF_TRACK_TYPE = "apcad_pcf"
 
 
