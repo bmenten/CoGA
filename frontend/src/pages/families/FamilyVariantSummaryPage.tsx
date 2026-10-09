@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import Histogram from '../../components/visualizations/Histogram';
 import { compareChromosomes } from '../../lib/chromosomes';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageHeader from './FamilyPageHeader';
 import { apiPath } from '../../lib/apiPath';
 import type { FamilyOut } from '../../lib/apiSchema.generated';
@@ -50,7 +51,13 @@ const FamilyVariantSummaryPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   // For the shared header: the pedigree, and what every family page warns of — an import
   // that left the family incomplete, and an assembly outside the validated scope.
-  const { data: family } = useQuery<Pick<FamilyOut, 'pedigree' | 'members' | 'projects' | 'metadata'>>({
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<Pick<FamilyOut, 'pedigree' | 'members' | 'projects' | 'metadata'>>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -60,6 +67,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
+    isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects);
@@ -127,7 +135,22 @@ const FamilyVariantSummaryPage: React.FC = () => {
   // carries, and the grand sum is not the number of SVs (#526).
   const sampleNames = React.useMemo(() => Object.keys(sharedCounts ?? {}).sort(), [sharedCounts]);
 
-  if (isLoading || isLoadingShared) {
+  // Without the family it is not known whether its import is complete, nor whether its
+  // assembly is validated: the summary is not shown without those warnings (SAFE-14).
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Summary"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
+      />
+    );
+  }
+
+  // Nor is it shown before the family and its reference are in, the header with them.
+  if (isLoading || isLoadingShared || familyLoading || (family?.projects?.length && referenceLoading)) {
     return (
       <PageState
         loading

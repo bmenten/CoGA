@@ -5,6 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { QC_STATUS_CHIP, QC_STATUS_LABEL, worstIntegrityStatus } from '../../lib/qcStatus';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageHeader from './FamilyPageHeader';
 import InfoTip from '../../components/InfoTip';
 import Pedigree, { type PedigreeQcStatus } from '../../components/visualizations/Pedigree';
@@ -382,8 +383,15 @@ const FamilySampleQcPage: React.FC = () => {
     },
   });
 
-  // The pedigree drawing + members table are reused from the family record.
-  const { data: family } = useQuery<ApiFamilyRecord>({
+  // The pedigree drawing + members table are reused from the family record, which also holds
+  // what the header warns of: an import that left the family incomplete.
+  const {
+    data: family,
+    isLoading: familyLoading,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
     enabled: Boolean(familyId),
     queryFn: async () => {
@@ -395,6 +403,7 @@ const FamilySampleQcPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
+    isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects);
@@ -403,7 +412,22 @@ const FamilySampleQcPage: React.FC = () => {
     return <PageState kicker="Sample QC" title="Family not specified" />;
   }
 
-  if (qcLoading) {
+  // Without the family it is not known whether its import is complete, nor whether its
+  // assembly is validated: the checks are not shown without those warnings (SAFE-14).
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Sample QC"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
+      />
+    );
+  }
+
+  // Nor are they shown before the family and its reference are in, the header with them.
+  if (qcLoading || familyLoading || (family?.projects?.length && referenceLoading)) {
     return (
       <PageState
         loading

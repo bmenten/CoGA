@@ -1960,6 +1960,7 @@ python docs/handleiding/build_site.py
 <li><strong>Toegang:</strong> alle endpoints vragen <code>get_current_user</code> (de TRGT-upload <code>get_current_admin_user</code>) en bouwen hun data via het toegangscheckpoint van de familie.</li>
 <li><strong>Herkomst:</strong> de TRGT-versie komt uit de VCF-header in het annotatiemanifest; NIPT-artefacten zijn per assay bijgehouden, met hun bron (gecureerd of automatisch).</li>
 <li><strong>Poort vóór het rapport:</strong> een sample-QC-fout moet erkend worden voordat een rapport ondertekend kan worden (hoofdstuk 11).</li>
+<li><strong>Geen data zonder de familie:</strong> de waarschuwingen <em>Import incomplete</em> en <em>Not validated for clinical use</em> komen uit het familierecord en het project ervan. Daarom toont geen familiepagina haar data zonder dat record: zolang het laadt, toont ze een laadscherm; kan het niet geladen worden, dan toont ze alleen <em>Family could not be loaded</em>, met <em>Retry</em> (een rapport: <em>Report could not be loaded</em>). Een test loopt daarvoor elke familieroute af (<code>frontend/src/__tests__/familyRouteBanners.test.tsx</code>).</li>
 <li><strong>Berekend, niet ingetypt:</strong> de NIPT-categorieën, de foetale fractie, de haplotypekleuring en de embryo-indeling zijn berekend uit de VCF's en de stamboom, dus herleidbaar tot de invoer.</li>
 </ul>
 <h2>Belangrijkste bestanden</h2>
