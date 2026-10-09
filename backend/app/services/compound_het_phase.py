@@ -5,8 +5,10 @@ different copies of the gene (in trans). This module decides that from the famil
 genotypes, for the small-variant compound-het pairs (``clickhouse_variant_queries``) and
 for the SNV + structural-variant second hit (``sv_gene_index_service``) alike, so the same
 family evidence gets the same verdict in both. Read-backed phasing, where the calls carry
-it, is direct evidence and is applied by the callers first; this module answers when the
-reads do not.
+it, is direct evidence and is applied by the callers first. Both read a phased call with
+:func:`phased_alt_haplotype`, so a call one of them cannot place on a haplotype, such as
+a half call (``.|1``), is not placed by the other either. The rest of this module answers
+when the reads do not.
 
 For a candidate in which every affected individual carries both hits:
 
@@ -59,6 +61,30 @@ PHASE_EVIDENCE_SEGREGATION = "segregation"
 CONFIDENT_REFERENCE_MIN_DP = 8
 
 Locus = tuple[str | None, int | None]
+
+
+def phased_alt_haplotype(gt: str | None) -> int | None:
+    """Which haplotype carries the alt in a phased het call: 0, 1, or None.
+
+    ``0|1`` -> 1 and ``1|0`` -> 0. None when the call cannot place a single alt on one
+    haplotype: unphased (``0/1``), homozygous, no-call, a half call with one allele missing
+    (``.|1``, ``1|.``: the missing allele may be an alt as well), or multi-allelic with an
+    alt on both haplotypes (``1|2``), where "the" alt is ambiguous.
+    """
+    text = str(gt or "").strip()
+    if "|" not in text:
+        return None
+    alleles = text.split("|")
+    if len(alleles) != 2:
+        return None
+    left, right = (allele.strip() for allele in alleles)
+    if left in ("", ".") or right in ("", "."):
+        return None
+    left_is_alt = left != "0"
+    right_is_alt = right != "0"
+    if left_is_alt == right_is_alt:
+        return None
+    return 0 if left_is_alt else 1
 
 
 def small_variant_carriage(gt: str | None, dp: int | None = None) -> Carriage:
