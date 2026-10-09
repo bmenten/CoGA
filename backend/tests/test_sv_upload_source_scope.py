@@ -161,6 +161,11 @@ def store(monkeypatch: pytest.MonkeyPatch):
         async def no_provenance(*_args, **_kwargs):
             return None
 
+        async def family_sample_ids(*_args, **_kwargs):
+            # What the file's sample columns are checked against (test_sv_upload_sample_column).
+            return set(_SAMPLES)
+
+        monkeypatch.setattr(variant_upload_service, "known_vcf_sample_ids", family_sample_ids)
         monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", no_genes)
         monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", no_provenance)
         async def no_lock(*_args, **_kwargs):
