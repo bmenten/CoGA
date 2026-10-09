@@ -105,9 +105,11 @@ Het totaal geeft de klasse: **≥ 10** pathogeen (klasse 5), **6 tot 9** waarsch
 
 De dialoog toont het totaal op een balk die de Bayesiaanse lezing van de schaal volgt (voorafkans 10%, odds op pathogeniciteit 350^(punten/8)): elk VUS-punt heeft een eigen vak, de streepjes dragen de posterieure kans (0,1%, 10%, 18,8%, 32,5%, 50%, 67,5%, 81,2%, 90% en 99%) en de klassegrenzen zijn sterker aangeduid. De balk is alleen een weergave; de klasse volgt uit de drempels hierboven (`frontend/src/pages/families/AcmgScaleBar.tsx`).
 
-**Server herberekent altijd.** De frontend stuurt zijn eigen totaal mee, maar de backend negeert dat. Hij controleert elke criteriumcode en elke sterkte (onbekend geeft `400`) en berekent klasse, totaal en VUS-niveau opnieuw. Een opgeslagen classificatie hangt dus nooit af van de browser. Frontend en backend gebruiken dezelfde drempels, en beide kanten worden tegen die drempels getest. De dialoog schrijft de klasse ook terug als tag (`acmg_class_N`, en voor een VUS `acmg_vus_<niveau>`), zodat kaarten en samenvattingen ze tonen.
+**Server herberekent altijd.** De frontend stuurt zijn eigen totaal mee, maar de backend negeert dat. Hij controleert elk criterium en weigert (`400`) een onbekende code of sterkte, een criterium dat twee keer voorkomt en een sterkte die het criterium niet toelaat. Elk criterium telt dus één keer, op een sterkte die de dialoog ervoor aanbiedt; anders telde een twee keer gestuurde PVS1 +16 (pathogeen) en BS1 op *very strong* −8. Daarna berekent hij klasse, totaal en VUS-niveau opnieuw. Een opgeslagen classificatie hangt dus nooit af van de browser. Alleen het opslaan wordt gecontroleerd: een eerder bewaarde classificatie wordt gelezen zoals ze geschreven werd. Frontend en backend gebruiken dezelfde drempels, en beide kanten worden tegen die drempels getest. De dialoog schrijft de klasse ook terug als tag (`acmg_class_N`, en voor een VUS `acmg_vus_<niveau>`), zodat kaarten en samenvattingen ze tonen.
 
-**Waar in de code:** `frontend/src/lib/acmg/score.ts` en `backend/app/services/acmg_points.py`; de herberekening in `backend/app/services/small_variant_review_acmg.py`.
+**Toegelaten sterktes.** De pathogene criteria laten *very strong* tot *supporting* toe, behalve PM2 (*moderate* of *supporting*). BA1 is alleen *stand-alone*, en *stand-alone* is alleen voor BA1. BS1 tot BS4 en BP4 laten *strong* tot *supporting* toe, de andere BP-criteria *moderate* of *supporting*. De lijst staat twee keer: als `allowedStrengths` in `frontend/src/lib/acmg/criteria.ts` (de keuzes in de dialoog) en als `ALLOWED_STRENGTHS` in `acmg_points.py` (de controle op de server). `backend/tests/test_acmg_frontend_parity.py` leest `criteria.ts` en faalt als de twee verschillen.
+
+**Waar in de code:** `frontend/src/lib/acmg/score.ts` en `backend/app/services/acmg_points.py`; de controle en de herberekening in `backend/app/services/small_variant_review_acmg.py`.
 
 ### Mitochondriale varianten
 
@@ -123,7 +125,7 @@ Kopieaantalvarianten worden geclassificeerd volgens de **ClinGen-CNV-standaard v
 - Punten zijn **continu** (bv. +0,90 of −0,60), en veel criteria hebben een toegestaan bereik waarbinnen de reviewer een waarde kiest.
 - De klassen: **≥ 0,99** pathogeen, **0,90 tot 0,98** waarschijnlijk pathogeen, **−0,89 tot 0,89** VUS, **−0,98 tot −0,90** waarschijnlijk benigne, **≤ −0,99** benigne.
 
-De evaluator is voorzichtig: hij stelt alleen voor op basis van wat de SV betrouwbaar meedraagt (overlappende genen, genconstraint, geannoteerde overerving, het aantal genen). Net als bij small variants **begrenst en herberekent** de server: elke waarde wordt binnen het bereik van haar criterium gehouden voordat ze wordt opgeteld. Anders dan bij small variants bestaat er geen analoog van BA1.
+De evaluator is voorzichtig: hij stelt alleen voor op basis van wat de SV betrouwbaar meedraagt (overlappende genen, genconstraint, geannoteerde overerving, het aantal genen). Net als bij small variants **begrenst en herberekent** de server: elke waarde wordt binnen het bereik van haar criterium gehouden voordat ze wordt opgeteld. Een criterium dat twee keer voorkomt, weigert hij (`400`): het telde anders twee keer, voorbij zijn bereik (2B op 0,90 twee keer gaf 1,80, pathogeen in plaats van waarschijnlijk pathogeen). De catalogi staan in de frontend en in `cnv_acmg_points.py`; `test_acmg_frontend_parity.py` faalt als hun codes, secties of bereiken verschillen. Anders dan bij small variants bestaat er geen analoog van BA1.
 
 **Waar in de code:** `frontend/src/lib/cnvAcmg/` (catalogi, evaluator, score) en `frontend/src/pages/families/CnvAcmgClassificationModal.tsx`; `backend/app/services/cnv_acmg_points.py` en `structural_variant_review_pg.py`.
 
@@ -164,7 +166,7 @@ Bij een SV of CNV zegt `drifted` ook wat verschoof (`changed`): de genen, de pLI
 | `frontend/src/lib/acmg/` | Catalogus, evaluator (ook mtDNA) en puntenschaal |
 | `frontend/src/lib/cnvAcmg/` | CNV-catalogi, evaluator en puntenschaal |
 | `frontend/src/pages/families/AcmgClassificationModal.tsx` · `CnvAcmgClassificationModal.tsx` | De classificatiedialogen |
-| `backend/app/services/acmg_points.py` · `cnv_acmg_points.py` | Herberekening op de server |
+| `backend/app/services/acmg_points.py` · `cnv_acmg_points.py` | Toegelaten sterktes en bereiken, herberekening op de server |
 | `backend/app/services/small_variant_review_pg.py` · `small_variant_review_acmg.py` | Reviews opslaan, ACMG controleren, het bewijssnapshot |
 | `backend/app/services/structural_variant_review_pg.py` | CNV/SV-reviews en CNV-ACMG |
 | `backend/app/services/structural_variant_evidence.py` | Het bewijssnapshot van een CNV-classificatie en de vergelijking ervan |

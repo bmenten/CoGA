@@ -17,19 +17,32 @@ def _normalize_acmg_payload(
 
     Returns ``(blob, point_total, class_key)`` where ``blob`` is the JSON to store
     (or ``None`` to clear). The client-supplied total is ignored.
+
+    Each criterion must be known, listed once and applied at a strength it takes
+    (``acmg_points.ALLOWED_STRENGTHS``), as the classification dialog sends them; any other
+    payload is refused with 400. Only a save is checked: a stored classification is read
+    back as it was written.
     """
 
     if payload is None or not payload.criteria:
         return None, None, None
 
     normalized_criteria: list[dict[str, Any]] = []
+    listed: set[str] = set()
     for criterion in payload.criteria:
         code = (criterion.code or "").strip().upper()
         if not acmg_points.is_valid_code(code):
             raise HTTPException(status_code=400, detail=f"Unknown ACMG criterion: {criterion.code}")
+        # Every entry is scored, so a repeated code would count twice (PVS1 sent twice
+        # scores +16) and leave the record ambiguous; the dialog holds one entry per code.
+        if code in listed:
+            raise HTTPException(status_code=400, detail=f"Repeated ACMG criterion: {code}")
+        listed.add(code)
         strength = (criterion.strength or "").strip()
         if strength not in acmg_points.VALID_STRENGTHS:
             raise HTTPException(status_code=400, detail=f"Invalid ACMG strength: {criterion.strength}")
+        if not acmg_points.is_allowed_strength(code, strength):
+            raise HTTPException(status_code=400, detail=f"Invalid ACMG strength for {code}: {strength}")
         normalized_criteria.append(
             {
                 "code": code,
