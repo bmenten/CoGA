@@ -232,6 +232,12 @@ lists `modules.<key>` under `not_compared` instead of calling the record changed
 sign-out, so one loaded since is a change. A snapshot without the list names no module, so every
 reference module it does not hold is listed as missing.
 
+A section CoGA has since computed differently reads as changed too. The Sample QC now counts a check
+that could not run as `warn`, with a note naming each sample whose sex could not be checked, so for a
+family with such a sex check the check lists `sample_qc` as changed against a version signed before:
+that record holds no such note, and holds `pass` where the other checks passed. The signed version
+still shows what was signed; signing out again records the new verdict.
+
 A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with the
 small variants', under *Evidence drift at sign-out*, and says when its record holds no SV/CNV drift
 check.
