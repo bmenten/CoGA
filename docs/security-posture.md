@@ -283,7 +283,14 @@ What the application relies on there:
   cache (which holds family data) and only then the session. Login starts with an empty cache.
 - ✅ **Encoded path segments.** API paths are built with `apiPath` (`lib/apiPath.ts`), which
   percent-encodes every identifier, so an imported id such as `../families/F1` cannot
-  redirect a call. Query strings go through `raw()`.
+  redirect a call. Query strings go through `raw()`. The URLs the backend hands the browser
+  to follow (the alignment and signal-track manifests IGV reads, the QC-report link) encode
+  each ID the same way (`backend/app/core/url_path.py`), so an ID holding `?`, `#` or `%`
+  reaches its own file and one holding `../` cannot reach another family's. Two kinds of ID
+  still cannot be reached through a path segment: one that is exactly `.` or `..` (a browser
+  resolves it whatever its encoding) and one holding `/` (the backend matches its routes on
+  the decoded path); such a request answers 404. Whether the ID rule should refuse them is
+  open.
 - ✅ **Escaped tooltips.** The d3 tooltips built as HTML escape their values
   (`lib/escapeHtml.ts`).
 - ✅ **Proxy robustness** (`frontend/server.mjs`, `proxyRequest.mjs`). A reset mid-stream ends

@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Browser as IgvBrowser, CreateOpt as IgvCreateOpt } from 'igv';
 import api, { isAbsoluteUrl, resolveApiUrl } from '../lib/api';
+import { apiPath, raw } from '../lib/apiPath';
 import PageState from './PageState';
 import QueryFailure from './QueryFailure';
 import { getErrorMessage } from '../lib/errorMessage';
@@ -141,12 +142,10 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
       try {
         const manifestParams = new URLSearchParams();
         sampleIds.forEach((sampleId) => manifestParams.append('sample', sampleId));
-        const manifestUrl = manifestParams.toString()
-          ? `/cram/${familyId}/manifest?${manifestParams.toString()}`
-          : `/cram/${familyId}/manifest`;
-        const signalUrl = manifestParams.toString()
-          ? `/signal-tracks/${familyId}/manifest?${manifestParams.toString()}`
-          : `/signal-tracks/${familyId}/manifest`;
+        const manifestQuery = raw(manifestParams.toString() ? `?${manifestParams.toString()}` : '');
+        // The family ID is one encoded segment: it may hold `/`, `?`, `#`, `%` or `..`.
+        const manifestUrl = apiPath`/cram/${familyId}/manifest${manifestQuery}`;
+        const signalUrl = apiPath`/signal-tracks/${familyId}/manifest${manifestQuery}`;
         // Signal tracks are optional: a family imported without a depth caller has
         // none (an empty manifest), and a failed manifest must not stop the alignments
         // from loading either — but it is said, not taken for "none".
