@@ -385,6 +385,34 @@ async def _replace_panel_members(
         )
 
 
+async def _panel_members_unchanged(
+    session: AsyncSession,
+    panel_id: str,
+    *,
+    genes: list[str],
+    regions: list[GeneLocation],
+) -> bool:
+    """Whether the panel holds these genes and these regions already, and nothing else.
+
+    The regions compared are the ones ``_replace_panel_members`` stores: those scoped to an
+    assembly. The order of either list does not matter.
+    """
+    current_genes = (await _fetch_panel_genes(session, [panel_id])).get(panel_id, [])
+    if set(current_genes) != set(genes):
+        return False
+    current_regions = (await _fetch_panel_regions(session, [panel_id])).get(panel_id, [])
+    stored = {
+        (str(row["assembly_id"]), str(row["gene"]), str(row["chr"]), int(row["start"]), int(row["end"]))
+        for row in current_regions
+    }
+    wanted = {
+        (str(region.assembly_id), region.gene, region.chr, int(region.start), int(region.end))
+        for region in regions
+        if region.assembly_id
+    }
+    return stored == wanted
+
+
 async def _snapshot_panel_version(
     session: AsyncSession,
     *,
@@ -399,7 +427,12 @@ async def _snapshot_panel_version(
     source_metadata: dict[str, Any] | None,
     user: CurrentUser,
 ) -> None:
-    """Archive an immutable snapshot of a panel version (never overwritten)."""
+    """Archive a snapshot of a panel version.
+
+    Nothing in the app rewrites a snapshot, and the (panel, version) key refuses a second
+    one under the same number. No trigger makes the table append-only, though, and
+    deleting the panel deletes its snapshots (ON DELETE CASCADE).
+    """
     await session.execute(
         text(
             """
@@ -614,6 +647,16 @@ async def import_panelapp_panel_data(
     request: PanelAppImportRequest,
     user: CurrentUser,
 ) -> PanelAppImportResponse:
+    """Import a PanelApp panel, or import again one the catalog already holds.
+
+    The first import archives the panel as version 1. An import that gives the panel other
+    genes or regions (from another PanelApp release, with other confidence levels or
+    options, or with another assembly loaded) makes the next version and archives it; one
+    that leaves both as they are keeps the version and archives nothing, but still records
+    PanelApp's version, the options and the time of the import. The prioritised-ranking
+    cache keys a panel on its version, so a ranking built on the earlier genes is no longer
+    an exact hit. ``external_version`` stays PanelApp's own version of the panel.
+    """
     _ensure_admin(user)
     if not request.confidence_levels:
         raise HTTPException(status_code=400, detail="At least one PanelApp confidence level is required")
@@ -655,17 +698,22 @@ async def import_panelapp_panel_data(
         raise HTTPException(status_code=400, detail="No PanelApp entities matched the selected import options")
 
     external_id = str(request.panelapp_id)
-    existing = await session.execute(
-        text(
-            """
-            SELECT id::text
-            FROM gene_panels
-            WHERE source = 'panelapp' AND external_id = :external_id
-            """
-        ),
-        {"external_id": external_id},
-    )
-    existing_panel_id = existing.scalar_one_or_none()
+    # Locked until the commit: the version this import makes, and whether it makes one,
+    # are decided against the panel as it is, not as another import is leaving it.
+    existing = (
+        await session.execute(
+            text(
+                """
+                SELECT id::text AS id, version
+                FROM gene_panels
+                WHERE source = 'panelapp' AND external_id = :external_id
+                FOR UPDATE
+                """
+            ),
+            {"external_id": external_id},
+        )
+    ).mappings().first()
+    existing_panel_id = existing["id"] if existing is not None else None
     name = request.name.strip() if request.name and request.name.strip() else panelapp_default_panel_name(payload)
     await _ensure_panel_name_available(session, name, existing_panel_id=existing_panel_id)
 
@@ -675,6 +723,7 @@ async def import_panelapp_panel_data(
     }
     source_metadata_json = json.dumps(source_metadata, sort_keys=True, default=str)
     now = datetime.now(timezone.utc)
+    external_version = str(payload.get("version") or request.version or "")
     description = (
         f"Imported from PanelApp {request.panelapp_id}"
         f" version {payload.get('version') or request.version or 'latest'}."
@@ -684,7 +733,13 @@ async def import_panelapp_panel_data(
     if payload.get("relevant_disorders"):
         description += f" Relevant disorders: {', '.join(str(value) for value in payload['relevant_disorders'])}."
 
-    if existing_panel_id:
+    if existing is not None:
+        # Other genes or regions are a new version; the same ones keep the version, as an
+        # edit that changes nothing does.
+        changed = not await _panel_members_unchanged(
+            session, existing["id"], genes=genes, regions=regions
+        )
+        version = int(existing["version"]) + 1 if changed else int(existing["version"])
         updated = await session.execute(
             text(
                 """
@@ -692,6 +747,7 @@ async def import_panelapp_panel_data(
                 SET
                     name = :name,
                     description = :description,
+                    version = :version,
                     external_version = :external_version,
                     external_url = :external_url,
                     source_updated_at = :source_updated_at,
@@ -715,7 +771,8 @@ async def import_panelapp_panel_data(
                 "panel_id": existing_panel_id,
                 "name": name,
                 "description": description,
-                "external_version": str(payload.get("version") or request.version or ""),
+                "version": version,
+                "external_version": external_version,
                 "external_url": panelapp_panel_url(request.panelapp_id),
                 "source_updated_at": now,
                 "source_metadata_json": source_metadata_json,
@@ -724,6 +781,8 @@ async def import_panelapp_panel_data(
         panel_row = dict(updated.mappings().one())
         panel_id = panel_row["id"]
     else:
+        changed = True
+        version = 1
         created = await session.execute(
             text(
                 """
@@ -769,7 +828,7 @@ async def import_panelapp_panel_data(
                 "name": name,
                 "description": description,
                 "external_id": external_id,
-                "external_version": str(payload.get("version") or request.version or ""),
+                "external_version": external_version,
                 "external_url": panelapp_panel_url(request.panelapp_id),
                 "source_updated_at": now,
                 "source_metadata_json": source_metadata_json,
@@ -780,19 +839,38 @@ async def import_panelapp_panel_data(
         panel_row = dict(created.mappings().one())
         panel_id = panel_row["id"]
 
-    await _replace_panel_members(session, panel_id=panel_id, genes=genes, regions=regions)
+    if changed:
+        await _replace_panel_members(session, panel_id=panel_id, genes=genes, regions=regions)
+        await _snapshot_panel_version(
+            session,
+            panel_id=panel_id,
+            version=version,
+            name=name,
+            description=description,
+            source="panelapp",
+            external_version=external_version,
+            genes=genes,
+            regions=regions,
+            source_metadata=source_metadata,
+            user=user,
+        )
     panel_rows = await _fetch_panel_rows(session, [panel_id])
     if panel_rows:
         panel_row = panel_rows[0]
     await session.commit()
 
     panel_out = _panel_out_from_rows(panel_row, genes, [region.model_dump() for region in regions])
-    action = "updated" if existing_panel_id else "imported"
-    message = (
-        f"PanelApp panel {action} with {len(genes)} genes and {len(regions)} regions"
+    contents = (
+        f"{len(genes)} genes and {len(regions)} regions"
         f" from confidence level{'s' if len(request.confidence_levels) != 1 else ''} "
         f"{', '.join(request.confidence_levels)}"
     )
+    if existing is None:
+        message = f"PanelApp panel imported as version {version} with {contents}"
+    elif changed:
+        message = f"PanelApp panel updated to version {version} with {contents}"
+    else:
+        message = f"PanelApp panel kept at version {version}: the same {contents}"
     if missing_genes:
         message += f"; no coordinates for: {', '.join(missing_genes)}"
     if content.regions and not requested_assembly_id:

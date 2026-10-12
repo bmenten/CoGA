@@ -80,5 +80,7 @@ hold. Both views download the signed version as JSON.
 **Print report** on the live report, and **Print signed version N** on a signed version, open
 the browser's print dialog. The print styles hide the report's buttons and keep each card on one
 page, so it exports cleanly to PDF. Every printout of the live report starts with a notice
-that it is not the signed report. A signed version prints with a notice only when its record
+that it is not the signed report; the notice also says when the classification audit trail shows
+only its most recent events (**Show older events** on the page reads the rest, a page at a time).
+A signed version prints with a notice only when its record
 fails its content hash, a later version supersedes it, or the versions could not be listed.

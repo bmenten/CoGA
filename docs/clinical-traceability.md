@@ -64,7 +64,14 @@ Points are recorded as the database reads them back, so a total of -0.0 is store
 chain still verifies. These events carry `metadata.modality = "sv"`, so an SV id is never read
 as a small variant's. A save that clears or deletes a review is recorded like any other
 change. `GET /families/{family_id}/clinical-audit` returns a
-family's trail, and the report shows it as the classification audit trail. Two people saving
+family's trail a page at a time, most recent first, in one fixed order (`created_at`, then `id`:
+the chain's order, reversed): 200 events by default, at most 500 (`limit`). `before`, the id of
+the last event of the previous page, reads the events recorded before it, so an event written in
+the meantime neither repeats one nor skips one; an id that is not an event of the family's trail
+is answered 404. `total` is how many events the trail holds, read in the same statement as the
+page, and `has_more` says older events remain. The report shows the trail as the classification
+audit trail: when it shows only the most recent events it says so, on screen and at the top of
+every printed page, and **Show older events** reads the next page. Two people saving
 the same review cannot silently overwrite each other: a save that carries the
 `expected_updated_at` it loaded is refused with 409 `review_conflict` when the review changed
 in between.
@@ -178,7 +185,10 @@ Five gates run first, in this order:
    family page shows *Import incomplete* while either is set. The flag clears only once an
    import has imported each failed dataset again (in any mode, for the same samples and
    small-variant source; a later failure keeps an earlier one's failed datasets, each with its
-   job, `failed_jobs`); only one that completes with `overwrite` and imports again the
+   job, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
+   to start without its whole backup, may have lost rows of any of its datasets: its flag
+   names every one of them as failed, those it imported too, so the gate holds until each has
+   been imported again. Only an import that completes with `overwrite` and imports again the
    datasets a stopped import had not finished, for that scope, removes its entry.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
@@ -225,7 +235,9 @@ never presented as the signed record. It checks itself against the latest sign-o
 - the check could not be made: treat the page as unsigned.
 
 Every printout of the live report starts with a notice ("Draft …", "Not the signed report …",
-"Not verified …", or that the sign-out record is loading or could not be loaded). While the
+"Not verified …", or that the sign-out record is loading or could not be loaded). When the
+classification audit trail shows only its most recent events, the notice says that too
+("Incomplete — the audit trail lists the 200 most recent of its 450 events …"). While the
 sign-out record is loading or could not be loaded, sign-out is not offered. After a sign-out the
 page shows the new version.
 

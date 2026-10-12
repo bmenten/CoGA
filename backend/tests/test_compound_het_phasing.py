@@ -5,6 +5,10 @@ opposite haplotypes. A long-read caller says so directly: variants sharing a pha
 (PS) carry haplotype-resolved genotypes, so ``0|1`` against ``1|0`` is in trans and
 ``0|1`` against ``0|1`` is in cis. A cis pair leaves one intact copy of the gene, so it
 is not a candidate at all.
+
+The SNV + SV second-hit badge reads a phased call by the same rule
+(``compound_het_phase.phased_alt_haplotype``): ``TestBothPathsReadAPhasedCallAlike`` runs
+each phased pair through both.
 """
 
 import pytest
@@ -12,12 +16,13 @@ import pytest
 from backend.app.services.clickhouse_variant_queries import (
     _compound_het_pair_verdict,
     _compound_het_pairs,
-    _phased_alt_haplotype,
 )
 from backend.app.services.clickhouse_variant_records import (
     SmallVariantCall,
     SmallVariantRecord,
 )
+from backend.app.services.compound_het_phase import phased_alt_haplotype
+from backend.app.services.sv_gene_index_service import summarize_second_hit
 
 AFFECTED = ["PROBAND"]
 UNAFFECTED = ["MOTHER"]
@@ -62,25 +67,33 @@ def _phase(left_gt: str, right_gt: str, *, left_ps=None, right_ps=None) -> str |
 
 class TestPhasedAltHaplotype:
     def test_places_the_alt_on_its_haplotype(self) -> None:
-        assert _phased_alt_haplotype("0|1") == 1
-        assert _phased_alt_haplotype("1|0") == 0
+        assert phased_alt_haplotype("0|1") == 1
+        assert phased_alt_haplotype("1|0") == 0
+        # A multi-allelic call with one alt allele places it too.
+        assert phased_alt_haplotype("0|2") == 1
+        assert phased_alt_haplotype("2|0") == 0
 
     def test_declines_an_unphased_call(self) -> None:
         # `0/1` is het but says nothing about which haplotype carries the alt.
-        assert _phased_alt_haplotype("0/1") is None
+        assert phased_alt_haplotype("0/1") is None
 
     def test_declines_a_homozygous_call(self) -> None:
         # A hom call is on both haplotypes, which is why the caller emits no phase set.
-        assert _phased_alt_haplotype("1|1") is None
-        assert _phased_alt_haplotype("0|0") is None
+        assert phased_alt_haplotype("1|1") is None
+        assert phased_alt_haplotype("0|0") is None
 
     def test_declines_a_multiallelic_call_with_alt_on_both_haplotypes(self) -> None:
-        assert _phased_alt_haplotype("1|2") is None
+        assert phased_alt_haplotype("1|2") is None
+
+    @pytest.mark.parametrize("gt", [".|1", "1|.", "|1", "1|", ".|2", "2|.", ".|0", "0|.", ".|."])
+    def test_declines_a_half_call(self, gt: str) -> None:
+        # The missing allele may be an alt as well, so the call places nothing.
+        assert phased_alt_haplotype(gt) is None
 
     def test_declines_a_no_call_or_junk(self) -> None:
-        assert _phased_alt_haplotype(".|1") is None
-        assert _phased_alt_haplotype(None) is None
-        assert _phased_alt_haplotype("") is None
+        assert phased_alt_haplotype(None) is None
+        assert phased_alt_haplotype("") is None
+        assert phased_alt_haplotype("0|1|0") is None
 
 
 class TestPairPhase:
@@ -308,3 +321,63 @@ class TestPhaseFromTheParents:
             [maternal, paternal], affected_samples=AFFECTED, unaffected_samples=["MOTHER", "FATHER"]
         )
         assert [(pair.phase, pair.phase_evidence) for pair in pairs] == [("unknown", None)]
+
+
+class TestBothPathsReadAPhasedCallAlike:
+    """The SNV + SNV pair and the SNV + SV second-hit badge read one phase set alike.
+
+    The badge used to place a half call such as ``1|.`` on a haplotype, where the pair
+    declines it, so the same calls could be trans by read phasing on the badge and
+    unresolved as a pair. Each case is one affected sample with both calls in one phase
+    set, the second call standing for the second small variant or for the SV.
+    """
+
+    # The read verdict as each path reports it: a cis pair is dropped, the badge shows cis.
+    PAIR = {"trans": ("trans", "read"), "cis": None, None: ("unknown", None)}
+    BADGE = {"trans": ("trans", "read"), "cis": ("cis", "read"), None: ("unknown", None)}
+
+    @pytest.mark.parametrize(
+        ("first_gt", "second_gt", "expected"),
+        [
+            ("0|1", "1|0", "trans"),
+            ("1|0", "0|1", "trans"),
+            ("0|1", "0|1", "cis"),
+            ("1|0", "2|0", "cis"),
+            ("0|1", "2|0", "trans"),
+            ("0|1", "1|.", None),
+            ("0|1", ".|1", None),
+            ("1|0", ".|1", None),
+            ("1|.", "0|1", None),
+            (".|1", "1|0", None),
+            ("0|1", "1|2", None),
+            ("0|1", "0/1", None),
+        ],
+    )
+    def test_the_read_verdict_is_the_same_on_both_paths(
+        self, first_gt: str, second_gt: str, expected: str | None
+    ) -> None:
+        pair = _compound_het_pair_verdict(
+            _variant("left", calls=[_call("PROBAND", first_gt, 7)], start=100),
+            _variant("right", calls=[_call("PROBAND", second_gt, 7)], start=200),
+            affected_samples=AFFECTED,
+            unaffected_samples=[],
+        )
+        badge = summarize_second_hit(
+            [
+                {
+                    "sv_id": "sv1",
+                    "sv_type": "DEL",
+                    "chr": "1",
+                    "start": 150,
+                    "end": 250,
+                    "gt": {"PROBAND": second_gt},
+                    "ps": {"PROBAND": 7},
+                }
+            ],
+            AFFECTED,
+            unaffected_samples=[],
+            snv_gt_by_sample={"PROBAND": first_gt},
+            snv_ps_by_sample={"PROBAND": 7},
+        )
+        assert pair == self.PAIR[expected]
+        assert (badge["phase"], badge["phase_evidence"]) == self.BADGE[expected]

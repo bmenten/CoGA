@@ -90,6 +90,11 @@ This is the record of clinical actions; the record of who opened what (**Admin �
 separate. Changes to the pedigree, the family members or their phenotypes, and the review of a
 compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them.
 
+The trail opens on its 200 most recent entries. When it holds more, it says how many it shows
+(*Showing the 200 most recent of 450 events; the older ones are not shown.*), and **Show older
+events** adds the next 200. A printout of a report that shows only part of the trail says so at the
+top of every page.
+
 ## 4. Case sign-out — freeze the result
 
 **Sign out report** freezes the reported result into a numbered version with a unique fingerprint (a
@@ -140,7 +145,9 @@ report, which has no sign-out to stop on it.
 Results on such a family can lack whole datasets, for example all its structural variants. Import
 the datasets that failed again to complete the family: the warning goes once each has been imported
 again, and an import without them leaves it. If a later import fails too, the warning names both,
-each with its import job. Signing out before then needs an acknowledgement with a reason, and the
+each with its import job. A failed overwrite is put back as it was before the import; if that fails
+too, any of its datasets may have lost data, so the warning names every one of them as failed, the
+ones that imported too. Signing out before then needs an acknowledgement with a reason, and the
 signed version records which datasets were missing.
 
 An import also marks the family before it writes anything of it, and removes the mark when it ends.

@@ -1,6 +1,12 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQueries,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import ModalDialog from '../../components/ModalDialog';
@@ -65,6 +71,7 @@ import {
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
+import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
 
 // The report's SV list: its variants, and what the page says about its completeness.
 type StructuralReportPage = Omit<ReportedListPage, 'variants'> & { variants: StructuralVariant[] };
@@ -333,13 +340,32 @@ const LiveFamilyReport: React.FC = () => {
   const structuralDrift = drift?.structural?.drifted ?? [];
   const driftCount = (drift?.drifted_count ?? 0) + (drift?.structural?.drifted_count ?? 0);
 
-  // Immutable clinical audit trail (who classified / tagged / annotated what, when).
-  const { data: audit, isError: auditFailed, refetch: refetchAudit } = useQuery<ApiClinicalAudit>({
+  // Immutable clinical audit trail (who classified / tagged / annotated what, when), read a
+  // page at a time, most recent first. The page says when it shows only the most recent
+  // events, on screen and in print, and reads the older ones on request.
+  const auditQuery = useInfiniteQuery({
     queryKey: ['family', familyId, 'clinical-audit'],
     enabled: Boolean(familyId),
-    queryFn: async () =>
-      (await api.get(apiPath`/families/${familyId}/clinical-audit`)).data as ApiClinicalAudit,
+    initialPageParam: null as string | null,
+    queryFn: async ({ pageParam }) =>
+      (
+        await api.get(
+          apiPath`/families/${familyId}/clinical-audit${raw(
+            pageParam ? `?${new URLSearchParams({ before: pageParam })}` : '',
+          )}`,
+        )
+      ).data as ApiClinicalAudit,
+    // The next page holds the events recorded before the last one shown.
+    getNextPageParam: (lastPage) => {
+      const events = lastPage?.events ?? [];
+      return lastPage?.has_more && events.length ? events[events.length - 1].id : undefined;
+    },
   });
+  const auditTrail = useMemo(() => clinicalAuditTrail(auditQuery.data?.pages), [auditQuery.data]);
+  // The trail could not be read. An older page that could not be read leaves the events
+  // already shown in place, and says so where they are.
+  const auditFailed = auditQuery.isError && !auditQuery.isFetchNextPageError;
+  const refetchAudit = auditQuery.refetch;
 
   // Case sign-out: the frozen, versioned, content-hashed report record. This page is never
   // it; a signed version is rendered from its record by SignedFamilyReport.
@@ -426,7 +452,12 @@ const LiveFamilyReport: React.FC = () => {
     { label: 'small variants', page: reportPage },
     { label: 'structural variants', page: structuralReportPage },
   ]);
-  const printNotice = [incompleteNotice, reportListNotice, signedNotice].filter(Boolean).join(' ') || null;
+  // Nor can a printed audit trail that shows only its most recent events: it says so in
+  // place, and at the top of every printed page.
+  const auditShownNotice = auditTrailShownNotice(auditTrail);
+  const auditListNotice = auditTrailPrintNotice(auditTrail);
+  const printNotice =
+    [incompleteNotice, reportListNotice, auditListNotice, signedNotice].filter(Boolean).join(' ') || null;
 
   // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
   // signed record: evidence drift first, then a failing / unverifiable Sample QC, then an
@@ -1442,14 +1473,18 @@ const LiveFamilyReport: React.FC = () => {
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">The audit trail could not be loaded.</p>
         </section>
-      ) : audit?.events?.length ? (
+      ) : auditTrail.events.length ? (
         <section className="surface-card report-audit">
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">
             An immutable record of who classified, tagged or annotated each variant.
           </p>
+          {auditShownNotice ? (
+            // Printed with the list, as the notice at the top of the page is.
+            <p className="report-paragraph report-incomplete-list">{auditShownNotice}</p>
+          ) : null}
           <ul className="report-audit-list">
-            {audit.events.map((event) => (
+            {auditTrail.events.map((event) => (
               <li key={event.id} className="report-audit-item">
                 <span className="report-audit-time">
                   {event.created_at.replace('T', ' ').slice(0, 16)} UTC
@@ -1462,6 +1497,23 @@ const LiveFamilyReport: React.FC = () => {
               </li>
             ))}
           </ul>
+          {auditQuery.hasNextPage ? (
+            <div className="inline-actions no-print">
+              <button
+                type="button"
+                className="button-secondary"
+                disabled={auditQuery.isFetchingNextPage}
+                onClick={() => void auditQuery.fetchNextPage()}
+              >
+                {auditQuery.isFetchingNextPage ? 'Loading older events…' : 'Show older events'}
+              </button>
+              {auditQuery.isFetchNextPageError && !auditQuery.isFetchingNextPage ? (
+                <span className="report-paragraph" role="alert">
+                  The older events could not be loaded.
+                </span>
+              ) : null}
+            </div>
+          ) : null}
         </section>
       ) : null}
 
