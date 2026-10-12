@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from fastapi import APIRouter, Depends, Request
@@ -27,6 +28,20 @@ _MAX_LABEL_LEN = 200
 _MAX_SHORT_LEN = 128
 _MAX_PATH_LEN = 512
 _MAX_USER_AGENT_LEN = 256
+
+# An event's ``occurred_at`` is the browser's clock. The server keeps it when it lies between a
+# day before and five minutes after the moment the server received the event: the browser sends
+# its events every few seconds, holding them only while a send fails and at most as long as its
+# sign-in lasts (two hours by default), and its clock may be a few minutes ahead. Any other value
+# is replaced by the receive time, with the client's value kept as text in the event's detail.
+# Unbounded, a value such as 0001-01-01T00:00:00+05:00 (before the year 1 in UTC) made the
+# database driver fail, and in the async mode it took every other event of its batch, any
+# user's, with it.
+OCCURRED_AT_MAX_AGE = timedelta(hours=24)
+OCCURRED_AT_MAX_LEAD = timedelta(minutes=5)
+# The key, in ``ui_events.detail``, holding the ``occurred_at`` the client sent when the server
+# stored its receive time instead. Only this endpoint sets it: a client's own is dropped.
+CLIENT_OCCURRED_AT_KEY = "_client_occurred_at"
 
 _SENSITIVE_PREFIXES = (
     "password",
@@ -106,16 +121,41 @@ def _sanitize_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
     return sanitized
 
 
+def _bounded_occurred_at(
+    value: datetime | None, received_at: datetime
+) -> tuple[datetime | None, str | None]:
+    """The ``occurred_at`` to store, and the client's value as text when that is not it.
+
+    A value without an offset is read as UTC. Comparing aware datetimes cannot overflow, so
+    every value the schema accepts is decided here, the years 1 and 9999 included, and what is
+    returned lies within a day of the receive time, which the driver can convert to UTC."""
+    if value is None:
+        return None, None
+    aware = value if value.utcoffset() is not None else value.replace(tzinfo=timezone.utc)
+    if received_at - OCCURRED_AT_MAX_AGE <= aware <= received_at + OCCURRED_AT_MAX_LEAD:
+        return aware, None
+    return received_at, value.isoformat()
+
+
 def _payload_from_event(
     event: UiEventIn,
     *,
     user: CurrentUser,
     remote_ip: str | None,
     user_agent: str | None,
+    received_at: datetime | None = None,
 ) -> UiEventPayload | None:
     event_type = (event.event_type or "").strip().lower()
     if event_type not in _ALLOWED_EVENT_TYPES:
         return None
+    occurred_at, client_occurred_at = _bounded_occurred_at(
+        event.occurred_at,
+        received_at if received_at is not None else datetime.now(timezone.utc),
+    )
+    detail = _sanitize_detail(event.detail)
+    detail.pop(CLIENT_OCCURRED_AT_KEY, None)
+    if client_occurred_at is not None:
+        detail[CLIENT_OCCURRED_AT_KEY] = client_occurred_at
     return UiEventPayload(
         event_type=event_type,
         category=_clean_short(event.category, 64),
@@ -126,8 +166,8 @@ def _payload_from_event(
         href=_mask_path(event.href),
         component=_clean_short(event.component),
         session_id=_clean_short(event.session_id, 64),
-        occurred_at=event.occurred_at,
-        detail=_sanitize_detail(event.detail),
+        occurred_at=occurred_at,
+        detail=detail,
         remote_ip=remote_ip,
         user_agent=_clean_short(user_agent, _MAX_USER_AGENT_LEN),
         user_id=str(user.id) if getattr(user, "id", None) else None,
@@ -154,6 +194,8 @@ async def ingest_ui_events(
 
     remote_ip = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
+    # Every event of the batch is bounded against the same moment (OCCURRED_AT_MAX_AGE).
+    received_at = datetime.now(timezone.utc)
 
     accepted = 0
     for event in payload.events[:_MAX_EVENTS_PER_BATCH]:
@@ -162,6 +204,7 @@ async def ingest_ui_events(
             user=user,
             remote_ip=remote_ip,
             user_agent=user_agent,
+            received_at=received_at,
         )
         if record is None:
             continue
