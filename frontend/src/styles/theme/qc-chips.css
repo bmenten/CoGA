@@ -69,7 +69,8 @@
     color 0.15s ease;
 }
 
-/* Neutral tone, applied when the verdict is pass or not-assessed. */
+/* Neutral tone, applied when the verdict is pass. A sample that was not assessed takes
+   the grey `.table-chip--neutral` instead, the tone of a check that did not run. */
 .family-qc-chip--neutral {
   border-color: rgba(82, 111, 161, 0.28);
   background: rgba(82, 111, 161, 0.09);
@@ -93,9 +94,28 @@
   text-decoration: underline;
 }
 
+/* A not-run chip keeps its grey when hovered or focused. The tone is restated because the
+   shared `button:hover` rule outranks `.table-chip--neutral` and would paint the chip as a
+   dark primary button. */
+.family-qc-chip.table-chip--neutral:hover:not(:disabled),
+.family-qc-chip.table-chip--neutral:focus-visible {
+  border-color: var(--color-border);
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  filter: brightness(0.94);
+  text-decoration: underline;
+}
+
 .family-qc-chip:disabled {
   cursor: progress;
   opacity: 0.7;
+}
+
+/* The chip without a report takes keyboard focus for its tooltip: the same focus ring as
+   the chip that opens one. */
+.family-qc-chip-static:focus-visible {
+  outline: 2px solid var(--color-link);
+  outline-offset: 1px;
 }
 
 .family-qc-chip-value {

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useId, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 /**
@@ -18,23 +18,41 @@ interface Props {
    * accessible name is not shadowed by the tooltip text.
    */
   interactiveChild?: boolean;
+  /**
+   * Set when the child is content that does nothing when pressed, such as a chip holding
+   * a value. The wrapper takes keyboard focus, so the tip is reachable without a mouse,
+   * but no button role, which would announce a control that does nothing. Its text stays
+   * what a screen reader reads, and the tip, while shown, is its description.
+   */
+  staticChild?: boolean;
 }
 
 const TIP_WIDTH = 260;
 
-const InfoTip: React.FC<Props> = ({ label, className, children, interactiveChild = false }) => {
+const InfoTip: React.FC<Props> = ({
+  label,
+  className,
+  children,
+  interactiveChild = false,
+  staticChild = false,
+}) => {
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const tipId = useId();
 
   const show = (el: HTMLElement) => setAnchor(el.getBoundingClientRect());
   const hide = () => setAnchor(null);
+
+  const anchorProps = interactiveChild
+    ? {}
+    : staticChild
+      ? { tabIndex: 0, 'aria-describedby': anchor ? tipId : undefined }
+      : { tabIndex: 0, role: 'button', 'aria-label': label };
 
   return (
     <>
       <span
         className={className}
-        {...(interactiveChild
-          ? {}
-          : { tabIndex: 0, role: 'button', 'aria-label': label })}
+        {...anchorProps}
         onMouseEnter={(e) => show(e.currentTarget)}
         onMouseLeave={hide}
         // Capture phase so focusing the inner control still reveals the tip.
@@ -46,6 +64,7 @@ const InfoTip: React.FC<Props> = ({ label, className, children, interactiveChild
       {anchor &&
         createPortal(
           <div
+            id={tipId}
             role="tooltip"
             className="info-tip-popover"
             style={{
