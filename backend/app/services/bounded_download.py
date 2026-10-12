@@ -6,7 +6,9 @@ upstream could return a decompression bomb (a tiny ``.gz`` that inflates to giga
 OOM the worker. These helpers cap both the compressed bytes read and the decompressed
 size. Unlike ``upload_safety`` (which handles CLIENT uploads and raises HTTP 4xx), an
 oversized/invalid response here is a server-side / upstream fault, so we raise
-``ValueError`` for the caller to surface as a 5xx / failed refresh.
+``ValueError`` for the caller to surface as a 5xx / failed refresh. ``upload_safety``
+gunzips uploads with the same ``gunzip_bounded`` and answers its two errors, which are
+``ValueError`` subclasses, with 413 and 400.
 
 The ceilings are generous — real reference/gene/phenotype files are tens-to-hundreds of
 MB — so they only stop a runaway from exhausting worker memory, never a legitimate file.
@@ -24,6 +26,14 @@ _INFLATE_SLICE = 1 << 16  # compressed bytes handed to zlib per step
 # OOM-protection ceilings (not tight limits).
 MAX_DOWNLOAD_BYTES = 1 << 30  # 1 GiB of compressed/raw response
 MAX_DECOMPRESSED_BYTES = 4 << 30  # 4 GiB after gunzip
+
+
+class GzipTooLargeError(ValueError):
+    """The decompressed output passes the cap."""
+
+
+class InvalidGzipError(ValueError):
+    """The bytes are not one or more complete gzip members and nothing else."""
 
 
 async def download_bounded_bytes(
@@ -74,11 +84,14 @@ def gunzip_bounded(
     out per step (the input it did not use, the bytes after a member) stays small and a
     file of many members is read in linear time.
 
-    Raises ``ValueError`` when the output passes ``max_bytes`` ("expands beyond"), and
-    unless ``data`` is one or more complete gzip members and nothing else ("is not valid
-    gzip"): bytes that are not gzip, a corrupt member (bad deflate data, CRC or length), an
-    empty input or a member cut short ("is truncated"), and bytes after the last member
-    that do not form a complete member of their own (trailing garbage or padding).
+    Raises ``GzipTooLargeError`` when the output passes ``max_bytes`` ("expands beyond"),
+    and ``InvalidGzipError`` unless ``data`` is one or more complete gzip members and
+    nothing else ("is not valid gzip"): bytes that are not gzip, a corrupt member (bad
+    deflate data, CRC or length), an empty input or a member cut short ("is truncated"),
+    and bytes after the last member that do not form a complete member of their own
+    (trailing garbage or padding). Both are ``ValueError``. A file cut exactly between
+    two members cannot be told from a whole one: gzip has no end-of-file mark, and the
+    empty block bgzip ends with is not required here.
     """
     label = source or "gzip stream"
     view = memoryview(data)
@@ -94,7 +107,7 @@ def gunzip_bounded(
                 produced = member.decompress(piece, room)
                 out += produced
                 if len(out) > max_bytes:
-                    raise ValueError(f"{label} expands beyond {max_bytes} bytes")
+                    raise GzipTooLargeError(f"{label} expands beyond {max_bytes} bytes")
                 if member.eof:
                     # The member ends in this slice; unused_data is what follows it. Its
                     # unconsumed_tail can repeat those bytes then, so it is not read here.
@@ -103,9 +116,9 @@ def gunzip_bounded(
                 consumed = len(piece) - len(member.unconsumed_tail)
                 if not consumed and not produced:
                     # No input left, and the member has not ended.
-                    raise ValueError(f"{label} is not valid gzip: it is truncated")
+                    raise InvalidGzipError(f"{label} is not valid gzip: it is truncated")
                 pos += consumed
             if pos == len(view):
                 return bytes(out)
     except zlib.error as exc:
-        raise ValueError(f"{label} is not valid gzip") from exc
+        raise InvalidGzipError(f"{label} is not valid gzip") from exc

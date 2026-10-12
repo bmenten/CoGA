@@ -8,6 +8,7 @@ from fastapi import HTTPException, UploadFile
 
 from app.core.config import settings
 from app.services.upload_safety import decode_upload_text, read_path_text_bounded
+from backend.tests._deadline import deadline
 
 
 def _upload(data: bytes) -> UploadFile:
@@ -155,3 +156,53 @@ def test_read_path_multi_member_gzip_bomb_rejected(tmp_path, monkeypatch):
     with pytest.raises(HTTPException) as exc:
         read_path_text_bounded(path, kind="Package VCF")
     assert exc.value.status_code == 413
+
+
+# ---------------------------------------------------------------------------
+# The gzip reader is bounded_download.gunzip_bounded, the one of the reference
+# downloads; an upload answers its errors with 413 and 400.
+# ---------------------------------------------------------------------------
+
+_VCF_TEXT = "".join(f"chr1\t{position}\t.\tA\tT\n" for position in range(1, 2_001))
+
+
+def test_read_path_reads_the_member_after_one_larger_than_a_step(tmp_path):
+    # Two gzip files joined (`cat a.gz b.gz`), the first inflating past one
+    # decompression step (1 MiB). The reader used to take the second member from the
+    # decompressor's unconsumed_tail and feed it, pass after pass, to the finished
+    # decompressor: it never returned. The deadline turns that into a failure.
+    first = b"##fileformat=VCFv4.2\n" + b"#" * (3 * 1024 * 1024) + b"\n"
+    second = b"chr1\t1\t.\tA\tT\n"
+    path = tmp_path / "sv.vcf.gz"
+    path.write_bytes(gzip.compress(first) + gzip.compress(second))
+    with deadline(30):
+        text = read_path_text_bounded(path, kind="Package VCF")
+    assert text == (first + second).decode()
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        pytest.param(gzip.compress(_VCF_TEXT.encode())[:-100], id="member cut short"),
+        pytest.param(
+            gzip.compress(_VCF_TEXT.encode()) + b"\x1f\x8b", id="cut-off header after it"
+        ),
+    ],
+)
+def test_read_path_gzip_cut_short_rejected_as_bad_request(tmp_path, data):
+    # The reader used to return the part that was there, as if it were the whole file.
+    path = tmp_path / "sv.vcf.gz"
+    path.write_bytes(data)
+    with pytest.raises(HTTPException) as exc:
+        read_path_text_bounded(path, kind="Package VCF")
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "Package VCF file is not valid gzip"
+
+
+@pytest.mark.asyncio
+async def test_truncated_gzip_upload_rejected_as_bad_request():
+    data = gzip.compress(_VCF_TEXT.encode())[:-100]
+    with pytest.raises(HTTPException) as exc:
+        await decode_upload_text(_upload(data), kind="SV")
+    assert exc.value.status_code == 400
+    assert exc.value.detail == "SV file is not valid gzip"
