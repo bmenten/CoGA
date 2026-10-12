@@ -10,8 +10,10 @@ from typing import Any
 import pytest
 from fastapi import HTTPException
 
-from backend.app.schemas import GenePanelCreate, GenePanelUpdate, PanelAppImportRequest
+from backend.app.schemas import GeneLocation, GenePanelCreate, GenePanelUpdate, PanelAppImportRequest
 from backend.app.services import panel_metadata_service as pms
+from backend.app.services import variant_ranking_cache as vrc
+from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 from backend.app.services.panelapp_service import PanelAppImportContent
 
 
@@ -175,6 +177,7 @@ class _PanelDb:
     def __init__(self, admin: Any, *, monarch: tuple[list[str], str] | None = None) -> None:
         self.emails = {admin.id: admin.email}
         self.monarch = monarch
+        self.reference_genes = list(_REFERENCE_GENES)
         self.panels: dict[str, dict[str, Any]] = {}
         self.genes: dict[str, list[str]] = {}
         self.regions: dict[str, list[dict[str, Any]]] = {}
@@ -285,6 +288,10 @@ class _PanelDb:
         if sql.startswith("SELECT version FROM gene_panels"):
             panel = self.panels.get(params["panel_id"])
             return _Rows(scalar=panel["version"] if panel else None)
+        if sql.startswith("SELECT version, external_version FROM gene_panels WHERE id ="):
+            # The panel's part of the prioritised-ranking cache key (variant_ranking_cache).
+            panel = self.panels.get(params["id"])
+            return _Rows([{key: panel[key] for key in ("version", "external_version")}] if panel else [])
         if "FROM genes g" in sql:
             wanted = set(params["symbols"])
             return _Rows(
@@ -297,12 +304,13 @@ class _PanelDb:
                         "start": start,
                         "end": end,
                     }
-                    for symbol, assembly_id, chr_, start, end in _REFERENCE_GENES
+                    for symbol, assembly_id, chr_, start, end in self.reference_genes
                     if symbol in wanted
                 ]
             )
         if sql.startswith("SELECT id::text FROM assemblies"):
-            return _Rows(scalar=None)
+            loaded = [assembly_id for assembly_id, name in _ASSEMBLY_NAMES.items() if name == params["name"]]
+            return _Rows(scalar=loaded[0] if loaded else None)
         if sql.startswith("SELECT id::text FROM gene_panels WHERE name = :name"):
             clash = [
                 panel_id
@@ -310,13 +318,17 @@ class _PanelDb:
                 if panel["name"] == params["name"] and panel_id != params.get("existing_panel_id")
             ]
             return _Rows(scalar=clash[0] if clash else None)
-        if sql.startswith("SELECT id::text FROM gene_panels WHERE source = 'panelapp'"):
+        if sql.startswith("SELECT id::text") and "FROM gene_panels WHERE source = 'panelapp'" in sql:
+            # The panel a PanelApp id names: its id, and its version.
             found = [
                 panel_id
                 for panel_id, panel in self.panels.items()
                 if panel["source"] == "panelapp" and panel["external_id"] == params["external_id"]
             ]
-            return _Rows(scalar=found[0] if found else None)
+            return _Rows(
+                [{"id": found[0], "version": self.panels[found[0]]["version"]}] if found else [],
+                scalar=found[0] if found else None,
+            )
         if sql.startswith("SELECT id::text AS id, version FROM gene_panels WHERE source = :source"):
             found = [panel for panel in self.panels.values() if panel["source"] == params["source"]]
             return _Rows([{"id": found[0]["id"], "version": found[0]["version"]}] if found else [])
@@ -576,43 +588,282 @@ def test_a_generated_or_imported_panel_is_never_edited_into_a_version(source: st
     assert (db.panels[panel_id]["version"], db.genes[panel_id]) == (4, ["BRCA1"])
 
 
-def test_a_panelapp_import_keeps_panelapps_version_and_archives_none(monkeypatch) -> None:
-    """Today's behaviour, reported for QA under REG-1 (REQ-CARR-003).
+# ---------------------------------------------------------------------------
+# PanelApp imports (REQ-CARR-003): the first import is version 1, an import that gives the
+# panel other genes or regions is the next version, and one that changes neither keeps the
+# version. The prioritised-ranking cache keys a panel on that version.
+# ---------------------------------------------------------------------------
 
-    A PanelApp panel carries PanelApp's version (``external_version``) only: an import
-    writes no ``gene_panel_versions`` row and never raises the panel's own version, so a
-    re-import that changes the genes keeps version 1 and the version history stays empty.
-    If imports come to be archived, this test changes with that decision.
+# PanelApp's own GRCh38 coordinates for a gene, and a region entity with no gene record.
+_BRCA1_IN_PANELAPP = GeneLocation(gene="BRCA1", chr="17", start=43_000_000, end=43_200_000)
+_REGION_ENTITY = GeneLocation(gene="ISCA-37404-Loss", chr="22", start=18_900_000, end=21_500_000)
+
+
+class _PanelApp:
+    """PanelApp as the import sees it: panel 245 in one release, and what the import options
+    select from it (``extract_panelapp_import_content`` is replaced; the metadata records
+    the release and the confidence levels the import asked for)."""
+
+    def __init__(
+        self, monkeypatch: pytest.MonkeyPatch, *, genes: list[str], regions: list[GeneLocation] | None = None
+    ) -> None:
+        self.release = "3.1"
+        self.genes = list(genes)
+        self.regions = list(regions or [])
+
+        async def _fetch(panelapp_id: int, version: str | None = None) -> dict[str, Any]:
+            return {"id": panelapp_id, "name": "Hereditary cancer", "version": self.release}
+
+        def _extract(payload: dict[str, Any], **options: Any) -> PanelAppImportContent:
+            return PanelAppImportContent(
+                genes=list(self.genes),
+                regions=list(self.regions),
+                metadata={
+                    "version": payload["version"],
+                    "import_options": {"confidence_levels": sorted(options["confidence_levels"])},
+                },
+            )
+
+        monkeypatch.setattr(pms, "fetch_panelapp_panel", _fetch)
+        monkeypatch.setattr(pms, "extract_panelapp_import_content", _extract)
+
+
+def _import_panelapp(db: _PanelDb, admin: Any, **options: Any):
+    return asyncio.run(pms.import_panelapp_panel_data(db, PanelAppImportRequest(panelapp_id=245, **options), admin))
+
+
+_MEMBERS_REPLACED_AND_ARCHIVED = [
+    "DELETE FROM gene_panel_genes",
+    "DELETE FROM gene_panel_regions",
+    "INSERT INTO gene_panel_genes",
+    "INSERT INTO gene_panel_regions",
+    "INSERT INTO gene_panel_versions",
+    "COMMIT",
+]
+
+
+def test_a_panelapp_import_is_archived_as_version_1(monkeypatch) -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+    _PanelApp(monkeypatch, genes=["BRCA1", "TTN", "NOTAGENE1"], regions=[_REGION_ENTITY])
+
+    out = _import_panelapp(db, admin)
+
+    assert out.panel.version == 1
+    assert out.panel.external_version == "3.1"
+    assert out.message == (
+        "PanelApp panel imported as version 1 with 3 genes and 4 regions from confidence level 3"
+        "; no coordinates for: NOTAGENE1"
+    )
+    [archived] = db.versions
+    assert (archived["panel_id"], archived["version"], archived["name"]) == (
+        out.panel.id,
+        1,
+        "PanelApp 245: Hereditary cancer",
+    )
+    assert (archived["source"], archived["external_version"]) == ("panelapp", "3.1")
+    assert archived["description"] == "Imported from PanelApp 245 version 3.1."
+    # The genes as PanelApp gave them, the one without coordinates included.
+    assert json.loads(archived["genes"]) == ["BRCA1", "TTN", "NOTAGENE1"]
+    assert archived["gene_count"] == 3
+    # PanelApp's coordinates for the requested assembly, then each gene in every loaded one.
+    assert json.loads(archived["regions"]) == [
+        {"gene": "ISCA-37404-Loss", "chr": "22", "start": 18_900_000, "end": 21_500_000, "assembly": "GRCh38"},
+        {"gene": "BRCA1", "chr": "17", "start": 43_044_295, "end": 43_125_483, "assembly": "GRCh38"},
+        {"gene": "BRCA1", "chr": "17", "start": 44_000_000, "end": 44_100_000, "assembly": "T2T-CHM13v2.0"},
+        {"gene": "TTN", "chr": "2", "start": 178_525_989, "end": 178_830_802, "assembly": "GRCh38"},
+    ]
+    assert json.loads(archived["source_metadata"]) == {
+        "version": "3.1",
+        "import_options": {"confidence_levels": ["3"]},
+        "missing_coordinate_genes": ["NOTAGENE1"],
+    }
+    assert (archived["created_by"], archived["created_by_email"]) == (admin.id, admin.email)
+    # Archived in the transaction that creates the panel, before it is committed.
+    assert db.writes() == ["INSERT INTO gene_panels", *_MEMBERS_REPLACED_AND_ARCHIVED]
+    history = asyncio.run(pms.list_panel_versions(db, out.panel.id))
+    assert history.current_version == 1
+    assert [(entry.version, entry.source, entry.external_version) for entry in history.versions] == [
+        (1, "panelapp", "3.1")
+    ]
+
+
+# The amber gene taken in: one with coordinates, and one no loaded assembly has, which
+# changes the genes the panel filters on but none of its regions.
+@pytest.mark.parametrize("amber_gene", ["CFTR", "NOTAGENE1"])
+def test_a_panelapp_reimport_with_other_genes_archives_the_next_version(monkeypatch, amber_gene: str) -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+    panelapp = _PanelApp(monkeypatch, genes=["BRCA1", "TTN"])
+    first = _import_panelapp(db, admin)
+    first_archived = dict(db.versions[0])
+    before = len(db.statements)
+
+    # The same release, with an amber gene taken in as well.
+    panelapp.genes.append(amber_gene)
+    again = _import_panelapp(db, admin, confidence_levels=["3", "2"])
+
+    assert again.panel.id == first.panel.id
+    assert (first.panel.version, again.panel.version) == (1, 2)
+    assert again.message.startswith("PanelApp panel updated to version 2 with 3 genes")
+    # The panel's own version moves; PanelApp's stays the release imported.
+    assert again.panel.external_version == "3.1"
+    assert sorted(db.genes[first.panel.id]) == sorted(["BRCA1", "TTN", amber_gene])
+    assert [entry["version"] for entry in db.versions] == [1, 2]
+    assert db.versions[0] == first_archived, "an archived version is never rewritten"
+    second = db.versions[1]
+    assert json.loads(second["genes"]) == ["BRCA1", "TTN", amber_gene]
+    assert (second["source"], second["external_version"], second["gene_count"]) == ("panelapp", "3.1", 3)
+    assert json.loads(second["source_metadata"])["import_options"] == {"confidence_levels": ["2", "3"]}
+    # The panel is read locked, and the new version archived before the commit.
+    [lookup] = [sql for sql in db.statements[before:] if "WHERE source = 'panelapp'" in sql]
+    assert lookup.endswith("FOR UPDATE")
+    assert db.writes(since=before) == ["UPDATE gene_panels", *_MEMBERS_REPLACED_AND_ARCHIVED]
+
+    history = asyncio.run(pms.list_panel_versions(db, first.panel.id))
+    assert (history.current_version, [entry.version for entry in history.versions]) == (2, [2, 1])
+    assert asyncio.run(pms.get_panel_version(db, first.panel.id, 1)).genes == ["BRCA1", "TTN"]
+    assert asyncio.run(pms.get_panel_version(db, first.panel.id, 2)).genes == ["BRCA1", "TTN", amber_gene]
+
+
+def _take_in_a_region_entity(panelapp: _PanelApp, db: _PanelDb) -> None:
+    panelapp.regions.append(_REGION_ENTITY)
+
+
+def _move_panelapps_coordinates_of_a_gene(panelapp: _PanelApp, db: _PanelDb) -> None:
+    panelapp.regions[0] = panelapp.regions[0].model_copy(update={"end": 43_250_000})
+
+
+def _find_a_gene_in_another_loaded_assembly(panelapp: _PanelApp, db: _PanelDb) -> None:
+    # At the coordinates it has in GRCh38, as an mtDNA gene has them in GRCh38 and T2T:
+    # only the assembly tells the new region apart.
+    db.reference_genes.append(("TTN", T2T, "2", 178_525_989, 178_830_802))
+
+
+@pytest.mark.parametrize(
+    "change",
+    [_take_in_a_region_entity, _move_panelapps_coordinates_of_a_gene, _find_a_gene_in_another_loaded_assembly],
+)
+def test_a_panelapp_reimport_with_other_regions_archives_the_next_version(monkeypatch, change) -> None:
+    # The genes stay the same; the coordinates the panel filters on do not.
+    admin = _admin()
+    db = _PanelDb(admin)
+    panelapp = _PanelApp(monkeypatch, genes=["BRCA1", "TTN"], regions=[_BRCA1_IN_PANELAPP])
+    first = _import_panelapp(db, admin)
+    first_regions = json.loads(db.versions[0]["regions"])
+
+    change(panelapp, db)
+    again = _import_panelapp(db, admin)
+
+    assert (first.panel.version, again.panel.version) == (1, 2)
+    assert [entry["version"] for entry in db.versions] == [1, 2]
+    second = db.versions[1]
+    assert json.loads(second["genes"]) == ["BRCA1", "TTN"]
+    assert json.loads(second["regions"]) != first_regions
+    # The panel holds the regions the new version archives.
+    assert {
+        (row["gene"], _ASSEMBLY_NAMES[row["assembly_id"]], row["chr"], row["start"], row["end"])
+        for row in db.regions[first.panel.id]
+    } == {
+        (region["gene"], region["assembly"], region["chr"], region["start"], region["end"])
+        for region in json.loads(second["regions"])
+    }
+
+
+def test_a_panelapp_reimport_that_changes_neither_genes_nor_regions_keeps_the_version(monkeypatch) -> None:
+    admin = _admin()
+    db = _PanelDb(admin)
+    panelapp = _PanelApp(monkeypatch, genes=["BRCA1", "TTN"], regions=[_REGION_ENTITY])
+    first = _import_panelapp(db, admin)
+    archived = dict(db.versions[0])
+    before = len(db.statements)
+
+    # A later release whose green and amber genes are the green genes the panel holds,
+    # listed in another order.
+    panelapp.release = "3.2"
+    panelapp.genes.reverse()
+    again = _import_panelapp(db, admin, confidence_levels=["3", "2"])
+
+    assert again.panel.id == first.panel.id
+    assert again.panel.version == 1
+    assert again.message == (
+        "PanelApp panel kept at version 1: the same 2 genes and 4 regions from confidence levels 3, 2"
+    )
+    assert db.versions == [archived], "nothing is archived and the version stays as it was"
+    # The genes and regions are not rewritten; the panel records the import all the same.
+    assert db.writes(since=before) == ["UPDATE gene_panels", "COMMIT"]
+    assert again.panel.external_version == "3.2"
+    assert json.loads(db.panels[first.panel.id]["source_metadata"])["import_options"] == {
+        "confidence_levels": ["2", "3"]
+    }
+    history = asyncio.run(pms.list_panel_versions(db, first.panel.id))
+    assert (history.current_version, [entry.version for entry in history.versions]) == (1, [1])
+
+
+def test_a_panelapp_import_whose_version_cannot_be_archived_is_not_committed(monkeypatch) -> None:
+    admin = _admin()
+    panelapp = _PanelApp(monkeypatch, genes=["BRCA1"])
+    db = _PanelDb(admin)
+    db.fail_on = "INSERT INTO gene_panel_versions"
+    with pytest.raises(RuntimeError):
+        _import_panelapp(db, admin)
+    assert "COMMIT" not in db.writes()
+
+    db = _PanelDb(admin)
+    _import_panelapp(db, admin)
+    before = len(db.statements)
+    panelapp.genes.append("TTN")
+    db.fail_on = "INSERT INTO gene_panel_versions"
+    with pytest.raises(RuntimeError):
+        _import_panelapp(db, admin)
+    assert "COMMIT" not in db.writes(since=before)
+
+
+def test_the_ranking_cache_key_moves_when_a_panelapp_reimport_changes_the_genes(monkeypatch) -> None:
+    """The prioritised-ranking cache keys a panel on its version (``_panel_version``).
+
+    After a re-import of the same PanelApp release with other confidence levels that
+    changes the genes, the ranking cached on the earlier genes must not be an exact hit;
+    after one that changes nothing it still is. Every other input of the key is held
+    fixed; the panel's part is read from the panel tables.
     """
     admin = _admin()
     db = _PanelDb(admin)
-    imported_genes = ["BRCA1", "TTN"]
+    panelapp = _PanelApp(monkeypatch, genes=["BRCA1", "TTN"])
+    panel_id = _import_panelapp(db, admin).panel.id
 
-    async def _fetch(panelapp_id, version=None):
-        return {"id": panelapp_id, "name": "Hereditary cancer", "version": "3.1"}
+    async def _pedigree(session: Any, context: Any) -> dict[str, str]:
+        return {"structure_hash": "pedigree-1"}
 
-    monkeypatch.setattr(pms, "fetch_panelapp_panel", _fetch)
-    monkeypatch.setattr(
-        pms,
-        "extract_panelapp_import_content",
-        lambda payload, **kwargs: PanelAppImportContent(genes=list(imported_genes), regions=[], metadata={}),
-    )
+    async def _monarch(session: Any) -> str:
+        return "2026-07-01"
 
-    first = asyncio.run(pms.import_panelapp_panel_data(db, PanelAppImportRequest(panelapp_id=245), admin))
-    imported_genes.append("CFTR")  # say, amber genes taken in as well
-    again = asyncio.run(
-        pms.import_panelapp_panel_data(
-            db, PanelAppImportRequest(panelapp_id=245, confidence_levels=["3", "2"]), admin
+    async def _reference(session: Any, context: Any) -> dict[str, Any]:
+        return {"hpo_release": "2026-04-01", "hpo_imported_at": None, "gene_info_updated_at": None}
+
+    monkeypatch.setattr(vrc, "_pedigree_signature", _pedigree)
+    monkeypatch.setattr(vrc, "_monarch_release", _monarch)
+    monkeypatch.setattr(vrc, "_reference_versions", _reference)
+
+    def _exact_key() -> str:
+        inputs_hash, _base_hash = asyncio.run(
+            vrc.compute_ranking_hashes(
+                db,
+                context=types.SimpleNamespace(assembly_name="GRCh38"),
+                filters=SmallVariantQueryFilters(page=1, page_size=100, panel_id=panel_id),
+                patient_terms=["HP:0001250"],
+                variant_data_version="1:1",
+            )
         )
-    )
+        return inputs_hash
 
-    assert again.panel.id == first.panel.id
-    assert (first.panel.genes, again.panel.genes) == (["BRCA1", "TTN"], ["BRCA1", "TTN", "CFTR"])
-    assert (first.panel.version, again.panel.version) == (1, 1)
-    assert again.panel.external_version == "3.1"
-    assert db.versions == []
-    history = asyncio.run(pms.list_panel_versions(db, first.panel.id))
-    assert (history.current_version, history.versions) == (1, [])
-    with pytest.raises(HTTPException) as missing:
-        asyncio.run(pms.get_panel_version(db, first.panel.id, 1))
-    assert missing.value.status_code == 404
+    cached = _exact_key()
+
+    # Green and amber genes, where the panel has no amber gene: the same genes.
+    _import_panelapp(db, admin, confidence_levels=["3", "2"])
+    assert _exact_key() == cached, "nothing changed, so the cached ranking still serves"
+
+    # The same release, now with an amber gene: the ranking on the green genes is stale.
+    panelapp.genes.append("CFTR")
+    _import_panelapp(db, admin, confidence_levels=["3", "2"])
+    assert _exact_key() != cached, "a ranking built on the earlier genes must not be an exact hit"

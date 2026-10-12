@@ -72,7 +72,7 @@ edit (single, batch or removal), and after a PED upload or manual family creatio
 | --- | --- |
 | HPO, member or structure edit | the key changes; the background task computes the new ranking |
 | Variants added, deleted or re-imported, by any route | the data version changes, so the key changes |
-| Gene panel regenerated | the panel version changes |
+| A gene panel's genes or regions changed: an edit, a Mendeliome rebuild or a PanelApp import that changes them | the panel's version changes |
 | Monarch, HPO or gene reference refreshed | every ranking that reads it misses |
 | Review tags or exclusions changed | the review signature changes |
 | Scoring code changed | bump `_ALGORITHM_VERSION`; every ranking misses |

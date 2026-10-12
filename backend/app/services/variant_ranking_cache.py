@@ -8,15 +8,19 @@ inputs that change the ranking:
 - the family's small-variant data, as the storage-level data version the caller reads
   from ClickHouse (``get_family_small_variant_data_version``) — every insert, delete or
   re-import of the family's variants changes it, whatever code path made the change;
-- affected HPO terms, pedigree/affected status and the gene-panel version;
+- affected HPO terms, pedigree/affected status and the gene panel's version: its own
+  version, which every change of the genes or regions it holds raises (an edit, a
+  Mendeliome rebuild, a PanelApp import), and its source's release (``external_version``);
 - the reference data the scores read: Monarch release, the HPO ontology loaded (its
   release and import time, as the signed record reads it) and the gene-constraint table
   (gene_info) for the family's assembly;
 - the scoring-algorithm version.
 
-Any change flips the hash, so a stale ranking is never served. Before the data version
-was part of the hash, only the package import invalidated the cache, and a direct upload
-or an admin delete left an outdated ranking in place (#509).
+Any change flips ``inputs_hash``, so an exact hit is never a ranking computed on other
+inputs. ``base_hash`` leaves the panel out, so that a narrower panel can be served from a
+broader cached ranking (see ``compute_ranking_hashes``). Before the data version was part
+of the hash, only the package import invalidated the cache, and a direct upload or an
+admin delete left an outdated ranking in place (#509).
 
 This module owns only the hash + Postgres cache rows; the (de)serialisation of variant
 records is done by the caller (clickhouse_family_variants) which holds those helpers.
