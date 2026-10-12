@@ -95,6 +95,22 @@ def test_a_reimported_header_with_only_a_command_line_keeps_the_recorded_version
     assert out["trgt"] == {"version": "0.7.0", "by_modality": {"repeats": "0.7.0"}}
 
 
+def test_a_shapeit5_header_adds_no_version_beside_the_pipeline_record() -> None:
+    # A PGT package's pipeline record names SHAPEIT5 5.1.1, and its phased VCF says
+    # ``##source=SHAPEIT5 phase_common 1.1``: the 5 is part of the name and the 1.1 is
+    # phase_common's own number. The header tags the caller and states no version, so the
+    # manifest keeps one SHAPEIT5 at 5.1.1, not a second "shapeit" at version "5".
+    from backend.app.services.vcf_header_provenance import extract_header_provenance
+
+    current = {"shapeit5": {"version": "5.1.1", "by_modality": {"pipeline": "5.1.1"}}}
+    header = ["##fileformat=VCFv4.2", "##source=SHAPEIT5 phase_common 1.1"]
+    incoming = extract_header_provenance(header, modality="snv").as_modules()
+    out = ams._refresh_modules(current, incoming, modality="snv")
+    assert out == {
+        "shapeit5": {"version": "5.1.1", "by_modality": {"pipeline": "5.1.1"}, "detail": "snv caller"}
+    }
+
+
 def test_get_family_manifest_falls_back_to_family_metadata(monkeypatch) -> None:
     # No explicit family_annotation_manifest row -> read the import-captured manifest
     # from family.metadata.annotation_manifest.
