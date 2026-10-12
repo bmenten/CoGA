@@ -235,5 +235,7 @@ pull request updates this list only when it adds clinical behaviour that no area
   dbNSFP 5.4, HPO releases, and T2T-CHM13v2.0 as an optional assembly outside the validated
   scope.
 - **Failures shown as failures** — viewers, tracks, reports, searches and exports that show a
-  failed or capped request as such, never as empty or complete data.
+  failed or capped request as such, never as empty or complete data; a sample whose sequencing
+  QC was not assessed (no limit configured, or no verdict served) reads *Not run* in the
+  family members table, never as a pass.
 - **Platform** — Python 3.12 and ClickHouse 26.8 LTS under the validated build.

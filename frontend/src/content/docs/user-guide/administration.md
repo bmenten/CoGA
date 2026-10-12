@@ -30,7 +30,8 @@ the [admin dashboard](/admin), grouped in six areas.
   its SHA-256.
 - **Family Statuses** — the workflow statuses analysts give a case.
 - **Sequencing QC Thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.
-  None ship by default; a metric without a cut-off reads as *not assessed*.
+  None ship by default; a metric without a cut-off reads as *not assessed*, and a sample with no
+  cut-off for any of its metrics shows *Not run* on the chip.
 - **Package Import** — import a family package (see [Case setup and data import](#case-setup)).
 
 ### Variant Configuration
