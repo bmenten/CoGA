@@ -34,7 +34,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (`404 Project not found`). The request audit still tells the two apart: the
   `audit_log_events` row of such a request names the kind in `request_meta.record_hidden`
   (`family`, `sample` or `project`), which the response never carries
-  (`main._answer_record_not_visible`).
+  (`main._answer_record_not_visible`), and the admin *Audit logs* page shows it in its
+  *Flags* column (§2).
   `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` asks every route with a
   family or sample ID in its path, on real Postgres, for a family of another project and for
   an unknown one, and requires the same status and body. Refusals because of the caller's
@@ -165,7 +166,10 @@ are colleagues, so there is no tenant boundary to protect.
   counted separately (`auth_login_attempts`).
 - ✅ **Requests for other projects' records stay visible in the audit.** Such a request is
   answered as for an unknown ID (§1), but its row carries `request_meta.record_hidden`, so the
-  audit shows who asked for families, samples or projects outside their own.
+  audit shows who asked for families, samples or projects outside their own. The admin
+  *Audit logs* page flags the row in its *Flags* column (*Family outside the user's projects*),
+  and shows nothing else of `request_meta`, which also holds two request headers
+  (`AdminAuditLogsPage.tsx`).
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
 - ✅ **Append-only.** A trigger in `04_traceability.sql` blocks DELETE and UPDATE on
@@ -188,8 +192,9 @@ are colleagues, so there is no tenant boundary to protect.
   endpoint ignores, or `%00` in the URL: the action was carried out, and its row, with every
   other row of its async batch, reached only the log. Such a value is now stored as a visible
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
-  UI-event log does the same. A NUL in the URL is now refused at sign-in (§1), and the
-  refusal's row is kept the same way, under the caller's name.
+  UI-event log does the same, in `detail._escaped`. The *Audit logs* page shows the flag, with
+  the columns, in the *Flags* column of both views. A NUL in the URL is now refused at sign-in
+  (§1), and the refusal's row is kept the same way, under the caller's name.
 - ✅ **A failed audit write is logged by its kind.** The log line names the exception by its
   type and SQLSTATE (`describe_error` in `core/coga_logging.py`), never by the error's text,
   which quotes the statement and the row it could not insert. The row itself is logged once,
