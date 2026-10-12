@@ -22,7 +22,10 @@ family, **Review ROI markers →** opens the marker review.
 ### Family members
 
 One row per person: role, parents, partner, **Related to**, status, HPO terms and a **Seq. QC** chip
-with the sequencing QC verdict and mean depth (hover for the metrics). In a PGT family each embryo also
+with the sequencing QC verdict and mean depth (hover or focus it for the metrics). A passing chip shows
+the number alone; any other state is a word on the chip: *Warning* or *Fail* when a metric crossed its
+limit, which the tooltip names, and *Not run* when the sample's QC was not assessed (no limit set for
+any of its metrics, or no verdict returned), which is never a pass. In a PGT family each embryo also
 shows its derived call (see [Haplotype segregation](#haplotype-segregation)).
 
 **Related to** names the member through whom a person is related by an unknown degree, such as a PGT
