@@ -90,6 +90,11 @@ This is the record of clinical actions; the record of who opened what (**Admin �
 separate. Changes to the pedigree, the family members or their phenotypes, and the review of a
 compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them.
 
+The trail opens on its 200 most recent entries. When it holds more, it says how many it shows
+(*Showing the 200 most recent of 450 events; the older ones are not shown.*), and **Show older
+events** adds the next 200. A printout of a report that shows only part of the trail says so at the
+top of every page.
+
 ## 4. Case sign-out — freeze the result
 
 **Sign out report** freezes the reported result into a numbered version with a unique fingerprint (a
