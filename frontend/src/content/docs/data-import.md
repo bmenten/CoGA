@@ -73,7 +73,7 @@ Each layer is optional and switches on part of CoGA.
 | --- | --- |
 | **Small variants (SNV/indel)** | the small-variant page, its review, and the Sample QC page |
 | **Structural variants** | the structural-variant page, its review, CNV classification and the variant summary |
-| **Repeat expansions (TRGT)** | the repeat-expansion page, scored against the STRchive loci |
+| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`) |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
@@ -246,6 +246,10 @@ heteroplasmy.
   **update** will do), and its report can be signed out only with an acknowledgement
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
   without them leaves the warning, and says so in its log.
+- **A failed overwrite** puts the family back as it was before the import. If putting it back fails
+  too, part of the family's data may be gone, whichever dataset it came from: the warning then names
+  every dataset of that import as failed, the ones that imported too. Import each of them again with
+  **overwrite** to complete the family; **update** skips a dataset whose data is there.
 - **An import that stopped part-way** (the server restarted, or ran out of memory, while it ran) is not
   run again: about ten minutes later its job ends as *failed*, interrupted, with its log as the import
   left it. An import that was still running, but could not record that it was for those ten minutes,
