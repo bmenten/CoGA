@@ -93,6 +93,7 @@ from .clickhouse_variant_records import (
     _annotation_polyphen,
     _annotation_spliceai_max,
     _annotation_matches_normal,
+    mane_only_condition,
 )
 
 
@@ -2395,7 +2396,7 @@ def _small_annotation_filter_condition(
     if filters.canonical_only:
         conditions.append("a.canonical")
     if filters.mane_only:
-        conditions.append("(a.mane_select OR a.mane_plus_clinical)")
+        conditions.append(mane_only_condition("a."))
     if filters.lof_only:
         conditions.append("a.lof NOT IN ('', '.', 'na', 'n/a')")
 

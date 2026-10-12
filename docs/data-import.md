@@ -41,7 +41,7 @@ for the assembly is left alone.
 | Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/` | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` |
 | Clinical CNV syndromes | Only if the file exists; it is not shipped | `REFERENCE_CLINICAL_CNVS_PATH` |
 | HPO ontology | `data/ref-data/hpo/hp.obo`, else downloaded over HTTPS | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_ONTOLOGY_URL`, `HPO_ONTOLOGY_SHA256` |
-| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and `data/ref-data/STRchive-loci.json`, both refreshed on every start. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
+| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and `data/ref-data/STRchive-loci.json`, both refreshed on every start. A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
 The segmental duplications and clinical CNVs are loaded into the assembly named by
@@ -282,8 +282,15 @@ An import that was still alive when its job was ended can reach its restore befo
 heartbeat stops it, its backups already dropped. So a restore first checks that every backup
 table is there, and deletes nothing when one is missing: the family keeps what the import
 left, and is flagged import-incomplete with the datasets that failed and those that did
-import. A restore that fails part-way may have removed rows of any of the family's datasets,
-so the flag it leaves names no dataset as imported.
+import. A restore that fails in any other way (part-way, say) may have removed rows of any of
+the family's datasets: table by table, it deletes the family's rows before it puts the
+backup's back. So the flag it leaves names every dataset the import set out to import as
+failed, including those that imported and those it only registered, and none as imported;
+the family stays flagged until an import has imported each of them again. Import them again
+with `overwrite`: an update skips a dataset whose rows are there, and a skipped dataset does
+not count. A dataset of the family that the import did not carry (another small-variant
+source, say) is not named, although the restore rewrites its rows too
+([ROADMAP.md](ROADMAP.md)).
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
