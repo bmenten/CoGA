@@ -15,7 +15,9 @@ gene context and phenotype overlap — and is where the case is signed out. Once
   a new ClinVar significance, or a structural variant that now overlaps other genes. Re-review those
   variants.
 - The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can
-  never be changed or deleted.
+  never be changed or deleted. It opens on the 200 most recent entries; when there are more, it says
+  how many it shows, and **Show older events** loads the next 200. A printout that shows only part of
+  the trail says so.
 - The **Analysis pipeline settings** recorded at import.
 - An **Import incomplete** warning at the top when a data import left the family partly loaded, or
   has not finished: it is still running, or it stopped part-way (for example the server restarted).

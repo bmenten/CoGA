@@ -17,9 +17,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
 
+from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sql import require_uuid
 from . import cnv_acmg_points
 from .family_metadata_context import build_family_metadata_context
 from .hash_chain import ChainVerification, chain_row_hash, verify_chain
@@ -617,33 +619,110 @@ async def _record_review_events(
         )
 
 
+# A page of a family's clinical audit trail holds this many events unless the caller asks
+# for fewer, and never more than the maximum.
+CLINICAL_AUDIT_PAGE_SIZE = 200
+CLINICAL_AUDIT_MAX_PAGE_SIZE = 500
+
+_AUDIT_EVENT_NOT_FOUND = "Audit event not found"
+_AUDIT_EVENT_FIELDS = (
+    "id", "created_at", "variant_id", "actor", "action", "summary", "before", "after",
+)
+
+# The event a page starts after: an event of this family's trail, or none.
+_AUDIT_PAGE_ANCHOR = text(
+    """
+    SELECT created_at, id::text AS id
+    FROM clinical_audit_events
+    WHERE id = CAST(:event_id AS uuid)
+      AND family_id = CAST(:family_uuid AS uuid)
+    """
+)
+
+# A page of a family's trail, newest first, with the number of events the trail holds. One
+# statement, so the count and the page come from one snapshot and agree; the count's row
+# comes back when the page is empty too. The order is the hash chain's own, reversed:
+# created_at, then id, so it is total and the same on every read. The page reads one event
+# more than it holds, to tell whether older events remain.
+_AUDIT_PAGE = text(
+    """
+    SELECT counted.total,
+           page.id::text AS id, page.created_at, page.variant_id, page.actor,
+           page.action, page.summary, page.before, page.after
+    FROM (
+        SELECT COUNT(*) AS total
+        FROM clinical_audit_events
+        WHERE family_id = CAST(:family_uuid AS uuid)
+    ) AS counted
+    LEFT JOIN (
+        SELECT id, created_at, variant_id, actor, action, summary, before, after
+        FROM clinical_audit_events
+        WHERE family_id = CAST(:family_uuid AS uuid)
+          AND (
+              CAST(:before_id AS uuid) IS NULL
+              OR (created_at, id)
+                  < (CAST(:before_created_at AS timestamptz), CAST(:before_id AS uuid))
+          )
+        ORDER BY created_at DESC, id DESC
+        LIMIT :limit
+    ) AS page ON TRUE
+    ORDER BY page.created_at DESC, page.id DESC
+    """
+)
+
+
 async def list_clinical_audit(
     session: AsyncSession,
     *,
     family_id: str,
     user: CurrentUser,
-    limit: int = 200,
+    limit: int = CLINICAL_AUDIT_PAGE_SIZE,
+    before: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
+    """A page of a family's clinical audit trail, most recent first.
+
+    At most ``limit`` events (``CLINICAL_AUDIT_MAX_PAGE_SIZE`` at most). ``before`` is the
+    id of the last event of the previous page; the page holds the events recorded before
+    it, so an event written in the meantime shifts nothing: no event is listed twice or
+    skipped. A ``before`` that names no event of this family's trail is answered 404, as
+    an unknown record is. ``has_more`` says whether older events remain and ``total`` how
+    many events the trail holds, so a reader can say when it shows only part of the trail.
+    """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
+    page_size = max(1, min(int(limit), CLINICAL_AUDIT_MAX_PAGE_SIZE))
+    anchor: dict[str, Any] = {"created_at": None, "id": None}
+    if before is not None:
+        event_id = require_uuid(before, _AUDIT_EVENT_NOT_FOUND, status_code=404)
+        found = (
+            await session.execute(
+                _AUDIT_PAGE_ANCHOR, {"event_id": event_id, "family_uuid": context.family_uuid}
+            )
+        ).mappings().first()
+        if found is None:
+            raise HTTPException(status_code=404, detail=_AUDIT_EVENT_NOT_FOUND)
+        anchor = dict(found)
     rows = (
         await session.execute(
-            text(
-                """
-                SELECT id::text AS id, created_at, variant_id, actor,
-                       action, summary, before, after
-                FROM clinical_audit_events
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                ORDER BY created_at DESC
-                LIMIT :limit
-                """
-            ),
-            {"family_uuid": context.family_uuid, "limit": limit},
+            _AUDIT_PAGE,
+            {
+                "family_uuid": context.family_uuid,
+                "before_created_at": anchor["created_at"],
+                "before_id": anchor["id"],
+                "limit": page_size + 1,
+            },
         )
     ).mappings().all()
+    events = [
+        {field: row[field] for field in _AUDIT_EVENT_FIELDS}
+        for row in rows
+        if row["id"] is not None
+    ]
     return {
         "family_id": context.family_id,
-        "events": [dict(row) for row in rows],
+        "total": int(rows[0]["total"]) if rows else 0,
+        "has_more": len(events) > page_size,
+        "events": events[:page_size],
     }

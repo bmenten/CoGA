@@ -107,9 +107,16 @@ class ClinicalAuditEventOut(BaseModel):
 
 
 class ClinicalAuditOut(BaseModel):
-    """A family's clinical audit timeline (most recent first)."""
+    """A page of a family's clinical audit timeline (most recent first).
+
+    ``total`` is how many events the family's trail holds, read with the page. When
+    ``has_more`` is true, older events remain: ask for them with ``before`` set to the id
+    of the page's last event.
+    """
 
     family_id: str
+    total: int
+    has_more: bool
     events: List[ClinicalAuditEventOut] = Field(default_factory=list)
 
 
