@@ -824,6 +824,37 @@ def test_small_annotation_effect_filter_splits_vep_compound_terms() -> None:
     )
 
 
+@pytest.mark.parametrize(
+    ("transcript", "kept"),
+    [
+        ({"mane_plus_clinical": True}, True),
+        ({"manePlusClinical": True}, True),
+        ({"mane_select": True}, True),
+        ({"maneSelect": True}, True),
+        ({"canonical": True}, False),
+        ({}, False),
+    ],
+)
+def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript(
+    transcript: dict[str, bool], kept: bool
+) -> None:
+    # The family search's *MANE only*, which the Variant Explorer follows (CLIN-5).
+    record = _small_variant("v1", "GENE1", calls=[_small_call("PROBAND", "0/1")])
+    record.annotations = [{"gene": "GENE1", **transcript}]
+    filters = SmallVariantQueryFilters(page=1, page_size=100, mane_only=True)
+
+    assert _small_record_matches(record, filters, [], [], []) is kept
+
+
+def test_mane_only_sql_reads_both_mane_flags_of_one_transcript() -> None:
+    clauses, params = _small_detail_filter_clauses(
+        SmallVariantQueryFilters(page=1, page_size=100, mane_only=True)
+    )
+
+    assert clauses == ["((a.mane_select OR a.mane_plus_clinical))"]
+    assert params == {}
+
+
 @pytest.mark.asyncio
 async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
     monkeypatch: pytest.MonkeyPatch,
