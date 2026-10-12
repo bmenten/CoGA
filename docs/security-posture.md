@@ -173,13 +173,20 @@ are colleagues, so there is no tenant boundary to protect.
   account is deleted; the copied `user_email` and `user_role` keep the actor.
 - ✅ **No silent loss (S-5).** A full queue applies backpressure for up to
   `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event directly; the worker
-  retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`); an event that still cannot be stored
-  is logged at ERROR with its (already masked) payload and counted for alerting. The same holds
-  without the queue, with `AUDIT_LOG_MODE=sync` or while no worker runs (before startup
-  completes, after shutdown): each event is written as its request runs, and a write that fails
-  is logged and counted the same way, where it used to leave a warning the alert did not count.
-  Neither the request nor a batch of UI events fails because of it: the UI-event endpoint still
-  answers 202, so the browser does not resend the events already stored. Outside
+  retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`) and then writes the batch's events one
+  at a time; an event that still cannot be stored is logged at ERROR with its (already masked)
+  payload and counted for alerting. The same holds without the queue, with `AUDIT_LOG_MODE=sync`
+  or while no worker runs (before startup completes, after shutdown): each event is written as
+  its request runs, and a write that fails is logged and counted the same way, where it used to
+  leave a warning the alert did not count. Neither the request nor a batch of UI events fails
+  because of it: the UI-event endpoint still answers 202, so the browser does not resend the
+  events already stored. One event the database refuses for its own sake (a constraint, such as
+  a user deleted while the event waited, or a time its driver cannot encode) fails every attempt
+  of its batch's INSERT, and used to take the batch's other events, up to
+  `AUDIT_LOG_BATCH_SIZE` of any user's, with it. Written one at a time, each once and without
+  waiting, it now costs only itself. A write that cannot reach the database at all (no
+  connection) ends that pass, and the events not yet written are recorded without being tried,
+  as the whole batch used to be. Outside
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
