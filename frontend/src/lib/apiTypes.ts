@@ -460,8 +460,13 @@ export interface ApiClinicalAuditEvent {
   after: Record<string, unknown> | null;
 }
 
+// A page of a family's clinical audit trail, most recent first. `total` is how many events
+// the trail holds; `has_more` says older events remain, read with `before` = the id of the
+// page's last event.
 export interface ApiClinicalAudit {
   family_id: string;
+  total: number;
+  has_more: boolean;
   events: ApiClinicalAuditEvent[];
 }
 
