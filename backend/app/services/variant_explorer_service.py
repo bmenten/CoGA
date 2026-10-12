@@ -50,7 +50,11 @@ from ..schemas import (
 )
 from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
-from .clickhouse_variant_records import CLINVAR_FREQUENCY_RESCUE_TERMS, _status_filter_terms
+from .clickhouse_variant_records import (
+    CLINVAR_FREQUENCY_RESCUE_TERMS,
+    _status_filter_terms,
+    mane_only_condition,
+)
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
 
@@ -645,7 +649,8 @@ def _annotation_index_clauses(
     if filters.canonical_only:
         clauses.append("ai.has_canonical")
     if filters.mane_only:
-        clauses.append("ai.has_mane_select")
+        # MANE Select or MANE Plus Clinical, as in the family search (CLIN-5).
+        clauses.append(mane_only_condition("ai.has_"))
     if filters.lof_only:
         clauses.append("ai.has_lof")
 

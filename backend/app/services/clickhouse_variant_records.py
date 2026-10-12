@@ -215,6 +215,27 @@ def _normalized_status_term(value: Any) -> str:
 # the ClickHouse filter so the two paths cannot disagree (#534).
 CLINVAR_FREQUENCY_RESCUE_TERMS: tuple[str, ...] = ("Pathogenic", "Likely_pathogenic")
 
+# The transcripts *MANE only* keeps: MANE Select and MANE Plus Clinical. Each flag is an
+# annotation key (or its camelCase alias) and a column of the ``annotations`` table; the
+# ``annotation_index`` holds it per variant as ``has_<flag>``. The family search, in SQL
+# and in Python, and the Variant Explorer read this one list, so they cannot disagree: the
+# explorer had read MANE Select alone, and dropped a variant whose MANE transcript is MANE
+# Plus Clinical (CLIN-5).
+MANE_ONLY_TRANSCRIPT_FLAGS: tuple[tuple[str, str], ...] = (
+    ("mane_select", "maneSelect"),
+    ("mane_plus_clinical", "manePlusClinical"),
+)
+
+
+def mane_only_condition(column_prefix: str) -> str:
+    """*MANE only* as a ClickHouse condition: one of the MANE flags is set.
+
+    ``column_prefix`` precedes each flag's name: ``"a."`` for a transcript row of the
+    ``annotations`` table, ``"ai.has_"`` for a variant row of the ``annotation_index``.
+    """
+    columns = (f"{column_prefix}{flag}" for flag, _alias in MANE_ONLY_TRANSCRIPT_FLAGS)
+    return f"({' OR '.join(columns)})"
+
 
 def _status_terms(value: Any) -> set[str]:
     """Normalised status terms of a ClinVar / SIFT / PolyPhen value.
@@ -452,9 +473,8 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
         return False
     if filters.canonical_only and not _annotation_bool(annotation, "canonical"):
         return False
-    if filters.mane_only and not (
-        _annotation_bool(annotation, "mane_select", "maneSelect")
-        or _annotation_bool(annotation, "mane_plus_clinical", "manePlusClinical")
+    if filters.mane_only and not any(
+        _annotation_bool(annotation, *keys) for keys in MANE_ONLY_TRANSCRIPT_FLAGS
     ):
         return False
     if filters.lof_only and _casefold(_annotation_text(annotation, "lof") or "") in {"", ".", "na", "n/a"}:
