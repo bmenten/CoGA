@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import InfoTip from '../InfoTip';
 
@@ -19,5 +20,29 @@ describe('InfoTip', () => {
     render(<InfoTip label="explain">chip</InfoTip>);
     fireEvent.focus(screen.getByText('chip'));
     expect(screen.getByRole('tooltip').textContent).toBe('explain');
+  });
+
+  it('makes a static child focusable without a button role, described by the tip', async () => {
+    const user = userEvent.setup();
+    render(
+      <InfoTip label="Warning: Mean depth 18.6x below 20x" staticChild>
+        Warning 18.6x
+      </InfoTip>,
+    );
+    const chip = screen.getByText('Warning 18.6x');
+    // Nothing happens when it is pressed, so it is no button, and its own text is not
+    // replaced by the tip as its name.
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(chip).not.toHaveAttribute('aria-label');
+    expect(chip).not.toHaveAttribute('aria-describedby');
+
+    await user.tab();
+    expect(chip).toHaveFocus();
+    expect(screen.getByRole('tooltip')).toHaveTextContent('Warning: Mean depth 18.6x below 20x');
+    expect(chip).toHaveAccessibleDescription('Warning: Mean depth 18.6x below 20x');
+
+    await user.tab();
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(chip).not.toHaveAttribute('aria-describedby');
   });
 });

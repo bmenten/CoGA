@@ -1,5 +1,5 @@
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
@@ -28,7 +28,11 @@ from ..services.annotation_manifest_service import (
     set_family_annotation_manifest,
 )
 from ..services.classification_drift_service import evaluate_classification_drift
-from ..services.clinical_audit_service import list_clinical_audit
+from ..services.clinical_audit_service import (
+    CLINICAL_AUDIT_MAX_PAGE_SIZE,
+    CLINICAL_AUDIT_PAGE_SIZE,
+    list_clinical_audit,
+)
 from ..services.report_signout_service import (
     compare_report_with_latest_signout,
     get_report_signout,
@@ -92,12 +96,32 @@ async def get_family_classification_drift_endpoint(
 async def get_family_clinical_audit_endpoint(
     family_id: str,
     project_id: str | None = None,
+    limit: int = Query(
+        default=CLINICAL_AUDIT_PAGE_SIZE,
+        ge=1,
+        le=CLINICAL_AUDIT_MAX_PAGE_SIZE,
+        description="How many events the page holds at most.",
+    ),
+    before: str | None = Query(
+        default=None,
+        description=(
+            "The id of the last event of the previous page: the page holds the events "
+            "recorded before it."
+        ),
+    ),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> ClinicalAuditOut:
+    # A page of the trail, most recent first, with the trail's total and whether older
+    # events remain.
     return ClinicalAuditOut.model_validate(
         await list_clinical_audit(
-            session, family_id=family_id, user=user, project_id=project_id
+            session,
+            family_id=family_id,
+            user=user,
+            limit=limit,
+            before=before,
+            project_id=project_id,
         )
     )
 
