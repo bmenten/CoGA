@@ -4,6 +4,10 @@ import asyncio
 import json
 import math
 import types
+from datetime import datetime, timedelta, timezone
+
+import pytest
+from fastapi import HTTPException
 
 from backend.app.services import clinical_audit_service as cas
 
@@ -507,3 +511,233 @@ def test_structural_diff_an_unchanged_resave_of_the_full_scoring_writes_nothing(
     scoring = _scoring("loss", ("2A", 1.0, True, "x", True), ("4D", 0.0, False, None, False), total=1.0, cnv_class="cnv_class_5")
     reordered = _scoring("loss", ("4D", 0.0, False, None, False), ("2A", 1.0, True, "x", True), total=1.0, cnv_class="cnv_class_5")
     assert cas.diff_structural_review_changes(scoring, reordered) == []
+
+
+# --- the trail, a page at a time (AUDIT-1) ------------------------------------------------------
+# The report listed the 200 newest events as the whole trail: no paging, no total. A review
+# save writes up to three events, so about 70 saves filled it.
+
+_FAMILY_UUID = "00000000-0000-0000-0000-0000000000f1"
+
+
+def _event_row(n: int, *, total: int) -> dict:
+    """A row of the page statement: the trail's count, and event n."""
+    return {
+        "total": total,
+        "id": f"00000000-0000-0000-0000-{n:012d}",
+        "created_at": datetime(2026, 6, 25, 9, 0, tzinfo=timezone.utc) + timedelta(minutes=n),
+        "variant_id": f"1-{n}-A-G",
+        "actor": "alice",
+        "action": "classification",
+        "summary": f"event {n}",
+        "before": None,
+        "after": {"n": n},
+    }
+
+
+class _Rows:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def mappings(self):
+        return self
+
+    def all(self) -> list[dict]:
+        return list(self._rows)
+
+    def first(self) -> dict | None:
+        return self._rows[0] if self._rows else None
+
+
+class _TrailSession:
+    """Answers the page statement with ``page_rows`` and the lookup of the event a page
+    starts after with ``anchor``; records every statement with its parameters."""
+
+    def __init__(self, page_rows: list[dict], anchor: dict | None = None) -> None:
+        self.page_rows = page_rows
+        self.anchor = anchor
+        self.calls: list[tuple[str, dict]] = []
+
+    async def execute(self, statement, params=None):
+        sql = str(statement)
+        self.calls.append((sql, dict(params or {})))
+        if "COUNT(*)" in sql:
+            return _Rows(self.page_rows)
+        return _Rows([self.anchor] if self.anchor else [])
+
+    def page_params(self) -> dict:
+        [params] = [params for sql, params in self.calls if "COUNT(*)" in sql]
+        return params
+
+
+def _list_trail(monkeypatch, session: _TrailSession, **kwargs) -> dict:
+    async def _context(session, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(family_uuid=_FAMILY_UUID, family_id=family_identifier)
+
+    monkeypatch.setattr(cas, "build_family_metadata_context", _context)
+    return asyncio.run(
+        cas.list_clinical_audit(session, family_id="FAM1", user=types.SimpleNamespace(), **kwargs)
+    )
+
+
+def test_a_trail_longer_than_a_page_says_so_with_its_total(monkeypatch) -> None:
+    # 450 events: the page reads one more than it holds, so it knows older ones remain.
+    session = _TrailSession([_event_row(n, total=450) for n in range(450, 249, -1)])
+    page = _list_trail(monkeypatch, session)
+
+    assert page["family_id"] == "FAM1"
+    assert page["total"] == 450
+    assert page["has_more"] is True
+    assert len(page["events"]) == 200
+    assert [event["summary"] for event in page["events"][:2]] == ["event 450", "event 449"]
+    assert page["events"][-1]["summary"] == "event 251"
+    # The events are served as events: the count is not one of their fields.
+    assert set(page["events"][0]) == {
+        "id", "created_at", "variant_id", "actor", "action", "summary", "before", "after",
+    }
+    # The first page: the newest events of this family, 200 and one more.
+    assert len(session.calls) == 1
+    assert session.page_params() == {
+        "family_uuid": _FAMILY_UUID,
+        "before_created_at": None,
+        "before_id": None,
+        "limit": 201,
+    }
+
+
+def test_the_trail_is_read_in_one_order_newest_first_with_its_count(monkeypatch) -> None:
+    session = _TrailSession([_event_row(1, total=1)])
+    _list_trail(monkeypatch, session)
+
+    [(sql, _params)] = session.calls
+    flat = " ".join(sql.split())
+    # A total order (the hash chain's, reversed), so a page boundary falls between the same
+    # two events on every read; and the count comes from the same statement as the page.
+    assert "ORDER BY created_at DESC, id DESC" in flat
+    assert "ORDER BY page.created_at DESC, page.id DESC" in flat
+    assert (
+        "SELECT COUNT(*) AS total FROM clinical_audit_events "
+        "WHERE family_id = CAST(:family_uuid AS uuid)"
+    ) in flat
+    assert (
+        "(created_at, id) < (CAST(:before_created_at AS timestamptz), CAST(:before_id AS uuid))"
+    ) in flat
+
+
+def test_the_last_page_says_no_older_events_remain(monkeypatch) -> None:
+    session = _TrailSession([_event_row(n, total=3) for n in (3, 2, 1)])
+    page = _list_trail(monkeypatch, session)
+
+    assert page["total"] == 3
+    assert page["has_more"] is False
+    assert [event["summary"] for event in page["events"]] == ["event 3", "event 2", "event 1"]
+
+
+def test_an_empty_trail_is_listed_as_empty(monkeypatch) -> None:
+    # The count's row comes back without an event when the page is empty.
+    empty = {field: None for field in _event_row(0, total=0)} | {"total": 0}
+    page = _list_trail(monkeypatch, _TrailSession([empty]))
+    assert (page["total"], page["has_more"], page["events"]) == (0, False, [])
+
+
+def test_the_next_page_holds_the_events_recorded_before_the_last_one_shown(monkeypatch) -> None:
+    anchor_id = "00000000-0000-0000-0000-000000000251"
+    anchor = {"created_at": datetime(2026, 6, 25, 13, 11, tzinfo=timezone.utc), "id": anchor_id}
+    session = _TrailSession([_event_row(n, total=450) for n in range(250, 49, -1)], anchor=anchor)
+    # The id as the page served it, in any spelling of it.
+    page = _list_trail(monkeypatch, session, before="{" + anchor_id.upper() + "}")
+
+    assert page["has_more"] is True
+    assert page["events"][0]["summary"] == "event 250"
+    lookup_sql, lookup_params = session.calls[0]
+    # The event must be one of this family's: looked up by its canonical id and the family.
+    assert "family_id = CAST(:family_uuid AS uuid)" in lookup_sql
+    assert lookup_params == {"event_id": anchor_id, "family_uuid": _FAMILY_UUID}
+    assert session.page_params() == {
+        "family_uuid": _FAMILY_UUID,
+        "before_created_at": anchor["created_at"],
+        "before_id": anchor_id,
+        "limit": 201,
+    }
+
+
+def test_a_page_after_an_event_that_is_not_in_the_trail_is_answered_404(monkeypatch) -> None:
+    # Unknown, another family's (the lookup finds neither), or no UUID at all: one answer,
+    # and no page is read.
+    for before in ("00000000-0000-0000-0000-000000000999", "not-an-event"):
+        session = _TrailSession([_event_row(1, total=1)], anchor=None)
+        with pytest.raises(HTTPException) as refused:
+            _list_trail(monkeypatch, session, before=before)
+        assert (refused.value.status_code, refused.value.detail) == (404, "Audit event not found")
+        assert not [sql for sql, _params in session.calls if "COUNT(*)" in sql]
+
+
+def test_the_page_size_is_bounded_and_read_as_a_number(monkeypatch) -> None:
+    for limit, read in ((10_000, cas.CLINICAL_AUDIT_MAX_PAGE_SIZE + 1), (0, 2), (-5, 2), ("25", 26)):
+        session = _TrailSession([_event_row(1, total=1)])
+        _list_trail(monkeypatch, session, limit=limit)
+        assert session.page_params()["limit"] == read, limit
+
+
+def _trail_route_client(monkeypatch):
+    """A signed-in client whose clinical-audit route records how it calls the service."""
+    from fastapi.testclient import TestClient
+
+    from backend.app.core.config import settings
+    from backend.app.core.postgres import get_postgres_session
+    from backend.app.dependencies import get_current_user
+    from backend.app.main import app
+    from backend.app.routers import families_reports
+    from backend.app.services.access_control import CurrentUser
+
+    calls: list[dict] = []
+
+    async def _list(session, **kwargs):
+        calls.append(kwargs)
+        return {"family_id": kwargs["family_id"], "total": 3, "has_more": True, "events": []}
+
+    async def _session():
+        yield object()
+
+    async def _user():
+        return CurrentUser(
+            id="u1",
+            username="viewer@example.com",
+            email="viewer@example.com",
+            role="viewer",
+            created_at=datetime.now(timezone.utc),
+        )
+
+    monkeypatch.setattr(families_reports, "list_clinical_audit", _list)
+    monkeypatch.setitem(app.dependency_overrides, get_postgres_session, _session)
+    monkeypatch.setitem(app.dependency_overrides, get_current_user, _user)
+    monkeypatch.setattr(app.state, "skip_startup_tasks", True, raising=False)
+    # No database here: the request audit is not written.
+    monkeypatch.setattr(settings, "audit_log_mode", "off")
+    return TestClient(app), calls
+
+
+def test_the_route_serves_a_page_and_bounds_its_size(monkeypatch) -> None:
+    client, calls = _trail_route_client(monkeypatch)
+    with client:
+        first = client.get("/api/families/FAM1/clinical-audit")
+        older = client.get(
+            "/api/families/FAM1/clinical-audit",
+            params={"limit": 50, "before": "00000000-0000-0000-0000-000000000251"},
+        )
+        too_small = client.get("/api/families/FAM1/clinical-audit", params={"limit": 0})
+        too_large = client.get(
+            "/api/families/FAM1/clinical-audit",
+            params={"limit": cas.CLINICAL_AUDIT_MAX_PAGE_SIZE + 1},
+        )
+
+    assert first.status_code == 200, first.text
+    assert first.json() == {"family_id": "FAM1", "total": 3, "has_more": True, "events": []}
+    assert older.status_code == 200, older.text
+    assert [(call["limit"], call["before"]) for call in calls] == [
+        (cas.CLINICAL_AUDIT_PAGE_SIZE, None),
+        (50, "00000000-0000-0000-0000-000000000251"),
+    ]
+    # A page size out of bounds is refused before the trail is read.
+    assert (too_small.status_code, too_large.status_code) == (422, 422)
+    assert len(calls) == 2
