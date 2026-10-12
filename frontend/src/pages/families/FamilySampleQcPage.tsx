@@ -387,7 +387,6 @@ const FamilySampleQcPage: React.FC = () => {
   // what the header warns of: an import that left the family incomplete.
   const {
     data: family,
-    isLoading: familyLoading,
     isError: familyFailed,
     error: familyError,
     refetch: refetchFamily,
@@ -427,7 +426,7 @@ const FamilySampleQcPage: React.FC = () => {
   }
 
   // Nor are they shown before the family and its reference are in, the header with them.
-  if (qcLoading || familyLoading || (family?.projects?.length && referenceLoading)) {
+  if (qcLoading || !family || (family.projects?.length && referenceLoading)) {
     return (
       <PageState
         loading

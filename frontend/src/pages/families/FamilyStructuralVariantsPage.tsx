@@ -92,7 +92,6 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   // incomplete, and (through its project) an assembly outside the validated scope.
   const {
     data: familyData,
-    isLoading: familyLoading,
     isError: familyFailed,
     error: familyError,
     refetch: refetchFamily,
@@ -323,7 +322,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   }
 
   // Nor are they shown before the family and its reference are in, the header with them.
-  if (familyLoading || (familyData?.projects?.length && referenceLoading) || (isLoading && !data)) {
+  if (!familyData || (familyData.projects?.length && referenceLoading) || (isLoading && !data)) {
     return (
       <PageState
         loading

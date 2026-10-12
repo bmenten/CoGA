@@ -53,7 +53,6 @@ const FamilyVariantSummaryPage: React.FC = () => {
   // that left the family incomplete, and an assembly outside the validated scope.
   const {
     data: family,
-    isLoading: familyLoading,
     isError: familyFailed,
     error: familyError,
     refetch: refetchFamily,
@@ -150,7 +149,7 @@ const FamilyVariantSummaryPage: React.FC = () => {
   }
 
   // Nor is it shown before the family and its reference are in, the header with them.
-  if (isLoading || isLoadingShared || familyLoading || (family?.projects?.length && referenceLoading)) {
+  if (isLoading || isLoadingShared || !family || (family.projects?.length && referenceLoading)) {
     return (
       <PageState
         loading
