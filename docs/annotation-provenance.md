@@ -18,21 +18,34 @@ The `##` header lines are parsed by
 
 | Input | Captured by | What is read |
 | --- | --- | --- |
-| Small variants (SNV/indel), package or direct upload | `variant_upload_service.upload_family_small_variant_file` (a monogenic NIPT pair's files one by one); for a long-read package's one VCF per sample read as one callset, `per_sample_small_variants.upload_family_per_sample_small_variant_files` | the VCF header: caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine`), annotation engine (`##VEP=…` with the gnomAD, ClinVar, dbNSFP, SpliceAI, dbSNP, COSMIC, SIFT, PolyPhen, assembly and GENCODE releases it embeds; `##SnpEffVersion`; `##bcftools_*Version`); and, when the annotation comes as a separate VEP table, that file's `## … version …` lines (`extract_vep_tab_provenance`) |
+| Small variants (SNV/indel), package or direct upload | `variant_upload_service.upload_family_small_variant_file` (a monogenic NIPT pair's files one by one); for a long-read package's one VCF per sample read as one callset, `per_sample_small_variants.upload_family_per_sample_small_variant_files` | the VCF header: caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine`, `##SentieonCommandLine`), annotation engine (`##VEP=…` with the gnomAD, ClinVar, dbNSFP, SpliceAI, dbSNP, COSMIC, SIFT, PolyPhen, assembly and GENCODE releases it embeds; `##SnpEffVersion`; `##bcftools_*Version`); and, when the annotation comes as a separate VEP table, that file's `## … version …` lines (`extract_vep_tab_provenance`) |
 | Structural variants, from a package (NeedlR, and the `mito` dataset's chrM SV files) or a per-sample upload (Sniffles, Spectre) | `family_package_datasets._import_sv_needlr_dataset`, `_import_mito_structural_variants`, `variant_upload_service.upload_structural_variant_file` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR) and `##reference`; for NeedlR and an upload also the database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
 | Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##source=TRGT`, `##reference` |
 | The pipeline run record of a long-read or PGT package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml` (the PGT pipeline's `copgtm_software_mqc_versions.yml`), recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
 A version is read only from a line that states one: a `##<tool>Version` or
-`##<tool>_version` line, the `Version` field of a structured line (`##GATKCommandLine`,
-DRAGEN's `##DRAGENVersion=<…>`), the `##VEP=` line, or a version-shaped token in `##source`
-(`Sniffles2_2.2`). A version line gives its first version-shaped word, one that starts with a
-digit, or with a `v` and a digit: `1.21+htslib-1.21`, `v1.4.1-0-g68e25e5`, and `5.1d` from
+`##<tool>_version` line, the `Version` field of a structured line (GATK's
+`##GATKCommandLine…=<…>`, quoted or, as GATK 3 writes it, not; Sentieon's
+`##SentieonCommandLine.…=<…>`; DRAGEN's `##DRAGENVersion=<…>`), the `##VEP=` line, or a
+version that `##source` states apart from the tool's name. A version line gives its first version-shaped word, one that starts with
+a digit, or with a `v` and a digit: `1.21+htslib-1.21`, `v1.4.1-0-g68e25e5`, and `5.1d` from
 SnpSift's `"SnpSift 5.1d (build …)"`. A value without one counts only as a single word with a
 digit that is not the tool's own name, such as the release tag `r0.8`. A command line
 (`##bcftools_viewCommand=view …`, `##SnpSiftCmd="SnpSift annotate …"`,
-`##trgtCommand=trgt genotype …`) starts with the program or subcommand, so it gives no
-version; the tool's version line gives it, whether it comes before or after the command line.
+`##trgtCommand=trgt genotype …`, the arguments inside GATK's structured line) gives no version;
+the tool's version line gives it, whether it comes before or after the command line.
+
+`##source` names the tool that wrote the file, and a tool's name can end in a digit: `Clair3`,
+`GLIMPSE2`, `Mutect2` and `SHAPEIT5` are names, not a tool and its version. The line gives a
+version, as written, only where it states one apart from the name: after a `_` or `-` in its
+first word (`Sniffles2_2.2`, `cuteSV-1.0.13`), or as its second word (`pbsv 2.9.0`,
+`freeBayes v1.3.6`, `hificnv v1.0.1-4de7d40`, `GLIMPSE_phase v2.0.0`). A later word gives none:
+in `SHAPEIT5 phase_common 1.1` it is phase_common's own number, which SHAPEIT5 reports as
+release 5.1.1, and LoFreq writes its command line there. Nor does a number glued to the name
+(`shapeit4.1.3`, which SHAPEIT4 4.2.2 still writes). Strelka states its version on
+`##source_version`, which gives the version of the tool `##source` names when the header names
+one. Clair3's `##source=Clair3` and `##clair3_version` make one module, `clair3`, and Mutect2's
+`##source=Mutect2` and `##MutectVersion` one module, `mutect2`.
 
 The parser is best-effort and never raises: a header it does not recognise yields less
 information, never an error, so capture cannot fail an import.
@@ -142,16 +155,20 @@ VCF `##reference` line), the pipeline's value is the one listed.
 - A tool that a header names only in a command line, with no version line, has no version in
   that header, and the manifest does not list it from that file. The package's pipeline run
   record, or an admin's replacement, can state it.
+- When one header names a tool at several versions (`##bcftools_viewVersion=1.10.2+htslib-1.10.2`
+  and then `##bcftools_normVersion=1.21+htslib-1.21`), the first version read is kept.
 
 ## Tests
 
 - [test_vcf_header_provenance.py](../backend/tests/test_vcf_header_provenance.py): the
   parsers, with realistic headers for every input, and the merge rules; a version only from a
-  line that states one, never from a command line, wherever it stands.
+  line that states one, never from a command line, wherever it stands; from `##source` only a
+  version stated apart from the tool's name, never a digit of the name.
 - [test_annotation_manifest.py](../backend/tests/test_annotation_manifest.py): the refresh
   rules (a re-import whose header names a tool only in a command line keeps its recorded
-  version), the module list, the reference modules with their `unavailable` states, the
-  replacement's audit event and the lock both writers take.
+  version; a SHAPEIT5 header adds no version beside the pipeline record's), the module list,
+  the reference modules with their `unavailable` states, the replacement's audit event and the
+  lock both writers take.
 - [integration/test_hpo_release_provenance.py](../backend/tests/integration/test_hpo_release_provenance.py):
   the HPO release read from a real database, after a re-import of an older release and after an
   import without one.
