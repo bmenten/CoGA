@@ -26,11 +26,13 @@ Design notes
   SV caller side by side.
 * A version is read only where a header states one: a version line
   (``##<tool>Version=…``, the ``Version`` field of a structured value, the
-  ``##VEP=`` line) or a version-shaped token (``##source=Sniffles2_2.2``). A
-  command line (``##<tool>Command=…``, ``##<tool>Cmd=…``) names the program and
-  its arguments, so it records the tool without a version and never stands in
-  for the version line before or after it. The manifest is frozen into every
-  sign-out, so a word that is not a version must never be recorded as one.
+  ``##VEP=`` line) or a version that ``##source`` states apart from the tool's
+  name (``Sniffles2_2.2``, ``pbsv 2.9.0``). A digit of a name (``Clair3``,
+  ``Mutect2``, ``SHAPEIT5``) is part of the name, never a version. A command line
+  (``##<tool>Command=…``, ``##<tool>Cmd=…``) names the program and its arguments,
+  so it records the tool without a version and never stands in for the version
+  line before or after it. The manifest is frozen into every sign-out, so a word
+  that is not a version must never be recorded as one.
 * Raw captured lines are kept (truncated) under ``raw`` while a header is read, but
   ``as_modules`` stores neither them nor ``fileformat`` and ``file_date``: what reaches the
   manifest is the per-tool versions and details.
@@ -73,6 +75,10 @@ _CANONICAL: dict[str, str] = {
     "octopus": "octopus",
     "glimpse": "glimpse",
     "glimpse2": "glimpse",
+    # GATK's Mutect2 names itself in ``##source=Mutect2`` and states its version on
+    # ``##MutectVersion=2.2``: one module.
+    "mutect2": "mutect2",
+    "mutect": "mutect2",
     # structural-variant callers
     "sniffles": "sniffles",
     "sniffles2": "sniffles",
@@ -138,9 +144,9 @@ _VERSION_SHAPED = re.compile(r"(?i)^v?\d[\w.+-]*$")
 # The fields of a structured value, ``<ID=dragen,Version="SW: …, HW: …">``: each field
 # starts after the ``<`` or a comma, and a quoted value may hold commas.
 _STRUCTURED_FIELD = re.compile(r'[<,]\s*([A-Za-z0-9_.:-]+)=("(?:[^"\\]|\\.)*"|[^,>]*)')
-# A trailing version embedded in a "source"/name token, e.g. ``Sniffles2_2.2`` or
-# ``DeepVariant-1.6.0`` or ``TRGT v0.7.0``.
-_NAME_VERSION = re.compile(r"(?i)^(?P<name>[a-z][a-z0-9]*?)[ _v-]*v?(?P<version>\d[\w.+-]*)$")
+# A number glued to a ``##source`` name that ends in a digit, after a dot: ``shapeit4.1.3``.
+# Where the name ends is not stated, and SHAPEIT4 4.2.2 still writes ``shapeit4.1.3``.
+_GLUED_NUMBER = re.compile(r"^([A-Za-z][A-Za-z0-9]*\d)\.\d")
 # key="value" or key=value pairs (value may be quoted, may contain spaces if quoted)
 _KV_PAIR = re.compile(r'([A-Za-z0-9_.:-]+)=("(?:[^"\\]|\\.)*"|\S+)')
 
@@ -231,38 +237,63 @@ def _parse_vep_line(value: str, prov: HeaderProvenance) -> None:
                 _set_module(prov.modules, canonical, version=raw, overwrite=False)
 
 
-def _parse_gatk_line(value: str, prov: HeaderProvenance) -> None:
-    """``##GATKCommandLine=<ID=HaplotypeCaller,…,Version="4.4.0.0",…>``."""
-    version = None
-    for key, raw in _iter_kv(value):
-        if key.lower() == "version":
-            version = raw
-            break
-    _set_module(prov.modules, "gatk", version=version, detail="caller", overwrite=False)
+def _parse_command_line_record(tool: str, value: str, prov: HeaderProvenance) -> None:
+    """A caller's structured record of its run: the ``Version`` field gives the version.
+
+    ``##GATKCommandLine=<ID=HaplotypeCaller,CommandLine="…",Version="4.4.0.0",…>`` (GATK 4),
+    ``##GATKCommandLine.HaplotypeCaller=<ID=HaplotypeCaller,Version=3.8-0-ge9d806836,…>``
+    (GATK 3, unquoted) and ``##SentieonCommandLine.Haplotyper=<ID=Haplotyper,
+    Version="sentieon-genomics-202308",…>``. The command line inside is not read: GATK 3's
+    ``CommandLineOptions`` lists ``version=false`` among the tool's arguments.
+    """
+    version = _stated_version(tool, value) if _clean(value).startswith("<") else None
+    _set_module(prov.modules, tool, version=version, detail="caller", overwrite=False)
 
 
-def _parse_source(value: str, prov: HeaderProvenance) -> None:
-    """``##source=Sniffles2_2.2`` / ``##source=DeepVariant`` / ``##source=TRGT``."""
+def _source_name_and_version(word: str) -> tuple[str, str | None]:
+    """The tool the first word of ``##source`` names, and the version it states after a
+    ``_`` or ``-``: ``Sniffles2_2.2``, ``cuteSV-1.0.13``.
+
+    A name keeps its digits: ``Clair3``, ``GLIMPSE2``, ``Mutect2`` and ``SHAPEIT5`` state no
+    version. Nor does a number glued to the name after a dot (``shapeit4.1.3``), which is
+    left out of the name: SHAPEIT4 4.2.2 still writes ``shapeit4.1.3``.
+    """
+    if word[:1].isalpha():
+        for index, char in enumerate(word):
+            if char in "_-" and _VERSION_SHAPED.match(word[index + 1 :]):
+                return word[:index], word[index + 1 :]
+    glued = _GLUED_NUMBER.match(word)
+    return (glued.group(1) if glued else word), None
+
+
+def _parse_source(value: str, prov: HeaderProvenance) -> str | None:
+    """``##source=Sniffles2_2.2`` / ``##source=pbsv 2.9.0 (commit …)`` / ``##source=Clair3``.
+
+    Records the tool the first word names, with a version only where the line states one
+    apart from the name, as a version-shaped word (a digit first, or a ``v`` and a digit):
+
+    * after a ``_`` or ``-`` in the first word (``Sniffles2_2.2``, ``cuteSV-1.0.13``);
+    * or as the second word (``pbsv 2.9.0 (commit …)``, ``freeBayes v1.3.6``,
+      ``hificnv v1.0.1-4de7d40``, ``GLIMPSE_phase v2.0.0``).
+
+    A later word is not read. In ``SHAPEIT5 phase_common 1.1`` it is phase_common's own
+    number, and SHAPEIT5 reports that release as 5.1.1; LoFreq writes its command line
+    there (``lofreq call --min-cov 10 -f ref.fa …``). Returns the tool's module key.
+    """
     value = _clean(value)
     if not value:
-        return
-    token = value.split()[0]
-    name, version = token, None
-    # ``tool_version`` convention (Sniffles2_2.2): split on the last underscore
-    # when the right side looks like a version.
-    if "_" in token:
-        left, _, right = token.rpartition("_")
-        if left and right[:1].isdigit():
-            name, version = left, right
-    if version is None:
-        match = _NAME_VERSION.match(token)
-        if match:
-            name, version = match.group("name"), match.group("version")
+        return None
+    words = [word.strip("\"'").rstrip(",;") for word in value.split()]
+    name, version = _source_name_and_version(words[0])
+    if version is None and len(words) > 1 and _VERSION_SHAPED.match(words[1]):
+        version = words[1]
     key = _canonical_key(name)
-    if key:
-        _set_module(prov.modules, key, version=version, detail="caller", overwrite=False)
-        if prov.caller is None:
-            prov.caller = {"name": key, "version": version or ""}
+    if not key:
+        return None
+    _set_module(prov.modules, key, version=version, detail="caller", overwrite=False)
+    if prov.caller is None:
+        prov.caller = {"name": key, "version": version or ""}
+    return key
 
 
 def _stated_version(tool: str, value: str) -> str | None:
@@ -328,6 +359,10 @@ def extract_header_provenance(
     lines are skipped, never raised.
     """
     prov = HeaderProvenance()
+    # The tools the ``##source`` lines name, and the first version a ``##source_version``
+    # line states (Strelka).
+    source_tools: list[str] = []
+    source_version: str | None = None
     for raw_line in lines:
         line = (raw_line or "").rstrip("\n")
         if line.startswith(_COLUMN_PREFIX) or (line and not line.startswith(_HEADER_PREFIX)):
@@ -349,11 +384,17 @@ def extract_header_provenance(
             elif low == "reference":
                 prov.reference = prov.reference or _clean(value).rsplit("/", 1)[-1]
             elif low == "source":
-                _parse_source(value, prov)
+                tool = _parse_source(value, prov)
+                if tool and tool not in source_tools:
+                    source_tools.append(tool)
+            elif low in {"source_version", "sourceversion"}:
+                source_version = source_version or _stated_version("source", value)
             elif low == "vep":
                 _parse_vep_line(value, prov)
             elif low.startswith("gatkcommandline"):
-                _parse_gatk_line(value, prov)
+                _parse_command_line_record("gatk", value, prov)
+            elif low.startswith("sentieoncommandline"):
+                _parse_command_line_record("sentieon", value, prov)
             elif low == "snpeffversion":
                 _set_module(prov.modules, "snpeff", version=_stated_version("snpeff", value))
             elif low == "snpeffcmd":
@@ -364,6 +405,15 @@ def extract_header_provenance(
                 _parse_generic(key, value, prov)
         except Exception:  # noqa: BLE001 — provenance must never break ingestion
             continue
+
+    # Strelka states its version on a line of its own (``##source=strelka``,
+    # ``##source_version=2.9.10``): the version of the tool ``##source`` names, when the
+    # header names one tool there. With several, which one it belongs to is not stated.
+    if source_version and len(source_tools) == 1:
+        named = source_tools[0]
+        _set_module(prov.modules, named, version=source_version, overwrite=False)
+        if prov.caller is not None and not prov.caller.get("version"):
+            prov.caller["version"] = prov.modules.get(named, {}).get("version", "")
 
     # Tag the primary caller with its modality for a readable label, upgrading the
     # generic "caller" detail set during parsing.

@@ -380,3 +380,127 @@ def test_a_command_line_does_not_block_another_files_version_in_the_merge():
 def test_a_version_line_records_only_the_version_it_states(line, tool, version):
     mods = _modules(f"##fileformat=VCFv4.2\n{line}\n")
     assert mods[tool].get("version") == version
+
+
+# --- A digit of a ##source tool's name is not its version -------------------------------- #
+# ``##source`` names the tool that wrote the file, and a name can end in a digit
+# (``Clair3``, ``GLIMPSE2``, ``Mutect2``, ``SHAPEIT5``). The manifest is frozen into each
+# sign-out, so ``##source`` gives a version only where it states one apart from the name:
+# after a ``_`` or ``-`` in the first word, or as the second word.
+
+
+@pytest.mark.parametrize(
+    ("line", "tool", "version"),
+    [
+        # A name that ends in a digit states no version.
+        ("##source=Clair3", "clair3", None),
+        ("##source=GLIMPSE2", "glimpse", None),
+        ("##source=Sniffles2", "sniffles", None),
+        ("##source=Mutect2", "mutect2", None),
+        ("##source=CoGADemoFamilyClair3VEP", "cogademofamilyclair3vep", None),
+        # SHAPEIT5's own line: the third word is phase_common's number, which SHAPEIT5
+        # reports as release 5.1.1, so it is not SHAPEIT5's version.
+        ("##source=SHAPEIT5 phase_common 1.1", "shapeit5", None),
+        # A number glued to the name: SHAPEIT4 4.2.2 still writes 4.1.3.
+        ("##source=shapeit4.1.3", "shapeit4", None),
+        # A version after a "_" or "-" in the first word, as written.
+        ("##source=Sniffles2_2.2", "sniffles", "2.2"),
+        ("##source=cuteSV-1.0.13", "cutesv", "1.0.13"),
+        ("##source=SVIM-v2.0.0", "svim", "v2.0.0"),
+        # A version as the second word, as written.
+        ("##source=pbsv 2.9.0 (commit v2.9.0-2-gce1559a)", "pbsv", "2.9.0"),
+        ("##source=freeBayes v1.3.6", "freebayes", "v1.3.6"),
+        ('##source="hificnv v1.0.1-4de7d40"', "hificnv", "v1.0.1-4de7d40"),
+        ("##source=GLIMPSE_phase v2.0.0", "glimpsephase", "v2.0.0"),
+        ("##source=GenerateSVCandidates 1.6.0", "generatesvcandidates", "1.6.0"),
+        # LoFreq writes its command line there: an argument is no version.
+        ("##source=lofreq call --min-cov 10 -q 20 -f ref.fa -o out.vcf in.bam", "lofreq", None),
+    ],
+    ids=[
+        "clair3",
+        "glimpse2",
+        "sniffles2",
+        "mutect2",
+        "demo-clair3-vep",
+        "shapeit5-phase-common",
+        "shapeit4-glued",
+        "sniffles2-underscore",
+        "cutesv-dash",
+        "svim-dash-v",
+        "pbsv-second-word",
+        "freebayes-second-word",
+        "hificnv-quoted",
+        "glimpse-phase-second-word",
+        "manta-second-word",
+        "lofreq-command-line",
+    ],
+)
+def test_a_source_line_gives_a_version_only_apart_from_the_tools_name(line, tool, version):
+    expected = {"detail": "snv caller"} if version is None else {"detail": "snv caller", "version": version}
+    assert _modules(f"##fileformat=VCFv4.2\n{line}\n", modality="snv") == {tool: expected}
+
+
+def test_clair3s_source_and_version_lines_record_one_module():
+    # Clair3 names itself in ##source and states its version on ##clair3_version: one
+    # module at that version, not a second "clair" at version "3".
+    header = "##fileformat=VCFv4.2\n##source=Clair3\n##clair3_version=1.0.4\n"
+    assert _modules(header, modality="snv") == {"clair3": {"detail": "snv caller", "version": "1.0.4"}}
+
+
+def test_mutect2s_source_and_version_lines_record_one_module():
+    # GATK's Mutect2 (and FilterMutectCalls) name themselves in ##source; the version is
+    # on ##MutectVersion. One mutect2 module at that version.
+    header = (
+        "##fileformat=VCFv4.2\n"
+        "##MutectVersion=2.2\n"
+        "##source=FilterMutectCalls\n"
+        "##source=Mutect2\n"
+    )
+    assert _modules(header, modality="snv") == {
+        "filtermutectcalls": {"detail": "snv caller"},
+        "mutect2": {"version": "2.2", "detail": "caller"},
+    }
+
+
+def test_strelkas_source_version_line_gives_the_version_of_the_tool_source_names():
+    header = "##fileformat=VCFv4.1\n##source=strelka\n##source_version=2.9.10\n"
+    assert _modules(header, modality="snv") == {"strelka": {"detail": "snv caller", "version": "2.9.10"}}
+
+
+def test_a_source_version_line_beside_two_source_tools_gives_neither_its_version():
+    # Which of the two it belongs to is not stated, and "source" is not a tool.
+    header = (
+        "##fileformat=VCFv4.1\n"
+        "##source=strelka\n"
+        "##source_version=2.9.10\n"
+        "##source=GenerateSVCandidates 1.6.0\n"
+    )
+    assert _modules(header) == {
+        "strelka": {"detail": "caller"},
+        "generatesvcandidates": {"detail": "caller", "version": "1.6.0"},
+    }
+
+
+def test_gatk3_states_its_version_in_the_version_field_not_among_its_arguments():
+    # GATK 3 writes the Version field unquoted, and its CommandLineOptions list every
+    # argument of the run, "version=false" among them.
+    line = (
+        "##GATKCommandLine.HaplotypeCaller=<ID=HaplotypeCaller,Version=3.8-0-ge9d806836,"
+        'Date="Sun Oct 29 01:03:03 UTC 2017",Epoch=1509238983333,'
+        'CommandLineOptions="analysis_type=HaplotypeCaller input_file=[s.bam] tag=NA '
+        'logging_level=INFO log_to_file=null help=false version=false out=s.vcf">'
+    )
+    assert _modules(f"##fileformat=VCFv4.2\n{line}\n") == {
+        "gatk": {"version": "3.8-0-ge9d806836", "detail": "caller"}
+    }
+
+
+def test_sentieon_states_its_version_in_the_version_field():
+    line = (
+        '##SentieonCommandLine.DNAscope=<ID=DNAscope,Version="sentieon-genomics-202112.01",'
+        'Date="2022-10-11T00:17:39Z",CommandLine="/opt/sentieon/libexec/driver -r ref.fa -t 32 '
+        '-i s.bam --algo DNAscope out.vcf.gz">'
+    )
+    assert _modules(f"##fileformat=VCFv4.2\n{line}\n") == {
+        "sentieon": {"version": "sentieon-genomics-202112.01", "detail": "caller"}
+    }
