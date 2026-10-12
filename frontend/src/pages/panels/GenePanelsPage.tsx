@@ -352,8 +352,9 @@ const GenePanelsPage: React.FC = () => {
             <h3 className="section-title">Mendeliome (generated from Monarch)</h3>
             <p className="section-copy">
               All genes with a Mendelian disease association in the Monarch knowledge graph
-              (aggregating OMIM, Orphanet and ClinGen). Updating creates a new version stamped
-              with the current Monarch release; the previous version is archived, never deleted.
+              (aggregating OMIM, Orphanet and ClinGen). Updating stamps the panel with the current
+              Monarch release and, when the gene set changes, makes a new version; earlier
+              versions stay in the panel&apos;s version history.
               {mendeliome ? (
                 <>
                   {' '}

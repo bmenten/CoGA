@@ -106,6 +106,53 @@ describe('IgvViewer', () => {
     ]);
   });
 
+  // SEC-2 — an ID may hold `/`, `?`, `#`, `%` and `..`. Put in raw, this family ID let the
+  // browser resolve `../` to another path, cut the path at `?`, and `%41` reached the server
+  // as `A`.
+  it('asks for the manifests with the family ID as one encoded path segment', async () => {
+    localStorage.setItem('token', 'token-123');
+    const familyId = '../F2?x=1#y%41';
+    const sampleId = 'S/1?#%41';
+    // As the backend builds them: every ID one encoded segment.
+    const cramUrl = '/cram/..%2FF2%3Fx%3D1%23y%2541/S%2F1%3F%23%2541.cram';
+    const depthUrl = '/signal-tracks/..%2FF2%3Fx%3D1%23y%2541/S%2F1%3F%23%2541/hificnv/depth_bigwig';
+    apiGetMock.mockImplementation((url: string) =>
+      Promise.resolve({
+        data: url.startsWith('/signal-tracks/')
+          ? [
+              {
+                sample_id: sampleId,
+                source: 'hificnv',
+                kind: 'depth_bigwig',
+                name: `${sampleId} Read depth`,
+                format: 'bigwig',
+                url: depthUrl,
+                min: null,
+                max: null,
+              },
+            ]
+          : [{ sample_id: sampleId, format: 'cram', url: cramUrl, index_url: `${cramUrl}.crai` }],
+      }),
+    );
+    createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
+    loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
+
+    render(<IgvViewer familyId={familyId} sampleIds={[sampleId]} genome="hg38" locus="chr1:10-20" />);
+
+    await waitFor(() => expect(createBrowserMock).toHaveBeenCalled());
+    expect(apiGetMock.mock.calls.map(([url]) => url)).toEqual([
+      '/cram/..%2FF2%3Fx%3D1%23y%2541/manifest?sample=S%2F1%3F%23%2541',
+      '/signal-tracks/..%2FF2%3Fx%3D1%23y%2541/manifest?sample=S%2F1%3F%23%2541',
+    ]);
+    // IGV gets the URLs the backend built as they came, under the API base: neither
+    // decoded nor encoded twice.
+    const [, options] = createBrowserMock.mock.calls[0];
+    expect(options.tracks.map((track: { url: string; indexURL?: string }) => [track.url, track.indexURL])).toEqual([
+      [`http://api.test${depthUrl}`, undefined],
+      [`http://api.test${cramUrl}`, `http://api.test${cramUrl}.crai`],
+    ]);
+  });
+
   it('uses presigned S3 URLs directly, without attaching auth headers', async () => {
     localStorage.setItem('token', 'token-123');
     apiGetMock.mockImplementation((url: string) =>
