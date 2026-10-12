@@ -40,7 +40,8 @@ trans). CoGA decides the phase in one of two ways, and the badge says which.
 
 **By read phasing**, when the SVs were phased upstream (for example long-read calling with Sniffles2
 and HiPhase or LongPhase). If the SNV and the SV share a phase set in an affected member, CoGA reads
-trans or cis directly. A cis in any affected member wins.
+trans or cis directly. A cis in any affected member wins. A call with one allele missing (a half call
+such as `.|1`) does not show which copy carries the variant, so the phase then comes from segregation.
 
 **By segregation**, otherwise, from the family's genotypes. Every affected member must be
 heterozygous for the SNV and carry the SV. Then:
@@ -64,9 +65,9 @@ the other members, so it never shows that a parent lacks the SV; a parent counts
 SV of theirs hits the same gene. A male is not traced on chrX or chrY outside the pseudo-autosomal
 regions, where he has a single copy.
 
-Two small variants in the same gene (SNV + SNV) follow the same rule, after read phasing. Their pair card
-says *In trans · read-backed* or *In trans · by segregation*. A pair in cis is not shown: it cannot be the
-recessive cause.
+Two small variants in the same gene (SNV + SNV) are phased the same way, half calls included: by read
+phasing first, and otherwise by this rule. Their pair card says *In trans · read-backed* or
+*In trans · by segregation*. A pair in cis is not shown: it cannot be the recessive cause.
 
 ---
 
