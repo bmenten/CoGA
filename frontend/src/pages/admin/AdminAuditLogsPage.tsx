@@ -5,6 +5,7 @@ import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatDateTime } from '../../lib/format';
+import { userAccountsQuery } from '../../lib/users';
 
 type AuditLogEvent = {
   id: string;
@@ -50,11 +51,6 @@ type UiEventPage = {
   page_size: number;
   total: number;
   items: UiEvent[];
-};
-
-type UserOption = {
-  id: string;
-  email: string;
 };
 
 type AuditView = 'requests' | 'interactions';
@@ -159,15 +155,8 @@ const AdminAuditLogsPage: React.FC = () => {
     retry: false,
   });
 
-  const { data: users = [] } = useQuery<UserOption[]>({
-    queryKey: ['admin', 'users'],
-    queryFn: async () => {
-      const response = await api.get('/auth/users');
-      const payload = response.data as Array<{ id: string; email: string }>;
-      return payload.map((entry) => ({ id: String(entry.id), email: entry.email }));
-    },
-    retry: false,
-  });
+  // Whole accounts, not only their e-mail: the Users and Projects pages read this cache entry too.
+  const { data: users = [] } = useQuery({ ...userAccountsQuery, retry: false });
 
   const activeQuery = view === 'requests' ? requestsQuery : interactionsQuery;
   const total = activeQuery.data?.total ?? 0;

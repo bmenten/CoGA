@@ -3,19 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { apiPath } from '../../lib/apiPath';
+import type { UserRead } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
+import { userAccountsQuery } from '../../lib/users';
 import type { ProjectOption } from './dataManagementTypes';
 
-interface User {
-  id: string;
-  email: string;
-  first_name?: string;
-  last_name?: string;
-  affiliation?: string;
-  role: string;
-  is_active: boolean;
-  projects: string[];
-}
+type User = UserRead;
 
 const UserListPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -30,14 +23,7 @@ const UserListPage: React.FC = () => {
     data: users = [],
     isLoading: usersLoading,
     error: usersError,
-  } = useQuery<User[]>({
-    queryKey: ['admin', 'users'],
-    queryFn: async () => {
-      const response = await api.get('/auth/users');
-      return response.data as User[];
-    },
-    retry: false,
-  });
+  } = useQuery({ ...userAccountsQuery, retry: false });
 
   const {
     data: projects = [],
@@ -68,7 +54,7 @@ const UserListPage: React.FC = () => {
         tone: 'success',
         text: `${user.email} is now ${user.is_active ? 'inactive' : 'active'}.`,
       });
-      await queryClient.invalidateQueries({ queryKey: ['admin', 'users'] });
+      await queryClient.invalidateQueries({ queryKey: userAccountsQuery.queryKey });
     },
     onError: (error, user) => {
       setActivationStatus({
