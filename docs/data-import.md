@@ -418,6 +418,17 @@ files as one VCF per sample (`per_sample`), and names a sample that has none. Fo
 pipeline's annotated SNV files it also sets `source_format: clair3` and, when the header
 declares them, `exclude_filters: [RefCall, NoCall]`.
 
+Discover names the files it looks for after the family and sample IDs, and looks for them in
+the package folder only (`package_path_within` in
+[family_package_common.py](../backend/app/services/family_package_common.py)). An ID is read as
+written: a `*`, `?` or `[` in it matches only itself, so one sample never takes another's file,
+and a leading `~` is part of the name, not the home folder. The ID rule lets an ID be a path out
+of the folder (an absolute path, or one whose `..` climb out of it): such an ID names no file
+Discover looks for, Discover warns about it (`family_id_leaves_package`,
+`sample_id_leaves_package`), and when it finds no PED it does not propose `<family ID>.ped` for
+such a family ID. A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
+package counts as absent, as validation refuses it.
+
 ### The manifest
 
 ```yaml
@@ -894,6 +905,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`. |
 | `family_id_invalid` | The family ID holds a control character or whitespace, or is empty. The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
 | `sample_id_invalid` | A sample ID holds a control character or whitespace. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
+| `family_id_leaves_package`, `sample_id_leaves_package` (warning) | The family or sample ID is a path out of the package folder: an absolute path, or one that climbs out with `..`. Discover looked for none of its files outside the package. Check the ID where it comes from. |
 | `manifest_missing` | The folder has no `manifest.yaml`, `.yml` or `.json`. Run Discover and Write manifest (local folders only). |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |

@@ -175,6 +175,11 @@ input file (`Sample0`, `HG002_sort`) rather than the sample, CoGA binds a single
 it was declared for. A column that matches no sample in the family stops the import instead of being
 dropped silently.
 
+**Discover manifest** looks only inside the family folder, and reads each ID as written: a `*`, `?` or
+`[` in a family or sample ID matches only itself, so one sample never takes another's file. A family or
+sample ID that is a path out of the folder (an absolute path, or one that climbs out with `..`) names no
+file that Discover looks for, and Discover warns about it under *Check before writing the manifest*.
+
 ### The steps
 
 1. **Family folder.** Pick the folder from the list of families found in the import folder (or type
