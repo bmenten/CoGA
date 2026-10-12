@@ -1,10 +1,12 @@
 """Gene-panel version history (REQ-CARR-003) — real Postgres.
 
 A gene panel decides which genes a carrier screen or a panel-filtered analysis reads, so
-each version of its gene set must stay recoverable. Creating a local panel archives it in
-``gene_panel_versions`` as version 1, each edit archives the next version, and an earlier
-version is never rewritten. The unit tests in ``test_gene_panel_versions.py`` pin what the
-service archives and when; this runs the real statements against the real schema:
+each version of its gene set must stay recoverable. Creating a local panel, or importing a
+PanelApp panel, archives it in ``gene_panel_versions`` as version 1; each edit, and each
+PanelApp import that gives the panel other genes or regions, archives the next version;
+an earlier version is never rewritten. The unit tests in ``test_gene_panel_versions.py``
+pin what the service archives and when; this runs the real statements against the real
+schema:
 
 * a create and an edit archive versions 1 and 2, an edit that changes nothing archives
   nothing, and the history lists them newest first, also for the panel id spelled in
@@ -12,8 +14,10 @@ service archives and when; this runs the real statements against the real schema
 * each listed version reads back with its own genes, regions (with their assembly) and
   description through the real jsonb round trip;
 * the schema refuses a second archive under a version number already used;
-* a PanelApp import and a re-import that changes the genes archive no version (today's
-  behaviour, reported for QA under REG-1).
+* a PanelApp import archives version 1; imported again with the same genes it keeps the
+  version (its genes and regions, read back from the real tables, compare equal) and
+  archives nothing; with another gene it archives version 2, and the panel's part of the
+  ranking-cache key moves with it.
 
 Every record is the test's own (unique names and gene symbols) and is removed at the end.
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -237,9 +241,11 @@ def test_each_version_is_archived_listed_read_back_and_never_rewritten() -> None
     asyncio.run(_run())
 
 
-def test_a_panelapp_import_archives_no_version(monkeypatch) -> None:
-    """Today's behaviour, reported for QA under REG-1: a PanelApp panel carries PanelApp's
-    version only, and a re-import that changes its genes keeps version 1 with no history."""
+def test_a_panelapp_import_is_version_1_and_an_import_with_other_genes_the_next(monkeypatch) -> None:
+    """A PanelApp import archives version 1. Imported again with the same genes, read back
+    from the real tables with their regions, it keeps the version and archives nothing;
+    with another gene it archives version 2, PanelApp's own version stays the release
+    imported, and the panel's part of the ranking-cache key moves with it."""
     from backend.app.core.postgres import (
         close_postgres_engine,
         get_postgres_sessionmaker,
@@ -248,10 +254,12 @@ def test_a_panelapp_import_archives_no_version(monkeypatch) -> None:
     from backend.app.schemas import PanelAppImportRequest
     from backend.app.services import panel_metadata_service as pms
     from backend.app.services.panelapp_service import PanelAppImportContent
+    from backend.app.services.variant_ranking_cache import _panel_version
 
     tag = uuid4().hex[:8].upper()
+    first_gene, second_gene, third_gene = (f"ZQW{tag}{suffix}" for suffix in "ABC")
     panelapp_id = 900_000_000 + uuid4().int % 99_999_999  # no PanelApp id another test uses
-    imported_genes = [f"ZQW{tag}A"]
+    imported_genes = [first_gene, second_gene]
 
     async def _fetch(requested_id, version=None):
         return {"id": requested_id, "name": f"Panel versions {tag}", "version": "3.1"}
@@ -265,29 +273,41 @@ def test_a_panelapp_import_archives_no_version(monkeypatch) -> None:
 
     async def _run() -> None:
         sm = None
-        user = None
+        seeded: dict[str, str] = {}
         panel_ids: list[str] = []
         try:
             await init_postgres_schema()
             sm = get_postgres_sessionmaker()
             async with sm() as s:
-                user = await _user_row(s, tag)
-                await s.commit()
-            admin = _admin(user, tag)
+                seeded = await _seed(s, tag, (first_gene, second_gene, third_gene))
+            admin = _admin(seeded["user"], tag)
 
             async with sm() as s:
                 first = await pms.import_panelapp_panel_data(s, PanelAppImportRequest(panelapp_id=panelapp_id), admin)
             panel_ids.append(first.panel.id)
-            imported_genes.append(f"ZQW{tag}B")  # say, amber genes taken in as well
+            assert first.panel.version == 1
+            async with sm() as s:
+                first_key = await _panel_version(s, first.panel.id)
+
+            # Other confidence levels that select the same genes: nothing to archive.
+            async with sm() as s:
+                same = await pms.import_panelapp_panel_data(
+                    s, PanelAppImportRequest(panelapp_id=panelapp_id, confidence_levels=["3", "2"]), admin
+                )
+            assert (same.panel.id, same.panel.version) == (first.panel.id, 1)
+            async with sm() as s:
+                assert await _panel_version(s, first.panel.id) == first_key
+
+            imported_genes.append(third_gene)  # an amber gene taken in as well
             async with sm() as s:
                 again = await pms.import_panelapp_panel_data(
                     s, PanelAppImportRequest(panelapp_id=panelapp_id, confidence_levels=["3", "2"]), admin
                 )
-
-            assert again.panel.id == first.panel.id
-            assert (first.panel.version, again.panel.version) == (1, 1)
+            assert (again.panel.id, again.panel.version) == (first.panel.id, 2)
             assert again.panel.external_version == "3.1"
+
             async with sm() as s:
+                assert await _panel_version(s, first.panel.id) != first_key
                 stored = (
                     await s.execute(
                         text(
@@ -297,19 +317,35 @@ def test_a_panelapp_import_archives_no_version(monkeypatch) -> None:
                         {"p": first.panel.id},
                     )
                 ).scalars().all()
-                assert stored == [f"ZQW{tag}A", f"ZQW{tag}B"]
-                archived = (
-                    await s.execute(
-                        text("SELECT count(*) FROM gene_panel_versions WHERE panel_id = CAST(:p AS uuid)"),
-                        {"p": first.panel.id},
-                    )
-                ).scalar_one()
-                assert archived == 0
+                assert stored == [first_gene, second_gene, third_gene]
                 history = await pms.list_panel_versions(s, first.panel.id)
-                assert (history.current_version, history.versions) == (1, [])
+                assert history.current_version == 2
+                assert [
+                    (entry.version, entry.gene_count, entry.source, entry.external_version, entry.created_by_email)
+                    for entry in history.versions
+                ] == [(2, 3, "panelapp", "3.1", admin.email), (1, 2, "panelapp", "3.1", admin.email)]
+                versions = {
+                    entry.version: await pms.get_panel_version(s, first.panel.id, entry.version)
+                    for entry in history.versions
+                }
+
+            first_version, second_version = versions[1], versions[2]
+            assert first_version.genes == [first_gene, second_gene]
+            assert [(r.gene, r.assembly, r.chr, r.start, r.end) for r in first_version.regions] == [
+                (first_gene, seeded["name_a"], "1", 1_000, 2_000),
+                (first_gene, seeded["name_b"], "1", 5_000, 6_500),
+                (second_gene, seeded["name_a"], "2", 10_000, 11_000),
+            ]
+            assert second_version.genes == [first_gene, second_gene, third_gene]
+            assert [(r.gene, r.chr, r.start) for r in second_version.regions] == [
+                (first_gene, "1", 1_000),
+                (first_gene, "1", 5_000),
+                (second_gene, "2", 10_000),
+                (third_gene, "3", 20_000),
+            ]
         finally:
             if sm is not None:
-                await _remove(sm, panel_ids=panel_ids, species=None, user=user)
+                await _remove(sm, panel_ids=panel_ids, species=seeded.get("species"), user=seeded.get("user"))
             await close_postgres_engine()
 
     asyncio.run(_run())
