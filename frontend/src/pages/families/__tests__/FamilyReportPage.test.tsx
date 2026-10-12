@@ -434,6 +434,8 @@ describe('FamilyReportPage', () => {
         return Promise.resolve({
           data: {
             family_id: 'F1',
+            total: 1,
+            has_more: false,
             events: [
               {
                 id: 'e1',
@@ -451,7 +453,7 @@ describe('FamilyReportPage', () => {
       }
       return Promise.resolve({ data: [] });
     });
-    renderPage();
+    const { container } = renderPage();
 
     expect(await screen.findByText('Classification audit trail')).toBeInTheDocument();
     expect(
@@ -459,6 +461,113 @@ describe('FamilyReportPage', () => {
     ).toBeInTheDocument();
     expect(screen.getByText('alice')).toBeInTheDocument();
     expect(screen.getByText(/2026-06-25 09:04 UTC/)).toBeInTheDocument();
+    // The whole trail: nothing to say about older events, and nothing to load.
+    expect(screen.queryByText(/most recent of/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show older events' })).not.toBeInTheDocument();
+    expect(container.querySelector('.report-print-notice')?.textContent).not.toMatch(/audit trail/);
+  });
+
+  // AUDIT-1 — the trail is served a page at a time. The report listed the 200 newest events
+  // as the whole trail, which about 70 review saves fill.
+  describe('a clinical audit trail longer than a page', () => {
+    const auditEvent = (n: number) => ({
+      id: `e${n}`,
+      created_at: `2026-06-25T09:${String(n).padStart(2, '0')}:00Z`,
+      variant_id: `1-${n}00-A-G`,
+      actor: 'alice',
+      action: 'classification',
+      summary: `Classification change ${n}`,
+      before: null,
+      after: null,
+    });
+    // Three events, two to a page: the newest two, then the one before them.
+    const FIRST_PAGE = { family_id: 'F1', total: 3, has_more: true, events: [auditEvent(3), auditEvent(2)] };
+    const OLDER_PAGE = { family_id: 'F1', total: 3, has_more: false, events: [auditEvent(1)] };
+
+    const mockAuditTrail = (olderPage: () => Promise<unknown>) => {
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+        }
+        if (url.startsWith('/families/F1/small-variants')) {
+          return Promise.resolve({ data: { variants: [], total: 0 } });
+        }
+        if (url === '/families/F1/clinical-audit') return Promise.resolve({ data: FIRST_PAGE });
+        if (url === '/families/F1/clinical-audit?before=e2') return olderPage();
+        return Promise.resolve({ data: [] });
+      });
+    };
+    const auditRequests = () =>
+      apiMock.get.mock.calls.map(([url]) => String(url)).filter((url) => url.includes('/clinical-audit'));
+    const auditItems = () =>
+      Array.from(document.querySelectorAll('.report-audit-item .report-audit-summary')).map(
+        (item) => item.textContent?.trim(),
+      );
+
+    it('says, on screen and in print, that it shows only the most recent events, and loads the older ones', async () => {
+      mockAuditTrail(() => Promise.resolve({ data: OLDER_PAGE }));
+      const { container } = renderPage();
+
+      const shown = await screen.findByText(
+        'Showing the 2 most recent of 3 events; the older ones are not shown.',
+      );
+      // Printed with the trail.
+      expect(shown.closest('.no-print')).toBeNull();
+      expect(auditItems()).toEqual(['1-300-A-G Classification change 3', '1-200-A-G Classification change 2']);
+      // A printout of the report says so at the top of every page too.
+      expect(container.querySelector('.report-print-notice')?.textContent).toContain(
+        'Incomplete — the audit trail lists the 2 most recent of its 3 events; the older ones are not shown.',
+      );
+      expect(auditRequests()).toEqual(['/families/F1/clinical-audit']);
+
+      // The next page holds the events recorded before the last one shown.
+      const showOlder = screen.getByRole('button', { name: 'Show older events' });
+      expect(showOlder.closest('.no-print')).not.toBeNull();
+      fireEvent.click(showOlder);
+
+      expect(await screen.findByText('Classification change 1')).toBeInTheDocument();
+      expect(auditRequests()).toEqual(['/families/F1/clinical-audit', '/families/F1/clinical-audit?before=e2']);
+      expect(auditItems()).toEqual([
+        '1-300-A-G Classification change 3',
+        '1-200-A-G Classification change 2',
+        '1-100-A-G Classification change 1',
+      ]);
+      // The whole trail is shown: nothing more to say or to load.
+      expect(screen.queryByText(/most recent of/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Show older events' })).not.toBeInTheDocument();
+      expect(container.querySelector('.report-print-notice')?.textContent).not.toMatch(/audit trail/);
+    });
+
+    it('keeps the events it shows when the older ones cannot be loaded, and still says it shows part of the trail', async () => {
+      let olderFails = true;
+      mockAuditTrail(() =>
+        olderFails
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : Promise.resolve({ data: OLDER_PAGE }),
+      );
+      const { container } = renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Show older events' }));
+
+      expect(await screen.findByText('The older events could not be loaded.')).toBeInTheDocument();
+      // Not the trail failing as a whole: what was read stays, and so does what it says.
+      expect(screen.queryByText('The audit trail could not be loaded.')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Parts of this report could not be loaded/)).not.toBeInTheDocument();
+      expect(auditItems()).toEqual(['1-300-A-G Classification change 3', '1-200-A-G Classification change 2']);
+      expect(
+        screen.getByText('Showing the 2 most recent of 3 events; the older ones are not shown.'),
+      ).toBeInTheDocument();
+      expect(container.querySelector('.report-print-notice')?.textContent).toContain(
+        'Incomplete — the audit trail lists the 2 most recent of its 3 events',
+      );
+
+      // A second try reads them.
+      olderFails = false;
+      fireEvent.click(screen.getByRole('button', { name: 'Show older events' }));
+      expect(await screen.findByText('Classification change 1')).toBeInTheDocument();
+      expect(screen.queryByText('The older events could not be loaded.')).not.toBeInTheDocument();
+      expect(screen.queryByText(/most recent of/)).not.toBeInTheDocument();
+    });
   });
 
   function mockUnsignedFamily() {

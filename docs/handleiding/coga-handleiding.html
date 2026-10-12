@@ -2477,6 +2477,8 @@ python docs/handleiding/build_site.py
 </tbody>
 </table></div>
 <p>De versies en de driftstatus worden bij het ondertekenen bevroren. Het auditspoor zit niet in het snapshot: het is zelf append-only.</p>
+<p><strong>Het auditspoor komt per pagina.</strong> <code>GET /families/{id}/clinical-audit</code> geeft de recentste regels eerst, in één vaste volgorde (<code>created_at</code>, dan <code>id</code>: de volgorde van de hash-keten, omgekeerd), standaard 200 per pagina en ten hoogste 500 (<code>limit</code>). Met <code>before</code>, het id van de laatste regel van de vorige pagina, komen de regels die daarvoor geschreven werden. Een regel die intussen bijkomt, verschuift dus niets: geen regel komt twee keer of valt weg. Een <code>before</code> dat geen regel van het spoor van die familie noemt, krijgt <code>404</code>. Het antwoord zegt hoeveel regels het spoor telt (<code>total</code>, in dezelfde query gelezen als de pagina) en of er oudere zijn (<code>has_more</code>). Toont het rapport maar een deel van het spoor, dan zegt het dat bij het spoor (<em>Showing the 200 most recent of 450 events …</em>) en bovenaan elke afgedrukte pagina (<em>Incomplete — the audit trail lists …</em>); <strong>Show older events</strong> leest de volgende pagina.</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>list_clinical_audit</code> in <code>backend/app/services/clinical_audit_service.py</code>; de pagina's van het spoor in <code>frontend/src/pages/families/clinicalAuditTrail.ts</code> en <code>FamilyReportPage.tsx</code>.</p>
 <h2>Ondertekenen</h2>
 <p>Ondertekenen gaat via <strong><code>POST /api/families/{id}/report/sign-out</code></strong>. De service <code>sign_out_report</code> doet, in volgorde:</p>
 <ol start="0">
