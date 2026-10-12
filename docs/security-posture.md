@@ -245,7 +245,10 @@ The clinical audit trail of classifications and sign-outs is separate; see
   Docker volumes. The Terraform target encrypts Cloud SQL, both ClickHouse disks and both
   buckets with a customer-managed key (CMEK), which is a required variable with no fallback.
 - ✅ **In transit at the edge.** The HTTPS load balancer accepts TLS 1.2 and later, with the
-  `MODERN` profile.
+  `MODERN` profile. Behind it the app page and the API both send
+  `Strict-Transport-Security: max-age=63072000; includeSubDomains`: Terraform sets
+  `ENABLE_HSTS=true` on both Cloud Run services, so a browser that has opened the app keeps
+  to HTTPS for that host for two years. Docker Compose serves plain HTTP and leaves it off.
 
 ## 4. Object storage / deployment path & PHI scoping
 
@@ -298,6 +301,9 @@ What the application relies on there:
   itself (`script-src 'self'`), no framing and no plugins, and a `Permissions-Policy` that
   denies the camera, microphone, geolocation, payment, USB and the other device APIs. API
   responses carry `default-src 'none'` (`backend/app/middleware/security_headers.py`).
+  Where TLS ends in front of the app, `ENABLE_HSTS=true` adds the HSTS header the API sends
+  (§3). The frontend server takes only the exact string `true`; the backend reads the
+  setting as a boolean, so `1` or `True` would turn on the API's header alone.
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
   changing set of hosts and a signed CRAM URL points at the object store. A deployment that
   knows its hosts narrows it with `CSP_CONNECT_SRC`. `style-src` keeps `'unsafe-inline'`
