@@ -252,7 +252,8 @@ const GenePanelDetailPage: React.FC = () => {
         <section className="surface-card space-y-3">
           <h3 className="section-title">Version history</h3>
           <p className="section-copy">
-            Every version is archived with a timestamp and never deleted.
+            Every version is archived with a timestamp. Deleting the panel deletes its versions
+            too.
           </p>
           <div className="data-table-shell overflow-x-auto">
             <table className="analysis-table">
