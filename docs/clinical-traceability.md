@@ -178,7 +178,10 @@ Five gates run first, in this order:
    family page shows *Import incomplete* while either is set. The flag clears only once an
    import has imported each failed dataset again (in any mode, for the same samples and
    small-variant source; a later failure keeps an earlier one's failed datasets, each with its
-   job, `failed_jobs`); only one that completes with `overwrite` and imports again the
+   job, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
+   to start without its whole backup, may have lost rows of any of its datasets: its flag
+   names every one of them as failed, those it imported too, so the gate holds until each has
+   been imported again. Only an import that completes with `overwrite` and imports again the
    datasets a stopped import had not finished, for that scope, removes its entry.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.

@@ -1,10 +1,17 @@
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from backend.app.services import clickhouse_variant_storage
 from backend.app.services.genotypes import genotype_vocabulary
+from backend.app.services.variant_annotation_parser import (
+    AnnotationHeaderState,
+    extract_small_variant_annotations,
+    update_annotation_header_state,
+)
 
 
 @pytest.mark.asyncio
@@ -357,6 +364,109 @@ async def test_insert_small_variant_records_chunks_large_table_payloads(
     assert sizes_for("variants/annotations") == [2, 1]
     assert sizes_for("variants/annotation_index") == [2, 1]
     assert sizes_for("variants/gene_index") == [2, 1]
+
+
+def _vep_annotations(*entries: str) -> list[dict[str, Any]]:
+    """Annotations as the import parses them from a VEP ``CSQ`` with both MANE columns."""
+    state = AnnotationHeaderState()
+    update_annotation_header_state(
+        state,
+        '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl'
+        " VEP. Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL"
+        '|MANE_SELECT|MANE_PLUS_CLINICAL">',
+    )
+    return extract_small_variant_annotations({"CSQ": ",".join(entries)}, state)
+
+
+def _inserted_rows(
+    executed: list[tuple[str, list[tuple[object, ...]] | None]], table: str
+) -> list[dict[str, object]]:
+    """The rows written into ``table`` (``variants/annotations`` …), each as {column: value}."""
+    query, data = next((query, data) for query, data in executed if f"/{table}` (" in query)
+    columns = [column.strip() for column in query.split("(", 1)[1].split(")", 1)[0].split(",")]
+    return [dict(zip(columns, row, strict=True)) for row in data or []]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("assembly", ["GRCh38", "GRCh37", "T2T-CHM13v2.0"])
+async def test_insert_small_variant_records_writes_both_mane_flags(
+    monkeypatch: pytest.MonkeyPatch, assembly: str
+) -> None:
+    # CLIN-5: *MANE only* keeps a MANE Select or a MANE Plus Clinical transcript. The family
+    # search reads each transcript's flags from the annotations, the Variant Explorer each
+    # variant's from the annotation index; the import writes both, on every assembly, from
+    # VEP's MANE_SELECT and MANE_PLUS_CLINICAL.
+    executed: list[tuple[str, list[tuple[object, ...]] | None]] = []
+
+    async def fake_ensure(assembly_name: str) -> None:
+        assert assembly_name == assembly
+
+    async def fake_execute(query: str, params: dict[str, object] | None = None, data=None):
+        executed.append((query, data))
+        return []
+
+    monkeypatch.setattr(clickhouse_variant_storage, "ensure_clickhouse_variant_tables", fake_ensure)
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", fake_execute)
+
+    def record(variant_id: str, annotations: list[dict[str, Any]]) -> SmallVariantRecord:
+        chrom, pos, ref, alt = variant_id.split("-")
+        return SmallVariantRecord(
+            variant_key=None,
+            variant_id=variant_id,
+            chr=chrom,
+            start=int(pos),
+            end=int(pos),
+            ref=ref,
+            alt=alt,
+            source="clair3",
+            rsid=None,
+            filters=[],
+            gene_symbols=[],
+            annotations=annotations,
+            calls=[SmallVariantCall(sample="sample-1", gt="0/1", gq=None, dp=None, af=[], ad=[], ps=None)],
+        )
+
+    await clickhouse_variant_storage.insert_small_variant_records(
+        assembly,
+        "family-1",
+        ["project-1"],
+        [
+            # The variant's one MANE transcript is MANE Plus Clinical; the canonical one is not MANE.
+            record(
+                "1-100-A-G",
+                _vep_annotations(
+                    "G|missense_variant|MODERATE|GENE1|ENSG1|Transcript|ENST11|||NM_PLUS1.1",
+                    "G|intron_variant|MODIFIER|GENE1|ENSG1|Transcript|ENST12|YES||",
+                ),
+            ),
+            record(
+                "1-200-C-T",
+                _vep_annotations("T|missense_variant|MODERATE|GENE2|ENSG2|Transcript|ENST21|YES|NM_SELECT2.1|"),
+            ),
+            record(
+                "1-300-G-A",
+                _vep_annotations("A|missense_variant|MODERATE|GENE3|ENSG3|Transcript|ENST31|YES||"),
+            ),
+        ],
+    )
+
+    transcripts = _inserted_rows(executed, "variants/annotations")
+    assert {
+        row["transcript_id"]: (row["mane_select"], row["mane_plus_clinical"]) for row in transcripts
+    } == {
+        "ENST11": (False, True),
+        "ENST12": (False, False),
+        "ENST21": (True, False),
+        "ENST31": (False, False),
+    }
+    index = _inserted_rows(executed, "variants/annotation_index")
+    assert {
+        row["variantId"]: (row["has_mane_select"], row["has_mane_plus_clinical"]) for row in index
+    } == {
+        "1-100-A-G": (False, True),
+        "1-200-C-T": (True, False),
+        "1-300-G-A": (False, False),
+    }
 
 
 @pytest.mark.asyncio

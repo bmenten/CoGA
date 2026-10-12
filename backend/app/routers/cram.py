@@ -17,6 +17,7 @@ from ..core.object_storage import (
     storage_is_remote,
 )
 from ..core.postgres import get_postgres_session
+from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import AlignmentManifestEntryOut
 from ..services.family_package_source import within_remote_import_roots
@@ -277,7 +278,8 @@ def _resolve_alignment_manifest_entry(
     recorded: _RecordedAlignment | None = None,
 ) -> AlignmentManifestEntryOut | None:
     """In remote mode the URLs are short-lived presigned/signed URLs (absolute);
-    otherwise they are backend-relative paths the frontend prefixes with the API base."""
+    otherwise they are backend-relative paths the frontend prefixes with the API base,
+    with each ID percent-encoded as one segment (it may hold `/`, `?`, `#`, `%` or `..`)."""
     for fmt, ext, index_suffix in (("cram", "cram", ".crai"), ("bam", "bam", ".bai")):
         if storage_is_remote():
             data_key = _remote_alignment_key(family_id, sample_id, ext, "", recorded)
@@ -299,8 +301,8 @@ def _resolve_alignment_manifest_entry(
         return AlignmentManifestEntryOut(
             sample_id=sample_id,
             format=fmt,
-            url=f"/cram/{family_id}/{sample_id}.{ext}",
-            index_url=f"/cram/{family_id}/{sample_id}.{ext}{index_suffix}",
+            url=url_path("cram", family_id, f"{sample_id}.{ext}"),
+            index_url=url_path("cram", family_id, f"{sample_id}.{ext}{index_suffix}"),
         )
     return None
 
