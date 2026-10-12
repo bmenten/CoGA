@@ -241,6 +241,10 @@ heteroplasmy.
   **update** will do), and its report can be signed out only with an acknowledgement
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
   without them leaves the warning, and says so in its log.
+- **A failed overwrite** puts the family back as it was before the import. If putting it back fails
+  too, part of the family's data may be gone, whichever dataset it came from: the warning then names
+  every dataset of that import as failed, the ones that imported too. Import each of them again with
+  **overwrite** to complete the family; **update** skips a dataset whose data is there.
 - **An import that stopped part-way** (the server restarted, or ran out of memory, while it ran) is not
   run again: about ten minutes later its job ends as *failed*, interrupted, with its log as the import
   left it. An import that was still running, but could not record that it was for those ten minutes,

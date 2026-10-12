@@ -282,8 +282,15 @@ An import that was still alive when its job was ended can reach its restore befo
 heartbeat stops it, its backups already dropped. So a restore first checks that every backup
 table is there, and deletes nothing when one is missing: the family keeps what the import
 left, and is flagged import-incomplete with the datasets that failed and those that did
-import. A restore that fails part-way may have removed rows of any of the family's datasets,
-so the flag it leaves names no dataset as imported.
+import. A restore that fails in any other way (part-way, say) may have removed rows of any of
+the family's datasets: table by table, it deletes the family's rows before it puts the
+backup's back. So the flag it leaves names every dataset the import set out to import as
+failed, including those that imported and those it only registered, and none as imported;
+the family stays flagged until an import has imported each of them again. Import them again
+with `overwrite`: an update skips a dataset whose rows are there, and a skipped dataset does
+not count. A dataset of the family that the import did not carry (another small-variant
+source, say) is not named, although the restore rewrites its rows too
+([ROADMAP.md](ROADMAP.md)).
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
