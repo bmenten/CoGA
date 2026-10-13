@@ -49,6 +49,20 @@ compared. It does not hold the genotype calls. A scoring for an SV that is not i
 data is refused with 404; one saved for a family without an assembly (no SV storage to read) is
 stored without a snapshot.
 
+Several callers can call one event under one SV id (an uploaded SV's id names no caller, and a
+NeedlR SV's has the same form), and they share its review. Each caller's call is a row of its
+own on the SV page, with its own genes, pLI and inheritance, so the snapshot is taken from the
+row of the caller the scoring was made on: the save names it in `source` (the row's caller,
+which the classification dialog sends). A save that names no caller (a client from before the
+field) takes the SV's one row; when several callers call the SV, which row it was made on cannot
+be told, and it is refused with 422 rather than frozen from another caller's row. A save naming
+a caller that does not call the SV is refused with 404. Before this (TRACE-11) the snapshot was
+taken from the row with the lowest storage key, which could be another caller's than the one
+classified. Such a snapshot is kept as it was stored: it names the caller it came from
+(`evidence.source`) and holds that caller's genes, pLI and inheritance, the drift check compares
+it with that caller's row, and saving the scoring again from the row it was made on freezes that
+row's evidence.
+
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
 to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
@@ -87,10 +101,13 @@ the variant's current annotation:
 - `variant_missing`: the variant is no longer in the data.
 
 The structural variants and CNVs are under `structural`: each CNV scoring's snapshot compared
-with the SV as the SV page reads it now. `drifted` names what moved in `changed` (`gene_symbols`,
-`pli`, `inheritance`, `sv_type`, `locus`, `source`, or `annotations` for any other annotation),
-with the evidence from → to. Only the fields a snapshot froze are compared. Frozen evidence that
-cannot be read is `unknown`, never `current`.
+with the SV as the SV page reads it now, in the row of the caller the snapshot names
+(`evidence.source`): another caller's call of the SV is other evidence, not a change to this
+one. `drifted` names what moved in `changed` (`gene_symbols`, `pli`, `inheritance`, `sv_type`,
+`locus`, or `annotations` for any other annotation), with the evidence from → to; `variant_missing`
+means that caller's call is no longer in the data, even while another caller still calls the SV.
+Only the fields a snapshot froze are compared. Frozen evidence that cannot be read, or that names
+no caller, is `unknown`, never `current`.
 
 At sign-out, a reported classification that has no snapshot counts as drift too
 (`no_snapshot`), whether it is a small variant's or a structural variant's.
