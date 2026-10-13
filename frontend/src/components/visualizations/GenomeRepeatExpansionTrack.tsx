@@ -25,9 +25,10 @@ const STATUS_DRAW_RANK: Record<string, number> = {
   unknown: 0,
   normal: 1,
   review: 2,
-  intermediate: 3,
-  premutation: 4,
-  pathogenic: 5,
+  not_assessed: 3,
+  intermediate: 4,
+  premutation: 5,
+  pathogenic: 6,
 };
 
 const GenomeRepeatExpansionTrack: React.FC<Props> = ({

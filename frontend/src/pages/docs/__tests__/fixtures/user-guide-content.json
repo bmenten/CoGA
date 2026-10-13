@@ -1540,12 +1540,14 @@
   "title": "Structural variants, repeats, Paraphase and mtDNA",
   "summary": "The analyses beyond small variants, including the CNV classifier and the variant summary.",
   "quickLinks": [],
-  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantsandlargechrMdeletionsandduplications,eachwithitsheteroplasmypermember,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.Afilteredsearchreadsatmost50,000SVsofthecallsetbeforeitappliesthefilters,andwithPhenotypeprioritizationon(thedefault)itranksatmost5,000oftheSVsthatmatch.Whenasearchreacheseitherlimit,awarningsays\"Resultsmaybeincomplete\"(\"Rankingmaybeincomplete\"whenthelistisranked),thecountshowsa+,andanSVbeyondthelimitisnotshown:narrowthesearchwitharegion,agenepaneloragene.Theclinicalreport'slistofreportedSVsisnotcutbythiscap:itreadsthereportedSVsthemselves,notthefirst50,000.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.mtDNAACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
+  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantsandlargechrMdeletionsandduplications,eachwithitsheteroplasmypermember,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.Afilteredsearchreadsatmost50,000SVsofthecallsetbeforeitappliesthefilters,andwithPhenotypeprioritizationon(thedefault)itranksatmost5,000oftheSVsthatmatch.Whenasearchreacheseitherlimit,awarningsays\"Resultsmaybeincomplete\"(\"Rankingmaybeincomplete\"whenthelistisranked),thecountshowsa+,andanSVbeyondthelimitisnotshown:narrowthesearchwitharegion,agenepaneloragene.Theclinicalreport'slistofreportedSVsisnotcutbythiscap:itreadsthereportedSVsthemselves,notthefirst50,000.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.RepeatexpansionsTheRepeatexpansionspagelistseachrepeatlocuswitheverymember'scall:therepeatcountofeachallele,andastatusreadagainstthelocus'sthresholdsintherepeatcatalogue(STRchive):Normal,Greyzone(theintermediaterange),Premutation(anFMR1alleleof55–200repeats,whichcanexpandinachild)andPathogenic.Review:outsidecataloguedranges:acountthecataloguecannotclassifyatalocusthatispathogenicbycontraction.Amale'scallwithtwodifferentchrXallelesalsoasksforreview,inanotethatexplainsit.Notassessed:acallatalocuswithoutthresholds.NocataloguedlocusmatchesitsTRID(alocusthecataloguelacks,oraTRIDspelleddifferently),orthecataloguegivesthelocusnothreshold.CoGAcannotsaywhethersuchacountisnormal;itscutoffreadsNoreferencecutoff.Unknown:nocall.AberrantonlykeepseverylocuswhosestatusisnotNormalorUnknown,Notassessedincluded,andthepageheadercountsthecallsatlociwithoutthresholds.Thegenometrackscoloureachlocusbythestatusitscallwasimportedwith,andkeepituntilthecallisimportedagain;thispageclassifieseverycallagain,againstthecatalogueasitisnow.mtDNAACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
   "paragraphs": [
    "The Structural variants page opens on the Mendeliome panel, with a population frequency below 1% and the affected members as carriers. Its filters are Phenotype, Inheritance and Support, Locations, Class and Breakpoints, Needlr Annotations and Review; the presets are Mendeliome, Dominant, Recessive-like and Any affected. Phenotype prioritization ranks SVs by the same phenotype score as small variants. Clear all filters removes the default.",
    "A filtered search reads at most 50,000 SVs of the callset before it applies the filters, and with Phenotype prioritization on (the default) it ranks at most 5,000 of the SVs that match. When a search reaches either limit, a warning says \"Results may be incomplete\" (\"Ranking may be incomplete\" when the list is ranked), the count shows a +, and an SV beyond the limit is not shown: narrow the search with a region, a gene panel or a gene. The clinical report's list of reported SVs is not cut by this cap: it reads the reported SVs themselves, not the first 50,000.",
    "ACMG (CNV) on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose Copy-number loss or Copy-number gain, check the pre-selected criteria and add the rest.",
    "Variant summary on the family page summarises the structural variants of every caller, HiFiCNV's copy-number calls included: counts per chromosome and type, sharing between members, and size distributions. The button appears when the family has structural variants. Small variants are not in it, nor are the WisecondorX and QDNAseq segments, which are coverage tracks rather than variants.",
+   "The Repeat expansions page lists each repeat locus with every member's call: the repeat count of each allele, and a status read against the locus's thresholds in the repeat catalogue (STRchive):",
+   "Aberrant only keeps every locus whose status is not Normal or Unknown, Not assessed included, and the page header counts the calls at loci without thresholds. The genome tracks colour each locus by the status its call was imported with, and keep it until the call is imported again; this page classifies every call again, against the catalogue as it is now.",
    "ACMG classify on a variant from the mtDNA analysis page uses the mitochondrial rule set."
   ],
   "blocks": [
@@ -1584,6 +1586,26 @@
    [
     "h3",
     "Structural variants"
+   ],
+   [
+    "h3",
+    "Repeat expansions"
+   ],
+   [
+    "li",
+    "Normal, Grey zone (the intermediate range), Premutation (an FMR1 allele of 55–200 repeats, which can expand in a child) and Pathogenic."
+   ],
+   [
+    "li",
+    "Review: outside catalogued ranges: a count the catalogue cannot classify at a locus that is pathogenic by contraction. A male's call with two different chrX alleles also asks for review, in a note that explains it."
+   ],
+   [
+    "li",
+    "Not assessed: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold. CoGA cannot say whether such a count is normal; its cutoff reads No reference cutoff."
+   ],
+   [
+    "li",
+    "Unknown: no call."
    ],
    [
     "h3",
@@ -1674,6 +1696,58 @@
    [
     "strong",
     "Variant summary"
+   ],
+   [
+    "strong",
+    "Repeat expansions"
+   ],
+   [
+    "em",
+    "Normal"
+   ],
+   [
+    "em",
+    "Grey zone"
+   ],
+   [
+    "em",
+    "Premutation"
+   ],
+   [
+    "em",
+    "Pathogenic"
+   ],
+   [
+    "em",
+    "Review: outside catalogued ranges"
+   ],
+   [
+    "em",
+    "Not assessed"
+   ],
+   [
+    "em",
+    "No reference cutoff"
+   ],
+   [
+    "em",
+    "Unknown"
+   ],
+   [
+    "strong",
+    "Aberrant only"
+   ],
+   [
+    "em",
+    "Normal"
+   ],
+   [
+    "em",
+    "Unknown"
+   ],
+   [
+    "em",
+    "Not assessed"
    ],
    [
     "strong",

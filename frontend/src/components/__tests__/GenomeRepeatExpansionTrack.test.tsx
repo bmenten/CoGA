@@ -27,6 +27,7 @@ const THEME: Record<string, string> = {
   '--color-grid': '#e5e7eb',
   '--color-repeat-normal': '#9ca3af',
   '--color-repeat-review': '#7c3aed',
+  '--color-repeat-not-assessed': '#0369a1',
   '--color-repeat-intermediate': '#d97706',
   '--color-repeat-pathogenic': '#b42318',
   '--color-repeat-unknown': '#c6ccd3',
@@ -230,6 +231,7 @@ describe('GenomeRepeatExpansionTrack', () => {
     const statuses = [
       'normal',
       'review',
+      'not_assessed',
       'intermediate',
       'pathogenic',
       'unknown',
@@ -256,10 +258,34 @@ describe('GenomeRepeatExpansionTrack', () => {
     ).toEqual([
       '#9ca3af', // normal
       '#7c3aed', // review
+      '#0369a1', // not assessed: a locus without thresholds (CLIN-26), its own colour, not unknown's
       '#d97706', // intermediate
       '#b42318', // pathogenic
       '#c6ccd3', // unknown
       '#c6ccd3', // 'expanded' is not a status the track knows: never painted as a called status
+    ]);
+  });
+
+  it('draws a not-assessed locus over a normal or review one, and under a finding (CLIN-26)', () => {
+    serve({
+      data: {
+        items: [
+          locus({ locus_id: 'NA', chr: 'X', start: 100, end: 160, status: 'not_assessed' }),
+          locus({ locus_id: 'PATH', chr: 'X', start: 200, end: 260, status: 'pathogenic' }),
+          locus({ locus_id: 'NORMAL', chr: 'X', start: 300, end: 360, status: 'normal' }),
+          locus({ locus_id: 'REVIEW', chr: 'X', start: 400, end: 460, status: 'review' }),
+          locus({ locus_id: 'GREY', chr: 'X', start: 500, end: 560, status: 'intermediate' }),
+        ],
+      },
+    });
+    const { container } = render(track());
+
+    expect(markers(container).map((marker) => marker.fill)).toEqual([
+      '#9ca3af', // normal
+      '#7c3aed', // review
+      '#0369a1', // not assessed
+      '#d97706', // intermediate
+      '#b42318', // pathogenic, last: on top
     ]);
   });
 
@@ -449,6 +475,25 @@ describe('GenomeRepeatExpansionTrack', () => {
       expect(
         screen.getByRole('img', {
           name: 'Repeat loci of S1 in view: 8, 5 pathogenic (P1, P2, P3 +2 more), 1 needing review, 2 unknown',
+        }),
+      ).toBeInTheDocument();
+    });
+
+    it('counts a not-assessed locus as one, not as unknown (CLIN-26)', () => {
+      serve({
+        data: {
+          items: [
+            locus({ locus_id: 'chr2_1000000_1000030_CAG', display_name: 'chr2_1000000_1000030_CAG', chr: '1', status: 'not_assessed' }),
+            locus({ locus_id: 'FXS_FMR1', display_name: 'FMR1', chr: 'X', status: 'intermediate' }),
+            locus({ locus_id: 'R1', chr: '4', status: 'review' }),
+          ],
+        },
+      });
+      render(track());
+
+      expect(
+        screen.getByRole('img', {
+          name: 'Repeat loci of S1 in view: 3, 1 intermediate, 1 not assessed, 1 needing review',
         }),
       ).toBeInTheDocument();
     });

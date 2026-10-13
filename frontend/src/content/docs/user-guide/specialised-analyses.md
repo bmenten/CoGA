@@ -28,6 +28,26 @@ copy-number calls included: counts per chromosome and type, sharing between memb
 distributions. The button appears when the family has structural variants. Small variants are not in
 it, nor are the WisecondorX and QDNAseq segments, which are coverage tracks rather than variants.
 
+### Repeat expansions
+
+The **Repeat expansions** page lists each repeat locus with every member's call: the repeat count of
+each allele, and a status read against the locus's thresholds in the repeat catalogue (STRchive):
+
+- *Normal*, *Grey zone* (the intermediate range), *Premutation* (an FMR1 allele of 55–200 repeats,
+  which can expand in a child) and *Pathogenic*.
+- *Review: outside catalogued ranges*: a count the catalogue cannot classify at a locus that is
+  pathogenic by contraction. A male's call with two different chrX alleles also asks for review, in
+  a note that explains it.
+- *Not assessed*: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus
+  the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold.
+  CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*.
+- *Unknown*: no call.
+
+**Aberrant only** keeps every locus whose status is not *Normal* or *Unknown*, *Not assessed*
+included, and the page header counts the calls at loci without thresholds. The genome tracks colour
+each locus by the status its call was imported with, and keep it until the call is imported again;
+this page classifies every call again, against the catalogue as it is now.
+
 ### mtDNA
 
 **ACMG classify** on a variant from the **mtDNA analysis** page uses the mitochondrial rule set.

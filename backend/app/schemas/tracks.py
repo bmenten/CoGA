@@ -163,6 +163,13 @@ class FamilyTrackAvailabilityOut(BaseModel):
     samples: Dict[str, TrackAvailabilityOut] = Field(default_factory=dict)
 
 
+# A repeat allele's, call's or locus's status (repeat_expansion_pg.classify_repeat_count):
+# `not_assessed` is a call at a locus without thresholds (CLIN-26), `unknown` a no-call.
+RepeatStatus = Literal[
+    "normal", "review", "not_assessed", "intermediate", "premutation", "pathogenic", "unknown"
+]
+
+
 class RepeatExpansionMotifCountOut(BaseModel):
     motif: str
     count: int
@@ -179,7 +186,7 @@ class RepeatExpansionAlleleOut(BaseModel):
     motif_spans: Optional[str] = None
     interrupted: bool = False
     interruption_label: Optional[str] = None
-    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
+    status: RepeatStatus = "unknown"
 
 
 class RepeatExpansionSampleCallOut(BaseModel):
@@ -190,7 +197,7 @@ class RepeatExpansionSampleCallOut(BaseModel):
     genotype: str
     allele_count: int = 0
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
-    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
+    status: RepeatStatus = "unknown"
     # Why the call needs a second look beyond its allele sizes (a male with two
     # different chrX alleles), or None.
     note: Optional[str] = None
@@ -217,7 +224,7 @@ class RepeatExpansionRowOut(BaseModel):
     # The first count of a premutation (FMR1 55), between the grey zone and the
     # pathogenic threshold; None for a locus without one.
     premutation_min: Optional[int] = None
-    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
+    status: RepeatStatus = "unknown"
     calls: Dict[str, RepeatExpansionSampleCallOut] = Field(default_factory=dict)
 
 
@@ -337,7 +344,7 @@ class RepeatExpansionTrackItemOut(BaseModel):
     motif: Optional[str] = None
     warning_min: Optional[int] = None
     pathogenic_min: Optional[int] = None
-    status: Literal["normal", "review", "intermediate", "premutation", "pathogenic", "unknown"] = "unknown"
+    status: RepeatStatus = "unknown"
     allele_repeat_counts: List[int] = Field(default_factory=list)
     allele_bp_lengths: List[int] = Field(default_factory=list)
 

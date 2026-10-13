@@ -7,7 +7,7 @@ import type {
   ApiFamilyRepeatExpansionTable,
   ApiRepeatExpansionAllele,
   ApiRepeatExpansionRow,
-  ApiRepeatExpansionSampleCall,
+  ApiRepeatStatus,
 } from '../../lib/apiTypes';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
@@ -49,15 +49,14 @@ export const formatCutoff = (row: {
     return `normal ${normal} · red ${abnormal}`;
   }
 
-  // A premutation range (FMR1) splits the grey zone from the alleles that can expand.
-  const premutation = row.premutation_min != null ? ` · premutation ≥ ${row.premutation_min}` : '';
-  if (warningMin != null && pathogenicMin != null) {
-    return `orange ≥ ${warningMin}${premutation} · red ≥ ${pathogenicMin}`;
-  }
-  if (pathogenicMin != null) {
-    return `red ≥ ${pathogenicMin}`;
-  }
-  return 'No reference cutoff';
+  // Each threshold the locus has, in order; a premutation range (FMR1) splits the grey zone
+  // from the alleles that can expand. A locus with none reads Not assessed (CLIN-26).
+  const thresholds = [
+    warningMin != null ? `orange ≥ ${warningMin}` : null,
+    row.premutation_min != null ? `premutation ≥ ${row.premutation_min}` : null,
+    pathogenicMin != null ? `red ≥ ${pathogenicMin}` : null,
+  ].filter((part): part is string => part !== null);
+  return thresholds.length ? thresholds.join(' · ') : 'No reference cutoff';
 };
 
 const omimSearchHref = (disease: string): string =>
@@ -79,19 +78,24 @@ const formatAlleleMotifLabels = (alleles: ApiRepeatExpansionAllele[]): string[] 
     })
     .filter((value): value is string => Boolean(value));
 
-const isAbnormalStatus = (
-  status: ApiRepeatExpansionRow['status'] | ApiRepeatExpansionSampleCall['status'],
-): boolean =>
-  status === 'review' || status === 'intermediate' || status === 'premutation' || status === 'pathogenic';
+// The statuses the aberrant-only view keeps: every one but normal and a no-call.
+const isAbnormalStatus = (status: ApiRepeatStatus): boolean =>
+  status === 'review' ||
+  status === 'not_assessed' ||
+  status === 'intermediate' ||
+  status === 'premutation' ||
+  status === 'pathogenic';
 
-const repeatStatusLabel = (
-  status: ApiRepeatExpansionRow['status'] | ApiRepeatExpansionSampleCall['status'],
-): string => {
+const repeatStatusLabel = (status: ApiRepeatStatus): string => {
   switch (status) {
     case 'review':
       // A count outside every catalogued range at a contraction locus: the catalog
       // cannot classify it, so it is surfaced rather than read as normal (#535).
       return 'Review: outside catalogued ranges';
+    case 'not_assessed':
+      // A locus without thresholds: no catalogue row names the call's TRID, or the row
+      // states none. Read as normal before, so an expansion there could not be seen (CLIN-26).
+      return 'Not assessed';
     case 'intermediate':
       return 'Grey zone';
     case 'premutation':
@@ -233,6 +237,17 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       }),
     [aberrantOnly, diseaseFilter, geneFilter, repeatTable?.loci],
   );
+  // The members' calls at loci without thresholds, which the catalogue cannot classify
+  // (CLIN-26): counted over the whole table, whatever the filters show.
+  const notAssessedCalls = useMemo(
+    () =>
+      (repeatTable?.loci || []).reduce(
+        (total, row) =>
+          total + Object.values(row.calls).filter((call) => call.status === 'not_assessed').length,
+        0,
+      ),
+    [repeatTable?.loci],
+  );
   const referenceLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion, isError: referenceFailed },
     'Not linked',
@@ -301,6 +316,10 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                 <span className="stat-label">Loci with calls</span>
                 <strong className="family-workspace-stat-value">{repeatTable.loci.length}</strong>
               </div>
+              <div className="family-workspace-stat">
+                <span className="stat-label">Calls at loci without thresholds</span>
+                <strong className="family-workspace-stat-value">{notAssessedCalls}</strong>
+              </div>
             </div>
       </FamilyPageHeader>
 
@@ -310,7 +329,8 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
             <h2 className="section-title">TRGT repeat table</h2>
             <p className="catalog-card-copy">
               Grey marks normal loci, orange grey-zone alleles, deep orange a premutation (an FMR1 allele of 55–200 repeats, which
-              can expand in a child), and red pathogenic expansions.
+              can expand in a child), and red pathogenic expansions. Blue marks a call at a locus without thresholds: the
+              catalogue gives no cutoff there, so the call is not assessed.
             </p>
           </div>
         </div>

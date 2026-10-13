@@ -15,6 +15,10 @@
   color: #4b5563;
 }
 
+.repeat-status--not_assessed {
+  color: #075985;
+}
+
 .repeat-status--intermediate {
   color: #a16207;
 }
@@ -122,6 +126,16 @@
   border-left: 3px solid var(--color-repeat-review);
 }
 
+/* A locus without thresholds (CLIN-26): the catalogue cannot classify its calls, so they
+   are not assessed rather than read as normal. */
+.family-repeat-table tbody tr.family-repeat-table-row--not_assessed > td {
+  border-top: 2px solid var(--color-repeat-not-assessed);
+}
+
+.family-repeat-table tbody tr.family-repeat-table-row--not_assessed > td:first-child {
+  border-left: 3px solid var(--color-repeat-not-assessed);
+}
+
 .family-repeat-table tbody tr.family-repeat-table-row--pathogenic > td {
   border-top: 2px solid var(--color-repeat-pathogenic);
 }
@@ -152,6 +166,12 @@
 .family-repeat-table-locus-flag {
   padding-top: 0.125rem;
   padding-bottom: 0.125rem;
+}
+
+.family-repeat-table-locus-flag--not_assessed {
+  border-color: rgba(3, 105, 161, 0.24);
+  background: rgba(3, 105, 161, 0.1);
+  color: #075985;
 }
 
 .family-repeat-table-locus-flag--intermediate {
@@ -232,6 +252,11 @@
 .family-repeat-table-call-chip--normal {
   border-color: rgba(124, 129, 134, 0.12);
   background: var(--color-surface-muted);
+}
+
+.family-repeat-table-call-chip--not_assessed {
+  border-color: rgba(3, 105, 161, 0.22);
+  background: rgba(3, 105, 161, 0.1);
 }
 
 .family-repeat-table-call-chip--intermediate {
