@@ -73,6 +73,7 @@ Each suite drives the real stack and asserts against `EXPECTED.yaml`. Skipped un
 | Prioritised-ranking cache invalidated by a variant-data change on a non-import path | [test_e2e_ranking_cache.py](../../backend/tests/e2e/test_e2e_ranking_cache.py) |
 | A narrower panel served from a broader cached ranking only while that ranking's panel holds the genes it was computed on: not after an edit adds a gene, nor from a row without that record or whose panel was deleted (CLIN-27) | [test_e2e_ranking_cache_sub_panel.py](../../backend/tests/e2e/test_e2e_ranking_cache_sub_panel.py) |
 | SV second-hit index rebuilt after SV writes on non-import paths (admin delete, per-sample upload) | [test_e2e_sv_second_hit_index.py](../../backend/tests/e2e/test_e2e_sv_second_hit_index.py) |
+| A HiFiCNV depth file without a usable autosomal median is stored as read, and its track's record says so (`normalization: none`) where it said `log2_ratio_to_autosomal_median`; the track availability serves each coverage track's recorded transform, which the viewers read before drawing a track on their log2-ratio axis (TRACE-7) | [test_e2e_depth_track_transform.py](../../backend/tests/e2e/test_e2e_depth_track_transform.py) |
 
 A consolidated catalogue of these is in [docs/testing.md](../testing.md) ("End-to-end (golden pipeline)").
 

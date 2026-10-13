@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   apcadAxisMax,
+  coverageNotDrawnNote,
   coverageSourceLabel,
   coverageTrackLabel,
   orderCoverageSources,
@@ -50,6 +51,34 @@ describe('coverage sources', () => {
   it('only names the caller when there is more than one to tell apart', () => {
     expect(coverageTrackLabel('hificnv', 1)).toBe('Coverage');
     expect(coverageTrackLabel('hificnv', 3)).toBe('Coverage · HiFiCNV');
+  });
+
+  // TRACE-7: the chart's axis is a log2 ratio, and a track is drawn on it only when its
+  // record says its values are one.
+  it('draws a track whose values are a log2 ratio on the log2-ratio axis', () => {
+    // Put on that scale by the import: HiFiCNV's depth and copy number.
+    expect(coverageNotDrawnNote(['log2_ratio_to_autosomal_median'])).toBeNull();
+    expect(coverageNotDrawnNote(['log2_ratio_to_diploid'])).toBeNull();
+    // No transform recorded: the file's own values, which WisecondorX and QDNAseq write as
+    // log2 ratios.
+    expect(coverageNotDrawnNote([])).toBeNull();
+    expect(coverageNotDrawnNote(undefined)).toBeNull();
+  });
+
+  it('leaves depths stored as read off the log2-ratio axis, and says why', () => {
+    // A HiFiCNV depth file without a usable autosomal median: raw depth, which drawn on
+    // the axis sat above its top and read as a gain across the genome.
+    const note =
+      'Not drawn: no usable autosomal median, so these depths are stored as read, not as a log2 ratio. IGV shows the depth file.';
+    expect(coverageNotDrawnNote(['none'])).toBe(note);
+    // Two records that disagree are not averaged into a scale: one of them is not a ratio.
+    expect(coverageNotDrawnNote(['log2_ratio_to_autosomal_median', 'none'])).toBe(note);
+  });
+
+  it('leaves a transform it does not know off the log2-ratio axis', () => {
+    expect(coverageNotDrawnNote(['log10_ratio'])).toBe(
+      'Not drawn: these values are stored as log10_ratio, not as a log2 ratio.',
+    );
   });
 
   it('folds the APCAD axis only when every caller on it is folded', () => {

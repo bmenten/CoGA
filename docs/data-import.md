@@ -582,7 +582,7 @@ The `snv` dataset takes three optional settings:
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
-| `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md)), and the MAF bigWig as `apcad` |
+| `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md); a depth file without autosomal depth gives no median to normalise by, and its depths are stored as read, recorded as `none`), and the MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name; the chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
@@ -598,8 +598,10 @@ The chrM SV files follow the same rule: one deletion called in the mother and th
 SV with both calls, and a sample's new SV file replaces only that sample's calls.
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
-lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
-from the bucket for a package in a bucket.
+lists them, with the transform each coverage track's record names, `coverage_normalizations`).
+A coverage track whose values are not a log2 ratio, such as HiFiCNV depths stored as read, is
+not drawn on the viewers' log2-ratio axis: its place says why. The three HiFiCNV files are also
+served unchanged to the genome browser (IGV), from the bucket for a package in a bucket.
 
 Every file a dataset names, per sample or for the whole family, is recorded in
 `raw_import_files` with its size and SHA-256 ([database.md](database.md)), whichever of its

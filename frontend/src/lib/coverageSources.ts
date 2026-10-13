@@ -9,7 +9,8 @@
  * All three are stored as a log2 ratio against the sample's own baseline, so a
  * single-copy loss sits at -1 in every track and the stacked view is readable
  * across callers. (HiFiCNV reports absolute read depth; the importer normalises
- * it — see `family_package_datasets._log2_ratio_transform`.)
+ * it — see `family_package_datasets._log2_ratio_transform` — and records that it
+ * did, or that it could not: `coverageNotDrawnNote`.)
  */
 
 /** Display order: long-read caller first, then the short-read/reference-panel ones. */
@@ -59,6 +60,37 @@ export const orderCoverageSources = (sources: readonly string[] | undefined): st
  */
 export const coverageTrackLabel = (source: string, totalSources: number): string =>
   totalSources > 1 ? `Coverage · ${coverageSourceLabel(source)}` : 'Coverage';
+
+/**
+ * The transforms after which a coverage track's values are a log2 ratio, as the import
+ * names them in the track's record (`coverage_normalizations` in the track availability).
+ */
+const LOG2_RATIO_NORMALIZATIONS: ReadonlySet<string> = new Set([
+  'log2_ratio_to_autosomal_median',
+  'log2_ratio_to_diploid',
+]);
+
+/**
+ * Why a caller's coverage track is not drawn on the chart's log2-ratio axis, from the
+ * transforms its records name; `null` when it is drawn.
+ *
+ * A track whose records name no transform holds its file's values: WisecondorX's and
+ * QDNAseq's files hold log2 ratios, and an uploaded coverage BED, which records nothing
+ * either, is taken for one. A track whose records name a log2-ratio transform was put on
+ * that scale by the import. Anything else is not a log2 ratio: `none`, HiFiCNV depths
+ * stored as read because the sample had no usable autosomal median to normalise them by,
+ * or a transform this view does not know. Drawn on the axis, read depth sits above its top
+ * and reads as a gain across the genome, so the track is left out and its place says why
+ * (TRACE-7).
+ */
+export const coverageNotDrawnNote = (normalizations: readonly string[] | undefined): string | null => {
+  const notLog2 = (normalizations ?? []).filter((value) => !LOG2_RATIO_NORMALIZATIONS.has(value));
+  if (notLog2.length === 0) return null;
+  if (notLog2.includes('none')) {
+    return 'Not drawn: no usable autosomal median, so these depths are stored as read, not as a log2 ratio. IGV shows the depth file.';
+  }
+  return `Not drawn: these values are stored as ${notLog2.join(' and ')}, not as a log2 ratio.`;
+};
 
 
 /**

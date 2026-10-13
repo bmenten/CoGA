@@ -3020,6 +3020,7 @@ export interface TrackAvailabilityOut {
   segments: boolean;
   coverage_sources: string[];
   segments_sources: string[];
+  coverage_normalizations: Record<string, string[]>;
   apcad_sources: string[];
   apcad: boolean;
   apcad_pcf: boolean;
