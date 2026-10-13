@@ -12,9 +12,10 @@ annotation changes); the ClinVar significance is reported as the human-readable
 specific when it is what moved.
 
 Structural-variant / CNV classifications are checked the same way, under ``structural``:
-each CNV (ClinGen) scoring's frozen ``cnv_evidence_snapshot`` against the SV as it is now
-(``structural_variant_evidence``), the evidence hash being the drift key and the inputs
-that moved (genes, pLI, inheritance, type, locus) the specifics.
+each CNV (ClinGen) scoring's frozen ``cnv_evidence_snapshot`` against the row of the
+caller it was frozen from as it is now (``structural_variant_evidence``), the evidence
+hash being the drift key and the inputs that moved (genes, pLI, inheritance, type, locus)
+the specifics.
 """
 
 from __future__ import annotations
@@ -28,7 +29,11 @@ from .clickhouse_small_variants import get_small_variant_family_record
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .access_control import CurrentUser
 from .small_variant_review_acmg import build_evidence_snapshot
-from .structural_variant_evidence import diff_structural_evidence, fetch_structural_variant_record
+from .structural_variant_evidence import (
+    diff_structural_evidence,
+    fetch_structural_variant_records,
+    frozen_evidence_source,
+)
 
 
 def _current_evidence(record: Any) -> dict[str, Any]:
@@ -162,7 +167,8 @@ async def evaluate_structural_classification_drift(
     session: AsyncSession, context: FamilyMetadataContext
 ) -> dict[str, Any]:
     """Evidence drift of the family's SV/CNV classifications: every review whose CNV
-    scoring froze an evidence snapshot, compared with the SV as it is now.
+    scoring froze an evidence snapshot, compared with the SV as it is now, in the row of
+    the caller the snapshot was frozen from.
 
     A snapshot that cannot be read counts as ``unknown`` rather than being skipped, so it
     can never clear the sign-out gate unexamined. Entries are sorted by variant id, which
@@ -192,8 +198,13 @@ async def evaluate_structural_classification_drift(
         if snapshot is None:
             continue
         checked += 1
-        current_record = await fetch_structural_variant_record(context, str(row["variant_id"]))
-        diff = diff_structural_evidence(snapshot, current_record)
+        # The row of the caller the evidence was frozen from: another caller's call of the
+        # SV, under the same id, has evidence of its own (TRACE-11). A snapshot that names
+        # none cannot be read, so any row only tells it apart from an SV no longer there.
+        current_records = await fetch_structural_variant_records(
+            context, str(row["variant_id"]), source=frozen_evidence_source(snapshot)
+        )
+        diff = diff_structural_evidence(snapshot, current_records[0] if current_records else None)
         if diff["status"] == "current":
             continue
         drifted.append(_structural_drift_entry(dict(row), diff))

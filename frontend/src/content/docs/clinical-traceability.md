@@ -47,7 +47,10 @@ When you save a classification, CoGA freezes the evidence it rests on:
 - **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
   event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
   position, a fingerprint of its annotation, and the annotation versions its genes came from. The
-  classifier reads no clinical CNVs, dosage scores or DGV; you score those criteria yourself.
+  classifier reads no clinical CNVs, dosage scores or DGV; you score those criteria yourself. When
+  several callers call the same event (a NeedlR call and an uploaded Sniffles call, for example), each
+  is a row of its own with its own genes, pLI and inheritance, and the rows share one review: the
+  classification freezes the evidence of the row you opened it from.
 
 When you open the report, each frozen classification is compared with the current data. An amber
 banner lists every classification whose evidence changed:
@@ -55,11 +58,12 @@ banner lists every classification whose evidence changed:
 - the ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*);
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
   (*annotation set changed*);
-- for a structural variant, what moved: for example *genes TCF4, TXNL1 → TCF4* or
-  *pLI 0.990 → 0.410*, and likewise its inheritance, type, position or caller. It says *annotation
-  changed* when only its other annotation changed, and *its frozen evidence cannot be compared* when
-  the frozen evidence cannot be read;
-- the variant is no longer in the data.
+- for a structural variant, what moved in the row of the caller its evidence was frozen from: for
+  example *genes TCF4, TXNL1 → TCF4* or *pLI 0.990 → 0.410*, and likewise its inheritance, type or
+  position. It says *annotation changed* when only its other annotation changed, and *its frozen
+  evidence cannot be compared* when the frozen evidence cannot be read or does not name its caller;
+- the variant is no longer in the data (for a structural variant: the call of the caller its evidence
+  was frozen from, even when another caller still calls the event).
 
 Re-review a listed variant before sign-out. Saving its classification again freezes the evidence as it
 is now.

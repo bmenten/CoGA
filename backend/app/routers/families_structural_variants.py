@@ -10,9 +10,9 @@ from ..dependencies import get_current_user
 from ..schemas import (
     SmallVariantReviewOut,
     SmallVariantReviewSummaryOut,
-    SmallVariantReviewUpdate,
     StructuralVariantFilterPresetCreate,
     StructuralVariantFilterPresetOut,
+    StructuralVariantReviewUpdate,
     VariantOut,
     VariantPage,
 )
@@ -361,7 +361,7 @@ async def delete_structural_variant_filter_preset(
 async def upsert_structural_variant_review(
     family_id: str,
     variant_id: str,
-    payload: SmallVariantReviewUpdate,
+    payload: StructuralVariantReviewUpdate,
     project_id: str | None = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),

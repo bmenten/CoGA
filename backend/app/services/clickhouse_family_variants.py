@@ -1824,6 +1824,7 @@ async def _serve_ranking_from_cache(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
     cached: dict[str, Any],
     page: int,
     page_size: int,
@@ -1835,8 +1836,9 @@ async def _serve_ranking_from_cache(
 
     The cache holds the ranked (variant id + score breakdown) order; the page's variant
     records and review state are fetched fresh so annotations and review status are never
-    served stale. Returns None on any reconstruction problem so the caller falls back to a
-    live compute.
+    served stale. The records are fetched by id; each names the transcript the search's
+    ``filters`` held on (CLIN-51) as a computed page does. Returns None on any
+    reconstruction problem so the caller falls back to a live compute.
     """
     ranking = cached.get("ranking") or []
     if isinstance(ranking, str):
@@ -1865,7 +1867,7 @@ async def _serve_ranking_from_cache(
         )
         by_id: dict[str, VariantOut] = {}
         for record in records:
-            out = _small_variant_out(record, assembly_name=context.assembly_name)
+            out = _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
             by_id[str(out.id)] = out
         for entry in page_entries:
             variant_out = by_id.get(str(entry.get("variant_id")))
@@ -1999,6 +2001,7 @@ async def _serve_subpanel_from_superset(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
     base_hash: str,
     panel_constraints: PanelFilterConstraints,
     records: Sequence[SmallVariantRecord],
@@ -2059,6 +2062,7 @@ async def _serve_subpanel_from_superset(
         return await _prioritized_items_page(
             session,
             context=context,
+            filters=filters,
             items=items,
             priorities=priorities,
             page=page,
@@ -2098,7 +2102,12 @@ async def _rank_small_variants(
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
 
-    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in records]
+    # Scored on each variant's primary transcript, whatever the search's filters: the
+    # ranking and its cache hold no filter transcript (CLIN-51).
+    variants = [
+        _small_variant_out(record, assembly_name=context.assembly_name, filters=None)
+        for record in records
+    ]
     gene_symbols = {variant.gene for variant in variants if variant.gene}
     phenotype_scores = (
         await score_genes_for_hpo(
@@ -2184,6 +2193,7 @@ async def _prioritized_items_page(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
     items: Sequence[_SmallResultItem],
     priorities: Mapping[str, VariantPriorityOut],
     page: int,
@@ -2214,7 +2224,7 @@ async def _prioritized_items_page(
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_items = ranked_items[skip : skip + page_size] if page_size else ranked_items[skip:]
     variants, groups = await _small_item_outs(
-        session, context=context, items=page_items, priorities=priorities
+        session, context=context, filters=filters, items=page_items, priorities=priorities
     )
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
     return VariantPage(
@@ -2332,6 +2342,7 @@ async def _prioritized_small_variants_page(
         served = await _serve_ranking_from_cache(
             session,
             context=context,
+            filters=filters,
             cached=cached,
             page=page,
             page_size=page_size,
@@ -2375,6 +2386,7 @@ async def _prioritized_small_variants_page(
             return await _prioritized_items_page(
                 session,
                 context=context,
+                filters=filters,
                 items=items,
                 priorities=priorities,
                 page=page,
@@ -2397,6 +2409,7 @@ async def _prioritized_small_variants_page(
         served = await _serve_subpanel_from_superset(
             session,
             context=context,
+            filters=filters,
             base_hash=base_hash,
             panel_constraints=panel_constraints,
             records=ranked_records,
@@ -2482,6 +2495,7 @@ async def _prioritized_small_variants_page(
     return await _prioritized_items_page(
         session,
         context=context,
+        filters=filters,
         items=items,
         priorities=priorities,
         page=page,
@@ -2679,15 +2693,18 @@ async def _small_item_outs(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
     items: Sequence[_SmallResultItem],
     priorities: Mapping[str, VariantPriorityOut] | None = None,
 ) -> tuple[list[VariantOut], list[SmallVariantGroupOut]]:
     """A page's items as the response carries them: the single variants, and each
     compound-het pair as a group of its two variants with its phase and pair review. In a
-    ranked search each variant carries its priority. Hydrated like every page."""
+    ranked search each variant carries its priority. Each variant names the transcript the
+    search's ``filters`` held on, when its primary one does not meet them (CLIN-51).
+    Hydrated like every page."""
 
     def variant_out(record: SmallVariantRecord) -> VariantOut:
-        variant = _small_variant_out(record, assembly_name=context.assembly_name)
+        variant = _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
         priority = priorities.get(record.variant_id) if priorities is not None else None
         if priority is not None:
             variant.priority = priority.model_copy(deep=True)
@@ -2842,7 +2859,10 @@ async def _small_variants_track_page(
         offset=_page_offset(page, page_size),
         **scope.row_filters(),
     )
-    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in fetched_records]
+    variants = [
+        _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
+        for record in fetched_records
+    ]
     await _hydrate_small_variant_outs(
         session,
         context=context,
@@ -2882,7 +2902,10 @@ async def _small_variants_native_page(
     )
     unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
     page_records = fetched_records[:page_size]
-    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in page_records]
+    variants = [
+        _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
+        for record in page_records
+    ]
     if variants:
         await _hydrate_small_variant_outs(
             session,
@@ -2951,6 +2974,7 @@ async def _small_variants_candidate_page(
             context,
             filters.inheritance,
             filtered,
+            filters=filters,
             page=page,
             page_size=page_size,
             track_mode=track_mode,
@@ -2967,7 +2991,10 @@ async def _small_variants_candidate_page(
     else:
         skip = max(page - 1, 0) * page_size if page_size else 0
         page_records = filtered[skip: skip + page_size] if page_size else filtered[skip:]
-    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in page_records]
+    variants = [
+        _small_variant_out(record, assembly_name=context.assembly_name, filters=filters)
+        for record in page_records
+    ]
     await _hydrate_small_variant_outs(
         session,
         context=context,
@@ -2992,6 +3019,7 @@ async def _small_variants_inheritance_page(
     inheritance: str,
     filtered: list[SmallVariantRecord],
     *,
+    filters: SmallVariantQueryFilters,
     page: int,
     page_size: int,
     track_mode: bool,
@@ -3009,7 +3037,7 @@ async def _small_variants_inheritance_page(
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_items = inheritance_items[skip: skip + page_size] if page_size else inheritance_items[skip:]
     page_single_variants, page_variant_groups = await _small_item_outs(
-        session, context=context, items=page_items
+        session, context=context, filters=filters, items=page_items
     )
     return VariantPage(
         total=0 if track_mode else reported_total,

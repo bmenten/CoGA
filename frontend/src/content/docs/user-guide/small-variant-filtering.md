@@ -36,6 +36,16 @@ transcript whose prediction is exactly that one, whatever score VEP wrote after 
 *tolerated* leaves out `tolerated_low_confidence`. The gene, the rsID and the excluded ClinVar statuses
 apply to the variant as a whole.
 
+A card, a table row and a CSV row describe one transcript of the variant: MANE Select, else the
+canonical one, else the most severe. The filters may have held on another: *deleterious* keeps a
+variant whose MANE transcript SIFT calls tolerated when a second transcript is deleterious, and HIGH or
+MODERATE impact keeps one that is synonymous on its MANE transcript and missense on another. The card
+then says **Filters met on** under its transcript, and the table row under its effect, with the
+transcript the filters held on and those of its consequence, LoF and in-silico predictions that read
+otherwise than the row's; the row's own values stay as they are, and the card's transcript list marks
+that transcript *Filters met*. The CSV gives it in its last columns, *Filter-matched transcript* to
+*Filter-matched PolyPhen*. The ranking and **ACMG classify** read the transcript the row describes.
+
 > **MANE only needs GRCh38.** *MANE only* keeps a variant with a MANE Select or MANE Plus Clinical
 > transcript. VEP sets these flags on GRCh38 only, so on a GRCh37 or T2T family *MANE only* keeps
 > nothing.

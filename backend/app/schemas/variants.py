@@ -54,6 +54,32 @@ class SmallVariantTranscriptOut(BaseModel):
     primary: bool = False
 
 
+class SmallVariantFilterTranscriptOut(BaseModel):
+    """The transcript a search's annotation filters held on, when the variant's primary
+    transcript does not meet them (CLIN-51).
+
+    The annotation filters must all hold on one transcript of a variant, while the
+    variant's own fields describe its primary transcript (MANE Select, else canonical,
+    else the most severe impact), which need not be that one: a variant kept by SIFT
+    *deleterious* on a second transcript showed its primary transcript's *tolerated*. Of
+    the transcripts the filters hold on, this is the one picked as the primary is picked,
+    with its values of what the card and the CSV show of a transcript.
+    """
+
+    gene: Optional[str] = None
+    transcript_id: Optional[str] = None
+    impact: Optional[str] = None
+    effect: Optional[str] = None
+    hgvsc: Optional[str] = None
+    hgvsp: Optional[str] = None
+    lof: Optional[str] = None
+    cadd_phred: Optional[float] = None
+    revel: Optional[float] = None
+    spliceai_max: Optional[float] = None
+    sift: Optional[str] = None
+    polyphen: Optional[str] = None
+
+
 class VariantInternalCohortOut(BaseModel):
     """Occurrence of a variant within the accessible CoGA cohort."""
 
@@ -193,6 +219,12 @@ class VariantOut(ApiDocumentModel):
     cytoband: Optional[str] = None
     annotation_extra: Dict[str, Any] = Field(default_factory=dict)
     transcripts: List[SmallVariantTranscriptOut] = Field(default_factory=list)
+    # Small variants: the transcript the search's annotation filters held on, when the
+    # primary transcript the fields above describe does not meet them (CLIN-51). None
+    # without annotation filters and whenever the primary transcript meets them. The
+    # fields above, and everything that reads them (the ranking, the ACMG suggestions,
+    # the report), stay on the primary transcript.
+    filter_transcript: Optional[SmallVariantFilterTranscriptOut] = None
     genotypes: List[GenotypeOut] = Field(default_factory=list)
     # Small variants: on chrX or chrY outside the pseudo-autosomal regions of the family's
     # assembly, where a male carries one copy (#545, #621). False elsewhere, and on an
