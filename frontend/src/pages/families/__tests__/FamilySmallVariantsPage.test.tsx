@@ -335,6 +335,47 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText('Showing 7')).toBeInTheDocument();
   });
 
+  // SAFE-14 — the search waits for the family record, which holds what the header warns of;
+  // with the record failed it waited for good. It says the family failed, and retries.
+  it('says the family could not be loaded, instead of loading for good, and runs the search on retry', async () => {
+    let familyRequests = 0;
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        familyRequests += 1;
+        return familyRequests === 1
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : Promise.resolve({ data: { members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants?')) {
+        return Promise.resolve({ data: { variants: [], total: 7 } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/small-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const failure = (await screen.findByRole('heading', { name: 'Family could not be loaded' })).closest(
+      '.page-state',
+    ) as HTMLElement;
+    expect(failure).toHaveTextContent('This is a failed request, not a missing family.');
+    expect(screen.queryByText('Loading small variants')).not.toBeInTheDocument();
+    expect(apiMock.get.mock.calls.some(([url]) => String(url).startsWith('/families/F1/small-variants?'))).toBe(
+      false,
+    );
+
+    fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+
+    expect(await screen.findByText('Showing 7')).toBeInTheDocument();
+  });
+
   // #606 — a failed panel list used to leave the select at "Any gene panel" while the
   // panel from the URL was still applied, and to drop the default Mendeliome scope unsaid.
   it('keeps an applied panel visible when the panel list could not be loaded', async () => {

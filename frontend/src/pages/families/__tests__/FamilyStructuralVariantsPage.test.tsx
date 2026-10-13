@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite
 import FamilyStructuralVariantsPage from '../FamilyStructuralVariantsPage';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { findAssemblyScopeBanner, offScopeProject } from '../../../test/familyPageBanners';
+import { held, settle } from '../../../test/settle';
 
 vi.mock('../../../lib/api', () => ({
   default: {
@@ -409,6 +411,89 @@ describe('FamilyStructuralVariantsPage', () => {
       const panelSelect = screen.getByRole('combobox', { name: /panel/i });
       expect(panelSelect).toHaveValue('P1');
       expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
+    });
+  });
+
+  // SAFE-14 — the family record holds what the header warns of: an import that left the
+  // family incomplete, and an assembly outside the validated scope. The SVs were shown
+  // without those warnings while the record loaded, and when it could not be loaded.
+  describe('without the family record', () => {
+    const get = api.get as unknown as Mock;
+    let workingGet: ((url: string) => Promise<unknown>) | undefined;
+
+    beforeEach(() => {
+      workingGet = get.getMockImplementation();
+    });
+    afterEach(() => {
+      get.mockImplementation(workingGet!);
+    });
+
+    const renderPage = () =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+            <Routes>
+              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    it('shows none of the SVs before the family, and then its reference, are in', async () => {
+      const family = held();
+      const reference = held();
+      get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          // The family on project p1, whose assembly is outside the validated scope.
+          return family.answered
+            .then(() => workingGet!(url) as Promise<{ data: Record<string, unknown> }>)
+            .then(({ data }) => ({ data: { ...data, projects: ['p1'] } }));
+        }
+        if (url === '/projects') return reference.answered.then(() => ({ data: [offScopeProject('p1')] }));
+        return workingGet!(url);
+      });
+      renderPage();
+
+      // The SVs are in meanwhile: the page still says it is loading.
+      await settle(get);
+      expect(screen.getByRole('status', { name: 'Loading structural variants' })).toBeInTheDocument();
+      expect(screen.queryByText('1p36.33')).not.toBeInTheDocument();
+
+      // The family alone is not enough: without its reference, the scope warning is unknown.
+      family.release();
+      await settle(get);
+      expect(screen.getByRole('status', { name: 'Loading structural variants' })).toBeInTheDocument();
+      expect(screen.queryByText('1p36.33')).not.toBeInTheDocument();
+
+      reference.release();
+      expect(await screen.findByText('1p36.33')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Family F1' })).toBeInTheDocument();
+      await findAssemblyScopeBanner();
+    });
+
+    it('says the family could not be loaded, shows none of the SVs, and loads them on retry', async () => {
+      let familyFails = true;
+      get.mockImplementation((url: string) =>
+        url === '/families/F1' && familyFails
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : workingGet!(url),
+      );
+      renderPage();
+
+      const failure = (await screen.findByRole('heading', { name: 'Family could not be loaded' })).closest(
+        '.page-state',
+      ) as HTMLElement;
+      // The SVs are in meanwhile, and not shown.
+      await settle(get);
+      expect(failure).toBeInTheDocument();
+      expect(failure).toHaveTextContent('This is a failed request, not a missing family.');
+      expect(screen.queryByText('1p36.33')).not.toBeInTheDocument();
+      expect(screen.queryByText(/^Showing/)).not.toBeInTheDocument();
+
+      familyFails = false;
+      fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('1p36.33')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Family F1' })).toBeInTheDocument();
     });
   });
 });

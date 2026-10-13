@@ -132,7 +132,10 @@ finish or refuses the sign-out, so a signed version never mixes the family's dat
 a write.
 
 If the family's project cannot be loaded, the assembly — and so the scope — is not known: the pages say
-*Validated scope not confirmed*, with **Retry**, and the report waits until it loads.
+*Validated scope not confirmed*, with **Retry**, and the report waits until it loads. If the family
+itself cannot be loaded, neither its import state nor its assembly is known: a family page then shows
+only *Family could not be loaded*, with **Retry**, and none of the family's data (a report: *Report
+could not be loaded*).
 
 ### Import incomplete
 
