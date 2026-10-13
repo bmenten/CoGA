@@ -87,7 +87,7 @@ Een track, een pagina of IGV toont een mislukte vraag altijd als fout, nooit als
 - **Alles achter een login.** De referentierouters (`chromosomes`, `cnvs`, `dgv`, `blacklist`, `segmental-duplications`) leggen de login op al hun endpoints; de andere routers vragen hem per endpoint.
 - **Projectgebonden toegang.** Familie- en sampletracks lopen via het toegangscheckpoint (hoofdstuk 2). Wie een `family_id` kent maar er geen toegang toe heeft, krijgt de tracks niet.
 - **Uploads alleen voor beheerders.** Een BED-track uploaden (`POST /api/bed/upload/…`) vraagt `get_current_admin_user`, en het bronbestand wordt geregistreerd.
-- **Herkomst van de tracks.** Elke rij in de interval-tabel draagt haar bron en bestandsnaam; `sample_interval_track_sources` houdt per sample, soort, bron en bestand het aantal rijen en het uploadmoment bij.
+- **Herkomst van de tracks.** Elke rij in de interval-tabel draagt haar bron en bestandsnaam; `sample_interval_track_sources` houdt per sample, soort, bron en bestand het aantal rijen en het uploadmoment bij. Rekent de import de waarden van een track om, dan legt `sample_interval_track_sources` ook die omrekening vast (`normalization`): bij HiFiCNV worden het kopieaantal en de diepte een log2-ratio.
 
 ## Belangrijkste bestanden
 
