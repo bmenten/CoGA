@@ -58,18 +58,18 @@ security gates (`deps`, `secret-scan`, `codeql`) are in `.github/workflows/secur
 | **backend** | `pip install -r backend/requirements-dev.txt`, `ruff check .`, `mypy`, `scripts/generate-api-types.py --check`, `pytest -q` | Lint (`[tool.ruff]` in `pyproject.toml`); a type check of the clinical-critical modules listed under `[tool.mypy]`; a check that the frontend's generated API types (`frontend/src/lib/apiSchema.generated.ts`) match the backend's OpenAPI schema; then the unit suite with its coverage floors, which fail if a module the type check lists has none. |
 | **smoke** | `pytest backend/tests/integration` against Postgres and ClickHouse service containers | The real startup: schema baselines, admin seed, health probe. Records coverage for the `coverage` job. |
 | **e2e** | `pytest backend/tests/e2e` against the same services | The golden-trio pipeline and the demo bundles against documented expected results (see [TF-09c](regulatory/TF-09c-e2e-pipeline-verification.md)). Records coverage for the `coverage` job. |
-| **coverage** | combines the `backend`, `smoke` and `e2e` coverage data, then `scripts/check-coverage-floor.py --combined` | Floors on the combined figure for the modules only real datastores exercise (import pipeline, integrity anchors, sign-out), which the unit job under-reports. Not a required check. |
+| **coverage** | combines the `backend`, `smoke` and `e2e` coverage data, then `scripts/check-coverage-floor.py --combined` | Floors on the combined figure for the modules only real datastores exercise (import pipeline, integrity anchors, sign-out), which the unit job under-reports. A required check. |
 | **frontend** | `npm ci`, `npm run tsc`, `npm run lint`, `npm run test:coverage` | Type check, ESLint and vitest. The type check includes `src/lib/apiContract.ts`: each hand-written API type in `apiTypes.ts` must accept the response shape the backend's schema declares. The React hooks and jsx-a11y rules are errors, and `npm run lint` fails on any warning (`--max-warnings 0`). vitest fails below the coverage floors in `vite.config.mts`: a global one, and a separate one for `components/visualizations`. |
 | **e2e-playwright** | seeds the golden trio, then Playwright drives Chromium against a uvicorn backend and the production frontend (the built bundle served by `server.mjs`, with its CSP) | Browser journeys; see [TF-09d](regulatory/TF-09d-browser-e2e-verification.md), which includes a manual procedure for auditors. |
 | **sbom** | CycloneDX SBOMs for the backend and the frontend, uploaded as artifacts | Supply-chain evidence (see [sbom/README.md](../sbom/README.md)). Not a required check. |
 | **images** | `docker build` of `backend/Dockerfile` and `frontend/Dockerfile` at their `production` targets, as `ci/cloudbuild.*.yaml` build them: the repository root as context, the same build arguments, the backend stamped with `VERSION` and the 12-character commit as `build.yml` stamps a release. Then each image runs one command: the backend imports the app and reports that version and commit, the frontend loads `server.mjs` and holds `dist/index.html`; neither runs as root | `build.yml` builds the images only after a merge, and not at all until Google Cloud is configured, so this is the build that checks a pull request's Dockerfiles. Nothing is pushed: the job has no registry credentials. `backend/tests/test_deployment_config.py` fails when these builds drift from Cloud Build's. Not a required check: making it one is the owner's setting in branch protection. |
 | **catalogue** | `scripts/check-test-catalogue.sh`, then `scripts/check-handleiding-sync.sh` | Fails when a test file has no row here or a row names a file that no longer exists, and when the handleiding HTML no longer matches its Markdown chapters. |
 
-Ten checks are required status checks on `main`, with strict (up-to-date-before-merge)
-enforcement: `backend`, `frontend`, `smoke`, `e2e`, `e2e-playwright` and `catalogue` from
-`ci.yml`, and `deps`, `secret-scan` and the two `codeql` checks (Python,
-JavaScript/TypeScript) from `security.yml`. `coverage`, `sbom` and `images` run but are not
-required.
+Twelve checks are required status checks on `main` (the ruleset `CoGA_branch_protect`):
+`backend`, `frontend`, `coverage`, `smoke`, `e2e`, `e2e-playwright` and `catalogue` from
+`ci.yml`, `deps`, `secret-scan` and the two `codeql` checks (Python, JavaScript/TypeScript)
+from `security.yml`, and GitHub's `CodeQL` code-scanning result. A branch need not be up to
+date with `main` before it merges. `sbom` and `images` run but are not required.
 How the protection is enforced, and where it falls short, is in
 [TF-18 §6](regulatory/TF-18-change-configuration-management.md).
 

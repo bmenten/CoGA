@@ -60,7 +60,7 @@
 | D4 | Approval to **pin all backend runtime dependencies** to exact versions | ✅ **Approved and implemented.** `backend/requirements.txt` pins every package to an exact, hash-verified version and is installed with `--require-hashes` ([TF-08 §A.1](TF-08-soup-register.md)). |
 | D5 | Production Postgres & ClickHouse versions; pin container base-image digests | ✅ PostgreSQL 16 (Cloud SQL `POSTGRES_16` on Google Cloud) and ClickHouse 26.8 LTS; every container image is pinned by digest ([TF-08 §A.3](TF-08-soup-register.md)). |
 | D6 | Confirm SRS will be produced as a controlled document / requirements register | ✅ Yes — [TF-09a](TF-09a-software-requirements-specification.md) is the SRS, revised under change control (TF-18). |
-| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | ✅ **Done**, with strict enforcement. Still open: `enforce_admins` and a required approving review (4-eye). See [TF-18 §6](TF-18-change-configuration-management.md). |
+| D7 | Enforce CI gates as **required status checks** on `main`? (owner + date) | ✅ **Done**: twelve required checks in the ruleset `CoGA_branch_protect`, without the up-to-date requirement since 2026-10-13. Still open: an administrator can change the ruleset, and a required approving review (4-eye). See [TF-18 §6](TF-18-change-configuration-management.md). |
 
 ## E. Security, usability & data protection → TF-12, TF-13, TF-14
 | # | Question | Answer |
