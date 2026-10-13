@@ -847,22 +847,30 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
     monkeypatch.setattr(ped_service, "_existing_family_rows", existing_rows)
     monkeypatch.setattr(ped_service, "delete_family_small_variants", _recorder(postgres, "delete small variants"))
     monkeypatch.setattr(ped_service, "delete_family_structural_variants", _recorder(postgres, "delete SVs"))
+    session = postgres.session("ped")
 
-    await ped_service._replace_existing_families(
-        postgres.session("ped"),  # type: ignore[arg-type]
+    replaced = await ped_service._replace_existing_families(
+        session,  # type: ignore[arg-type]
         ["FAM_B", "FAM_A"],
         True,
         _admin_user(),
     )
 
-    trace = postgres.trace("ped")
-    assert trace[:4] == [
+    # The variants are not deleted yet: the upload deletes them last, before its commit, so
+    # a check that refuses it leaves them (SAFE-25).
+    assert postgres.trace("ped") == [
         f"lock {_key(SMALL_VARIANTS, 'uuid-a')}",
         f"lock {_key(STRUCTURAL_VARIANTS, 'uuid-a')}",
         f"lock {_key(SMALL_VARIANTS, 'uuid-b')}",
         f"lock {_key(STRUCTURAL_VARIANTS, 'uuid-b')}",
     ]
-    assert trace[4:] == ["delete small variants", "delete SVs"] * 2
+    assert replaced == [("GRCh38", "uuid-b"), ("GRCh38", "uuid-a")]
+
+    await ped_service._delete_replaced_family_variants(replaced)
+
+    # Under the locks the replacement took, which its transaction still holds.
+    assert postgres.trace("ped")[4:] == ["delete small variants", "delete SVs"] * 2
+    assert len(session.held) == 4
 
 
 @pytest.mark.asyncio

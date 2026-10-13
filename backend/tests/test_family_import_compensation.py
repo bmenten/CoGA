@@ -89,8 +89,9 @@ class _FamilyRow(_FakeSession):
     documents, told apart by what it binds: the mark binds an ``entry`` for its
     ``import_key``; an import's failure and a completed import's clear bind the new
     ``flag`` and ``unfinished`` (JSON null: none) and ``imported_scopes`` (JSON null: left
-    as it is); a single-file upload's record binds no flag, its ``imported_scopes``, and
-    ``unfinished`` only when it struck something off a whole-family entry."""
+    as it is); a single-file upload's record binds its ``imported_scopes``, ``unfinished``
+    only when it struck something off a whole-family entry, and ``flag`` only when it
+    brought again a dataset the flag names."""
 
     def __init__(self, flag=None, unfinished=None, imported=None) -> None:
         super().__init__()
@@ -124,7 +125,8 @@ class _FamilyRow(_FakeSession):
                 self.unfinished = json.loads(params["unfinished"])
         else:
             self.flag = json.loads(params["flag"])
-            self.unfinished = json.loads(params["unfinished"])
+            if "unfinished" in params:
+                self.unfinished = json.loads(params["unfinished"])
             recorded = json.loads(params.get("imported_scopes", "null"))
             if recorded is not None:
                 self.imported = recorded
@@ -1071,10 +1073,9 @@ async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_
     with pytest.raises(RuntimeError, match="database unavailable"):
         await uploads(kind, row, overwrite=True, rows=3)
 
-    # Nothing committed, and no rows the family does not record: the small-variant upload
-    # records once its rows are written and its clean-up removes them again; the others
-    # record before their first write.
-    assert ("COMMIT", None) not in row.executed
+    # Nothing of the upload committed, and no rows the family does not record: the
+    # small-variant upload records once its rows are written and its clean-up removes them
+    # again; the others record before their first write.
     assert row.imported is None
     writes = [
         (event[0], event[2])
@@ -1084,7 +1085,15 @@ async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_
     if kind == "small_variants":
         assert [name for name, _ in writes] == ["delete", "insert", "delete"]
         assert writes[-1][1] == {"source": "clair3"}
+        # It had deleted the callset it replaces: the one commit is the flag that names
+        # it, so that the family does not read as complete (SAFE-25).
+        assert [sql for sql, _ in row.executed].count("COMMIT") == 1
+        assert row.flag["failed_datasets"] == ["snv"]
+        assert row.flag["scopes"] == {"snv": {"source": "clair3", "samples": None}}
+        assert row.flag["failed_jobs"] == {"snv": None} and row.flag["job_id"] is None
     else:
+        assert ("COMMIT", None) not in row.executed
+        assert row.flag is None
         assert writes == []
     assert ("INSERT INTO repeat_expansions", {"sample": "S1"}) not in row.executed
 

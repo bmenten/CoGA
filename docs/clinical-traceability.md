@@ -176,7 +176,9 @@ Five gates run first, in this order:
    gives 409 (`gate: "sample_qc"`), unless the request sets `acknowledge_qc` with a
    `qc_acknowledgement_reason` (422 without).
 5. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
-   that left it partly loaded ([data-import.md](data-import.md)) gives 409
+   that left it partly loaded ([data-import.md](data-import.md)), or by a small-variant upload
+   that failed after deleting the callset it replaced (with no import job;
+   [What an upload records](data-import.md#what-an-upload-records)), gives 409
    (`gate: "import_incomplete"`, naming the failed datasets and the import job), unless the
    request sets `acknowledge_import_incomplete` with an
    `import_incomplete_acknowledgement_reason` (422 without). Any set flag counts, whatever its
@@ -185,8 +187,8 @@ Five gates run first, in this order:
    the same 409 (`import_unfinished`, naming the job and the datasets it had not finished,
    which may be partly written or missing), and the one acknowledgement covers both. Every
    family page shows *Import incomplete* while either is set. The flag clears only once an
-   import has imported each failed dataset again (in any mode, for the same samples and
-   small-variant source; a later failure keeps an earlier one's failed datasets, each with its
+   import has imported each failed dataset again, or an upload has brought it again (in any
+   mode, for the same samples and small-variant source; a later failure keeps an earlier one's failed datasets, each with its
    job, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
    to start without its whole backup, may have lost rows of any dataset of the family,
    whichever import or upload wrote them: its flag names every dataset of the import as
