@@ -657,6 +657,20 @@ export interface ApiGenomeTrackAvailability {
   repeat_expansions: boolean;
 }
 
+/**
+ * A repeat allele's, call's or locus's status. `not_assessed` is a call at a locus without
+ * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26); `unknown` a
+ * no-call.
+ */
+export type ApiRepeatStatus =
+  | 'normal'
+  | 'review'
+  | 'not_assessed'
+  | 'intermediate'
+  | 'premutation'
+  | 'pathogenic'
+  | 'unknown';
+
 export interface ApiRepeatExpansionMotifCount {
   motif: string;
   count: number;
@@ -673,7 +687,7 @@ export interface ApiRepeatExpansionAllele {
   motif_spans?: string | null;
   interrupted?: boolean;
   interruption_label?: string | null;
-  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
+  status: ApiRepeatStatus;
 }
 
 export interface ApiRepeatExpansionSampleCall {
@@ -684,7 +698,7 @@ export interface ApiRepeatExpansionSampleCall {
   genotype: string;
   allele_count: number;
   alleles: ApiRepeatExpansionAllele[];
-  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
+  status: ApiRepeatStatus;
   // Why the call needs a second look (a male with two different chrX alleles).
   note?: string | null;
 }
@@ -707,7 +721,7 @@ export interface ApiRepeatExpansionRow {
   // The first count of a premutation (FMR1 55), between the grey zone and the pathogenic
   // threshold; absent for a locus without one.
   premutation_min?: number | null;
-  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
+  status: ApiRepeatStatus;
   calls: Record<string, ApiRepeatExpansionSampleCall>;
 }
 
@@ -948,7 +962,7 @@ export interface ApiRepeatExpansionTrackItem {
   motif?: string | null;
   warning_min?: number | null;
   pathogenic_min?: number | null;
-  status: 'normal' | 'review' | 'intermediate' | 'premutation' | 'pathogenic' | 'unknown';
+  status: ApiRepeatStatus;
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
 }

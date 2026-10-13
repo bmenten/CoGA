@@ -87,6 +87,8 @@
   --color-haplotype-deleted-stroke: rgba(78, 91, 103, 0.6);
   --color-repeat-normal: #9ca3af;
   --color-repeat-review: #7c3aed;
+  /* A call at a locus without thresholds (CLIN-26): neither normal grey nor a finding's colour. */
+  --color-repeat-not-assessed: #0369a1;
   --color-repeat-intermediate: #d97706;
   --color-repeat-premutation: #ea580c;
   --color-repeat-pathogenic: #b42318;

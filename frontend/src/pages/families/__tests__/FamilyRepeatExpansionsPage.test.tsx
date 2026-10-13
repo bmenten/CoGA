@@ -465,6 +465,108 @@ describe('FamilyRepeatExpansionsPage — FMR1 premutation', () => {
   });
 });
 
+// CLIN-26 — a call whose TRID no catalogue row names got no thresholds and read Normal, so
+// the aberrant-only view hid it, whatever its size.
+describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', () => {
+  const members = [
+    { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
+    { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
+  ];
+  const call = (sample: string, status: string, counts: number[]) => ({
+    sample,
+    role: sample === 'PROBAND' ? 'proband' : 'mother',
+    affected: sample === 'PROBAND',
+    sex: sample === 'PROBAND' ? 'male' : 'female',
+    genotype: '1/2',
+    allele_count: counts.length,
+    status,
+    alleles: counts.map((count) => ({ repeat_count: count, status })),
+  });
+  const uncatalogued = {
+    locus_id: 'chr2_1000000_1000030_CAG',
+    gene: 'chr2_1000000_1000030_CAG',
+    display_name: 'chr2_1000000_1000030_CAG',
+    disease: 'chr2_1000000_1000030_CAG',
+    chr: '2',
+    start: 1000000,
+    end: 1000030,
+    motif: 'CAG',
+    warning_min: null,
+    pathogenic_min: null,
+    status: 'not_assessed',
+    calls: {
+      PROBAND: call('PROBAND', 'not_assessed', [12, 300]),
+      MOTHER: call('MOTHER', 'not_assessed', [12, 14]),
+    },
+  };
+  const htt = {
+    locus_id: 'HD_HTT',
+    gene: 'HTT',
+    display_name: 'HTT',
+    disease: 'Huntington disease',
+    chr: '4',
+    start: 3074876,
+    end: 3074933,
+    motif: 'CAG',
+    warning_min: 27,
+    pathogenic_min: 36,
+    status: 'normal',
+    calls: { PROBAND: call('PROBAND', 'normal', [17, 20]) },
+  };
+
+  const renderWith = (loci: unknown[]) => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members, projects: [] } });
+      }
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({ data: { samples: members, loci } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
+          <Routes>
+            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+  const callsWithoutThresholds = () =>
+    screen
+      .getByText('Calls at loci without thresholds')
+      .closest('.family-workspace-stat')
+      ?.querySelector('.family-workspace-stat-value')?.textContent;
+
+  it('labels its calls Not assessed, counts them and keeps the locus in the aberrant-only view', async () => {
+    renderWith([uncatalogued, htt]);
+
+    const row = await screen.findByRole('row', { name: /chr2_1000000_1000030_CAG/ });
+    expect(row).toHaveClass('family-repeat-table-row--not_assessed', 'family-repeat-table-row--abnormal');
+    // The locus flag and both members' calls; never Normal.
+    expect(within(row).getAllByText('Not assessed')).toHaveLength(3);
+    expect(within(row).queryByText('Normal')).not.toBeInTheDocument();
+    expect(within(row).getByText('12 / 300')).toBeInTheDocument();
+    expect(row.querySelectorAll('td').item(3).textContent?.trim()).toBe('No reference cutoff');
+    expect(callsWithoutThresholds()).toBe('2');
+
+    fireEvent.click(screen.getByLabelText('Aberrant only'));
+    expect(screen.getByText('1 of 2 loci')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /chr2_1000000_1000030_CAG/ })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /HTT/ })).not.toBeInTheDocument();
+  });
+
+  it('counts none when every call was assessed', async () => {
+    renderWith([htt]);
+
+    expect(await screen.findByRole('row', { name: /HTT/ })).toBeInTheDocument();
+    expect(callsWithoutThresholds()).toBe('0');
+    expect(screen.queryByText('Not assessed')).not.toBeInTheDocument();
+  });
+});
+
 describe('repeat cutoff labels', () => {
   // A locus that is pathogenic by contraction cannot be stated as a lower bound: VWA1
   // is normal at exactly 2, and "red ≥ 1" would mark every healthy call.
@@ -505,6 +607,19 @@ describe('repeat cutoff labels', () => {
       'uncatalogued locus',
       { warning_min: null, pathogenic_min: null, benign_min: null, benign_max: null, pathogenic_max: null },
       'No reference cutoff',
+    ],
+    // A benign range is not a threshold: the locus's calls read Not assessed (CLIN-26).
+    [
+      'locus with a benign range only (POLG)',
+      { warning_min: null, pathogenic_min: null, benign_min: 10, benign_max: 10, pathogenic_max: null },
+      'No reference cutoff',
+    ],
+    // One threshold is a cutoff: "No reference cutoff" is said only where the calls read
+    // Not assessed.
+    [
+      'expansion locus with a grey zone and no pathogenic threshold',
+      { warning_min: 20, pathogenic_min: null, benign_min: null, benign_max: null, pathogenic_max: null },
+      'orange ≥ 20',
     ],
   ];
 
