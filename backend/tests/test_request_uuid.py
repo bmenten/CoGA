@@ -379,9 +379,10 @@ def test_the_variant_explorer_filters_by_a_panel_named_in_braces(monkeypatch: py
         )
         return asyncio.run(explorer.search_global_small_variants(session, user=None, filters=filters))  # type: ignore[arg-type]
 
-    # The explorer reads the panel as the family page does (CLIN-48): its genes, then its
-    # regions for the explorer's assembly and its genes' loci there, under the canonical id.
-    found = _RecordingSession(_Rows([{"gene_symbol": "MYH7"}]), _Rows([]), _Rows([]))
+    # The explorer reads the panel as the family page does (CLIN-48): the token of a kept
+    # resolution (ENG-14; none here, so nothing is kept), its genes, then its regions for the
+    # explorer's assembly and its genes' loci there, under the canonical id.
+    found = _RecordingSession(_Rows([]), _Rows([{"gene_symbol": "MYH7"}]), _Rows([]), _Rows([]))
     search("{" + CANONICAL + "}", found)
     # Read as written, the id in braces found no panel, and the filter was dropped: every
     # variant was listed, not the panel's.
