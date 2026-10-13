@@ -873,3 +873,184 @@ def test_a_vep_tsv_parse_that_fails_leaves_no_temporary_database(
         _parse_vep_tsv_annotation_upload(_vep_upload(header + row + "x" * 300 + "\n"))
     assert too_long.value.status_code == 413
     assert list(tmp_path.iterdir()) == []
+
+
+# --------------------------------------------------------------------------- #
+# A multi-sample VCF: each sample's call and the site's QUAL (REQ-DATA-001)
+# --------------------------------------------------------------------------- #
+
+_TRIO = ("PROBAND", "MOTHER", "FATHER")
+
+_TRIO_VCF = (
+    "##fileformat=VCFv4.2\n"
+    '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
+    '##FORMAT=<ID=GQ,Number=1,Type=Integer,Description="Genotype quality">\n'
+    '##FORMAT=<ID=DP,Number=1,Type=Integer,Description="Read depth">\n'
+    '##FORMAT=<ID=MIN_DP,Number=1,Type=Integer,Description="Minimum depth of a reference block">\n'
+    '##FORMAT=<ID=MED_DP,Number=1,Type=Integer,Description="Median depth of a reference block">\n'
+    '##FORMAT=<ID=AD,Number=R,Type=Integer,Description="Allele depths">\n'
+    '##FORMAT=<ID=AF,Number=A,Type=Float,Description="Alternate allele fractions">\n'
+    '##FORMAT=<ID=VAF,Number=A,Type=Float,Description="Variant allele fractions">\n'
+    '##FORMAT=<ID=PS,Number=1,Type=Integer,Description="Phase set">\n'
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tPROBAND\tMOTHER\tFATHER\n"
+    # Every per-call field, in each sample's own column.
+    "chr1\t1000\t.\tA\tG\t47.3\tPASS\t.\tGT:GQ:DP:AD:AF\t0/1:35:30:16,14:0.467\t0/0:40:28:28,0:0\t1/1:20:12:0,12:1\n"
+    # Another FORMAT order, two alternate alleles, and a call with every field missing.
+    "chr1\t2000\t.\tC\tT,G\t12\tPASS\t.\tAD:DP:GT:GQ:AF\t2,10,9:21:1/2:15:0.476,0.429\t11,9,0:20:0/1:30:0.45,0\t.:.:./.:.:.\n"
+    # DeepVariant's VAF; the depth from DP, else a reference block's MED_DP, else its
+    # MIN_DP; no QUAL.
+    "chr2\t3000\t.\tG\tA\t.\tPASS\t.\tGT:GQ:DP:MIN_DP:MED_DP:AD:VAF\t"
+    "0/1:28:25:20:23:12,13:0.52\t0/0:50:.:17:19:.:.\t0/0:45:.:22:.:.:.\n"
+    # A call that stops before its FORMAT does.
+    "chr2\t4000\t.\tT\tC\t30\tPASS\t.\tGT:GQ:DP:AD:AF\t0/1:30\t0/0:42:31:31,0:0\t0/1:33:29:15,14:0.483\n"
+    # Phased calls in one phase set.
+    "chr3\t5000\t.\tA\tT\t60\tPASS\t.\tGT:PS:DP\t0|1:4800:22\t1|0:4800:24\t0|0:.:20\n"
+    # A FORMAT without GT.
+    "chr3\t6000\t.\tG\tC\t8.5\tLowQual\t.\tDP:AD\t25:20,5\t30:30,0\t27:27,0\n"
+    # A row that lacks a sample's column.
+    "chr4\t7000\t.\tC\tA\t50\tPASS\t.\tGT:DP\t0/1:30\t0/0:28\n"
+)
+
+
+async def _upload_trio_vcf(monkeypatch: pytest.MonkeyPatch, text: str) -> tuple[dict, list]:
+    """Upload ``text`` as the trio's family VCF; returns the result and the records stored."""
+    stored: list = []
+
+    async def no_rows(*_args, **_kwargs):
+        return 0
+
+    async def store(_assembly, _family, _projects, records, **_kwargs):
+        stored.extend(records)
+
+    async def no_op(*_args, **_kwargs):
+        return None
+
+    for name, fn in {
+        "count_family_small_variants": no_rows,
+        "insert_small_variant_records": store,
+        "refresh_family_small_variant_summaries": no_op,
+    }.items():
+        monkeypatch.setattr(variant_upload_service, name, fn)
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+    context = FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM001",
+        project_ids=["project-uuid"],
+        sample_rows=[],
+        sample_uuid_to_name={f"{name.lower()}-uuid": name for name in _TRIO},
+        sample_name_to_uuid={name: f"{name.lower()}-uuid" for name in _TRIO},
+        affected_sample_names=["PROBAND"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+    sample_contexts = {
+        name: SampleMetadataContext(
+            sample_uuid=f"{name.lower()}-uuid",
+            sample_id=name,
+            family_uuid="family-uuid",
+            family_id="FAM001",
+            sex="und",
+            project_ids=["project-uuid"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+        for name in _TRIO
+    }
+    result = await variant_upload_service.upload_family_small_variant_file(
+        FakeSession(),  # type: ignore[arg-type]
+        context=context,
+        sample_contexts=sample_contexts,
+        file=UploadFile(file=BytesIO(text.encode()), filename="family.vcf"),
+        overwrite=False,
+        format_hint="clair3",
+    )
+    return result, stored
+
+
+def _calls_by_sample(record) -> dict[str, tuple]:
+    return {call.sample: (call.gt, call.gq, call.dp, call.ad, call.af, call.ps) for call in record.calls}
+
+
+@pytest.mark.asyncio
+async def test_a_multi_sample_vcf_gives_each_sample_its_own_call_and_the_site_its_qual(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    result, records = await _upload_trio_vcf(monkeypatch, _TRIO_VCF)
+
+    # The row without the father's column is left out and counted, not stored with its
+    # calls paired to the wrong samples.
+    assert (result["inserted"], result["skipped_malformed"]) == (6, 1)
+    assert [(record.chr, record.start, record.ref, record.alt) for record in records] == [
+        ("1", 1000, "A", "G"),
+        ("1", 2000, "C", "T,G"),
+        ("2", 3000, "G", "A"),
+        ("2", 4000, "T", "C"),
+        ("3", 5000, "A", "T"),
+        ("3", 6000, "G", "C"),
+    ]
+    # One call per sample column, in the column order of the #CHROM line.
+    assert all([call.sample for call in record.calls] == list(_TRIO) for record in records)
+    # The site's QUAL, None where the column holds ".".
+    assert [record.qual for record in records] == [47.3, 12.0, None, 30.0, 60.0, 8.5]
+
+    # (GT, GQ, DP, AD, AF, PS), each read by its FORMAT key from the sample's own column.
+    snv, multiallelic, deepvariant, short_call, phased, no_gt = (_calls_by_sample(record) for record in records)
+    assert snv == {
+        "PROBAND": ("0/1", 35.0, 30, [16, 14], [0.467], None),
+        "MOTHER": ("0/0", 40.0, 28, [28, 0], [0.0], None),
+        "FATHER": ("1/1", 20.0, 12, [0, 12], [1.0], None),
+    }
+    # AD keeps a depth per allele and AF a fraction per alternate allele; a missing
+    # field is missing, never zero.
+    assert multiallelic == {
+        "PROBAND": ("1/2", 15.0, 21, [2, 10, 9], [0.476, 0.429], None),
+        "MOTHER": ("0/1", 30.0, 20, [11, 9, 0], [0.45, 0.0], None),
+        "FATHER": ("./.", None, None, [], [], None),
+    }
+    # The depth is DP, else a reference block's MED_DP, else its MIN_DP; the alt fraction
+    # is AF, else DeepVariant's VAF.
+    assert deepvariant == {
+        "PROBAND": ("0/1", 28.0, 25, [12, 13], [0.52], None),
+        "MOTHER": ("0/0", 50.0, 19, [], [], None),
+        "FATHER": ("0/0", 45.0, 22, [], [], None),
+    }
+    # A call with fewer values than its FORMAT has keys lacks the rest; nothing shifts.
+    assert short_call["PROBAND"] == ("0/1", 30.0, None, [], [], None)
+    assert short_call["FATHER"] == ("0/1", 33.0, 29, [15, 14], [0.483], None)
+    assert phased == {
+        "PROBAND": ("0|1", None, 22, [], [], 4800),
+        "MOTHER": ("1|0", None, 24, [], [], 4800),
+        "FATHER": ("0|0", None, 20, [], [], None),
+    }
+    # Without a GT the call is a no-call, with its depths.
+    assert no_gt == {
+        "PROBAND": ("./.", None, 25, [20, 5], [], None),
+        "MOTHER": ("./.", None, 30, [30, 0], [], None),
+        "FATHER": ("./.", None, 27, [27, 0], [], None),
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_stored_row_keeps_each_call_under_its_own_sample(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.app.services.clickhouse_variant_storage import small_variant_record_entries
+
+    _result, records = await _upload_trio_vcf(monkeypatch, _TRIO_VCF)
+
+    snv, multiallelic, deepvariant = small_variant_record_entries(
+        "GRCh38", "family-uuid", ["project-uuid"], records[:3]
+    )
+    assert snv["qual"] == 47.3
+    assert snv["calls.sampleId"] == list(_TRIO)
+    assert snv["calls.gt"] == ["0/1", "0/0", "1/1"]
+    assert snv["calls.gq"] == [35, 40, 20]
+    assert snv["calls.dp"] == [30, 28, 12]
+    assert snv["calls.ad"] == [[16, 14], [28, 0], [0, 12]]
+    assert snv["calls.af"] == [[0.467], [0.0], [1.0]]
+    assert multiallelic["calls.ad"] == [[2, 10, 9], [11, 9, 0], []]
+    assert multiallelic["calls.dp"] == [21, 20, None]
+    assert deepvariant["qual"] is None
+    assert deepvariant["calls.dp"] == [25, 19, 22]

@@ -1,7 +1,7 @@
 import { render as rtlRender, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QueryClientProvider, type QueryClient } from '@tanstack/react-query';
 import type { ReactElement } from 'react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { beforeEach, describe, it, vi, type Mock } from 'vitest';
 import LoginPage from '../LoginPage';
 import api from '../../../lib/api';
@@ -231,5 +231,90 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /login/i }));
 
     expect(await screen.findByText('Small variant workspace')).toBeInTheDocument();
+  });
+});
+
+// The page `next` asks for is opened only when it is a page of this site (REQ-UI-006): a
+// `next` that leaves the site, runs a script, is not a path, or leads back to the login or
+// sign-up page sends the user to the dashboard instead, after a sign-in and for a user
+// already signed in, and the login page promises no requested page.
+describe('LoginPage: the page `next` asks for', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    clearSession();
+    localStorage.clear();
+    queryClient = createTestQueryClient();
+  });
+
+  // Where the user ended up, on any page but the login page.
+  const LandedOn = () => {
+    const location = useLocation();
+    return <p data-testid="landed-on">{`${location.pathname}${location.search}`}</p>;
+  };
+
+  const renderLoginWithNext = (next: string) =>
+    render(
+      <MemoryRouter initialEntries={[`/login?next=${encodeURIComponent(next)}`]}>
+        <Routes>
+          <Route path="/login" element={<LoginPage />} />
+          <Route path="*" element={<LandedOn />} />
+        </Routes>
+      </MemoryRouter>
+    );
+
+  const signIn = () => {
+    (api.post as unknown as Mock).mockResolvedValue({
+      data: { access_token: 'token-123', role: 'viewer' },
+    });
+    (api.get as unknown as Mock).mockResolvedValue({
+      data: { email: 'viewer@example.com', role: 'viewer' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/email/i), {
+      target: { value: 'viewer@example.com' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/password/i), {
+      target: { value: 'viewer-password' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /login/i }));
+  };
+
+  const UNSAFE_NEXT: [string, string][] = [
+    ['another site', 'https://evil.example/phish'],
+    ['another site, without a scheme', '//evil.example/phish'],
+    ['a script', 'javascript:alert(1)'],
+    ['no path of this site', 'evil.example/phish'],
+    ['the sign-up page', '/signup'],
+    ['the login page', '/login?next=%2Ffamilies%2FFAM1'],
+    ['nothing', ''],
+  ];
+
+  it.each(UNSAFE_NEXT)('opens the dashboard after a sign-in, not %s', async (_target, next) => {
+    renderLoginWithNext(next);
+    expect(
+      screen.queryByText(/sign in to continue to your requested page/i)
+    ).not.toBeInTheDocument();
+
+    signIn();
+
+    expect(await screen.findByTestId('landed-on')).toHaveTextContent(/^\/dashboard$/);
+    expect(localStorage.getItem('token')).toBe('token-123');
+  });
+
+  it.each(UNSAFE_NEXT)('sends a signed-in user to the dashboard, not %s', (_target, next) => {
+    localStorage.setItem('token', 'token-123');
+
+    renderLoginWithNext(next);
+
+    expect(screen.getByTestId('landed-on')).toHaveTextContent(/^\/dashboard$/);
+  });
+
+  it('sends a signed-in user on to a page of this site that next asks for', () => {
+    localStorage.setItem('token', 'token-123');
+
+    renderLoginWithNext('/families/FAM1/structural-variants?page=2');
+
+    expect(screen.getByTestId('landed-on')).toHaveTextContent(
+      /^\/families\/FAM1\/structural-variants\?page=2$/
+    );
   });
 });
