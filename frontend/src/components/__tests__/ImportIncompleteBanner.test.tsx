@@ -10,6 +10,7 @@ import ImportIncompleteBanner, {
   importIncompleteFromMetadata,
   importUnfinishedFromMetadata,
   pendingDatasets,
+  wholeFamilyImportKeys,
 } from '../ImportIncompleteBanner';
 
 // As family_package_registration._flag_family_import_incomplete records it.
@@ -34,6 +35,30 @@ const OLD_FLAG = {
   at: FLAG.at,
   failed_datasets: FLAG.failed_datasets,
   imported_datasets: FLAG.imported_datasets,
+};
+// As family_package_registration records them after an overwrite that failed and whose
+// restore did not finish: the flag names the import's datasets as failed, and its entry
+// stays, naming every dataset of the family (the SV calls came with another import).
+const RESTORE_JOB = '5b2e3c4d-6f7a-4b8c-9d0e-1f2a3b4c5d6e';
+const RESTORE_FLAG = {
+  at: '2026-10-13T09:12:00+00:00',
+  failed_datasets: ['coverage', 'snv'],
+  imported_datasets: [],
+  job_id: RESTORE_JOB,
+};
+const SV_CALLS = { dataset: 'sv_needlr', scope: { source: null, samples: null } };
+const WHOLE_FAMILY = {
+  [RESTORE_JOB]: {
+    job_id: RESTORE_JOB,
+    at: '2026-10-13T09:00:00+00:00',
+    datasets: ['coverage', 'snv', 'sv_needlr'],
+    finished_datasets: [],
+    whole_family: [
+      { dataset: 'coverage', scope: { source: null, samples: ['S1'] } },
+      { dataset: 'snv', scope: { source: 'auto', samples: null } },
+      SV_CALLS,
+    ],
+  },
 };
 
 describe('ImportIncompleteBanner', () => {
@@ -109,6 +134,42 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).toHaveTextContent(/Each dataset.s error is recorded in import job 3f6c1a2e/);
   });
 
+  it('asks for the whole family again after a restore that did not finish', () => {
+    render(
+      <ImportIncompleteBanner
+        metadata={{ import_incomplete: RESTORE_FLAG, import_unfinished: WHOLE_FAMILY }}
+      />,
+    );
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(/failed for coverage and snv\./);
+    expect(banner).toHaveTextContent(
+      `A family-package import (2026-10-13 09:00 UTC), import job ${RESTORE_JOB}, failed, and putting this family’s data back as it was did not finish: coverage, snv and sv_needlr may be partly written or missing, whichever import wrote them.`,
+    );
+    // Not an import that is running or stopped: one whose restore did not finish.
+    expect(banner).not.toHaveTextContent(/still running/);
+    // Importing again what failed (coverage, snv) does not complete it.
+    expect(banner).toHaveTextContent(
+      'Import this family again in full, with overwrite: every dataset named here, not only those that failed. An update keeps the data already there.',
+    );
+    expect(banner).not.toHaveTextContent(/Import what failed/);
+    expect(banner).toHaveTextContent(/Sign-out needs this acknowledged with a reason/);
+  });
+
+  it('names what of the family is still to import again', () => {
+    // Imported again with overwrite: coverage and snv, so the flag went; the SV calls not.
+    const left = {
+      [RESTORE_JOB]: { ...WHOLE_FAMILY[RESTORE_JOB], datasets: ['sv_needlr'], whole_family: [SV_CALLS] },
+    };
+    render(<ImportIncompleteBanner metadata={{ import_unfinished: left }} />);
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(
+      /did not finish: sv_needlr may be partly written or missing, whichever import wrote it\./,
+    );
+    expect(banner).toHaveTextContent(/Import this family again in full, with overwrite/);
+  });
+
   it('still warns when an unfinished import records nothing to name', () => {
     render(<ImportIncompleteBanner metadata={{ import_unfinished: 'garbage' }} />);
 
@@ -172,6 +233,31 @@ describe('importUnfinishedFromMetadata', () => {
   it('names as pending what the import had not finished', () => {
     const [entry] = importUnfinishedFromMetadata({ import_unfinished: UNFINISHED });
     expect(pendingDatasets(entry)).toEqual(['haplotypes']);
+  });
+
+  it('reads the entry a restore that did not finish left as any other, every dataset pending', () => {
+    // The signed record and the sign-out refusal read it so: its datasets, none finished.
+    const [entry] = importUnfinishedFromMetadata({ import_unfinished: WHOLE_FAMILY });
+    expect(entry).toEqual({
+      key: RESTORE_JOB,
+      jobId: RESTORE_JOB,
+      at: WHOLE_FAMILY[RESTORE_JOB].at,
+      datasets: ['coverage', 'snv', 'sv_needlr'],
+      finishedDatasets: [],
+    });
+    expect(pendingDatasets(entry)).toEqual(['coverage', 'snv', 'sv_needlr']);
+  });
+});
+
+describe('wholeFamilyImportKeys', () => {
+  it('reads which entries a restore that did not finish left', () => {
+    expect(wholeFamilyImportKeys({ import_unfinished: { ...UNFINISHED, ...WHOLE_FAMILY } })).toEqual(
+      new Set([RESTORE_JOB]),
+    );
+    expect(wholeFamilyImportKeys({ import_unfinished: UNFINISHED })).toEqual(new Set());
+    expect(wholeFamilyImportKeys({ import_unfinished: 'garbage' })).toEqual(new Set());
+    expect(wholeFamilyImportKeys({ import_unfinished: { k: 'not an entry' } })).toEqual(new Set());
+    expect(wholeFamilyImportKeys(null)).toEqual(new Set());
   });
 });
 

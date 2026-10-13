@@ -72,16 +72,18 @@ def _context() -> FamilyMetadataContext:
 class _Family:
     """The family row's import state, changed as each statement documents.
 
-    ``unfinished`` is ``metadata.import_unfinished`` and ``incomplete`` is
-    ``metadata.import_incomplete``. A statement is told apart by what it binds: the
-    mark binds an ``entry``, an import's failure the merged flag as a ``payload``, the
-    success path's clear the ``flag`` and ``unfinished`` it computed under the row's lock,
-    and the end of a put-back import only its ``import_key``.
+    ``unfinished`` is ``metadata.import_unfinished``, ``incomplete`` is
+    ``metadata.import_incomplete`` and ``imported`` is ``metadata.imported_scopes``. A
+    statement is told apart by what it binds: the mark binds an ``entry``; an import's
+    failure and the success path's clear bind the ``flag``, ``unfinished`` and
+    ``imported_scopes`` they computed under the row's lock; and the end of a put-back
+    import only its ``import_key``.
     """
 
     def __init__(self) -> None:
         self.unfinished: dict[str, Any] = {}
         self.incomplete: dict[str, Any] | None = None
+        self.imported: dict[str, Any] | None = None
         self.events: list[tuple[Any, ...]] = []
 
     def session(self) -> "_FamilySession":
@@ -102,6 +104,7 @@ class _FamilySession:
                 "family_uuid": "family-uuid",
                 "flag": json.loads(json.dumps(family.incomplete)),
                 "unfinished": json.loads(json.dumps(family.unfinished)) or None,
+                "imported_scopes": json.loads(json.dumps(family.imported)),
             }
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         assert sql.startswith("UPDATE families"), f"unmodelled statement: {sql}"
@@ -114,9 +117,13 @@ class _FamilySession:
             family.incomplete = json.loads(params["payload"])
             family.events.append(("flagged",))
         elif "flag" in params:
-            # A completed import's clear: what is left of the flag and of the entries.
+            # An import's failure or a completed import's clear: what is left of the flag
+            # and of the entries, and what the family's imports imported (null: as is).
             family.incomplete = json.loads(params["flag"])
             family.unfinished = json.loads(params["unfinished"]) or {}
+            recorded = json.loads(params.get("imported_scopes", "null"))
+            if recorded is not None:
+                family.imported = recorded
             family.events.append(("cleared",))
         else:
             family.unfinished.pop(params["import_key"], None)
@@ -300,7 +307,9 @@ async def test_an_entry_another_import_removed_while_this_one_waited_is_written_
 async def test_a_stop_while_a_failed_overwrite_is_put_back_leaves_every_dataset_pending(
     family, monkeypatch
 ) -> None:
-    # snv finished, coverage failed: the restore rewrites every table, snv's included.
+    # snv finished, coverage failed: the restore rewrites every table, snv's included, and
+    # the SV calls an earlier import brought, which this one did not carry.
+    family.imported = {"sv_needlr": [{"source": None, "samples": None}]}
     _datasets(monkeypatch, {"snv": "imported", "coverage": RuntimeError("bad BED")})
     in_restore = asyncio.Event()
 
@@ -321,10 +330,11 @@ async def test_a_stop_while_a_failed_overwrite_is_put_back_leaves_every_dataset_
     await _stopped_in(family, in_restore, conflict_mode="overwrite")
 
     # Before: the entry still said snv had finished, though the restore had deleted it,
-    # so an overwrite of coverage alone would have cleared it.
+    # so an overwrite of coverage alone would have cleared it; and it named neither the SV
+    # calls (SAFE-16), so an overwrite of snv and coverage would have.
     entry = family.unfinished["job-1"]
     assert entry["finished_datasets"] == []
-    assert registration.pending_datasets(entry) == {"coverage", "snv"}
+    assert registration.pending_datasets(entry) == {"coverage", "snv", "sv_needlr"}
 
 
 @pytest.mark.asyncio

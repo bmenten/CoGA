@@ -1,34 +1,53 @@
-"""A restore that fails part-way flags every dataset of its import as failed (E2E, SAFE-13).
+"""A restore that fails part-way keeps the family marked until it is imported again in full
+(E2E, SAFE-13 and SAFE-16).
 
 An overwrite of an existing family that fails puts the family back from the backup it made
 first, table by table: the family's rows deleted, then the backup's re-inserted. A restore
-that fails part-way may already have deleted the family's rows of any dataset. Its
-import-incomplete flag named only the dataset that had failed, so an import of that dataset
-alone cleared the flag, and the family signed out without the incomplete-import gate while
-its small variants were gone (TF-06 H16, REQ-TRACE-013). The owner's decision (2026-10-09):
-the flag names every dataset of the import as failed, so the gate holds until an import has
-imported each of them again.
+that fails part-way may already have deleted the family's rows of any dataset, whichever
+import wrote them. Its import-incomplete flag named only the dataset that had failed, so an
+import of that dataset alone cleared the flag, and the family signed out without the
+incomplete-import gate while its small variants were gone (TF-06 H16, REQ-TRACE-013). The
+owner's decision (2026-10-09): the flag names every dataset of the import as failed. That
+still left out a dataset the import did not carry (SAFE-16), whose rows the restore removes
+too; the owner's decision (2026-10-13): the import's ``import_unfinished`` entry stays,
+naming every dataset of the family, until an overwrite import of the whole family completes.
 
-Over one new one-sample family this runs real import jobs (``POST /api/family-imports``,
+Over two new one-sample families this runs real import jobs (``POST /api/family-imports``,
 then the worker's ``run_family_import_job``) against Postgres and ClickHouse, and signs out
-through ``POST /api/families/<id>/report/sign-out`` after each re-import:
+through ``POST /api/families/<id>/report/sign-out`` after each re-import.
+
+The first family (the restore fails in the small variants):
 
 * package 1 (cancel): 6 small variants and coverage: the family is complete;
 * package 2 (overwrite): 4 other small variants, which replace the 6, and coverage, which
   fails; ClickHouse then fails the restore's re-insert of the small variants after their
   delete, so the family has none left. The flag names coverage and snv as failed and none as
-  imported (before: coverage alone), the job's log says why, and the sign-out is refused;
-* package 3 (overwrite, coverage alone) completes: the flag still names snv (before: it was
-  cleared, and the family signed out with no small variants), the job's log says why, and
-  the sign-out is still refused;
-* package 4 (overwrite, the 6 small variants) completes: the flag goes, and the report signs
-  out with no import acknowledgement.
+  imported (before #807: coverage alone), the import's entry stays naming both (before:
+  removed), the job's log says why, and the sign-out is refused;
+* package 3 (overwrite, coverage alone) completes: the flag and the entry still name snv
+  (before #807: cleared, and the family signed out with no small variants), the job's log
+  says why, and the sign-out is still refused;
+* package 4 (overwrite, the 6 small variants) completes: the family held nothing else, so
+  the flag and the entry go, and the report signs out with no import acknowledgement.
 
-The coverage failure and the restore's failure are injected (the import's dataset step, and
-the restore's ``execute_clickhouse``); everything else runs as in production. Everything runs
-in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
-test_e2e_api_contract.py). The family is new and uniquely named; the job rows end completed
-or failed. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
+The second family (the restore fails in the tracks, which the failing import did not carry):
+
+* package 1 (cancel): 6 small variants and coverage: the family is complete;
+* package 2 (overwrite, small variants alone), which fail; ClickHouse then fails the
+  restore's re-insert of the tracks after their delete: the small variants are put back,
+  the coverage is gone. The flag names snv alone, the entry snv and coverage;
+* package 3 (overwrite, small variants alone: the dataset that failed) completes: the flag
+  goes, but the entry keeps coverage and the sign-out is still refused (before: the family
+  signed out with its coverage gone);
+* package 4 (overwrite, coverage alone) completes: the whole family has been imported again,
+  the entry goes, and the report signs out with no import acknowledgement.
+
+The dataset failures and the restores' failures are injected (the import's dataset step,
+and the restore's ``execute_clickhouse``); everything else runs as in production.
+Everything runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
+test_e2e_api_contract.py). The families are new and uniquely named; the job rows end
+completed or failed. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e``
+job sets it.
 """
 
 from __future__ import annotations
@@ -109,7 +128,10 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     from backend.app.services import clickhouse_family_snapshot as snapshots
     from backend.app.services import family_package_import as package_import
     from backend.app.services.clickhouse_family_snapshot import list_import_backup_tables
-    from backend.app.services.clickhouse_interval_tracks import count_interval_track_source_rows
+    from backend.app.services.clickhouse_interval_tracks import (
+        count_interval_track_source_rows,
+        fetch_interval_track_rows,
+    )
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
         ensure_clickhouse_variant_tables,
@@ -123,28 +145,30 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     async with sm() as session:
         _admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
 
-    # Package 2's failures: its coverage dataset fails before it writes anything, and
-    # ClickHouse fails its restore's first re-insert from a backup, after that table's
-    # delete has run.
-    failing = {"coverage": False, "restore": False}
+    # The failures a failing package injects: its ``dataset`` fails before it writes
+    # anything, and ClickHouse fails its restore's re-insert of the ``restore`` table from
+    # the backup, once, after that table's delete has run.
+    failing: dict[str, str | None] = {"dataset": None, "restore": None}
     reinserts_failed: list[str] = []
     real_import_dataset = package_import._import_dataset
 
     async def import_dataset(*args, **kwargs):
-        if failing["coverage"] and kwargs["summary"].dataset_type == "coverage":
-            raise RuntimeError("e2e: the coverage file could not be read")
+        if failing["dataset"] and kwargs["summary"].dataset_type == failing["dataset"]:
+            raise RuntimeError(f"e2e: the {failing['dataset']} file could not be read")
         return await real_import_dataset(*args, **kwargs)
 
     real_execute = snapshots.execute_clickhouse
 
     async def execute(query: str, parameters: Any = None) -> Any:
         sql = " ".join(query.split())
+        table = failing["restore"]
         if (
-            failing["restore"]
+            table
             and sql.startswith("INSERT INTO")
             and "/SNAPSHOT/" in sql.partition(" FROM ")[2]
+            and sql.partition(" SELECT ")[0].endswith(f"/{table}`")
         ):
-            failing["restore"] = False  # once: the restore stops here
+            failing["restore"] = None  # once: the restore stops here
             reinserts_failed.append(sql.split()[2])
             raise RuntimeError("e2e: ClickHouse failed the restore's re-insert")
         return await real_execute(query, parameters)
@@ -152,8 +176,9 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     mp.setattr(package_import, "_import_dataset", import_dataset)
     mp.setattr(snapshots, "execute_clickhouse", execute)
 
-    family_id = f"FAM_PARTWAY_{uuid4().hex[:8].upper()}"
-    out: dict[str, Any] = {"family_id": family_id, "steps": {}, "reinserts_failed": reinserts_failed}
+    suffix = uuid4().hex[:8].upper()
+    families = {"snv": f"FAM_PARTWAY_{suffix}", "tracks": f"FAM_PARTWAY_T_{suffix}"}
+    out: dict[str, Any] = {"families": families, "steps": {}}
     jobs: list[str] = []
 
     async def job(job_id: str) -> dict[str, Any]:
@@ -169,7 +194,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             ).mappings().one()
         return dict(row)
 
-    async def family() -> dict[str, Any]:
+    async def family(family_id: str) -> dict[str, Any]:
         async with sm() as s:
             row = (
                 await s.execute(
@@ -184,10 +209,18 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
         return {
             "unfinished": metadata.get("import_unfinished"),
             "incomplete": metadata.get("import_incomplete"),
+            "imported_scopes": metadata.get("imported_scopes"),
             "snvs": await count_family_small_variants(
                 _harness.ASSEMBLY, row["uuid"], project_ids=[project_id]
             ),
+            # The coverage source as Postgres registers it, and its rows in ClickHouse,
+            # which a restore rewrites.
             "coverage_rows": coverage,
+            "coverage_track_rows": len(
+                await fetch_interval_track_rows(
+                    _harness.ASSEMBLY, family_uuid=row["uuid"], track_type="coverage", chromosomes=["1"]
+                )
+            ),
         }
 
     transport = ASGITransport(app=app)
@@ -195,8 +228,11 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
         async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
-            async def run_import(name: str, conflict_mode: str, **package: Any) -> dict[str, Any]:
-                root = _write_package(base / name / family_id, family_id, **package)
+            async def run_import(
+                scenario: str, name: str, conflict_mode: str, **package: Any
+            ) -> dict[str, Any]:
+                family_id = families[scenario]
+                root = _write_package(base / scenario / name / family_id, family_id, **package)
                 body: dict[str, Any] = {
                     "folder_path": str(root),
                     "project_id": project_id,
@@ -224,33 +260,56 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 step: dict[str, Any] = {
                     "job_id": job_id,
                     "job": await job(job_id),
-                    "family": await family(),
+                    "family": await family(family_id),
                     "backups": [table.name for table in await list_import_backup_tables(owner=job_id)],
+                    "reinserts_failed": list(reinserts_failed),
                 }
-                out["steps"][name] = step
+                reinserts_failed.clear()
+                out["steps"][f"{scenario}/{name}"] = step
                 return step
 
-            async def sign_out(step: dict[str, Any]) -> None:
+            async def sign_out(scenario: str, step: dict[str, Any]) -> None:
                 step["signout"] = _cap(
-                    await ac.post(f"/api/families/{family_id}/report/sign-out", json=_OTHER_GATES)
+                    await ac.post(
+                        f"/api/families/{families[scenario]}/report/sign-out", json=_OTHER_GATES
+                    )
                 )
 
-            await run_import("1_complete", "cancel")
-
-            failing.update(coverage=True, restore=True)
+            # The first family: the restore fails in the small variants.
+            await run_import("snv", "1_complete", "cancel")
+            failing.update(dataset="coverage", restore="SNV_INDEL/entries")
             try:
                 step = await run_import(
+                    "snv",
                     "2_overwrite_restore_fails",
                     "overwrite",
                     variants=_OVERWRITE_VARIANTS,
                     first_position=10_000,
                 )
             finally:
-                failing.update(coverage=False, restore=False)
-            await sign_out(step)
+                failing.update(dataset=None, restore=None)
+            await sign_out("snv", step)
+            await sign_out("snv", await run_import("snv", "3_coverage_again", "overwrite", variants=None))
+            await sign_out("snv", await run_import("snv", "4_snv_again", "overwrite", coverage=False))
 
-            await sign_out(await run_import("3_coverage_again", "overwrite", variants=None))
-            await sign_out(await run_import("4_snv_again", "overwrite", coverage=False))
+            # The second family: the restore fails in the tracks, which the overwrite that
+            # failed did not carry.
+            await run_import("tracks", "1_complete", "cancel")
+            failing.update(dataset="snv", restore="INTERVAL/entries")
+            try:
+                step = await run_import(
+                    "tracks",
+                    "2_overwrite_restore_fails",
+                    "overwrite",
+                    variants=_OVERWRITE_VARIANTS,
+                    first_position=10_000,
+                    coverage=False,
+                )
+            finally:
+                failing.update(dataset=None, restore=None)
+            await sign_out("tracks", step)
+            await sign_out("tracks", await run_import("tracks", "3_snv_again", "overwrite", coverage=False))
+            await sign_out("tracks", await run_import("tracks", "4_coverage_again", "overwrite", variants=None))
     finally:
         async with sm() as s:
             await s.execute(
@@ -285,48 +344,68 @@ def _refused(step: dict) -> dict:
     return detail
 
 
+def _signed(step: dict) -> dict:
+    resp = step["signout"]
+    assert resp["status"] == 200, resp["text"]
+    snapshot = resp["json"]["snapshot"]
+    assert snapshot["import_incomplete"] is None and snapshot["import_unfinished"] == {}
+    return snapshot
+
+
+# --- the first family: the restore fails in the small variants ----------------------------
+
+
 def test_the_family_was_complete_before_the_overwrite(snap) -> None:
-    step = snap["steps"]["1_complete"]
+    step = snap["steps"]["snv/1_complete"]
     assert step["job"]["status"] == "completed", step["job"]["error"]
     assert step["family"]["snvs"] == _VARIANTS
     assert step["family"]["coverage_rows"] > 0
-    assert step["family"]["incomplete"] is None
+    assert step["family"]["incomplete"] is None and step["family"]["unfinished"] is None
+    # What it imported is recorded for the family: what a restore may remove.
+    assert sorted(step["family"]["imported_scopes"]) == ["coverage", "snv"]
 
 
 def test_the_restore_failed_part_way_and_removed_the_small_variants(snap) -> None:
-    step = snap["steps"]["2_overwrite_restore_fails"]
+    step = snap["steps"]["snv/2_overwrite_restore_fails"]
     assert step["job"]["status"] == "failed"
     assert step["job"]["error"] == "Family package import failed for dataset(s): coverage"
     # The overwrite had replaced the 6 small variants with its 4; the restore deleted those
     # and failed before it put the 6 back.
-    assert len(snap["reinserts_failed"]) == 1 and "SNV_INDEL/entries" in snap["reinserts_failed"][0]
+    assert len(step["reinserts_failed"]) == 1 and "SNV_INDEL/entries" in step["reinserts_failed"][0]
     assert step["family"]["snvs"] == 0
     # Its backup is dropped all the same.
     assert step["backups"] == []
 
 
-def test_its_flag_names_every_dataset_of_the_import_as_failed(snap) -> None:
-    step = snap["steps"]["2_overwrite_restore_fails"]
+def test_its_flag_names_every_dataset_of_the_import_and_its_entry_stays(snap) -> None:
+    step = snap["steps"]["snv/2_overwrite_restore_fails"]
     flag = step["family"]["incomplete"]
-    # Before: coverage alone, so an import of coverage cleared the flag.
+    # Before #807: coverage alone, so an import of coverage cleared the flag.
     assert flag["failed_datasets"] == ["coverage", "snv"]
     assert flag["imported_datasets"] == []
     assert flag["failed_jobs"] == {"coverage": step["job_id"], "snv": step["job_id"]}
-    assert step["family"]["unfinished"] is None
+    # Before: the entry made way for the flag. Now it stays, every dataset of the family
+    # pending: this family held nothing but what this import carried.
+    entry = step["family"]["unfinished"][step["job_id"]]
+    assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv"], [])
     (line,) = [line for line in step["job"]["logs"] if "restore also failed" in line]
-    assert "names every one of them as failed, those that imported too: coverage, snv" in line
-    assert _refused(step)["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
+    assert "the flag names every dataset of this import as failed, those that imported too (coverage, snv)" in line
+    assert "Import the whole family again with overwrite, not only the datasets that failed" in line
+    detail = _refused(step)
+    assert detail["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
+    assert detail["import_unfinished"][step["job_id"]]["datasets"] == ["coverage", "snv"]
 
 
 def test_an_import_of_the_dataset_that_failed_alone_leaves_the_gate_shut(snap) -> None:
-    flagged, step = snap["steps"]["2_overwrite_restore_fails"], snap["steps"]["3_coverage_again"]
+    flagged, step = snap["steps"]["snv/2_overwrite_restore_fails"], snap["steps"]["snv/3_coverage_again"]
     assert step["job"]["status"] == "completed", step["job"]["error"]
     assert step["family"]["coverage_rows"] > 0
     assert step["family"]["snvs"] == 0
-    # Before: the flag was cleared here, and the family signed out with no small variants.
+    # Before #807: the flag was cleared here, and the family signed out with no small variants.
     flag = step["family"]["incomplete"]
     assert flag["failed_datasets"] == ["snv"]
     assert flag["failed_jobs"] == {"snv": flagged["job_id"]}
+    assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["snv"]
     note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)
     assert f"snv in import job {flagged['job_id']}" in note
     detail = _refused(step)
@@ -335,10 +414,63 @@ def test_an_import_of_the_dataset_that_failed_alone_leaves_the_gate_shut(snap) -
 
 
 def test_an_import_of_every_dataset_completes_the_family(snap) -> None:
-    step = snap["steps"]["4_snv_again"]
+    step = snap["steps"]["snv/4_snv_again"]
     assert step["job"]["status"] == "completed", step["job"]["error"]
     assert step["family"]["snvs"] == _VARIANTS
     assert step["family"]["incomplete"] is None and step["family"]["unfinished"] is None
-    resp = step["signout"]
-    assert resp["status"] == 200, resp["text"]
-    assert resp["json"]["snapshot"]["import_incomplete"] is None
+    _signed(step)
+
+
+# --- the second family: the restore removes a dataset the import did not carry ------------
+
+
+def test_the_restore_failed_in_the_tracks_the_overwrite_did_not_carry(snap) -> None:
+    before, step = snap["steps"]["tracks/1_complete"], snap["steps"]["tracks/2_overwrite_restore_fails"]
+    assert before["job"]["status"] == "completed", before["job"]["error"]
+    assert before["family"]["coverage_track_rows"] > 0
+    assert step["job"]["status"] == "failed"
+    assert step["job"]["error"] == "Family package import failed for dataset(s): snv"
+    assert len(step["reinserts_failed"]) == 1 and "INTERVAL/entries" in step["reinserts_failed"][0]
+    # The small variants were put back; the coverage, which this import never carried, is gone.
+    assert step["family"]["snvs"] == _VARIANTS
+    assert step["family"]["coverage_track_rows"] == 0
+    assert step["backups"] == []
+
+
+def test_the_entry_names_the_dataset_the_import_did_not_carry(snap) -> None:
+    step = snap["steps"]["tracks/2_overwrite_restore_fails"]
+    # The flag names what this import carried (#807), not the coverage.
+    assert step["family"]["incomplete"]["failed_datasets"] == ["snv"]
+    # The entry stays and names the coverage too (before: removed, nothing named it).
+    entry = step["family"]["unfinished"][step["job_id"]]
+    assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv"], [])
+    (line,) = [line for line in step["job"]["logs"] if "restore also failed" in line]
+    assert "imported again with overwrite (coverage, snv)" in line
+    detail = _refused(step)
+    assert detail["import_unfinished"][step["job_id"]]["datasets"] == ["coverage", "snv"]
+
+
+def test_an_import_of_the_dataset_that_failed_again_leaves_the_gate_shut(snap) -> None:
+    flagged, step = snap["steps"]["tracks/2_overwrite_restore_fails"], snap["steps"]["tracks/3_snv_again"]
+    assert step["job"]["status"] == "completed", step["job"]["error"]
+    assert step["family"]["snvs"] == _VARIANTS
+    assert step["family"]["coverage_track_rows"] == 0
+    # The flag goes: every dataset it named has been imported again.
+    assert step["family"]["incomplete"] is None
+    # Before: so did the gate, and the family signed out with its coverage gone. Now the
+    # entry keeps the coverage, and the sign-out is refused.
+    assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["coverage"]
+    note = next(line for line in step["job"]["logs"] if "stays marked import-incomplete" in line)
+    assert f"(import job {flagged['job_id']}, still to import: coverage)" in note
+    detail = _refused(step)
+    assert detail["import_incomplete"] is None
+    assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["coverage"]
+    assert "coverage may be partly written or missing" in detail["message"]
+
+
+def test_an_import_of_the_rest_of_the_family_completes_it(snap) -> None:
+    step = snap["steps"]["tracks/4_coverage_again"]
+    assert step["job"]["status"] == "completed", step["job"]["error"]
+    assert step["family"]["coverage_track_rows"] > 0 and step["family"]["snvs"] == _VARIANTS
+    assert step["family"]["incomplete"] is None and step["family"]["unfinished"] is None
+    _signed(step)

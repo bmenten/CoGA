@@ -12,6 +12,10 @@ drives the real statements against the real schema:
   another import's entry, and a value that is set but is not a map is kept, not dropped;
 - the flag, the end of a put-back import and the clear remove what they should and keep
   the rest; the map goes once it is empty; the sign-out reader reads what they leave;
+- after a failed overwrite whose restore failed part-way, the import's entry stays, naming
+  every dataset the family's imports recorded (``imported_scopes``) besides its own, and
+  goes only once each has been imported again with overwrite; a refused restore still
+  swaps the entry for the flag (SAFE-16);
 - the pipeline parameters an import records are set without writing back a stale copy of
   the metadata;
 - of three stale jobs, the one that was running is ended (its log kept, a line added), the
@@ -280,6 +284,160 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
                 s, context, imported={"coverage": scopes["coverage"], "haplotypes": scopes["haplotypes"]}
             )
             assert "import_incomplete" not in await _metadata(s, family_uuid)
+
+        async with sm() as s:
+            await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})
+            await s.commit()
+
+    _run(scenario)
+
+
+def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_again_in_full() -> None:
+    # SAFE-16. A failed overwrite's restore rewrites every table's rows of the family,
+    # whichever import wrote them: one that fails part-way keeps the import's entry, naming
+    # every dataset of the family, until each has been imported again with overwrite.
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services import report_signout_service as rss
+    from backend.app.services.family_package_registration import (
+        ImportMark,
+        _clear_family_import_incomplete,
+        _flag_family_import_incomplete,
+        _flag_family_restore_failed,
+        _mark_family_import_restoring,
+        _mark_family_import_unfinished,
+    )
+
+    label = f"import-restore-{uuid4()}"
+    scopes = {
+        "snv": {"source": "auto", "samples": None},
+        "coverage": {"source": None, "samples": ["S1"]},
+        "sv_needlr": {"source": None, "samples": None},
+    }
+
+    def mark(*datasets: str) -> ImportMark:
+        return ImportMark.begin(
+            job_id=str(uuid4()), datasets=datasets, scopes={name: scopes[name] for name in datasets}
+        )
+
+    async def scenario() -> None:
+        sm = get_postgres_sessionmaker()
+        async with sm() as s:
+            family_uuid = (
+                await s.execute(
+                    text(
+                        "INSERT INTO families (family_id, metadata) "
+                        "VALUES (:f, CAST(:m AS jsonb)) RETURNING id::text"
+                    ),
+                    {"f": label, "m": json.dumps({"qc_profile": "short_read_wgs"})},
+                )
+            ).scalar_one()
+            await s.commit()
+        context = SimpleNamespace(family_uuid=family_uuid, family_id=label)
+
+        # An import of the SV calls (another package) completed: the family records them.
+        async with sm() as s:
+            await _clear_family_import_incomplete(
+                s, context, imported={"sv_needlr": scopes["sv_needlr"]}
+            )
+            metadata = await _metadata(s, family_uuid)
+        assert metadata["imported_scopes"] == {"sv_needlr": [scopes["sv_needlr"]]}
+        assert metadata["qc_profile"] == "short_read_wgs", "the other keys stay"
+
+        # An overwrite of snv and coverage failed; before its restore, its entry names every
+        # dataset of the family, none finished.
+        own = mark("snv", "coverage")
+        async with sm() as s:
+            await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own, finished=["snv"])
+            await _mark_family_import_restoring(s, context, own, family_samples=["S1"])
+            entry = (await _metadata(s, family_uuid))["import_unfinished"][own.key]
+        assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv", "sv_needlr"], [])
+        assert entry["whole_family"] == [
+            {"dataset": "coverage", "scope": scopes["coverage"]},
+            {"dataset": "snv", "scope": scopes["snv"]},
+            {"dataset": "sv_needlr", "scope": scopes["sv_needlr"]},
+        ]
+
+        # The restore failed part-way: the flag names the import's datasets, and the entry
+        # stays, in one statement.
+        async with sm() as s:
+            listed = await _flag_family_restore_failed(
+                s,
+                context,
+                failed_datasets=["coverage", "snv"],
+                job_id=own.job_id,
+                mark=own,
+                scopes=own.scopes,
+                family_samples=["S1"],
+            )
+            metadata = await _metadata(s, family_uuid)
+            flag = await rss._import_incomplete_state(s, family_uuid)
+            unfinished = await rss._import_unfinished_state(s, family_uuid)
+        assert listed == ["coverage", "snv", "sv_needlr"]
+        assert metadata["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
+        assert metadata["import_incomplete"]["imported_datasets"] == []
+        assert flag is not None and flag["failed_datasets"] == ["coverage", "snv"]
+        assert unfinished == {
+            own.key: {
+                "job_id": own.job_id,
+                "at": own.at,
+                "datasets": ["coverage", "snv", "sv_needlr"],
+                "finished_datasets": [],
+            }
+        }
+
+        # The datasets that failed, imported again with overwrite: the flag goes, and the
+        # entry keeps the SV calls.
+        async with sm() as s:
+            again = {"snv": scopes["snv"], "coverage": scopes["coverage"]}
+            left = await _clear_family_import_incomplete(s, context, rewritten=again, imported=again)
+            metadata = await _metadata(s, family_uuid)
+            unfinished = await rss._import_unfinished_state(s, family_uuid)
+        assert left is not None and set(left.unfinished) == {own.key}
+        assert "import_incomplete" not in metadata
+        assert unfinished[own.key]["datasets"] == ["sv_needlr"]
+        assert metadata["import_unfinished"][own.key]["whole_family"] == [
+            {"dataset": "sv_needlr", "scope": scopes["sv_needlr"]}
+        ]
+
+        # An update of the SV calls replaces nothing: the entry stays.
+        async with sm() as s:
+            await _clear_family_import_incomplete(
+                s, context, rewritten={}, imported={"sv_needlr": scopes["sv_needlr"]}
+            )
+            assert own.key in (await _metadata(s, family_uuid))["import_unfinished"]
+
+        # The SV calls imported again with overwrite: the family is complete.
+        async with sm() as s:
+            sv = {"sv_needlr": scopes["sv_needlr"]}
+            left = await _clear_family_import_incomplete(s, context, rewritten=sv, imported=sv)
+            metadata = await _metadata(s, family_uuid)
+            unfinished = await rss._import_unfinished_state(s, family_uuid)
+        assert left is not None and left.unfinished == {}
+        assert "import_unfinished" not in metadata and unfinished == {}
+        assert metadata["imported_scopes"] == {
+            "coverage": [scopes["coverage"]],
+            "snv": [scopes["snv"]],
+            "sv_needlr": [scopes["sv_needlr"]],
+        }
+
+        # A restore refused before its first delete removes the entry with its flag, as
+        # before: it deleted nothing.
+        refused = mark("snv")
+        async with sm() as s:
+            await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=refused)
+            await _mark_family_import_restoring(s, context, refused, family_samples=["S1"])
+            await _flag_family_import_incomplete(
+                s,
+                context,
+                failed_datasets=["snv"],
+                imported_datasets=[],
+                job_id=refused.job_id,
+                import_key=refused.key,
+                scopes=refused.scopes,
+            )
+            metadata = await _metadata(s, family_uuid)
+        assert "import_unfinished" not in metadata
+        assert metadata["import_incomplete"]["failed_datasets"] == ["snv"]
 
         async with sm() as s:
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})

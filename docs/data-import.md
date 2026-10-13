@@ -262,9 +262,9 @@ that looks complete:
 An import whose process stops part-way does none of this: nothing runs in a process that
 has ended. So an import marks the family before it writes anything of it, with an entry in
 `families.metadata.import_unfinished` (its job, when it began, and its datasets), records
-there each dataset it finishes, and removes the entry when it ends. An entry that stays
-names an import that stopped, and the datasets it had not finished, which may be partly
-written or missing. Only an import that completes with `overwrite` and imports those
+there each dataset it finishes, and removes the entry when it ends, unless its restore failed
+part-way (below). An entry that stays names an import that stopped, and the datasets it had
+not finished, which may be partly written or missing. Only an import that completes with `overwrite` and imports those
 datasets again, for the same samples and (for the small variants) the same `source_format`,
 removes it: an overwrite replaces only that. An `update` cannot: it skips a dataset that
 already has data, partly written data too. An import that fails after marking the family
@@ -283,14 +283,26 @@ heartbeat stops it, its backups already dropped. So a restore first checks that 
 table is there, and deletes nothing when one is missing: the family keeps what the import
 left, and is flagged import-incomplete with the datasets that failed and those that did
 import. A restore that fails in any other way (part-way, say) may have removed rows of any of
-the family's datasets: table by table, it deletes the family's rows before it puts the
-backup's back. So the flag it leaves names every dataset the import set out to import as
-failed, including those that imported and those it only registered, and none as imported;
-the family stays flagged until an import has imported each of them again. Import them again
-with `overwrite`: an update skips a dataset whose rows are there, and a skipped dataset does
-not count. A dataset of the family that the import did not carry (another small-variant
-source, say) is not named, although the restore rewrites its rows too
-([ROADMAP.md](ROADMAP.md)).
+the family's datasets, whichever import wrote them: table by table, it deletes the family's
+rows before it puts the backup's back. So the flag it leaves names every dataset the import
+set out to import as failed, including those that imported and those it only registered, and
+none as imported; the family stays flagged until an import has imported each of them again.
+
+Such a restore also removes rows of datasets the import did not carry (another small-variant
+source, another package's SV calls), which its flag cannot name. So the import's
+`import_unfinished` entry stays too: once its restore begins, it names every dataset the
+family holds, as the family's imports record what they imported
+(`families.metadata.imported_scopes`), and every dataset of the import, each with its samples
+and (for the small variants) its `source_format`. The family stays marked import-incomplete
+until each of them has been imported again with `overwrite`: import the whole family again,
+every package of it, not only the datasets that failed. Each import that completes with
+`overwrite` removes from the entry what it imported again, and the entry goes with the last;
+an `update` removes nothing, as it skips a dataset whose rows are there. The job's log says so
+and names the datasets, and so does the log of each import that leaves some of them still to
+import. An import whose process stops during its restore leaves the same entry. A restore that
+puts the family back, or that refuses to start, removes the entry as before. Data loaded by a
+single-file upload (section 6) is not recorded among what the family holds, so such an entry
+does not name it ([ROADMAP.md](ROADMAP.md)).
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).

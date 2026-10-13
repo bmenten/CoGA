@@ -110,7 +110,9 @@ At sign-out, a reported classification that has no snapshot counts as drift too
 - the import state (`import_incomplete`): null when the family's data imported completely,
   otherwise the datasets that failed and those that imported, when, and the import job;
   and the imports that stopped part-way (`import_unfinished`): empty when there are none,
-  otherwise for each its import job, when it began, its datasets and those it finished;
+  otherwise for each its import job, when it began, its datasets and those it finished (for
+  a failed overwrite whose restore did not finish, every dataset of the family still to
+  import again, none finished);
 - the signer, the time, and any acknowledgement with its reason.
 
 Sign-out exists for the family report only. Its snapshot holds no PGT embryo call (REQ-PGT-005):
@@ -186,10 +188,15 @@ Five gates run first, in this order:
    import has imported each failed dataset again (in any mode, for the same samples and
    small-variant source; a later failure keeps an earlier one's failed datasets, each with its
    job, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
-   to start without its whole backup, may have lost rows of any of its datasets: its flag
-   names every one of them as failed, those it imported too, so the gate holds until each has
-   been imported again. Only an import that completes with `overwrite` and imports again the
-   datasets a stopped import had not finished, for that scope, removes its entry.
+   to start without its whole backup, may have lost rows of any dataset of the family,
+   whichever import wrote them: its flag names every dataset of the import as failed, those it
+   imported too, and its `import_unfinished` entry stays, naming every dataset the family
+   holds (what its imports recorded in `metadata.imported_scopes`) and every dataset of the
+   import, so the gate holds until the whole family has been imported again with `overwrite`,
+   not only what failed: each import that completes with overwrite removes from the entry what
+   it imported again, for that scope, and an update removes nothing. Only an import that
+   completes with `overwrite` and imports again the datasets a stopped import had not
+   finished, for that scope, removes that import's entry.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

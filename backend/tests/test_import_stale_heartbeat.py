@@ -21,7 +21,10 @@ restore had just deleted. Now:
   (part-way, say); such a restore may have removed rows of any dataset, so its flag names
   every dataset of the import as failed, and the family stays flagged until an import has
   imported each again (SAFE-13; before, it named only the one that had failed, whose import
-  alone cleared the flag);
+  alone cleared the flag); and the import's ``import_unfinished`` entry stays, naming every
+  dataset the family holds, those another import brought too, until each has been imported
+  again with overwrite (SAFE-16; before, it made way for the flag, and an import of the
+  datasets that failed opened the gate with another import's rows gone);
 * the heartbeat and the stale check use the database's clock, and an update of the job that
   matches no row is said in the log, by the job and the outcome alone.
 
@@ -104,9 +107,10 @@ async def _until(condition: Callable[[], bool], timeout: float = 5.0) -> None:
 class _Store:
     """The job's row and the family's import state, as their statements change them.
 
-    ``unfinished`` is the family's ``metadata.import_unfinished`` and ``incomplete`` its
-    ``metadata.import_incomplete``. ``reachable`` is whether the heartbeat can reach the
-    database; ``lost`` holds each update of the job that matched no row.
+    ``unfinished`` is the family's ``metadata.import_unfinished``, ``incomplete`` its
+    ``metadata.import_incomplete`` and ``imported`` its ``metadata.imported_scopes``.
+    ``reachable`` is whether the heartbeat can reach the database; ``lost`` holds each
+    update of the job that matched no row.
     """
 
     def __init__(self, root: Path) -> None:
@@ -127,6 +131,7 @@ class _Store:
         }
         self.unfinished: dict[str, Any] = {}
         self.incomplete: dict[str, Any] | None = None
+        self.imported: dict[str, Any] | None = None
         self.events: list[tuple[Any, ...]] = []
         self.started: list[str] = []
         self.reachable = True
@@ -179,6 +184,7 @@ class _Session:
                 "family_uuid": FAMILY_UUID,
                 "flag": copy.deepcopy(store.incomplete),
                 "unfinished": copy.deepcopy(store.unfinished) or None,
+                "imported_scopes": copy.deepcopy(store.imported),
             }
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: state))
         assert sql.startswith("UPDATE families"), f"unmodelled statement: {sql}"
@@ -192,9 +198,13 @@ class _Session:
             store.incomplete = json.loads(params["payload"])
             store.events.append(("flagged",))
         elif "flag" in params:
-            # A completed import's clear.
+            # An import's end: its failure's flag or a completed import's clear, with what
+            # is left of the entries and what the family's imports imported (null: as is).
             store.incomplete = json.loads(params["flag"])
             store.unfinished = json.loads(params["unfinished"]) or {}
+            recorded = json.loads(params.get("imported_scopes", "null"))
+            if recorded is not None:
+                store.imported = recorded
             store.events.append(("cleared",))
         else:
             store.unfinished.pop(params["import_key"], None)
@@ -814,6 +824,10 @@ async def test_an_overwrite_whose_backup_is_gone_deletes_nothing_and_its_flag_cl
 
 REIMPORT_COVERAGE = "00000000-0000-0000-0000-0000000000c1"
 REIMPORT_SNV = "00000000-0000-0000-0000-0000000000c2"
+SV_IMPORT = "00000000-0000-0000-0000-0000000000c3"
+REIMPORT_FAILED = "00000000-0000-0000-0000-0000000000c4"
+SV_UPDATE = "00000000-0000-0000-0000-0000000000c5"
+SV_AGAIN = "00000000-0000-0000-0000-0000000000c6"
 
 
 class _FlagRead:
@@ -834,6 +848,33 @@ async def _sign_out_reads(job: _Store) -> dict[str, Any] | None:
         _FlagRead(job.incomplete),  # type: ignore[arg-type]
         FAMILY_UUID,
     )
+
+
+async def _unfinished_reads(job: _Store) -> dict[str, Any]:
+    """The unfinished imports a sign-out freezes and gates on with the flag ({}: none)."""
+    from backend.app.services import report_signout_service
+
+    return await report_signout_service._import_unfinished_state(
+        _FlagRead(job.unfinished or None),  # type: ignore[arg-type]
+        FAMILY_UUID,
+    )
+
+
+async def _import(job: _Store, job_id: str = JOB, conflict_mode: str = "overwrite") -> Any:
+    return await package_import.execute_family_package_import(
+        _Session(job),  # type: ignore[arg-type]
+        folder_path=job.job["submitted_path"],
+        project_id="project-uuid",
+        dry_run=False,
+        user=_admin(),
+        conflict_mode=conflict_mode,
+        job_id=job_id,
+    )
+
+
+def _reinserts_the_sv_calls(sql: str) -> bool:
+    """The restore's re-insert of the family's SV calls from the backup, after their delete."""
+    return _reinserts_from_a_backup(sql) and sql.split(" SELECT ", 1)[0].endswith("/SV/entries`")
 
 
 @pytest.mark.asyncio
@@ -882,14 +923,18 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
     assert (flag["failed_datasets"], flag["imported_datasets"]) == (every, [])
     assert flag["failed_jobs"] == dict.fromkeys(every, JOB)
     assert sorted(flag["scopes"]) == every
-    # The import's entry made way for the flag, and the sign-out reads every dataset failed.
-    assert job.unfinished == {}
+    # The sign-out reads every dataset failed. And the import's entry stays, every dataset
+    # of the family pending (SAFE-16; before, it made way for the flag): the family holds
+    # nothing an earlier import recorded, so that is this import's.
     state = await _sign_out_reads(job)
     assert state is not None and state["failed_datasets"] == every
+    entry = job.unfinished[JOB]
+    assert (entry["datasets"], entry["finished_datasets"]) == (every, [])
+    assert set(await _unfinished_reads(job)) == {JOB}
     (line,) = [line for line in result.logs if "restore also failed" in line]
-    assert "the flag names every one of them as failed" in line
-    assert "coverage, paraphase, snv, sv_needlr" in line
-    assert "again with overwrite" in line
+    assert "the flag names every dataset of this import as failed" in line
+    assert "(coverage, paraphase, snv, sv_needlr)" in line
+    assert "Import the whole family again with overwrite, not only the datasets that failed" in line
 
 
 @pytest.mark.asyncio
@@ -911,12 +956,14 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_da
 
     assert coverage_again.completed is True
     # Before: that import cleared the flag, and the family signed out without the gate,
-    # its small variants gone. Now snv stays flagged, with the job that flagged it.
+    # its small variants gone. Now snv stays flagged, with the job that flagged it, and
+    # still to import in the entry the restore left (SAFE-16).
     assert job.incomplete is not None
     assert job.incomplete["failed_datasets"] == ["snv"]
     assert job.incomplete["failed_jobs"] == {"snv": JOB}
     state = await _sign_out_reads(job)
     assert state is not None and state["failed_datasets"] == ["snv"]
+    assert job.unfinished[JOB]["datasets"] == ["snv"]
     assert any(
         "stays flagged import-incomplete" in line and f"snv in import job {JOB}" in line
         for line in coverage_again.logs
@@ -925,11 +972,94 @@ async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_each_da
     _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse)})
     snv_again = await _overwrite_import(job, REIMPORT_SNV)
 
-    # The last dataset imported again: the flag goes, and the gate with it.
+    # The last dataset imported again, with overwrite: the family held nothing else, so
+    # the flag and the entry go, and the gate with them.
     assert snv_again.completed is True
     assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv overwrite")]
     assert job.incomplete is None and job.unfinished == {}
-    assert await _sign_out_reads(job) is None
+    assert await _sign_out_reads(job) is None and await _unfinished_reads(job) == {}
+
+
+@pytest.mark.asyncio
+async def test_after_a_restore_that_failed_part_way_the_gate_holds_until_the_whole_family_is_imported_again(
+    job, clickhouse, monkeypatch
+) -> None:
+    # SAFE-16, the issue's case. The family's SV calls came with another import (another
+    # package); the overwrite that fails carries snv and coverage, not them. Its restore
+    # puts the small variants back, then fails in the SV calls, after their delete.
+    _snapshot_postgres(monkeypatch)
+    _datasets(monkeypatch, job, {"sv_needlr": "imported"})
+    assert (await _import(job, SV_IMPORT, "update")).completed is True
+    assert job.imported == {"sv_needlr": [{"source": None, "samples": None}]}
+
+    _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": RuntimeError("bad BED")})
+    clickhouse.fail = _reinserts_the_sv_calls
+    result = await _import(job)
+
+    assert result.completed is False
+    assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv before")] * 2
+    assert clickhouse.family_rows("SV/entries") == []
+    # The flag names this import's datasets (SAFE-13), not the SV calls it never carried.
+    assert job.incomplete is not None and job.incomplete["failed_datasets"] == ["coverage", "snv"]
+    # Before: the entry made way for the flag. Now it stays, and names them too.
+    entry = job.unfinished[JOB]
+    assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv", "sv_needlr"], [])
+    unfinished = await _unfinished_reads(job)
+    assert unfinished[JOB]["datasets"] == ["coverage", "snv", "sv_needlr"]
+    (line,) = [line for line in result.logs if "restore also failed" in line]
+    assert "the flag names every dataset of this import as failed, those that imported too (coverage, snv)" in line
+    assert "imported again with overwrite (coverage, snv, sv_needlr)" in line
+
+    # The datasets that failed, imported again in one overwrite. Before: the flag went, and
+    # with it the gate, the SV calls gone. Now the gate holds for them.
+    clickhouse.fail = lambda _sql: False
+    _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": "imported"})
+    again = await _import(job, REIMPORT_FAILED)
+
+    assert again.completed is True
+    assert job.incomplete is None and await _sign_out_reads(job) is None
+    unfinished = await _unfinished_reads(job)
+    assert set(unfinished) == {JOB} and unfinished[JOB]["datasets"] == ["sv_needlr"]
+    note = next(line for line in again.logs if "stays marked import-incomplete" in line)
+    assert f"(import job {JOB}, still to import: sv_needlr)" in note
+    assert "the whole family, not only the datasets that failed" in note
+
+    # An update of the SV calls does not complete it: it skips a dataset whose rows are there.
+    _datasets(monkeypatch, job, {"sv_needlr": "imported"})
+    assert (await _import(job, SV_UPDATE, "update")).completed is True
+    assert set(await _unfinished_reads(job)) == {JOB}
+
+    # The SV calls imported again with overwrite: the whole family has been, and the gate opens.
+    _datasets(monkeypatch, job, {"sv_needlr": "imported"})
+    assert (await _import(job, SV_AGAIN)).completed is True
+    assert job.unfinished == {} and job.incomplete is None
+    assert await _unfinished_reads(job) == {} and await _sign_out_reads(job) is None
+
+
+@pytest.mark.asyncio
+async def test_one_overwrite_of_the_whole_family_after_a_restore_that_failed_part_way_opens_the_gate(
+    job, clickhouse, monkeypatch
+) -> None:
+    _snapshot_postgres(monkeypatch)
+    _datasets(monkeypatch, job, {"sv_needlr": "imported"})
+    await _import(job, SV_IMPORT, "update")
+    _datasets(monkeypatch, job, {"snv": _overwrite(clickhouse), "coverage": RuntimeError("bad BED")})
+    clickhouse.fail = _reinserts_the_sv_calls
+    await _import(job)
+    assert set(await _unfinished_reads(job)) == {JOB} and job.incomplete is not None
+
+    clickhouse.fail = lambda _sql: False
+    _datasets(
+        monkeypatch,
+        job,
+        {"snv": _overwrite(clickhouse), "coverage": "imported", "sv_needlr": "imported"},
+    )
+    whole = await _import(job, REIMPORT_FAILED)
+
+    assert whole.completed is True
+    assert job.unfinished == {} and job.incomplete is None
+    assert await _unfinished_reads(job) == {} and await _sign_out_reads(job) is None
+    assert not any("stays marked" in line or "stays flagged" in line for line in whole.logs)
 
 
 @pytest.mark.asyncio
