@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 import pytest
 from fastapi import HTTPException
 
-from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, SmallVariantReviewUpdate
+from backend.app.schemas import CnvAcmgClassificationPayload, CnvAcmgCriterion, StructuralVariantReviewUpdate
 from backend.app.services import classification_drift_service as cds
 from backend.app.services import structural_variant_evidence as sve
 from backend.app.services import structural_variant_review_pg as svr
@@ -207,6 +207,23 @@ def test_evidence_a_later_version_adds_does_not_drift_an_older_classification() 
     assert sve.diff_structural_evidence(older, _record(gene_symbols=["TCF4"]))["status"] == "drifted"
 
 
+def test_the_snapshot_names_the_caller_whose_row_it_was_frozen_from() -> None:
+    assert sve.frozen_evidence_source(_frozen()) == "needlr"
+    assert sve.frozen_evidence_source(json.dumps(_frozen(_record(source="sniffles")))) == "sniffles"
+    for unreadable in ("{not json", None, ["a", "list"], {"evidence": "text"}, {"evidence": {"source": 3}}):
+        assert sve.frozen_evidence_source(unreadable) is None
+
+
+def test_evidence_that_names_no_caller_cannot_be_compared() -> None:
+    # Every snapshot CoGA froze names its caller. One that does not cannot say which
+    # caller's row it is to be compared with, so it is never current (TRACE-11).
+    nameless = _frozen()
+    nameless["evidence"].pop("source")
+    nameless["evidence_hash"] = canonical_hash(nameless["evidence"])
+    assert sve.diff_structural_evidence(nameless, _record())["status"] == "unknown"
+    assert sve.diff_structural_evidence(nameless, None)["status"] == "variant_missing"
+
+
 # --- the drift check over a family -----------------------------------------------------------------
 
 
@@ -249,13 +266,17 @@ def _review(variant_id: str, snapshot) -> dict:
 
 
 def _patch_current(monkeypatch, current: dict) -> list:
+    """The family's SVs as their callers' rows: ``current`` maps an SV id to its row, or to
+    its callers' rows in storage-key order. Returns what each read asked for."""
     looked_up: list = []
 
-    async def _fetch(context, variant_id):
-        looked_up.append((context.family_uuid, variant_id))
-        return current.get(variant_id)
+    async def _fetch(context, variant_id, *, source=None):
+        looked_up.append((context.family_uuid, variant_id, source))
+        rows = current.get(variant_id) or []
+        rows = rows if isinstance(rows, list) else [rows]
+        return [row for row in rows if source is None or row.source == source]
 
-    monkeypatch.setattr(cds, "fetch_structural_variant_record", _fetch)
+    monkeypatch.setattr(cds, "fetch_structural_variant_records", _fetch)
     return looked_up
 
 
@@ -282,8 +303,14 @@ def test_the_drift_check_reports_each_sv_classification_whose_evidence_moved(mon
     item = by_id["sv-genes"]
     assert (item["classification"], item["cnv_class"]) == ("Pathogenic - class 5", "cnv_class_5")
     assert (item["classified_by"], item["classified_at"]) == ("alice", _WHEN)
-    # Each SV is read as the family's data holds it now.
-    assert sorted(looked_up) == [("u1", v) for v in ("sv-genes", "sv-gone", "sv-unchanged", "sv-unreadable")]
+    # Each SV is read as the family's data holds it now, in the row of the caller its
+    # evidence was frozen from; the unreadable snapshot names none.
+    assert sorted(looked_up) == [
+        ("u1", "sv-genes", "needlr"),
+        ("u1", "sv-gone", "needlr"),
+        ("u1", "sv-unchanged", "needlr"),
+        ("u1", "sv-unreadable", None),
+    ]
 
 
 def test_the_family_drift_carries_the_sv_classifications_beside_the_small_variants(monkeypatch) -> None:
@@ -394,23 +421,25 @@ def _scoring(*criteria: tuple[str, float, bool]) -> CnvAcmgClassificationPayload
     )
 
 
-def _patch_evidence(monkeypatch, table: _ReviewTable, record: StructuralVariantRecord | None) -> list:
+def _patch_evidence(monkeypatch, table: _ReviewTable, *rows: StructuralVariantRecord) -> list:
+    """The SV as its callers' ``rows`` (in storage-key order; none: not in the data).
+    Returns what each read asked for: the SV id and the caller."""
     reads: list = []
 
-    async def _fetch(context, variant_id):
+    async def _fetch(context, variant_id, *, source=None):
         table.steps.append("EVIDENCE")
-        reads.append(variant_id)
-        return record
+        reads.append((variant_id, source))
+        return [row for row in rows if source is None or row.source == source]
 
     async def _versions(session, *, context, user):
         return dict(_VERSIONS)
 
-    monkeypatch.setattr(svr, "fetch_structural_variant_record", _fetch)
+    monkeypatch.setattr(svr, "fetch_structural_variant_records", _fetch)
     monkeypatch.setattr(svr, "read_structural_evidence_versions", _versions)
     return reads
 
 
-def _save(table: _ReviewTable, payload: SmallVariantReviewUpdate, *, context=_SAVE_CONTEXT, variant_id="sv1"):
+def _save(table: _ReviewTable, payload: StructuralVariantReviewUpdate, *, context=_SAVE_CONTEXT, variant_id="sv1"):
     return asyncio.run(
         svr.upsert_structural_variant_review(
             table, context=context, variant_id=variant_id, payload=payload, user=_USER
@@ -421,10 +450,10 @@ def _save(table: _ReviewTable, payload: SmallVariantReviewUpdate, *, context=_SA
 def test_saving_a_cnv_scoring_freezes_the_evidence_it_rests_on(monkeypatch) -> None:
     table = _ReviewTable()
     reads = _patch_evidence(monkeypatch, table, _record())
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
 
     snapshot = table.rows["sv1"]["cnv_evidence_snapshot"]
-    assert reads == ["sv1"]
+    assert reads == [("sv1", None)]
     assert snapshot["evidence"] == sve.structural_evidence(_record())
     assert snapshot["evidence_hash"] == canonical_hash(sve.structural_evidence(_record()))
     assert snapshot["versions"] == _VERSIONS
@@ -436,24 +465,24 @@ def test_saving_a_cnv_scoring_freezes_the_evidence_it_rests_on(monkeypatch) -> N
 def test_a_save_that_leaves_the_scoring_out_keeps_its_evidence_and_reads_nothing(monkeypatch) -> None:
     table = _ReviewTable()
     reads = _patch_evidence(monkeypatch, table, _record())
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
     frozen = table.rows["sv1"]["cnv_evidence_snapshot"]
 
     # The tag toggle and the review dialog send no cnv_acmg.
-    _patch_evidence(monkeypatch, table, _record(gene_symbols=["TCF4"]))
-    _save(table, SmallVariantReviewUpdate(note="checked the breakpoints"))
+    later_reads = _patch_evidence(monkeypatch, table, _record(gene_symbols=["TCF4"]))
+    _save(table, StructuralVariantReviewUpdate(note="checked the breakpoints"))
 
     assert table.rows["sv1"]["cnv_evidence_snapshot"] == frozen
-    assert reads == ["sv1"]  # only the scoring save read the SV
+    assert (reads, later_reads) == ([("sv1", None)], [])  # only the scoring save read the SV
 
 
 def test_saving_the_scoring_again_freezes_the_evidence_as_it_is_now(monkeypatch) -> None:
     # Re-reviewing a drifted classification: saving its scoring again takes a new snapshot.
     table = _ReviewTable()
     _patch_evidence(monkeypatch, table, _record())
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
     _patch_evidence(monkeypatch, table, _record(gene_symbols=["TCF4"]))
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
 
     assert table.rows["sv1"]["cnv_evidence_snapshot"]["evidence"]["gene_symbols"] == ["TCF4"]
 
@@ -461,8 +490,8 @@ def test_saving_the_scoring_again_freezes_the_evidence_as_it_is_now(monkeypatch)
 def test_clearing_the_scoring_clears_its_evidence(monkeypatch) -> None:
     table = _ReviewTable()
     _patch_evidence(monkeypatch, table, _record())
-    _save(table, SmallVariantReviewUpdate(note="kept", cnv_acmg=_scoring(("2A", 1.0, True))))
-    _save(table, SmallVariantReviewUpdate(note="kept", cnv_acmg=None))
+    _save(table, StructuralVariantReviewUpdate(note="kept", cnv_acmg=_scoring(("2A", 1.0, True))))
+    _save(table, StructuralVariantReviewUpdate(note="kept", cnv_acmg=None))
 
     assert table.rows["sv1"]["cnv_acmg"] is None
     assert table.rows["sv1"]["cnv_evidence_snapshot"] is None
@@ -470,9 +499,9 @@ def test_clearing_the_scoring_clears_its_evidence(monkeypatch) -> None:
 
 def test_a_scoring_of_an_sv_not_in_the_data_is_refused_and_writes_nothing(monkeypatch) -> None:
     table = _ReviewTable()
-    _patch_evidence(monkeypatch, table, None)
+    _patch_evidence(monkeypatch, table)
     with pytest.raises(HTTPException) as refused:
-        _save(table, SmallVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
+        _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
 
     assert refused.value.status_code == 404
     assert table.rows == {}
@@ -485,8 +514,193 @@ def test_without_sv_storage_the_scoring_is_saved_without_evidence(monkeypatch) -
     table = _ReviewTable()
     reads = _patch_evidence(monkeypatch, table, _record())
     no_assembly = types.SimpleNamespace(family_uuid=_FAMILY, family_id="FAM1", project_ids=["p1"], assembly_name=None)
-    _save(table, SmallVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))), context=no_assembly)
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))), context=no_assembly)
 
     assert table.rows["sv1"]["cnv_class"] == "cnv_class_5"
     assert table.rows["sv1"]["cnv_evidence_snapshot"] is None
     assert reads == []
+
+
+# --- two callers of one SV: the row the classification was made on (TRACE-11) ----------------------
+
+# One deletion called twice under one id, as a package's NeedlR call and an uploaded Sniffles
+# call of it are (CLIN-43): NeedlR annotates its genes, their pLI and the inheritance; the
+# upload's genes come from the gene loci, and it carries neither. Each caller's call is a row
+# of its own, and the upload's has the lower storage key: the row the save froze, and the drift
+# check read, whatever row the classification was made on.
+
+
+def _upload_row(**overrides) -> StructuralVariantRecord:
+    fields = {
+        "variant_key": 3,
+        "source": "sniffles",
+        "gene_symbols": ["TCF4"],
+        "annotations": [{"source": "sniffles", "ref": "N", "alt": "<DEL>", "info": {"SUPPORT": "14"}}],
+    }
+    fields.update(overrides)
+    return _record(**fields)
+
+
+def _needlr_row(**overrides) -> StructuralVariantRecord:
+    return _record(**overrides)
+
+
+def _both_callers(**needlr_overrides) -> list[StructuralVariantRecord]:
+    return [_upload_row(), _needlr_row(**needlr_overrides)]
+
+
+def test_the_two_callers_rows_give_a_classification_other_evidence() -> None:
+    upload, needlr = (sve.structural_evidence(row) for row in _both_callers())
+    assert (needlr["source"], needlr["pli"], needlr["inheritance"], needlr["gene_symbols"]) == (
+        "needlr",
+        0.99,
+        "de_novo",
+        ["TCF4", "TXNL1"],
+    )
+    assert (upload["source"], upload["pli"], upload["inheritance"], upload["gene_symbols"]) == (
+        "sniffles",
+        None,
+        None,
+        ["TCF4"],
+    )
+
+
+def test_a_scoring_freezes_the_row_of_the_caller_it_was_made_on(monkeypatch) -> None:
+    table = _ReviewTable()
+    reads = _patch_evidence(monkeypatch, table, *_both_callers())
+
+    # Made on the NeedlR row: its pLI, inheritance and genes, not the upload's.
+    _save(table, StructuralVariantReviewUpdate(source="needlr", cnv_acmg=_scoring(("2A", 1.0, True))))
+    snapshot = table.rows["sv1"]["cnv_evidence_snapshot"]
+    assert snapshot["evidence"] == sve.structural_evidence(_needlr_row())
+    assert snapshot["evidence_hash"] == canonical_hash(sve.structural_evidence(_needlr_row()))
+
+    # Made on the upload's row: its evidence, without NeedlR's pLI and inheritance.
+    _save(table, StructuralVariantReviewUpdate(source="sniffles", cnv_acmg=_scoring(("2A", 1.0, True))))
+    assert table.rows["sv1"]["cnv_evidence_snapshot"]["evidence"] == sve.structural_evidence(_upload_row())
+
+    assert reads == [("sv1", "needlr"), ("sv1", "sniffles")]
+
+
+def test_a_scoring_naming_no_caller_takes_the_svs_one_row(monkeypatch) -> None:
+    # A client from before the field: with one caller there is no doubt which row it was.
+    table = _ReviewTable()
+    _patch_evidence(monkeypatch, table, _needlr_row())
+    _save(table, StructuralVariantReviewUpdate(cnv_acmg=_scoring(("2A", 1.0, True))))
+    assert table.rows["sv1"]["cnv_evidence_snapshot"]["evidence"] == sve.structural_evidence(_needlr_row())
+
+
+def test_a_scoring_naming_no_caller_of_an_sv_two_callers_share_is_refused_and_writes_nothing(
+    monkeypatch,
+) -> None:
+    # Which row it was made on cannot be told: refused, not frozen from the lowest key.
+    table = _ReviewTable()
+    _patch_evidence(monkeypatch, table, *_both_callers())
+    with pytest.raises(HTTPException) as refused:
+        _save(table, StructuralVariantReviewUpdate(tags=["report"], cnv_acmg=_scoring(("2A", 1.0, True))))
+
+    assert refused.value.status_code == 422
+    assert "(needlr, sniffles)" in refused.value.detail
+    assert "(source)" in refused.value.detail
+    assert table.rows == {}
+    assert table.steps == ["EVIDENCE"]
+
+
+def test_a_scoring_named_for_a_caller_without_a_row_is_refused(monkeypatch) -> None:
+    table = _ReviewTable()
+    _patch_evidence(monkeypatch, table, *_both_callers())
+    with pytest.raises(HTTPException) as refused:
+        _save(table, StructuralVariantReviewUpdate(source="spectre", cnv_acmg=_scoring(("2A", 1.0, True))))
+
+    assert refused.value.status_code == 404
+    assert table.rows == {}
+
+
+def test_a_save_without_a_scoring_reads_no_caller(monkeypatch) -> None:
+    # The caller matters only to the evidence a scoring freezes: a note save of an SV two
+    # callers share is kept, whatever caller it names or leaves out.
+    table = _ReviewTable()
+    reads = _patch_evidence(monkeypatch, table, *_both_callers())
+    _save(table, StructuralVariantReviewUpdate(note="seen"))
+    _save(table, StructuralVariantReviewUpdate(note="seen twice", source="needlr"))
+    assert (table.rows["sv1"]["note"], table.rows["sv1"]["cnv_evidence_snapshot"], reads) == (
+        "seen twice",
+        None,
+        [],
+    )
+
+
+def test_the_drift_check_compares_each_classification_with_its_own_callers_row(monkeypatch) -> None:
+    reviews = [_review("sv-needlr", _frozen(_needlr_row())), _review("sv-upload", _frozen(_upload_row()))]
+    looked_up = _patch_current(monkeypatch, {"sv-needlr": _both_callers(), "sv-upload": _both_callers()})
+    out = asyncio.run(cds.evaluate_structural_classification_drift(_Session(reviews), _CONTEXT))
+
+    # Neither caller's row changed: neither classification drifted, although the other
+    # caller's row of its SV has other genes, no pLI or no inheritance.
+    assert (out["checked"], out["drifted_count"], out["drifted"]) == (2, 0, [])
+    assert sorted(looked_up) == [("u1", "sv-needlr", "needlr"), ("u1", "sv-upload", "sniffles")]
+
+
+def test_a_change_to_the_classified_callers_row_is_drift_and_one_to_another_callers_is_not(
+    monkeypatch,
+) -> None:
+    reviews = [_review("sv-needlr", _frozen(_needlr_row())), _review("sv-upload", _frozen(_upload_row()))]
+    # A re-import moves the NeedlR call's genes; the upload's row stays as it was.
+    moved = _both_callers(gene_symbols=["TCF4"])
+    _patch_current(monkeypatch, {"sv-needlr": moved, "sv-upload": moved})
+    out = asyncio.run(cds.evaluate_structural_classification_drift(_Session(reviews), _CONTEXT))
+
+    [entry] = out["drifted"]
+    assert (entry["variant_id"], entry["status"], entry["changed"]) == ("sv-needlr", "drifted", ["gene_symbols"])
+    assert (entry["evidence_from"]["source"], entry["evidence_to"]["source"]) == ("needlr", "needlr")
+    assert entry["evidence_to"]["gene_symbols"] == ["TCF4"]
+
+
+def test_a_classification_whose_callers_row_is_gone_is_missing_while_another_caller_calls_the_sv(
+    monkeypatch,
+) -> None:
+    # Its evidence was NeedlR's: the upload's call of the SV is other evidence, not that
+    # evidence changed.
+    _patch_current(monkeypatch, {"sv-needlr": [_upload_row()]})
+    out = asyncio.run(
+        cds.evaluate_structural_classification_drift(
+            _Session([_review("sv-needlr", _frozen(_needlr_row()))]), _CONTEXT
+        )
+    )
+
+    [entry] = out["drifted"]
+    assert (entry["status"], entry["changed"], entry["evidence_to"]) == ("variant_missing", [], None)
+    assert entry["evidence_from"] == sve.structural_evidence(_needlr_row())
+
+
+def test_the_drift_check_of_evidence_that_names_no_caller_reads_every_callers_row(monkeypatch) -> None:
+    # Only to tell an SV still in the data (unknown) from one no longer there.
+    nameless = _frozen()
+    nameless["evidence"].pop("source")
+    nameless["evidence_hash"] = canonical_hash(nameless["evidence"])
+    looked_up = _patch_current(monkeypatch, {"sv1": _both_callers()})
+    out = asyncio.run(cds.evaluate_structural_classification_drift(_Session([_review("sv1", nameless)]), _CONTEXT))
+    assert [item["status"] for item in out["drifted"]] == ["unknown"]
+    assert looked_up == [("u1", "sv1", None)]
+
+    _patch_current(monkeypatch, {})
+    out = asyncio.run(cds.evaluate_structural_classification_drift(_Session([_review("sv1", nameless)]), _CONTEXT))
+    assert [item["status"] for item in out["drifted"]] == ["variant_missing"]
+
+
+def test_the_sv_review_request_names_the_caller_and_the_small_variant_one_does_not() -> None:
+    from backend.app.main import app
+
+    spec = app.openapi()
+    schemas = spec["components"]["schemas"]
+
+    def _body(path: str) -> dict:
+        ref = spec["paths"][path]["put"]["requestBody"]["content"]["application/json"]["schema"]["$ref"]
+        return schemas[ref.rsplit("/", 1)[-1]]
+
+    sv_body = _body("/api/families/{family_id}/structural-variants/{variant_id}/review")
+    small_body = _body("/api/families/{family_id}/small-variants/{variant_id}/review")
+    assert "source" in sv_body["properties"] and "source" not in sv_body.get("required", [])
+    assert "source" not in small_body["properties"]
+    assert StructuralVariantReviewUpdate.model_validate({"source": "needlr"}).source == "needlr"
+    assert StructuralVariantReviewUpdate.model_validate({}).source is None

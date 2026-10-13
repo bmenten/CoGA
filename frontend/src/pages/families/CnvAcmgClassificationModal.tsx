@@ -117,6 +117,9 @@ export default function CnvAcmgClassificationModal({
         point_total: classification.pointTotal,
         classification: classification.classLabel,
       },
+      // The caller whose row this dialog was opened on: the save freezes that row's
+      // evidence, the one the criteria above were suggested from (TRACE-11).
+      source: variant.source ?? null,
     };
     await onSave(payload);
   };

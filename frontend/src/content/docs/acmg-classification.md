@@ -275,7 +275,9 @@ Each criterion carries a point value, some with a range you can adjust, and coun
 keeps each value within its allowed range, refuses a classification that lists a criterion twice, and
 recomputes the total when you save. Saving also freezes the evidence the
 pre-selection reads, so the report can tell when it changes (see the
-[traceability reference](/docs/reference/clinical-traceability)).
+[traceability reference](/docs/reference/clinical-traceability)). An event that several callers call
+is a row per caller, each with its own genes, pLI and inheritance: the classifier reads, and the save
+freezes, the row you opened it from.
 
 | Points | Class |
 | --- | --- |

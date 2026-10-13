@@ -101,6 +101,15 @@ class SmallVariantReviewUpdate(BaseModel):
     cnv_acmg: Optional[CnvAcmgClassificationPayload] = None
 
 
+class StructuralVariantReviewUpdate(SmallVariantReviewUpdate):
+    # The caller (the SV row's ``source``) whose row a CNV scoring is made on. Several
+    # callers can call one SV under one id and share its review, and a scoring freezes
+    # the evidence of the row it was made on (TRACE-11). Read only with a scoring: left
+    # out, the SV's one row is taken, and a scoring of an SV that several callers share
+    # is refused (422).
+    source: Optional[str] = None
+
+
 class SmallVariantReviewSummaryOut(BaseModel):
     reviewed_variant_count: int = 0
     note_count: int = 0

@@ -228,6 +228,47 @@ describe('FamilyStructuralVariantsPage', () => {
     }
   });
 
+  it('saves a CNV classification naming the caller of the row it was made on (TRACE-11)', async () => {
+    const get = api.get as unknown as Mock;
+    const workingGet = get.getMockImplementation()!;
+    // NeedlR and an upload call one deletion under one id: a row each, one review.
+    get.mockImplementation((url: string) =>
+      url.startsWith('/families/F1/structural-variants?page=1&page_size=100')
+        ? (workingGet(url) as Promise<{ data: { variants: Record<string, unknown>[] } }>).then((res) => ({
+            data: {
+              ...res.data,
+              variants: [
+                { ...res.data.variants[0], source: 'needlr', gene_pli: 0.99 },
+                { ...res.data.variants[0], source: 'sniffles' },
+              ],
+              total: 2,
+            },
+          }))
+        : workingGet(url),
+    );
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+            <Routes>
+              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const uploadCard = (await screen.findByText('Source sniffles')).closest('article') as HTMLElement;
+      fireEvent.click(within(uploadCard).getByRole('button', { name: 'ACMG (CNV)' }));
+      fireEvent.click(await screen.findByRole('button', { name: /save classification/i }));
+      await waitFor(() => expect(screen.getByText(/Variant review saved/i)).toBeInTheDocument());
+
+      const [path, body] = (api.put as unknown as Mock).mock.calls.at(-1)!;
+      expect(path).toBe('/families/F1/structural-variants/v1/review');
+      expect(JSON.parse(JSON.stringify(body))).toMatchObject({ source: 'sniffles', cnv_acmg: { kind: 'loss' } });
+    } finally {
+      get.mockImplementation(workingGet);
+    }
+  });
+
   it('searches the region flags left ticked, each as its own parameter', async () => {
     render(
       <QueryClientProvider client={createTestQueryClient()}>
