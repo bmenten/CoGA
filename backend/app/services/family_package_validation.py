@@ -23,7 +23,7 @@ from .hpo_service import (
 
 from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
-from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, staged_package_source
+from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_path, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
 
@@ -1434,7 +1434,9 @@ def _validate_and_load_package(
             _issue(
                 "package_folder_not_allowed",
                 str(exc.detail),
-                path=Path(folder_path).expanduser(),
+                # As typed, `~` expanded as a string: Path.expanduser raises on a `~` that
+                # names no home folder, which is why the guard refused it.
+                path=package_folder_path(folder_path),
             )
         ]
         return FamilyPackageValidationOut(valid=False, errors=errors), None
@@ -1448,6 +1450,13 @@ def _validate_and_load_package(
         return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
     if not root.is_dir():
         errors.append(_issue("package_folder_not_directory", "Family package path is not a directory", path=root))
+        return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
+
+    # A manifest name that is a symlink out of the package, or one that loops: no manifest is
+    # read through it (it was any YAML or JSON file the backend can read).
+    manifest_link = manifest_link_out_of_package(root)
+    if manifest_link is not None:
+        errors.append(manifest_outside_package_issue(manifest_link))
         return FamilyPackageValidationOut(valid=False, errors=errors, warnings=warnings, datasets=summaries), None
 
     manifest_path = _find_manifest(root)
