@@ -48,6 +48,7 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext, 
 from backend.app.services.family_package_common import (
     APCAD_PCF_SOURCE,
     APCAD_PCF_TRACK_TYPE,
+    APCAD_SOURCE,
     CNV_SOURCE,
     FamilyPackageBundle,
     ManifestDataset,
@@ -350,7 +351,7 @@ async def test_an_update_that_skips_every_apcad_sample_ends_skipped(
 
     monkeypatch.setattr(family_package_datasets, "_import_apcad_track_file", not_read)
     for sample in SAMPLES:
-        stores.track(sample, "apcad", "web", rows=6)
+        stores.track(sample, "apcad", APCAD_SOURCE, rows=6)
     dataset = ManifestDataset(per_sample={sample: {"bed": _file(tmp_path, f"apcad/{sample}.bed")} for sample in SAMPLES})
     job = _job(stores, tmp_path, "apcad", dataset)
 
@@ -374,7 +375,7 @@ async def test_an_update_imports_an_apcad_family_vcf_whose_rows_are_gone(
 
     monkeypatch.setattr(family_package_datasets, "_import_apcad_track_file", read_family_vcf)
     for sample in SAMPLES:
-        stores.track(sample, "apcad", "web", rows=0)  # recorded, the rows gone
+        stores.track(sample, "apcad", APCAD_SOURCE, rows=0)  # recorded, the rows gone
     job = _job(stores, tmp_path, "apcad", ManifestDataset(family_vcf=_file(tmp_path, "apcad/family.vcf")))
 
     result = await _run(job)

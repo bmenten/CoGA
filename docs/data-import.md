@@ -218,7 +218,10 @@ The API behind the page:
   (`sample_interval_track_sources`), which a failed overwrite's restore can leave behind its
   rows. The track datasets and Paraphase are skipped sample by sample (the HiFiCNV tracks of
   `cnv` track by track, its calls whole), and the dataset's message names what was skipped; a
-  dataset skipped whole ends `skipped`, not `imported`.
+  dataset skipped whole ends `skipped`, not `imported`. A track dataset reads its own source's
+  track only ([Where each dataset lands](#where-each-dataset-lands)): a sample's coverage BED is
+  imported though the sample holds WisecondorX bins, and its APCAD though it holds HiFiCNV's
+  minor allele fraction.
 - `overwrite`: import into the existing family, and replace each imported dataset.
 
 While a job runs, the page shows each dataset's progress (`progress` in its summary): how
@@ -632,6 +635,17 @@ mother's calls beside the children's. A file without chrM variants removes that 
 The chrM SV files follow the same rule: one deletion called in the mother and the child is one
 SV with both calls, and a sample's new SV file replaces only that sample's calls.
 
+So do the tracks. A sample's track of one type can come from several callers, each under its
+own source: `coverage` from a BED (`web`), WisecondorX, QDNAseq and HiFiCNV; `segments` from the
+same callers; `apcad` from the `apcad` dataset (`apcad`), HiFiCNV's minor allele fraction
+(`hificnv`) and a BED upload (`web`); `apcad_pcf` from the `pcf` dataset (`pcf`) and a BED
+upload. A dataset replaces only its own source's track of a sample, its rows and its record in
+`sample_interval_track_sources`: the `coverage` dataset's BED leaves the WisecondorX and QDNAseq
+bins, which import before it, and HiFiCNV's depth; the `apcad` dataset leaves HiFiCNV's minor
+allele fraction and an uploaded APCAD, and stores a file its reader finds no record in, read as a
+BED, as its own track. A package's coverage BED and a BED upload share the source `web`, and
+each replaces the other ([below](#6-single-file-uploads)).
+
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
 lists them, with the transform each coverage track's record names, `coverage_normalizations`).
 A coverage track whose values are not a log2 ratio, such as HiFiCNV depths stored as read, is
@@ -886,6 +900,22 @@ Each stored TRGT call records its column (`metadata.vcf_sample`).
 `bed_type` is `coverage`, `segments`, `apcad` or `apcad_pcf`. Haplotype blocks cannot be
 uploaded as a BED; they come from a GLIMPSE2 small-variant upload (`source_format=glimpse2`)
 or package.
+
+An interval-track upload loads one sample's track of `bed_type` from a BED, under the source
+`web`, and only that source's track is checked and replaced:
+
+- The file is read and checked whole first. One that is not text, or holds no record of the
+  track type, is refused (400) before anything is replaced: the stored tracks and their records
+  stay as they were.
+- The upload is refused (409) only when rows a BED brought of that track type are stored for the
+  sample: a BED upload's, or a package's coverage BED's, which share the source. It reads the
+  rows, not Postgres's record of the track, which a failed overwrite's restore can leave behind
+  its rows; such a record is replaced with the upload's own.
+- `overwrite=true` replaces those rows and their record. The tracks of the other callers
+  (WisecondorX, QDNAseq, HiFiCNV, a package's APCAD or PCF tables) stay as they are.
+
+Deleting a sample's track type on **Admin → Family & Sample Data** removes every caller's track
+of that type.
 
 A family small-variant upload is one family VCF from one callset:
 

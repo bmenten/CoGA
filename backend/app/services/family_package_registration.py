@@ -1823,11 +1823,12 @@ def repeat_upload_scope(sample_id: str) -> tuple[str, dict[str, Any]]:
 
 
 def interval_track_upload_scope(bed_type: str, sample_id: str) -> tuple[str, dict[str, Any]]:
-    """What a BED upload of one sample's ``bed_type`` track brought; it replaces every track
-    of that type the sample has. A package dataset that writes such a track may read
-    another kind of file, or write another track (a coverage dataset's target table, an
-    APCAD VCF), so neither can show that it replaced what the other wrote: the upload has a
-    dataset of its own, ``bed_<type>``."""
+    """What a BED upload of one sample's ``bed_type`` track brought; it replaces the
+    sample's track of that type that a BED brought (source ``web``), and no other caller's
+    (SAFE-22). A package dataset that writes such a track may read another kind of file, or
+    write another track (a coverage dataset's target table, an APCAD VCF), so neither can
+    show that it replaced what the other wrote: the upload has a dataset of its own,
+    ``bed_<type>``."""
     return f"bed_{bed_type}", {"source": None, "samples": [sample_id]}
 
 
