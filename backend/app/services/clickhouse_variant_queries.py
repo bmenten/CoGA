@@ -2293,6 +2293,10 @@ def _small_region_filter_condition(
 # per-variant arrayExists over them is both slow and big enough to risk the ClickHouse
 # query-size limit. Large panels are gene panels (e.g. the ~5,300-gene Mendeliome), so the
 # compact gene-symbol + gene-index matching below covers them — skip the region expansion.
+# Such a panel then misses a variant a smaller panel reaches by position only (its symbol
+# differs between the gene reference and the annotation), so a smaller panel is served from
+# its cached ranking only when that ranking holds every variant the smaller panel reaches
+# (clickhouse_family_variants._serve_subpanel_from_superset, CLIN-34).
 _PANEL_REGION_INLINE_LIMIT = 1000
 
 
