@@ -5,9 +5,19 @@ import api from '../../lib/api';
 import { isAuthenticated, persistSession } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 
+// The only `next` a sign-in follows (REQ-UI-006): a page of this site in the form that
+// RequireAuth and RequireAdmin write, the page's path, query string and hash as the
+// browser holds them, percent-encoded. That is a "/", a letter or a digit, and then
+// printable ASCII only (! to ~) without a backslash. A browser reads such a value as a
+// path on this site: it holds no character a browser drops (a tab, line feed or carriage
+// return) or reads as a slash (a backslash), and once a letter or digit follows the first
+// "/", nothing after it can name a host (UI-2). Any other `next` opens the dashboard, as
+// an absent one does: a scheme, "//", a backslash, whitespace or a control character, and
+// a path that starts with a percent-encoded character, such as "/%09/" or "/%2F/".
+const SAME_SITE_PATH = /^\/[A-Za-z0-9][\x21-\x5B\x5D-\x7E]*$/;
+
 const resolveNextPath = (rawNext: string | null): string => {
-  if (!rawNext) return '/dashboard';
-  if (!rawNext.startsWith('/') || rawNext.startsWith('//')) {
+  if (!rawNext || !SAME_SITE_PATH.test(rawNext)) {
     return '/dashboard';
   }
   if (rawNext.startsWith('/login') || rawNext.startsWith('/signup')) {
