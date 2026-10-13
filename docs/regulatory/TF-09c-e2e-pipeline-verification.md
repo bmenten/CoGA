@@ -46,7 +46,7 @@ hand-derivable and auditable. The planted records and their expected outcomes:
 | De novo SNV | proband het, both parents hom-ref | flagged de novo |
 | Compound het (SNV+SNV) | two variants in one gene, trans across parents | paired as a compound-het group: `phase=trans`, `phase_evidence=segregation` |
 | Compound het (SNV+SV) | maternal SNV + paternal DEL over the same gene | SV second-hit: `phase=trans`, `phase_evidence=segregation`, `deletion_unmasked=true` |
-| Structural variants | a DEL and a BND | ingested with type/length/gene overlap |
+| Structural variants | a DEL and a BND | ingested with type/length/gene overlap; the BND with the mate its ALT names, found by a search on the mate's position |
 | Repeat expansion | HTT (HD_HTT), 40-CAG allele | classified **pathogenic** |
 | Coverage | per-sample BED tracks | interval-track rows registered |
 | Paraphase | one segmental-duplication result | persisted |

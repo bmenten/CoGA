@@ -84,6 +84,16 @@ async def _collect_api_responses(root: Path) -> dict:
         )
 
         r["sv"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variants"))
+        # CLIN-40: the NeedlR breakend's mate is on 5:3000000 (its ALT, N]chr5:3000000]).
+        r["sv_by_mate"] = _cap(
+            await ac.get(
+                f"/api/families/{FAMILY}/structural-variants",
+                params={"remote_chr": "5", "remote_start": 3_000_000},
+            )
+        )
+        r["sv_by_other_mate"] = _cap(
+            await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"remote_chr": "7"})
+        )
         r["sv_track"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variants", params={"track_mode": "true"}))
         r["sv_lengths"] = _cap(await ac.get(f"/api/families/{FAMILY}/structural-variant-lengths"))
         r["shared"] = _cap(await ac.get(f"/api/families/{FAMILY}/shared-structural-variant-counts"))
@@ -212,10 +222,23 @@ def test_structural_variants_page_contract(api, expected):
     by_type = {v["type"]: v for v in body["variants"]}
     assert by_type["DEL"]["length"] == -5000, by_type["DEL"]  # svLen, not end-start
     assert by_type["DEL"]["gene_count"] >= 1
-    # Both a DEL and a BND ingest via the Needlr path. Remote breakend coords are
-    # a sniffles-path feature (the Needlr importer doesn't parse ALT mate coords),
-    # so remote_chr stays null here — assert the BND is present, not its mate.
+    # Both a DEL and a BND ingest via the Needlr path. The BND has the mate its ALT names
+    # (N]chr5:3000000]), read as an upload reads it; the Needlr importer stored none before
+    # (CLIN-40). The DEL has none.
     assert "BND" in by_type, by_type
+    assert (by_type["BND"]["remote_chr"], by_type["BND"]["remote_start"]) == ("5", 3_000_000), by_type["BND"]
+    assert (by_type["DEL"]["remote_chr"], by_type["DEL"]["remote_start"]) == (None, None), by_type["DEL"]
+
+
+def test_structural_variants_found_by_their_mate(api):
+    # CLIN-40: a search by the mate's position never found a Needlr breakend.
+    resp = _resp(api, "sv_by_mate")
+    assert resp["status"] == 200, resp["text"]
+    assert [(v["_id"], v["type"], v["start"]) for v in resp["json"]["variants"]] == [("SVBND1", "BND", 20000)]
+    assert resp["json"]["total"] == 1
+    other = _resp(api, "sv_by_other_mate")
+    assert other["status"] == 200, other["text"]
+    assert other["json"]["variants"] == [] and other["json"]["total"] == 0
 
 
 def test_structural_variants_track_mode_omits_nulls(api):
