@@ -24,7 +24,7 @@ import re
 from typing import Any
 
 from ..schemas import FamilyImportValidationIssue
-from .family_package_common import _issue, _package_path_or_none, package_text_handle
+from .family_package_common import _issue, package_path_within, package_text_handle
 
 
 # The pipeline's per-sample dataset folders: <dataset>/<sample>/[<subfolder>/]<sample>...
@@ -104,7 +104,7 @@ def trgt_karyotype_sex(path: Path) -> str | None:
 def long_read_sample_sex(root: Path, sample_id: str) -> str | None:
     """The sex a long-read sample's TRGT VCF names (see :func:`trgt_karyotype_sex`)."""
     for pattern in _TRGT_VCF_PATTERNS:
-        path = _package_path_or_none(root, pattern.format(sample_id=sample_id))
+        path = package_path_within(root, pattern.format(sample_id=sample_id))
         if path is not None and path.is_file():
             return trgt_karyotype_sex(path)
     return None

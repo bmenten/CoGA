@@ -30,7 +30,7 @@ from fastapi import HTTPException
 
 from ..core.coga_logging import scrub_log
 from ..schemas import FamilyImportValidationIssue
-from .family_package_common import ParsedPed, _issue, _package_path_or_none
+from .family_package_common import ParsedPed, _issue, package_path_within
 from .family_package_qc import _csv_rows, parse_king_kin0_text, parse_ngsbits_sample_gender_text
 from .sample_integrity_qc import KINSHIP_FIRST_DEGREE, KINSHIP_SECOND_DEGREE, KINSHIP_THIRD_DEGREE
 from .upload_safety import read_path_text_bounded
@@ -52,8 +52,10 @@ _INDEX_STATUS_NOTE = (
 
 
 def _read_package_file(root: Path, relative_path: str, *, kind: str) -> str | None:
-    """A small package file's text, or None when it is absent or unreadable."""
-    path = _package_path_or_none(root, relative_path)
+    """A small package file's text, or None when it is absent or unreadable. The path can be
+    built from an ID (``king/<family ID>.kin0``): one that leads out of the package is never
+    looked up (``package_path_within``)."""
+    path = package_path_within(root, relative_path)
     if path is None or not path.is_file():
         return None
     try:

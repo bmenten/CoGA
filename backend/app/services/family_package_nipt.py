@@ -20,12 +20,14 @@ the importer keeps the paternal calls at a plasma call position or at
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import glob
+import os
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
 from .clickhouse_variant_records import SmallVariantCall
 from .data_scope import normalize_chromosome
-from .family_package_common import FamilyPackageBundle, ParsedPed, _display_path, package_text_handle, read_vcf_sample_columns
+from .family_package_common import FamilyPackageBundle, ParsedPed, _display_path, package_path_within, package_text_handle, read_vcf_sample_columns
 from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
 
 if TYPE_CHECKING:
@@ -155,8 +157,28 @@ class NiptPackageFiles:
 
 
 def _first_match(root: Path, patterns: Sequence[str], sample_id: str) -> Path | None:
+    """The first file, in name order, that one of ``patterns`` finds in the package for
+    ``sample_id``; None when none does.
+
+    The sample ID is a name: a ``*``, ``?`` or ``[`` in it matches only itself, so one
+    sample never takes another's VCF, and a pattern it makes absolute or gives a ``..`` is
+    not looked up. A match that resolves outside the package (a symlink) is no match either:
+    Discover reads the header of the VCF it finds, and reads nothing outside the package."""
+    name = glob.escape(sample_id)
     for pattern in patterns:
-        matches = sorted(path for path in root.glob(pattern.format(sample=sample_id)) if path.is_file())
+        rendered = pattern.format(sample=name)
+        if os.path.isabs(rendered) or os.pardir in Path(rendered).parts:
+            continue
+        try:
+            found = sorted(root.glob(rendered))
+        except (OSError, ValueError):
+            # A NUL in the ID: no file is named after it.
+            continue
+        matches = [
+            path
+            for path in found
+            if package_path_within(root, path.relative_to(root).as_posix()) is not None and path.is_file()
+        ]
         if matches:
             return matches[0]
     return None
