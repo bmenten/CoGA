@@ -2106,7 +2106,7 @@ python docs/handleiding/build_site.py
 <li><strong>Alles achter een login.</strong> De referentierouters (<code>chromosomes</code>, <code>cnvs</code>, <code>dgv</code>, <code>blacklist</code>, <code>segmental-duplications</code>) leggen de login op al hun endpoints; de andere routers vragen hem per endpoint.</li>
 <li><strong>Projectgebonden toegang.</strong> Familie- en sampletracks lopen via het toegangscheckpoint (hoofdstuk 2). Wie een <code>family_id</code> kent maar er geen toegang toe heeft, krijgt de tracks niet.</li>
 <li><strong>Uploads alleen voor beheerders.</strong> Een BED-track uploaden (<code>POST /api/bed/upload/…</code>) vraagt <code>get_current_admin_user</code>, en het bronbestand wordt geregistreerd.</li>
-<li><strong>Herkomst van de tracks.</strong> Elke rij in de interval-tabel draagt haar bron en bestandsnaam; <code>sample_interval_track_sources</code> houdt per sample, soort, bron en bestand het aantal rijen en het uploadmoment bij.</li>
+<li><strong>Herkomst van de tracks.</strong> Elke rij in de interval-tabel draagt haar bron en bestandsnaam; <code>sample_interval_track_sources</code> houdt per sample, soort, bron en bestand het aantal rijen en het uploadmoment bij. Rekent de import de waarden van een track om, dan legt <code>sample_interval_track_sources</code> ook die omrekening vast (<code>normalization</code>): bij HiFiCNV worden het kopieaantal en de diepte een log2-ratio.</li>
 </ul>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
