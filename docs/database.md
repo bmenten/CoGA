@@ -96,6 +96,15 @@ is missing, so a database created before `target_coverage` was in the list keeps
 and the import of a per-target coverage table fails on it. Reset such a database
 ([development.md](development.md#stop-and-reset)).
 
+`repeat_expansions.status` is a call's status as its import classified it: `normal`, `review`,
+`not_assessed` (a call at a locus without thresholds: no catalogue row names its TRID, or the
+row states no intermediate, premutation or pathogenic threshold), `intermediate`,
+`premutation`, `pathogenic` or `unknown` (no call). The genome tracks show it; the repeat page
+classifies the call again against the catalogue as it is now. A `CHECK`
+(`repeat_expansions_status_check`) holds it to these values. A database created before
+`not_assessed` was in the list keeps the old check, and a TRGT import with a call at a locus
+without thresholds fails on it, with the whole repeat dataset. Reset such a database too.
+
 JSON keys that package import writes into the `metadata` columns:
 
 | Column | Key | Contents |

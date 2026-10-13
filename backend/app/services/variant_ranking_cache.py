@@ -11,6 +11,10 @@ inputs that change the ranking:
 - affected HPO terms, pedigree/affected status and the gene panel's version: its own
   version, which every change of the genes or regions it holds raises (an edit, a
   Mendeliome rebuild, a PanelApp import), and its source's release (``external_version``);
+- the genes and regions the query applied: the panel's (``panel_members_digest``), and the
+  intervals and gene loci it keeps to or leaves out. A gene's loci are read from the gene
+  reference when the query runs, so a reload that moves a gene changes them while every
+  version and filter stays as it was;
 - the reference data the scores read: Monarch release, the HPO ontology loaded (its
   release and import time, as the signed record reads it) and the gene-constraint table
   (gene_info) for the family's assembly;
@@ -18,9 +22,11 @@ inputs that change the ranking:
 
 Any change flips ``inputs_hash``, so an exact hit is never a ranking computed on other
 inputs. ``base_hash`` leaves the panel out, so that a narrower panel can be served from a
-broader cached ranking (see ``compute_ranking_hashes``). Before the data version was part
-of the hash, only the package import invalidated the cache, and a direct upload or an
-admin delete left an outdated ranking in place (#509).
+broader cached ranking (see ``compute_ranking_hashes``); the row records what its panel
+held (``provenance.panel_members``), and is used for another panel only while its own
+panel holds exactly that (CLIN-27). Before the data version was part of the hash, only the
+package import invalidated the cache, and a direct upload or an admin delete left an
+outdated ranking in place (#509).
 
 This module owns only the hash + Postgres cache rows; the (de)serialisation of variant
 records is done by the caller (clickhouse_family_variants) which holds those helpers.
@@ -30,6 +36,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import asdict, is_dataclass
 from typing import Any
 
@@ -156,6 +163,29 @@ def _digest(payload: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def _region_keys(regions: Iterable[Any] | None) -> list[list[Any]]:
+    """Regions as sorted ``[chr, start, end]`` triples, each once: the same regions read
+    in another order are the same input."""
+    keys = {(str(region.chr), int(region.start), int(region.end)) for region in regions or ()}
+    return [list(key) for key in sorted(keys)]
+
+
+def panel_members_digest(constraints: Any) -> str | None:
+    """A digest of the genes and regions a panel filter applied; None without a panel.
+
+    A cached ranking records this of its panel, rather than the panel's version alone. The
+    regions hold each gene's loci, which the query reads from the gene reference when it
+    runs: a reload that moves a gene changes them, and no version with them. And the
+    version is read apart from the genes, so an edit committed between the two reads would
+    pair one version with another version's genes.
+    """
+    genes = sorted({str(gene) for gene in getattr(constraints, "genes", None) or () if str(gene).strip()})
+    regions = _region_keys(getattr(constraints, "regions", None))
+    if not genes and not regions:
+        return None
+    return _digest({"genes": genes, "regions": regions})
+
+
 async def compute_ranking_hashes(
     session: AsyncSession,
     *,
@@ -166,6 +196,11 @@ async def compute_ranking_hashes(
     review_variant_ids: Any = None,
     excluded_review_variant_ids: Any = None,
     include_review_filter_active: bool = False,
+    panel_members: str | None = None,
+    include_regions: Iterable[Any] = (),
+    exclude_regions: Iterable[Any] = (),
+    exclude_gene_regions: Iterable[Any] = (),
+    exclude_gene_terms: Iterable[str] = (),
 ) -> tuple[str, str]:
     """Return ``(inputs_hash, base_hash)``.
 
@@ -176,6 +211,13 @@ async def compute_ranking_hashes(
     ``variant_data_version`` is the family's small-variant data version from storage
     (``get_family_small_variant_data_version``); both hashes cover it, so a ranking over
     different variant data is never a hit, exact or superset.
+
+    The rest is what the query applied, as the ranking hands it to the variant fetch:
+    ``panel_members`` (``panel_members_digest`` of the panel's genes and regions) in the
+    exact key, and in both keys the regions it keeps to (the intervals and the gene
+    filter's loci), and the regions and genes it leaves out (``exclude_gene`` resolved to
+    loci and names). A gene's loci come from the gene reference, not from the filters, so
+    a reload that moves the gene would otherwise leave both keys as they were.
     """
     # Review-tag filters are resolved to variant-id sets outside the filter object, so
     # they must be folded into the hash or two otherwise-identical queries would collide.
@@ -195,9 +237,22 @@ async def compute_ranking_hashes(
         "pedigree": await _pedigree_signature(session, context),
         "monarch_release": await _monarch_release(session),
         "reference": await _reference_versions(session, context),
+        "scope": {
+            "include_regions": _region_keys(include_regions),
+            "exclude_regions": _region_keys(exclude_regions),
+            "exclude_gene_regions": _region_keys(exclude_gene_regions),
+            "exclude_gene_terms": sorted({str(term) for term in exclude_gene_terms or ()}),
+        },
     }
     panel_version = await _panel_version(session, getattr(filters, "panel_id", None))
-    inputs_hash = _digest({**common, "filters": canonical, "panel_version": panel_version})
+    inputs_hash = _digest(
+        {
+            **common,
+            "filters": canonical,
+            "panel_version": panel_version,
+            "panel_members": panel_members,
+        }
+    )
     base_hash = _digest({**common, "filters": panel_agnostic_filters})
     return inputs_hash, base_hash
 
@@ -291,15 +346,16 @@ async def find_superset_candidates(
 ) -> list[dict[str, Any]]:
     """Complete (non-truncated) cached rankings over the same panel-agnostic inputs.
 
-    Any of these can serve a narrower panel whose genes it covers. Largest first, so the
-    broadest superset (e.g. a no-panel all-genes ranking) is preferred.
+    Any of these can serve a narrower panel whose genes it covers, while its own panel
+    holds what its ``provenance`` records it held. Largest first, so the broadest superset
+    (e.g. a no-panel all-genes ranking) is preferred.
     """
     rows = (
         await session.execute(
             text(
                 """
                 SELECT inputs_hash, panel_id, total, total_is_estimated, ranking_truncated,
-                       ranking, computed_at
+                       ranking, provenance, computed_at
                 FROM family_variant_ranking_cache
                 WHERE family_id = CAST(:family_uuid AS uuid)
                   AND base_hash = :base_hash

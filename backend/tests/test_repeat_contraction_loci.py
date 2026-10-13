@@ -76,9 +76,12 @@ class TestExpansionLociUnchanged:
         assert classify_repeat_count(30, 27, 36) == "intermediate"
         assert classify_repeat_count(10, 27, 36) == "normal"
 
-    def test_an_uncatalogued_locus_is_normal_and_a_no_call_is_unknown(self) -> None:
-        assert classify_repeat_count(12, None, None) == "normal"
+    def test_an_uncatalogued_locus_is_not_assessed_and_a_no_call_is_unknown(self) -> None:
+        # Read as "normal" before CLIN-26, so an expansion there could not be seen
+        # (test_repeat_not_assessed.py).
+        assert classify_repeat_count(12, None, None) == "not_assessed"
         assert classify_repeat_count(None, 27, 36) == "unknown"
+        assert classify_repeat_count(None, None, None) == "unknown"
 
 
 class TestReclassification:
@@ -99,9 +102,10 @@ class TestReclassification:
         )
         assert [allele["status"] for allele in result] == ["normal", "pathogenic"]
 
-    def test_ranges_alone_are_enough_to_reclassify(self) -> None:
-        # warning_min and pathogenic_min may both be absent; the benign range still
-        # decides, so the guard cannot key on the thresholds only.
+    def test_a_benign_range_alone_is_not_a_threshold(self) -> None:
+        # Without an intermediate or pathogenic threshold nothing says where harm starts,
+        # so a benign range alone (STRchive's POLG) leaves the allele not assessed; the
+        # stored status is replaced all the same (CLIN-26; it read "normal" before).
         result = _reclassify_repeat_alleles(
             [{"repeat_count": 4, "status": "pathogenic"}],
             warning_min=None,
@@ -110,7 +114,7 @@ class TestReclassification:
             benign_max=4,
             pathogenic_max=None,
         )
-        assert result[0]["status"] == "normal"
+        assert result[0]["status"] == "not_assessed"
 
     def test_a_no_call_allele_is_left_alone(self) -> None:
         result = _reclassify_repeat_alleles(
@@ -133,7 +137,7 @@ class TestReviewStatusSurfaces:
         assert summarize_repeat_status([classify(2, VWA1), classify(5, VWA1)]) == "review"
 
     def test_ranking_order(self) -> None:
-        order = ["unknown", "normal", "review", "intermediate", "premutation", "pathogenic"]
+        order = ["unknown", "normal", "review", "not_assessed", "intermediate", "premutation", "pathogenic"]
         assert sorted(REPEAT_STATUS_RANK, key=REPEAT_STATUS_RANK.get) == order
         assert summarize_repeat_status(["review", "intermediate"]) == "intermediate"
         assert summarize_repeat_status(["review", "pathogenic"]) == "pathogenic"

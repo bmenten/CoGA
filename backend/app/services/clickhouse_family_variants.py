@@ -49,6 +49,7 @@ from .variant_ranking_cache import (
     compute_ranking_hashes,
     find_superset_candidates,
     get_cached_ranking,
+    panel_members_digest,
     store_ranking,
 )
 from .variant_prioritization import (
@@ -1863,6 +1864,48 @@ async def _serve_ranking_from_cache(
     )
 
 
+def _recorded_panel_members(candidate: dict[str, Any]) -> str | None:
+    """What a cached ranking recorded of its panel's genes and regions, if anything."""
+    provenance = candidate.get("provenance")
+    if isinstance(provenance, str):
+        try:
+            provenance = json.loads(provenance)
+        except json.JSONDecodeError:
+            return None
+    recorded = provenance.get("panel_members") if isinstance(provenance, dict) else None
+    return recorded if isinstance(recorded, str) and recorded else None
+
+
+async def _superset_panel_if_unchanged(
+    session: AsyncSession,
+    candidate: dict[str, Any],
+    *,
+    assembly_id: str | None,
+) -> PanelFilterConstraints | None:
+    """A cached ranking's panel as it is now, when it still holds the genes and regions the
+    ranking was computed on; None when it does not, or when that cannot be shown.
+
+    The ranking can serve another panel only as a superset: the narrowing can drop its
+    variants, never add any. A ranking computed before its panel gained a gene holds none
+    of that gene's variants, whatever the panel holds now (CLIN-27). A row cached before
+    rankings recorded their panel cannot show its panel unchanged, and a panel deleted
+    since has nothing to compare (its lookup answers 404, which must not fail a request
+    for another panel).
+    """
+    recorded = _recorded_panel_members(candidate)
+    if recorded is None:
+        return None
+    try:
+        constraints = await _fetch_panel_constraints(
+            session, str(candidate["panel_id"]), assembly_id=assembly_id
+        )
+    except HTTPException:
+        return None
+    if panel_members_digest(constraints) != recorded:
+        return None
+    return constraints
+
+
 async def _serve_subpanel_from_superset(
     session: AsyncSession,
     *,
@@ -1878,9 +1921,11 @@ async def _serve_subpanel_from_superset(
 
     The per-variant scores don't depend on the panel, so a narrower panel's ranking is the
     superset's ranking restricted to the panel's variants — in the same order. Membership
-    is re-validated against ClickHouse with the *exact* panel filter, so the result equals
-    a direct compute (no missed variants). Only complete (non-truncated) supersets whose
-    genes cover the request are used; otherwise returns None for a live compute.
+    is re-validated against ClickHouse with the *exact* panel filter, which can only drop
+    variants from the superset. So a superset is used only when it is complete (not
+    truncated), has no panel or a panel that still holds exactly the genes and regions it
+    was computed on, and that panel's genes cover the request; otherwise returns None for a
+    live compute.
     """
     request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
     if not request_genes:
@@ -1892,9 +1937,11 @@ async def _serve_subpanel_from_superset(
     for candidate in candidates:
         candidate_panel_id = candidate.get("panel_id")
         if candidate_panel_id:
-            candidate_constraints = await _fetch_panel_constraints(
-                session, candidate_panel_id, assembly_id=context.assembly_id
+            candidate_constraints = await _superset_panel_if_unchanged(
+                session, candidate, assembly_id=context.assembly_id
             )
+            if candidate_constraints is None:
+                continue  # computed on other genes or regions than its panel holds now
             candidate_genes = {gene.lower() for gene in (candidate_constraints.genes or []) if gene}
             if not request_genes.issubset(candidate_genes):
                 continue  # this superset doesn't cover all the requested genes
@@ -1999,9 +2046,11 @@ async def _prioritized_small_variants_page(
 
     # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
     # when its inputs are unchanged — filters, HPO, pedigree, panel, reference releases and
-    # the family's variant data (the storage-level data version, see #509).
+    # the family's variant data (the storage-level data version, see #509) — and the genes
+    # and regions this query applies, read here from the panel and the gene reference.
     patient_terms, term_labels = await _affected_present_hpo(session, context)
     variant_data_version = await _family_small_variant_data_version(context)
+    panel_members = panel_members_digest(panel_constraints) if filters.panel_id else None
     inputs_hash, base_hash = await compute_ranking_hashes(
         session,
         context=context,
@@ -2011,7 +2060,20 @@ async def _prioritized_small_variants_page(
         review_variant_ids=review_variant_ids if include_review_filter_active else None,
         excluded_review_variant_ids=excluded_review_variant_ids,
         include_review_filter_active=include_review_filter_active,
+        panel_members=panel_members,
+        include_regions=include_regions,
+        exclude_regions=exclude_regions,
+        exclude_gene_regions=exclude_gene_regions,
+        exclude_gene_terms=exclude_gene_terms,
     )
+    provenance = {
+        "hpo_count": len(patient_terms),
+        "panel_id": filters.panel_id,
+        # What the panel held when this ranking was computed: it serves another panel only
+        # while its panel still holds exactly this (_serve_subpanel_from_superset).
+        "panel_members": panel_members,
+        "filters": canonical_filters(filters),
+    }
     cached = await get_cached_ranking(
         session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
     )
@@ -2084,11 +2146,7 @@ async def _prioritized_small_variants_page(
             total_is_estimated=capped,
             ranking_truncated=capped,
             ranking=[],
-            provenance={
-                "hpo_count": len(patient_terms),
-                "panel_id": filters.panel_id,
-                "filters": canonical_filters(filters),
-            },
+            provenance=provenance,
         )
         # Nothing in the window survived the filters, but when the window overflowed a
         # match may lie beyond it: the empty ranking is as incomplete as a full one.
@@ -2227,11 +2285,7 @@ async def _prioritized_small_variants_page(
             }
             for variant in variants
         ],
-        provenance={
-                "hpo_count": len(patient_terms),
-                "panel_id": filters.panel_id,
-                "filters": canonical_filters(filters),
-            },
+        provenance=provenance,
     )
 
     skip = max(page - 1, 0) * page_size if page_size else 0

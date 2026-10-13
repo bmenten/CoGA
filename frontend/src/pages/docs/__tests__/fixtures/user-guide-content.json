@@ -803,14 +803,14 @@
   "title": "Small-variant prioritisation",
   "summary": "The small-variant page: the default view, the filters and presets, the phenotype-driven ranking, and genes also hit by a structural variant.",
   "quickLinks": [],
-  "text": "TheSmallvariantspageiswheremostcandidatesarefound.Thefilterstakeagenomedowntoashortlist;thePhenotypeprioritypresetputsthatlistinorder.ThedefaultviewThepageopenswiththePhenotypepriority(Exomiser-style)presetontheMendeliomepanel:HIGHorMODERATEimpact;gnomADexome,genomeandpopmaxfrequency1%orbelow,andatmost10homozygotesand10hemizygotes—aClinVarpathogenicorlikelypathogenicrecordoverridesthesecut-offs;ClinVarbenignandlikelybenignleftout;carried(hetorhom)byeachaffectedmember,withQUAL20,depth10,allelefraction0.2and4altreadsormore.Thedefaultviewhidesvariants.AvariantoutsidetheMendeliome,acommonvariant,alow-qualitycall,oravariantanaffectedmemberdoesnotcarryisnotshown.PressClearallfiltersbeforeyouconcludethatavariantisnotinthedata.FiltersandpresetsThefiltersaregroupedasonthescreen:Phenotype,Structuralsecondhit,Inheritance,Pathogenicity,Annotations(withCanonicalonly,MANEonlyandLoFonly),InSilico,Frequency,Locations,ExcludeandReviewandcuration.Fordenovoanddominant,amale'scallonchrXorchrYoutsidethepseudo-autosomalregions(1or1/1)countsasonecopy.Alocationentrythatcannotberead(forexampleanendbeforeitsstart)isnamedunderitsfield,andnothingissearcheduntilyoufixit.Aper-sampleminimum(GQ,DP,AForADalt)thatisnotanumberfailsthesearch,andthemessagenamesit.Thebuilt-inpresetsarePhenotypepriority,Dominantstrict,Dominantrelaxed,Expandedcarrierscreening(couplesonly:geneswherebothpartnerscarryarare(below1%)high-ormoderate-impactvariant,andthosevariantsafemalepartnercarriesonchrXoutsidethepseudo-autosomalregions,whichputasonatriskontheirown;aClinVarpathogenicorlikelypathogeniccalloverridesthefrequencycut-off,soacommonfoundervariantstaysin;apartnerwhosesexisnotrecordedcountsasfemale;mitochondrialvariantsarenotpartofit,asmtDNApassesfromthemotheralone),Compoundhet,Recessivehom,Recessivebroad,AnyaffectedandClinVarreview.Apresetsavestherecipe,nottheresult;saveyourowntostandardiseasearch.Compound-heterozygouscandidatesareshownaspairs.Upto100matchesshowascards,moreasatable.Asearchcanstoppart-way.Compound-hetandrecessivepairingandExpandedcarrierscreeningreadalimitednumberofcandidates(upto5,000)beforetheyfilter.Whenasearchfillsthatwindow,awarningabovetheresultssays\"Resultsmaybeincomplete\"andafterhowmanycandidatesthesearchstopped;thecountisthenalowerbound(forexample12+)andamatchbeyondthewindowisnotshown.Narrowthefilterswitharegion,agenepanelorageneuntilthewarningisgone.ThephenotyperankingWithPhenotypepriorityon,aScorecolumnappearsandtherowscomeranked,bestfirst.Thescorecombinesthevariant'sownevidence(impactandpredictors,ClinVar,rarity,fitwiththepedigree)withhowwellitsgenematchestheaffectedmembers'HPOterms.A✦marksagenethatmatches.Hoverthescore,orreadthecard,forthebreakdown:Variant,Pathogenicity,RarityandPhenotype,thecompatibleinheritancemodesandthematchedphenotypes.AgenewithoutMonarchdatagetsnophenotypecreditandrankslower;itsVariantscoreisnotaffected.Lookfurtherdownforstrongvariants,oruntickPhenotypeprioritization.WithoutHPOtermsontheaffectedmembers,therankingusesthevariantevidenceonly.Thescoreorderscandidateswithinthefamily;itisnotaprobabilityofpathogenicity.Awarningthat\"Rankingmaybeincomplete\"meansmorecandidatesmatchedthanCoGAranksatonce(itsayshowmanywereranked),sothebestonemaybemissing:narrowthefilters(aregion,apanel,agene,oratighterfrequencyorimpact).Whytherankingcanbeinstant.CoGAkeepstherankingonceitiscomputed;alateropenshows⚡Prioritisedrankingservedfromcacheandwhenitwascomputed.Itisrecomputedautomaticallywhenanythingitdependsonchanges:thephenotypes,thepedigree,thepanel,thefilters(includingreview-tagfilters),thefamily'svariantdata,orthereferencedata(theMonarchrelease,eachimportoftheHPOontology,geneconstraint).NarrowingfromtheMendeliometoasmallerpanelisservedfromthebroaderranking.DownloadCSVexportsthelist,withPriorityandRankcolumnswhentherankingison.AlsohitbyastructuralvariantAsmallvariantwhosegeneisalsohitbyanSVcarriesanSVbadge(forexampleSV:DEL),withatransorcischipwhenaphasewasdecided.AlsohitbyanSVunderStructuralsecondhitkeepsonlythesegenes.Thephasecomesfromreadphasingorfromtheparents'genotypes,bythesameruleasforcompound-hetpairs;thereferencegivestherule.In-depthreferenceSNV+SVcompoundheterozygosityreference(thebadge,transorcis)→",
+  "text": "TheSmallvariantspageiswheremostcandidatesarefound.Thefilterstakeagenomedowntoashortlist;thePhenotypeprioritypresetputsthatlistinorder.ThedefaultviewThepageopenswiththePhenotypepriority(Exomiser-style)presetontheMendeliomepanel:HIGHorMODERATEimpact;gnomADexome,genomeandpopmaxfrequency1%orbelow,andatmost10homozygotesand10hemizygotes—aClinVarpathogenicorlikelypathogenicrecordoverridesthesecut-offs;ClinVarbenignandlikelybenignleftout;carried(hetorhom)byeachaffectedmember,withQUAL20,depth10,allelefraction0.2and4altreadsormore.Thedefaultviewhidesvariants.AvariantoutsidetheMendeliome,acommonvariant,alow-qualitycall,oravariantanaffectedmemberdoesnotcarryisnotshown.PressClearallfiltersbeforeyouconcludethatavariantisnotinthedata.FiltersandpresetsThefiltersaregroupedasonthescreen:Phenotype,Structuralsecondhit,Inheritance,Pathogenicity,Annotations(withCanonicalonly,MANEonlyandLoFonly),InSilico,Frequency,Locations,ExcludeandReviewandcuration.Fordenovoanddominant,amale'scallonchrXorchrYoutsidethepseudo-autosomalregions(1or1/1)countsasonecopy.Alocationentrythatcannotberead(forexampleanendbeforeitsstart)isnamedunderitsfield,andnothingissearcheduntilyoufixit.Aper-sampleminimum(GQ,DP,AForADalt)thatisnotanumberfailsthesearch,andthemessagenamesit.Thebuilt-inpresetsarePhenotypepriority,Dominantstrict,Dominantrelaxed,Expandedcarrierscreening(couplesonly:geneswherebothpartnerscarryarare(below1%)high-ormoderate-impactvariant,andthosevariantsafemalepartnercarriesonchrXoutsidethepseudo-autosomalregions,whichputasonatriskontheirown;aClinVarpathogenicorlikelypathogeniccalloverridesthefrequencycut-off,soacommonfoundervariantstaysin;apartnerwhosesexisnotrecordedcountsasfemale;mitochondrialvariantsarenotpartofit,asmtDNApassesfromthemotheralone),Compoundhet,Recessivehom,Recessivebroad,AnyaffectedandClinVarreview.Apresetsavestherecipe,nottheresult;saveyourowntostandardiseasearch.Compound-heterozygouscandidatesareshownaspairs.Upto100matchesshowascards,moreasatable.Asearchcanstoppart-way.Compound-hetandrecessivepairingandExpandedcarrierscreeningreadalimitednumberofcandidates(upto5,000)beforetheyfilter.Whenasearchfillsthatwindow,awarningabovetheresultssays\"Resultsmaybeincomplete\"andafterhowmanycandidatesthesearchstopped;thecountisthenalowerbound(forexample12+)andamatchbeyondthewindowisnotshown.Narrowthefilterswitharegion,agenepanelorageneuntilthewarningisgone.ThephenotyperankingWithPhenotypepriorityon,aScorecolumnappearsandtherowscomeranked,bestfirst.Thescorecombinesthevariant'sownevidence(impactandpredictors,ClinVar,rarity,fitwiththepedigree)withhowwellitsgenematchestheaffectedmembers'HPOterms.A✦marksagenethatmatches.Hoverthescore,orreadthecard,forthebreakdown:Variant,Pathogenicity,RarityandPhenotype,thecompatibleinheritancemodesandthematchedphenotypes.AgenewithoutMonarchdatagetsnophenotypecreditandrankslower;itsVariantscoreisnotaffected.Lookfurtherdownforstrongvariants,oruntickPhenotypeprioritization.WithoutHPOtermsontheaffectedmembers,therankingusesthevariantevidenceonly.Thescoreorderscandidateswithinthefamily;itisnotaprobabilityofpathogenicity.Awarningthat\"Rankingmaybeincomplete\"meansmorecandidatesmatchedthanCoGAranksatonce(itsayshowmanywereranked),sothebestonemaybemissing:narrowthefilters(aregion,apanel,agene,oratighterfrequencyorimpact).Whytherankingcanbeinstant.CoGAkeepstherankingonceitiscomputed;alateropenshows⚡Prioritisedrankingservedfromcacheandwhenitwascomputed.Itisrecomputedautomaticallywhenanythingitdependsonchanges:thephenotypes,thepedigree,thepanel'sgenesandregions,thefilters(includingreview-tagfilters),thefamily'svariantdata,orthereferencedata(theMonarchrelease,eachimportoftheHPOontology,geneconstraint,andthegenepositionsapanelorgenefilteruses).NarrowingfromtheMendeliometoasmallerpanelisservedfromthebroaderranking,aslongastheMendeliome'sgenesandregionsarethesameaswhenthatrankingwascomputed.DownloadCSVexportsthelist,withPriorityandRankcolumnswhentherankingison.AlsohitbyastructuralvariantAsmallvariantwhosegeneisalsohitbyanSVcarriesanSVbadge(forexampleSV:DEL),withatransorcischipwhenaphasewasdecided.AlsohitbyanSVunderStructuralsecondhitkeepsonlythesegenes.Thephasecomesfromreadphasingorfromtheparents'genotypes,bythesameruleasforcompound-hetpairs;thereferencegivestherule.In-depthreferenceSNV+SVcompoundheterozygosityreference(thebadge,transorcis)→",
   "paragraphs": [
    "The Small variants page is where most candidates are found. The filters take a genome down to a short list; the Phenotype priority preset puts that list in order.",
    "The page opens with the Phenotype priority (Exomiser-style) preset on the Mendeliome panel:",
    "The filters are grouped as on the screen: Phenotype, Structural second hit, Inheritance, Pathogenicity, Annotations (with Canonical only, MANE only and LoF only), In Silico, Frequency, Locations, Exclude and Review and curation. For de novo and dominant, a male's call on chrX or chrY outside the pseudo-autosomal regions (1 or 1/1) counts as one copy. A location entry that cannot be read (for example an end before its start) is named under its field, and nothing is searched until you fix it. A per-sample minimum (GQ, DP, AF or AD alt) that is not a number fails the search, and the message names it.",
    "The built-in presets are Phenotype priority, Dominant strict, Dominant relaxed, Expanded carrier screening (couples only: genes where both partners carry a rare (below 1%) high- or moderate-impact variant, and those variants a female partner carries on chrX outside the pseudo-autosomal regions, which put a son at risk on their own; a ClinVar pathogenic or likely pathogenic call overrides the frequency cut-off, so a common founder variant stays in; a partner whose sex is not recorded counts as female; mitochondrial variants are not part of it, as mtDNA passes from the mother alone), Compound het, Recessive hom, Recessive broad, Any affected and ClinVar review. A preset saves the recipe, not the result; save your own to standardise a search. Compound-heterozygous candidates are shown as pairs. Up to 100 matches show as cards, more as a table.",
    "With Phenotype priority on, a Score column appears and the rows come ranked, best first. The score combines the variant's own evidence (impact and predictors, ClinVar, rarity, fit with the pedigree) with how well its gene matches the affected members' HPO terms. A ✦ marks a gene that matches. Hover the score, or read the card, for the breakdown: Variant, Pathogenicity, Rarity and Phenotype, the compatible inheritance modes and the matched phenotypes.",
-   "Why the ranking can be instant. CoGA keeps the ranking once it is computed; a later open shows ⚡ Prioritised ranking served from cache and when it was computed. It is recomputed automatically when anything it depends on changes: the phenotypes, the pedigree, the panel, the filters (including review-tag filters), the family's variant data, or the reference data (the Monarch release, each import of the HPO ontology, gene constraint). Narrowing from the Mendeliome to a smaller panel is served from the broader ranking.",
+   "Why the ranking can be instant. CoGA keeps the ranking once it is computed; a later open shows ⚡ Prioritised ranking served from cache and when it was computed. It is recomputed automatically when anything it depends on changes: the phenotypes, the pedigree, the panel's genes and regions, the filters (including review-tag filters), the family's variant data, or the reference data (the Monarch release, each import of the HPO ontology, gene constraint, and the gene positions a panel or gene filter uses). Narrowing from the Mendeliome to a smaller panel is served from the broader ranking, as long as the Mendeliome's genes and regions are the same as when that ranking was computed.",
    "Download CSV exports the list, with Priority and Rank columns when the ranking is on.",
    "A small variant whose gene is also hit by an SV carries an SV badge (for example SV: DEL), with a trans or cis chip when a phase was decided. Also hit by an SV under Structural second hit keeps only these genes. The phase comes from read phasing or from the parents' genotypes, by the same rule as for compound-het pairs; the reference gives the rule."
   ],
@@ -1540,13 +1540,15 @@
   "title": "Structural variants, repeats, Paraphase and mtDNA",
   "summary": "The analyses beyond small variants, including the CNV classifier and the variant summary.",
   "quickLinks": [],
-  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantsandlargechrMdeletionsandduplications,eachwithitsheteroplasmypermember,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.MinlengthandExactlength,underClassandBreakpoints,measureanSVbytheLengththelistshows,withouttheminussignofadeletion:thecaller'sSVLEN,ortheendminusthestartwhenthecallergivesnoSVLEN.Aninsertionisaslongasthesequenceitinserts,althoughmostcallerswriteitsendatitsstart.Atranslocation(BND,TRA)hasnolength:everyminimumkeepsit,andnoexactlengthfindsit.Afilteredsearchreadsatmost50,000SVsofthecallsetbeforeitappliesthefilters,andwithPhenotypeprioritizationon(thedefault)itranksatmost5,000oftheSVsthatmatch.Whenasearchreacheseitherlimit,awarningsays\"Resultsmaybeincomplete\"(\"Rankingmaybeincomplete\"whenthelistisranked),thecountshowsa+,andanSVbeyondthelimitisnotshown:narrowthesearchwitharegion,agenepaneloragene.Theclinicalreport'slistofreportedSVsisnotcutbythiscap:itreadsthereportedSVsthemselves,notthefirst50,000.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.mtDNAACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
+  "text": "StructuralvariantsFilterandreviewCNVsandotherSVswiththeirgenotypes,rankthembyphenotype,classifycopy-numberchanges,andtagthemforthereport.Repeatexpansions(TRGT)Per-samplerepeatcalls,scoredagainsttheSTRchivecatalogueofdiseaseloci.ParaphaseGenesinparalogousorduplicatedregions,wherestandardvariantcallingisunreliable.MitochondrialDNAmtDNAvariantsandlargechrMdeletionsandduplications,eachwithitsheteroplasmypermember,andeachsample'smtDNAcoverage.StructuralvariantsTheStructuralvariantspageopensontheMendeliomepanel,withapopulationfrequencybelow1%andtheaffectedmembersascarriers.ItsfiltersarePhenotype,InheritanceandSupport,Locations,ClassandBreakpoints,NeedlrAnnotationsandReview;thepresetsareMendeliome,Dominant,Recessive-likeandAnyaffected.PhenotypeprioritizationranksSVsbythesamephenotypescoreassmallvariants.Clearallfiltersremovesthedefault.MinlengthandExactlength,underClassandBreakpoints,measureanSVbytheLengththelistshows,withouttheminussignofadeletion:thecaller'sSVLEN,ortheendminusthestartwhenthecallergivesnoSVLEN.Aninsertionisaslongasthesequenceitinserts,althoughmostcallerswriteitsendatitsstart.Atranslocation(BND,TRA)hasnolength:everyminimumkeepsit,andnoexactlengthfindsit.Afilteredsearchreadsatmost50,000SVsofthecallsetbeforeitappliesthefilters,andwithPhenotypeprioritizationon(thedefault)itranksatmost5,000oftheSVsthatmatch.Whenasearchreacheseitherlimit,awarningsays\"Resultsmaybeincomplete\"(\"Rankingmaybeincomplete\"whenthelistisranked),thecountshowsa+,andanSVbeyondthelimitisnotshown:narrowthesearchwitharegion,agenepaneloragene.Theclinicalreport'slistofreportedSVsisnotcutbythiscap:itreadsthereportedSVsthemselves,notthefirst50,000.ACMG(CNV)onarowopenstheClinGencopy-numberclassifier(Riggsetal.2020):chooseCopy-numberlossorCopy-numbergain,checkthepre-selectedcriteriaandaddtherest.Variantsummaryonthefamilypagesummarisesthestructuralvariantsofeverycaller,HiFiCNV'scopy-numbercallsincluded:countsperchromosomeandtype,sharingbetweenmembers,andsizedistributions.Thebuttonappearswhenthefamilyhasstructuralvariants.Smallvariantsarenotinit,noraretheWisecondorXandQDNAseqsegments,whicharecoveragetracksratherthanvariants.RepeatexpansionsTheRepeatexpansionspagelistseachrepeatlocuswitheverymember'scall:therepeatcountofeachallele,andastatusreadagainstthelocus'sthresholdsintherepeatcatalogue(STRchive):Normal,Greyzone(theintermediaterange),Premutation(anFMR1alleleof55–200repeats,whichcanexpandinachild)andPathogenic.Review:outsidecataloguedranges:acountthecataloguecannotclassifyatalocusthatispathogenicbycontraction.Amale'scallwithtwodifferentchrXallelesalsoasksforreview,inanotethatexplainsit.Notassessed:acallatalocuswithoutthresholds.NocataloguedlocusmatchesitsTRID(alocusthecataloguelacks,oraTRIDspelleddifferently),orthecataloguegivesthelocusnothreshold.CoGAcannotsaywhethersuchacountisnormal;itscutoffreadsNoreferencecutoff.Unknown:nocall.AberrantonlykeepseverylocuswhosestatusisnotNormalorUnknown,Notassessedincluded,andthepageheadercountsthecallsatlociwithoutthresholds.Thegenometrackscoloureachlocusbythestatusitscallwasimportedwith,andkeepituntilthecallisimportedagain;thispageclassifieseverycallagain,againstthecatalogueasitisnow.mtDNAACMGclassifyonavariantfromthemtDNAanalysispageusesthemitochondrialruleset.In-depthreferenceACMGclassificationreference(includingtheCNVclassifier)→",
   "paragraphs": [
    "The Structural variants page opens on the Mendeliome panel, with a population frequency below 1% and the affected members as carriers. Its filters are Phenotype, Inheritance and Support, Locations, Class and Breakpoints, Needlr Annotations and Review; the presets are Mendeliome, Dominant, Recessive-like and Any affected. Phenotype prioritization ranks SVs by the same phenotype score as small variants. Clear all filters removes the default.",
    "Min length and Exact length, under Class and Breakpoints, measure an SV by the Length the list shows, without the minus sign of a deletion: the caller's SVLEN, or the end minus the start when the caller gives no SVLEN. An insertion is as long as the sequence it inserts, although most callers write its end at its start. A translocation (BND, TRA) has no length: every minimum keeps it, and no exact length finds it.",
    "A filtered search reads at most 50,000 SVs of the callset before it applies the filters, and with Phenotype prioritization on (the default) it ranks at most 5,000 of the SVs that match. When a search reaches either limit, a warning says \"Results may be incomplete\" (\"Ranking may be incomplete\" when the list is ranked), the count shows a +, and an SV beyond the limit is not shown: narrow the search with a region, a gene panel or a gene. The clinical report's list of reported SVs is not cut by this cap: it reads the reported SVs themselves, not the first 50,000.",
    "ACMG (CNV) on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose Copy-number loss or Copy-number gain, check the pre-selected criteria and add the rest.",
    "Variant summary on the family page summarises the structural variants of every caller, HiFiCNV's copy-number calls included: counts per chromosome and type, sharing between members, and size distributions. The button appears when the family has structural variants. Small variants are not in it, nor are the WisecondorX and QDNAseq segments, which are coverage tracks rather than variants.",
+   "The Repeat expansions page lists each repeat locus with every member's call: the repeat count of each allele, and a status read against the locus's thresholds in the repeat catalogue (STRchive):",
+   "Aberrant only keeps every locus whose status is not Normal or Unknown, Not assessed included, and the page header counts the calls at loci without thresholds. The genome tracks colour each locus by the status its call was imported with, and keep it until the call is imported again; this page classifies every call again, against the catalogue as it is now.",
    "ACMG classify on a variant from the mtDNA analysis page uses the mitochondrial rule set."
   ],
   "blocks": [
@@ -1585,6 +1587,26 @@
    [
     "h3",
     "Structural variants"
+   ],
+   [
+    "h3",
+    "Repeat expansions"
+   ],
+   [
+    "li",
+    "Normal, Grey zone (the intermediate range), Premutation (an FMR1 allele of 55–200 repeats, which can expand in a child) and Pathogenic."
+   ],
+   [
+    "li",
+    "Review: outside catalogued ranges: a count the catalogue cannot classify at a locus that is pathogenic by contraction. A male's call with two different chrX alleles also asks for review, in a note that explains it."
+   ],
+   [
+    "li",
+    "Not assessed: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold. CoGA cannot say whether such a count is normal; its cutoff reads No reference cutoff."
+   ],
+   [
+    "li",
+    "Unknown: no call."
    ],
    [
     "h3",
@@ -1691,6 +1713,58 @@
    [
     "strong",
     "Variant summary"
+   ],
+   [
+    "strong",
+    "Repeat expansions"
+   ],
+   [
+    "em",
+    "Normal"
+   ],
+   [
+    "em",
+    "Grey zone"
+   ],
+   [
+    "em",
+    "Premutation"
+   ],
+   [
+    "em",
+    "Pathogenic"
+   ],
+   [
+    "em",
+    "Review: outside catalogued ranges"
+   ],
+   [
+    "em",
+    "Not assessed"
+   ],
+   [
+    "em",
+    "No reference cutoff"
+   ],
+   [
+    "em",
+    "Unknown"
+   ],
+   [
+    "strong",
+    "Aberrant only"
+   ],
+   [
+    "em",
+    "Normal"
+   ],
+   [
+    "em",
+    "Unknown"
+   ],
+   [
+    "em",
+    "Not assessed"
    ],
    [
     "strong",

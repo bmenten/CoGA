@@ -72,6 +72,8 @@ Elke cacherij hangt aan een SHA-256 over **alles wat de rangschikking kan verand
 | --- | --- |
 | De filters (zonder paginering) | de analist een filter wijzigt |
 | Het genpanel en zijn versie | het panel wordt bijgewerkt |
+| De genen en regio's die de panelfilter toepaste (een digest; de regio's bevatten de loci van elk gen uit de genreferentie) | het panel andere genen of regio's krijgt, of een herladen genreferentie een van zijn genen verplaatst |
+| De regio's waartoe de zoekopdracht zich beperkte of die ze uitsloot (de intervallen, de loci van de genen in het genfilter en van de uitgesloten genen), en de uitgesloten genen | de analist die filters wijzigt, of een herladen genreferentie een van die genen verplaatst |
 | De HPO-termen van de aangedane leden | een fenotype wordt toegevoegd of verwijderd |
 | De stamboom en de aangedane status | de familiestructuur verandert |
 | De versie van de variantdata van de familie | er iets aan de varianten verandert: import, upload, verwijdering door een beheerder of herstel |
@@ -79,7 +81,7 @@ Elke cacherij hangt aan een SHA-256 over **alles wat de rangschikking kan verand
 | De Monarch-release, de HPO-release en het moment van de laatste genconstraint-update | de referentiedata wordt ververst |
 | De assembly en de versie van het algoritme | de code van de scoring verandert |
 
-Verandert één invoer, dan verandert de hash: de cache mist en de rangschikking wordt opnieuw berekend. Een verouderde rangschikking wordt dus nooit getoond. Een smaller panel kan uit een bredere, volledige rangschikking van dezelfde familie worden bediend (het Mendeliome dekt zijn deelpanels), maar nooit uit een onvolledige. Na een wijziging van fenotypes of stamboom rekent de backend de laatste rangschikking alvast opnieuw uit, zodat de volgende opening snel is. De UI meldt wanneer de rangschikking uit de cache komt en wanneer ze berekend werd.
+Verandert één invoer, dan verandert de hash: de cache mist en de rangschikking wordt opnieuw berekend. Een exacte treffer is dus nooit een rangschikking op andere invoer. De loci van een gen komen bij elke zoekopdracht uit de genreferentie, niet uit een versie; daarom telt wat de zoekopdracht toepaste, en niet alleen de versie van het panel. Een smaller panel kan uit een bredere, volledige rangschikking van dezelfde familie worden bediend (het Mendeliome dekt zijn deelpanels), maar nooit uit een onvolledige, en alleen zolang het panel van die rangschikking nog precies de genen en regio's bevat waarop ze berekend werd. Elke cacherij legt die vast (`provenance.panel_members`). Het smallere panel kan immers alleen varianten uit de bredere rangschikking weglaten, nooit toevoegen: een rangschikking van vóór een gen aan haar panel werd toegevoegd, mist de varianten van dat gen en wordt dus voor geen enkel panel meer gebruikt. Een rij die niets vastlegde, of waarvan het panel verwijderd is, wordt evenmin gebruikt. Na een wijziging van fenotypes of stamboom rekent de backend de laatste rangschikking alvast opnieuw uit, zodat de volgende opening snel is. De intervallen en de uitgesloten genen en intervallen van die zoekopdracht past hij daarbij niet toe: een zoekopdracht met zulke filters wordt bij de volgende opening opnieuw berekend. De UI meldt wanneer de rangschikking uit de cache komt en wanneer ze berekend werd.
 
 **Waar in de code:** `backend/app/services/variant_ranking_cache.py`; de ontwerpnota `docs/variant-ranking-cache.md`.
 
@@ -90,7 +92,7 @@ Het paneel `MonarchPhenotypeMatchPanel.tsx` roept Monarch pas aan na een klik op
 ## Veiligheid en traceerbaarheid
 
 - **Deterministisch.** Dezelfde invoer geeft altijd dezelfde rangschikking: een voorwaarde voor een auditeerbaar, herhaalbaar resultaat.
-- **Gebonden aan versies.** De cachesleutel bevat de Monarch-, HPO- en panelversies; HPO-termen dragen hun release; Monarch weigert te laden zonder bekende versie.
+- **Gebonden aan versies.** De cachesleutel bevat de Monarch-, HPO- en panelversies en de genen en regio's die de zoekopdracht toepaste; HPO-termen dragen hun release; Monarch weigert te laden zonder bekende versie.
 - **Liever herberekenen dan vertrouwen.** Elke relevante wijziging verandert de hash, en bij twijfel rekent de code opnieuw.
 - **Toegang.** Fenotype-matching vraagt een login; het laden en verversen van HPO- en Monarch-data alleen een beheerder.
 

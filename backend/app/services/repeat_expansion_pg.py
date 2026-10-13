@@ -421,9 +421,17 @@ def classify_repeat_count(
     intermediate range: below it the grey zone (``intermediate``), from it up to the
     pathogenic threshold a ``premutation``, an allele that can expand to a full mutation
     in a child, which a carrier screen reports.
+
+    A locus without thresholds -- no intermediate, premutation or pathogenic threshold:
+    no catalogue row matches the call's TRID, or the row states none (STRchive's MUC1 and
+    POLG) -- gives a called allele ``not_assessed``. Read as ``normal``, an expansion there
+    could not be seen (CLIN-26). A benign range alone is not a threshold: on such a locus
+    nothing says where harm starts. A row with one threshold keeps it: normal below it.
     """
     if repeat_count is None:
         return "unknown"
+    if warning_min is None and pathogenic_min is None and premutation_min is None:
+        return "not_assessed"
 
     has_benign_range = benign_min is not None and benign_max is not None
     non_monotonic = (
@@ -448,15 +456,18 @@ def classify_repeat_count(
 
 # How much attention a status calls for; the row / locus shows its most severe allele.
 # "review" (a count the catalog cannot classify) outranks "normal" so it surfaces in the
-# aberrant-only view; "unknown" (no call) ranks lowest (#535). A premutation ranks between
-# the grey zone and a full mutation.
+# aberrant-only view; "unknown" (no call) ranks lowest (#535). "not_assessed" (a locus
+# without thresholds, CLIN-26) outranks "normal" for the same reason, and "review" so that
+# a male's two chrX alleles at such a locus keep saying why it was not assessed (the note
+# still asks for review). A premutation ranks between the grey zone and a full mutation.
 REPEAT_STATUS_RANK = {
     "unknown": 0,
     "normal": 1,
     "review": 2,
-    "intermediate": 3,
-    "premutation": 4,
-    "pathogenic": 5,
+    "not_assessed": 3,
+    "intermediate": 4,
+    "premutation": 5,
+    "pathogenic": 6,
 }
 
 
@@ -478,19 +489,21 @@ def _reclassify_repeat_alleles(
     pathogenic_max: int | None = None,
     premutation_min: int | None = None,
 ) -> list[dict[str, Any]]:
+    """Each called allele's status against the thresholds given, whatever it was stored with.
+
+    Without any threshold an allele reads ``not_assessed``, so a call stored as ``normal`` at
+    a locus without thresholds (before CLIN-26) reads not assessed here at once. A no-call
+    keeps its stored status.
+    """
     if not isinstance(alleles, list):
         return []
-    has_bounds = any(
-        value is not None
-        for value in (warning_min, pathogenic_min, benign_min, benign_max, pathogenic_max)
-    )
     reclassified: list[dict[str, Any]] = []
     for allele in alleles:
         if not isinstance(allele, dict):
             continue
         next_allele = dict(allele)
         repeat_count = next_allele.get("repeat_count")
-        if repeat_count is not None and has_bounds:
+        if repeat_count is not None:
             next_allele["status"] = classify_repeat_count(
                 int(repeat_count),
                 warning_min,

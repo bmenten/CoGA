@@ -188,6 +188,24 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
   });
 
+  it('counts a locus without thresholds as not assessed, not as unknown (CLIN-26)', () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        items: [
+          locus('chr1_100_110_CAG', 100, 'not_assessed'),
+          locus('ATXN1', 300, 'normal'),
+        ],
+      },
+      isLoading: false,
+    });
+    const { container } = render(regionTrack(0, { chromosomeSize: 1000 }));
+
+    expect(
+      screen.getByRole('img', { name: 'Repeat loci of S1 on chr1: 2, 1 not assessed' }),
+    ).toBeInTheDocument();
+    expect(container.querySelector('[data-repeat-locus-id="chr1_100_110_CAG"]')).not.toBeNull();
+  });
+
   it('names only the loci in the region outside chromosome view mode (#529)', () => {
     useQueryMock.mockReturnValue({
       data: { items: [locus('ATXN1', 100, 'normal'), locus('FMR1', 700, 'pathogenic')] },

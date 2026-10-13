@@ -17,11 +17,16 @@ than their STRchive row (CLIN-22). The next start gives each built-in row its ST
 thresholds (BEAN1's intermediate threshold becomes NULL); a call imported under an old row
 keeps its stored status until it is imported again, while the family table reads it with the
 catalogue row's thresholds at once.
+
+A call at a locus without thresholds (a TRID no catalogue row names, or a row that states no
+threshold) gets ``not_assessed`` (CLIN-26), which the constraint must store too; a call stored
+as ``normal`` there before reads not assessed in the family table at once.
 """
 
 from __future__ import annotations
 
 import asyncio
+import json
 from uuid import uuid4
 
 import pytest
@@ -386,3 +391,148 @@ def test_the_next_start_gives_each_built_in_row_strchives_thresholds_and_the_tab
     }
     assert read_by_table == now
     assert stored_after == now
+
+
+# A woman's calls (CLIN-26): TRID -> (chrom, pos, motif, repeat count of her second allele).
+_NOT_ASSESSED_CALLS = {
+    "chr2_1000000_1000030_CAG": ("chr2", 1000000, "CAG", 300),  # no catalogue row names it
+    "ADTKD_MUC1": ("chr1", 155188000, "CCCCACCCCACCCCACCCCA", 60),  # a row without thresholds
+    "HD_HTT": ("chr4", 3074876, "CAG", 40),  # catalogued: pathogenic from 36, as before
+}
+
+
+def _not_assessed_vcf(column: str) -> str:
+    records = "".join(
+        f"{chrom}\t{pos}\t.\t{motif}\t<TR>\t.\t.\tTRID={trid};END={pos + len(motif) * count};MOTIFS={motif};STRUC=<TR>"
+        f"\tGT:AL:MC\t1/2:{12 * len(motif)},{count * len(motif)}:12,{count}\n"
+        for trid, (chrom, pos, motif, count) in _NOT_ASSESSED_CALLS.items()
+    )
+    return _HEADER.format(column=column) + records
+
+
+def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_table_reads_older_calls_so(
+    monkeypatch,
+) -> None:
+    from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services import repeat_expansion_pg
+    from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+    from backend.app.services.repeat_expansion_pg import (
+        get_family_repeat_expansion_table_response,
+        ingest_trgt_text,
+        seed_builtin_repeat_catalog,
+    )
+
+    # The shipped STRchive file, not one an environment variable may point at.
+    monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
+    label = f"itest-repeat-not-assessed-{uuid4()}"
+    uncatalogued = "chr2_1000000_1000030_CAG"
+
+    async def _run():
+        await init_postgres_schema()
+        sessionmaker = get_postgres_sessionmaker()
+        try:
+            async with sessionmaker() as session:
+                await seed_builtin_repeat_catalog(session)
+                family_uuid = str(
+                    (
+                        await session.execute(
+                            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
+                        )
+                    ).scalar_one()
+                )
+                sample_id = f"{label}-WOMAN"
+                sample_uuid = str(
+                    (
+                        await session.execute(
+                            text(
+                                "INSERT INTO samples (sample_id, family_id, sex) "
+                                "VALUES (:s, CAST(:f AS uuid), 'female') RETURNING id::text"
+                            ),
+                            {"s": sample_id, "f": family_uuid},
+                        )
+                    ).scalar_one()
+                )
+                await session.commit()
+                await ingest_trgt_text(
+                    session,
+                    sample_context=SampleMetadataContext(
+                        sample_uuid=sample_uuid,
+                        sample_id=sample_id,
+                        family_uuid=family_uuid,
+                        family_id=label,
+                        sex="female",
+                        project_ids=[],
+                        assembly_id=None,
+                        assembly_name="GRCh38",
+                    ),
+                    text_value=_not_assessed_vcf(sample_id),
+                    metadata={"source": "trgt", "filename": "woman.vcf"},
+                )
+                stored = {
+                    str(locus_id): str(status)
+                    for locus_id, status in (
+                        await session.execute(
+                            text("SELECT locus_id, status FROM repeat_expansions WHERE family_id = CAST(:f AS uuid)"),
+                            {"f": family_uuid},
+                        )
+                    ).all()
+                }
+
+                # What an import before CLIN-26 stored for the uncatalogued call: normal.
+                await session.execute(
+                    text(
+                        "UPDATE repeat_expansions SET status = 'normal', alleles = CAST(:alleles AS jsonb) "
+                        "WHERE family_id = CAST(:f AS uuid) AND locus_id = :locus"
+                    ),
+                    {
+                        "alleles": json.dumps(
+                            [{"repeat_count": 12, "status": "normal"}, {"repeat_count": 300, "status": "normal"}]
+                        ),
+                        "f": family_uuid,
+                        "locus": uncatalogued,
+                    },
+                )
+                await session.commit()
+                table = await get_family_repeat_expansion_table_response(
+                    session,
+                    context=FamilyMetadataContext(
+                        family_uuid=family_uuid,
+                        family_id=label,
+                        project_ids=[],
+                        sample_rows=[
+                            {"sample_uuid": sample_uuid, "sample_id": sample_id, "role": "proband", "affected": False, "sex": "female"}
+                        ],
+                        sample_uuid_to_name={sample_uuid: sample_id},
+                        sample_name_to_uuid={sample_id: sample_uuid},
+                        affected_sample_names=[],
+                        assembly_id=None,
+                        assembly_name="GRCh38",
+                    ),
+                )
+                read_by_table = {
+                    str(row.locus_id): (
+                        row.status,
+                        row.calls[sample_id].status,
+                        [allele.status for allele in row.calls[sample_id].alleles],
+                        row.warning_min,
+                        row.pathogenic_min,
+                    )
+                    for row in table.loci
+                }
+                return stored, read_by_table
+        finally:
+            async with sessionmaker() as session:
+                await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": label})
+                await session.commit()
+            await close_postgres_engine()
+
+    stored, read_by_table = asyncio.run(_run())
+
+    # Stored as such: the constraint refused not_assessed before, and with it the whole dataset.
+    assert stored == {uncatalogued: "not_assessed", "ADTKD_MUC1": "not_assessed", "HD_HTT": "pathogenic"}
+    # The family table reads the call stored as normal before as not assessed at once.
+    assert read_by_table == {
+        uncatalogued: ("not_assessed", "not_assessed", ["not_assessed", "not_assessed"], None, None),
+        "ADTKD_MUC1": ("not_assessed", "not_assessed", ["not_assessed", "not_assessed"], None, None),
+        "HD_HTT": ("pathogenic", "pathogenic", ["normal", "pathogenic"], 27, 36),
+    }
