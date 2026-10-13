@@ -4,8 +4,10 @@
 #
 # Routing:  /api/*  -> backend Cloud Run     (everything under the FastAPI /api prefix)
 #           /*      -> frontend Cloud Run    (SPA + static assets)
-# TLS terminates here on a Google-managed cert for var.app_domain; the app emits
-# HSTS (ENABLE_HSTS=true) because TLS is in front of it.
+# TLS terminates here on a Google-managed cert for var.app_domain. Because TLS is in
+# front of them, both Cloud Run services send HSTS (ENABLE_HSTS=true on each, in
+# cloudrun.tf), so the app page and the API answer with
+# Strict-Transport-Security: max-age=63072000; includeSubDomains.
 
 # ---- Serverless NEGs -------------------------------------------------------
 
