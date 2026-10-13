@@ -41,9 +41,11 @@ describe('SPA securityHeaders middleware', () => {
 
   it('emits HSTS only when ENABLE_HSTS=true (TLS-terminated opt-in)', () => {
     const res = mockRes();
+    // The value Terraform gives the frontend's Cloud Run service (terraform/cloudrun.tf).
     vi.stubEnv('ENABLE_HSTS', 'true');
     securityHeaders({}, res, () => {});
-    expect(res.headers['Strict-Transport-Security']).toContain('max-age=');
+    // Two years, for this host and its subdomains: the policy the API sends too.
+    expect(res.headers['Strict-Transport-Security']).toBe('max-age=63072000; includeSubDomains');
     vi.unstubAllEnvs();
   });
 });

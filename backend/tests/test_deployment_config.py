@@ -578,19 +578,25 @@ def _secret(setting: str) -> str:
     return token_urlsafe(48)
 
 
-def _backend_containers() -> dict[str, str]:
-    """Each container of a Cloud Run service or job that runs the backend image, by the address
-    of its resource."""
+def _containers(image: str) -> dict[str, str]:
+    """Each container of a Cloud Run service or job that runs ``image`` (``var.backend_image`` or
+    ``var.frontend_image``), by the address of its resource."""
     containers: dict[str, str] = {}
     for path in sorted((REPO / "terraform").glob("*.tf")):
         text = path.read_text()
         for resource in re.finditer(r'^resource "(google_cloud_run_v2_(?:service|job))" "(\w+)" \{', text, re.M):
             for _, container in _blocks(_block_body(text, resource.end() - 1), "containers"):
-                if _attributes(container).get("image") == "var.backend_image":
+                if _attributes(container).get("image") == image:
                     address = f"{resource[1]}.{resource[2]}"
-                    assert address not in containers, f"{address} runs the backend image twice"
+                    assert address not in containers, f"{address} runs {image} twice"
                     containers[address] = container
     return containers
+
+
+def _backend_containers() -> dict[str, str]:
+    """Each container of a Cloud Run service or job that runs the backend image, by the address
+    of its resource."""
+    return _containers("var.backend_image")
 
 
 def _environment(container: str, *, optional: bool) -> dict[str, str]:
@@ -676,6 +682,39 @@ def test_terraform_gives_every_container_of_the_backend_image_no_cross_origin_ac
         environment = _environment(container, optional=True)
         assert json.loads(environment.get("CORS_ORIGINS", "null")) == [f"https://{domain}"], address
         assert environment.get("CORS_ORIGIN_REGEX") == "", address
+
+
+def _frontend_hsts_switch() -> str:
+    """The ENABLE_HSTS value with which the frontend server sends HSTS. securityHeaders.mjs
+    compares the variable with one string, where the backend's settings read it as a boolean:
+    "1" or "True" would turn on the API's HSTS and not the page's."""
+    switches = re.findall(r"process\.env\.ENABLE_HSTS === '([^']*)'", (REPO / "frontend" / "securityHeaders.mjs").read_text())
+    assert len(switches) == 1, f"the frontend server no longer reads ENABLE_HSTS as this test expects: {switches}"
+    return switches[0]
+
+
+def _hsts_policy(source: str) -> str:
+    """The Strict-Transport-Security value the server in ``source`` sends when HSTS is on."""
+    policies = re.findall(r"""['"]Strict-Transport-Security['"],\s*['"]([^'"]+)['"]""", (REPO / source).read_text())
+    assert len(policies) == 1, f"{source} sends no single HSTS value: {policies}"
+    return policies[0]
+
+
+def test_the_app_page_and_the_api_both_send_hsts_on_google_cloud(monkeypatch) -> None:
+    # TLS ends at the load balancer for the page and for /api alike (loadbalancer.tf).
+    # Terraform turned HSTS on for the backend only, so the app page went without it (SEC-5).
+    # Each container of the frontend image sets ENABLE_HSTS to the value its server compares
+    # with, and does so unconditionally: the optional entries are left out here.
+    frontend = _containers("var.frontend_image")
+    assert "google_cloud_run_v2_service.frontend" in frontend
+    for address, container in frontend.items():
+        environment = _environment(container, optional=False)
+        assert environment.get("ENABLE_HSTS") == _frontend_hsts_switch(), f"{address} sends no HSTS"
+    backend = _backend_containers()["google_cloud_run_v2_service.backend"]
+    settings = _load_settings(monkeypatch, {**_image_environment(), **_environment(backend, optional=False)})
+    assert settings.enable_hsts is True, "the API sends no HSTS"
+    # One host, so one policy: a browser keeps the one the host's latest answer sent.
+    assert _hsts_policy("frontend/securityHeaders.mjs") == _hsts_policy("backend/app/middleware/security_headers.py")
 
 
 def _rendered_collector_config() -> dict:
