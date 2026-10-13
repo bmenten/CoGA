@@ -83,13 +83,18 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
   They sign a location the import recorded only when it names an object in the configured
   bucket below `FAMILY_IMPORT_ROOTS`, so a changed database row cannot point them at any
-  other object. With local storage the CRAM/BAM endpoints look for a sample's reads only in
-  its family's own folders, `data/<family>/` and `data/families/<family>/`. A path built
-  from the IDs is normalised and dropped before any look-up when it leaves the family's
-  folder (a sample ID such as `../F2/S2`, or a family ID that is no single folder name), a
-  file whose real path lies outside the family's folders (a linked folder leading into
-  another family's folder or out of the data directory) is neither listed in the manifest
-  nor served, and nothing outside the layouts is tried.
+  other object. With local storage the CRAM/BAM, signal-track and QC-report endpoints
+  (`routers/family_qc_reports.py`) look a file up only in the family's own folders,
+  `data/<family>/` and `data/families/<family>/` (`core/family_folders.py`): a sample's reads
+  by the layouts, its signal files and QC report at the path the import recorded on the
+  sample. A path built from the IDs or read back from `samples.metadata` is normalised and
+  dropped before any look-up when it leaves the family's folder (a sample ID such as
+  `../F2/S2`, a recorded path holding `..` or naming an absolute path elsewhere, a family ID
+  that is no single folder name), a file whose real path lies outside the family's folders (a
+  linked folder leading into another family's folder or out of the data directory) is neither
+  listed in a manifest nor served (404), and nothing outside the layouts is tried. A QC report
+  must also lie, symlinks resolved, inside the folder it is found in, below
+  `FAMILY_IMPORT_ROOTS`.
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or
