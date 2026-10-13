@@ -173,6 +173,7 @@ from .reviews import (
     SmallVariantFilterPresetOut,
     StructuralVariantFilterPresetCreate,
     StructuralVariantFilterPresetOut,
+    StructuralVariantReviewUpdate,
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionUpdate,
     SmallVariantTagDefinitionOut,
@@ -190,6 +191,7 @@ from .mito import (
 )
 from .variants import (
     GenotypeOut,
+    SmallVariantFilterTranscriptOut,
     SmallVariantTranscriptOut,
     VariantInternalCohortOut,
     SvSecondHitOut,
@@ -491,6 +493,7 @@ __all__ = [
     "SmallVariantFilterPresetOut",
     "StructuralVariantFilterPresetCreate",
     "StructuralVariantFilterPresetOut",
+    "StructuralVariantReviewUpdate",
     "SmallVariantTagDefinitionCreate",
     "SmallVariantTagDefinitionUpdate",
     "SmallVariantTagDefinitionOut",
@@ -504,6 +507,7 @@ __all__ = [
     "MitoDNAStructuralVariantOut",
     "FamilyMitoDNAAnalysisOut",
     "GenotypeOut",
+    "SmallVariantFilterTranscriptOut",
     "SmallVariantTranscriptOut",
     "VariantInternalCohortOut",
     "SvSecondHitOut",

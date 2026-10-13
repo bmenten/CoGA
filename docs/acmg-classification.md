@@ -48,7 +48,10 @@ table differs.
   entry, and a repeat would count past it), clamps each submitted point value to the criterion's
   allowed range before summing, and freezes the evidence the classification reads
   (`build_structural_evidence_snapshot` in `backend/app/services/structural_variant_evidence.py`) for
-  the same drift check.
+  the same drift check. The save reuses `PUT /families/{family_id}/structural-variants/{variant_id}/review`
+  and names in `source` the caller of the row the classification was made on: callers that call one
+  event under one id share its review, and the evidence frozen is that caller's row. A save that names
+  no caller takes the SV's one row, and is refused (`422`) when several callers call it.
 - Only a save is checked. A classification stored before these checks is read and served as it was
   written, and a save that leaves `acmg` or `cnv_acmg` out keeps it.
 - Every list of small variants serves each review with the columns of a single-review read

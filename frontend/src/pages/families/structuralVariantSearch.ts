@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
-import type { StructuralVariantFilterPresetOut } from '../../lib/apiSchema.generated';
+import type {
+  StructuralVariantFilterPresetOut,
+  StructuralVariantReviewUpdate,
+} from '../../lib/apiSchema.generated';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import { compareChromosomes } from '../../lib/chromosomes';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -93,7 +96,11 @@ export const getPresetScopeLabel = (scope: StructuralVariantFilterPreset['scope'
   scope === 'family' ? 'Family' : 'Reusable';
 export type StructuralVariantTagDefinition = SmallVariantTagDefinition;
 export type StructuralVariantReview = SmallVariantReview;
-export type StructuralVariantReviewSavePayload = SmallVariantReviewSavePayload;
+// A CNV classification names the caller (`source`) of the row it was made on: callers that
+// share an SV id share its review, and the save freezes the evidence of that caller's row
+// (TRACE-11). Typed from the API's request model, so tsc fails when the API stops taking it.
+export type StructuralVariantReviewSavePayload = SmallVariantReviewSavePayload &
+  Pick<StructuralVariantReviewUpdate, 'source'>;
 
 export interface StructuralGenePanel {
   _id: string;

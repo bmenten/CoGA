@@ -5,6 +5,7 @@ import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import type {
   NiptDeNovoTriageOut,
   NiptRecessiveGeneOut,
+  SmallVariantFilterTranscriptOut,
   SvSecondHitSvOut,
 } from '../../lib/apiSchema.generated';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -165,6 +166,9 @@ export interface SmallVariant {
   cytoband?: string | null;
   annotation_extra?: Record<string, string | number | boolean | null>;
   transcripts?: SmallVariantTranscript[];
+  // The transcript the search's annotation filters held on, when the primary transcript
+  // the fields above describe does not meet them (CLIN-51); null otherwise.
+  filter_transcript?: SmallVariantFilterTranscriptOut | null;
   genotypes: SmallVariantGenotype[];
   // On chrX/chrY outside the pseudo-autosomal regions, where a male carries one copy
   // (#621). Set by the backend, which holds the PAR bounds.

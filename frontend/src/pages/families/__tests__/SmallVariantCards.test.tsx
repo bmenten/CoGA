@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import SmallVariantCards from '../SmallVariantCards';
+import type { SmallVariant } from '../smallVariantSearch';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
@@ -369,6 +370,100 @@ describe('SmallVariantCards', () => {
     }
     // Genuinely extra annotation still shows.
     expect(screen.getByText(/some other field/i)).toBeInTheDocument();
+  });
+
+  // CLIN-51: the annotation filters must all hold on one transcript, and a variant kept by
+  // SIFT deleterious on its second transcript read its primary transcript's "tolerated".
+  // The e2e ready case (variant 20-62900601 of test_e2e_in_silico_prediction_filters.py).
+  const keptOnItsSecondTranscript: SmallVariant = {
+    _id: '20-62900601-C-T',
+    chr: '20',
+    start: 62900601,
+    end: 62900601,
+    type: 'SNV',
+    gene: 'SYN45F',
+    ref: 'C',
+    alt: 'T',
+    transcript_id: 'ENST_SYN45F_1',
+    canonical: true,
+    impact: 'MODERATE',
+    effect: 'missense_variant',
+    hgvsc: 'ENST_SYN45F_1:c.100C>T',
+    sift: 'tolerated(0.2)',
+    polyphen: 'benign(0.1)',
+    transcripts: [
+      {
+        gene: 'SYN45F',
+        transcript_id: 'ENST_SYN45F_2',
+        transcript_source: 'Ensembl',
+        impact: 'MODERATE',
+        effect: 'missense_variant',
+        hgvsc: 'ENST_SYN45F_2:c.100C>T',
+        hgvsp: null,
+      },
+    ],
+    filter_transcript: {
+      gene: 'SYN45F',
+      transcript_id: 'ENST_SYN45F_2',
+      impact: 'MODERATE',
+      effect: 'missense_variant',
+      hgvsc: 'ENST_SYN45F_2:c.100C>T',
+      hgvsp: null,
+      lof: null,
+      cadd_phred: null,
+      revel: null,
+      spliceai_max: null,
+      sift: 'deleterious(0.02)',
+      polyphen: 'probably_damaging(0.95)',
+    },
+    genotypes: [],
+  };
+
+  const renderOne = (variant: SmallVariant) =>
+    renderCards(
+      <SmallVariantCards
+        variants={[variant]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+  it('names the transcript the filters held on beside the transcript the card describes', async () => {
+    renderOne(keptOnItsSecondTranscript);
+
+    const note = screen.getByText(/^Filters met on/).closest('p') as HTMLElement;
+    expect(note).toHaveTextContent(
+      'Filters met on ENST_SYN45F_2: SIFT deleterious (0.02) · PolyPhen probably damaging (0.95)',
+    );
+    // It sits under the card's own transcript, in the Variant column.
+    const variantColumn = screen.getByText('Variant').closest('section') as HTMLElement;
+    expect(variantColumn).toContainElement(note);
+    // The card's predictions stay the primary transcript's.
+    const silico = screen.getByText('In silico').closest('section') as HTMLElement;
+    expect(within(silico).getByText('tolerated (0.2)')).toBeInTheDocument();
+    expect(within(silico).getByText('benign (0.1)')).toBeInTheDocument();
+
+    // The transcript list marks it too, apart from the one shown on the card.
+    await userEvent.click(screen.getByRole('button', { name: /ENST_SYN45F_1.*2 transcripts/i }));
+    const dialog = screen.getByRole('dialog', { name: /SYN45F/i });
+    const matchedRow = within(dialog).getByText('ENST_SYN45F_2').closest('tr') as HTMLElement;
+    expect(within(matchedRow).getByText('Filters met')).toBeInTheDocument();
+    expect(within(matchedRow).queryByText('Shown on card')).not.toBeInTheDocument();
+    const primaryRow = within(dialog).getByText('ENST_SYN45F_1').closest('tr') as HTMLElement;
+    expect(within(primaryRow).getByText('Shown on card')).toBeInTheDocument();
+    expect(within(primaryRow).queryByText('Filters met')).not.toBeInTheDocument();
+  });
+
+  it('says nothing of another transcript when the card’s own met the filters', () => {
+    renderOne({ ...keptOnItsSecondTranscript, filter_transcript: null });
+
+    expect(screen.queryByText(/Filters met on/)).not.toBeInTheDocument();
   });
 
   it('heads the card with the genomic change and its cytoband instead of a locus', async () => {

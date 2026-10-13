@@ -84,6 +84,40 @@ describe('CnvAcmgClassificationModal', () => {
     expect(saved?.classification).toBe(acmg?.classification);
   });
 
+  it('names the caller of the row it was opened on, whose evidence the save freezes (TRACE-11)', async () => {
+    const saves: StructuralVariantReviewSavePayload[] = [];
+    const onSave = vi.fn(async (payload: StructuralVariantReviewSavePayload) => {
+      saves.push(payload);
+    });
+    // Two callers' rows of one SV share its id; each dialog names its own row's caller.
+    const { unmount } = render(
+      <CnvAcmgClassificationModal variant={{ ...variant, source: 'needlr' }} onClose={vi.fn()} onSave={onSave} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
+    unmount();
+    render(
+      <CnvAcmgClassificationModal variant={{ ...variant, source: 'sniffles' }} onClose={vi.fn()} onSave={onSave} />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
+
+    expect(saves.map((payload) => payload.source)).toEqual(['needlr', 'sniffles']);
+  });
+
+  it('names no caller for a row without one, so the server takes the SV\'s one row', async () => {
+    let saved: StructuralVariantReviewSavePayload | undefined;
+    render(
+      <CnvAcmgClassificationModal
+        variant={variant}
+        onClose={vi.fn()}
+        onSave={async (payload) => {
+          saved = payload;
+        }}
+      />,
+    );
+    await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
+    expect(saved?.source).toBeNull();
+  });
+
   it('writes the criteria ranges and the point total in one format, to two decimals', () => {
     render(
       <CnvAcmgClassificationModal

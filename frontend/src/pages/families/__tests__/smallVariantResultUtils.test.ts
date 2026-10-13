@@ -4,6 +4,7 @@ import {
   buildGnomadSvRegionHref,
   buildReviewTagTooltip,
   buildSvSecondHitHref,
+  describeFilterTranscript,
   formatGenomicChange,
   formatPredictionScore,
   formatReviewTagLabel,
@@ -77,6 +78,88 @@ describe('formatPredictionScore', () => {
     expect(formatPredictionScore('')).toBe('—');
     expect(formatPredictionScore(null)).toBe('—');
     expect(formatPredictionScore('-')).toBe('—');
+  });
+});
+
+describe('describeFilterTranscript', () => {
+  // CLIN-51: the card describes the variant's primary transcript; the annotation filters
+  // held on another. The second transcript of the e2e ready case: SIFT tolerated on the
+  // card's transcript, deleterious on the one the filter kept.
+  const matched = {
+    gene: 'SYN51',
+    transcript_id: 'ENST_SYN51_2',
+    impact: 'MODERATE',
+    effect: 'missense_variant',
+    hgvsc: 'ENST_SYN51_2:c.100C>T',
+    hgvsp: null,
+    lof: null,
+    cadd_phred: 25.1,
+    revel: 0.31,
+    spliceai_max: null,
+    sift: 'deleterious(0.02)',
+    polyphen: 'probably_damaging(0.95)',
+  };
+  const card = {
+    gene: 'SYN51',
+    effect: 'missense_variant',
+    cadd_phred: 25.1,
+    revel: 0.31,
+    sift: 'tolerated(0.2)',
+    polyphen: 'benign(0.1)',
+  };
+
+  it('names the transcript the filters held on, with the predictions that read otherwise', () => {
+    expect(describeFilterTranscript({ ...card, filter_transcript: matched })).toEqual({
+      transcriptId: 'ENST_SYN51_2',
+      gene: null,
+      details: ['SIFT deleterious (0.02)', 'PolyPhen probably damaging (0.95)'],
+    });
+  });
+
+  it('says nothing when the filters held on the card’s own transcript', () => {
+    expect(describeFilterTranscript({ ...card, filter_transcript: null })).toBeNull();
+    expect(describeFilterTranscript(card)).toBeNull();
+  });
+
+  it('gives the consequence, LoF and scores that differ, and another gene', () => {
+    expect(
+      describeFilterTranscript({
+        ...card,
+        filter_transcript: {
+          ...matched,
+          gene: 'SYN51AS',
+          effect: 'splice_donor_variant',
+          impact: 'HIGH',
+          lof: 'HC',
+          revel: 0.714,
+          spliceai_max: 0.91,
+          sift: 'tolerated(0.2)',
+          polyphen: null,
+        },
+      }),
+    ).toEqual({
+      transcriptId: 'ENST_SYN51_2',
+      gene: 'SYN51AS',
+      // CADD and SIFT read as the card's, the transcript has no PolyPhen.
+      details: ['splice donor variant', 'LoF HC', 'REVEL 0.71', 'SpliceAI 0.91'],
+    });
+  });
+
+  it('compares the values as the card writes them', () => {
+    // A REVEL that rounds to the card's is not repeated.
+    expect(
+      describeFilterTranscript({
+        ...card,
+        filter_transcript: { ...matched, revel: 0.312, sift: 'tolerated(0.2)', polyphen: 'benign(0.1)' },
+      })?.details,
+    ).toEqual([]);
+  });
+
+  it('copes with an annotation without a transcript ID', () => {
+    expect(
+      describeFilterTranscript({ ...card, filter_transcript: { ...matched, transcript_id: null } })
+        ?.transcriptId,
+    ).toBeNull();
   });
 });
 

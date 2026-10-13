@@ -6,6 +6,14 @@ Saving a CNV (ClinGen 2019) scoring freezes what it was made on into
 the sign-out drift gate compare that snapshot with the SV as the family's data holds it
 now (see docs/clinical-traceability.md).
 
+Several callers can call one event under one SV id, and share its review: an uploaded
+SV's id names no caller, and a package's NeedlR SV has the same form since CLIN-43. Each
+caller's call is a row of its own, with its own genes and annotation (the storage key
+names the caller), and the SV page lists them apart. A scoring freezes the row of the
+caller it was made on, which the save names (``StructuralVariantReviewUpdate.source``),
+and the drift check reads that caller's row again, the one the snapshot's ``source``
+names (TRACE-11).
+
 What is frozen is what the CNV classification actually reads. The criteria engine
 (``frontend/src/lib/cnvAcmg/evaluate.ts``, scored again by ``cnv_acmg_points``) suggests
 from the SV record alone: its type (loss or gain), the genes it overlaps and their count
@@ -141,24 +149,31 @@ def build_structural_evidence_snapshot(
     }
 
 
-async def fetch_structural_variant_record(
-    context: FamilyMetadataContext, variant_id: str
-) -> StructuralVariantRecord | None:
-    """The family's SV ``variant_id`` as the SV page reads it, or None when its data holds
-    no such SV (or no SV storage for the assembly).
+async def fetch_structural_variant_records(
+    context: FamilyMetadataContext, variant_id: str, *, source: str | None = None
+) -> list[StructuralVariantRecord]:
+    """The family's SV ``variant_id`` as the SV page reads it: one record per caller that
+    calls it, in storage-key order, or only ``source``'s when a caller is named. Empty
+    when its data holds no such SV (none of that caller's), or no SV storage for the
+    assembly.
 
-    The same scope as the page (``_structural_variant_where_clauses``: the family, its
-    visible projects, an SV with a call in a visible sample) and the same value parsing;
-    without the calls, which the classification's evidence does not include.
+    The storage key names the caller (``structural_variant_key``), so a caller has one
+    row of an SV. The same scope as the page (``_structural_variant_where_clauses``: the
+    family, its visible projects, an SV with a call in a visible sample) and the same
+    value parsing; without the calls, which the classification's evidence does not
+    include.
     """
     assembly_name = getattr(context, "assembly_name", None)
     if not assembly_name:
-        return None
+        return []
     where_clauses, params = _structural_variant_where_clauses(
         context, StructuralVariantQueryFilters(page=1, page_size=1)
     )
     where_clauses.append("e.variantId = %(evidence_variant_id)s")
     params["evidence_variant_id"] = variant_id
+    if source is not None:
+        where_clauses.append("e.source = %(evidence_source)s")
+        params["evidence_source"] = source
     query = f"""
         SELECT
             any(e.key) AS key,
@@ -180,17 +195,18 @@ async def fetch_structural_variant_record(
         WHERE {' AND '.join(where_clauses)}
         GROUP BY e.key, e.variantId
         ORDER BY key
-        LIMIT 1
     """
     try:
         rows = await execute_clickhouse(query, params)
     except ClickHouseError as exc:
         message = str(exc)
         if "UNKNOWN_TABLE" in message or "doesn't exist" in message:
-            return None  # no SV storage for this assembly yet: the SV is not in the data
+            return []  # no SV storage for this assembly yet: the SV is not in the data
         raise
-    if not rows:
-        return None
+    return [_structural_record(row) for row in rows]
+
+
+def _structural_record(row: Sequence[Any]) -> StructuralVariantRecord:
     (
         variant_key,
         stored_variant_id,
@@ -205,7 +221,7 @@ async def fetch_structural_variant_record(
         filters_raw,
         annotations_json,
         gene_symbols,
-    ) = rows[0]
+    ) = row
     return StructuralVariantRecord(
         variant_key=_coerce_int(variant_key),
         variant_id=str(stored_variant_id),
@@ -243,6 +259,21 @@ def _as_snapshot(value: Any) -> Any:
     return value
 
 
+def _frozen_evidence(snapshot: Any) -> dict[str, Any] | None:
+    """The evidence a snapshot froze, or None when it cannot be read."""
+    snapshot = _as_snapshot(snapshot)
+    frozen = snapshot.get("evidence") if isinstance(snapshot, Mapping) else None
+    return dict(frozen) if isinstance(frozen, Mapping) else None
+
+
+def frozen_evidence_source(snapshot: Any) -> str | None:
+    """The caller whose row a snapshot's evidence was frozen from (its ``source``), or None
+    when the snapshot cannot be read or names none. The drift check reads that caller's
+    row of the SV again."""
+    source = (_frozen_evidence(snapshot) or {}).get("source")
+    return source if isinstance(source, str) else None
+
+
 def _same(left: Any, right: Any) -> bool:
     # Through the JSON encoding the stored snapshot went through, so a value read back
     # from JSONB and a fresh one compare equal when unchanged.
@@ -262,18 +293,21 @@ def _changed_groups(frozen: Mapping[str, Any], current: Mapping[str, Any]) -> li
 def diff_structural_evidence(
     snapshot: Any, current_record: StructuralVariantRecord | None
 ) -> dict[str, Any]:
-    """Compare a frozen SV/CNV evidence snapshot with the SV as it is now.
+    """Compare a frozen SV/CNV evidence snapshot with the SV as it is now:
+    ``current_record`` is the row of the caller the evidence was frozen from
+    (``frozen_evidence_source``), or None when the family's data no longer holds it.
 
     ``status`` is ``current`` (unchanged), ``drifted`` (``changed`` names what moved),
-    ``unknown`` (the frozen evidence cannot be read, so it cannot be shown unchanged; the
-    sign-out gate counts it like a drift) or ``variant_missing`` (the SV is no longer in the
-    family's data). Only the fields the snapshot froze are compared, so evidence a later
-    version of CoGA adds does not turn an older classification into a drift.
+    ``unknown`` (the frozen evidence cannot be read, or does not name the caller whose row
+    it was frozen from, so it cannot be shown unchanged; the sign-out gate counts it like a
+    drift) or ``variant_missing`` (that caller's call of the SV is no longer in the
+    family's data, whether or not another caller still calls it). Only the fields the
+    snapshot froze are compared, so evidence a later version of CoGA adds does not turn an
+    older classification into a drift.
     """
     snapshot = _as_snapshot(snapshot)
-    frozen = snapshot.get("evidence") if isinstance(snapshot, Mapping) else None
     frozen_hash = snapshot.get("evidence_hash") if isinstance(snapshot, Mapping) else None
-    evidence_from = dict(frozen) if isinstance(frozen, Mapping) else None
+    evidence_from = _frozen_evidence(snapshot)
     if current_record is None:
         return {
             "status": "variant_missing",
@@ -282,7 +316,9 @@ def diff_structural_evidence(
             "evidence_to": None,
         }
     current = structural_evidence(current_record)
-    if evidence_from is None or not frozen_hash:
+    # Every snapshot CoGA froze names its caller (``structural_evidence``); one that does
+    # not cannot say which caller's row it is to be compared with.
+    if evidence_from is None or not frozen_hash or frozen_evidence_source(snapshot) is None:
         return {"status": "unknown", "changed": [], "evidence_from": evidence_from, "evidence_to": current}
     current_hash = canonical_hash({field: current.get(field) for field in evidence_from})
     if current_hash == frozen_hash:
