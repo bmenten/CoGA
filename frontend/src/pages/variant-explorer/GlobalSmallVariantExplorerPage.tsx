@@ -23,7 +23,7 @@ import type {
   VariantExplorerAssembly,
 } from './types';
 import { apiPath, raw } from '../../lib/apiPath';
-import { saveCsvBlob } from '../../lib/csvExport';
+import { describeCsvExport, saveCsvBlob, truncatedExportMessage } from '../../lib/csvExport';
 import QueryFailure from '../../components/QueryFailure';
 
 const EMPTY_PANELS: GenePanel[] = [];
@@ -66,15 +66,21 @@ const GlobalSmallVariantExplorerPage = () => {
 
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
+  const [exportWarning, setExportWarning] = useState<string | null>(null);
 
   const handleDownloadCsv = async () => {
     setExportError(null);
+    setExportWarning(null);
     setIsExporting(true);
     try {
       const res = await api.get(apiPath`/variant-explorer/small-variants/export?${raw(requestQueryString)}`, {
         responseType: 'blob',
       });
-      saveCsvBlob(res.data, `variant-explorer-${assemblyId ?? 'export'}.csv`);
+      // A file cut at the export cap, or searched through a capped tag filter, is saved
+      // under a name that says so, and the page says so too, as for the family exports.
+      const info = describeCsvExport(res, `variant-explorer-${assemblyId ?? 'export'}`);
+      saveCsvBlob(res.data, info.filename);
+      if (info.truncated) setExportWarning(truncatedExportMessage(info));
     } catch {
       setExportError('Could not export variants. Try narrowing your filters and retry.');
     } finally {
@@ -387,6 +393,12 @@ const GlobalSmallVariantExplorerPage = () => {
         {exportError ? (
           <div className="variant-workspace-feedback variant-workspace-feedback--error">
             {exportError}
+          </div>
+        ) : null}
+
+        {exportWarning ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--warning" role="alert">
+            {exportWarning}
           </div>
         ) : null}
 
