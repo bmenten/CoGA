@@ -18,6 +18,10 @@ classification, consequence and tags, with the number of carriers (het and hom) 
   classification — for example every variant tagged *Report*.
 - Click a het, hom or family count to see the carriers per family, with links to their family pages.
 - Imputed calls are left out unless you tick **Include imputed variants (GLIMPSE2 / SHAPEIT)**.
+- **Download CSV** exports the filtered variants with their annotation, up to 50,000 rows. A file that
+  misses matches has *TRUNCATED* in its name, and the page says why: more variants matched than the
+  50,000 rows (narrow the filters), or the tag or classification filter matched more than the 200,000
+  variants one search takes (filter on fewer tags or classifications).
 
 ### Clinical CNV explorer
 

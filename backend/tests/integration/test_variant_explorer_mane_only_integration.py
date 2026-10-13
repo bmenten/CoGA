@@ -127,13 +127,13 @@ def test_explorer_mane_only_keeps_mane_select_and_mane_plus_clinical(monkeypatch
                 return page.total, {variant.variant_id for variant in page.variants}
 
             async def exported(**filters: Any) -> set[str]:
-                _assembly, rows = await svc.export_global_small_variants(
+                export = await svc.export_global_small_variants(
                     session,
                     user=None,
                     filters=svc.GlobalVariantFilters(**filters),
                     assembly_id=scope.assembly_id,
                 )
-                return {variant.variant_id for variant in rows}
+                return {variant.variant_id for variant in export.rows}
 
             assert await listed() == (3, {_MANE_PLUS_CLINICAL, _MANE_SELECT, _NEITHER})
             assert await listed(mane_only=True) == (2, {_MANE_PLUS_CLINICAL, _MANE_SELECT})
