@@ -3,59 +3,15 @@ import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
+import type {
+  AuditLogEventOut,
+  AuditLogPageOut,
+  UiEventOut,
+  UiEventPageOut,
+} from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatDateTime } from '../../lib/format';
-
-type AuditLogEvent = {
-  id: string;
-  created_at: string;
-  user_id?: string | null;
-  user_email?: string | null;
-  user_role?: string | null;
-  method: string;
-  route_path?: string | null;
-  path: string;
-  query_string?: string | null;
-  status_code: number;
-  duration_ms: number;
-  remote_ip?: string | null;
-  request_body?: unknown;
-  db_update?: Record<string, unknown> | null;
-  error?: string | null;
-};
-
-type AuditLogPage = {
-  page: number;
-  page_size: number;
-  total: number;
-  items: AuditLogEvent[];
-};
-
-type UiEvent = {
-  id: string;
-  created_at: string;
-  user_email?: string | null;
-  user_id?: string | null;
-  event_type: string;
-  category?: string | null;
-  label?: string | null;
-  target_id?: string | null;
-  path?: string | null;
-  to_path?: string | null;
-  href?: string | null;
-};
-
-type UiEventPage = {
-  page: number;
-  page_size: number;
-  total: number;
-  items: UiEvent[];
-};
-
-type UserOption = {
-  id: string;
-  email: string;
-};
+import { userAccountsQuery } from '../../lib/users';
 
 type AuditView = 'requests' | 'interactions';
 
@@ -70,7 +26,7 @@ const summarizeDbUpdate = (dbUpdate?: Record<string, unknown> | null) => {
   return [updateType, entity, entityId].filter(Boolean).join(' ');
 };
 
-const describeLocation = (event: UiEvent): string => {
+const describeLocation = (event: UiEventOut): string => {
   if (event.event_type === 'navigation') {
     const from = event.path || '—';
     const to = event.to_path || '—';
@@ -78,6 +34,69 @@ const describeLocation = (event: UiEvent): string => {
   }
   return event.href || event.path || '—';
 };
+
+// The flags the writers set in a row: all the page shows of a request's request_meta (which
+// holds request headers besides) or a UI event's detail (which the client wrote).
+type AuditFlag = { key: string; text: string; title: string };
+
+type FlagSource = Record<string, unknown> | null | undefined;
+
+// request_meta.record_hidden: answered as for an unknown record, which exists outside the
+// caller's projects (main._answer_record_not_visible). Its value names the kind.
+const recordHiddenFlag = (meta: FlagSource): AuditFlag | null => {
+  const kind = meta?.record_hidden;
+  if (!kind) return null;
+  const noun = (typeof kind === 'string' && kind.trim()) || 'record';
+  return {
+    key: 'record-hidden',
+    text: `${noun.charAt(0).toUpperCase()}${noun.slice(1)} outside the user's projects`,
+    title: `Answered as for an unknown ${noun}: it exists outside the projects of the user who asked.`,
+  };
+};
+
+// _escaped: the columns in which a value the database cannot store was written as an escape
+// (core/pg_storable.py). A flag that is not a list of columns is shown without them.
+const escapedFlag = (meta: FlagSource): AuditFlag | null => {
+  const escaped = meta?._escaped;
+  if (!escaped || (Array.isArray(escaped) && escaped.length === 0)) return null;
+  const columns = Array.isArray(escaped)
+    ? escaped.filter((column): column is string => typeof column === 'string')
+    : [];
+  return {
+    key: 'escaped',
+    text: columns.length
+      ? `Escaped: ${columns.map((column) => column.replace(/_/g, ' ')).join(', ')}`
+      : 'Escaped',
+    title:
+      'A value the database cannot store (a NUL character, half a surrogate pair, NaN or ' +
+      'Infinity) was saved as a visible escape, so these columns are not verbatim.',
+  };
+};
+
+const requestFlags = (event: AuditLogEventOut): AuditFlag[] =>
+  [recordHiddenFlag(event.request_meta), escapedFlag(event.request_meta)].filter(
+    (flag): flag is AuditFlag => flag !== null,
+  );
+
+// In a UI event's detail only _escaped is the writer's (it drops a client's own): anything
+// else there, a record_hidden included, came from the browser.
+const uiEventFlags = (event: UiEventOut): AuditFlag[] => {
+  const flag = escapedFlag(event.detail);
+  return flag ? [flag] : [];
+};
+
+const AuditFlags: React.FC<{ flags: AuditFlag[] }> = ({ flags }) =>
+  flags.length ? (
+    <div className="table-chip-list">
+      {flags.map((flag) => (
+        <span key={flag.key} className="table-chip table-chip--warning" title={flag.title}>
+          {flag.text}
+        </span>
+      ))}
+    </div>
+  ) : (
+    <>—</>
+  );
 
 const AdminAuditLogsPage: React.FC = () => {
   const [view, setView] = useState<AuditView>('requests');
@@ -105,7 +124,7 @@ const AdminAuditLogsPage: React.FC = () => {
     search: '',
   });
 
-  const requestsQuery = useQuery<AuditLogPage>({
+  const requestsQuery = useQuery<AuditLogPageOut>({
     queryKey: [
       'admin',
       'audit-logs',
@@ -128,13 +147,13 @@ const AdminAuditLogsPage: React.FC = () => {
           path_contains: appliedFilters.pathContains.trim() || undefined,
         },
       });
-      return response.data as AuditLogPage;
+      return response.data as AuditLogPageOut;
     },
     enabled: view === 'requests',
     retry: false,
   });
 
-  const interactionsQuery = useQuery<UiEventPage>({
+  const interactionsQuery = useQuery<UiEventPageOut>({
     queryKey: [
       'admin',
       'ui-events',
@@ -153,21 +172,14 @@ const AdminAuditLogsPage: React.FC = () => {
           path_contains: appliedIntFilters.search.trim() || undefined,
         },
       });
-      return response.data as UiEventPage;
+      return response.data as UiEventPageOut;
     },
     enabled: view === 'interactions',
     retry: false,
   });
 
-  const { data: users = [] } = useQuery<UserOption[]>({
-    queryKey: ['admin', 'users'],
-    queryFn: async () => {
-      const response = await api.get('/auth/users');
-      const payload = response.data as Array<{ id: string; email: string }>;
-      return payload.map((entry) => ({ id: String(entry.id), email: entry.email }));
-    },
-    retry: false,
-  });
+  // Whole accounts, not only their e-mail: the Users and Projects pages read this cache entry too.
+  const { data: users = [] } = useQuery({ ...userAccountsQuery, retry: false });
 
   const activeQuery = view === 'requests' ? requestsQuery : interactionsQuery;
   const total = activeQuery.data?.total ?? 0;
@@ -405,6 +417,7 @@ const AdminAuditLogsPage: React.FC = () => {
                     <th>Method</th>
                     <th>Path</th>
                     <th>Status</th>
+                    <th>Flags</th>
                     <th>Duration</th>
                     <th>Data update</th>
                     <th>Error</th>
@@ -424,6 +437,9 @@ const AdminAuditLogsPage: React.FC = () => {
                           ) : null}
                         </td>
                         <td>{event.status_code}</td>
+                        <td>
+                          <AuditFlags flags={requestFlags(event)} />
+                        </td>
                         <td>{event.duration_ms} ms</td>
                         <td>{summarizeDbUpdate(event.db_update)}</td>
                         <td>{event.error || '—'}</td>
@@ -431,7 +447,7 @@ const AdminAuditLogsPage: React.FC = () => {
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={8} className="table-empty">
+                      <td colSpan={9} className="table-empty">
                         No audit log entries found for the current filters.
                       </td>
                     </tr>
@@ -448,6 +464,7 @@ const AdminAuditLogsPage: React.FC = () => {
                     <th>Category</th>
                     <th>Label</th>
                     <th>Location</th>
+                    <th>Flags</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -460,11 +477,14 @@ const AdminAuditLogsPage: React.FC = () => {
                         <td>{event.category || '—'}</td>
                         <td>{event.label || '—'}</td>
                         <td>{describeLocation(event)}</td>
+                        <td>
+                          <AuditFlags flags={uiEventFlags(event)} />
+                        </td>
                       </tr>
                     ))
                   ) : (
                     <tr>
-                      <td colSpan={6} className="table-empty">
+                      <td colSpan={7} className="table-empty">
                         No interaction events found for the current filters.
                       </td>
                     </tr>

@@ -87,7 +87,7 @@ Een overzicht van de bewaarde filterpresets voor small variants van alle gebruik
 
 ### Auditlogs en integriteit
 
-- **Auditlogs** (`AdminAuditLogsPage.tsx`): de HTTP-auditlog (*API requests*), te filteren op methode, status, gebruiker en pad, met per verzoek de afgeleide databankwijziging; en de UI-telemetrie (*UI interactions*).
+- **Auditlogs** (`AdminAuditLogsPage.tsx`): de HTTP-auditlog (*API requests*), te filteren op methode, status, gebruiker en pad, met per verzoek de afgeleide databankwijziging; en de UI-telemetrie (*UI interactions*). De kolom *Flags* toont wat de backend in een rij markeerde, en verder niets van `request_meta` of `detail`: een verzoek naar een familie, sample of project buiten de projecten van de gebruiker, beantwoord als voor een onbekend record (`request_meta.record_hidden`, bv. *Family outside the user's projects*), en de kolommen waarin een waarde die Postgres niet kan opslaan als escape bewaard werd (`_escaped`, bv. *Escaped: path, query string*; hoofdstuk 7). Bij een UI-interactie telt alleen `_escaped`: de rest van `detail` komt van de browser.
 - **Integriteit:** de hash-keten van een familie nalopen, en integriteitsankers maken en controleren (hoofdstuk 11). Daarvoor bestaan alleen endpoints, geen scherm.
 
 ### Overige

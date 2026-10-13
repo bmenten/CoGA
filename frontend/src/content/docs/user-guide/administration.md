@@ -53,4 +53,7 @@ the [admin dashboard](/admin), grouped in six areas.
 
 - **Audit Logs** — every request to the server (who, what, when, the outcome) and every button and link a
   user clicked. Identifiers are masked, so the log shows how CoGA is used without exposing patient data.
-  It is separate from each family's *Classification audit trail* on the report.
+  The **Flags** column marks a request for a family, sample or project outside the user's projects, which
+  CoGA answered as for an unknown one, and a row in which a value the database cannot store was saved as
+  an escape, naming the columns. It is separate from each family's *Classification audit trail* on the
+  report.

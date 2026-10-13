@@ -13,6 +13,7 @@ import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatShortDate } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
+import { userAccountsQuery } from '../../lib/users';
 import QueryFailure from '../../components/QueryFailure';
 
 type Project = ApiProjectRecord<ApiFamilyBase<ApiFamilyMemberRef>>;
@@ -127,13 +128,7 @@ const ProjectsPage: React.FC = () => {
     },
   });
 
-  const { data: users = [] } = useQuery<User[]>({
-    queryKey: ['admin', 'users'],
-    queryFn: async () => {
-      const res = await api.get('/auth/users');
-      return (res.data as User[]).map((entry) => withEntityId(entry));
-    },
-  });
+  const { data: users = [] } = useQuery(userAccountsQuery);
 
   const speciesNameById = useMemo(
     () => new Map(species.map((entry) => [entry.id, entry.name])),
