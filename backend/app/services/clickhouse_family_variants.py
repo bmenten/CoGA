@@ -369,17 +369,17 @@ async def _fetch_gene_constraint_metric_map(
         return {}
     gene_symbols = sorted({variant.gene for variant in variants if variant.gene})
     gene_ids = sorted({variant.gene_id for variant in variants if variant.gene_id})
+    # Each list goes as one text[] parameter, not one parameter per gene (an expanding IN):
+    # a CSV export's 50,001 rows can hit more genes than the 32,767 parameters asyncpg
+    # takes in one statement (DATA-3).
     clauses: list[str] = []
     params: dict[str, Any] = {}
-    bind_params = []
     if gene_symbols:
-        clauses.append("upper(hgnc_symbol) IN :gene_symbols")
+        clauses.append("upper(hgnc_symbol) = ANY(CAST(:gene_symbols AS text[]))")
         params["gene_symbols"] = [symbol.upper() for symbol in gene_symbols]
-        bind_params.append(bindparam("gene_symbols", expanding=True))
     if gene_ids:
-        clauses.append("gene_id IN :gene_ids")
+        clauses.append("gene_id = ANY(CAST(:gene_ids AS text[]))")
         params["gene_ids"] = gene_ids
-        bind_params.append(bindparam("gene_ids", expanding=True))
     if not clauses:
         return {}
     result = await session.execute(
@@ -390,7 +390,7 @@ async def _fetch_gene_constraint_metric_map(
             WHERE {' OR '.join(clauses)}
             ORDER BY updated_at DESC
             """
-        ).bindparams(*bind_params),
+        ),
         params,
     )
     by_symbol: dict[str, dict[str, float | None]] = {}

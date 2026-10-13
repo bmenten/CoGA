@@ -18,7 +18,7 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .compound_het_phase import (
@@ -232,15 +232,19 @@ async def get_sv_second_hits(
     upper_genes = sorted({gene.upper() for gene in gene_symbols if gene})
     if not upper_genes:
         return {}
+    # The genes go as one text[] parameter, not one parameter per gene (an expanding IN):
+    # a CSV export's 50,001 rows can hit more genes than the 32,767 parameters asyncpg
+    # takes in one statement (DATA-3).
     rows = (
         await session.execute(
             text(
                 """
                 SELECT gene_symbol, sv_count, svs
                 FROM family_sv_gene_index
-                WHERE family_id = CAST(:fid AS uuid) AND gene_symbol IN :genes
+                WHERE family_id = CAST(:fid AS uuid)
+                  AND gene_symbol = ANY(CAST(:genes AS text[]))
                 """
-            ).bindparams(bindparam("genes", expanding=True)),
+            ),
             {"fid": family_uuid, "genes": upper_genes},
         )
     ).mappings().all()
