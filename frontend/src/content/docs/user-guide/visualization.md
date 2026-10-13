@@ -36,4 +36,8 @@ genotype. Without a parent in the family there is one row.
 > that data was loaded for the sample, so an empty track usually means the layer is missing, not that
 > the viewer failed. When a view holds too many variants to draw, the track says so: zoom in or filter.
 
+Coverage is drawn as a log2 ratio, one track per CNV caller. A HiFiCNV depth file without autosomal
+depth gives no baseline to take that ratio against, so its depths are kept as read: the track is not
+drawn, its place says why, and IGV shows the depth file.
+
 The PGT haplotype track is explained under [Haplotype segregation](#haplotype-segregation).

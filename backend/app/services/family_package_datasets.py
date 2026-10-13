@@ -1446,7 +1446,8 @@ def _log2_ratio_transform(normaliser: float | None) -> Callable[[float], float] 
 
     Returns ``None`` when there is no usable normaliser, which leaves the values
     raw rather than inventing a baseline -- a track drawn against a made-up
-    reference would look like a genome-wide gain or loss.
+    reference would look like a genome-wide gain or loss. The track's record then
+    says ``normalization: none``, so nothing reads the raw values as a log2 ratio.
     """
 
     if not normaliser or normaliser <= 0:
@@ -1643,7 +1644,10 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             # which are themselves log2 ratios; a 1-copy loss then sits at -1 in all
             # three instead of at a depth that means nothing without knowing the
             # sample's own baseline. The raw bigWig is untouched and is what IGV gets.
+            # A file without autosomal depth gives no median, and its depths are stored
+            # as read rather than against an invented baseline (_log2_ratio_transform).
             normaliser = await asyncio.to_thread(_autosomal_median_depth, depth_path)
+            depth_transform = _log2_ratio_transform(normaliser)
             sample_results[sample_id]["depth_track"] = await _import_interval_track_unless_present(
                 session,
                 sample_context=sample_context,
@@ -1661,11 +1665,17 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                     # the zero-depth telomeric/centromeric gaps. They plot as a
                     # flat line on the axis and cost ~600k rows per sample.
                     skip_zero=True,
-                    value_transform=_log2_ratio_transform(normaliser),
+                    value_transform=depth_transform,
                     # The normaliser is part of what the stored numbers mean, so it is
-                    # recorded with the track rather than left to be re-derived.
+                    # recorded with the track rather than left to be re-derived. The record
+                    # names the transform the stored values went through, not the one
+                    # intended: depths stored as read record `none`, which the views read
+                    # as not a log2 ratio (TRACE-7). The track once recorded a log2 ratio
+                    # with a null median over raw depths, and was drawn as one.
                     extra_metadata={
-                        "normalization": "log2_ratio_to_autosomal_median",
+                        "normalization": (
+                            "log2_ratio_to_autosomal_median" if depth_transform is not None else "none"
+                        ),
                         "autosomal_median_depth": normaliser,
                     },
                 ),

@@ -1,7 +1,12 @@
 import React, { useRef, useState } from 'react';
 import { Link } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
-import { apcadAxisMax, coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
+import {
+  apcadAxisMax,
+  coverageNotDrawnNote,
+  coverageTrackLabel,
+  orderCoverageSources,
+} from '../../lib/coverageSources';
 import { cssVar } from '../../lib/colors';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
@@ -34,6 +39,8 @@ interface GenomeTrackAvailability {
   segments: boolean;
   /** The CNV callers with data; each is drawn as its own stacked track. */
   coverageSources: string[];
+  /** The transforms each caller's coverage track records; decides whether it is drawn. */
+  coverageNormalizations: Record<string, string[]>;
   segmentsSources: string[];
   /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
   apcadSources: string[];
@@ -323,9 +330,29 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                 {trackVisibility.coverage &&
                   // One track per CNV caller. All are stored as a log2 ratio against
                   // the sample's own baseline, so a loss sits at the same height in
-                  // each and they can be read down the column.
+                  // each and they can be read down the column. A track whose record
+                  // says its values are not a log2 ratio is left off the axis, and its
+                  // place says why (TRACE-7).
                   orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
                     (coverageSource, _index, allSources) => {
+                      const label = coverageTrackLabel(coverageSource, allSources.length);
+                      const notDrawn = coverageNotDrawnNote(
+                        availability[member.sample_id]?.coverageNormalizations[coverageSource],
+                      );
+                      if (notDrawn) {
+                        return (
+                          <ViewerTrackBlock
+                            key={`coverage-${coverageSource}`}
+                            label={label}
+                            width={trackWidth}
+                            frameClassName="mb-2"
+                          >
+                            <p className="viz-not-drawn-note" role="note">
+                              {notDrawn}
+                            </p>
+                          </ViewerTrackBlock>
+                        );
+                      }
                       const { coverageUrls, segmentsUrls } = urlMaps.coverageTrackUrls(
                         member.sample_id,
                         coverageSource,
@@ -333,7 +360,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                       return (
                         <ViewerTrackBlock
                           key={`coverage-${coverageSource}`}
-                          label={coverageTrackLabel(coverageSource, allSources.length)}
+                          label={label}
                           width={trackWidth}
                           frameClassName="mb-2 h-[120px] cursor-pointer"
                           roiRange={genomeRoiRange}

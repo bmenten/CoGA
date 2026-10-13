@@ -1,4 +1,4 @@
-"""A track whose values the import transforms records the transform (TRACE-4).
+"""A track whose values the import transforms records the transform (TRACE-4, TRACE-7).
 
 HiFiCNV's copy-number bedGraph holds integer copy number and its depth bigWig holds read
 depth. The package import stores both as log2 ratios, the scale of the WisecondorX and
@@ -8,6 +8,12 @@ means something its file does not say, so the track's source record (the ``metad
 column of ``sample_interval_track_sources``) names the transform. The depth track always
 did. The copy-number track was handed its own, ``log2_ratio_to_diploid``, and dropped it,
 so nothing recorded told its stored log2 ratios from the copy numbers in the file.
+
+A depth bigWig without autosomal depth gives no median to normalise by, and its depths are
+stored as read. Its record said ``log2_ratio_to_autosomal_median`` all the same, with a null
+median, and the viewers drew the raw depths on their log2-ratio axis (TRACE-7). The record
+now names the transform the stored values went through, ``none`` here, and the track
+availability the viewers read serves it with the track.
 
 The datastores are faked at their edge: the session keeps what each track-source INSERT
 binds, and the interval rows bound for ClickHouse are kept as they are inserted.
@@ -27,6 +33,7 @@ from backend.app.schemas import FamilyImportDatasetSummary
 from backend.app.services import family_package_datasets, family_package_tracks
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.family_package_common import ManifestDataset
+from backend.app.services.family_service import get_family_track_availability_for_user
 
 SAMPLE = "PROBAND"
 
@@ -66,16 +73,22 @@ class _Session:
 
 def _write_bigwig(path: Path, values: list[float]) -> None:
     """A bigWig of 1 kb bins on chr1, one per value."""
+    _write_bigwig_contigs(path, {"chr1": values})
+
+
+def _write_bigwig_contigs(path: Path, contigs: dict[str, list[float]]) -> None:
+    """A bigWig of 1 kb bins on each contig, one per value, the contigs in this order."""
     import pyBigWig  # the importer's own reader, a pinned dependency
 
     handle = pyBigWig.open(str(path), "w")
-    handle.addHeader([("chr1", 100_000)], maxZooms=0)
-    handle.addEntries(
-        ["chr1"] * len(values),
-        [index * 1000 for index in range(len(values))],
-        ends=[(index + 1) * 1000 for index in range(len(values))],
-        values=values,
-    )
+    handle.addHeader([(contig, 100_000) for contig in contigs], maxZooms=0)
+    for contig, bins in contigs.items():
+        handle.addEntries(
+            [contig] * len(bins),
+            [index * 1000 for index in range(len(bins))],
+            ends=[(index + 1) * 1000 for index in range(len(bins))],
+            values=bins,
+        )
     handle.close()
 
 
@@ -220,6 +233,154 @@ async def test_the_hificnv_bigwig_tracks_record_what_they_recorded_before(
         "uploaded_from": "family_package",
         "format": "bigwig",
     }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("contigs", "median", "stored"),
+    [
+        # No autosomal depth: the autosome's bins are zero, which the median skips as it
+        # skips the assembly gaps, and chrX, where the depth is, it leaves out as
+        # sex-dependent. The import drops the zero bins and keeps chrX's depths.
+        ({"chr1": [0.0, 0.0], "chrX": [15.0, 30.0]}, None, [15.0, 30.0]),
+        # A median that is no depth, from values at or below zero (log2 ratios given as
+        # the depth bigWig, say): no ratio can be taken against it either.
+        ({"chr1": [-1.0, -2.0, -3.0]}, -2.0, [-1.0, -2.0, -3.0]),
+    ],
+    ids=["no-autosomal-depth", "non-positive-median"],
+)
+async def test_a_depth_track_without_a_usable_median_records_its_depths_as_read(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    contigs: dict[str, list[float]],
+    median: float | None,
+    stored: list[float],
+) -> None:
+    (tmp_path / "cnv").mkdir()
+    (tmp_path / "cnv" / f"{SAMPLE}.vcf").write_text(_CNV_VCF, encoding="utf-8")
+    _write_bigwig_contigs(tmp_path / "cnv" / f"{SAMPLE}.depth.bw", contigs)
+
+    records, rows = await _import(
+        monkeypatch,
+        tmp_path,
+        "cnv",
+        {"vcf": f"cnv/{SAMPLE}.vcf", "depth_bigwig": f"cnv/{SAMPLE}.depth.bw"},
+    )
+
+    # Without a baseline the depths are stored as the file holds them, not against an
+    # invented one ...
+    assert _values(rows, "coverage") == stored
+    # ... and the record says so, with the median it could not use. It said
+    # log2_ratio_to_autosomal_median over these raw depths, and the viewers drew them on
+    # their log2-ratio axis as a genome-wide gain.
+    assert records[("coverage", "hificnv", f"{SAMPLE}.depth.bw")] == {
+        "source": "hificnv",
+        "filename": f"{SAMPLE}.depth.bw",
+        "uploaded_from": "family_package",
+        "format": "bigwig",
+        "normalization": "none",
+        "autosomal_median_depth": median,
+    }
+
+
+def _trio_context() -> FamilyMetadataContext:
+    names = {"PROBAND": "proband-uuid", "MOTHER": "mother-uuid", "FATHER": "father-uuid"}
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM",
+        project_ids=["project-uuid"],
+        sample_rows=[{"sample_id": name} for name in names],
+        sample_uuid_to_name={uuid: name for name, uuid in names.items()},
+        sample_name_to_uuid=dict(names),
+        affected_sample_names=["PROBAND"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+
+async def _track_availability(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    coverage_sources: dict[str, list[str]],
+    normalizations: Any,
+) -> dict[str, dict[str, list[str]]]:
+    """Each member's ``coverage_normalizations`` as the track availability serves them,
+    with the callers that have coverage rows in the chromosomes asked for and the recorded
+    transforms read by ``normalizations`` (a fake of the Postgres read)."""
+    service = "backend.app.services.family_service."
+
+    async def trio(*_args: Any, **_kwargs: Any) -> FamilyMetadataContext:
+        return _trio_context()
+
+    async def sources(_session: Any, *, track_type: str, **_kwargs: Any) -> dict[str, list[str]]:
+        return coverage_sources if track_type == "coverage" else {}
+
+    async def nobody(*_args: Any, **_kwargs: Any) -> set[str]:
+        return set()
+
+    monkeypatch.setattr(service + "build_family_metadata_context", trio)
+    monkeypatch.setattr(service + "get_track_sources_by_sample", sources)
+    monkeypatch.setattr(service + "get_track_presence_by_sample", nobody)
+    monkeypatch.setattr(service + "_repeat_expansion_presence_by_sample", nobody)
+    monkeypatch.setattr(service + "_structural_present_sample_names", nobody)
+    monkeypatch.setattr(service + "interval_track_normalizations_by_sample", normalizations)
+
+    availability = await get_family_track_availability_for_user(
+        None,  # type: ignore[arg-type]
+        family_id="FAM",
+        user=None,  # type: ignore[arg-type]
+        chromosomes=["1"],
+        include_small_variants=False,
+    )
+    return {name: sample.coverage_normalizations for name, sample in availability.samples.items()}
+
+
+@pytest.mark.asyncio
+async def test_the_track_availability_serves_each_coverage_track_s_recorded_transform(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    asked: list[tuple[str, dict[str, str], str]] = []
+
+    async def recorded(
+        _session: Any, *, family_uuid: str, sample_uuid_to_name: dict[str, str], track_type: str
+    ) -> dict[str, dict[str, list[str]]]:
+        asked.append((family_uuid, sample_uuid_to_name, track_type))
+        return {
+            # The proband's depths had no autosomal median and are stored as read.
+            "PROBAND": {"hificnv": ["none"]},
+            "MOTHER": {"hificnv": ["log2_ratio_to_autosomal_median"]},
+            # The father's depth track has no rows in the chromosomes asked for: it is not
+            # offered, so nothing is said of it.
+            "FATHER": {"hificnv": ["log2_ratio_to_autosomal_median"]},
+        }
+
+    served = await _track_availability(
+        monkeypatch,
+        coverage_sources={"PROBAND": ["hificnv", "wisecondorx"], "MOTHER": ["hificnv"]},
+        normalizations=recorded,
+    )
+
+    # Each offered track with the transform its records name. WisecondorX's bins are its
+    # file's log2 ratios, recorded with no transform, so it is not listed.
+    assert served == {
+        "PROBAND": {"hificnv": ["none"]},
+        "MOTHER": {"hificnv": ["log2_ratio_to_autosomal_median"]},
+        "FATHER": {},
+    }
+    # Read once, for the family's samples' coverage tracks.
+    assert asked == [("family-uuid", _trio_context().sample_uuid_to_name, "coverage")]
+
+
+@pytest.mark.asyncio
+async def test_the_track_availability_reads_no_transform_when_no_member_has_coverage(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def unread(*_args: Any, **_kwargs: Any) -> dict[str, dict[str, list[str]]]:
+        raise AssertionError("no coverage track is offered, so there is no transform to read")
+
+    served = await _track_availability(monkeypatch, coverage_sources={}, normalizations=unread)
+
+    assert served == {"PROBAND": {}, "MOTHER": {}, "FATHER": {}}
 
 
 @pytest.mark.asyncio

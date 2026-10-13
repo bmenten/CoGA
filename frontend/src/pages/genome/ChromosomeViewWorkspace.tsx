@@ -2,7 +2,12 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import { apcadAxisMax, coverageTrackLabel, orderCoverageSources } from '../../lib/coverageSources';
+import {
+  apcadAxisMax,
+  coverageNotDrawnNote,
+  coverageTrackLabel,
+  orderCoverageSources,
+} from '../../lib/coverageSources';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
 import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
@@ -58,6 +63,8 @@ interface ChromosomeTrackAvailability {
   coverage: boolean;
   /** The CNV callers with data, each drawn as its own stacked track. */
   coverageSources: string[];
+  /** The transforms each caller's coverage track records; decides whether it is drawn. */
+  coverageNormalizations: Record<string, string[]>;
   /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
   apcadSources: string[];
   apcad: boolean;
@@ -511,33 +518,50 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                 {trackVisibility.coverage &&
                   // One track per caller. They are independent measurements of the
                   // same thing, so a single merged track would average three
-                  // answers into one that is none of them.
+                  // answers into one that is none of them. A track whose record says
+                  // its values are not a log2 ratio is left off the chart's log2-ratio
+                  // axis, and its place says why (TRACE-7).
                   orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
-                    (coverageSource, _index, allSources) => (
-                      <ViewerTrackBlock
-                        key={`coverage-${coverageSource}`}
-                        label={coverageTrackLabel(coverageSource, allSources.length)}
-                        width={trackWidth}
-                        frameClassName="h-[120px]"
-                        roiRange={regionRoiRange}
-                        roiTitle={roiTitle}
-                        viewportInteraction={viewportInteraction}
-                      >
-                        <CoverageSegmentsChart
-                          coverageUrls={[
-                            `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${coverageSource}&format=json`,
-                          ]}
-                          segmentsUrls={[
-                            `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
-                          ]}
+                    (coverageSource, _index, allSources) => {
+                      const label = coverageTrackLabel(coverageSource, allSources.length);
+                      const notDrawn = coverageNotDrawnNote(
+                        availability[member.sample_id]?.coverageNormalizations[coverageSource],
+                      );
+                      if (notDrawn) {
+                        return (
+                          <ViewerTrackBlock key={`coverage-${coverageSource}`} label={label} width={trackWidth}>
+                            <p className="viz-not-drawn-note" role="note">
+                              {notDrawn}
+                            </p>
+                          </ViewerTrackBlock>
+                        );
+                      }
+                      return (
+                        <ViewerTrackBlock
+                          key={`coverage-${coverageSource}`}
+                          label={label}
                           width={trackWidth}
-                          height={TRACK_HEIGHT}
-                          chroms={[chrom]}
-                          regionStart={region.start}
-                          regionEnd={region.end}
-                        />
-                      </ViewerTrackBlock>
-                    ),
+                          frameClassName="h-[120px]"
+                          roiRange={regionRoiRange}
+                          roiTitle={roiTitle}
+                          viewportInteraction={viewportInteraction}
+                        >
+                          <CoverageSegmentsChart
+                            coverageUrls={[
+                              `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${coverageSource}&format=json`,
+                            ]}
+                            segmentsUrls={[
+                              `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
+                            ]}
+                            width={trackWidth}
+                            height={TRACK_HEIGHT}
+                            chroms={[chrom]}
+                            regionStart={region.start}
+                            regionEnd={region.end}
+                          />
+                        </ViewerTrackBlock>
+                      );
+                    },
                   )}
                 {trackVisibility.apcad &&
                   (availability[member.sample_id]?.apcad || availability[member.sample_id]?.apcadPcf) && (
