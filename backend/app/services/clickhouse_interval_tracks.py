@@ -588,6 +588,44 @@ async def get_interval_track_lineage_hash(
     return value or None
 
 
+async def count_interval_track_rows(
+    assembly_name: str,
+    *,
+    family_uuid: str,
+    sample_uuid: str,
+    track_type: str,
+    source: str | None = None,
+) -> int:
+    """How many rows the interval table holds of one sample's ``track_type`` track, of
+    ``source`` or of every source: what is stored. ``count_interval_track_source_rows``
+    reads instead what the loaders recorded in Postgres, which a failed overwrite's restore
+    does not rewrite with these rows: one that fails part-way can leave the record of a
+    track whose rows it deleted (SAFE-20)."""
+    await ensure_clickhouse_interval_table(assembly_name)
+    clauses = [
+        "family_guid = %(family_uuid)s",
+        "sample_guid = %(sample_uuid)s",
+        "track_type = %(track_type)s",
+    ]
+    params: dict[str, Any] = {
+        "family_uuid": str(family_uuid),
+        "sample_uuid": str(sample_uuid),
+        "track_type": track_type,
+    }
+    if source is not None:
+        clauses.append("source = %(source)s")
+        params["source"] = source
+    rows = await _execute(
+        f"""
+        SELECT count()
+        FROM {_interval_table_name(assembly_name)}
+        WHERE {' AND '.join(clauses)}
+        """,
+        params,
+    )
+    return int(rows[0][0]) if rows else 0
+
+
 def _track_source_filters(
     *,
     sample_uuid: str | None,

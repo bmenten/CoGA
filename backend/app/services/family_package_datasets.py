@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import partial
 import json
 from math import log2
@@ -18,6 +18,7 @@ from ..schemas import (
 )
 from .bed_service import upload_bed_data
 from .clickhouse_interval_tracks import (
+    count_interval_track_rows,
     count_interval_track_source_rows,
     delete_interval_track_sources,
     delete_interval_tracks,
@@ -113,7 +114,13 @@ _PER_SAMPLE_COLUMN_REMEDY = (
 class DatasetImportJob:
     """What a dataset importer is handed: the package, the dataset's manifest entry, the
     summary to fill in, the family and sample contexts, how to treat data already there,
-    and where to report progress. Each importer reads the fields it needs."""
+    and where to report progress. Each importer reads the fields it needs.
+
+    ``skipped_samples`` is where an importer that goes sample by sample records each sample
+    an update left as it was, its rows being there (all of them, or one of its tracks): an
+    import that imported the dataset for other samples counts it as imported again for
+    those only (``imported_dataset_scopes``), so a skip completes no earlier failure
+    (SAFE-20). A dataset an update skips whole ends ``skipped``, and counts for none."""
 
     session: AsyncSession
     bundle: FamilyPackageBundle
@@ -123,6 +130,7 @@ class DatasetImportJob:
     sample_contexts: dict[str, SampleMetadataContext]
     conflict_mode: str = "overwrite"
     progress: DatasetProgressCallback | None = None
+    skipped_samples: set[str] = field(default_factory=set)
 
 
 DatasetImporter = Callable[[DatasetImportJob], Awaitable[FamilyImportDatasetSummary]]
@@ -151,6 +159,81 @@ async def _local_upload(path: Path):
         yield upload
     finally:
         await upload.close()
+
+
+async def _stored_track_rows(
+    sample_context: SampleMetadataContext, *, track_type: str, source: str | None = None
+) -> int:
+    """The rows of one sample's ``track_type`` track, of ``source`` or of every source, in
+    the store: what an update reads to see whether the sample holds the track, as the
+    small-variant and SV loaders read their own rows. Not what Postgres records of the
+    track (``sample_interval_track_sources``): a failed overwrite's restore that stopped
+    part-way can leave that record for rows it deleted (SAFE-20). A family with no single
+    assembly has no track rows."""
+    if not sample_context.assembly_name:
+        return 0
+    return await count_interval_track_rows(
+        sample_context.assembly_name,
+        family_uuid=sample_context.family_uuid,
+        sample_uuid=sample_context.sample_uuid,
+        track_type=track_type,
+        source=source,
+    )
+
+
+async def _skip_stored_sample(
+    job: DatasetImportJob,
+    sample_id: str,
+    sample_context: SampleMetadataContext,
+    *,
+    track_type: str,
+    source: str | None = None,
+) -> dict[str, Any] | None:
+    """An update's skip of a sample whose ``track_type`` track (of ``source``, or of any
+    source) is stored: ``{"skipped": True, "existing": <rows>}``, the sample recorded in
+    ``job.skipped_samples``. None when the sample is to be imported: not an update, or no
+    row of its track is stored."""
+    if job.conflict_mode != "update":
+        return None
+    existing = await _stored_track_rows(sample_context, track_type=track_type, source=source)
+    if not existing:
+        return None
+    job.skipped_samples.add(sample_id)
+    return {"skipped": True, "existing": existing}
+
+
+def _is_update_skip(result: Any) -> bool:
+    """Whether a sample's result, or one of its tracks', is an update's skip of rows that
+    were there (``{"skipped": True, "existing": <rows>}``), not a loader's count of the
+    lines it left out (``{"skipped": 3}``)."""
+    return isinstance(result, dict) and result.get("existing") is not None
+
+
+def _sample_by_sample_outcome(
+    summary: FamilyImportDatasetSummary,
+    sample_results: dict[str, Any],
+    *,
+    skipped: Sequence[str],
+    imported_any: bool,
+    imported: str,
+    partly: str,
+    skipped_all: str,
+) -> FamilyImportDatasetSummary:
+    """How a dataset imported sample by sample ends, when an update may have skipped some
+    of its samples, or of their tracks (``skipped``), their rows being there: ``imported``
+    when it imported any of them, ``skipped`` when it imported none, never ``imported`` for
+    a dataset an update skipped whole (SAFE-20). The message is ``imported`` when nothing
+    was skipped, else ``partly`` or ``skipped_all``, followed by what was skipped."""
+    names = ", ".join(skipped)
+    if not skipped:
+        status, message = "imported", imported
+    elif imported_any:
+        status, message = "imported", f"{partly} {names}"
+    else:
+        status, message = "skipped", f"{skipped_all} {names}"
+    return summary.model_copy(
+        update={"status": status, "message": message, "summary": sample_results}
+    )
 
 
 def _exclude_filters(dataset: ManifestDataset) -> Sequence[Any] | None:
@@ -518,22 +601,22 @@ async def _import_bins_and_segments(
                     progress=partial(report_track, role),
                 ),
             )
-    skipped = [
-        f"{sample_id}:{role}"
+            if _is_update_skip(sample_results[sample_id][role]):
+                # A sample whose bins or segments were skipped is not imported again whole.
+                job.skipped_samples.add(sample_id)
+    track_results = [
+        (f"{sample_id}:{role}", stats)
         for sample_id, roles in sample_results.items()
         for role, stats in roles.items()
-        if isinstance(stats, dict) and stats.get("existing") is not None
     ]
-    return summary.model_copy(
-        update={
-            "status": "imported",
-            "message": (
-                f"Imported {caller} bins as coverage and segments as segment interval tracks"
-                if not skipped
-                else f"Imported {caller} data; skipped existing tracks in update mode: {', '.join(skipped)}"
-            ),
-            "summary": sample_results,
-        }
+    return _sample_by_sample_outcome(
+        summary,
+        sample_results,
+        skipped=[name for name, stats in track_results if _is_update_skip(stats)],
+        imported_any=any(not _is_update_skip(stats) for _name, stats in track_results),
+        imported=f"Imported {caller} bins as coverage and segments as segment interval tracks",
+        partly=f"Imported {caller} data; skipped existing tracks in update mode:",
+        skipped_all=f"Skipped {caller} import in update mode because these tracks already exist:",
     )
 
 
@@ -748,22 +831,20 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
             }
             or sample_contexts
         )
-        existing_by_sample = {
-            sample_id: await _interval_track_count(
-                session,
-                sample_context=sample_context,
-                track_type="apcad",
-            )
-            for sample_id, sample_context in target_sample_contexts.items()
-        }
-        if conflict_mode == "update" and any(existing_by_sample.values()):
-            return summary.model_copy(
-                update={
-                    "status": "skipped",
-                    "message": "Skipped APCAD import in update mode because APCAD tracks already exist",
-                    "summary": {"existing": existing_by_sample},
-                }
-            )
+        if conflict_mode == "update":
+            # One file for every embryo: skipped whole when any embryo's track is stored.
+            existing_by_sample = {
+                sample_id: await _stored_track_rows(sample_context, track_type="apcad")
+                for sample_id, sample_context in target_sample_contexts.items()
+            }
+            if any(existing_by_sample.values()):
+                return summary.model_copy(
+                    update={
+                        "status": "skipped",
+                        "message": "Skipped APCAD import in update mode because APCAD tracks already exist",
+                        "summary": {"existing": existing_by_sample},
+                    }
+                )
         family_vcf_read = FilesReadInTurn([vcf_path])
 
         async def report_family_vcf_read(stats: dict[str, Any]) -> None:
@@ -805,13 +886,9 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
         )
         if bed_path is None:
             continue
-        existing_count = await _interval_track_count(
-            session,
-            sample_context=sample_context,
-            track_type="apcad",
-        )
-        if conflict_mode == "update" and existing_count:
-            sample_results[sample_id] = {"skipped": True, "existing": existing_count}
+        skip = await _skip_stored_sample(job, sample_id, sample_context, track_type="apcad")
+        if skip is not None:
+            sample_results[sample_id] = skip
             continue
         sample_files.append((sample_id, raw_entry, bed_path))
     files_read = FilesReadInTurn(path for _sample_id, _entry, path in sample_files)
@@ -853,21 +930,14 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                 )
         if reporter is not None:
             await reporter({})
-    skipped = [
-        sample_id
-        for sample_id, stats in sample_results.items()
-        if isinstance(stats, dict) and stats.get("existing") is not None
-    ]
-    return summary.model_copy(
-        update={
-            "status": "imported",
-            "message": (
-                "Imported APCAD data into interval tracks"
-                if not skipped
-                else f"Imported APCAD data; skipped existing samples in update mode: {', '.join(skipped)}"
-            ),
-            "summary": sample_results,
-        }
+    return _sample_by_sample_outcome(
+        summary,
+        sample_results,
+        skipped=[sample_id for sample_id, stats in sample_results.items() if _is_update_skip(stats)],
+        imported_any=any(not _is_update_skip(stats) for stats in sample_results.values()),
+        imported="Imported APCAD data into interval tracks",
+        partly="Imported APCAD data; skipped existing samples in update mode:",
+        skipped_all="Skipped APCAD import in update mode because APCAD tracks already exist for",
     )
 
 
@@ -1123,9 +1193,14 @@ async def _import_target_coverage_table(
 async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     """Import coverage: a BED of depths (``bed``) into the ``coverage`` track, or a capture
     panel's per-target coverage table (``target_table``, monogenic NIPT) into the
-    ``target_coverage`` track."""
+    ``target_coverage`` track.
+
+    With ``update`` a sample whose track is stored is skipped, as the store holds it: not
+    as Postgres records it, which a failed overwrite's restore that stopped part-way can
+    leave for rows it deleted. A dataset that skipped every sample ends ``skipped``
+    (SAFE-20)."""
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
-    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
+    sample_contexts = job.sample_contexts
     if not dataset.per_sample:
         return await _register_only(
             summary, "Registered only; coverage dataset has no per_sample entries"
@@ -1137,11 +1212,11 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
             continue
         table_path = _resolve_package_path(bundle.root, raw_entry.get("target_table"))
         if table_path is not None:
-            existing_targets = await _interval_track_count(
-                session, sample_context=sample_context, track_type=TARGET_COVERAGE_TRACK_TYPE
+            skip = await _skip_stored_sample(
+                job, sample_id, sample_context, track_type=TARGET_COVERAGE_TRACK_TYPE
             )
-            if conflict_mode == "update" and existing_targets:
-                sample_results[sample_id] = {"skipped": True, "existing": existing_targets}
+            if skip is not None:
+                sample_results[sample_id] = skip
                 continue
             sample_results[sample_id] = await _import_target_coverage_table(
                 session, sample_context=sample_context, table_path=table_path, bundle_root=bundle.root
@@ -1153,11 +1228,9 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
         )
         if bed_path is None:
             continue
-        existing_count = await _interval_track_count(
-            session, sample_context=sample_context, track_type="coverage"
-        )
-        if conflict_mode == "update" and existing_count:
-            sample_results[sample_id] = {"skipped": True, "existing": existing_count}
+        skip = await _skip_stored_sample(job, sample_id, sample_context, track_type="coverage")
+        if skip is not None:
+            sample_results[sample_id] = skip
             continue
         async with _local_upload(bed_path) as upload:
             sample_results[sample_id] = await upload_bed_data(
@@ -1167,28 +1240,21 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
                 file=upload,
                 overwrite=True,
             )
-    skipped = [
-        sample_id
-        for sample_id, stats in sample_results.items()
-        if isinstance(stats, dict) and stats.get("existing") is not None
-    ]
-    return summary.model_copy(
-        update={
-            "status": "imported",
-            "message": (
-                "Imported coverage into interval tracks"
-                if not skipped
-                else f"Imported coverage; skipped existing samples in update mode: {', '.join(skipped)}"
-            ),
-            "summary": sample_results,
-        }
+    return _sample_by_sample_outcome(
+        summary,
+        sample_results,
+        skipped=[sample_id for sample_id, stats in sample_results.items() if _is_update_skip(stats)],
+        imported_any=any(not _is_update_skip(stats) for stats in sample_results.values()),
+        imported="Imported coverage into interval tracks",
+        partly="Imported coverage; skipped existing samples in update mode:",
+        skipped_all="Skipped coverage import in update mode because coverage already exists for",
     )
 
 
 @_dataset_importer("pcf")
 async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
-    sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
+    sample_contexts = job.sample_contexts
     if not dataset.per_sample:
         return await _register_only(summary, "No PCF segment files were provided")
     sample_results: dict[str, Any] = {}
@@ -1204,14 +1270,11 @@ async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         if not role_paths:
             continue
 
-        existing_count = await count_interval_track_source_rows(
-            session,
-            sample_uuid=sample_context.sample_uuid,
-            track_type=APCAD_PCF_TRACK_TYPE,
-            source=APCAD_PCF_SOURCE,
+        skip = await _skip_stored_sample(
+            job, sample_id, sample_context, track_type=APCAD_PCF_TRACK_TYPE, source=APCAD_PCF_SOURCE
         )
-        if conflict_mode == "update" and existing_count:
-            sample_results[sample_id] = {"skipped": True, "existing": existing_count}
+        if skip is not None:
+            sample_results[sample_id] = skip
             continue
 
         await _delete_sample_interval_source(
@@ -1229,23 +1292,22 @@ async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 origin=origin,
             )
 
-    skipped = [
-        sample_id
-        for sample_id, stats in sample_results.items()
-        if isinstance(stats, dict) and stats.get("existing") is not None
-    ]
-    return summary.model_copy(
-        update={
-            "status": "imported" if sample_results else "skipped",
-            "message": (
-                "Imported PCF APCAD segment overlays into interval tracks"
-                if sample_results and not skipped
-                else f"Imported PCF data; skipped existing samples in update mode: {', '.join(skipped)}"
-                if skipped
-                else "No PCF segment files were imported"
-            ),
-            "summary": sample_results,
-        }
+    if not sample_results:
+        return summary.model_copy(
+            update={
+                "status": "skipped",
+                "message": "No PCF segment files were imported",
+                "summary": sample_results,
+            }
+        )
+    return _sample_by_sample_outcome(
+        summary,
+        sample_results,
+        skipped=[sample_id for sample_id, stats in sample_results.items() if _is_update_skip(stats)],
+        imported_any=any(not _is_update_skip(stats) for stats in sample_results.values()),
+        imported="Imported PCF APCAD segment overlays into interval tracks",
+        partly="Imported PCF data; skipped existing samples in update mode:",
+        skipped_all="Skipped PCF import in update mode because PCF segment overlays already exist for",
     )
 
 
@@ -1330,9 +1392,12 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
             continue
-        existing_count = await _paraphase_count(session, sample_context=sample_context)
-        if conflict_mode == "update" and existing_count:
+        # Paraphase results are stored in Postgres: the table read here is their store.
+        if conflict_mode == "update" and (
+            existing_count := await _paraphase_count(session, sample_context=sample_context)
+        ):
             sample_results[sample_id] = {"skipped": True, "existing": existing_count}
+            job.skipped_samples.add(sample_id)
             continue
         json_path = _resolve_package_path(bundle.root, raw_entry.get("json"))
         if json_path is None:
@@ -1354,21 +1419,14 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
             "genes": len(rows),
             "filename": json_path.name,
         }
-    skipped = [
-        sample_id
-        for sample_id, stats in sample_results.items()
-        if isinstance(stats, dict) and stats.get("existing") is not None
-    ]
-    return summary.model_copy(
-        update={
-            "status": "imported",
-            "message": (
-                "Imported Paraphase JSON into sample paraphase result storage"
-                if not skipped
-                else f"Imported Paraphase JSON; skipped existing samples in update mode: {', '.join(skipped)}"
-            ),
-            "summary": sample_results,
-        }
+    return _sample_by_sample_outcome(
+        summary,
+        sample_results,
+        skipped=[sample_id for sample_id, stats in sample_results.items() if _is_update_skip(stats)],
+        imported_any=any(not _is_update_skip(stats) for stats in sample_results.values()),
+        imported="Imported Paraphase JSON into sample paraphase result storage",
+        partly="Imported Paraphase JSON; skipped existing samples in update mode:",
+        skipped_all="Skipped Paraphase import in update mode because Paraphase results already exist for",
     )
 
 
@@ -1482,8 +1540,12 @@ async def _import_interval_track_unless_present(
 
     ``update`` means "add what is missing, touch nothing that is there"; the
     importers themselves always replace their (track_type, source, filename)
-    triple, so the guard has to sit outside them. Shared by the three HiFiCNV
-    signal tracks, which differ only in what they read and where it lands.
+    triple, so the guard has to sit outside them. Shared by the WisecondorX and
+    QDNAseq bins and segments and the three HiFiCNV signal tracks, which differ
+    only in what they read and where it lands. What is there is what the store
+    holds (``_stored_track_rows``): Postgres's record of a track can outlive the
+    rows a failed overwrite's restore deleted, and an update imports such a track
+    again (SAFE-20).
 
     When the import does run, the whole (track_type, source) pair is cleared
     first rather than just the incoming filename. A source owns a track for a
@@ -1491,17 +1553,20 @@ async def _import_interval_track_unless_present(
     that feeds a track changes. That is not hypothetical -- HiFiCNV's `coverage`
     track used to be fed by the copy-number bedgraph and is now fed by the depth
     bigWig, so a filename-scoped replace would leave the old copy-number rows
-    behind to be averaged into the new depth values.
+    behind to be averaged into the new depth values. It is cleared when Postgres
+    records the track, which also removes a record whose rows are gone.
     """
 
+    if conflict_mode == "update":
+        stored = await _stored_track_rows(sample_context, track_type=track_type, source=source)
+        if stored:
+            return {"skipped": True, "existing": stored}
     existing = await _interval_track_count(
         session,
         sample_context=sample_context,
         track_type=track_type,
         source=source,
     )
-    if conflict_mode == "update" and existing:
-        return {"skipped": True, "existing": existing}
     if existing:
         await _delete_sample_interval_source(
             session,
@@ -1693,6 +1758,9 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                     origin="und",
                 ),
             )
+        if any(_is_update_skip(stats) for stats in sample_results[sample_id].values()):
+            # Its calls are imported again, but not the tracks an update left as stored.
+            job.skipped_samples.add(sample_id)
 
         # Where the signal files sit, for the browser to stream directly. Recorded
         # rather than re-derived at serve time: HiFiCNV names them after its own run
@@ -1740,10 +1808,21 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             str(result.get("filename")) for result in sample_results.values() if result.get("filename")
         ),
     )
+    skipped_tracks = [
+        f"{sample_id}:{track}"
+        for sample_id, result in sample_results.items()
+        for track, stats in result.items()
+        if _is_update_skip(stats)
+    ]
     return summary.model_copy(
         update={
             "status": "imported",
-            "message": "Imported CNV calls into structural variant storage",
+            "message": "Imported CNV calls into structural variant storage"
+            + (
+                f"; skipped existing tracks in update mode: {', '.join(skipped_tracks)}"
+                if skipped_tracks
+                else ""
+            ),
             "summary": {"processed": len(records), "source": CNV_SOURCE, "samples": sample_results},
         }
     )
@@ -2370,7 +2449,11 @@ async def _import_dataset(
     sample_contexts: dict[str, SampleMetadataContext],
     conflict_mode: str = "overwrite",
     progress: DatasetProgressCallback | None = None,
+    skipped_samples: set[str] | None = None,
 ) -> FamilyImportDatasetSummary:
+    """Import one dataset of the package through its registered importer. Each sample an
+    update leaves as it was, its rows being there, is added to ``skipped_samples``
+    (``DatasetImportJob.skipped_samples``)."""
     if summary.dataset_type == "phenotypes":
         # Not a manifest dataset: the phenotypes come from the package's HPO rows.
         return await _import_phenotypes_dataset(
@@ -2401,5 +2484,6 @@ async def _import_dataset(
             sample_contexts=sample_contexts,
             conflict_mode=conflict_mode,
             progress=progress,
+            skipped_samples=skipped_samples if skipped_samples is not None else set(),
         )
     )
