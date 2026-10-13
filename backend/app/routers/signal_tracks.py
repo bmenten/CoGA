@@ -12,7 +12,11 @@ Two things differ from the alignment endpoints next door:
 * **Paths come from the import, not from a naming convention.** A CRAM is always
   ``<sample>.cram``; a HiFiCNV bigWig is named after the caller's own run
   (``HG002.Sample0.depth.bw``, ``HG002.HG002.maf.bw``). What the import found is
-  recorded on the sample, and that is what is served.
+  recorded on the sample, and that is what is served. With local storage the recorded
+  path is looked up in the family's package folder, ``<data>/families/<family>``, and
+  only inside the family's own folders, as the alignments are: one that leads out (an
+  edited row holding ``..`` or an absolute path, a symlink into another family's folder)
+  names no file (``core/family_folders.py``).
 * **Range requests matter.** A depth bigWig is ~19 MB and a MAF bigWig ~143 MB;
   IGV fetches slices by byte range. Starlette's ``FileResponse`` honours ``Range``,
   which is also how the CRAM endpoints work.
@@ -31,6 +35,7 @@ size itself, since a URL signed for GET cannot be used for a HEAD.
 from __future__ import annotations
 
 import asyncio
+import os
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -39,6 +44,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.family_folders import PACKAGES_FOLDER, family_folders, path_in_family_folder
 from ..core.object_storage import (
     configured_object_key,
     configured_object_uri,
@@ -91,25 +97,6 @@ _TRACK_KINDS: dict[str, dict[str, Any]] = {
         "extensions": (".bedgraph", ".bedGraph", ".bg"),
     },
 }
-
-
-def _family_package_root(family_id: str) -> Path:
-    return DATA_DIR / "families" / family_id
-
-
-def _within_data_dir(path: Path) -> bool:
-    """Reject a candidate that resolves outside the data directory.
-
-    The recorded path is package-relative and written by the import, but it reaches
-    here through the database and is joined with a `family_id` from the URL; the
-    containment check is what makes that safe regardless.
-    """
-
-    try:
-        path.resolve().relative_to(DATA_DIR.resolve())
-    except (ValueError, OSError):
-        return False
-    return True
 
 
 async def _accessible_sample_ids(
@@ -184,14 +171,30 @@ def _track_uris(rows: list[tuple[str, dict[str, Any]]]) -> dict[str, dict[str, d
 
 
 def _resolve_track_path(family_id: str, relative_path: str) -> Path | None:
-    """The file for a recorded path, or ``None`` if it is gone or out of bounds."""
+    """The file a recorded path names in the family's package folder,
+    ``<data>/families/<family>``; ``None`` when it is gone or lies outside the family's own
+    folders.
+
+    The import records the path relative to the package, but it comes back from
+    ``samples.metadata`` as data: an edited row can hold ``..`` or an absolute path. It is
+    joined to the package folder and normalised as a string, and one that leaves that folder
+    (``../F2/cnv/S2.depth.bw``, an absolute path elsewhere) is dropped before anything is
+    looked up by it. One that stays is kept only when its real path lies inside one of the
+    family's own folders, so a symlink cannot lead into another family's folder or out of
+    the data directory; a family ID that is no single folder name has no folder
+    (``core/family_folders.py``).
+    """
 
     if not relative_path:
         return None
-    candidate = _family_package_root(family_id) / relative_path
-    if not _within_data_dir(candidate):
+    folders = family_folders(DATA_DIR, family_id)
+    package = folders.get(PACKAGES_FOLDER)
+    if package is None:
         return None
-    return candidate if candidate.is_file() else None
+    path = path_in_family_folder(package, folders.values(), relative_path)
+    if path is None or not os.path.isfile(path):
+        return None
+    return Path(path)
 
 
 # ---------------------------------------------------------------------------
@@ -220,13 +223,15 @@ def _recorded_track_key(uri: object, kind: str) -> str | None:
 
 def _probed_track_key(family_id: str, relative_path: str | None, kind: str) -> str | None:
     """The package layout under the storage prefix, ``<prefix>/<family>/<recorded path>``,
-    for a row that recorded no usable URI. The recorded path must be relative with no
-    empty, ``.`` or ``..`` segment, so the key stays in the family's folder."""
+    for a row that recorded no usable URI. The family ID must be one folder name (not
+    empty, ``.`` or ``..``, and holding no ``/``), and the recorded path relative with no
+    empty, ``.`` or ``..`` segment, so the key stays in the family's own folder."""
     if not relative_path or not _has_kind_extension(relative_path, kind):
         return None
-    for value in (family_id, relative_path):
-        if any(segment in {"", ".", ".."} for segment in value.split("/")):
-            return None
+    if "/" in family_id or family_id in {"", ".", ".."}:
+        return None
+    if any(segment in {"", ".", ".."} for segment in relative_path.split("/")):
+        return None
     return object_key(family_id, relative_path)
 
 
