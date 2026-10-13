@@ -329,6 +329,14 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             f"SNV VCF sample column(s) {unresolved_samples} match no sample in the family"
         )
 
+    # With overwrite the VCF is read once, not first checked whole before the callset it
+    # replaces is deleted (check_before_replacing): the import has snapshotted an existing
+    # family and puts it back when a dataset fails, and a whole-genome callset is the
+    # import's longest read. An update takes no snapshot: it replaces stored rows only
+    # where its check above missed them (an `auto` callset that resolves to another), and
+    # then reads the file whole first.
+    check_before_replacing = conflict_mode != "overwrite"
+
     async def run_upload() -> dict[str, Any]:
         if annotation_path is not None:
             async with _local_upload(vcf_path) as upload:
@@ -344,6 +352,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                         progress=report_snv_progress,
                         sample_aliases=sample_aliases,
                         exclude_filters=exclude_filters,
+                        check_before_replacing=check_before_replacing,
                     )
         async with _local_upload(vcf_path) as upload:
             return await upload_family_small_variant_file(
@@ -356,6 +365,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 progress=report_snv_progress,
                 sample_aliases=sample_aliases,
                 exclude_filters=exclude_filters,
+                check_before_replacing=check_before_replacing,
             )
 
     try:
@@ -444,6 +454,8 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
                 )
             )
 
+    # With overwrite read once, as the SNV dataset's VCF: the import's snapshot puts an
+    # existing family back when a dataset fails (check_before_replacing).
     async def run_upload() -> dict[str, Any]:
         async with _local_upload(vcf_path) as upload:
             return await upload_family_small_variant_file(
@@ -455,6 +467,7 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
                 overwrite=True,
                 format_hint="glimpse2",
                 progress=report_haplotype_progress,
+                check_before_replacing=conflict_mode != "overwrite",
             )
 
     try:

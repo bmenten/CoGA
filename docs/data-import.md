@@ -273,9 +273,10 @@ that looks complete:
   import-incomplete (`families.metadata.import_incomplete`). The flag holds the datasets that
   failed and those that imported, the time and the import job's id; the job's record holds
   each dataset's error, which the flag does not copy. It stays until an import has imported
-  each failed dataset again, for the same samples and (for the small variants) the same
-  `source_format`; an import that completes without one leaves it flagged, and says so in its
-  log. An update will do: the failing loader's rows were rolled back or cleaned up, so the
+  each failed dataset again, or an upload has brought it again
+  ([What an upload records](#what-an-upload-records)), for the same samples and (for the small
+  variants) the same `source_format`; an import that completes without one leaves it flagged,
+  and says so in its log. An update will do: the failing loader's rows were rolled back or cleaned up, so the
   update finds none and imports the dataset whole (one whose rows stayed is skipped, and a
   skipped dataset does not count; nor does a skipped sample: a dataset the update imported for
   some samples and skipped for others counts as imported again for those it imported). A later
@@ -879,6 +880,13 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
 - `POST /ped/upload`: admins upload a PED file, with an optional region of interest,
   inheritance model and carrier lists.
 - Only admins can replace an existing family or sample (`overwrite=true`).
+- Replacing a family deletes it and its small variants and structural variants. The variants
+  go last, once the family has been written again, just before the commit: a replacement
+  refused before that leaves the family as it was, its variants included. What can still
+  refuse it then: a sample ID another family has (409), a phenotype other than `0`, `-9`, `1`
+  or `2`, carriers the PED does not name, the inheritance model or the region of interest
+  (400 or 404), and the database's own constraints (500). A header line of six fields, such as
+  `#FID IID PAT MAT SEX PHENOTYPE`, is read as a family, and refused for its phenotype.
 - Both refuse (400), before anything is written, a family or sample ID (a PED's parent IDs
   too) that is not printable text without spaces, as a package import does
   ([Validation](#validation)); the whitespace around a typed-in ID is stripped.
@@ -970,8 +978,28 @@ A family small-variant upload is one family VCF from one callset:
   anything is stored. Only Package Import writes the `nipt` callset of a monogenic NIPT pair,
   one file per sample ([Monogenic NIPT pairs](#monogenic-nipt-pairs)); a combined father and
   plasma VCF uploads as an ordinary callset.
-- The upload is refused (409) when the family already has calls from that callset.
-  `overwrite=true` replaces them; every other callset stays as it is.
+- The upload is refused (409) when the family already has calls from that callset, or, for
+  imputed genotypes, haplotype blocks. `overwrite=true` replaces them; every other callset
+  stays as it is.
+- With `overwrite`, the file is read and checked whole before anything is replaced: each
+  record is built as it is stored, and for imputed genotypes the haplotype blocks are made,
+  but nothing is written. A file the upload refuses (one naming a sample the family does not
+  have, or holding no record it can store, 400; a gzip file cut short or damaged, 400; a line
+  over the length limit, 413), or cannot read, leaves the stored callset, the haplotype blocks
+  and their records as they were. Only then are they deleted and the file read again and
+  written: it streams through both reads, and is never held in memory. With nothing stored to
+  replace, the file is read once.
+- ClickHouse has no transactions, so a write that still fails after that delete (ClickHouse
+  failing part-way, or a value its columns cannot hold) answers 500 with the callset gone: the
+  rows the write had stored are removed again. The family is then flagged import-incomplete
+  for what the upload was to bring ([What an upload records](#what-an-upload-records)): every
+  family page shows *Import incomplete*, and its report is signed out only with an
+  acknowledgement, until the callset has been uploaded or imported again. After such a failed
+  upload of imputed genotypes, Postgres still records the deleted haplotype blocks, and the
+  parents' phase corrections stay, until then.
+- A package's `snv` and `haplotypes` datasets load their family VCF through the same loader,
+  but with `overwrite` read it once: the import puts an existing family back from its
+  snapshot when a dataset fails ([The import job](#the-import-job)).
 - The answer says what was stored: the records loaded and skipped, the callset, the haplotype
   blocks made, and the tool versions the VCF header names, which also go into the family's
   annotation manifest.
@@ -1047,6 +1075,16 @@ An upload made before uploads were recorded is not in `imported_scopes`: a resto
 part-way does not name its data, so the gate opens once the rest of the family has been imported
 again, though that data may be missing. Upload such data again to record it.
 
+A small-variant upload that fails after it has deleted the callset it replaces
+([above](#6-single-file-uploads)) records nothing of what it brought, strikes nothing off an
+entry, and flags the family import-incomplete (`families.metadata.import_incomplete`) for what
+it was to bring, as an import flags a dataset that failed: under the dataset and scope of the
+table above, with no import job, merged with a flag already there. Each upload that completes
+removes from the flag what it brought again, for the same sample and (for the small variants)
+the same callset, as an import that imports a failed dataset again does, and the flag goes with
+the last. An upload without `overwrite` counts too: it is refused while any of that data is
+stored, so it brought it whole.
+
 The repeat-expansion and interval-track uploads hold the family's write locks from their first
 read until they commit, as the small-variant and structural-variant uploads do
 ([database.md](database.md#one-write-at-a-time-per-family)): such an upload waits while a
@@ -1117,6 +1155,8 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
 | A per-target coverage import fails on `sample_interval_track_sources_track_type_check` | The Postgres database is older than the `target_coverage` track type; reset it ([database.md](database.md)). |
+| "VCF file must be plain text or gzipped" (small-variant upload, 400) | The file is neither text nor whole gzip: a `.vcf.gz` cut short in a copy, or damaged. Copy it again; a refused upload with `overwrite` kept the stored callset. |
+| *Import incomplete* for `snv` or `haplotypes`, with no import job | A small-variant upload with `overwrite` failed after it had deleted the callset it replaced ([section 6](#6-single-file-uploads)). Upload the callset again, or import it. |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |
 | dbNSFP `missing` on every gene | The dbNSFP gene file is not at `GENE_REFERENCE_DBNSFP_GENE_PATH`. |
 

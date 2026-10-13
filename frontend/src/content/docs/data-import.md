@@ -21,6 +21,11 @@ detail (file formats, manifest fields, configuration) is kept by the bioinformat
 replacing an existing family, editing an existing family's members or structure, adding HPO terms,
 setting the region of interest, and loading or replacing data are for administrators.
 
+**Replacing a family** with a PED file or the Family Builder deletes its small variants and structural
+variants with it, once the family has been saved again: a replacement refused before then (a sample ID
+another family has, a PED phenotype other than 0, -9, 1 or 2, such as a header line's) leaves the family
+and its variants as they were.
+
 **Family and sample IDs** are printable text without spaces, whichever way a family comes in or is
 edited. The spaces around an ID are dropped. An ID with a space or a control character inside (a line
 break, a tab, an escape: characters a copied ID can carry without showing them) is refused before
@@ -265,9 +270,10 @@ which are log2 ratios.
   page and in the same section of the clinical report. Tool versions are in the report's provenance
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
-  page shows *Import incomplete* until an import has imported each dataset that failed again (an
-  **update** will do; a dataset, or a sample, it skips because its data is there is not imported
-  again, and stays named), and its report can be signed out only with an acknowledgement
+  page shows *Import incomplete* until an import has imported each dataset that failed again, or an
+  upload has brought it again (an **update** will do; a dataset, or a sample, it skips because its data
+  is there is not imported again, and stays named), and its report can be signed out only with an
+  acknowledgement
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
   without them leaves the warning, and says so in its log.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
@@ -294,6 +300,14 @@ which are log2 ratios.
 Outside the package flow, an administrator can upload one layer at a time on the **Upload family and
 sample data** page: family small variants (including GLIMPSE2 haplotype VCFs), structural variants,
 repeat expansions, and interval tracks (coverage, APCAD, APCAD PCF segments, segments).
+
+A family small-variant upload that replaces stored calls (**overwrite**) reads the whole file before it
+replaces anything: a file it refuses (one naming a sample the family does not have, holding no record
+it can store, cut short in a copy, or with a line over the length limit) leaves the stored calls, and for
+imputed genotypes the haplotype blocks, as they were. Should storing the new calls still fail after the
+stored ones were deleted (the variant store failing part-way), the upload reports an error, and every
+family page shows *Import incomplete* for those calls, so the report can be signed out only with an
+acknowledgement, until they have been uploaded or imported again.
 
 A structural-variant file holds one sample's calls from one caller: **Sniffles VCF**, **Spectre VCF** or
 **Manual TSV**, or **Auto detect**, which works the caller out from the file. CoGA keeps each caller's
@@ -359,7 +373,9 @@ too: small variants as `snv` (imputed genotypes as `haplotypes`), TRGT calls as 
 caller's SV calls as `sv_sniffles`, `sv_spectre` or `sv_manual`, and a BED track as `bed_coverage`,
 `bed_segments`, `bed_apcad` or `bed_apcad_pcf`. Upload each again with **overwrite** to complete the
 family; an upload without overwrite does not count. Data uploaded before CoGA recorded uploads is not
-named: upload it again to record it.
+named: upload it again to record it. A dataset named as failed (a small-variant upload that failed after
+deleting the calls it replaced, or a dataset an import failed for) is completed by an upload that brings
+it again, with or without overwrite.
 
 ---
 
