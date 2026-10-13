@@ -55,6 +55,8 @@ from .family_variant_filters import (
     StructuralVariantQueryFilters,
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
+    structural_variant_length,
+    structural_variant_length_filters_match,
 )
 from .variant_prioritization import (
     MODE_COMPOUND_HET,
@@ -1026,9 +1028,14 @@ def _structural_record_matches(
             return False
     if filters.source and not _contains_casefold(record.source, filters.source):
         return False
-    if filters.length is not None and abs(record.end - record.start) != filters.length:
-        return False
-    if filters.min_length is not None and abs(record.end - record.start) < filters.min_length:
+    if not structural_variant_length_filters_match(
+        sv_type=record.sv_type,
+        sv_len=record.sv_len,
+        start=record.start,
+        end=record.end,
+        length=filters.length,
+        min_length=filters.min_length,
+    ):
         return False
     if filters.remote_chr and normalize_chromosome(record.remote_chr or "") != normalize_chromosome(filters.remote_chr):
         return False
@@ -1797,7 +1804,7 @@ def _structural_variant_out(
 ) -> VariantOut:
     allowed_samples = set(selected_samples)
     calls = [call for call in record.calls if not allowed_samples or call.sample in allowed_samples]
-    length = record.sv_len if record.sv_len is not None else record.end - record.start
+    length = structural_variant_length(sv_len=record.sv_len, start=record.start, end=record.end)
     annotation_extra = _structural_annotation_extra(record, track_mode=track_mode)
     if cytoband and not track_mode:
         annotation_extra["cytoband"] = cytoband
@@ -2973,6 +2980,8 @@ def _can_use_structural_native_page(
         (
             track_mode,
             filters.page_size <= 0,
+            # No SQL applies a length filter: structural_variant_length_filters_match, in
+            # _structural_record_matches, is its only rule.
             filters.length is not None,
             filters.min_length is not None,
             filters.variant_type,

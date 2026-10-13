@@ -858,7 +858,8 @@ calls are checked and replaced:
   with no column for the sample (another member's, or a joint VCF without it) or with two, and
   a VCF without exactly one `#CHROM` line before its records, is refused (400) before anything
   is read or replaced. A manual TSV has no sample column: each of its rows is the sample's
-  call.
+  call. Nor has it an SVLEN, so the SV length filters measure a TSV call by its END minus
+  POS: an insertion with its END at its POS is 0 bp to them.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another

@@ -193,7 +193,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   rare high- or moderate-impact variants with the ClinVar P/LP frequency override, so a
   long-read genome's screen reaches chrX within the candidate window.
 - **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
-  cap; the clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar
+  cap; SV length filters that measure a call's SVLEN (END − POS without one), an insertion
+  written with END at POS included, and let a translocation pass any minimum but no exact
+  length; the clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar
   support, GRCh37 and GRCh38 builds); repeat-expansion status, including contraction loci,
   unclassifiable alleles and an FMR1 premutation told from the grey zone; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their
   signal tracks.
