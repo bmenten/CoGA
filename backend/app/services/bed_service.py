@@ -14,7 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import HaplotypeResponse
 from .upload_safety import decode_upload_text
 from .clickhouse_interval_tracks import (
-    count_interval_track_source_rows,
+    count_interval_track_rows,
     delete_interval_track_sources,
     delete_interval_tracks,
     fetch_apcad_downsampled,
@@ -50,6 +50,13 @@ LINEAGE_TRACK_TYPE = "haplotype_lineage"
 
 VALID_BED_TYPES = {"coverage", "apcad", "apcad_pcf", "segments"}
 
+# The source of a track read from a BED file by ``upload_bed_data``: the single-file BED
+# upload's, and a package's coverage BED's (its ``coverage`` dataset), which replace each
+# other. A sample can carry other callers' tracks of the same types (WisecondorX, QDNAseq,
+# HiFiCNV, a package's APCAD VCF or PCF tables): each loader replaces only its own source's
+# track, so this one leaves theirs (SAFE-22).
+BED_UPLOAD_SOURCE = "web"
+
 
 def validate_bed_type(bed_type: str, *, allow_haplotype: bool = False) -> None:
     valid_types = VALID_BED_TYPES | ({"haplotype"} if allow_haplotype else set())
@@ -61,11 +68,11 @@ async def _decode_bed_upload(file: UploadFile) -> str:
     return await decode_upload_text(file, kind="BED")
 
 
-def _upload_metadata(track_type: str, file: UploadFile) -> str:
+def _upload_metadata(track_type: str, file: UploadFile, *, source: str) -> str:
     return json.dumps(
         {
             "track_type": track_type,
-            "source": "web",
+            "source": source,
             "filename": file.filename,
             "uploaded_at": datetime.now(timezone.utc).isoformat(),
         }
@@ -77,6 +84,7 @@ def _build_apcad_row(
     parts: list[str],
     *,
     track_type: str,
+    source: str,
     metadata_json: str,
 ) -> dict[str, Any] | None:
     if len(parts) < 6:
@@ -100,7 +108,7 @@ def _build_apcad_row(
         "family_id": sample_context.family_uuid,
         "assembly_id": sample_context.assembly_id,
         "track_type": track_type,
-        "source": "web",
+        "source": source,
         "chr": normalize_chromosome(chrom),
         "start": start,
         "end": end,
@@ -116,6 +124,7 @@ def _build_numeric_row(
     track_type: str,
     parts: list[str],
     *,
+    source: str,
     metadata_json: str,
 ) -> dict[str, Any] | None:
     if len(parts) < 4:
@@ -142,7 +151,7 @@ def _build_numeric_row(
         "family_id": sample_context.family_uuid,
         "assembly_id": sample_context.assembly_id,
         "track_type": track_type,
-        "source": "web",
+        "source": source,
         "chr": normalize_chromosome(chrom),
         "start": start,
         "end": end,
@@ -153,6 +162,33 @@ def _build_numeric_row(
     }
 
 
+def _bed_rows(
+    sample_context: SampleMetadataContext,
+    bed_type: str,
+    text_value: str,
+    *,
+    source: str,
+    metadata_json: str,
+) -> list[dict[str, Any]]:
+    """The track rows of a BED file's text. A line that is not a record of ``bed_type`` is
+    left out."""
+    rows: list[dict[str, Any]] = []
+    for line in text_value.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = line.strip().split()
+        row = (
+            _build_apcad_row(
+                sample_context, parts, track_type=bed_type, source=source, metadata_json=metadata_json
+            )
+            if bed_type in {"apcad", "apcad_pcf"}
+            else _build_numeric_row(sample_context, bed_type, parts, source=source, metadata_json=metadata_json)
+        )
+        if row is not None:
+            rows.append(row)
+    return rows
+
+
 async def upload_bed_data(
     session: AsyncSession,
     *,
@@ -161,9 +197,23 @@ async def upload_bed_data(
     file: UploadFile,
     overwrite: bool,
     record_upload: bool = False,
+    source: str = BED_UPLOAD_SOURCE,
 ) -> dict[str, int]:
-    """Store one sample's ``bed_type`` track from a BED file, replacing (with ``overwrite``)
-    every track of that type the sample has.
+    """Store one sample's ``bed_type`` track from a BED file under ``source``, replacing
+    (with ``overwrite``) the track of that type the sample has from that source. The tracks
+    of other sources stay (SAFE-22): the coverage and segments of WisecondorX, QDNAseq or
+    HiFiCNV, HiFiCNV's minor allele fraction, a package's APCAD or PCF tracks.
+
+    Without ``overwrite`` the upload is refused (409) when rows of that source's track are
+    stored: read from the store, as an update reads them, not from Postgres's record of the
+    track, which a failed overwrite's restore that stopped part-way can leave for rows it
+    deleted (SAFE-20). The file is read and checked whole before anything is replaced: one
+    without a record of ``bed_type`` is refused (400), and the stored track and its record
+    stay as they were.
+
+    ``source`` is ``web`` (``BED_UPLOAD_SOURCE``), except for a package's ``apcad`` dataset,
+    which reads a file its own reader finds no record in as a BED, into its own track
+    (``APCAD_SOURCE``).
 
     ``record_upload`` is for the single-file upload, which holds the family's variant-write
     locks in this transaction before it calls this (``routers/bed.py``), as a package import
@@ -176,16 +226,22 @@ async def upload_bed_data(
             status_code=400,
             detail="Could not resolve a single assembly for this sample",
         )
-    existing_count = await count_interval_track_source_rows(
-        session,
+    if not overwrite and await count_interval_track_rows(
+        sample_context.assembly_name,
+        family_uuid=sample_context.family_uuid,
         sample_uuid=sample_context.sample_uuid,
         track_type=bed_type,
-    )
-    if existing_count and not overwrite:
+        source=source,
+    ):
         raise HTTPException(
             status_code=409,
             detail="BED data already exists for this sample",
         )
+    text_value = await _decode_bed_upload(file)
+    metadata_json = _upload_metadata(bed_type, file, source=source)
+    rows = _bed_rows(sample_context, bed_type, text_value, source=source, metadata_json=metadata_json)
+    if not rows:
+        raise HTTPException(status_code=400, detail="No valid BED records found")
     if record_upload:
         # What the upload brings, recorded for the family (SAFE-19) before its first write,
         # in the transaction that commits its track: an upload that fails takes the record
@@ -203,37 +259,22 @@ async def upload_bed_data(
             sample_context.assembly_name,
             sample_uuid=sample_context.sample_uuid,
             track_type=bed_type,
+            source=source,
         )
-        await delete_interval_track_sources(
-            session,
-            sample_uuid=sample_context.sample_uuid,
-            track_type=bed_type,
-        )
-
-    text_value = await _decode_bed_upload(file)
-    metadata_json = _upload_metadata(bed_type, file)
-    rows: list[dict[str, Any]] = []
-    for line in text_value.splitlines():
-        if not line or line.startswith("#"):
-            continue
-        parts = line.strip().split()
-        row = (
-            _build_apcad_row(sample_context, parts, track_type=bed_type, metadata_json=metadata_json)
-            if bed_type in {"apcad", "apcad_pcf"}
-            else _build_numeric_row(sample_context, bed_type, parts, metadata_json=metadata_json)
-        )
-        if row is not None:
-            rows.append(row)
-
-    if not rows:
-        raise HTTPException(status_code=400, detail="No valid BED records found")
-
+    # The source's record goes with or without overwrite: without, none of its rows is stored
+    # (the check above), so a record left would name rows that are gone.
+    await delete_interval_track_sources(
+        session,
+        sample_uuid=sample_context.sample_uuid,
+        track_type=bed_type,
+        source=source,
+    )
     await insert_interval_track_rows(sample_context.assembly_name, rows)
     await upsert_interval_track_source(
         session,
         sample_context=sample_context,
         track_type=bed_type,
-        source="web",
+        source=source,
         filename=file.filename or "",
         row_count=len(rows),
         metadata=json.loads(metadata_json),

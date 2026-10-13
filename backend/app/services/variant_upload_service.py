@@ -384,15 +384,20 @@ async def _delete_family_haplotype_blocks(
     assembly_name: str,
     family_uuid: str,
 ) -> None:
+    """Delete the family's haplotype blocks this loader made (source ``glimpse2``): their
+    rows and Postgres's record of them. A track loader deletes only its own source's track
+    (SAFE-22)."""
     await delete_interval_tracks(
         assembly_name,
         family_uuid=family_uuid,
         track_type="haplotype",
+        source="glimpse2",
     )
     await delete_interval_track_sources(
         session,
         family_uuid=family_uuid,
         track_type="haplotype",
+        source="glimpse2",
     )
 
 

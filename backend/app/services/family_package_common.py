@@ -116,6 +116,12 @@ APCAD_PCF_TRACK_TYPE = "apcad_pcf"
 APCAD_PCF_SOURCE = "pcf"
 
 
+# The source of the ``apcad`` track the ``apcad`` dataset writes. It replaces only that
+# source's track of a sample: HiFiCNV's minor allele fraction is stored on the same track
+# type (source ``hificnv``), and a BED upload's under ``web`` (SAFE-22).
+APCAD_SOURCE = "apcad"
+
+
 # ClickHouse ``source`` tags for the long-read callsets. Each one scopes its own
 # delete/re-import, so a family can hold NeedlR SVs, HiFiCNV CNV calls and chrM
 # variants side by side and re-importing one never removes another.
