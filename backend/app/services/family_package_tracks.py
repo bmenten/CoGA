@@ -423,7 +423,10 @@ async def _import_copy_number_track(
 
     ``value_transform`` converts each value before storage, for a caller whose file
     holds a different quantity from the track's axis -- HiFiCNV's bedGraph carries
-    integer copy number where the segments track holds a log2 ratio.
+    integer copy number where the segments track holds a log2 ratio. A transformed
+    track must record what it was transformed by: pass it in ``extra_metadata``, which
+    is recorded with the track's source, as :func:`_import_bigwig_interval_track`
+    records its own.
     """
 
     if not sample_context.assembly_name:
@@ -494,6 +497,9 @@ async def _import_copy_number_track(
             "source": source,
             "filename": path.name,
             "uploaded_from": "family_package",
+            # The transform the stored values went through, when they went through one:
+            # without it a stored log2 ratio cannot be traced back to the file's value.
+            **(extra_metadata or {}),
         },
     )
     await session.commit()
