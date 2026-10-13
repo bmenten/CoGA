@@ -189,7 +189,9 @@ loops is refused.
 ### The steps
 
 1. **Family folder.** Pick the folder from the list of families found in the import folder (or type
-   its path), and the **Project** the family goes into. The PED is found automatically.
+   its path), and the **Project** the family goes into. The PED is found automatically. A folder that
+   is a link leading out of the import folder, or a link that loops, is not listed, and CoGA reads
+   nothing in it; typed, it is refused with the reason.
 2. **Family destination.** Choose *New family* or *Existing family*, and the **Existing data policy**
    (table below).
 3. **HPO terms and notes** for the family (optional). To add a phenotype file or HPO terms per person,

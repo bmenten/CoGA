@@ -123,6 +123,27 @@ def _existing_manifest_dict(root: Path) -> dict[str, Any]:
     return _load_manifest_dict(manifest_path) if manifest_path is not None else {}
 
 
+def _listed_package_folder(entry: Path) -> Path | None:
+    """The folder ``entry``, a name in a local import root, leads to, as selection takes it
+    (``_ensure_authorized_package_path``: its symlinks resolved); None when the package list
+    leaves it out.
+
+    Left out: a folder selection refuses, a symlink that leads out of FAMILY_IMPORT_ROOTS
+    (403) or one that loops (400), and one in the staging root, which selection takes for a
+    package downloaded from a bucket but which is no import root. Nothing in a folder left out
+    is looked up. The list read the manifest of a folder linked out of the root, showed the
+    package under that manifest's family and analysis type, and named its path outside the
+    roots, which selection then refused.
+    """
+    try:
+        folder = _ensure_authorized_package_path(entry)
+    except HTTPException:
+        return None
+    if not any(folder == root or root in folder.parents for root in _authorized_local_roots()):
+        return None
+    return folder
+
+
 def scan_family_import_packages() -> list[dict[str, Any]]:
     """List candidate family packages directly under each local import root.
 
@@ -131,6 +152,10 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
     folder (where the PGT pipeline writes it), or laid out per sample as the long-read
     pipeline writes its output (which has no PED for a couple screened for carriership).
     The folder path can then be selected in the import UI instead of typed by hand.
+
+    A folder selection would refuse is not listed, and nothing in it is read: one that is a
+    symlink leading out of the import roots, or one that loops (``_listed_package_folder``).
+    A symlink that stays under the roots is followed, and the folder it leads to listed.
     """
     packages: list[dict[str, Any]] = []
     seen: set[str] = set()
@@ -138,20 +163,23 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
         if not root.is_dir():
             continue
         for child in sorted(root.iterdir(), key=lambda path: path.name.lower()):
-            if not child.is_dir():
+            # Checked before anything in it is looked up, and read through the folder
+            # selection reads.
+            folder = _listed_package_folder(child)
+            if folder is None or not folder.is_dir():
                 continue
-            manifest_path = _find_manifest(child)
-            ped_paths = sorted(child.glob("*.ped")) or sorted((child / PED_FOLDER).glob("*.ped"))
-            if manifest_path is None and not ped_paths and not long_read_sample_ids(child):
+            manifest_path = _find_manifest(folder)
+            ped_paths = sorted(folder.glob("*.ped")) or sorted((folder / PED_FOLDER).glob("*.ped"))
+            if manifest_path is None and not ped_paths and not long_read_sample_ids(folder):
                 continue
-            resolved = str(child.resolve())
+            resolved = str(folder)
             if resolved in seen:
                 continue
             seen.add(resolved)
             info: dict[str, Any] = {}
             # A manifest that is a symlink out of the package is not read: the package is
             # listed without its details, as an unreadable manifest is.
-            if manifest_path is not None and manifest_link_out_of_package(child) is None:
+            if manifest_path is not None and manifest_link_out_of_package(folder) is None:
                 info = _scan_manifest_info(manifest_path)
             family_id = info.get("family_id") or child.name
             packages.append(

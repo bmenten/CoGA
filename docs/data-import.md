@@ -192,7 +192,17 @@ bucket must already contain its manifest.
 ### The import job
 
 The Package Import page lists the packages it finds under the roots (**Rescan** to refresh);
-you can also type a folder path. You choose a project, a new or existing family, and what to
+you can also type a folder path. The list shows only folders the import takes, and reads
+nothing in the others: a package folder that is a symlink leading out of the import roots, or
+one that loops, is left out (`_listed_package_folder` in
+[family_package_source.py](../backend/app/services/family_package_source.py) checks each folder
+with the import's own folder guard before it looks into it), and so is one that leads into the
+temporary folder a bucket package is downloaded to, which is no import root. A symlink that
+stays under the roots is followed, and the folder it leads to is listed. Before, the list
+followed a folder linked out of the root: it read the manifest it found there, showed the
+package under that manifest's family and analysis type, and named its path outside the root,
+which the import then refused. Typed, such a folder is refused with the reason
+(`package_folder_not_allowed`). You choose a project, a new or existing family, and what to
 do with data that already exists. **Discover manifest** drafts a manifest, which you can
 edit and save with **Write manifest.yaml**. **Dry run** is on by default: it validates
 without writing anything. Untick it and **Start import** to load the data. Jobs show under
@@ -1070,6 +1080,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | Message or symptom | Cause |
 | --- | --- |
 | `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`, or its path cannot be followed: it runs through a symlink loop, or starts with `~` for a home folder the server does not have. |
+| A folder in the import folder is not in the package list | It holds no manifest, no PED (at its top or in `ped/`) and no long-read per-sample folders, or the import refuses it: it is a symlink that leads out of `FAMILY_IMPORT_ROOTS`, or one that loops. Type its path and validate it to see the reason (`package_folder_not_allowed`). |
 | `family_id_invalid` | The family ID holds a control character or whitespace, or is empty. The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
 | `sample_id_invalid` | A sample ID holds a control character or whitespace. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
 | `family_id_leaves_package`, `sample_id_leaves_package` (warning) | The family or sample ID is a path out of the package folder: an absolute path, or one that climbs out with `..`. Discover looked for none of its files outside the package. Check the ID where it comes from. |
