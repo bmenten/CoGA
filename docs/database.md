@@ -53,7 +53,10 @@ no ClinVar support (built without ClinVar, or loaded from a BED-style file), not
 `gene_panel_regions` is keyed on `(panel_id, assembly_id, gene, chr, start, end)`. A family's
 panel filter reads only the rows of its own assembly, plus the loci of the panel's genes
 resolved in that assembly at query time. With no resolved assembly it narrows by gene symbol
-alone. PanelApp's own coordinates are stored for the assembly they were requested for.
+alone. PanelApp's own coordinates are stored for the assembly they were requested for. Each
+backend process keeps a panel's resolution per panel and assembly while the panel's version,
+its gene and region rows and the assembly's gene-reference imports are unchanged
+([variant-ranking-cache.md](variant-ranking-cache.md#resolving-a-panel)).
 
 `reference_dataset_imports.source_version` and `source_release_date` hold the release the
 source states about itself. A GENCODE gene import takes both from its GTF header. No other

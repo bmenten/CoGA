@@ -121,10 +121,13 @@ def test_gene_search_indexes_serve_their_real_queries() -> None:
                     "genes",
                     None,
                 ),
-                # region resolve — (upper(hgnc_symbol) IN OR upper(gene_id) IN)
+                # region resolve — the terms as one array (ENG-14):
+                # (upper(hgnc_symbol) = ANY(:terms) OR upper(gene_id) = ANY(:terms))
                 (
                     "SELECT chr, start, \"end\" FROM genes WHERE "
-                    f"(upper(hgnc_symbol) IN ('{_MARK_SYMBOL}') OR upper(gene_id) IN ('{_MARK_GENE_ID}'))",
+                    f"(upper(hgnc_symbol) = ANY(CAST(ARRAY['{_MARK_SYMBOL}', '{_MARK_GENE_ID}'] AS text[])) "
+                    f"OR upper(gene_id) = ANY(CAST(ARRAY['{_MARK_SYMBOL}', '{_MARK_GENE_ID}'] AS text[]))) "
+                    f"AND assembly_id = CAST('{assembly}' AS uuid)",
                     "genes",
                     None,
                 ),
