@@ -15,7 +15,12 @@ with 500, see test_e2e_api_contract.py) and Postgres, with synthetic packages:
   job ends failed with that refusal; before, on Python 3.12, which CI runs, a 500 and a job
   failed on "Symlink loop from ...", and on 3.13 a missing file;
 * a package whose PED names a father it lacks, with an escape in his ID: Discover drafts
-  nothing (``sample_id_invalid``); before, it drafted and looked his NIPT VCF up.
+  nothing (``sample_id_invalid``); before, it drafted and looked his NIPT VCF up;
+* the package list, with a package folder that is a symlink to a package outside the import
+  root, one that loops and one that leads to a folder in the root: it leaves out the first
+  two and lists the third by the folder it leads to, and Validate refuses the first typed
+  (``package_folder_not_allowed``). Before, the list showed the first by its path outside the
+  root, under the family and analysis type of the manifest it read there.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -161,8 +166,20 @@ async def _collect(base: Path) -> dict[str, Any]:
     parent = imports / "FAMPATH4"
     parent.mkdir(parents=True)
     (parent / "family.ped").write_text(f"FAMPATH4 MOTHERP4 0 0 2 1\nFAMPATH4 CHILDP4 FATHER{ESC}P4 MOTHERP4 1 2\n")
+    # Package folders for the package list: a symlink to a package outside the root, for
+    # another family; one that loops; one that leads to a package in the root.
+    foreign = _package(outside, "FAMPATHOUT", "5", manifest=_manifest("FAMPATHOUT", analysis_type="decoy_analysis"))
+    (imports / "FAMPATH5").symlink_to(foreign)
+    _loop(imports / "FAMPATH6")
+    archived = _package(imports / "archive", "FAMPATH7", "7", manifest=_manifest("FAMPATH7", analysis_type="trio_check"))
+    (imports / "FAMPATH7").symlink_to(archived)
 
-    out: dict[str, Any] = {"before": await _counts(), "decoy_before": decoy.read_text()}
+    out: dict[str, Any] = {
+        "before": await _counts(),
+        "decoy_before": decoy.read_text(),
+        "foreign": str(foreign.resolve()),
+        "archived": str(archived.resolve()),
+    }
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         token = await _harness.login_admin_token(ac)
@@ -182,6 +199,10 @@ async def _collect(base: Path) -> dict[str, Any]:
         )
         for name, folder in (("linked", linked), ("tilde", tilde), ("looping", looping)):
             out[f"job_{name}"] = await _run_job(ac, folder, project_id)
+        out["packages"] = _cap(await ac.get("/api/family-imports/packages"))
+        out["validate_linked_folder"] = _cap(
+            await ac.post("/api/family-imports/validate", json={"folder_path": str(imports / "FAMPATH5")})
+        )
     out["decoy_after"] = decoy.read_text()
     out["after"] = await _counts()
     return out
@@ -249,6 +270,26 @@ def test_discover_refuses_a_parent_id_the_ped_lacks_that_cannot_be_stored(snap: 
         "Sample ID 'FATHER\\x1bP4' (a parent of CHILDP4 in the PED) contains a control character (\\x1b). "
         "Family and sample IDs are printable text without spaces."
     ]
+
+
+def test_the_package_list_leaves_out_a_package_folder_linked_out_of_the_import_root(snap: dict[str, Any]) -> None:
+    listed = snap["packages"]
+    assert listed["status"] == 200, listed["text"]
+    by_name = {item["name"]: item for item in listed["json"]}
+    # FAMPATH5 was listed by its path outside the root, under the family and analysis type of
+    # the manifest found there. FAMPATH6 loops.
+    assert sorted(by_name) == ["FAMPATH1", "FAMPATH2", "FAMPATH3", "FAMPATH4", "FAMPATH7"]
+    assert [by_name["FAMPATH7"][key] for key in ("folder_path", "family_id", "analysis_type")] == [
+        snap["archived"],
+        "FAMPATH7",
+        "trio_check",
+    ]
+    for value in (snap["foreign"], "FAMPATHOUT", "decoy_analysis"):
+        assert value not in listed["text"]
+    # Typed, the folder is refused, as it was.
+    validate = snap["validate_linked_folder"]
+    assert validate["status"] == 200, validate["text"]
+    assert _codes(validate) == ["package_folder_not_allowed"]
 
 
 def test_nothing_of_a_refused_package_was_written(snap: dict[str, Any]) -> None:

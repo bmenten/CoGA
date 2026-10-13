@@ -14,7 +14,9 @@ neither SVLEN nor END. PROBAND's Sniffles2 calls are uploaded through
 30 bp insertion with END at POS, a 5 kb deletion with SVLEN -5000, and a breakend. The
 family SV search (``GET /families/{family_id}/structural-variants``) then reads them back,
 SVLEN from the stored details row, with a minimum or an exact length: unranked and ranked,
-with a type, as PROBAND's genome track, and as a CSV export.
+with a type, as PROBAND's genome track, and as a CSV export. The export names each
+breakend's mate beside its locus, in *Remote chr* and *Remote start*, and leaves both empty
+for every other SV (DATA-5).
 
 The Sniffles rows are removed and the golden trio re-imported afterwards, so any module
 that runs later sees the usual state. Everything runs in ONE event loop via an in-process
@@ -187,6 +189,32 @@ def test_the_export_holds_the_svs_the_list_holds(run) -> None:
     rows = list(csv.DictReader(io.StringIO(export["text"])))
     assert {(row["Type"], int(row["Start"])) for row in rows} == _found(run, "min_50")
     assert [row["Length"] for row in rows if (row["Type"], int(row["Start"])) == _INS_5KB] == ["5000"]
+
+
+def test_the_export_names_each_breakends_mate_beside_its_locus(run) -> None:
+    # DATA-5. Before: no mate column, so an exported translocation named no partner.
+    export = run["export"]
+    assert export["status"] == 200, export["text"]
+    header = next(csv.reader(io.StringIO(export["text"])))
+    assert header[:6] == ["Chromosome", "Start", "End", "Remote chr", "Remote start", "Type"]
+    rows = csv.DictReader(io.StringIO(export["text"]))
+    mates = {
+        (row["Source"], row["Type"], int(row["Start"])): (row["Remote chr"], row["Remote start"]) for row in rows
+    }
+    # The NeedlR breakend and the uploaded one with the mate their ALT names (N]chr5:3000000],
+    # N]5:3000000]), as the list serves it; the deletions and the insertion with none.
+    assert mates == {
+        ("needlr", *_NEEDLR_BND): ("5", "3000000"),
+        ("sniffles", *_BND): ("5", "3000000"),
+        ("needlr", *_NEEDLR_DEL): ("", ""),
+        ("sniffles", *_DEL_5KB): ("", ""),
+        ("sniffles", *_INS_5KB): ("", ""),
+    }
+    listed = {
+        (variant["source"], variant["type"], variant["start"]): (variant["remote_chr"], variant["remote_start"])
+        for variant in _page(run, "min_50")["variants"]
+    }
+    assert listed[("needlr", *_NEEDLR_BND)] == listed[("sniffles", *_BND)] == ("5", 3_000_000)
 
 
 def test_golden_trio_is_restored_for_later_modules(run) -> None:

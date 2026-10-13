@@ -151,11 +151,17 @@ async def get_family_structural_variants(
 
 
 # CSV column order for the family structural-variant export. Mirrors the on-screen
-# table plus the annotation fields that don't fit in the UI.
+# table plus the annotation fields that don't fit in the UI. A breakend's mate, under
+# the SV list's names (Remote chr, Remote start) and empty for an SV without one, stands
+# beside the locus, where the reader of a translocation looks for its partner (DATA-5).
+# The file is read by its header, not by position: the ranked export already shifts
+# every column by its Priority and Rank.
 _FAMILY_SV_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("chr", "Chromosome"),
     ("start", "Start"),
     ("end", "End"),
+    ("remote_chr", "Remote chr"),
+    ("remote_start", "Remote start"),
     ("type", "Type"),
     ("length", "Length"),
     ("source", "Source"),

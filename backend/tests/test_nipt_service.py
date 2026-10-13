@@ -7,7 +7,7 @@ import pytest
 from fastapi import HTTPException
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
-from backend.app.services import nipt_service
+from backend.app.services import clickhouse_interval_tracks, nipt_service
 from backend.app.services.clickhouse_variant_records import Region, SmallVariantCall, SmallVariantRecord
 from backend.app.services.genotypes import GENOTYPE_CLASSES, classify_genotype, genotype_vocabulary
 from backend.app.services.nipt_analysis import NiptQualityThresholds, run_nipt_analysis
@@ -812,6 +812,21 @@ async def test_a_variant_list_that_fits_the_classification_limit_is_complete(
 # get_family_nipt_coverage (I/O mocked)
 # --------------------------------------------------------------------------- #
 
+
+def _plasma_coverage_is_a_bed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The plasma's coverage track is a coverage BED (source ``web``), whose record names no
+    transform: the track the coverage check reads as depth (coverage_read_depth, CLIN-46)."""
+
+    async def fake_sources(_assembly_name, *, sample_uuid_to_name, **_kwargs):
+        return {name: ["web"] for name in sample_uuid_to_name.values()}
+
+    async def fake_normalizations(_session, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(clickhouse_interval_tracks, "get_interval_track_sources_by_sample", fake_sources)
+    monkeypatch.setattr(clickhouse_interval_tracks, "interval_track_normalizations_by_sample", fake_normalizations)
+
+
 @pytest.mark.asyncio
 async def test_get_family_nipt_coverage_over_family_roi(
     monkeypatch: pytest.MonkeyPatch,
@@ -840,23 +855,26 @@ async def test_get_family_nipt_coverage_over_family_roi(
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
         return SimpleNamespace(
+            family_uuid="family-uuid",
             assembly_id="assembly-uuid",
             assembly_name="GRCh38",
             sample_name_to_uuid={"cfdna-1": "cfdna-uuid"},
         )
 
     async def fake_fetch_coverage(
-        _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, **_kwargs
+        _assembly_name, *, sample_uuid=None, track_type=None, chromosomes=None, source=None, **_kwargs
     ):
         if track_type == "target_coverage":
             return []  # no per-target table: the coverage track over the ROI
         assert track_type == "coverage"
         assert sample_uuid == "cfdna-uuid"
+        assert source == "web"  # the coverage BED, the plasma's track of read depth
         return [{"chr": "1", "start": 100, "end": 200, "value": 30.0}]
 
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
+    _plasma_coverage_is_a_bed(monkeypatch)
 
     coverage = await get_family_nipt_coverage(
         session=None,  # type: ignore[arg-type]
@@ -918,6 +936,7 @@ async def test_get_family_nipt_coverage_labels_gene_regions(
 
     async def fake_build_context(_session, *, family_identifier, user, project_id=None):
         return SimpleNamespace(
+            family_uuid="family-uuid",
             assembly_id="assembly-uuid",
             assembly_name="GRCh38",
             sample_name_to_uuid={"cfdna-1": "cfdna-uuid"},
@@ -933,6 +952,7 @@ async def test_get_family_nipt_coverage_labels_gene_regions(
     monkeypatch.setattr(nipt_service, "get_family_record", fake_get_family_record)
     monkeypatch.setattr(nipt_service, "build_family_metadata_context", fake_build_context)
     monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", fake_fetch_coverage)
+    _plasma_coverage_is_a_bed(monkeypatch)
 
     session = _FakeGeneSession(
         [{"hgnc_symbol": "BRCA1", "chr": "17", "start": 43044295, "end": 43125483}]
