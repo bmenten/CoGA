@@ -1,6 +1,7 @@
 import asyncio
 from dataclasses import dataclass
 import logging
+import os
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -30,65 +31,113 @@ router = APIRouter(prefix="/cram", tags=["cram"])
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
+# The folder of the data directory that holds the imported family packages.
+_PACKAGES_FOLDER = "families"
 
-# Where a family's aligned reads may sit, most-specific first. The original
-# convention is a flat `<data>/<family>/<sample>.cram`; an imported family package
-# keeps its pipeline layout instead (`<data>/families/<family>/bams/<sample>.cram`),
+# Where a family's aligned reads may sit, most-specific first, as (the folder of the data
+# directory that holds the family's folder, the folder in the family's folder). The
+# original convention is a flat `<data>/<family>/<sample>.cram`; an imported family
+# package keeps its pipeline layout instead (`<data>/families/<family>/bams/<sample>.cram`),
 # so both are probed rather than requiring the files to be copied or symlinked after
-# import. Every candidate stays under DATA_DIR — see _within_data_dir.
-_ALIGNMENT_LAYOUTS: tuple[tuple[str, ...], ...] = (
-    ("{family_id}",),
-    ("families", "{family_id}", "bams"),
-    ("families", "{family_id}", "alignments"),
-    ("families", "{family_id}"),
-    ("{family_id}", "bams"),
+# import. A file is found only inside the family's own folders: see
+# _alignment_candidate_paths.
+_ALIGNMENT_LAYOUTS: tuple[tuple[str, str], ...] = (
+    ("", ""),  # <data>/<family>/<sample>.cram
+    (_PACKAGES_FOLDER, "bams"),  # <data>/families/<family>/bams/<sample>.cram
+    (_PACKAGES_FOLDER, "alignments"),  # <data>/families/<family>/alignments/<sample>.cram
+    (_PACKAGES_FOLDER, ""),  # <data>/families/<family>/<sample>.cram
+    ("", "bams"),  # <data>/<family>/bams/<sample>.cram
 )
 
 
-def _within_data_dir(path: Path) -> bool:
-    """Reject a candidate that resolves outside the data directory.
+def _within(path: str, folder: str) -> bool:
+    """Whether the normalised ``path`` lies inside ``folder``, told from the strings."""
+    return path.startswith(folder + os.sep)
 
-    ``family_id``/``sample_id`` reach here from the URL. The served endpoints check
-    them against the family's members first, but the containment check keeps a crafted
-    id from escaping even if a future caller skips that step.
+
+def _family_folders(family_id: str) -> dict[str, str]:
+    """The family's own folders, `<data>/<family>` and `<data>/families/<family>`, keyed by
+    the folder of the data directory that holds them ("" and "families").
+
+    Each is the family ID joined to the real path of the data directory (or of its packages
+    folder, when that lies inside it) and normalised as a string; nothing is looked up to
+    tell it. A family ID that is no single folder name (empty, ``.``, ``..``, or holding a
+    ``/``) has no folder. The packages folder holds every package, so no family has it, or
+    a folder holding it, as its flat folder: a family named ``families`` has its package
+    folder only.
     """
+    data_dir = os.path.realpath(DATA_DIR)
+    packages = os.path.realpath(os.path.join(data_dir, _PACKAGES_FOLDER))
+    parents = {"": data_dir}
+    if _within(packages, data_dir):
+        parents[_PACKAGES_FOLDER] = packages
+    folders: dict[str, str] = {}
+    for name, parent in parents.items():
+        folder = os.path.normpath(os.path.join(parent, family_id))
+        if os.path.dirname(folder) != parent or os.path.basename(folder) != family_id:
+            continue
+        if not name and (folder == packages or _within(packages, folder)):
+            continue
+        folders[name] = folder
+    return folders
+
+
+def _real_path_within(path: str, folders: list[str]) -> bool:
+    """Whether ``path`` lies, symlinks resolved, inside one of ``folders``: a symlinked
+    folder or file that leads out of the family's folders is not followed."""
     try:
-        path.resolve().relative_to(DATA_DIR.resolve())
-    except (ValueError, OSError):
+        real = os.path.realpath(path)
+    except (OSError, ValueError):
+        # A NUL in an ID (ValueError).
         return False
-    return True
+    return any(_within(real, folder) for folder in folders)
 
 
 def _alignment_candidate_paths(
     family_id: str, sample_id: str, ext: str, suffix: str = ""
 ) -> list[Path]:
+    """Where the layouts put ``<sample>.<ext><suffix>`` in the family's own folders.
+
+    The IDs come from the request, and the ID rule lets them hold ``/`` and ``..``. Each
+    path is joined and normalised as a string, and one that leaves the family's folder (a
+    sample ID such as ``../F2/S2``) is dropped before anything is looked up. One that
+    stays is kept only when its real path lies inside one of the family's folders too, so
+    a symlink cannot lead into another family's folder or out of the data directory. The
+    endpoints check the IDs against the family's members first; this holds even for a
+    caller that does not.
+    """
     file_name = f"{sample_id}.{ext}{suffix}"
+    folders = _family_folders(family_id)
+    own_folders = list(folders.values())
     candidates: list[Path] = []
-    for layout in _ALIGNMENT_LAYOUTS:
-        path = DATA_DIR.joinpath(*[part.format(family_id=family_id) for part in layout], file_name)
-        if _within_data_dir(path):
-            candidates.append(path)
+    for parent, sub_folder in _ALIGNMENT_LAYOUTS:
+        folder = folders.get(parent)
+        if folder is None:
+            continue
+        path = os.path.normpath(os.path.join(folder, sub_folder, file_name))
+        if _within(path, folder) and _real_path_within(path, own_folders):
+            candidates.append(Path(path))
     return candidates
 
 
 def _alignment_path(
     family_id: str, sample_id: str, ext: str, suffix: str = ""
-) -> Path:
-    """The alignment file, or the conventional location when none of the layouts hold
-    it (so callers report a consistent path in their 404)."""
-    candidates = _alignment_candidate_paths(family_id, sample_id, ext, suffix)
-    for candidate in candidates:
-        if candidate.exists():
-            return candidate
-    return candidates[0] if candidates else DATA_DIR / family_id / f"{sample_id}.{ext}{suffix}"
+) -> Path | None:
+    """The alignment file in the family's own folders, or ``None`` when none of the
+    layouts holds it there. Nothing else is looked at."""
+    return next(
+        (
+            candidate
+            for candidate in _alignment_candidate_paths(family_id, sample_id, ext, suffix)
+            if candidate.exists()
+        ),
+        None,
+    )
 
 
 def _alignment_exists(family_id: str, sample_id: str, ext: str, suffix: str = "") -> bool:
-    """Whether one of the data-directory layouts holds the file (local mode)."""
-    return any(
-        candidate.exists()
-        for candidate in _alignment_candidate_paths(family_id, sample_id, ext, suffix)
-    )
+    """Whether one of the layouts holds the file in the family's folders (local mode)."""
+    return _alignment_path(family_id, sample_id, ext, suffix) is not None
 
 
 # ---------------------------------------------------------------------------
@@ -250,7 +299,7 @@ def _serve_alignment(
         # IGV follows the 302 and reads bytes (with HTTP range) straight from the store.
         return RedirectResponse(presigned_get_url(key, filename=file_name), status_code=302)
     path = _alignment_path(family_id, sample_id, ext, suffix)
-    if not path.exists():
+    if path is None:
         raise HTTPException(status_code=404, detail=not_found_detail)
     return FileResponse(path)
 
@@ -492,11 +541,11 @@ def _read_alignment_header(
                     return af.header.to_dict()
         raise HTTPException(status_code=404, detail="No CRAM/BAM found for sample")
     cram_path = _alignment_path(family_id, sample_id, "cram")
-    bam_path = _alignment_path(family_id, sample_id, "bam")
-    if cram_path.exists():
+    if cram_path is not None:
         with pysam.AlignmentFile(str(cram_path), "rc") as af:
             return af.header.to_dict()
-    if bam_path.exists():
+    bam_path = _alignment_path(family_id, sample_id, "bam")
+    if bam_path is not None:
         with pysam.AlignmentFile(str(bam_path), "rb") as af:
             return af.header.to_dict()
     raise HTTPException(status_code=404, detail="No CRAM/BAM found for sample")

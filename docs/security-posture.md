@@ -83,7 +83,13 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   access before they hand out a signed URL (`routers/cram.py`, `routers/signal_tracks.py`).
   They sign a location the import recorded only when it names an object in the configured
   bucket below `FAMILY_IMPORT_ROOTS`, so a changed database row cannot point them at any
-  other object.
+  other object. With local storage the CRAM/BAM endpoints look for a sample's reads only in
+  its family's own folders, `data/<family>/` and `data/families/<family>/`. A path built
+  from the IDs is normalised and dropped before any look-up when it leaves the family's
+  folder (a sample ID such as `../F2/S2`, or a family ID that is no single folder name), a
+  file whose real path lies outside the family's folders (a linked folder leading into
+  another family's folder or out of the data directory) is neither listed in the manifest
+  nor served, and nothing outside the layouts is tried.
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or
