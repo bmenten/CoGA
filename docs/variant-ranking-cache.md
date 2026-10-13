@@ -133,7 +133,7 @@ to the query as if it had kept to its intervals and exclusions.
 | The gene reference reloaded, moving a gene | the regions of the panels and gene filters that hold the gene change, so their keys change |
 | Monarch, HPO or gene constraint refreshed | every ranking that reads it misses |
 | Review tags or exclusions changed | the review signature changes |
-| Scoring code changed | bump `_ALGORITHM_VERSION`; every ranking misses |
+| Scoring code changed, or which variants a filter keeps | bump `_ALGORITHM_VERSION`; every ranking misses |
 
 A change to what the key covers needs no bump: the hashed input itself changes, so no row
 cached before can match.
