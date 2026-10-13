@@ -122,21 +122,61 @@ export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnf
     .sort((a, b) => (a.at ?? '').localeCompare(b.at ?? '') || a.key.localeCompare(b.key));
 };
 
+/**
+ * The keys of the `import_unfinished` entries that a failed overwrite's restore left: the
+ * restore rewrites the family's rows whichever import wrote them, and it did not finish, so
+ * the entry lists every dataset of the family (`whole_family`), each until an import has
+ * imported it again with overwrite (family_package_registration.whole_family_entry). Only
+ * the family's own metadata says so: the signed record and the sign-out refusal freeze the
+ * entry's datasets alone.
+ */
+export const wholeFamilyImportKeys = (metadata: unknown): Set<string> => {
+  if (!metadata || typeof metadata !== 'object') return new Set();
+  const map = (metadata as Record<string, unknown>).import_unfinished;
+  if (!map || typeof map !== 'object' || Array.isArray(map)) return new Set();
+  return new Set(
+    Object.entries(map as Record<string, unknown>)
+      .filter(([, value]) => value && typeof value === 'object' && 'whole_family' in value)
+      .map(([key]) => key),
+  );
+};
+
 const bannerTime = (iso: string): string => `${iso.replace('T', ' ').slice(0, 16)} UTC`;
 
 /** One unfinished import, as the banner says it. */
-const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }) => {
+const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: boolean }> = ({
+  entry,
+  wholeFamily,
+}) => {
   const pending = pendingDatasets(entry);
-  return (
+  const who = (
     <>
       A family-package import{entry.at ? ` (${bannerTime(entry.at)})` : ''}
       {entry.jobId ? (
         <>
           , import job <code>{entry.jobId}</code>,
         </>
-      ) : null}{' '}
-      began writing this family&rsquo;s data and has not finished: it is still running, or it
-      stopped part-way.
+      ) : null}
+    </>
+  );
+  if (wholeFamily) {
+    // Its restore rewrites the family's rows table by table, whichever import wrote them,
+    // and did not finish: not an import that is running, or one that stopped in a dataset.
+    return (
+      <>
+        {who} failed, and putting this family&rsquo;s data back as it was did not finish:
+        {pending.length
+          ? ` ${joinWithAnd(pending)} may be partly written or missing, whichever import wrote ${
+              pending.length === 1 ? 'it' : 'them'
+            }.`
+          : ' any of its datasets may be partly written or missing.'}{' '}
+      </>
+    );
+  }
+  return (
+    <>
+      {who} began writing this family&rsquo;s data and has not finished: it is still running, or
+      it stopped part-way.
       {pending.length
         ? ` ${joinWithAnd(pending)} may be partly written or missing${
             entry.finishedDatasets.length ? `; ${joinWithAnd(entry.finishedDatasets)} had finished` : ''
@@ -149,13 +189,15 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }
 /**
  * "Import incomplete" — shown on every family page while the family's data only partly
  * loaded, naming what failed, and while an import of it has not finished (it is running,
- * or it stopped part-way), naming what it had not finished. Printed with the report, like
- * the assembly-scope label. Sign-out refuses such a family unless the signer acknowledges
- * it with a reason, whatever this banner does.
+ * or it stopped part-way), naming what it had not finished; after a failed overwrite whose
+ * restore did not finish, naming every dataset of the family still to import again in full.
+ * Printed with the report, like the assembly-scope label. Sign-out refuses such a family
+ * unless the signer acknowledges it with a reason, whatever this banner does.
  */
 const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) => {
   const flag = importIncompleteFromMetadata(metadata);
   const unfinished = importUnfinishedFromMetadata(metadata);
+  const wholeFamily = wholeFamilyImportKeys(metadata);
   if (!flag && !unfinished.length) return null;
   const when = flag?.at ? ` (${bannerTime(flag.at)})` : '';
   const what = !flag
@@ -169,7 +211,7 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
     <div className="import-incomplete-banner" role="alert">
       <strong>Import incomplete.</strong> {what ? `${what} ` : null}
       {unfinished.map((entry) => (
-        <UnfinishedImport key={entry.key} entry={entry} />
+        <UnfinishedImport key={entry.key} entry={entry} wholeFamily={wholeFamily.has(entry.key)} />
       ))}
       {unfinished.length
         ? 'Data from what failed or did not finish may be missing or partly written here, so the results and the report may be incomplete. '
@@ -190,9 +232,11 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
           Each dataset&rsquo;s error is recorded in import job <code>{flag.jobId}</code>.{' '}
         </>
       ) : null}
-      {unfinished.length
-        ? 'Import what failed or did not finish again to complete it, with overwrite for what an import did not finish: an update keeps the data already there. '
-        : 'Import what failed again to complete it. '}
+      {wholeFamily.size
+        ? 'Import this family again in full, with overwrite: every dataset named here, not only those that failed. An update keeps the data already there. '
+        : unfinished.length
+          ? 'Import what failed or did not finish again to complete it, with overwrite for what an import did not finish: an update keeps the data already there. '
+          : 'Import what failed again to complete it. '}
       Sign-out needs this acknowledged with a reason.
     </div>
   );

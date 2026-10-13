@@ -149,9 +149,11 @@ Results on such a family can lack whole datasets, for example all its structural
 the datasets that failed again to complete the family: the warning goes once each has been imported
 again, and an import without them leaves it. If a later import fails too, the warning names both,
 each with its import job. A failed overwrite is put back as it was before the import; if that fails
-too, any of its datasets may have lost data, so the warning names every one of them as failed, the
-ones that imported too. Signing out before then needs an acknowledgement with a reason, and the
-signed version records which datasets were missing.
+too, any dataset of the family may have lost data, whichever import it came from, so the warning
+names every dataset of that import as failed, the ones that imported too, and every dataset the
+family holds as possibly partly written or missing. It stays until the whole family has been
+imported again with **overwrite**, not only what failed. Signing out before then needs an
+acknowledgement with a reason, and the signed version records which datasets were missing.
 
 An import also marks the family before it writes anything of it, and removes the mark when it ends.
 While it runs the pages carry *Import incomplete* too. If it stops part-way (the server restarted,

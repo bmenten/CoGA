@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Iterable, Mapping
+from collections.abc import Collection, Iterable, Mapping
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 import json
@@ -649,7 +649,19 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 # replacing it (`overwrite`), what that import had not finished -- the same SNV source, the
 # same samples -- removes the entry. An `update` cannot: it skips a dataset that already
 # holds data, partial data included.
+#
+# A failed overwrite's restore is the exception. It rewrites the family's rows in every
+# variant and track table, whichever import wrote them, so once it begins, its import's
+# entry lists every dataset the family holds (`imported_scopes`: ``merged_imported_scopes``)
+# besides its own, under `whole_family`, each with its scope (``whole_family_entry``). A
+# restore that puts the family back, or that refuses to start, removes the entry as before.
+# One that fails part-way, or whose process stops in it, leaves it: any dataset of the
+# family may then be partly written or missing, whichever import wrote it. Each later
+# import that completes with `overwrite` removes from it what it imported again, and the
+# entry goes with the last: the family has then been imported again in full. Nothing else
+# removes it.
 IMPORT_UNFINISHED_KEY = "import_unfinished"
+WHOLE_FAMILY_KEY = "whole_family"
 
 # A dataset an import ended with one of these left nothing partly written: it imported
 # completely, skipped (update mode: data was there), or registered its files only.
@@ -900,16 +912,157 @@ def _unfinished_entries(raw: Any) -> dict[str, Any]:
     return {"unreadable": raw}
 
 
+def _canonical(value: Any) -> str:
+    return json.dumps(value, sort_keys=True, default=str)
+
+
+def _scope_items(dataset: str, scope: Any) -> list[dict[str, Any]]:
+    """A dataset's scope as ``imported_scopes`` and a whole-family entry list it: a
+    per-sample scope one sample at a time, as an overwrite of each sample replaces it. A
+    scope not in the shape ``dataset_scopes`` gives is kept as it is (None when there is
+    none): no import can be shown to cover it."""
+    if not isinstance(scope, Mapping):
+        return [{"dataset": dataset, "scope": None}]
+    source, samples = scope.get("source"), scope.get("samples")
+    if isinstance(samples, list):
+        names = sorted({str(sample) for sample in samples if sample})
+        if names:
+            return [
+                {"dataset": dataset, "scope": {"source": source, "samples": [name]}}
+                for name in names
+            ]
+    return [{"dataset": dataset, "scope": {"source": source, "samples": samples}}]
+
+
+def merged_imported_scopes(
+    stored: Any, additions: Iterable[tuple[str, Any]]
+) -> dict[str, list[dict[str, Any]]]:
+    """``families.metadata.imported_scopes`` with each (dataset, scope) of ``additions``
+    added: by dataset, each scope once, one sample at a time, sorted.
+
+    The key holds what the family's imports imported, each dataset with its scope as
+    ``dataset_scopes`` gives it: what a restore may remove that its own import did not
+    carry. An import adds what it imported when it ends, under the family row's lock, with
+    its flag or its clear, and what an earlier import that stopped had finished once that
+    one's entry goes. An addition without a scope (an import run without its bookkeeping)
+    adds nothing; a stored value not in this shape is read as holding nothing."""
+    if isinstance(stored, str):
+        try:
+            stored = json.loads(stored)
+        except ValueError:
+            stored = None
+    pairs: list[tuple[str, Any]] = []
+    if isinstance(stored, Mapping):
+        for dataset, scopes in stored.items():
+            if isinstance(scopes, list):
+                pairs.extend((str(dataset), scope) for scope in scopes)
+    pairs.extend((str(dataset), scope) for dataset, scope in additions if scope is not None)
+    merged: dict[str, dict[str, Any]] = {}
+    for dataset, scope in pairs:
+        for item in _scope_items(dataset, scope):
+            merged.setdefault(dataset, {})[_canonical(item["scope"])] = item["scope"]
+    return {
+        dataset: [scopes[key] for key in sorted(scopes)]
+        for dataset, scopes in sorted(merged.items())
+    }
+
+
+def whole_family_entry(
+    mark: ImportMark,
+    *,
+    imported: Any,
+    unfinished: Mapping[str, Any],
+    family_samples: Collection[str] | None = None,
+) -> dict[str, Any]:
+    """This import's ``import_unfinished`` entry once its restore begins: the restore
+    rewrites the family's rows in every variant and track table, whichever import wrote
+    them, so until the family has been imported again in full, any of its datasets may be
+    partly written or missing. It lists, under ``whole_family``, every dataset the family
+    holds -- what its imports imported (``imported``: ``imported_scopes``) and what the
+    other imports that have not finished set out to import -- and every dataset of this
+    import, each with its scope, one sample at a time; ``datasets`` names them all and
+    none is finished. A sample that is no longer the family's (``family_samples``) is left
+    out: no import of the family can name it."""
+    pairs: list[tuple[str, Any]] = [(name, mark.scopes.get(name)) for name in mark.datasets]
+    for dataset, held in merged_imported_scopes(imported, ()).items():
+        pairs.extend((dataset, scope) for scope in held)
+    for key, other in unfinished.items():
+        if key == mark.key or not isinstance(other, Mapping):
+            continue
+        listed = other.get(WHOLE_FAMILY_KEY)
+        if isinstance(listed, list):
+            pairs.extend(
+                (str(item["dataset"]), item.get("scope"))
+                for item in listed
+                if isinstance(item, Mapping) and item.get("dataset")
+            )
+            continue
+        scopes = other.get("scopes")
+        pairs.extend(
+            (name, scopes.get(name) if isinstance(scopes, Mapping) else None)
+            for name in sorted(_dataset_names(other.get("datasets")) or ())
+        )
+    members = {str(sample) for sample in family_samples} if family_samples else None
+    items: dict[str, dict[str, Any]] = {}
+    for dataset, scope in pairs:
+        for item in _scope_items(dataset, scope):
+            samples = item["scope"].get("samples") if isinstance(item["scope"], Mapping) else None
+            if members is not None and isinstance(samples, list) and samples and not {
+                str(sample) for sample in samples
+            } <= members:
+                continue
+            items[_canonical(item)] = item
+    listed_items = [items[key] for key in sorted(items)]
+    entry = mark.entry()
+    entry["datasets"] = sorted({item["dataset"] for item in listed_items})
+    entry[WHOLE_FAMILY_KEY] = listed_items
+    return entry
+
+
+def whole_family_left(entry: Mapping[str, Any], replaced: Mapping[str, Any]) -> dict[str, Any] | None:
+    """A whole-family entry after an import that completed with ``overwrite``, replacing
+    ``replaced`` (each dataset it imported, with its scope): without what that import
+    covered (``_scope_covers``), or None when it covered all that was left. A list not in
+    the shape ``whole_family_entry`` writes stays as it is: nothing can show it complete."""
+    listed = entry.get(WHOLE_FAMILY_KEY)
+    if not isinstance(listed, list):
+        return dict(entry)
+    left = [
+        item
+        for item in listed
+        if not (
+            isinstance(item, Mapping)
+            and _scope_covers(replaced.get(str(item.get("dataset"))), item.get("scope"))
+        )
+    ]
+    if not left:
+        return None
+    return {
+        **entry,
+        "datasets": sorted(
+            {str(item["dataset"]) for item in left if isinstance(item, Mapping) and item.get("dataset")}
+        ),
+        "finished_datasets": [],
+        WHOLE_FAMILY_KEY: left,
+    }
+
+
+def is_whole_family_entry(entry: Any) -> bool:
+    """Whether an ``import_unfinished`` entry is the whole-family one a restore leaves."""
+    return isinstance(entry, Mapping) and WHOLE_FAMILY_KEY in entry
+
+
 async def _mark_family_import_unfinished(
     session: AsyncSession,
     *,
     family_uuid: str,
     mark: ImportMark,
     finished: Iterable[str] = (),
+    entry: Mapping[str, Any] | None = None,
 ) -> None:
     """Write this import's entry into ``import_unfinished`` (created if the map or the
-    entry is missing), and commit. Raises: the caller decides whether the import may go
-    on without it."""
+    entry is missing), and commit: ``mark``'s entry with ``finished``, or ``entry`` as
+    given. Raises: the caller decides whether the import may go on without it."""
     await session.execute(
         text(
             """
@@ -934,7 +1087,7 @@ async def _mark_family_import_unfinished(
         {
             "family_uuid": family_uuid,
             "import_key": mark.key,
-            "entry": json.dumps(mark.entry(finished)),
+            "entry": json.dumps(dict(entry) if entry is not None else mark.entry(finished)),
         },
     )
     await session.commit()
@@ -984,12 +1137,14 @@ END
 """
 
 
-# The row an import's failure is written to, read under its lock: by the family's uuid, or
-# by its identifier (an import that failed before it had the family's context).
+# The row an import's failure (or its restore) is written to, read under its lock: by the
+# family's uuid, or by its identifier (an import that failed before it had the family's
+# context).
 _FAILURE_ROW_BY_UUID = """
 SELECT id::text AS family_uuid,
        metadata -> 'import_incomplete' AS flag,
-       metadata -> 'import_unfinished' AS unfinished
+       metadata -> 'import_unfinished' AS unfinished,
+       metadata -> 'imported_scopes' AS imported_scopes
 FROM families
 WHERE id = CAST(:family_uuid AS uuid)
 FOR UPDATE
@@ -997,7 +1152,8 @@ FOR UPDATE
 _FAILURE_ROW_BY_FAMILY_ID = """
 SELECT id::text AS family_uuid,
        metadata -> 'import_incomplete' AS flag,
-       metadata -> 'import_unfinished' AS unfinished
+       metadata -> 'import_unfinished' AS unfinished,
+       metadata -> 'imported_scopes' AS imported_scopes
 FROM families
 WHERE family_id = :family_id
 FOR UPDATE
@@ -1016,12 +1172,17 @@ async def _write_import_failure(
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
     only_with_entry: bool = False,
-) -> bool:
+    keep: ImportMark | None = None,
+    family_samples: Collection[str] | None = None,
+) -> dict[str, Any] | None:
     """Write an import's failure into the family's ``import_incomplete`` flag, merged with
-    the flag already there (``merged_import_failure``), and remove the import's
-    ``import_unfinished`` entry, in one transaction under the row's lock. With
-    ``only_with_entry``, only where the import's entry is. Raises on a database error;
-    False when there was nothing to write."""
+    the flag already there (``merged_import_failure``), add what it imported to
+    ``imported_scopes``, and remove the import's ``import_unfinished`` entry -- or, with
+    ``keep`` (its mark), write that entry as the whole-family one a restore that failed
+    part-way leaves (``whole_family_entry``) -- in one transaction under the row's lock.
+    With ``only_with_entry``, only where the import's entry is. Raises on a database error;
+    returns the family's ``import_unfinished`` as written ({}: none), or None when there
+    was nothing to write."""
     if family_uuid is not None:
         row_sql, params = _FAILURE_ROW_BY_UUID, {"family_uuid": family_uuid}
     else:
@@ -1031,7 +1192,7 @@ async def _write_import_failure(
         only_with_entry and (import_key is None or import_key not in _unfinished_entries(row["unfinished"]))
     ):
         await session.rollback()
-        return False
+        return None
     flag = row["flag"]
     if isinstance(flag, str):
         try:
@@ -1047,27 +1208,34 @@ async def _write_import_failure(
         scopes=scopes,
         imported_scopes=imported_scopes,
     )
+    entries = _unfinished_entries(row["unfinished"])
+    if keep is not None:
+        entries[keep.key] = whole_family_entry(
+            keep,
+            imported=row.get("imported_scopes"),
+            unfinished=entries,
+            family_samples=family_samples,
+        )
+    elif import_key is not None:
+        entries.pop(import_key, None)
+    recorded = merged_imported_scopes(row.get("imported_scopes"), imported_scopes.items())
     await session.execute(
         text(
             f"""
             UPDATE families
-            SET metadata = jsonb_set(
-                {_WITHOUT_IMPORT_ENTRY},
-                '{{import_incomplete}}',
-                CAST(:payload AS jsonb),
-                true
-            )
+            SET metadata = {_WITH_IMPORT_STATE}
             WHERE id = CAST(:family_uuid AS uuid)
             """
         ),
         {
             "family_uuid": row["family_uuid"],
-            "payload": json.dumps(payload),
-            "import_key": import_key,
+            "flag": json.dumps(payload),
+            "unfinished": json.dumps(entries or None),
+            "imported_scopes": json.dumps(recorded or None),
         },
     )
     await session.commit()
-    return True
+    return entries
 
 
 async def _end_import_failed_before_datasets(
@@ -1081,7 +1249,7 @@ async def _end_import_failed_before_datasets(
     try:
         # What failed may have left a failed transaction behind.
         await session.rollback()
-        return await _write_import_failure(
+        written = await _write_import_failure(
             session,
             family_id=family_id,
             failed_datasets=mark.datasets,
@@ -1092,6 +1260,7 @@ async def _end_import_failed_before_datasets(
             imported_scopes={},
             only_with_entry=True,
         )
+        return written is not None
     except Exception:  # the entry stays: the family stays marked
         logger.warning(
             "Failed to record the failed import of family %s", family_id, exc_info=True
@@ -1320,7 +1489,8 @@ async def _flag_family_import_incomplete(
 
     The import has ended, so its ``import_unfinished`` entry (``import_key``) goes in the
     same transaction: the family is never without one or the other. If the write fails,
-    the entry stays and still marks the family.
+    the entry stays and still marks the family. What it imported is added to the family's
+    ``imported_scopes`` in the same transaction.
 
     Read back by report sign-out (``report_signout_service._import_incomplete_state``),
     which refuses a flagged family unless the signer acknowledges it with a reason, and
@@ -1349,21 +1519,128 @@ async def _flag_family_import_incomplete(
             pass
 
 
-# The family's metadata with each import-state key set to its new value, or removed (a JSON
-# null): :flag for import_incomplete, :unfinished for import_unfinished.
+def family_sample_ids(bundle: FamilyPackageBundle) -> list[str]:
+    """The family's samples, as a package of an existing family must name them all."""
+    return [str(sample) for sample in bundle.ped.sample_ids]
+
+
+async def _mark_family_import_restoring(
+    session: AsyncSession,
+    family_context: FamilyMetadataContext,
+    mark: ImportMark,
+    *,
+    family_samples: Collection[str] | None = None,
+) -> None:
+    """Before a failed overwrite's restore: this import's entry becomes the whole-family
+    one (``whole_family_entry``), read and written under the family row's lock. The restore
+    rewrites every table, whichever import wrote its rows, so a restore that fails part-way
+    -- or a process that stops in it -- leaves the family marked until it has been
+    imported again in full; one that puts the family back, or refuses to start, removes the
+    entry. Best-effort: if it cannot be written, every dataset of this import is recorded
+    as pending instead, and the flag of a restore that fails keeps the entry whole-family
+    all the same (``_flag_family_restore_failed``)."""
+    try:
+        row = (
+            await session.execute(
+                text(_FAILURE_ROW_BY_UUID), {"family_uuid": family_context.family_uuid}
+            )
+        ).mappings().first()
+        if row is None:
+            raise LookupError("The family's row is gone")
+        entry = whole_family_entry(
+            mark,
+            imported=row.get("imported_scopes"),
+            unfinished=_unfinished_entries(row["unfinished"]),
+            family_samples=family_samples,
+        )
+        await _mark_family_import_unfinished(
+            session, family_uuid=family_context.family_uuid, mark=mark, entry=entry
+        )
+    except Exception:  # every dataset of the import pending instead: as before
+        logger.warning(
+            "Failed to mark the restore of family %s as rewriting all of its data",
+            family_context.family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+        await _record_family_import_finished(session, family_context, mark, ())
+
+
+async def _flag_family_restore_failed(
+    session: AsyncSession,
+    family_context: FamilyMetadataContext,
+    *,
+    failed_datasets: list[str],
+    job_id: str | None,
+    mark: ImportMark,
+    scopes: Mapping[str, Any] | None = None,
+    family_samples: Collection[str] | None = None,
+) -> list[str] | None:
+    """Flag a family whose failed overwrite's restore failed part-way (any way but
+    refusing to start): ``failed_datasets`` (every dataset of the import) as failed and
+    none as imported, and keep the import's ``import_unfinished`` entry as the
+    whole-family one -- the restore may have removed the family's rows of any dataset,
+    whichever import wrote them -- in one transaction under the row's lock. The gate then
+    holds until each dataset the entry lists has been imported again with ``overwrite``.
+
+    Returns the datasets the entry lists, or None when nothing could be written; the entry
+    written before the restore (``_mark_family_import_restoring``) then stays. Best-effort,
+    as ``_flag_family_import_incomplete``: a write that fails must not mask the import's
+    failure."""
+    try:
+        entries = await _write_import_failure(
+            session,
+            family_uuid=family_context.family_uuid,
+            failed_datasets=failed_datasets,
+            imported_datasets=[],
+            job_id=job_id,
+            import_key=mark.key,
+            scopes=scopes or {},
+            imported_scopes={},
+            keep=mark,
+            family_samples=family_samples,
+        )
+    except Exception:  # the flag write must not mask the import failure
+        logger.warning(
+            "Failed to flag family %s as import-incomplete after its restore failed",
+            family_context.family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+        return None
+    entry = (entries or {}).get(mark.key)
+    return sorted(_dataset_names(entry.get("datasets")) or ()) if isinstance(entry, Mapping) else None
+
+
+# The family's metadata with each import-state key set to its new value: :flag for
+# import_incomplete and :unfinished for import_unfinished (a JSON null removes the key), and
+# :imported_scopes for imported_scopes (a JSON null leaves it as it is).
 _WITH_IMPORT_STATE = """
 CASE
-    WHEN CAST(:unfinished AS jsonb) = 'null'::jsonb THEN {flagged} - 'import_unfinished'
-    ELSE jsonb_set({flagged}, '{{import_unfinished}}', CAST(:unfinished AS jsonb), true)
+    WHEN CAST(:unfinished AS jsonb) = 'null'::jsonb THEN {recorded} - 'import_unfinished'
+    ELSE jsonb_set({recorded}, '{{import_unfinished}}', CAST(:unfinished AS jsonb), true)
 END
 """.format(
-    flagged="""(
+    recorded="""(
+    CASE
+        WHEN CAST(:imported_scopes AS jsonb) = 'null'::jsonb THEN {flagged}
+        ELSE jsonb_set({flagged}, '{{imported_scopes}}', CAST(:imported_scopes AS jsonb), true)
+    END
+)""".format(
+        flagged="""(
     CASE
         WHEN CAST(:flag AS jsonb) = 'null'::jsonb
             THEN COALESCE(metadata, '{}'::jsonb) - 'import_incomplete'
         ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{import_incomplete}', CAST(:flag AS jsonb), true)
     END
 )"""
+    )
 )
 
 
@@ -1387,8 +1664,14 @@ async def _clear_family_import_incomplete(
     partly written: every dataset it had not finished is one this import imported again,
     replacing all of what that one was writing (``rewritten``: as ``imported``, but only
     for an ``overwrite``; an ``update`` replaces nothing, so passes none), or it had
-    finished them all. Any other entry stays. Returns what is left, so the import can say
-    why the family stays marked, or None when nothing could be cleared.
+    finished them all. Any other entry stays. The whole-family entry of an import whose
+    restore did not finish shrinks instead by what this import replaced, one dataset (and
+    sample) at a time, and goes with the last (``whole_family_left``). Returns what is
+    left, so the import can say why the family stays marked, or None when nothing could be
+    cleared.
+
+    What this import imported, and what an entry it removes had finished, is added to the
+    family's ``imported_scopes``.
 
     Read and written under the row's lock, so no other mark written meanwhile is lost.
     Best-effort: a flag or an entry left in place keeps the family marked, the safe side.
@@ -1399,7 +1682,8 @@ async def _clear_family_import_incomplete(
             await session.execute(
                 text(
                     "SELECT metadata -> 'import_incomplete' AS flag, "
-                    "metadata -> 'import_unfinished' AS unfinished "
+                    "metadata -> 'import_unfinished' AS unfinished, "
+                    "metadata -> 'imported_scopes' AS imported_scopes "
                     "FROM families WHERE id = CAST(:family_uuid AS uuid) FOR UPDATE"
                 ),
                 {"family_uuid": family_context.family_uuid},
@@ -1412,8 +1696,14 @@ async def _clear_family_import_incomplete(
             except ValueError:
                 pass
         remaining: dict[str, Any] = {}
+        recorded: list[tuple[str, Any]] = list((imported or {}).items())
         for key, entry in _unfinished_entries(row["unfinished"] if row is not None else None).items():
             if key == import_key:
+                continue
+            if is_whole_family_entry(entry):
+                left = whole_family_left(entry, replaced)
+                if left is not None:
+                    remaining[key] = left
                 continue
             pending = pending_datasets(entry)
             scopes = entry.get("scopes") if isinstance(entry, Mapping) else None
@@ -1424,9 +1714,15 @@ async def _clear_family_import_incomplete(
                 )
                 for name in pending
             ):
+                # What it had finished stays the family's: this import replaced the rest.
+                recorded.extend(
+                    (name, scopes.get(name) if isinstance(scopes, Mapping) else None)
+                    for name in sorted(_dataset_names(entry.get("finished_datasets")) or ())
+                )
                 continue
             remaining[key] = entry
         failures = failures_left_after(stored_flag, dict(imported or {}))
+        holds = merged_imported_scopes(row.get("imported_scopes") if row is not None else None, recorded)
         await session.execute(
             text(
                 f"""
@@ -1439,6 +1735,7 @@ async def _clear_family_import_incomplete(
                 "family_uuid": family_context.family_uuid,
                 "flag": json.dumps(failures.flag),
                 "unfinished": json.dumps(remaining or None),
+                "imported_scopes": json.dumps(holds or None),
             },
         )
         await session.commit()

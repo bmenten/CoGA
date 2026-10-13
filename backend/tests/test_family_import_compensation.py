@@ -9,6 +9,10 @@ Covers the fail-clean plumbing without a live database:
     it imported again (the flag stays until each failed dataset is), with the import's own
     entry and each earlier import's entry it completed; an entry it did not complete (an
     update, or an overwrite without that dataset) stays.
+  * After a failed overwrite whose restore failed part-way, `_flag_family_restore_failed`
+    keeps the import's entry naming every dataset of the family (SAFE-16), which each
+    completed overwrite shrinks and the last removes; what imports imported is recorded
+    in `imported_scopes`.
 The SQL itself runs against Postgres in
 integration/test_import_crash_bookkeeping_integration.py.
 """
@@ -77,15 +81,18 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
 
 class _FamilyRow(_FakeSession):
     """The family row's import state (``flag``: metadata.import_incomplete,
-    ``unfinished``: metadata.import_unfinished, None when absent). Answers the locked
-    reads and applies each UPDATE as its statement documents, told apart by what it binds:
-    an import's failure binds a ``payload`` (the merged flag; its own entry removed), a
-    completed import's clear binds the new ``flag`` and ``unfinished`` (JSON null: none)."""
+    ``unfinished``: metadata.import_unfinished, ``imported``: metadata.imported_scopes,
+    None when absent). Answers the locked reads and applies each UPDATE as its statement
+    documents, told apart by what it binds: the mark binds an ``entry`` for its
+    ``import_key``; an import's failure and a completed import's clear bind the new
+    ``flag`` and ``unfinished`` (JSON null: none) and ``imported_scopes`` (JSON null: left
+    as it is)."""
 
-    def __init__(self, flag=None, unfinished=None) -> None:
+    def __init__(self, flag=None, unfinished=None, imported=None) -> None:
         super().__init__()
         self.flag = flag
         self.unfinished = unfinished
+        self.imported = imported
 
     async def execute(self, statement, params=None):
         await super().execute(statement, params)
@@ -96,10 +103,13 @@ class _FamilyRow(_FakeSession):
                 "family_uuid": "uuid-1",
                 "flag": copy.deepcopy(self.flag),
                 "unfinished": copy.deepcopy(self.unfinished),
+                "imported_scopes": copy.deepcopy(self.imported),
             }
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         assert sql.startswith("UPDATE families"), sql
-        if "payload" in params:
+        if "entry" in params:
+            self.unfinished = {**(self.unfinished or {}), params["import_key"]: json.loads(params["entry"])}
+        elif "payload" in params:
             self.flag = json.loads(params["payload"])
             if isinstance(self.unfinished, dict):
                 self.unfinished.pop(params.get("import_key"), None)
@@ -107,6 +117,9 @@ class _FamilyRow(_FakeSession):
         else:
             self.flag = json.loads(params["flag"])
             self.unfinished = json.loads(params["unfinished"])
+            recorded = json.loads(params.get("imported_scopes", "null"))
+            if recorded is not None:
+                self.imported = recorded
         return SimpleNamespace(rowcount=1)
 
 
@@ -398,6 +411,203 @@ async def test_a_clear_that_fails_leaves_the_marks_and_says_so() -> None:
             raise RuntimeError("database unavailable")
 
     assert await fpi._clear_family_import_incomplete(_Failing(), _ctx(), import_key="job-1") is None
+
+
+# --- a restore that did not finish: the whole family (SAFE-16) ----------------------------
+
+
+def _one(sample=None, source=None):
+    """One scope as imported_scopes and a whole-family entry list it: one sample at a time."""
+    return {"source": source, "samples": [sample] if sample else None}
+
+
+def _mark(job_id="job-2", datasets=("snv", "coverage")):
+    return registration.ImportMark.begin(
+        job_id=job_id, datasets=datasets, scopes={name: _SCOPES[name] for name in datasets}
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_restore_that_failed_part_way_keeps_its_entry_naming_every_dataset_of_the_family() -> None:
+    # The family holds SV calls and S3's coverage from earlier imports, and another import
+    # stopped in haplotypes. This overwrite (snv, and coverage of S1 and S2) failed, and so
+    # did its restore, which deletes every table's rows of the family, whichever import
+    # wrote them, before it puts the backup's back.
+    mark = _mark()
+    stopped = _entry("job-stopped", ["haplotypes"])
+    row = _FamilyRow(
+        unfinished={mark.key: mark.entry(), "job-stopped": copy.deepcopy(stopped)},
+        imported={"sv_needlr": [_one()], "coverage": [_one("S1"), _one("S3")]},
+    )
+
+    listed = await fpi._flag_family_restore_failed(
+        row,
+        _ctx(),
+        failed_datasets=["coverage", "snv"],
+        job_id="job-2",
+        mark=mark,
+        scopes=mark.scopes,
+        family_samples=["S1", "S2"],
+    )
+
+    # The flag, as since SAFE-13: every dataset of the import failed, none imported.
+    assert (row.flag["failed_datasets"], row.flag["imported_datasets"]) == (["coverage", "snv"], [])
+    assert row.flag["failed_jobs"] == {"coverage": "job-2", "snv": "job-2"}
+    # Before: the entry made way for the flag, so an import of snv and coverage again
+    # opened the gate with the SV calls gone. Now it stays, naming every dataset the family
+    # holds as pending, each with what an overwrite of it must replace; S3 is no longer the
+    # family's, so no import could name it.
+    entry = row.unfinished[mark.key]
+    assert listed == entry["datasets"] == ["coverage", "haplotypes", "snv", "sv_needlr"]
+    assert (entry["job_id"], entry["at"], entry["finished_datasets"]) == ("job-2", mark.at, [])
+    assert entry["whole_family"] == [
+        {"dataset": "coverage", "scope": _one("S1")},
+        {"dataset": "coverage", "scope": _one("S2")},
+        {"dataset": "haplotypes", "scope": _SCOPES["haplotypes"]},
+        {"dataset": "snv", "scope": _SCOPES["snv"]},
+        {"dataset": "sv_needlr", "scope": _one()},
+    ]
+    assert row.unfinished["job-stopped"] == stopped
+    assert "FOR UPDATE" in row.executed[0][0]  # composed under the row's lock
+
+
+@pytest.mark.asyncio
+async def test_before_its_restore_an_import_marks_every_dataset_of_the_family_pending() -> None:
+    # So a process that stops in the restore leaves the family marked as a whole too.
+    mark = _mark()
+    row = _FamilyRow(unfinished={mark.key: mark.entry(["snv"])}, imported={"sv_needlr": [_one()]})
+
+    await fpi._mark_family_import_restoring(row, _ctx(), mark, family_samples=["S1", "S2"])
+
+    entry = row.unfinished[mark.key]
+    assert entry["datasets"] == ["coverage", "snv", "sv_needlr"]
+    assert entry["finished_datasets"] == []
+    assert "FOR UPDATE" in row.executed[0][0]
+
+    # If that cannot be written, every dataset of the import is pending instead, as before.
+    class _ReadFails(_FamilyRow):
+        async def execute(self, statement, params=None):
+            if " ".join(str(statement).split()).startswith("SELECT"):
+                raise RuntimeError("database unavailable")
+            return await super().execute(statement, params)
+
+    row = _ReadFails(unfinished={mark.key: mark.entry(["snv"])})
+    await fpi._mark_family_import_restoring(row, _ctx(), mark)
+    assert row.unfinished[mark.key] == mark.entry()
+
+
+@pytest.mark.asyncio
+async def test_the_whole_family_entry_goes_once_each_dataset_is_imported_again_with_overwrite() -> None:
+    mark = _mark()
+    entry = registration.whole_family_entry(
+        mark, imported={"sv_needlr": [_one()]}, unfinished={}, family_samples=["S1", "S2"]
+    )
+    row = _FamilyRow(unfinished={mark.key: copy.deepcopy(entry)})
+
+    # An update replaces nothing: it skips a dataset whose rows are there.
+    await fpi._clear_family_import_incomplete(
+        row, _ctx(), rewritten={}, imported={"snv": _SCOPES["snv"], "sv_needlr": _one()}
+    )
+    assert row.unfinished == {mark.key: entry}
+
+    # An overwrite of S1's coverage alone: S2's is still to import.
+    await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"coverage": _one("S1")})
+    assert [item["scope"] for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] == "coverage"] == [
+        _one("S2")
+    ]
+
+    # The datasets that failed, imported again in one overwrite: the gate holds, for the
+    # SV calls the import did not carry.
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"]}
+    )
+    assert set(left.unfinished) == {mark.key}
+    assert row.unfinished[mark.key]["datasets"] == ["sv_needlr"]
+    assert row.unfinished[mark.key]["finished_datasets"] == []
+    assert row.unfinished[mark.key]["whole_family"] == [{"dataset": "sv_needlr", "scope": _one()}]
+
+    # The last of them, imported again with overwrite: the family is complete.
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"sv_needlr": _one()})
+    assert left.unfinished == {} and row.unfinished is None
+
+
+@pytest.mark.asyncio
+async def test_one_overwrite_of_the_whole_family_removes_the_entry() -> None:
+    mark = _mark()
+    entry = registration.whole_family_entry(mark, imported={"sv_needlr": [_one()]}, unfinished={})
+    row = _FamilyRow(unfinished={mark.key: entry, "job-own": _entry("job-own", ["snv"])})
+
+    left = await fpi._clear_family_import_incomplete(
+        row,
+        _ctx(),
+        import_key="job-own",
+        rewritten={"snv": _SCOPES["snv"], "coverage": _SCOPES["coverage"], "sv_needlr": _one()},
+    )
+
+    assert left.unfinished == {} and row.unfinished is None
+
+
+@pytest.mark.asyncio
+async def test_a_whole_family_list_not_in_the_shape_written_is_never_completed() -> None:
+    stored = {**_entry("job-2", ["snv"]), "whole_family": "garbage"}
+    row = _FamilyRow(unfinished={"job-2": copy.deepcopy(stored)})
+
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={"snv": _SCOPES["snv"]})
+
+    assert left.unfinished == {"job-2": stored}
+
+
+@pytest.mark.asyncio
+async def test_what_the_family_s_imports_imported_is_recorded_for_it() -> None:
+    # A failure records what did import, one sample at a time.
+    row = _FamilyRow()
+    await fpi._flag_family_import_incomplete(
+        row,
+        _ctx(),
+        failed_datasets=["snv"],
+        imported_datasets=["coverage"],
+        job_id="job-1",
+        scopes=_SCOPES,
+        imported_scopes={"coverage": _SCOPES["coverage"]},
+    )
+    assert row.imported == {"coverage": [_one("S1"), _one("S2")]}
+
+    # A completed import records what it imported, and what a stopped import whose entry
+    # it removed had finished; each scope once.
+    row.unfinished = {"job-stopped": _entry("job-stopped", ["snv", "haplotypes"], finished=["haplotypes"])}
+    await fpi._clear_family_import_incomplete(
+        row,
+        _ctx(),
+        rewritten={"snv": _SCOPES["snv"]},
+        imported={"snv": _SCOPES["snv"], "coverage": _one("S1")},
+    )
+    assert row.unfinished is None
+    assert row.imported == {
+        "coverage": [_one("S1"), _one("S2")],
+        "haplotypes": [_SCOPES["haplotypes"]],
+        "snv": [_SCOPES["snv"]],
+    }
+    update_sql = row.executed[-1][0]
+    assert "imported_scopes" in update_sql
+
+    # An import that imported nothing records nothing.
+    row = _FamilyRow()
+    await fpi._clear_family_import_incomplete(row, _ctx())
+    assert row.imported is None
+
+
+def test_a_second_restore_that_fails_keeps_what_the_first_left_to_import() -> None:
+    first = registration.whole_family_entry(
+        _mark("job-1", ("snv",)), imported={"sv_needlr": [_one()]}, unfinished={}
+    )
+    later = _mark("job-3", ("coverage",))
+
+    entry = registration.whole_family_entry(later, imported=None, unfinished={"job-1": first})
+
+    assert entry["datasets"] == ["coverage", "snv", "sv_needlr"]
+    assert registration.is_whole_family_entry(entry) and not registration.is_whole_family_entry(
+        _entry("job-0", ["snv"])
+    )
 
 
 def test_pending_datasets_are_those_an_import_had_not_finished() -> None:

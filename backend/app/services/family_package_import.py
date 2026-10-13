@@ -75,13 +75,17 @@ from .family_package_registration import (
     _delete_family_shell,
     _end_family_import_unfinished,
     _flag_family_import_incomplete,
+    _flag_family_restore_failed,
     _clear_family_import_incomplete,
+    _mark_family_import_restoring,
     _record_family_import_finished,
     _enabled_dataset_summaries,
     _normalized_conflict_mode,
     _execution_metadata,
     _merge_validation_metadata,
     _existing_package_entity_warnings,
+    family_sample_ids,
+    is_whole_family_entry,
     pending_datasets,
 )
 from .family_package_datasets import _import_dataset
@@ -141,6 +145,47 @@ def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
         f"Family {family_id} stays flagged import-incomplete: an earlier import failed for "
         f"datasets this import did not import again ({failed}). Import them again to "
         "complete the family."
+    )
+
+
+def _still_not_restored_message(family_id: str, remaining: Mapping[str, Any]) -> str:
+    """The log line of an import that completed while the family stays marked by an
+    earlier failed overwrite whose restore did not finish (its whole-family entry in
+    ``import_unfinished``): what of the family no import has imported again with
+    overwrite since."""
+    restores: list[str] = []
+    for _key, entry in sorted(remaining.items()):
+        job_id = entry.get("job_id") if isinstance(entry, Mapping) else None
+        name = f"import job {job_id}" if isinstance(job_id, str) and job_id else "an import"
+        pending = sorted(pending_datasets(entry) or ())
+        restores.append(f"{name}, still to import: {', '.join(pending)}" if pending else name)
+    return (
+        f"Family {family_id} stays marked import-incomplete: the restore of an earlier "
+        f"overwrite that failed did not finish ({'; '.join(restores)}), so the family's "
+        "data of each of these datasets may be partly written or missing, whichever import "
+        "wrote it. Import each of them again with overwrite to complete the family: the "
+        "whole family, not only the datasets that failed."
+    )
+
+
+def _restore_failed_message(flagged_failed: list[str], whole: list[str] | None) -> str:
+    """The log line of an overwrite that failed and whose restore failed part-way: its
+    flag names every dataset of the import as failed (SAFE-13), and its entry, kept,
+    every dataset of the family (SAFE-16)."""
+    marked = (
+        "the family stays marked import-incomplete until each dataset it holds has been "
+        f"imported again with overwrite ({', '.join(whole)})"
+        if whole
+        else "the family stays marked import-incomplete until it has been imported again "
+        "in full with overwrite"
+    )
+    return (
+        "Import failed and the snapshot restore also failed; flagged the family metadata as "
+        "import-incomplete. The restore may have removed the family's rows of any dataset, "
+        "whichever import wrote them: the flag names every dataset of this import as "
+        f"failed, those that imported too ({', '.join(flagged_failed)}), and {marked}. "
+        "Import the whole family again with overwrite, not only the datasets that failed: "
+        "an update skips a dataset whose rows are there."
     )
 
 
@@ -410,7 +455,9 @@ async def _import_family_datasets(
 
     ``import_mark`` is this import's entry in the family's ``import_unfinished``: each
     dataset it finishes is recorded there as it goes, and the entry is removed when the
-    import ends, whichever way. If the import's process stops first, the entry stays."""
+    import ends, whichever way, but one: after a restore that failed part-way it stays,
+    naming every dataset of the family. If the import's process stops first, the entry
+    stays."""
     import_key = import_mark.key if import_mark is not None else None
     finished: set[str] = set()
     # Overwrite of a PRE-EXISTING family is delete-then-insert, so a mid-import failure
@@ -526,7 +573,8 @@ async def _import_family_datasets(
     #     refused before its first delete (a backup table was gone) deleted nothing: the
     #     flag names what failed and what imported, as for a partial success. One that
     #     failed in any other way may have deleted rows of any dataset: the flag names every
-    #     dataset this import set out to import as failed, and none as imported.
+    #     dataset this import set out to import as failed, and none as imported, and the
+    #     import's `import_unfinished` entry stays, naming every dataset of the family.
     #   * Any OTHER failure that left the family in place — a partial success (some
     #     datasets imported, some failed) or a failed update (skip-if-exists, no
     #     snapshot) of a PRE-EXISTING family — is NOT torn down (successfully-imported
@@ -535,9 +583,10 @@ async def _import_family_datasets(
     #     silently queryable as if complete.
     #   * In every failed case `error` is set -> the job row ends status='failed'
     #     (never a silent "completed").
-    # Whichever way it ends, the import's `import_unfinished` entry goes: with the family
+    # Whichever way it ends, the import's `import_unfinished` entry goes -- with the family
     # (compensated), once the family is put back (restored), or with the flag or its clear,
-    # in one statement. Only an import whose process stops before this leaves it.
+    # in one statement -- except after a restore that failed part-way. Only that, and an
+    # import whose process stops before this, leave it.
     compensated = False
     restored = False
     if failed_datasets and not imported_datasets and family_created:
@@ -553,10 +602,14 @@ async def _import_family_datasets(
             "No dataset imported successfully; rolled back the newly-created family shell."
         )
     elif failed_datasets and (clickhouse_snapshot is not None or postgres_snapshot is not None):
-        # The restore rewrites every dataset's rows, table by table: until it has put the
-        # family back, every dataset counts as pending again, the finished ones too.
+        # The restore rewrites every table's rows of the family, table by table, whichever
+        # import wrote them: until it has put the family back, every dataset of the family
+        # counts as pending, this import's finished ones too and those of other imports
+        # (SAFE-16). If the process stops in the restore, the entry says so.
         if import_mark is not None:
-            await _record_family_import_finished(session, family_context, import_mark, ())
+            await _mark_family_import_restoring(
+                session, family_context, import_mark, family_samples=family_sample_ids(bundle)
+            )
         try:
             if clickhouse_snapshot is not None:
                 await restore_family_clickhouse_state(clickhouse_snapshot)
@@ -577,7 +630,12 @@ async def _import_family_datasets(
             # names every dataset this import set out to import as failed, and none as
             # imported (the owner's decision, 2026-10-09): the family stays flagged until an
             # import has imported each of them again, and none counts as imported again for
-            # an earlier failure.
+            # an earlier failure. Those deletes also remove the rows of datasets this import
+            # did not carry (another small-variant source, another package's SV calls),
+            # which the flag cannot name: so the import's `import_unfinished` entry stays,
+            # naming every dataset the family holds, and the gate holds until each has been
+            # imported again with overwrite -- the whole family, not only what failed (the
+            # owner's decision, 2026-10-13; SAFE-16).
             untouched = isinstance(exc, FamilyRestoreRefused)
             logger.warning(
                 "Failed to restore family %s after a failed overwrite (%s); flagging "
@@ -590,36 +648,45 @@ async def _import_family_datasets(
             # clear it so the flag write below can run.
             with suppress(Exception):
                 await session.rollback()
-            flagged_failed = (
-                failed_datasets
-                if untouched
-                else sorted({*failed_datasets, *_datasets_set_out(validation, import_mark)})
-            )
-            await _flag_family_import_incomplete(
-                session,
-                family_context,
-                failed_datasets=flagged_failed,
-                imported_datasets=imported_datasets if untouched else [],
-                job_id=job_id,
-                import_key=import_key,
-                scopes=mark_scopes,
-                imported_scopes=imported_scopes if untouched else {},
-            )
             if untouched:
+                await _flag_family_import_incomplete(
+                    session,
+                    family_context,
+                    failed_datasets=failed_datasets,
+                    imported_datasets=imported_datasets,
+                    job_id=job_id,
+                    import_key=import_key,
+                    scopes=mark_scopes,
+                    imported_scopes=imported_scopes,
+                )
                 logs.append(
                     "Import failed, and the family could not be put back: a table of its "
                     "backup was missing, so the restore deleted nothing. Flagged the family "
                     "metadata as import-incomplete; the datasets that imported are kept."
                 )
             else:
-                logs.append(
-                    "Import failed and the snapshot restore also failed; flagged the family "
-                    "metadata as import-incomplete. The restore may have removed the family's "
-                    "rows of any dataset of this import, so the flag names every one of them "
-                    f"as failed, those that imported too: {', '.join(flagged_failed)}. Import "
-                    "each of them again with overwrite to complete the family: an update "
-                    "skips a dataset whose rows are there."
-                )
+                flagged_failed = sorted({*failed_datasets, *_datasets_set_out(validation, import_mark)})
+                whole: list[str] | None = None
+                if import_mark is not None:
+                    whole = await _flag_family_restore_failed(
+                        session,
+                        family_context,
+                        failed_datasets=flagged_failed,
+                        job_id=job_id,
+                        mark=import_mark,
+                        scopes=mark_scopes,
+                        family_samples=family_sample_ids(bundle),
+                    )
+                else:  # an import outside the bookkeeping: there is no entry to keep
+                    await _flag_family_import_incomplete(
+                        session,
+                        family_context,
+                        failed_datasets=flagged_failed,
+                        imported_datasets=[],
+                        job_id=job_id,
+                        scopes=mark_scopes,
+                    )
+                logs.append(_restore_failed_message(flagged_failed, whole))
     elif failed_datasets:
         await _flag_family_import_incomplete(
             session,
@@ -659,7 +726,9 @@ async def _import_family_datasets(
         # of the family's import-incomplete flag it imported again: a failed dataset stays
         # flagged until an import imports it again. An earlier import that stopped
         # part-way keeps its entry unless this one imported again, replacing them, the
-        # datasets it had not finished: only an overwrite replaces what is there.
+        # datasets it had not finished: only an overwrite replaces what is there. The
+        # entry a restore that did not finish left loses what this one replaced, and goes
+        # once the whole family has been imported again so.
         if not compensated:
             left = await _clear_family_import_incomplete(
                 session,
@@ -676,8 +745,18 @@ async def _import_family_datasets(
             else:
                 if left.failures.failed or left.failures.unreadable:
                     logs.append(_still_failed_message(family_context.family_id, left.failures))
-                if left.unfinished:
-                    logs.append(_still_unfinished_message(family_context.family_id, left.unfinished))
+                stopped = {
+                    key: entry
+                    for key, entry in left.unfinished.items()
+                    if not is_whole_family_entry(entry)
+                }
+                not_restored = {
+                    key: entry for key, entry in left.unfinished.items() if is_whole_family_entry(entry)
+                }
+                if stopped:
+                    logs.append(_still_unfinished_message(family_context.family_id, stopped))
+                if not_restored:
+                    logs.append(_still_not_restored_message(family_context.family_id, not_restored))
 
     # (Re)importing variant data changes the prioritised ranking. The cache's input hash
     # covers the family's storage-level data version, so an outdated ranking is already

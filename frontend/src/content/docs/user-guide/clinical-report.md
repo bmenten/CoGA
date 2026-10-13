@@ -40,7 +40,9 @@ stops for five things:
    a reason.
 5. **An incomplete import** (the page says *Import incomplete*): import what failed again, or
    acknowledge with a reason. After an import that stopped part-way, re-run it with **overwrite**: an
-   update skips data that is already there, partly written data too.
+   update skips data that is already there, partly written data too. After a failed overwrite that
+   could not put the family's data back, import the whole family again with **overwrite**, every
+   dataset the warning names and not only those that failed.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten. After signing out,
