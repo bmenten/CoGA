@@ -16,7 +16,7 @@ from ..core.object_storage import join_remote_uri, remote_object_exists
 from ..schemas import (
     FamilyImportDatasetSummary,
 )
-from .bed_service import upload_bed_data
+from .bed_service import BED_UPLOAD_SOURCE, upload_bed_data
 from .clickhouse_interval_tracks import (
     count_interval_track_rows,
     count_interval_track_source_rows,
@@ -56,7 +56,7 @@ from .variant_upload_service import (
 )
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_nipt import (
     nipt_import_order,
@@ -162,14 +162,16 @@ async def _local_upload(path: Path):
 
 
 async def _stored_track_rows(
-    sample_context: SampleMetadataContext, *, track_type: str, source: str | None = None
+    sample_context: SampleMetadataContext, *, track_type: str, source: str
 ) -> int:
-    """The rows of one sample's ``track_type`` track, of ``source`` or of every source, in
-    the store: what an update reads to see whether the sample holds the track, as the
-    small-variant and SV loaders read their own rows. Not what Postgres records of the
-    track (``sample_interval_track_sources``): a failed overwrite's restore that stopped
-    part-way can leave that record for rows it deleted (SAFE-20). A family with no single
-    assembly has no track rows."""
+    """The rows of one sample's ``track_type`` track of ``source`` in the store: what an
+    update reads to see whether the sample holds the track, as the small-variant and SV
+    loaders read their own rows. Not what Postgres records of the track
+    (``sample_interval_track_sources``): a failed overwrite's restore that stopped part-way
+    can leave that record for rows it deleted (SAFE-20). Only the dataset's own source: a
+    sample can hold several callers' tracks of one type, and another caller's track is no
+    reason to skip this one's (SAFE-22). A family with no single assembly has no track
+    rows."""
     if not sample_context.assembly_name:
         return 0
     return await count_interval_track_rows(
@@ -187,12 +189,12 @@ async def _skip_stored_sample(
     sample_context: SampleMetadataContext,
     *,
     track_type: str,
-    source: str | None = None,
+    source: str,
 ) -> dict[str, Any] | None:
-    """An update's skip of a sample whose ``track_type`` track (of ``source``, or of any
-    source) is stored: ``{"skipped": True, "existing": <rows>}``, the sample recorded in
+    """An update's skip of a sample whose ``track_type`` track of ``source`` is stored:
+    ``{"skipped": True, "existing": <rows>}``, the sample recorded in
     ``job.skipped_samples``. None when the sample is to be imported: not an update, or no
-    row of its track is stored."""
+    row of its track from that source is stored."""
     if job.conflict_mode != "update":
         return None
     existing = await _stored_track_rows(sample_context, track_type=track_type, source=source)
@@ -464,7 +466,8 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
     except Exception:
         # The glimpse2 loader owns the imputed small-variant source and the haplotype
         # interval tracks, so scope the small-variant cleanup to glimpse2 (leaving the
-        # annotated clair3 SNVs intact) while still clearing its own haplotype blocks.
+        # annotated clair3 SNVs intact) while still clearing its own haplotype blocks,
+        # of its own source as every track loader's (SAFE-22).
         with suppress(Exception):
             await delete_family_small_variants(
                 family_context.assembly_name,
@@ -476,12 +479,14 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
                 family_context.assembly_name,
                 family_uuid=family_context.family_uuid,
                 track_type="haplotype",
+                source="glimpse2",
             )
         with suppress(Exception):
             await delete_interval_track_sources(
                 session,
                 family_uuid=family_context.family_uuid,
                 track_type="haplotype",
+                source="glimpse2",
             )
         raise
     haplotype_origin = await _record_pipeline_haplotype_origin(job)
@@ -833,8 +838,10 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
         )
         if conflict_mode == "update":
             # One file for every embryo: skipped whole when any embryo's track is stored.
+            # This dataset's track, not HiFiCNV's minor allele fraction on the same track
+            # type, nor a BED upload's (SAFE-22).
             existing_by_sample = {
-                sample_id: await _stored_track_rows(sample_context, track_type="apcad")
+                sample_id: await _stored_track_rows(sample_context, track_type="apcad", source=APCAD_SOURCE)
                 for sample_id, sample_context in target_sample_contexts.items()
             }
             if any(existing_by_sample.values()):
@@ -886,7 +893,9 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
         )
         if bed_path is None:
             continue
-        skip = await _skip_stored_sample(job, sample_id, sample_context, track_type="apcad")
+        skip = await _skip_stored_sample(
+            job, sample_id, sample_context, track_type="apcad", source=APCAD_SOURCE
+        )
         if skip is not None:
             sample_results[sample_id] = skip
             continue
@@ -920,6 +929,7 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
             else import_result
         )
         if not import_result:
+            # Read as a BED, into this dataset's own track: a BED upload's APCAD stays.
             async with _local_upload(bed_path) as upload:
                 sample_results[sample_id] = await upload_bed_data(
                     session,
@@ -927,6 +937,7 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                     bed_type="apcad",
                     file=upload,
                     overwrite=True,
+                    source=APCAD_SOURCE,
                 )
         if reporter is not None:
             await reporter({})
@@ -1195,10 +1206,14 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
     panel's per-target coverage table (``target_table``, monogenic NIPT) into the
     ``target_coverage`` track.
 
-    With ``update`` a sample whose track is stored is skipped, as the store holds it: not
-    as Postgres records it, which a failed overwrite's restore that stopped part-way can
-    leave for rows it deleted. A dataset that skipped every sample ends ``skipped``
-    (SAFE-20)."""
+    A BED is stored as a BED upload stores it (``upload_bed_data``), under source ``web``:
+    it replaces that source's coverage of the sample, and no other caller's (the bins of
+    WisecondorX and QDNAseq, imported before it, and HiFiCNV's depth; SAFE-22).
+
+    With ``update`` a sample whose track from this dataset's source is stored is skipped, as
+    the store holds it: not as Postgres records it, which a failed overwrite's restore that
+    stopped part-way can leave for rows it deleted. A dataset that skipped every sample ends
+    ``skipped`` (SAFE-20)."""
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts = job.sample_contexts
     if not dataset.per_sample:
@@ -1213,7 +1228,11 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
         table_path = _resolve_package_path(bundle.root, raw_entry.get("target_table"))
         if table_path is not None:
             skip = await _skip_stored_sample(
-                job, sample_id, sample_context, track_type=TARGET_COVERAGE_TRACK_TYPE
+                job,
+                sample_id,
+                sample_context,
+                track_type=TARGET_COVERAGE_TRACK_TYPE,
+                source=TARGET_COVERAGE_SOURCE,
             )
             if skip is not None:
                 sample_results[sample_id] = skip
@@ -1228,7 +1247,9 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
         )
         if bed_path is None:
             continue
-        skip = await _skip_stored_sample(job, sample_id, sample_context, track_type="coverage")
+        skip = await _skip_stored_sample(
+            job, sample_id, sample_context, track_type="coverage", source=BED_UPLOAD_SOURCE
+        )
         if skip is not None:
             sample_results[sample_id] = skip
             continue

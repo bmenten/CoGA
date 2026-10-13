@@ -269,6 +269,17 @@ where its file has one). Structural variants: `needlr`, `hificnv` and `mito_sv` 
 sample's heteroplasmy in the record's annotations) from packages, and
 `manual_upload`, `sniffles` or `spectre` from a direct upload.
 
+The `source` of an interval track (on its `INTERVAL/entries` rows and its
+`sample_interval_track_sources` record) scopes its deletes the same way: a sample can hold
+several callers' tracks of one type, and each loader deletes and replaces only its own source's
+track, rows and record. `coverage`: `web` (a BED upload, and a package's coverage BED),
+`wisecondorx`, `qdnaseq` and `hificnv`; `segments`: the same; `apcad`: `apcad` (the package's
+APCAD dataset), `hificnv` (the minor allele fraction) and `web`; `apcad_pcf`: `pcf` and `web`;
+`haplotype`: `glimpse2`; `target_coverage`: `coverage_table`. Only the admin deletes (a sample's
+track type, a sample, a family), a structure edit that clears the family's genomic data, the
+removal of a family a failed import created and a failed overwrite's restore (which writes its
+backup back) delete every source's tracks.
+
 Deleting a sample (`DELETE /admin/samples/{sample_id}`) rewrites the family's
 `SNV_INDEL/entries` from the stored rows: every callset, project and column comes back as
 stored, minus that sample's calls. The shared `SNV_INDEL/variants/*` tables are left alone, so

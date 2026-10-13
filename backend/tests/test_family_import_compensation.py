@@ -814,10 +814,11 @@ def uploads(monkeypatch):
     monkeypatch.setattr(trgt_router, "lock_family_variant_writes", lock, raising=False)
     monkeypatch.setattr(trgt_router, "clear_sample_repeat_expansions", recorder("clear"))
     monkeypatch.setattr(trgt_router, "ingest_trgt_text", ingest_trgt_text)
-    # The interval-track store; the BED upload's route takes the family's write locks.
+    # The interval-track store; the BED upload's route takes the family's write locks. The
+    # upload counts its source's stored rows (SAFE-22).
     monkeypatch.setattr(bed_router, "lock_family_variant_writes", lock, raising=False)
     monkeypatch.setattr(
-        bed_service, "count_interval_track_source_rows", recorder("count", lambda: existing["rows"])
+        bed_service, "count_interval_track_rows", recorder("count", lambda: existing["rows"])
     )
     monkeypatch.setattr(bed_service, "delete_interval_tracks", recorder("delete"))
     monkeypatch.setattr(bed_service, "delete_interval_track_sources", recorder("delete sources"))

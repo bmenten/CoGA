@@ -217,6 +217,14 @@ without chrM variants removes that sample's calls. The chrM structural-variant f
 duplications) are replaced per sample the same way, and the mtDNA analysis lists them with each member's
 heteroplasmy.
 
+**Each caller's tracks are its own.** A sample can carry coverage from a BED, WisecondorX, QDNAseq and
+HiFiCNV at once, segments from the same callers, and on the APCAD track a package's APCAD beside
+HiFiCNV's minor allele fraction; the viewers draw each caller's coverage as a track of its own. An
+import or an upload replaces only its own caller's tracks: a coverage BED leaves the WisecondorX and
+QDNAseq bins and HiFiCNV's depth, and an APCAD import leaves HiFiCNV's minor allele fraction.
+**Update** skips a sample only when its own caller's track is there. A package's coverage BED and an
+uploaded coverage BED count as one caller: each replaces the other.
+
 ### What validation checks
 
 - The folder and the manifest exist, and the manifest is a file in the folder, not a link out of it.
@@ -328,6 +336,12 @@ sample keeping its own call. The record ID is kept with the SV's annotations.
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
 of a member removed from the family.
+
+An interval-track (BED) upload works the same way. It stops only when the sample already has that track
+from a BED (an earlier upload, or a package's coverage BED), and the page asks before it replaces it;
+replacing it leaves the other callers' tracks of that type (WisecondorX, QDNAseq, HiFiCNV, a package's
+APCAD or PCF) as they are. A file that holds no record of the track type is refused before anything is
+replaced. Deleting a sample's track type on **Admin → Family & Sample Data** removes every caller's.
 
 The uploads, the deletes of a family's variants and the package imports of one family take turns. An
 upload started while another of them is writing the family waits until it has finished, a package import

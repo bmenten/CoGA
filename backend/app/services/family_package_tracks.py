@@ -20,28 +20,8 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info
 from .import_progress import bytes_read_on_disk, file_size, read_stats
-
-
-async def _delete_sample_interval_track(
-    session: AsyncSession,
-    *,
-    sample_context: SampleMetadataContext,
-    track_type: str,
-) -> None:
-    if not sample_context.assembly_name:
-        raise RuntimeError("Cannot delete interval tracks without an assembly name")
-    await delete_interval_tracks(
-        sample_context.assembly_name,
-        sample_uuid=sample_context.sample_uuid,
-        track_type=track_type,
-    )
-    await delete_interval_track_sources(
-        session,
-        sample_uuid=sample_context.sample_uuid,
-        track_type=track_type,
-    )
 
 
 async def _delete_sample_interval_source(
@@ -52,6 +32,12 @@ async def _delete_sample_interval_source(
     source: str,
     filename: str | None = None,
 ) -> None:
+    """Delete one source's ``track_type`` track of a sample (of one of its files, with
+    ``filename``): its rows and Postgres's record of it. A sample can carry several callers'
+    tracks of one type (the coverage of a BED, WisecondorX, QDNAseq and HiFiCNV; HiFiCNV's
+    minor allele fraction beside the APCAD), so a loader replaces its own source's track and
+    no other (SAFE-22). The admin deletes of a sample's or a family's data remove every
+    source."""
     if not sample_context.assembly_name:
         raise RuntimeError("Cannot delete interval tracks without an assembly name")
     await delete_interval_tracks(
@@ -752,7 +738,7 @@ def _apcad_row(
         "assembly_id": sample_context.assembly_id or "",
         "assembly_name": sample_context.assembly_name or "",
         "track_type": "apcad",
-        "source": "apcad",
+        "source": APCAD_SOURCE,
         "chr": normalize_chromosome(chrom),
         "start": start,
         "end": end,
@@ -760,7 +746,7 @@ def _apcad_row(
         "value": value,
         "origin": origin,
         "metadata_json": _apcad_metadata(
-            source="apcad",
+            source=APCAD_SOURCE,
             path=path,
             line_no=line_no,
             extra=extra_metadata,
@@ -1024,16 +1010,20 @@ async def _import_apcad_track_file(
     selected_vcf_sample: str | None = None,
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
 ) -> dict[str, Any]:
+    """Store an APCAD file as the samples' ``apcad`` track, source ``apcad``, in place of the
+    one this source stored before. HiFiCNV's minor allele fraction, on the same track type
+    (source ``hificnv``), and a BED upload's APCAD (``web``) stay (SAFE-22)."""
     target_contexts = (
         {selected_sample_id: sample_contexts[selected_sample_id]}
         if selected_sample_id is not None and selected_sample_id in sample_contexts
         else sample_contexts
     )
     for sample_context in target_contexts.values():
-        await _delete_sample_interval_track(
+        await _delete_sample_interval_source(
             session,
             sample_context=sample_context,
             track_type="apcad",
+            source=APCAD_SOURCE,
         )
     if _is_vcf_file(path):
         sample_results = await _import_apcad_vcf_file(
@@ -1062,11 +1052,11 @@ async def _import_apcad_track_file(
             session,
             sample_context=sample_context,
             track_type="apcad",
-            source="apcad",
+            source=APCAD_SOURCE,
             filename=path.name,
             row_count=inserted,
             metadata={
-                "source": "apcad",
+                "source": APCAD_SOURCE,
                 "filename": path.name,
                 "uploaded_from": "family_package",
             },
