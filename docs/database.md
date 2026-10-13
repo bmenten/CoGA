@@ -228,7 +228,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
-| `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the full annotation |
+| `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`, null without one; the SV length filters measure it), the full annotation |
 | `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
 | `SV/family_data_version` | one token per change to a family's structural variants (below) |

@@ -293,7 +293,9 @@ file, so a family Sniffles or TRGT VCF can be uploaded member by member. A file 
 names no sample (such as `Sample0`) is taken as that sample's. A file whose columns name other samples
 and not this one, of this family or another, or that has two columns for it, is refused, and nothing is
 replaced; so is a Sniffles or Spectre VCF without its `#CHROM` header line, once, before its records. A
-manual TSV has no sample column: each of its rows is the sample's call. A package's per-sample TRGT,
+manual TSV has no sample column: each of its rows is the sample's call. Nor has it an SVLEN, so the
+structural-variant length filters measure a TSV call by its end minus its start: an insertion whose end
+is its start is 0 bp to them. A package's per-sample TRGT,
 mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
 verified its tubes), the entry's `vcf_sample` says so.
 

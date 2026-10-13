@@ -93,6 +93,8 @@ Een **tweede hit** is een heterozygote small variant samen met een structurele v
 
 De SV-pagina volgt hetzelfde stramien, met eigen bestanden (`FamilyStructuralVariantsPage.tsx`, `structuralVariantSearch.ts`, `StructuralVariantFilterForm.tsx`). De filters omvatten type (DEL, DUP, …), lengte, bron, regiovlaggen, frequentie in controles en populatie, genconstraint, fenotypevelden, gen of panel, overerving en genotype per sample. Naast de gefilterde vraag doet de pagina één vraag zonder filters, om het totaal "All variants" te tonen.
 
+De twee lengtefilters, een minimum (`min_length`) en een exacte lengte (`length`), meten een SV zoals de lijst zijn lengte toont, zonder het minteken van een deletie: de SVLEN van de call (kolom `svLen` van `SV/variants/details`), en END − POS alleen als de call geen SVLEN heeft. De meeste callers (Sniffles2, pbsv) schrijven een insertie met END gelijk aan POS en haar lengte in SVLEN; met END − POS telde zo'n insertie als 0 bp, zodat een minimum haar liet vallen en een exacte lengte haar nooit vond. Een translocatie (type BND of TRA) heeft geen lengte en is nooit een kleine gebeurtenis: ze haalt elk minimum en geen enkele exacte lengte, welke SVLEN of END haar caller ook schreef (beslissing van de eigenaar, 2026-10-13). Een andere call zonder SVLEN met END gelijk aan POS (een insertie uit een TSV-upload, die geen SVLEN kent) meet 0 bp. Die ene regel staat in `structural_variant_length_filters_match` (`family_variant_filters.py`) en geldt overal waar een lengtefilter werkt: de lijst, gerangschikt of niet, de CSV-export, de genoomtrack en de trackbeschikbaarheid. Geen SQL past een lengtefilter toe: een zoekopdracht met een lengte gaat nooit via de native pagina, maar leest de kandidaten (tot 50.000 SV's) en filtert ze in Python.
+
 Het endpoint is `GET /api/families/{family_id}/structural-variants`; de SV's van één sample vraag je op met de parameter `sample`. De verschillen met small variants:
 
 | Aspect | Small variants | Structurele varianten |
@@ -102,7 +104,7 @@ Het endpoint is `GET /api/families/{family_id}/structural-variants`; de SV's van
 | Review | `small_variant_review_pg.py` | `structural_variant_review_pg.py` |
 | Track-modus | Ja | Ja, zonder review en cytoband |
 
-**Waar in de code:** `backend/app/routers/families_structural_variants.py`; `get_family_structural_variants_page` in `clickhouse_family_variants.py`.
+**Waar in de code:** `backend/app/routers/families_structural_variants.py`; `get_family_structural_variants_page` in `clickhouse_family_variants.py`; de lengteregel in `structural_variant_length_filters_match` (`backend/app/services/family_variant_filters.py`).
 
 ## Veiligheid en traceerbaarheid in deel A
 

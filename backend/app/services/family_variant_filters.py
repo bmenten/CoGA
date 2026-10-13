@@ -59,6 +59,8 @@ class StructuralVariantQueryFilters:
     chromosome: str | None = None
     start: int | None = None
     end: int | None = None
+    # The exact and the minimum length, in bp: what they measure is
+    # structural_variant_length_filters_match's to say.
     length: int | None = None
     min_length: int | None = None
     variant_type: str | None = None
@@ -89,6 +91,55 @@ class StructuralVariantQueryFilters:
         # search runs, whichever path the filters take (#686).
         for entry in self.sample_filters:
             parse_structural_sample_filter(entry)
+
+
+# The structural-variant types that name a translocation, a breakend joining two loci: BND,
+# as VCF writes one, and TRA, as older callers do. The SV type filter offers both, and the
+# SV ranking scores them alike. A type is stored as its caller wrote it, so it is compared
+# in upper case, without surrounding spaces.
+TRANSLOCATION_SV_TYPES: frozenset[str] = frozenset({"BND", "TRA"})
+
+
+def is_translocation_sv_type(sv_type: str | None) -> bool:
+    """Whether an SV type names a translocation: ``BND`` or ``TRA``, in any capitals."""
+    return (sv_type or "").strip().upper() in TRANSLOCATION_SV_TYPES
+
+
+def structural_variant_length(*, sv_len: int | None, start: int, end: int) -> int:
+    """An SV's length as the SV list shows it: the call's SVLEN, negative for a deletion as
+    VCF writes it, or END − POS when the call has no SVLEN."""
+    return sv_len if sv_len is not None else end - start
+
+
+def structural_variant_length_filters_match(
+    *,
+    sv_type: str | None,
+    sv_len: int | None,
+    start: int,
+    end: int,
+    length: int | None,
+    min_length: int | None,
+) -> bool:
+    """Whether an SV passes the exact-length (``length``) and minimum-length (``min_length``)
+    filters, the one rule of every SV search, track and export that applies them.
+
+    Both measure the length the SV list shows (:func:`structural_variant_length`), as a
+    positive number: the call's SVLEN, and END − POS only when it has none. Most callers
+    write an insertion with END at its POS and its length in SVLEN; measuring END − POS read
+    such an insertion as 0 bp, so a minimum dropped it and an exact length never found it
+    (CLIN-25). A translocation (:func:`is_translocation_sv_type`) has no length and is never
+    a small event: it passes any minimum and matches no exact length, whatever SVLEN or END
+    its caller wrote (the owner's decision, 2026-10-13). Another SV without SVLEN whose END
+    is its POS measures 0 bp, as the list shows it: any minimum above 0 drops it.
+    """
+    if length is None and min_length is None:
+        return True
+    if is_translocation_sv_type(sv_type):
+        return length is None
+    measured = abs(structural_variant_length(sv_len=sv_len, start=start, end=end))
+    if length is not None and measured != length:
+        return False
+    return min_length is None or measured >= min_length
 
 
 @dataclass(slots=True)

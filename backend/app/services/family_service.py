@@ -34,7 +34,11 @@ from .clickhouse_variant_queries import _structural_record_matches
 from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
 from .phased_marker_service import get_family_phased_markers_response
-from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
+from .family_variant_filters import (
+    SmallVariantQueryFilters,
+    StructuralVariantQueryFilters,
+    structural_variant_length,
+)
 from .genotypes import genotype_has_alt
 from .metadata_service import get_family_record, list_family_records, update_family_roi_record
 from .access_control import CurrentUser
@@ -580,7 +584,7 @@ async def get_family_structural_variant_lengths_for_user(
     )
     return [
         VariantLengthOut(
-            length=int(record.sv_len if record.sv_len is not None else record.end - record.start),
+            length=int(structural_variant_length(sv_len=record.sv_len, start=record.start, end=record.end)),
             type=record.sv_type,
             source=record.source,
             chr=record.chr,
