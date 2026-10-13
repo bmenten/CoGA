@@ -12,13 +12,18 @@ accountability trail (TF-13 S-5) is never silently lost:
   starts it, after shutdown, under an in-process ASGI client) each event is written as
   its request runs, the way that fallback writes it (``write_event_now``).
 * A genuinely unpersistable event (a synchronous write fails, or the worker's batch
-  write keeps failing) is logged at ERROR with its full, already-sanitised payload —
-  so it survives in the log stream that feeds monitoring — and counted, never silently
-  discarded and never raised into the request. The database error is named, never
-  quoted: its text repeats the rows it could not insert.
+  write keeps failing and so does the event's own write) is logged at ERROR with its
+  full, already-sanitised payload — so it survives in the log stream that feeds
+  monitoring — and counted, never silently discarded and never raised into the request.
+  The database error is named, never quoted: its text repeats the rows it could not
+  insert.
 * What an event holds cannot make it unpersistable: the writers escape the values
   Postgres refuses (a NUL, half a surrogate pair, NaN) before the INSERT
   (``core/pg_storable.py``), so one such event cannot fail its batch either.
+* One event the database refuses for another reason (a constraint, a value its driver
+  cannot encode) fails the INSERT of its whole batch, on every attempt. After the last
+  attempt the worker therefore writes the batch's events one at a time, each once, so
+  that event costs only itself (``_write_each_event_alone``).
 * ``AUDIT_LOG_DROP_ALLOWED`` true (non-production only; refused in prod by the
   settings validator): a full queue drops with a WARN, preserving the original
   low-overhead dev/test behaviour.
@@ -34,12 +39,19 @@ import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
 
+from sqlalchemy.exc import TimeoutError as PoolTimeoutError
+
 from ..core.coga_logging import describe_error
 from ..core.config import settings
 
 logger = logging.getLogger(__name__)
 
 WriteBatch = Callable[[list[Any]], Awaitable[None]]
+
+# A write that failed with one of these never reached the database: it could not connect
+# (refused, unreachable, timed out, TLS), or no pooled connection came free in time. Every
+# other event's write would fail the same way.
+_UNREACHABLE_ERRORS = (OSError, PoolTimeoutError)
 
 _dropped_counts: dict[str, int] = {}
 
@@ -142,8 +154,9 @@ async def write_event_batch_with_retry(
     """Persist a drained batch, retrying transient failures with bounded backoff.
 
     The worker has already removed these events from the queue, so a final failure
-    would lose them; each unpersisted event is therefore recorded (ERROR + count)
-    rather than silently dropped.
+    would lose them. After the last attempt the events are written one at a time
+    (``_write_each_event_alone``), and each event that still cannot be written is
+    recorded (ERROR + count) rather than silently dropped.
     """
     if not batch:
         return
@@ -155,16 +168,16 @@ async def write_event_batch_with_retry(
         except Exception as exc:  # noqa: BLE001 - retried below; a final loss is recorded per event
             if attempt >= attempts:
                 # The error is named, not quoted: its text repeats every row of the batch,
-                # and each event's payload is logged once below.
-                logger.error(
+                # and the payload of each event lost is logged once, by record_unpersisted.
+                error = describe_error(exc)
+                logger.warning(
                     "Audit pipeline %s: batch of %d events failed after %d attempts: %s",
                     name,
                     len(batch),
                     attempts,
-                    describe_error(exc),
+                    error,
                 )
-                for payload in batch:
-                    record_unpersisted(name, payload, "batch write failed")
+                await _write_each_event_alone(write_batch, batch, name=name, batch_error=error)
                 return
             backoff = min(
                 settings.audit_log_flush_interval_seconds * attempt,
@@ -178,3 +191,48 @@ async def write_event_batch_with_retry(
                 backoff,
             )
             await asyncio.sleep(backoff)
+
+
+async def _write_each_event_alone(
+    write_batch: WriteBatch,
+    batch: Sequence[Any],
+    *,
+    name: str,
+    batch_error: str,
+) -> None:
+    """Write the events of a batch that failed its last attempt one at a time, each once.
+
+    An event the database refuses (a constraint, a value its driver cannot encode) fails
+    the INSERT of its whole batch, on every attempt; written alone, it costs only itself,
+    and the other events are stored. Each event is written once, without waiting, so a
+    batch costs at most as many more writes as it holds events (``AUDIT_LOG_BATCH_SIZE``).
+    A write that never reached the database (``_UNREACHABLE_ERRORS``) ends the pass: the
+    events not yet written are recorded untried, as the whole batch used to be. The event
+    of a one-event batch has been written alone already, and is recorded at once with the
+    batch's error (``batch_error``, named by ``describe_error``).
+    """
+    if len(batch) == 1:
+        record_unpersisted(name, batch[0], f"batch write failed: {batch_error}")
+        return
+    stored = 0
+    for index, payload in enumerate(batch):
+        try:
+            await write_batch([payload])
+        except Exception as exc:  # noqa: BLE001 - recorded per event, never raised into the worker
+            error = describe_error(exc)
+            record_unpersisted(name, payload, f"batch write failed, then its own write: {error}")
+            if isinstance(exc, _UNREACHABLE_ERRORS):
+                for untried in batch[index + 1 :]:
+                    record_unpersisted(
+                        name, untried, f"batch write failed, database unreachable: {error}"
+                    )
+                break
+        else:
+            stored += 1
+    logger.warning(
+        "Audit pipeline %s: of the batch's %d events, %d stored one at a time, %d not persisted",
+        name,
+        len(batch),
+        stored,
+        len(batch) - stored,
+    )

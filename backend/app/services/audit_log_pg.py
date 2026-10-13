@@ -111,8 +111,8 @@ def _to_jsonb_text(value: Any) -> str | None:
 def _audit_log_insert_params(payload: AuditLogEventPayload) -> dict[str, Any]:
     # Whatever the request carried, its row must be storable: a value Postgres refuses (a NUL
     # from a %00 in the path, \u0000 in an ignored body field) is escaped, and request_meta
-    # names the columns where that happened. Otherwise the INSERT fails, and neither the
-    # request's row nor the rest of its batch reaches the table.
+    # names the columns where that happened. Otherwise the INSERT fails, and the request's
+    # row never reaches the table.
     params, escaped = storable_columns(
         {
             "user_id": payload.user_id,
