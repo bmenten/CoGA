@@ -195,8 +195,10 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
   cap; SV length filters that measure a call's SVLEN (END − POS without one), an insertion
   written with END at POS included, and let a translocation pass any minimum but no exact
-  length; the clinical CNV knowledge base (ClinGen curation and recurrent regions, ClinVar
-  support, GRCh37 and GRCh38 builds); repeat-expansion status, including contraction loci,
+  length; SV records written without END or SVTYPE read as VCF 4.4 defines them, a deletion
+  over its SVLEN and a breakend as a BND; the clinical CNV knowledge base (ClinGen curation
+  and recurrent regions, ClinVar support, GRCh37 and GRCh38 builds); repeat-expansion
+  status, including contraction loci,
   unclassifiable alleles and an FMR1 premutation told from the grey zone; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their
   signal tracks.
 - **Interpretation** — the ACMG suggestions (conflicting ClinVar, parents from the pedigree),

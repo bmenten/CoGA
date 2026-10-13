@@ -25,6 +25,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
+from .structural_variant_ingest import sv_type_from_alt
 from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
 
 
@@ -143,7 +144,7 @@ def _needlr_records(
         if start is None:
             continue
         info = _parse_vcf_info(info_raw)
-        sv_type = _first_info_value(info, "SVTYPE") or alt.strip("<>") or "SV"
+        sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
         end = _coerce_int(_first_info_value(info, "END", "End_Pos", "END_POS", "End"))
         if end is None:
@@ -305,7 +306,7 @@ def _iter_cnv_structural_records(
         if start is None:
             continue
         info = _parse_vcf_info(info_raw)
-        sv_type = _first_info_value(info, "SVTYPE") or alt.strip("<>") or "CNV"
+        sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "CNV"
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
         end = _coerce_int(_first_info_value(info, "END", "End_Pos"))
         if end is None:
@@ -550,7 +551,7 @@ def _iter_mito_sv_records(
         if start is None:
             continue
         info = _parse_vcf_info(info_raw)
-        sv_type = (_first_info_value(info, "SVTYPE") or alt.strip("<>") or "SV").upper()
+        sv_type = (_first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV").upper()
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
         end = _coerce_int(_first_info_value(info, "END"))
         if end is None:

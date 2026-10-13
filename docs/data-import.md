@@ -872,6 +872,17 @@ calls are checked and replaced:
   is read or replaced. A manual TSV has no sample column: each of its rows is the sample's
   call. Nor has it an SVLEN, so the SV length filters measure a TSV call by its END minus
   POS: an insertion with its END at its POS is 0 bp to them.
+- A Sniffles or Spectre record without END, or with END `.`, ends where VCF 4.4 puts it: at
+  POS + SVLEN (its sign dropped) for a `<DEL>`, `<DUP>`, `<INV>` or `<CNV>` allele, subtypes
+  included, and at POS + the length of REF − 1 for any other allele (an `<INS>`, a
+  breakend, a sequence allele); one of the four without an SVLEN stays on its POS. An SV is
+  listed with the genes its POS–END span overlaps, so a deletion written with SVLEN alone is
+  found by a search for a gene it deletes. A written END is kept as written.
+- A record without SVTYPE, or with SVTYPE `.`, takes the type its ALT states, as VCF 4.4
+  deprecates SVTYPE as redundant with ALT: a symbolic allele's name (`<DUP:TANDEM>` is
+  `DUP:TANDEM`), BND for breakend notation (`N]5:3000000]`, or a single breakend such as
+  `G.`), INS or DEL for a sequence longer or shorter than REF, and `SV` when the ALT states
+  none. A package's NeedlR, HiFiCNV and chrM Sniffles2 files take a missing type the same way.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another

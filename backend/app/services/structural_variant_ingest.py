@@ -10,6 +10,13 @@ from .data_scope import normalize_chromosome
 StructuralVariantRecordFormat = Literal["manual", "sniffles", "spectre"]
 
 BND_ALT_RE = re.compile(r"[\[\]]?([^:\[\]]+):(\d+)[\[\]]?")
+# One symbolic allele (``<DEL>``, ``<DUP:TANDEM>``) and one sequence allele (bases only).
+_SYMBOLIC_ALLELE_RE = re.compile(r"<([^<>,]+)>")
+_SEQUENCE_ALLELE_RE = re.compile(r"[ACGTN]+", re.IGNORECASE)
+# The first-level types of the symbolic alleles whose END VCF 4.4 puts at POS + SVLEN
+# (INFO END): they span reference bases after their padding base. Every other allele (an
+# <INS>, a breakend, a sequence allele) ends at POS + len(REF) - 1.
+_SPANNING_SYMBOLIC_TYPES = frozenset({"DEL", "DUP", "INV", "CNV"})
 
 
 @dataclass(frozen=True)
@@ -102,6 +109,71 @@ def parse_svlen(value: str | None) -> int | None:
             return None
 
 
+def info_value(info: Dict[str, str], key: str) -> str | None:
+    """An INFO value, None when the record leaves it out or writes it missing (``.``)."""
+    value = info.get(key)
+    if value is None or value.strip() in {"", "."}:
+        return None
+    return value
+
+
+def is_breakend_alt(alt: str) -> bool:
+    """Whether ``alt`` is written in VCF breakend notation: a mate position in brackets
+    (``N[5:3000000[``, ``]5:3000000]N``) or a single breakend, bases with a dot before or
+    after them (``G.``, ``.G``)."""
+    alt = alt.strip()
+    if "[" in alt or "]" in alt:
+        return True
+    if alt.startswith("."):
+        return bool(_SEQUENCE_ALLELE_RE.fullmatch(alt[1:]))
+    if alt.endswith("."):
+        return bool(_SEQUENCE_ALLELE_RE.fullmatch(alt[:-1]))
+    return False
+
+
+def sv_type_from_alt(ref: str, alt: str) -> str | None:
+    """The SV type a record's ALT allele states, for a record without INFO/SVTYPE, which
+    VCF 4.4 deprecates as redundant with ALT: a symbolic allele states its name
+    (``<DUP:TANDEM>`` is ``DUP:TANDEM``), breakend notation BND, and a sequence allele INS
+    or DEL as it is longer or shorter than REF. None when the ALT states none: a sequence
+    as long as REF, a missing ALT, several ALT alleles."""
+    alt = alt.strip()
+    symbolic = _SYMBOLIC_ALLELE_RE.fullmatch(alt)
+    if symbolic:
+        return symbolic.group(1)
+    if is_breakend_alt(alt):
+        return "BND"
+    ref = ref.strip()
+    if _SEQUENCE_ALLELE_RE.fullmatch(alt) and _SEQUENCE_ALLELE_RE.fullmatch(ref):
+        if len(alt) > len(ref):
+            return "INS"
+        if len(alt) < len(ref):
+            return "DEL"
+    return None
+
+
+def structural_variant_end(*, pos: int, ref: str, alt: str, sv_len: int | None) -> int:
+    """A record's END when its INFO has none, as VCF 4.4 computes it: POS + SVLEN (without
+    its sign) for a ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes included,
+    and POS + len(REF) - 1 for every other allele -- an ``<INS>``, a breakend, a sequence
+    allele -- as for one of those four without an SVLEN, whose extent the record does not
+    state. Reading such a record's END as its POS put a deletion on one base: the genes it
+    spans were not listed with it, so a gene or panel search missed it (CLIN-33)."""
+    symbolic = _SYMBOLIC_ALLELE_RE.fullmatch(alt.strip())
+    if symbolic and sv_len is not None:
+        if symbolic.group(1).split(":", 1)[0].upper() in _SPANNING_SYMBOLIC_TYPES:
+            return pos + abs(sv_len)
+    return pos + max(len(ref.strip()), 1) - 1
+
+
+def record_sv_type(info: Dict[str, str], ref: str, alt: str) -> str:
+    """A VCF record's SV type: its INFO/SVTYPE, else the type its ALT states
+    (``sv_type_from_alt``), else ``SV``. Taking the ALT itself as the type stored a
+    breakend as ``N]5:3000000]``, which neither the type filter nor the translocation rule
+    of the length filters knows (CLIN-37)."""
+    return info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
+
+
 def _coerce_int(value: Any) -> int | None:
     """Parse a required integer coordinate; None when unparseable/missing so a
     malformed record can be skipped rather than aborting the whole ingest."""
@@ -177,14 +249,22 @@ def _iter_sniffles_records(
         sample_f = parts[9 + sample_column]
         info = parse_info(info_f)
         fmt_vals = parse_format(fmt, sample_f)
-        svtype = info.get("SVTYPE", alt.strip("<>"))
+        svtype = record_sv_type(info, ref, alt)
+        svlen = parse_svlen(info.get("SVLEN"))
         remote_chr: str | None = None
         remote_start: int | None = None
         remote_end: int | None = None
 
         start = _coerce_int(pos)
-        end = _coerce_int(info.get("END", pos))
-        if start is None or end is None:
+        if start is None:
+            continue
+        end_value = info_value(info, "END")
+        end = (
+            _coerce_int(end_value)
+            if end_value is not None
+            else structural_variant_end(pos=start, ref=ref, alt=alt, sv_len=svlen)
+        )
+        if end is None:
             continue
 
         if svtype == "BND":
@@ -204,7 +284,7 @@ def _iter_sniffles_records(
             info=info,
             qual=_coerce_qual(qual),
             filter=filt or None,
-            svlen=parse_svlen(info.get("SVLEN")),
+            svlen=svlen,
             remote_chr=remote_chr,
             remote_start=remote_start,
             remote_end=remote_end,
@@ -226,9 +306,17 @@ def _iter_spectre_records(
         sample_f = parts[9 + sample_column]
         info = parse_info(info_f)
         fmt_vals = parse_format(fmt, sample_f)
+        svlen = parse_svlen(info.get("SVLEN"))
+        end_value = info_value(info, "END")
         try:
             chrom, start = split_chrom_pos(chrom_raw, pos)
-            end = parse_end(info.get("END", pos))
+            if end_value is not None:
+                end = parse_end(end_value)
+            elif "-" in pos.split(":", 1)[-1]:
+                # A POS written as a range (``start-end``) carries the record's END.
+                end = parse_end(pos)
+            else:
+                end = structural_variant_end(pos=start, ref=ref, alt=alt, sv_len=svlen)
         except (TypeError, ValueError):
             # Unpositionable record — skip rather than raise mid-ingest.
             continue
@@ -240,12 +328,12 @@ def _iter_spectre_records(
             end=end,
             ref=ref,
             alt=alt,
-            svtype=info.get("SVTYPE", alt.strip("<>")),
+            svtype=record_sv_type(info, ref, alt),
             gt=fmt_vals.get("GT", "./."),
             info=info,
             qual=_coerce_qual(qual),
             filter=filt or None,
-            svlen=parse_svlen(info.get("SVLEN")),
+            svlen=svlen,
             phase_set=parse_phase_set(fmt_vals.get("PS")),
         )
 

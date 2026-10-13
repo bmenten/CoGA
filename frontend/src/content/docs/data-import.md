@@ -299,6 +299,12 @@ is its start is 0 bp to them. A package's per-sample TRGT,
 mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
 verified its tubes), the entry's `vcf_sample` says so.
 
+A Sniffles or Spectre record without an END ends where the VCF standard (4.4) puts it: a deletion,
+duplication, inversion or copy-number change SVLEN bases after its start, any other call on its start.
+The SV is listed with the genes that span overlaps, so a search for a gene a deletion removes finds it.
+A record without an SVTYPE takes the type its ALT states, so a breakend written as `N]5:3000000]` is
+a BND; a package's NeedlR, HiFiCNV and mitochondrial SV files take a missing type the same way.
+
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
 of a member removed from the family.
