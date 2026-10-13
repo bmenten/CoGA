@@ -462,6 +462,10 @@ async def _import_family_datasets(
     naming every dataset of the family. If the import's process stops first, the entry
     stays."""
     import_key = import_mark.key if import_mark is not None else None
+    # What the import records each dataset as replacing (dataset_scopes), from before its
+    # first write: each importer is handed its dataset's (an SNV family VCF is stored as
+    # the callset its scope names, SAFE-23).
+    mark_scopes: Mapping[str, Any] = import_mark.scopes if import_mark is not None else {}
     finished: set[str] = set()
     # The samples of each dataset an update left as they were, their rows being there
     # (``DatasetImportJob.skipped_samples``).
@@ -539,6 +543,7 @@ async def _import_family_datasets(
                 conflict_mode=conflict_mode,
                 progress=dataset_progress,
                 skipped_samples=skipped_samples.setdefault(summary.dataset_type, set()),
+                scope=mark_scopes.get(summary.dataset_type),
             )
             datasets[index] = imported.model_copy(update={"progress": timer.finish()})
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
@@ -569,7 +574,6 @@ async def _import_family_datasets(
     # unfinished entry for the same scope is completed by it. Not the samples an update
     # skipped, nor a dataset it skipped whole (`skipped`): a skip imports nothing again,
     # so it completes nothing (SAFE-20).
-    mark_scopes: Mapping[str, Any] = import_mark.scopes if import_mark is not None else {}
     imported_scopes = imported_dataset_scopes(imported_datasets, mark_scopes, skipped_samples)
 
     # Fail-clean. A failed import must not leave a silently-partial family behind:

@@ -1,5 +1,5 @@
 """A restore that fails part-way keeps the family marked until it is imported again in full
-(E2E, SAFE-13, SAFE-16, SAFE-19 and SAFE-20).
+(E2E, SAFE-13, SAFE-16, SAFE-19, SAFE-20 and SAFE-23).
 
 An overwrite of an existing family that fails puts the family back from the backup it made
 first, table by table: the family's rows deleted, then the backup's re-inserted. A restore
@@ -12,9 +12,12 @@ still left out a dataset the import did not carry (SAFE-16), whose rows the rest
 too; the owner's decision (2026-10-13): the import's ``import_unfinished`` entry stays,
 naming every dataset of the family, until an overwrite import of the whole family completes.
 A dataset only a single-file upload can bring was not in it (SAFE-19): uploads now record
-what they brought, and an upload with overwrite brings it again.
+what they brought, and an upload with overwrite brings it again. An SNV dataset whose
+``source_format`` is ``auto`` was recorded as ``auto`` whatever callset its file held, so
+two such imports brought each other's callset again (SAFE-23): each now records the callset
+it stored.
 
-Over five new one-sample families this runs real import jobs (``POST /api/family-imports``,
+Over six new one-sample families this runs real import jobs (``POST /api/family-imports``,
 then the worker's ``run_family_import_job``) and structural-variant uploads
 (``POST /api/structural-variants/upload/<sample>``) against Postgres and ClickHouse, and signs
 out through ``POST /api/families/<id>/report/sign-out`` after each re-import.
@@ -73,6 +76,20 @@ The fifth family (the restore removes SV calls a single-file upload loaded):
 * the SV calls uploaded again with overwrite: the entry goes, and the report signs out with no
   import acknowledgement.
 
+The sixth family (the restore removes the direct calls an import stored, every package's
+``source_format`` left at ``auto``):
+
+* package 1 (cancel): 6 small variants (direct calls) and coverage: the family records the
+  callset as ``clair3`` (before: ``auto``);
+* package 2 (overwrite, coverage alone), which fails; ClickHouse then fails the restore's
+  re-insert of the small variants after their delete: the direct calls are gone, and the
+  entry names them;
+* package 3 (overwrite): 6 imputed genotypes, stored as ``glimpse2``, and coverage complete:
+  the entry keeps the direct calls and the sign-out is still refused (before: both scopes
+  read ``auto``, the entry went, and the family signed out with its direct calls gone);
+* package 4 (overwrite, the direct calls) completes: the entry goes, and the report signs out
+  with no import acknowledgement.
+
 The dataset failures and the restores' failures are injected (the import's dataset step,
 and the restore's ``execute_clickhouse``); everything else runs as in production.
 Everything runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
@@ -123,21 +140,26 @@ def _write_package(
     variants: int | None = _VARIANTS,
     first_position: int = 100,
     coverage: bool = True,
+    imputed: bool = False,
 ) -> Path:
-    """A one-sample package: a family VCF of ``variants`` SNVs (none: no SNV dataset) and,
-    with ``coverage``, a coverage BED."""
+    """A one-sample package: a family VCF of ``variants`` SNVs (none: no SNV dataset),
+    direct calls or, with ``imputed``, imputed genotypes with their posteriors (its
+    source_format left at auto either way) and, with ``coverage``, a coverage BED."""
     sample = f"{family_id}_S1"  # sample ids are unique across families
     root.mkdir(parents=True, exist_ok=True)
     (root / "family.ped").write_text(f"{family_id}\t{sample}\t0\t0\t1\t2\n", encoding="utf-8")
     manifest = [f"schema_version: 1\nfamily_id: {family_id}\nped: family.ped\ndatasets:\n"]
     if variants is not None:
         (root / "snv").mkdir(exist_ok=True)
+        call = "GT:GP\t0|1:0.05,0.9,0.05" if imputed else "GT\t0/1"
+        posteriors = '##FORMAT=<ID=GP,Number=G,Type=Float,Description="Genotype posteriors">\n'
         (root / "snv" / "family.vcf").write_text(
             "##fileformat=VCFv4.2\n"
             '##FORMAT=<ID=GT,Number=1,Type=String,Description="Genotype">\n'
-            f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
+            + (posteriors if imputed else "")
+            + f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}\n"
             + "".join(
-                f"1\t{first_position + 100 * i}\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\n"
+                f"1\t{first_position + 100 * i}\t.\tA\tG\t60\tPASS\t.\t{call}\n"
                 for i in range(variants)
             ),
             encoding="utf-8",
@@ -218,6 +240,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
         "kept": f"FAM_PARTWAY_K_{suffix}",
         "removed": f"FAM_PARTWAY_R_{suffix}",
         "upload": f"FAM_PARTWAY_U_{suffix}",
+        "callset": f"FAM_PARTWAY_C_{suffix}",
     }
     out: dict[str, Any] = {"families": families, "steps": {}}
     jobs: list[str] = []
@@ -253,6 +276,13 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             "imported_scopes": metadata.get("imported_scopes"),
             "snvs": await count_family_small_variants(
                 _harness.ASSEMBLY, row["uuid"], project_ids=[project_id]
+            ),
+            # By callset: direct calls, and imputed genotypes (the sixth family).
+            "clair3_snvs": await count_family_small_variants(
+                _harness.ASSEMBLY, row["uuid"], project_ids=[project_id], source="clair3"
+            ),
+            "glimpse2_snvs": await count_family_small_variants(
+                _harness.ASSEMBLY, row["uuid"], project_ids=[project_id], source="glimpse2"
             ),
             "svs": await count_family_structural_variants(
                 _harness.ASSEMBLY, row["uuid"], project_ids=[project_id]
@@ -406,6 +436,22 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             await sign_out("upload", step)
             await sign_out("upload", await run_import("upload", "3_snv_again", "overwrite", coverage=False))
             await sign_out("upload", await upload_svs("upload", "4_sv_upload_again", overwrite=True))
+
+            # The sixth family: the restore removes the direct calls an import stored, its
+            # source_format left at auto; an import of imputed genotypes, auto too, does not
+            # bring them again (SAFE-23).
+            await run_import("callset", "1_complete", "cancel")
+            failing.update(dataset="coverage", restore="SNV_INDEL/entries")
+            try:
+                step = await run_import("callset", "2_overwrite_restore_fails", "overwrite", variants=None)
+            finally:
+                failing.update(dataset=None, restore=None)
+            await sign_out("callset", step)
+            await sign_out(
+                "callset",
+                await run_import("callset", "3_imputed", "overwrite", imputed=True, first_position=50_000),
+            )
+            await sign_out("callset", await run_import("callset", "4_direct_again", "overwrite", coverage=False))
     finally:
         async with sm() as s:
             await s.execute(
@@ -631,10 +677,11 @@ def test_an_upload_records_what_it_brought_for_the_family(snap) -> None:
     assert imported["job"]["status"] == "completed", imported["job"]["error"]
     assert step["upload"]["status"] == 200, step["upload"]["text"]
     assert step["family"]["svs"] == 2
-    # Before (SAFE-19): the family recorded the package's small variants alone.
+    # Before (SAFE-19): the family recorded the package's small variants alone. Their
+    # callset is the one the package's file holds, its source_format being auto (SAFE-23).
     sample = f"{snap['families']['upload']}_S1"
     assert step["family"]["imported_scopes"] == {
-        "snv": [{"source": "auto", "samples": None}],
+        "snv": [{"source": "clair3", "samples": None}],
         "sv_manual": [{"source": None, "samples": [sample]}],
     }
 
@@ -673,5 +720,47 @@ def test_the_calls_uploaded_again_with_overwrite_complete_the_family(snap) -> No
     step = snap["steps"]["upload/4_sv_upload_again"]
     assert step["upload"]["status"] == 200, step["upload"]["text"]
     assert step["family"]["svs"] == 2 and step["family"]["snvs"] == _VARIANTS
+    assert step["family"]["incomplete"] is None and step["family"]["unfinished"] is None
+    _signed(step)
+
+
+# --- the sixth family: the restore removes the callset an auto import stored (SAFE-23) -----
+
+_DIRECT_CALLSET = {"source": "clair3", "samples": None}
+
+
+def test_the_restore_removed_the_direct_calls_an_auto_import_stored(snap) -> None:
+    first, step = snap["steps"]["callset/1_complete"], snap["steps"]["callset/2_overwrite_restore_fails"]
+    assert first["job"]["status"] == "completed", first["job"]["error"]
+    # The package leaves source_format at auto; its file holds direct calls, which the family
+    # records as such (before: "auto").
+    assert first["family"]["imported_scopes"]["snv"] == [_DIRECT_CALLSET]
+    assert step["job"]["status"] == "failed"
+    assert len(step["reinserts_failed"]) == 1 and "SNV_INDEL/entries" in step["reinserts_failed"][0]
+    assert step["family"]["clair3_snvs"] == 0
+    entry = step["family"]["unfinished"][step["job_id"]]
+    assert {"dataset": "snv", "scope": _DIRECT_CALLSET} in entry["whole_family"]
+    _refused(step)
+
+
+def test_an_auto_import_of_imputed_genotypes_does_not_bring_the_direct_calls_again(snap) -> None:
+    flagged, step = snap["steps"]["callset/2_overwrite_restore_fails"], snap["steps"]["callset/3_imputed"]
+    assert step["job"]["status"] == "completed", step["job"]["error"]
+    # Stored as the callset its file holds: imputed genotypes, and still no direct calls.
+    assert (step["family"]["glimpse2_snvs"], step["family"]["clair3_snvs"]) == (_VARIANTS, 0)
+    assert step["family"]["incomplete"] is None
+    # Before: both imports' scopes read "auto", so this one struck the direct calls off the
+    # entry, and the family signed out with them gone.
+    detail = _refused(step)
+    assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["snv"]
+    entry = step["family"]["unfinished"][flagged["job_id"]]
+    assert entry["whole_family"] == [{"dataset": "snv", "scope": _DIRECT_CALLSET}]
+    assert step["family"]["imported_scopes"]["snv"] == [_DIRECT_CALLSET, {"source": "glimpse2", "samples": None}]
+
+
+def test_an_auto_import_of_the_direct_calls_completes_the_family(snap) -> None:
+    step = snap["steps"]["callset/4_direct_again"]
+    assert step["job"]["status"] == "completed", step["job"]["error"]
+    assert (step["family"]["clair3_snvs"], step["family"]["glimpse2_snvs"]) == (_VARIANTS, _VARIANTS)
     assert step["family"]["incomplete"] is None and step["family"]["unfinished"] is None
     _signed(step)
