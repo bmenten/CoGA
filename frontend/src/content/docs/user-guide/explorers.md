@@ -16,6 +16,9 @@ classification, consequence and tags, with the number of carriers (het and hom) 
 
 - Filter as on the family page (gene, consequence, ClinVar, frequency, in-silico scores), plus tags and
   classification — for example every variant tagged *Report*.
+- The annotation filters work as on the family page: they must all hold on one transcript of the
+  variant, one of the in-silico predictors you set is enough, and *MANE only* keeps nothing on GRCh37 or
+  T2T (see [Small-variant prioritisation](#small-variant-filtering)).
 - Click a het, hom or family count to see the carriers per family, with links to their family pages.
 - Imputed calls are left out unless you tick **Include imputed variants (GLIMPSE2 / SHAPEIT)**.
 - **Download CSV** exports the filtered variants with their annotation, up to 50,000 rows. A file that
