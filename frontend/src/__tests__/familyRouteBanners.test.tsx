@@ -10,10 +10,16 @@
 // page shows them and it has its entry in PAGE_DATA. (The report route is rendered for a family
 // never signed out, as the live report; a signed version shows the import state frozen in its
 // record instead, and checks it against the family's current one.)
+//
+// The warnings come from the family record, so no page shows the family's data without it
+// (SAFE-14). Before the record is in, a page shows a page state alone; when it could not be
+// loaded, the page says the family could not be loaded, offers a retry, and shows nothing else.
+// Three pages showed their data without the warnings when the record failed, and one waited
+// for it for good.
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import type { ComponentType } from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
@@ -25,6 +31,7 @@ import {
   findImportIncompleteBanner,
   offScopeProject,
 } from '../test/familyPageBanners';
+import { held, settle } from '../test/settle';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -182,24 +189,58 @@ const FAMILY = {
   metadata: INCOMPLETE_IMPORT_METADATA,
 };
 
+const serverError = () =>
+  Promise.reject(Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }));
+
+/**
+ * How a request for the family record ends: answered, failed as on a server error, or held
+ * until the promise given here resolves. Read at each request, so a retry sees a change.
+ */
+let familyAnswer: 'answered' | 'failed' | Promise<void> = 'answered';
+
 const serve = ({ family = {}, api = {} }: PageData) => {
+  const record = { ...FAMILY, ...family };
   const table: Record<string, unknown> = {
-    '/families/F1': { ...FAMILY, ...family },
     '/projects': [offScopeProject('p1')],
     ...api,
   };
   apiMock.get.mockImplementation((url: string) => {
     const key = url.split('?')[0];
-    return key in table
-      ? Promise.resolve({ data: table[key] })
-      : Promise.reject(
-          Object.assign(new Error('Request failed with status code 500'), { response: { status: 500 } }),
-        );
+    if (key === '/families/F1') {
+      if (familyAnswer === 'failed') return serverError();
+      if (familyAnswer instanceof Promise) return familyAnswer.then(() => ({ data: record }));
+      return Promise.resolve({ data: record });
+    }
+    return key in table ? Promise.resolve({ data: table[key] }) : serverError();
   });
+};
+
+type FamilyRoute = (typeof FAMILY_ROUTES)[number];
+
+const renderRoute = async ({ routePath, page, props }: FamilyRoute) => {
+  serve(PAGE_DATA[routePath] ?? {});
+  const Page = (await pageModule(page)).default;
+  return render(
+    <QueryClientProvider client={createTestQueryClient()}>
+      <MemoryRouter initialEntries={[urlOf(routePath)]}>
+        <Routes>
+          <Route path={routePath} element={<Page {...props} />} />
+        </Routes>
+      </MemoryRouter>
+    </QueryClientProvider>,
+  );
+};
+
+/** The page state (`PageState`) the page shows, and that it shows nothing else. */
+const expectPageStateAlone = (container: HTMLElement, state: Element | null) => {
+  expect(state).not.toBeNull();
+  expect(container.querySelectorAll('.page-state')).toHaveLength(1);
+  expect(container.textContent).toBe(state?.textContent);
 };
 
 beforeEach(() => {
   apiMock.get.mockReset();
+  familyAnswer = 'answered';
   for (const method of [apiMock.post, apiMock.put, apiMock.patch, apiMock.delete]) {
     method.mockResolvedValue({ data: {} });
   }
@@ -216,20 +257,49 @@ describe('the family routes', () => {
 
   it.each(FAMILY_ROUTES)(
     '$routePath ($page) warns of the incomplete import and the off-scope assembly',
-    async ({ routePath, page, props }) => {
-      serve(PAGE_DATA[routePath] ?? {});
-      const Page = (await pageModule(page)).default;
+    async (route) => {
+      await renderRoute(route);
 
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={[urlOf(routePath)]}>
-            <Routes>
-              <Route path={routePath} element={<Page {...props} />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
+      await findImportIncompleteBanner();
+      await findAssemblyScopeBanner();
+    },
+  );
 
+  it.each(FAMILY_ROUTES)(
+    '$routePath ($page) shows only that the family could not be loaded, and loads it on retry',
+    async (route) => {
+      familyAnswer = 'failed';
+      const { container } = await renderRoute(route);
+
+      // "Family could not be loaded"; the reports say "The family could not be loaded, …".
+      const saysSo = /family could not be loaded/i;
+      await screen.findAllByText(saysSo);
+      // Everything else the page asks for is answered meanwhile, and none of the family's data
+      // shows beside the failure: it would be shown without the warnings.
+      await settle(apiMock.get);
+      const failure = screen.getAllByText(saysSo)[0].closest('.page-state');
+      expectPageStateAlone(container, failure);
+
+      familyAnswer = 'answered';
+      fireEvent.click(within(failure as HTMLElement).getByRole('button', { name: 'Retry' }));
+      await findImportIncompleteBanner();
+      await findAssemblyScopeBanner();
+    },
+  );
+
+  it.each(FAMILY_ROUTES)(
+    '$routePath ($page) shows nothing of the family before its record is in',
+    async (route) => {
+      const family = held();
+      familyAnswer = family.answered;
+      const { container } = await renderRoute(route);
+
+      // Everything else the page asks for is answered meanwhile: it still shows a page state
+      // alone (loading, or a failure of its own data), never its data without the warnings.
+      await settle(apiMock.get);
+      expectPageStateAlone(container, container.querySelector('.page-state'));
+
+      family.release();
       await findImportIncompleteBanner();
       await findAssemblyScopeBanner();
     },

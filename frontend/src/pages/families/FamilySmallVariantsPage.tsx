@@ -8,6 +8,7 @@ import FamilyPageHeader from './FamilyPageHeader';
 import FilterCollapseToggle from './FilterCollapseToggle';
 import { useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import SmallVariantFilterForm from './SmallVariantFilterForm';
@@ -52,7 +53,12 @@ const FamilySmallVariantsPage: React.FC = () => {
     [location.search],
   );
 
-  const { data: family } = useQuery<SmallVariantFamily>({
+  const {
+    data: family,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<SmallVariantFamily>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -270,6 +276,20 @@ const FamilySmallVariantsPage: React.FC = () => {
   });
 
   const totalPages = Math.max(1, Math.ceil((data?.total ?? 0) / 100));
+
+  // The family failed: the search waits for it, and would otherwise wait for good. Without
+  // it, whether its import is complete is not known either (SAFE-14).
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Small Variants"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
+      />
+    );
+  }
 
   // The project catalogue failed: the search runs within the family's project, and would
   // otherwise wait for it for good (#608).

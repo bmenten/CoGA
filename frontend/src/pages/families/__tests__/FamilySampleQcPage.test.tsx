@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -11,6 +11,7 @@ import {
   findImportIncompleteBanner,
   offScopeProject,
 } from '../../../test/familyPageBanners';
+import { held, settle } from '../../../test/settle';
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
 
@@ -536,5 +537,87 @@ describe('FamilySampleQcPage', () => {
     expect(screen.getByText(/Maternal transmission 50%/)).toBeInTheDocument();
     // No genotype relatedness matrix for the cfDNA application.
     expect(screen.queryByText('Relatedness vs pedigree')).not.toBeInTheDocument();
+  });
+
+  // SAFE-14 — the family record holds what the header warns of: an import that left the
+  // family incomplete, and an assembly outside the validated scope. The checks were shown
+  // without those warnings while the record loaded, and when it could not be loaded.
+  describe('without the family record', () => {
+    const PASSING_QC = {
+      family_id: 'FAM1',
+      overall_status: 'pass',
+      application: 'wgs',
+      application_label: 'Long-read WGS family',
+      application_summary: 'Full pedigree QC on the SNV call set.',
+      genotype_source: 'clair3',
+      paternity_check: null,
+      autosomal_sites: 90000,
+      notes: [],
+      sex_checks: [],
+      relatedness_checks: [],
+      mendelian_checks: [],
+    };
+
+    /** The QC answered at once; the family record, and the project list, as given. */
+    const serve = (family: () => Promise<unknown>, projects = () => Promise.resolve({ data: [] as unknown[] })) => {
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/FAM1/qc/sample-integrity') return Promise.resolve({ data: PASSING_QC });
+        if (url === '/families/FAM1') return family();
+        if (url === '/projects') return projects();
+        return Promise.resolve({ data: {} });
+      });
+    };
+
+    it('shows none of the checks before the family, and then its reference, are in', async () => {
+      const family = held();
+      const reference = held();
+      serve(
+        // The family on project p1, whose assembly is outside the validated scope.
+        () => family.answered.then(() => ({ data: { ...TRIO_FAMILY, projects: ['p1'] } })),
+        () => reference.answered.then(() => ({ data: [offScopeProject('p1')] })),
+      );
+      renderPage();
+
+      // The checks are in meanwhile: the page still says it is loading.
+      await settle(apiMock.get);
+      expect(screen.getByRole('status', { name: 'Running sample-integrity checks' })).toBeInTheDocument();
+      expect(screen.queryByText(/All sample-integrity checks passed/)).not.toBeInTheDocument();
+
+      // The family alone is not enough: without its reference, the scope warning is unknown.
+      family.release();
+      await settle(apiMock.get);
+      expect(screen.getByRole('status', { name: 'Running sample-integrity checks' })).toBeInTheDocument();
+      expect(screen.queryByText(/All sample-integrity checks passed/)).not.toBeInTheDocument();
+
+      reference.release();
+      expect(await screen.findByText(/All sample-integrity checks passed/)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Family FAM1' })).toBeInTheDocument();
+      await findAssemblyScopeBanner();
+    });
+
+    it('says the family could not be loaded, shows none of the checks, and loads them on retry', async () => {
+      let familyFails = true;
+      serve(() =>
+        familyFails
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : Promise.resolve({ data: TRIO_FAMILY }),
+      );
+      renderPage();
+
+      const failure = (await screen.findByRole('heading', { name: 'Family could not be loaded' })).closest(
+        '.page-state',
+      ) as HTMLElement;
+      // The checks are in meanwhile, and not shown.
+      await settle(apiMock.get);
+      expect(failure).toBeInTheDocument();
+      expect(failure).toHaveTextContent('This is a failed request, not a missing family.');
+      expect(screen.queryByText(/All sample-integrity checks passed/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/clair3 genotypes/)).not.toBeInTheDocument();
+
+      familyFails = false;
+      fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText(/All sample-integrity checks passed/)).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Family FAM1' })).toBeInTheDocument();
+    });
   });
 });
