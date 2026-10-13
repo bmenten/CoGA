@@ -138,7 +138,7 @@ was.
 | Table | Holds |
 | --- | --- |
 | `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped (below) |
-| `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events` |
+| `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
 | `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes and sign-out, with before and after |
@@ -169,6 +169,16 @@ in, sorted: in `request_meta` for `audit_log_events`, in `detail` for `ui_events
 client's own `_escaped` is dropped. A row without it is stored as the request sent it. The
 escape is not unique, since a request can send the characters `\x00` itself: `_escaped` says
 that a column holds an escape, not which one.
+
+**A UI event's time.** `ui_events.occurred_at` is the browser's clock; `created_at` is the
+database's. The endpoint (`routers/ui_events.py`) keeps `occurred_at` when it lies from a day
+before to five minutes after the moment the server received the event, and reads a value
+without an offset as UTC. Any other value is stored as that receive time, and
+`detail._client_occurred_at` keeps the client's value in ISO 8601; only the endpoint sets that
+key, and a client's own is dropped. A row without it holds the browser's time, or none. Before,
+a value the database driver cannot convert to UTC (`0001-01-01T00:00:00+05:00` lies before the
+year 1 in UTC) failed the INSERT, in the async mode with every other row of its batch, and a
+naive `9999-12-31T23:59:59.999999` was stored as `infinity`.
 
 **Records outside the user's projects.** A request for a family, sample or project that
 exists outside the user's projects is answered exactly like a request for an unknown ID (404).
