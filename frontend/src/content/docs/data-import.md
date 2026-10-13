@@ -180,6 +180,12 @@ dropped silently.
 sample ID that is a path out of the folder (an absolute path, or one that climbs out with `..`) names no
 file that Discover looks for, and Discover warns about it under *Check before writing the manifest*.
 
+**The manifest is a file in the family folder.** A `manifest.yaml` that is a link to a file elsewhere,
+or a link that loops, is refused (`manifest_outside_package`): Discover drafts nothing, and **Write
+manifest.yaml** does not write through the link. Every path in the manifest is relative to the family
+folder: one that leads out of it, starts with `~` (CoGA reads no home folder) or runs through a link that
+loops is refused.
+
 ### The steps
 
 1. **Family folder.** Pick the folder from the list of families found in the import folder (or type
@@ -213,18 +219,19 @@ heteroplasmy.
 
 ### What validation checks
 
-- The folder and the manifest exist.
-- Every family and sample ID (the manifest's family ID or the folder name, the PED's, the members the
-  manifest adds, a long-read package's per-sample folders) is printable text without spaces. One that is
+- The folder and the manifest exist, and the manifest is a file in the folder, not a link out of it.
+- Every family and sample ID (the manifest's family ID or the folder name, the PED's, and in Discover a
+  parent the PED names without a row of its own, the members the manifest adds, a long-read package's
+  per-sample folders) is printable text without spaces. One that is
   not is refused (`family_id_invalid`, `sample_id_invalid`), and nothing else is checked until it is
   corrected: Discover drafts no manifest for it.
 - The PED is a six-column PED with **one family**, whose identifier matches the manifest's (by default
   the folder name). Sample identifiers are unique, and every parent is a sample in the same PED. A
   manifest without a PED names every member under `family.add_members`.
 - Every sample and every per-sample dataset in the manifest is a sample in the PED.
-- Every file exists. A compressed family VCF for small variants, structural variants or repeats needs
-  its index (`.tbi`, `.csi` or `.idx`); a plain `.vcf` does not. Other index files are checked only when
-  the manifest names one.
+- Every file exists, in the family folder. A compressed family VCF for small variants, structural
+  variants or repeats needs its index (`.tbi`, `.csi` or `.idx`); a plain `.vcf` does not. Other index
+  files are checked only when the manifest names one.
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset
   is a warning; other missing datasets are simply absent.
 - A phenotype row that names an unknown sample or HPO term is skipped with a warning; it never blocks the

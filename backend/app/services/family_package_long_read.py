@@ -44,6 +44,23 @@ _KARYOTYPE_SEX = {"XX": "female", "XY": "male"}
 CARRIER_SCREENING_COUPLE_CONTEXT = "carrier screening"
 
 
+def _is_file(entry: os.DirEntry[str]) -> bool:
+    """``entry.is_file()``, False for an entry that cannot be looked up: a symlink that loops
+    (``DirEntry`` raises OSError for one, where ``Path.is_file`` answers False)."""
+    try:
+        return entry.is_file()
+    except OSError:
+        return False
+
+
+def _is_dir(entry: os.DirEntry[str]) -> bool:
+    """``entry.is_dir()``, False for an entry that cannot be looked up, as ``_is_file``."""
+    try:
+        return entry.is_dir()
+    except OSError:
+        return False
+
+
 def _holds_file_named_after(folder: Path, sample_id: str) -> bool:
     """Whether ``folder`` or one of its subfolders holds a file named after ``sample_id``."""
     try:
@@ -51,13 +68,13 @@ def _holds_file_named_after(folder: Path, sample_id: str) -> bool:
     except OSError:
         return False
     for entry in entries:
-        if entry.is_file() and entry.name.startswith(sample_id):
+        if _is_file(entry) and entry.name.startswith(sample_id):
             return True
     for entry in entries:
-        if not entry.is_dir() or entry.name.startswith("."):
+        if not _is_dir(entry) or entry.name.startswith("."):
             continue
         try:
-            if any(sub.is_file() and sub.name.startswith(sample_id) for sub in os.scandir(entry.path)):
+            if any(_is_file(sub) and sub.name.startswith(sample_id) for sub in os.scandir(entry.path)):
                 return True
         except OSError:
             continue
@@ -68,7 +85,8 @@ def long_read_sample_ids(root: Path) -> list[str]:
     """The samples of a long-read package laid out per sample, in name order: every folder
     under one of the pipeline's per-sample datasets that holds a file named after it.
     Empty for any other layout. A name no sample can be stored under (with a space or a
-    control character) is listed too: Discover reports it, rather than leave a member out."""
+    control character) is listed too: Discover reports it, rather than leave a member out. A
+    symlink that loops is no folder (looked up, it failed Discover and the package list)."""
     samples: set[str] = set()
     for dataset_folder in LONG_READ_SAMPLE_DATASET_FOLDERS:
         base = root / dataset_folder
@@ -78,7 +96,7 @@ def long_read_sample_ids(root: Path) -> list[str]:
             continue
         for child in children:
             name = child.name
-            if not child.is_dir() or name.startswith(".") or name == "annotation":
+            if not _is_dir(child) or name.startswith(".") or name == "annotation":
                 continue
             if _holds_file_named_after(Path(child.path), name):
                 samples.add(name)
