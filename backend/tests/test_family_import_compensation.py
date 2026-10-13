@@ -16,6 +16,10 @@ Covers the fail-clean plumbing without a live database:
   * Each single-file upload records what it brought in `imported_scopes`, in its own
     transaction, so such an entry names it, and an upload with overwrite strikes it off
     (SAFE-19); each upload holds the family's write locks from its first read.
+  * An SNV dataset is recorded as the callset it is stored as, `auto` as its family VCF
+    resolves it, so two imports, or an import and an upload, complete each other only for
+    the same callset, and a scope still reading `auto` is completed by none; the SNV
+    importer stores the file as that callset (SAFE-23).
 The SQL itself runs against Postgres in
 integration/test_import_crash_bookkeeping_integration.py.
 """
@@ -131,10 +135,10 @@ class _FamilyRow(_FakeSession):
         return SimpleNamespace(rowcount=1)
 
 
-# What an overwrite of each dataset replaces (registration.dataset_scopes): the SNV
-# callset's source, and a per-sample dataset's samples.
+# What an overwrite of each dataset replaces (registration.dataset_scopes): the callset the
+# SNV dataset is stored as (`auto` as it resolved), and a per-sample dataset's samples.
 _SCOPES = {
-    "snv": {"source": "auto", "samples": None},
+    "snv": {"source": "clair3", "samples": None},
     "sv_needlr": {"source": None, "samples": None},
     "coverage": {"source": None, "samples": ["S1", "S2"]},
     "haplotypes": {"source": None, "samples": None},
@@ -655,6 +659,7 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
         )
 
     bundle = SimpleNamespace(
+        root=tmp_path,
         manifest=SimpleNamespace(
             datasets={
                 "snv": dataset(family_vcf="snv/family.vcf", extra={"source_format": "deepvariant"}),
@@ -677,7 +682,8 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
         "repeats_trgt": {"source": None, "samples": None},
         "phenotypes": {"source": None, "samples": None},
     }
-    # An SNV callset without a declared source is read as "auto".
+    # An SNV callset without a declared source is the one its family VCF holds (SAFE-23,
+    # below); one whose file cannot be read names none: "auto".
     bundle.manifest.datasets["snv"] = dataset(family_vcf="snv/family.vcf")
     assert registration.dataset_scopes(bundle, ["snv"])["snv"]["source"] == "auto"
 
@@ -900,16 +906,18 @@ def uploads(monkeypatch):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("kind", sorted(_UPLOADS))
 async def test_a_single_file_upload_records_what_it_brought_with_its_commit(uploads, kind) -> None:
-    # The family holds a package import's SNV callset. Before (SAFE-19): an upload left
-    # imported_scopes as it was, so nothing recorded that the family held its data.
-    row = _UploadFamily(imported={"snv": [_SCOPES["snv"]]})
+    # The family holds a package import's SNV callset (imputed genotypes, an snv dataset
+    # stored as glimpse2). Before (SAFE-19): an upload left imported_scopes as it was, so
+    # nothing recorded that the family held its data.
+    held = {"source": "glimpse2", "samples": None}
+    row = _UploadFamily(imported={"snv": [held]})
 
     await uploads(kind, row)
 
     dataset, scope = _UPLOADS[kind]
-    expected = {"snv": [_SCOPES["snv"]], dataset: [scope]}
+    expected = {"snv": [held], dataset: [scope]}
     if dataset == "snv":  # the upload's callset beside the package's, each scope once
-        expected = {"snv": [_SCOPES["snv"], scope]}
+        expected = {"snv": [scope, held]}
     assert row.imported == expected
     # Read under the family row's lock, and written in the transaction that commits what
     # the upload wrote: the record stands or falls with the upload.
@@ -982,11 +990,12 @@ async def test_an_overwrite_upload_strikes_what_it_brought_again_off_the_whole_f
 
 @pytest.mark.asyncio
 async def test_an_upload_strikes_off_only_the_samples_and_the_callset_it_brought(uploads) -> None:
+    imputed = {"source": "glimpse2", "samples": None}
     mark = _mark(datasets=("coverage",))
     entry = registration.whole_family_entry(
         mark,
         imported={
-            "snv": [_SCOPES["snv"], {"source": "clair3", "samples": None}],
+            "snv": [imputed, {"source": "clair3", "samples": None}],
             "sv_manual": [_one("S1"), _one("S2")],
             "repeats_trgt": [_one("S1")],
         },
@@ -999,12 +1008,12 @@ async def test_an_upload_strikes_off_only_the_samples_and_the_callset_it_brought
     await uploads("repeats", row, sample_id="S2", overwrite=True)
     await uploads("small_variants", row, overwrite=True)
 
-    # S2's manual SV calls and the uploaded clair3 callset are struck off. S1's calls, the
-    # TRGT calls of S1 and the package's callset (source_format auto: whichever callset it
-    # resolved to) are still to bring again.
+    # S2's manual SV calls and the clair3 callset are struck off. S1's calls, the TRGT
+    # calls of S1 and the package's imputed callset (an snv dataset stored as glimpse2) are
+    # still to bring again.
     assert [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] != "coverage"] == [
         {"dataset": "repeats_trgt", "scope": _one("S1")},
-        {"dataset": "snv", "scope": _SCOPES["snv"]},
+        {"dataset": "snv", "scope": imputed},
         {"dataset": "sv_manual", "scope": _one("S1")},
     ]
     # Each recorded what it brought.
@@ -1097,3 +1106,399 @@ def test_each_upload_has_the_dataset_of_the_package_import_that_brings_the_same(
     # No package dataset brings these.
     assert registration.structural_variant_upload_scope("sniffles", "S1") == ("sv_sniffles", _one("S1"))
     assert registration.interval_track_upload_scope("apcad_pcf", "S1") == ("bed_apcad_pcf", _one("S1"))
+
+
+# --- an SNV import names the callset it stores, `auto` as it resolves (SAFE-23) -------------
+#
+# A package snv dataset that leaves source_format at auto (the default) is stored as the
+# callset the small-variant loader works out from its family VCF: imputed genotypes (genotype
+# posteriors) as glimpse2, any other as clair3. Its scope read "auto" whatever the file held,
+# so two such imports covered each other whichever callsets they stored: one struck the other's
+# callset off a whole-family entry, or cleared its failure, while that callset was still partly
+# written or gone. The scope now names the callset, read from the file before the import's
+# first write, and the importer stores the file as that callset and nothing else.
+
+_VCF_HEADER = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n"
+# Direct calls (clair3), and imputed genotypes with their posteriors (glimpse2).
+_DIRECT_VCF = _VCF_HEADER + "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\t0/0\n"
+_IMPUTED_VCF = _VCF_HEADER + "1\t100\t.\tA\tG\t.\tPASS\t.\tGT:GP\t0|1:0.1,0.8,0.1\t0|0:0.9,0.05,0.05\n"
+_CLAIR3 = {"source": "clair3", "samples": None}
+_GLIMPSE2 = {"source": "glimpse2", "samples": None}
+# A scope as a package import recorded it before it resolved auto, or one that could not read
+# its family VCF when it began: it names no callset.
+_UNRESOLVED = {"source": "auto", "samples": None}
+
+
+def _package(tmp_path, name, vcf=None, *, analysis_type=None, **snv):
+    """A package whose snv dataset is ``snv``: a family VCF holding ``vcf`` by default."""
+    from app.services.family_package_common import ManifestDataset, PackageManifest
+
+    root = tmp_path / name
+    root.mkdir()
+    if vcf is not None:
+        path = root / snv.setdefault("family_vcf", "family.vcf")
+        path.write_bytes(vcf if isinstance(vcf, bytes) else vcf.encode())
+    manifest = PackageManifest(analysis_type=analysis_type, datasets={"snv": ManifestDataset(**snv)})
+    return SimpleNamespace(root=root, manifest=manifest)
+
+
+def _snv_scope(bundle):
+    """What an import of ``bundle`` records its snv dataset as replacing."""
+    return registration.dataset_scopes(bundle, ["snv"])["snv"]
+
+
+def test_an_snv_dataset_is_recorded_as_the_callset_it_is_stored_as(tmp_path) -> None:
+    import gzip
+
+    # Before: both read "auto", whichever callset the file held.
+    assert _snv_scope(_package(tmp_path, "direct", _DIRECT_VCF)) == _CLAIR3
+    assert _snv_scope(_package(tmp_path, "imputed", _IMPUTED_VCF)) == _GLIMPSE2
+    # As the loader reads it: gzipped, and phased genotypes in a file that says it was
+    # phased are imputed genotypes too.
+    zipped = _package(tmp_path, "zipped", gzip.compress(_IMPUTED_VCF.encode()), family_vcf="family.vcf.gz")
+    assert _snv_scope(zipped) == _GLIMPSE2
+    phased = _VCF_HEADER.replace("#CHROM", "##source=GLIMPSE2\n#CHROM") + "1\t100\t.\tA\tG\t.\tPASS\t.\tGT\t0|1\t0|0\n"
+    assert _snv_scope(_package(tmp_path, "phased", phased)) == _GLIMPSE2
+    # A declared callset is the callset, whatever the file holds.
+    assert _snv_scope(_package(tmp_path, "declared", _IMPUTED_VCF, source_format="clair3")) == _CLAIR3
+    # One file per sample: a monogenic NIPT's are the nipt callset, a long-read couple's the
+    # family's primary callset (before: "auto" and "clair3" as declared).
+    files = {"S1": {"vcf": "S1.vcf"}, "S2": {"vcf": "S2.vcf"}}
+    nipt = _package(tmp_path, "nipt", analysis_type="monogenic_nipt", per_sample=files)
+    assert _snv_scope(nipt) == {"source": "nipt", "samples": ["S1", "S2"]}
+    couple = _package(tmp_path, "couple", source_format="clair3", per_sample=files)
+    assert _snv_scope(couple) == {"source": "clair3", "samples": ["S1", "S2"]}
+    # A family VCF that cannot be read names no callset: the import fails on it before it
+    # writes any of it.
+    assert _snv_scope(_package(tmp_path, "header_only", _VCF_HEADER)) == _UNRESOLVED
+    assert _snv_scope(_package(tmp_path, "missing", family_vcf="family.vcf")) == _UNRESOLVED
+    assert registration.UNRESOLVED_SNV_SOURCE == "auto"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("held", "again"), [(_DIRECT_VCF, _IMPUTED_VCF), (_IMPUTED_VCF, _DIRECT_VCF)])
+async def test_two_auto_imports_strike_each_other_off_the_whole_family_entry_only_for_the_same_callset(
+    tmp_path, held, again
+) -> None:
+    held_package = _package(tmp_path, "held", held)
+    again_package = _package(tmp_path, "again", again)
+    # The family holds the callset an import (source_format auto) stored. An overwrite of the
+    # other package (auto too) failed, and its restore failed part-way: the held callset
+    # may be gone.
+    mark = registration.ImportMark.begin(
+        job_id="job-2", datasets=["snv"], scopes=registration.dataset_scopes(again_package, ["snv"])
+    )
+    entry = registration.whole_family_entry(
+        mark,
+        imported=registration.merged_imported_scopes(None, [("snv", _snv_scope(held_package))]),
+        unfinished={},
+        family_samples=["S1", "S2"],
+    )
+    row = _FamilyRow(unfinished={mark.key: copy.deepcopy(entry)})
+
+    # The other package imported again with overwrite: it replaced its own callset alone.
+    replaced = registration.dataset_scopes(again_package, ["snv"])
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+
+    # Before: both read "auto", and it struck the held callset off: the gate opened with
+    # that callset gone.
+    assert left is not None and set(left.unfinished) == {mark.key}
+    assert row.unfinished[mark.key]["whole_family"] == [{"dataset": "snv", "scope": _snv_scope(held_package)}]
+
+    # The held package imported again with overwrite: the family has been imported again in
+    # full, and the entry goes.
+    replaced = registration.dataset_scopes(held_package, ["snv"])
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    assert left is not None and left.unfinished == {} and row.unfinished is None
+
+
+@pytest.mark.asyncio
+async def test_an_auto_import_completes_a_stopped_auto_import_only_for_the_same_callset(tmp_path) -> None:
+    direct = _package(tmp_path, "direct", _DIRECT_VCF)
+    imputed = _package(tmp_path, "imputed", _IMPUTED_VCF)
+    # An import of the imputed genotypes stopped inside them: they may be partly written.
+    stopped = registration.ImportMark.begin(
+        job_id="job-stopped", datasets=["snv"], scopes=registration.dataset_scopes(imputed, ["snv"])
+    )
+    row = _FamilyRow(unfinished={stopped.key: stopped.entry()})
+
+    # Before: an overwrite of the direct calls completed it, the imputed genotypes still
+    # partly written.
+    replaced = registration.dataset_scopes(direct, ["snv"])
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    assert left is not None and set(left.unfinished) == {stopped.key}
+
+    replaced = registration.dataset_scopes(imputed, ["snv"])
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    assert left is not None and left.unfinished == {} and row.unfinished is None
+
+
+@pytest.mark.asyncio
+async def test_an_auto_import_clears_an_auto_failure_only_for_the_same_callset(tmp_path) -> None:
+    direct = _package(tmp_path, "direct", _DIRECT_VCF)
+    imputed = _package(tmp_path, "imputed", _IMPUTED_VCF)
+    # An import of the imputed genotypes failed in them.
+    row = _FamilyRow()
+    await fpi._flag_family_import_incomplete(
+        row,
+        _ctx(),
+        failed_datasets=["snv"],
+        imported_datasets=[],
+        job_id="job-1",
+        scopes=registration.dataset_scopes(imputed, ["snv"]),
+    )
+    assert row.flag["scopes"] == {"snv": _GLIMPSE2}
+
+    # An import that imported the direct calls and failed in coverage keeps that failure
+    # (before: dropped, as imported again).
+    direct_scope = registration.dataset_scopes(direct, ["snv"])["snv"]
+    await fpi._flag_family_import_incomplete(
+        row,
+        _ctx(),
+        failed_datasets=["coverage"],
+        imported_datasets=["snv"],
+        job_id="job-2",
+        scopes=_SCOPES,
+        imported_scopes={"snv": direct_scope},
+    )
+    assert row.flag["failed_datasets"] == ["coverage", "snv"]
+    assert row.flag["failed_jobs"] == {"coverage": "job-2", "snv": "job-1"}
+
+    # One that completes with the direct calls and coverage leaves it flagged (before:
+    # cleared, the imputed genotypes still missing) ...
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), imported={"snv": direct_scope, "coverage": _SCOPES["coverage"]}
+    )
+    assert left is not None and left.failures.failed == {"snv": "job-1"}
+    assert row.flag["scopes"] == {"snv": _GLIMPSE2}
+
+    # ... and one that imports the imputed genotypes again clears it.
+    left = await fpi._clear_family_import_incomplete(
+        row, _ctx(), imported=registration.dataset_scopes(imputed, ["snv"])
+    )
+    assert left is not None and left.failures.failed == {} and row.flag is None
+
+
+@pytest.mark.asyncio
+async def test_an_auto_import_and_an_upload_bring_each_other_s_callset_again_when_they_stored_the_same(
+    uploads, tmp_path
+) -> None:
+    direct = _package(tmp_path, "direct", _DIRECT_VCF)
+    imputed = _package(tmp_path, "imputed", _IMPUTED_VCF)
+    mark = _mark(datasets=("coverage",))
+
+    # The family holds the direct calls and the imputed genotypes two imports stored (auto
+    # both); a restore failed part-way. An upload of direct calls with overwrite replaces the
+    # family's clair3 callset: it strikes off the one the import stored (before: "auto",
+    # which no upload could strike), and not the imputed genotypes.
+    imported = registration.merged_imported_scopes(
+        None, [("snv", _snv_scope(direct)), ("snv", _snv_scope(imputed))]
+    )
+    row = _UploadFamily(
+        unfinished={
+            mark.key: registration.whole_family_entry(
+                mark, imported=imported, unfinished={}, family_samples=["S1", "S2"]
+            )
+        }
+    )
+    await uploads("small_variants", row, overwrite=True, rows=3)
+    assert [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] == "snv"] == [
+        {"dataset": "snv", "scope": _GLIMPSE2}
+    ]
+
+    # The other way round: the family's direct calls came from an upload. An import of the
+    # imputed genotypes does not bring them again; one of the direct calls (auto) does
+    # (before: its "auto" covered no upload's callset).
+    dataset, scope = _UPLOADS["small_variants"]
+    entry = registration.whole_family_entry(
+        mark, imported={dataset: [scope]}, unfinished={}, family_samples=["S1", "S2"]
+    )
+    row = _FamilyRow(unfinished={mark.key: copy.deepcopy(entry)})
+    for package, still_listed in ((imputed, True), (direct, False)):
+        replaced = registration.dataset_scopes(package, ["snv"])
+        await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+        listed = [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] == "snv"]
+        assert listed == ([{"dataset": "snv", "scope": scope}] if still_listed else [])
+
+
+@pytest.mark.asyncio
+async def test_a_scope_that_still_reads_auto_names_no_callset(uploads) -> None:
+    # Written before imports resolved auto (no backfill: the data is synthetic), or by an
+    # import that could not read its family VCF when it began: the callset may be any.
+    mark = _mark(datasets=("coverage",))
+    entry = registration.whole_family_entry(
+        mark, imported={"snv": [_UNRESOLVED]}, unfinished={}, family_samples=["S1", "S2"]
+    )
+    stopped = {**_entry("job-stopped", ["snv"]), "scopes": {"snv": _UNRESOLVED}}
+    flag = {**_flag("job-1", ["snv"]), "scopes": {"snv": _UNRESOLVED}}
+    row = _UploadFamily(flag=copy.deepcopy(flag), unfinished={mark.key: entry, "job-stopped": stopped})
+
+    # No import completes it, whatever callset it stored; nor one whose own scope reads
+    # auto (before: that one completed all three).
+    for replaced in (_CLAIR3, _GLIMPSE2, _UNRESOLVED):
+        left = await fpi._clear_family_import_incomplete(
+            row, _ctx(), rewritten={"snv": replaced}, imported={"snv": replaced}
+        )
+        assert left is not None and left.failures.failed == {"snv": "job-1"}, replaced
+        assert set(left.unfinished) == {mark.key, "job-stopped"}, replaced
+        assert {"dataset": "snv", "scope": _UNRESOLVED} in row.unfinished[mark.key]["whole_family"]
+    # Nor an upload.
+    for callset in ("clair3", "glimpse2"):
+        await uploads("small_variants", row, overwrite=True, callset=callset, rows=3)
+        assert {"dataset": "snv", "scope": _UNRESOLVED} in row.unfinished[mark.key]["whole_family"]
+    # An import that failed in another dataset after one whose scope reads auto keeps it.
+    merged = registration.merged_import_failure(
+        flag,
+        at="2026-10-13T10:00:00+00:00",
+        job_id="job-2",
+        failed=["coverage"],
+        imported=["snv"],
+        scopes=_SCOPES,
+        imported_scopes={"snv": _UNRESOLVED},
+    )
+    assert merged["failed_datasets"] == ["coverage", "snv"]
+
+
+def _snv_job(tmp_path, vcf, *, scope=None, **snv):
+    """The SNV importer's job for a family VCF holding ``vcf``, ``scope`` being what the
+    import recorded the dataset as replacing (none: an import without its bookkeeping)."""
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+    from app.services.family_package_common import ManifestDataset
+
+    (tmp_path / "family.vcf").write_text(vcf, encoding="utf-8")
+    contexts = {
+        sample: SimpleNamespace(sample_uuid=f"uuid-{sample}", sample_id=sample) for sample in ("S1", "S2")
+    }
+    fields = {"scope": scope} if scope is not None else {}
+    return family_package_datasets.DatasetImportJob(
+        session=SimpleNamespace(),
+        bundle=SimpleNamespace(root=tmp_path),
+        dataset=ManifestDataset(family_vcf="family.vcf", **snv),
+        summary=FamilyImportDatasetSummary(dataset_type="snv", status="valid"),
+        family_context=SimpleNamespace(
+            family_uuid="uuid-1", family_id="F1", project_ids=["project-1"], assembly_name="GRCh38"
+        ),
+        sample_contexts=contexts,
+        **fields,
+    )
+
+
+@pytest.mark.asyncio
+async def test_the_snv_importer_stores_its_file_as_the_callset_its_import_recorded(monkeypatch, tmp_path) -> None:
+    from app.services import family_package_datasets
+
+    stored: list[str] = []
+    deleted: list[str] = []
+
+    async def load(_session, *, file, format_hint, **_kwargs):
+        stored.append(format_hint)
+        return {"inserted": 1, "source_format": format_hint}
+
+    async def delete(_assembly, _family, *, source):
+        deleted.append(source)
+
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", load)
+    monkeypatch.setattr(family_package_datasets, "delete_family_small_variants", delete)
+    importer = family_package_datasets.DATASET_IMPORTERS["snv"]
+
+    # The loader is told to store the file as the callset it holds, which is the one the
+    # import recorded before its first write (before: "auto", for the loader to work out
+    # again).
+    summary = await importer(_snv_job(tmp_path, _IMPUTED_VCF))
+    assert (summary.status, stored) == ("imported", ["glimpse2"])
+    stored.clear()
+    summary = await importer(_snv_job(tmp_path, _IMPUTED_VCF, scope=_GLIMPSE2))
+    assert (summary.status, stored) == ("imported", ["glimpse2"])
+    stored.clear()
+
+    # A file that no longer reads as the recorded callset changed while the import ran: it
+    # is refused before anything is written, and nothing of another callset is deleted.
+    with pytest.raises(family_package_datasets.SnvCallsetChanged, match="glimpse2 callset this import recorded"):
+        await importer(_snv_job(tmp_path, _DIRECT_VCF, scope=_GLIMPSE2))
+    assert stored == [] and deleted == []
+
+    # A callset the import could not tell when it began is the file's own; a declared one
+    # is stored as declared.
+    await importer(_snv_job(tmp_path, _DIRECT_VCF, scope=_UNRESOLVED))
+    await importer(_snv_job(tmp_path, _IMPUTED_VCF, scope=_CLAIR3, source_format="clair3"))
+    assert stored == ["clair3", "clair3"]
+
+
+@pytest.mark.asyncio
+async def test_an_import_records_the_callset_its_auto_snv_dataset_stores(monkeypatch, tmp_path) -> None:
+    from contextlib import asynccontextmanager
+
+    from app.core.config import settings
+    from app.services import sv_gene_index_service, variant_ranking_cache
+    from app.services.family_metadata_context import FamilyMetadataContext
+
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    row = _FamilyRow()
+    context = FamilyMetadataContext(
+        family_uuid="uuid-1",
+        family_id="F1",
+        project_ids=["project-1"],
+        sample_rows=[
+            {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "male", "role": "proband", "affected": True},
+            {"sample_uuid": "uuid-S2", "sample_id": "S2", "sex": "female", "role": "mother", "affected": False},
+        ],
+        sample_uuid_to_name={"uuid-S1": "S1", "uuid-S2": "S2"},
+        sample_name_to_uuid={"S1": "uuid-S1", "S2": "uuid-S2"},
+        affected_sample_names=["S1"],
+        assembly_id="assembly-1",
+        assembly_name="GRCh38",
+    )
+    seen: list[tuple] = []
+
+    async def register(session, *, import_mark=None, **_kwargs):
+        await registration._mark_family_import_unfinished(session, family_uuid="uuid-1", mark=import_mark)
+        return context, True
+
+    @asynccontextmanager
+    async def hold(_family_uuid, **_kwargs):
+        yield
+
+    async def import_dataset(_session, *, summary, scope=None, **_kwargs):
+        # What the importer is handed, and what the family's entry records meanwhile.
+        seen.append((scope, copy.deepcopy(next(iter(row.unfinished.values()))["scopes"])))
+        return summary.model_copy(update={"status": "imported", "message": "imported"})
+
+    async def nothing(*_args, **_kwargs):
+        return None
+
+    async def no_warnings(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(fpi, "_ensure_family_from_ped", register)
+    monkeypatch.setattr(fpi, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(fpi, "_existing_package_entity_warnings", no_warnings)
+    monkeypatch.setattr(fpi, "_import_dataset", import_dataset)
+    monkeypatch.setattr(variant_ranking_cache, "clear_family_ranking_cache", nothing)
+    monkeypatch.setattr(sv_gene_index_service, "clear_family_sv_gene_index", nothing)
+
+    for name, vcf in (("direct", _DIRECT_VCF), ("imputed", _IMPUTED_VCF)):
+        root = tmp_path / name
+        (root / "snv").mkdir(parents=True)
+        (root / "snv" / "family.vcf").write_text(vcf, encoding="utf-8")
+        (root / "family.ped").write_text("F1\tS1\t0\t0\t1\t2\nF1\tS2\t0\t0\t2\t1\n", encoding="utf-8")
+        (root / "manifest.yaml").write_text(
+            "schema_version: 1\nfamily_id: F1\nped: family.ped\n"
+            "datasets:\n  snv:\n    family_vcf: snv/family.vcf\n",
+            encoding="utf-8",
+        )
+        result = await fpi.execute_family_package_import(
+            row,
+            folder_path=root,
+            project_id=None,
+            dry_run=False,
+            user=SimpleNamespace(id="admin"),
+            job_id=f"job-{name}",
+        )
+        assert result.completed, result.error
+
+    # Each import's entry, and the scope its SNV importer is handed, name the callset its
+    # file holds; the family records both (before: "auto", once).
+    assert seen == [(_CLAIR3, {"snv": _CLAIR3}), (_GLIMPSE2, {"snv": _GLIMPSE2})]
+    assert row.imported == {"snv": [_CLAIR3, _GLIMPSE2]}
+    assert row.unfinished is None and row.flag is None

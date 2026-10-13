@@ -87,9 +87,10 @@ def test_the_unfinished_import_entries_are_written_and_removed_as_documented() -
     )
 
     label = f"import-crash-{uuid4()}"
-    # What an overwrite of each dataset replaces (dataset_scopes).
+    # What an overwrite of each dataset replaces (dataset_scopes): the SNV dataset's callset,
+    # `auto` as it resolved (SAFE-23).
     scopes = {
-        "snv": {"source": "auto", "samples": None},
+        "snv": {"source": "clair3", "samples": None},
         "coverage": {"source": None, "samples": ["S1"]},
         "haplotypes": {"source": None, "samples": None},
     }
@@ -313,7 +314,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
 
     label = f"import-restore-{uuid4()}"
     scopes = {
-        "snv": {"source": "auto", "samples": None},
+        "snv": {"source": "clair3", "samples": None},
         "coverage": {"source": None, "samples": ["S1"]},
         "sv_needlr": {"source": None, "samples": None},
     }
@@ -468,7 +469,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
     )
 
     label = f"import-upload-{uuid4()}"
-    snv = {"source": "auto", "samples": None}
+    snv = {"source": "clair3", "samples": None}
     sv_dataset, sv_scope = structural_variant_upload_scope("sniffles", "S1")
 
     async def scenario() -> None:

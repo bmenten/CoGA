@@ -274,8 +274,9 @@ that looks complete:
   failed and those that imported, the time and the import job's id; the job's record holds
   each dataset's error, which the flag does not copy. It stays until an import has imported
   each failed dataset again, for the same samples and (for the small variants) the same
-  `source_format`; an import that completes without one leaves it flagged, and says so in its
-  log. An update will do: the failing loader's rows were rolled back or cleaned up, so the
+  callset ([below](#the-small-variant-callset-an-import-records)); an import that completes
+  without one leaves it flagged, and says so in its log. An update will do: the failing
+  loader's rows were rolled back or cleaned up, so the
   update finds none and imports the dataset whole (one whose rows stayed is skipped, and a
   skipped dataset does not count; nor does a skipped sample: a dataset the update imported for
   some samples and skipped for others counts as imported again for those it imported). A later
@@ -288,8 +289,8 @@ has ended. So an import marks the family before it writes anything of it, with a
 there each dataset it finishes, and removes the entry when it ends, unless its restore failed
 part-way (below). An entry that stays names an import that stopped, and the datasets it had
 not finished, which may be partly written or missing. Only an import that completes with `overwrite` and imports those
-datasets again, for the same samples and (for the small variants) the same `source_format`,
-removes it: an overwrite replaces only that. An `update` cannot: it skips a dataset that
+datasets again, for the same samples and (for the small variants) the same callset, removes
+it: an overwrite replaces only that. An `update` cannot: it skips a dataset that
 already has data, partly written data too. An import that fails after marking the family
 and before its first dataset (while registering it, say) wrote none of its datasets: its
 entry becomes the import-incomplete flag, naming them all as failed.
@@ -321,7 +322,7 @@ import's `import_unfinished` entry stays too: once its restore begins, it names 
 the family holds, as the family's imports and single-file uploads record what they brought
 (`families.metadata.imported_scopes`; [What an upload records](#what-an-upload-records)), and
 every dataset of the import, each with its samples and (for the small variants) its
-`source_format`. The family stays marked import-incomplete until each of them has been brought
+callset. The family stays marked import-incomplete until each of them has been brought
 again with `overwrite`: import the whole family again, every package of it, not only the
 datasets that failed, and upload again with `overwrite` what an upload brought. Each import
 that completes with `overwrite`, and each upload with `overwrite`, removes from the entry what
@@ -333,6 +334,26 @@ puts the family back, or that refuses to start, removes the entry as before.
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
+
+#### The small-variant callset an import records
+
+An import records its small variants as the callset it stores them as, in the flag, in its
+entry and in `imported_scopes`: the `source_format` the SNV dataset declares, or with `auto`,
+the default, the callset its family VCF holds, read from the file before the import writes
+anything of the family, as the small-variant loader reads it: `glimpse2` for imputed genotypes
+(genotype posteriors in the first record, or phased genotypes in a file whose header or name
+says it was phased), else `clair3`. A monogenic NIPT pair's files are `nipt`, a long-read
+couple's `clair3`. So two imports that both leave `source_format` at `auto` complete each
+other's failure or entry only when their files hold the same callset: an import of direct calls
+does not bring again imputed genotypes the family held, nor the other way round. The import
+stores the file as that callset: a file that reads as another callset when its dataset's turn
+comes changed while the import ran, and is refused before anything of it is written.
+
+A record whose callset reads `auto` names no callset, and no import or upload completes it,
+whatever callset it stores: one written before imports recorded the callset they stored (such
+records were not rewritten), or by an import that could not read its family VCF when it began
+(it then fails on the file, or registers it only). A family such a record marks stays marked,
+and its sign-out needs the acknowledgement.
 
 ## 4. Package layout and manifest
 
@@ -1020,7 +1041,7 @@ its own:
 
 | Upload | Recorded as |
 | --- | --- |
-| Family small variants | `snv`, with the callset it stored (`clair3` or `mito`; `auto` as it resolved): what a package `snv` dataset whose `source_format` names that callset brings. Imputed genotypes (`glimpse2`), with their haplotype blocks: `haplotypes`, as a package's imputed family VCF |
+| Family small variants | `snv`, with the callset it stored (`clair3` or `mito`; `auto` as it resolved): what a package `snv` dataset stored as that callset brings (its `source_format`, or `auto` as the import resolved it). Imputed genotypes (`glimpse2`), with their haplotype blocks: `haplotypes`, as a package's imputed family VCF |
 | Structural variants | `sv_sniffles`, `sv_spectre` or `sv_manual`, for the sample: no package dataset brings them |
 | Repeat expansions (TRGT) | `repeats_trgt`, for the sample: what a package's TRGT file of that sample brings |
 | Interval tracks (BED) | `bed_coverage`, `bed_segments`, `bed_apcad` or `bed_apcad_pcf`, for the sample: a package dataset that writes such a track may read another kind of file into it, or write another track |
@@ -1028,8 +1049,10 @@ its own:
 An upload with `overwrite` also removes from such an entry what it brought again: the same
 dataset, for the same sample and (for the small variants) the same callset. One without
 `overwrite` removes nothing, as a package import's `update` removes nothing. A package `snv`
-dataset that leaves `source_format` at `auto` and an upload never bring again each other's
-callset: either may have stored another callset than the other.
+dataset that leaves `source_format` at `auto` is recorded as the callset its file holds
+([The small-variant callset an import records](#the-small-variant-callset-an-import-records)),
+so it and an upload bring again each other's callset when they stored the same one. One
+recorded as `auto` names no callset: no upload brings it again.
 
 An upload made before uploads were recorded is not in `imported_scopes`: a restore that fails
 part-way does not name its data, so the gate opens once the rest of the family has been imported

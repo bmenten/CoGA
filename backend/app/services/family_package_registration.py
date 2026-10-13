@@ -646,9 +646,9 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 # to its state before the import. An entry that outlives its import marks one that stopped
 # part-way, its process ended by a restart, a crash or running out of memory: what it was
 # importing may be partly written. Only a later import that completes and imports again,
-# replacing it (`overwrite`), what that import had not finished -- the same SNV source, the
-# same samples -- removes the entry. An `update` cannot: it skips a dataset that already
-# holds data, partial data included.
+# replacing it (`overwrite`), what that import had not finished -- the same SNV callset (as
+# stored: `auto` as each resolved it), the same samples -- removes the entry. An `update`
+# cannot: it skips a dataset that already holds data, partial data included.
 #
 # A failed overwrite's restore is the exception. It rewrites the family's rows in every
 # variant and track table, whichever import or single-file upload wrote them, so once it
@@ -670,14 +670,29 @@ WHOLE_FAMILY_KEY = "whole_family"
 # counts as importing a dataset again (``imported_dataset_scopes``), which a skip never is.
 _FINISHED_DATASET_STATUSES = frozenset({"imported", "skipped", "registered"})
 
+# The source of an SNV scope whose callset was never resolved: what the manifest's
+# `source_format: auto` (the default) says before the file is read. A scope records the
+# callset the import stores, `auto` as it resolves (SAFE-23); one that still reads `auto`
+# names no callset: written before imports resolved it, or by an import that could not
+# read its family VCF when it began. It covers nothing, and nothing covers it: two scopes
+# that read `auto` may stand for different callsets, and either may have stored another
+# callset than an import or upload that names one.
+UNRESOLVED_SNV_SOURCE = "auto"
+
 
 def dataset_scopes(
     bundle: FamilyPackageBundle, dataset_types: Iterable[str]
 ) -> dict[str, dict[str, Any]]:
     """What an overwrite of each dataset replaces, as its loader replaces it: ``source``,
-    the SNV callset's declared source (its rows of other sources stay; every other dataset
-    has one source of its own), and ``samples``, the samples a per-sample dataset names
-    (its other samples' rows stay), or None for one family-level file."""
+    the callset the SNV dataset is stored as (its rows of other callsets stay; every other
+    dataset has one source of its own), and ``samples``, the samples a per-sample dataset
+    names (its other samples' rows stay), or None for one family-level file.
+
+    The SNV callset is the one the import stores (``snv_dataset_callset``): the
+    ``source_format`` the dataset declares, or with ``auto`` the callset the loader works
+    out from the family VCF, read from the file here, before the import's first write.
+    Two imports that leave ``source_format`` at ``auto`` then replace each other's rows only
+    when their files are the same callset, and their scopes say so (SAFE-23)."""
     scopes: dict[str, dict[str, Any]] = {}
     for dataset_type in dataset_types:
         dataset = bundle.manifest.datasets.get(dataset_type)
@@ -690,7 +705,10 @@ def dataset_scopes(
             )
         source: str | None = None
         if dataset_type == "snv" and dataset is not None:
-            source = str((dataset.model_extra or {}).get("source_format") or "auto")
+            # Imported here: family_package_datasets imports this module.
+            from .family_package_datasets import snv_dataset_callset
+
+            source = snv_dataset_callset(bundle)
         scopes[dataset_type] = {"source": source, "samples": samples}
     return scopes
 
@@ -698,10 +716,12 @@ def dataset_scopes(
 def _scope_covers(replaced: Any, wanted: Any) -> bool:
     """Whether an overwrite that replaced ``replaced`` replaced all of ``wanted``: the same
     source, and every sample of a per-sample dataset (a family-level file covers only a
-    family-level file). Never for a scope not in the shape ``dataset_scopes`` gives."""
+    family-level file). Never for a scope not in the shape ``dataset_scopes`` gives, nor
+    for an SNV scope that names no callset (``UNRESOLVED_SNV_SOURCE``), on either side."""
     if not isinstance(replaced, Mapping) or not isinstance(wanted, Mapping):
         return False
-    if replaced.get("source") != wanted.get("source"):
+    source = replaced.get("source")
+    if source == UNRESOLVED_SNV_SOURCE or source != wanted.get("source"):
         return False
     have, want = replaced.get("samples"), wanted.get("samples")
     if have is None or want is None:
@@ -1800,9 +1820,10 @@ def small_variant_upload_scope(callset: str) -> tuple[str, dict[str, Any]]:
     """What a family small-variant upload of ``callset`` brought (the source its rows are
     stored under, ``auto`` as the upload resolved it). Imputed genotypes (``glimpse2``),
     with the haplotype blocks made from them, are what a package ``haplotypes`` dataset
-    brings; any other callset is what a package ``snv`` dataset whose ``source_format``
-    names it brings. Each loads its family VCF through the same loader, which replaces the
-    family's rows of that callset."""
+    brings; any other callset is what a package ``snv`` dataset stored as that callset
+    brings (its ``source_format``, or ``auto`` as the import resolved it:
+    ``dataset_scopes``). Each loads its family VCF through the same loader, which replaces
+    the family's rows of that callset."""
     if callset == "glimpse2":
         return "haplotypes", {"source": None, "samples": None}
     return "snv", {"source": callset, "samples": None}

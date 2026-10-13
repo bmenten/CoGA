@@ -7,7 +7,7 @@ from functools import partial
 import json
 from math import log2
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Sequence
+from typing import Any, Awaitable, Callable, Mapping, Sequence
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -51,6 +51,7 @@ from .upload_safety import read_path_text_bounded
 from .annotation_table_parser import parse_mutserve_annotation_path
 from .variant_upload_service import (
     NIPT_SMALL_VARIANT_SOURCE,
+    _detect_small_variant_format_from_upload,
     remove_family_small_variant_sample_calls,
     upload_family_small_variant_file,
 )
@@ -90,7 +91,7 @@ from .family_package_qc import (
     record_sample_signal_tracks as _record_sample_signal_tracks,
     record_sample_qc_metadata as _record_sample_qc_metadata,
 )
-from .family_package_registration import _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
+from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _pcf_role_path
 from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
@@ -120,7 +121,12 @@ class DatasetImportJob:
     an update left as it was, its rows being there (all of them, or one of its tracks): an
     import that imported the dataset for other samples counts it as imported again for
     those only (``imported_dataset_scopes``), so a skip completes no earlier failure
-    (SAFE-20). A dataset an update skips whole ends ``skipped``, and counts for none."""
+    (SAFE-20). A dataset an update skips whole ends ``skipped``, and counts for none.
+
+    ``scope`` is what the import's bookkeeping records the dataset as replacing, from
+    before its first write (``dataset_scopes``), or None for an import without it. The SNV
+    importer stores its family VCF as the callset the scope names, and nothing else
+    (SAFE-23)."""
 
     session: AsyncSession
     bundle: FamilyPackageBundle
@@ -131,6 +137,7 @@ class DatasetImportJob:
     conflict_mode: str = "overwrite"
     progress: DatasetProgressCallback | None = None
     skipped_samples: set[str] = field(default_factory=set)
+    scope: Mapping[str, Any] | None = None
 
 
 DatasetImporter = Callable[[DatasetImportJob], Awaitable[FamilyImportDatasetSummary]]
@@ -248,6 +255,73 @@ def _exclude_filters(dataset: ManifestDataset) -> Sequence[Any] | None:
     return value if isinstance(value, (list, tuple)) else None
 
 
+def _small_variant_callset(upload: UploadFile) -> str:
+    """The callset the small-variant loader stores the family VCF in ``upload`` as when
+    its format is ``auto``: ``glimpse2`` (imputed genotypes) when the first record's FORMAT
+    has genotype posteriors, or phased genotypes in a file whose header or name says it was
+    phased; else ``clair3``. The loader's own reading of the file, from its start; raises as
+    the loader does on a file it cannot read, or one without a record."""
+    return _detect_small_variant_format_from_upload(upload, "auto")
+
+
+def snv_dataset_callset(bundle: FamilyPackageBundle) -> str:
+    """The callset a package's ``snv`` dataset is stored as, as ``_import_snv_dataset``
+    stores it: a monogenic NIPT's per-sample files as ``nipt``, a per-sample germline
+    callset as the family's primary callset (``clair3``), and a family VCF as the
+    ``source_format`` its dataset declares or, with ``auto`` (the default), as the callset
+    the small-variant loader works out from the file (``_small_variant_callset``):
+    ``glimpse2`` for imputed genotypes, else ``clair3``. The import's bookkeeping names it
+    before anything is written (``dataset_scopes``), so it is read from the file here, as
+    the loader reads it (SAFE-23). ``auto`` (``UNRESOLVED_SNV_SOURCE``) when it cannot be
+    told: no family VCF, or one that cannot be read, which the import then registers only,
+    or fails on before writing any of it."""
+    dataset = bundle.manifest.datasets.get("snv")
+    if dataset is None:
+        return UNRESOLVED_SNV_SOURCE
+    if dataset.per_sample and not dataset.family_vcf:
+        if (bundle.manifest.analysis_type or "").strip() == MONOGENIC_NIPT_ANALYSIS_TYPE:
+            return NIPT_SMALL_VARIANT_SOURCE
+        return PER_SAMPLE_CALLSET_SOURCE
+    source_format = str((dataset.model_extra or {}).get("source_format") or "auto")
+    if source_format != "auto":
+        return source_format
+    try:
+        vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
+        if vcf_path is None:
+            return UNRESOLVED_SNV_SOURCE
+        with vcf_path.open("rb") as handle:
+            return _small_variant_callset(UploadFile(file=handle, filename=vcf_path.name))
+    except Exception:  # noqa: BLE001 - the loader reads the file again, and says why it cannot
+        return UNRESOLVED_SNV_SOURCE
+
+
+class SnvCallsetChanged(RuntimeError):
+    """The family VCF of an ``snv`` dataset no longer reads as the callset its import
+    recorded for it when it began: refused before anything of it was written."""
+
+
+def _snv_callset_to_store(upload: UploadFile, source_format: str, scope: Mapping[str, Any] | None) -> str:
+    """The callset the SNV loader is to store the family VCF in ``upload`` as: the
+    ``source_format`` the dataset declares, or with ``auto`` the one the loader would work
+    out from the file, read on the handle it then reads. The import recorded a callset for
+    the dataset before its first write (``scope``, from ``snv_dataset_callset``); a file
+    that no longer reads as that callset changed while the import ran, and is refused, so
+    the import never stores a callset its bookkeeping does not name. Without a recorded
+    callset (``auto``: the file could not be read then, or an import without bookkeeping)
+    the file's own is stored, as before."""
+    if source_format != "auto":
+        return source_format
+    callset = _small_variant_callset(upload)
+    recorded = scope.get("source") if isinstance(scope, Mapping) else None
+    if recorded not in (None, UNRESOLVED_SNV_SOURCE) and recorded != callset:
+        raise SnvCallsetChanged(
+            f"The SNV family VCF now reads as the {callset} callset, not the {recorded} callset "
+            "this import recorded for it when it began: the file changed while the import ran. "
+            "Nothing of it was imported; import the package again."
+        )
+    return callset
+
+
 @_dataset_importer("snv")
 async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
@@ -330,8 +404,11 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         )
 
     async def run_upload() -> dict[str, Any]:
-        if annotation_path is not None:
-            async with _local_upload(vcf_path) as upload:
+        async with _local_upload(vcf_path) as upload:
+            # Stored as the callset the import recorded for it before its first write, and
+            # nothing else (SAFE-23).
+            callset = _snv_callset_to_store(upload, source_format, job.scope)
+            if annotation_path is not None:
                 async with _local_upload(annotation_path) as annotation_upload:
                     return await upload_family_small_variant_file(
                         session,
@@ -340,19 +417,18 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                         file=upload,
                         annotation_file=annotation_upload,
                         overwrite=True,
-                        format_hint=source_format,  # type: ignore[arg-type]
+                        format_hint=callset,  # type: ignore[arg-type]
                         progress=report_snv_progress,
                         sample_aliases=sample_aliases,
                         exclude_filters=exclude_filters,
                     )
-        async with _local_upload(vcf_path) as upload:
             return await upload_family_small_variant_file(
                 session,
                 context=family_context,
                 sample_contexts=sample_contexts,
                 file=upload,
                 overwrite=True,
-                format_hint=source_format,  # type: ignore[arg-type]
+                format_hint=callset,  # type: ignore[arg-type]
                 progress=report_snv_progress,
                 sample_aliases=sample_aliases,
                 exclude_filters=exclude_filters,
@@ -367,6 +443,8 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 "annotation_tsv": _display_path(bundle.root, annotation_path) if annotation_path else None,
             },
         )
+    except SnvCallsetChanged:
+        raise  # refused before the loader wrote anything: there is nothing to clean up
     except Exception:
         # The SNV loader only writes its own small-variant source; it never creates
         # haplotype interval tracks (those belong to the glimpse2 loader). Scope the
@@ -2481,10 +2559,12 @@ async def _import_dataset(
     conflict_mode: str = "overwrite",
     progress: DatasetProgressCallback | None = None,
     skipped_samples: set[str] | None = None,
+    scope: Mapping[str, Any] | None = None,
 ) -> FamilyImportDatasetSummary:
     """Import one dataset of the package through its registered importer. Each sample an
     update leaves as it was, its rows being there, is added to ``skipped_samples``
-    (``DatasetImportJob.skipped_samples``)."""
+    (``DatasetImportJob.skipped_samples``); ``scope`` is what the import records the
+    dataset as replacing (``DatasetImportJob.scope``)."""
     if summary.dataset_type == "phenotypes":
         # Not a manifest dataset: the phenotypes come from the package's HPO rows.
         return await _import_phenotypes_dataset(
@@ -2516,5 +2596,6 @@ async def _import_dataset(
             conflict_mode=conflict_mode,
             progress=progress,
             skipped_samples=skipped_samples if skipped_samples is not None else set(),
+            scope=scope,
         )
     )
