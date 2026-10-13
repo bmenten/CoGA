@@ -144,13 +144,14 @@ describe('ImportIncompleteBanner', () => {
     const banner = screen.getByRole('alert');
     expect(banner).toHaveTextContent(/failed for coverage and snv\./);
     expect(banner).toHaveTextContent(
-      `A family-package import (2026-10-13 09:00 UTC), import job ${RESTORE_JOB}, failed, and putting this family’s data back as it was did not finish: coverage, snv and sv_needlr may be partly written or missing, whichever import wrote them.`,
+      `A family-package import (2026-10-13 09:00 UTC), import job ${RESTORE_JOB}, failed, and putting this family’s data back as it was did not finish: coverage, snv and sv_needlr may be partly written or missing, whichever import or upload wrote them.`,
     );
     // Not an import that is running or stopped: one whose restore did not finish.
     expect(banner).not.toHaveTextContent(/still running/);
-    // Importing again what failed (coverage, snv) does not complete it.
+    // Importing again what failed (coverage, snv) does not complete it; what an upload
+    // brought is uploaded again (SAFE-19).
     expect(banner).toHaveTextContent(
-      'Import this family again in full, with overwrite: every dataset named here, not only those that failed. An update keeps the data already there.',
+      'Import this family again in full, with overwrite: every dataset named here, not only those that failed, and upload again what a single-file upload brought. An update keeps the data already there.',
     );
     expect(banner).not.toHaveTextContent(/Import what failed/);
     expect(banner).toHaveTextContent(/Sign-out needs this acknowledged with a reason/);
@@ -165,7 +166,7 @@ describe('ImportIncompleteBanner', () => {
 
     const banner = screen.getByRole('alert');
     expect(banner).toHaveTextContent(
-      /did not finish: sv_needlr may be partly written or missing, whichever import wrote it\./,
+      /did not finish: sv_needlr may be partly written or missing, whichever import or upload wrote it\./,
     );
     expect(banner).toHaveTextContent(/Import this family again in full, with overwrite/);
   });

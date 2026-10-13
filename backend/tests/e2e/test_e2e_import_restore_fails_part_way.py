@@ -1,5 +1,5 @@
 """A restore that fails part-way keeps the family marked until it is imported again in full
-(E2E, SAFE-13 and SAFE-16).
+(E2E, SAFE-13, SAFE-16, SAFE-19 and SAFE-20).
 
 An overwrite of an existing family that fails puts the family back from the backup it made
 first, table by table: the family's rows deleted, then the backup's re-inserted. A restore
@@ -11,10 +11,13 @@ owner's decision (2026-10-09): the flag names every dataset of the import as fai
 still left out a dataset the import did not carry (SAFE-16), whose rows the restore removes
 too; the owner's decision (2026-10-13): the import's ``import_unfinished`` entry stays,
 naming every dataset of the family, until an overwrite import of the whole family completes.
+A dataset only a single-file upload can bring was not in it (SAFE-19): uploads now record
+what they brought, and an upload with overwrite brings it again.
 
-Over two new one-sample families this runs real import jobs (``POST /api/family-imports``,
-then the worker's ``run_family_import_job``) against Postgres and ClickHouse, and signs out
-through ``POST /api/families/<id>/report/sign-out`` after each re-import.
+Over five new one-sample families this runs real import jobs (``POST /api/family-imports``,
+then the worker's ``run_family_import_job``) and structural-variant uploads
+(``POST /api/structural-variants/upload/<sample>``) against Postgres and ClickHouse, and signs
+out through ``POST /api/families/<id>/report/sign-out`` after each re-import.
 
 The first family (the restore fails in the small variants):
 
@@ -57,6 +60,19 @@ The third and fourth families (SAFE-20: an update after such a restore):
   left the flag all the same, its rows still gone). The restore's entry refuses the
   sign-out in both: an update removes nothing from it.
 
+The fifth family (the restore removes SV calls a single-file upload loaded):
+
+* package 1 (cancel): 6 small variants; then an upload of the sample's SV calls (a manual
+  TSV, which no package dataset brings): the family records them (``sv_manual``);
+* package 2 (overwrite, small variants alone), which fail; ClickHouse then fails the
+  restore's re-insert of the SV calls after their delete: the small variants are put back,
+  the uploaded SV calls are gone. The entry names snv and sv_manual (before: snv alone);
+* package 3 (overwrite, small variants alone) completes: the flag goes, but the entry keeps
+  sv_manual and the sign-out is still refused (before: the family signed out with its SV
+  calls gone);
+* the SV calls uploaded again with overwrite: the entry goes, and the report signs out with no
+  import acknowledgement.
+
 The dataset failures and the restores' failures are injected (the import's dataset step,
 and the restore's ``execute_clickhouse``); everything else runs as in production.
 Everything runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
@@ -78,6 +94,9 @@ pytestmark = pytest.mark.integration
 
 _VARIANTS = 6
 _OVERWRITE_VARIANTS = 4
+# The third family's SV calls, uploaded as a manual TSV (ID, CHROM, POS, END, REF, ALT,
+# SVTYPE, GT): no package dataset brings them.
+_UPLOADED_SVS = b"SVDEL1\t1\t10000\t20000\tN\t<DEL>\tDEL\t0/1\nSVDUP1\t1\t50000\t60000\tN\t<DUP>\tDUP\t0/1\n"
 _ACK = "e2e validation"
 # The drift and Sample-QC gates come first; they are acknowledged in every attempt here.
 _OTHER_GATES = {
@@ -149,6 +168,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     )
     from backend.app.services.clickhouse_variant_storage import (
         count_family_small_variants,
+        count_family_structural_variants,
         ensure_clickhouse_variant_tables,
     )
     from backend.tests.e2e import _harness
@@ -197,6 +217,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
         "tracks": f"FAM_PARTWAY_T_{suffix}",
         "kept": f"FAM_PARTWAY_K_{suffix}",
         "removed": f"FAM_PARTWAY_R_{suffix}",
+        "upload": f"FAM_PARTWAY_U_{suffix}",
     }
     out: dict[str, Any] = {"families": families, "steps": {}}
     jobs: list[str] = []
@@ -231,6 +252,9 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             "incomplete": metadata.get("import_incomplete"),
             "imported_scopes": metadata.get("imported_scopes"),
             "snvs": await count_family_small_variants(
+                _harness.ASSEMBLY, row["uuid"], project_ids=[project_id]
+            ),
+            "svs": await count_family_structural_variants(
                 _harness.ASSEMBLY, row["uuid"], project_ids=[project_id]
             ),
             # The coverage source as Postgres registers it, and its rows in ClickHouse,
@@ -295,6 +319,21 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                     )
                 )
 
+            async def upload_svs(scenario: str, name: str, *, overwrite: bool) -> dict[str, Any]:
+                family_id = families[scenario]
+                step: dict[str, Any] = {
+                    "upload": _cap(
+                        await ac.post(
+                            f"/api/structural-variants/upload/{family_id}_S1",
+                            params={"overwrite": str(overwrite).lower(), "source_format": "manual"},
+                            files={"file": ("svs.tsv", _UPLOADED_SVS, "text/plain")},
+                        )
+                    ),
+                    "family": await family(family_id),
+                }
+                out["steps"][f"{scenario}/{name}"] = step
+                return step
+
             # The first family: the restore fails in the small variants.
             await run_import("snv", "1_complete", "cancel")
             failing.update(dataset="coverage", restore="SNV_INDEL/entries")
@@ -347,6 +386,26 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 finally:
                     failing.update(dataset=None, restore=None)
                 await sign_out(scenario, await run_import(scenario, "3_coverage_update", "update", variants=None))
+
+            # The fifth family: the restore removes SV calls a single-file upload loaded,
+            # which no package dataset brings (SAFE-19).
+            await run_import("upload", "1_complete", "cancel", coverage=False)
+            await upload_svs("upload", "1_sv_upload", overwrite=False)
+            failing.update(dataset="snv", restore="SV/entries")
+            try:
+                step = await run_import(
+                    "upload",
+                    "2_overwrite_restore_fails",
+                    "overwrite",
+                    variants=_OVERWRITE_VARIANTS,
+                    first_position=10_000,
+                    coverage=False,
+                )
+            finally:
+                failing.update(dataset=None, restore=None)
+            await sign_out("upload", step)
+            await sign_out("upload", await run_import("upload", "3_snv_again", "overwrite", coverage=False))
+            await sign_out("upload", await upload_svs("upload", "4_sv_upload_again", overwrite=True))
     finally:
         async with sm() as s:
             await s.execute(
@@ -562,3 +621,57 @@ def test_an_update_imports_the_coverage_the_restore_removed_again(snap) -> None:
     assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["coverage", "snv"]
     detail = _refused(step)
     assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["coverage", "snv"]
+
+
+# --- the fifth family: the restore removes SV calls a single-file upload loaded ------------
+
+
+def test_an_upload_records_what_it_brought_for_the_family(snap) -> None:
+    imported, step = snap["steps"]["upload/1_complete"], snap["steps"]["upload/1_sv_upload"]
+    assert imported["job"]["status"] == "completed", imported["job"]["error"]
+    assert step["upload"]["status"] == 200, step["upload"]["text"]
+    assert step["family"]["svs"] == 2
+    # Before (SAFE-19): the family recorded the package's small variants alone.
+    sample = f"{snap['families']['upload']}_S1"
+    assert step["family"]["imported_scopes"] == {
+        "snv": [{"source": "auto", "samples": None}],
+        "sv_manual": [{"source": None, "samples": [sample]}],
+    }
+
+
+def test_the_entry_names_the_uploaded_calls_the_restore_removed(snap) -> None:
+    step = snap["steps"]["upload/2_overwrite_restore_fails"]
+    assert step["job"]["status"] == "failed"
+    assert step["job"]["error"] == "Family package import failed for dataset(s): snv"
+    assert len(step["reinserts_failed"]) == 1 and "SV/entries" in step["reinserts_failed"][0]
+    # The small variants were put back; the uploaded SV calls, which no package carried, are gone.
+    assert step["family"]["snvs"] == _VARIANTS
+    assert step["family"]["svs"] == 0
+    assert step["family"]["incomplete"]["failed_datasets"] == ["snv"]
+    # Before: the entry named snv alone.
+    entry = step["family"]["unfinished"][step["job_id"]]
+    assert (entry["datasets"], entry["finished_datasets"]) == (["snv", "sv_manual"], [])
+    detail = _refused(step)
+    assert detail["import_unfinished"][step["job_id"]]["datasets"] == ["snv", "sv_manual"]
+
+
+def test_an_import_of_the_package_again_leaves_the_gate_shut(snap) -> None:
+    flagged, step = snap["steps"]["upload/2_overwrite_restore_fails"], snap["steps"]["upload/3_snv_again"]
+    assert step["job"]["status"] == "completed", step["job"]["error"]
+    assert step["family"]["snvs"] == _VARIANTS and step["family"]["svs"] == 0
+    assert step["family"]["incomplete"] is None
+    # Before: the entry went too, and the family signed out with its uploaded SV calls gone.
+    assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["sv_manual"]
+    note = next(line for line in step["job"]["logs"] if "stays marked import-incomplete" in line)
+    assert f"(import job {flagged['job_id']}, still to import: sv_manual)" in note
+    detail = _refused(step)
+    assert detail["import_incomplete"] is None
+    assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["sv_manual"]
+
+
+def test_the_calls_uploaded_again_with_overwrite_complete_the_family(snap) -> None:
+    step = snap["steps"]["upload/4_sv_upload_again"]
+    assert step["upload"]["status"] == 200, step["upload"]["text"]
+    assert step["family"]["svs"] == 2 and step["family"]["snvs"] == _VARIANTS
+    assert step["family"]["incomplete"] is None and step["family"]["unfinished"] is None
+    _signed(step)

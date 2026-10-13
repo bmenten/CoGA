@@ -189,12 +189,13 @@ Five gates run first, in this order:
    small-variant source; a later failure keeps an earlier one's failed datasets, each with its
    job, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
    to start without its whole backup, may have lost rows of any dataset of the family,
-   whichever import wrote them: its flag names every dataset of the import as failed, those it
-   imported too, and its `import_unfinished` entry stays, naming every dataset the family
-   holds (what its imports recorded in `metadata.imported_scopes`) and every dataset of the
-   import, so the gate holds until the whole family has been imported again with `overwrite`,
-   not only what failed: each import that completes with overwrite removes from the entry what
-   it imported again, for that scope, and an update removes nothing. Only an import that
+   whichever import or upload wrote them: its flag names every dataset of the import as
+   failed, those it imported too, and its `import_unfinished` entry stays, naming every dataset
+   the family holds (what its imports and single-file uploads recorded in
+   `metadata.imported_scopes`) and every dataset of the import, so the gate holds until the
+   whole family has been imported again with `overwrite`, not only what failed: each import
+   that completes with overwrite, and each upload with overwrite, removes from the entry what
+   it brought again, for that scope, and an update removes nothing. Only an import that
    completes with `overwrite` and imports again the datasets a stopped import had not
    finished, for that scope, removes that import's entry.
 

@@ -27,6 +27,7 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from .family_package_registration import interval_track_upload_scope, record_family_upload
 from .haplotype_lineage_service import annotate_lineage, parent_or_child_links, relative_link_matches, relative_links
 from .haplotype_phase_correction import corrected_genotype_rows
 from .sex_chromosomes import hemizygous_interval
@@ -159,7 +160,16 @@ async def upload_bed_data(
     bed_type: str,
     file: UploadFile,
     overwrite: bool,
+    record_upload: bool = False,
 ) -> dict[str, int]:
+    """Store one sample's ``bed_type`` track from a BED file, replacing (with ``overwrite``)
+    every track of that type the sample has.
+
+    ``record_upload`` is for the single-file upload, which holds the family's variant-write
+    locks in this transaction before it calls this (``routers/bed.py``), as a package import
+    holds them for the datasets that call it: what the upload brought is recorded for the
+    family, and with ``overwrite`` struck off a whole-family entry, in the transaction that
+    commits its track (``record_family_upload``)."""
     validate_bed_type(bed_type)
     if not sample_context.assembly_name:
         raise HTTPException(
@@ -175,6 +185,18 @@ async def upload_bed_data(
         raise HTTPException(
             status_code=409,
             detail="BED data already exists for this sample",
+        )
+    if record_upload:
+        # What the upload brings, recorded for the family (SAFE-19) before its first write,
+        # in the transaction that commits its track: an upload that fails takes the record
+        # with it, and a record that cannot be written stops the upload first.
+        dataset, scope = interval_track_upload_scope(bed_type, sample_context.sample_id)
+        await record_family_upload(
+            session,
+            family_uuid=sample_context.family_uuid,
+            dataset=dataset,
+            scope=scope,
+            overwrite=overwrite,
         )
     if overwrite:
         await delete_interval_tracks(

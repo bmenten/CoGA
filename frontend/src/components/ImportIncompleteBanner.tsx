@@ -124,11 +124,12 @@ export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnf
 
 /**
  * The keys of the `import_unfinished` entries that a failed overwrite's restore left: the
- * restore rewrites the family's rows whichever import wrote them, and it did not finish, so
- * the entry lists every dataset of the family (`whole_family`), each until an import has
- * imported it again with overwrite (family_package_registration.whole_family_entry). Only
- * the family's own metadata says so: the signed record and the sign-out refusal freeze the
- * entry's datasets alone.
+ * restore rewrites the family's rows whichever import or upload wrote them, and it did not
+ * finish, so the entry lists every dataset of the family (`whole_family`), each until an
+ * import, or a single-file upload, has brought it again with overwrite
+ * (family_package_registration.whole_family_entry, record_family_upload). Only the family's
+ * own metadata says so: the signed record and the sign-out refusal freeze the entry's
+ * datasets alone.
  */
 export const wholeFamilyImportKeys = (metadata: unknown): Set<string> => {
   if (!metadata || typeof metadata !== 'object') return new Set();
@@ -160,13 +161,13 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
     </>
   );
   if (wholeFamily) {
-    // Its restore rewrites the family's rows table by table, whichever import wrote them,
-    // and did not finish: not an import that is running, or one that stopped in a dataset.
+    // Its restore rewrites the family's rows table by table, whichever import or upload wrote
+    // them, and did not finish: not an import that is running, or one that stopped in a dataset.
     return (
       <>
         {who} failed, and putting this family&rsquo;s data back as it was did not finish:
         {pending.length
-          ? ` ${joinWithAnd(pending)} may be partly written or missing, whichever import wrote ${
+          ? ` ${joinWithAnd(pending)} may be partly written or missing, whichever import or upload wrote ${
               pending.length === 1 ? 'it' : 'them'
             }.`
           : ' any of its datasets may be partly written or missing.'}{' '}
@@ -233,7 +234,7 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
         </>
       ) : null}
       {wholeFamily.size
-        ? 'Import this family again in full, with overwrite: every dataset named here, not only those that failed. An update keeps the data already there. '
+        ? 'Import this family again in full, with overwrite: every dataset named here, not only those that failed, and upload again what a single-file upload brought. An update keeps the data already there. '
         : unfinished.length
           ? 'Import what failed or did not finish again to complete it, with overwrite for what an import did not finish: an update keeps the data already there. '
           : 'Import what failed again to complete it. '}

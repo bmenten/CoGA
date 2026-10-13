@@ -16,6 +16,10 @@ drives the real statements against the real schema:
   every dataset the family's imports recorded (``imported_scopes``) besides its own, and
   goes only once each has been imported again with overwrite; a refused restore still
   swaps the entry for the flag (SAFE-16);
+- a single-file upload's record is written in the upload's transaction and takes turns
+  with an import's bookkeeping on the family row, so neither loses the other's; the entry
+  of a restore that failed part-way names what uploads brought, and only an upload with
+  overwrite strikes it off (SAFE-19);
 - the pipeline parameters an import records are set without writing back a stale copy of
   the metadata;
 - of three stale jobs, the one that was running is ended (its log kept, a line added), the
@@ -438,6 +442,163 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
             metadata = await _metadata(s, family_uuid)
         assert "import_unfinished" not in metadata
         assert metadata["import_incomplete"]["failed_datasets"] == ["snv"]
+
+        async with sm() as s:
+            await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})
+            await s.commit()
+
+    _run(scenario)
+
+
+def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() -> None:
+    # SAFE-19. A single-file upload's record, in the upload's transaction: what it brought
+    # is added to imported_scopes, so a restore that fails part-way names it, and an upload
+    # with overwrite strikes it off that entry; the record and a package import's
+    # bookkeeping take turns on the family row, so neither loses the other's.
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.services import report_signout_service as rss
+    from backend.app.services.family_package_registration import (
+        ImportMark,
+        _clear_family_import_incomplete,
+        _flag_family_restore_failed,
+        _mark_family_import_restoring,
+        _mark_family_import_unfinished,
+        record_family_upload,
+        structural_variant_upload_scope,
+    )
+
+    label = f"import-upload-{uuid4()}"
+    snv = {"source": "auto", "samples": None}
+    sv_dataset, sv_scope = structural_variant_upload_scope("sniffles", "S1")
+
+    async def scenario() -> None:
+        sm = get_postgres_sessionmaker()
+        async with sm() as s:
+            family_uuid = (
+                await s.execute(
+                    text(
+                        "INSERT INTO families (family_id, metadata) "
+                        "VALUES (:f, CAST(:m AS jsonb)) RETURNING id::text"
+                    ),
+                    {"f": label, "m": json.dumps({"qc_profile": "short_read_wgs"})},
+                )
+            ).scalar_one()
+            await s.commit()
+        context = SimpleNamespace(family_uuid=family_uuid, family_id=label)
+
+        # The upload's record joins its transaction: another session sees it only once the
+        # upload commits.
+        async with sm() as upload:
+            await record_family_upload(
+                upload, family_uuid=family_uuid, dataset=sv_dataset, scope=sv_scope, overwrite=False
+            )
+            async with sm() as other:
+                assert "imported_scopes" not in await _metadata(other, family_uuid)
+            await upload.commit()
+            metadata = await _metadata(upload, family_uuid)
+        assert metadata["imported_scopes"] == {"sv_sniffles": [sv_scope]}
+        assert metadata["qc_profile"] == "short_read_wgs", "the other keys stay"
+
+        # A package import of the small variants takes its turn on the row while an upload's
+        # record has not committed, and adds to what it wrote: nothing is lost.
+        async with sm() as upload:
+            await record_family_upload(
+                upload, family_uuid=family_uuid, dataset=sv_dataset, scope=sv_scope, overwrite=False
+            )
+            async with sm() as package:
+                clear = asyncio.create_task(
+                    _clear_family_import_incomplete(package, context, imported={"snv": snv})
+                )
+                done, _pending = await asyncio.wait({clear}, timeout=0.5)
+                assert not done, "the import's bookkeeping waits for the upload's record"
+                await upload.commit()
+                assert await clear is not None
+        # ... and the other way round: the record waits for the import's locked read.
+        async with sm() as package:
+            await package.execute(
+                text("SELECT 1 FROM families WHERE id = CAST(:f AS uuid) FOR UPDATE"), {"f": family_uuid}
+            )
+            async with sm() as upload:
+                record = asyncio.create_task(
+                    record_family_upload(
+                        upload,
+                        family_uuid=family_uuid,
+                        dataset="repeats_trgt",
+                        scope={"source": None, "samples": ["S1"]},
+                        overwrite=False,
+                    )
+                )
+                done, _pending = await asyncio.wait({record}, timeout=0.5)
+                assert not done, "the upload's record waits for the import's locked read"
+                await package.execute(
+                    text(
+                        "UPDATE families SET metadata = jsonb_set(metadata, '{imported_scopes,coverage}', "
+                        "CAST(:c AS jsonb)) WHERE id = CAST(:f AS uuid)"
+                    ),
+                    {"f": family_uuid, "c": json.dumps([{"source": None, "samples": ["S1"]}])},
+                )
+                await package.commit()
+                await record
+                await upload.commit()
+            metadata = await _metadata(package, family_uuid)
+        assert sorted(metadata["imported_scopes"]) == ["coverage", "repeats_trgt", "snv", "sv_sniffles"]
+
+        # An overwrite of the small variants fails, and its restore fails part-way: its entry
+        # names the uploaded SV calls besides what the imports recorded.
+        own = ImportMark.begin(job_id=str(uuid4()), datasets=["snv"], scopes={"snv": snv})
+        async with sm() as s:
+            await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
+            await _mark_family_import_restoring(s, context, own, family_samples=["S1"])
+            listed = await _flag_family_restore_failed(
+                s,
+                context,
+                failed_datasets=["snv"],
+                job_id=own.job_id,
+                mark=own,
+                scopes=own.scopes,
+                family_samples=["S1"],
+            )
+        assert listed == ["coverage", "repeats_trgt", "snv", "sv_sniffles"]
+
+        # The package's datasets imported again with overwrite: the uploads' data is still
+        # to bring again.
+        async with sm() as s:
+            again = {"snv": snv, "coverage": {"source": None, "samples": ["S1"]}}
+            await _clear_family_import_incomplete(s, context, rewritten=again, imported=again)
+            unfinished = await rss._import_unfinished_state(s, family_uuid)
+        assert unfinished[own.key]["datasets"] == ["repeats_trgt", "sv_sniffles"]
+
+        # An upload without overwrite strikes nothing off; one with overwrite strikes off what
+        # it brought, and the last one the entry.
+        async with sm() as s:
+            await record_family_upload(
+                s, family_uuid=family_uuid, dataset=sv_dataset, scope=sv_scope, overwrite=False
+            )
+            await s.commit()
+            assert (await rss._import_unfinished_state(s, family_uuid))[own.key]["datasets"] == [
+                "repeats_trgt",
+                "sv_sniffles",
+            ]
+            await record_family_upload(
+                s, family_uuid=family_uuid, dataset=sv_dataset, scope=sv_scope, overwrite=True
+            )
+            await s.commit()
+            assert (await rss._import_unfinished_state(s, family_uuid))[own.key]["datasets"] == [
+                "repeats_trgt"
+            ]
+            await record_family_upload(
+                s,
+                family_uuid=family_uuid,
+                dataset="repeats_trgt",
+                scope={"source": None, "samples": ["S1"]},
+                overwrite=True,
+            )
+            await s.commit()
+            metadata = await _metadata(s, family_uuid)
+            unfinished = await rss._import_unfinished_state(s, family_uuid)
+        assert "import_unfinished" not in metadata and unfinished == {}
+        assert "import_incomplete" not in metadata
+        assert metadata["qc_profile"] == "short_read_wgs"
 
         async with sm() as s:
             await s.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family_uuid})

@@ -50,6 +50,11 @@ from .clickhouse_interval_tracks import (
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .family_package_common import VcfSampleColumnError, known_vcf_sample_ids, per_sample_vcf_column
+from .family_package_registration import (
+    record_family_upload,
+    small_variant_upload_scope,
+    structural_variant_upload_scope,
+)
 from .family_variant_write_lock import (
     SMALL_VARIANTS,
     STRUCTURAL_VARIANTS,
@@ -613,6 +618,7 @@ async def upload_family_small_variant_file(
     overwrite_scope: Literal["source", "samples"] = "source",
     record_filter: SmallVariantRecordFilter | None = None,
     sample_column: str | None = None,
+    record_upload: bool = False,
 ) -> dict[str, Any]:
     """Load a family's small-variant VCF into ClickHouse.
 
@@ -655,6 +661,11 @@ async def upload_family_small_variant_file(
     records read (``processed``, the ones left out included), those stored so far
     (``inserted``) and the bytes of the file read (``bytes_read`` of ``bytes_total``),
     from which a package import estimates the time left (import_progress).
+
+    ``record_upload`` is for the single-file upload: what it brought is recorded for the
+    family, and with ``overwrite`` struck off a whole-family entry, in the transaction that
+    commits its rows (``record_family_upload``). A package import records what it imported
+    itself, when it ends.
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -1026,6 +1037,21 @@ async def upload_family_small_variant_file(
             await record_haplotype_phase_corrections(
                 session, family_uuid=context.family_uuid, corrections=phase_corrections
             )
+        if record_upload:
+            # What the upload brought, recorded for the family (SAFE-19) in the transaction
+            # that commits it, once its rows are written: the family row is not held for the
+            # whole file, and a record that cannot be written fails the upload, whose rows the
+            # clean-up below removes. A per-sample upload brought its file's samples' calls.
+            dataset, scope = small_variant_upload_scope(resolved_format)
+            if samples_scope:
+                scope = {**scope, "samples": sorted(set(sample_names))}
+            await record_family_upload(
+                session,
+                family_uuid=context.family_uuid,
+                dataset=dataset,
+                scope=scope,
+                overwrite=overwrite,
+            )
         # Capture annotation/tool provenance from the VCF header into the family's
         # annotation manifest (best-effort; never fails the upload). Joins this
         # transaction so provenance commits iff the variants do.
@@ -1300,10 +1326,15 @@ async def upload_structural_variant_file(
     file: UploadFile,
     overwrite: bool,
     format_hint: StructuralVariantFormat,
+    record_upload: bool = False,
 ) -> dict[str, Any]:
     """Store one sample's SV calls from one caller's file, replacing (with ``overwrite``)
     that sample's calls from that source only. A Sniffles or Spectre VCF is read from the
-    sample's own column (``_structural_variant_sample_column``)."""
+    sample's own column (``_structural_variant_sample_column``).
+
+    ``record_upload`` is for the single-file upload: what it brought is recorded for the
+    family, and with ``overwrite`` struck off a whole-family entry, in the transaction that
+    commits its records (``record_family_upload``)."""
     if not family_context.assembly_name:
         raise HTTPException(
             status_code=400,
@@ -1430,6 +1461,18 @@ async def upload_structural_variant_file(
     if processed == 0:
         raise HTTPException(status_code=400, detail="No valid structural-variant records found")
 
+    if record_upload:
+        # What the upload brings, recorded for the family (SAFE-19) before its rows are
+        # rewritten, in the transaction that commits them: a rewrite that fails takes the
+        # record with it, and a record that cannot be written stops the upload first.
+        dataset, scope = structural_variant_upload_scope(resolved_format, sample_context.sample_id)
+        await record_family_upload(
+            session,
+            family_uuid=family_context.family_uuid,
+            dataset=dataset,
+            scope=scope,
+            overwrite=overwrite,
+        )
     await rewrite_family_structural_variants(
         family_context.assembly_name,
         family_context.family_uuid,

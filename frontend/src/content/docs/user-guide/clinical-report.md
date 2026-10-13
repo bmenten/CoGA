@@ -31,8 +31,8 @@ stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
-2. **Data being written**: a data import of the family is queued or running, or an upload or deletion
-   is changing its variants. Sign out once it has finished; there is no override.
+2. **Data being written**: a data import of the family is queued or running, or an upload, or a
+   deletion of its variants, is changing its data. Sign out once it has finished; there is no override.
 3. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
    re-review, or acknowledge with a reason.
@@ -42,7 +42,8 @@ stops for five things:
    acknowledge with a reason. After an import that stopped part-way, re-run it with **overwrite**: an
    update skips data that is already there, partly written data too. After a failed overwrite that
    could not put the family's data back, import the whole family again with **overwrite**, every
-   dataset the warning names and not only those that failed.
+   dataset the warning names and not only those that failed, and upload again with **overwrite**
+   what an upload brought.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten. After signing out,

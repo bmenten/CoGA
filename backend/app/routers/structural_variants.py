@@ -37,6 +37,7 @@ async def upload_structural_variants(
         file=file,
         overwrite=overwrite,
         format_hint=source_format,  # type: ignore[arg-type]
+        record_upload=True,
     )
     await record_upload_file_obj(
         session,
