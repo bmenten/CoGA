@@ -41,7 +41,7 @@ identify the deployed artefact, because the tag is mutable.*
 
 | Item | Value |
 | --- | --- |
-| All ten required checks green | ☐ — CI run: `<url>` |
+| All twelve required checks green | ☐ — CI run: `<url>` |
 | Backend tests | `<n passed / n skipped>` |
 | Frontend tests | `<n passed>` |
 | `sbom/backend.cdx.json` SHA-256 | `<…>` |

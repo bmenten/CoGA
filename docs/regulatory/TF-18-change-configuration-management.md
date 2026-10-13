@@ -89,23 +89,28 @@ the normal §4 (patch/minor/major) flow**.
 - Rollback: the prior tagged release is retained. Each signed version's frozen record stays in the database and can be downloaded.
 
 ## 6. Branch protection
-The CI gates are enforced through GitHub branch protection on `main` (a repository setting, not
-a file in the repository). **Ten status checks are required**, with **strict**
-(up-to-date-before-merge) enforcement, so no change merges without passing them:
-`backend (pytest)`, `frontend (tsc + eslint + vitest)`,
-`smoke (real startup against Postgres + ClickHouse)`,
+The CI gates are enforced through a GitHub ruleset on `main`, `CoGA_branch_protect` (a
+repository setting, not a file in the repository). **Twelve status checks are required**, so no
+change merges without passing them: `backend (pytest)`, `frontend (tsc + eslint + vitest)`,
+`coverage (unit + smoke + e2e combined)`, `smoke (real startup against Postgres + ClickHouse)`,
 `e2e (golden-trio pipeline against Postgres + ClickHouse)`, `e2e-playwright (browser journeys)`,
 `catalogue (test overview in sync)`, `deps (pip-audit + npm audit)`, `secret-scan (gitleaks)`,
-`codeql (python)` and `codeql (javascript-typescript)` (control S-6,
-[security-posture.md §5](../security-posture.md)). What each gate verifies:
-[TF-09 §1](TF-09-verification-validation.md) and [docs/testing.md](../testing.md).
+`codeql (python)`, `codeql (javascript-typescript)` and `CodeQL`, the code-scanning result,
+which fails on an alert the pull request introduces (control S-6,
+[security-posture.md §5](../security-posture.md)). A branch need not be up to date with `main`
+before it merges: since 2026-10-13 a pull request merges on its own last run, and `main`'s run
+after each merge checks the combined result (strict enforcement had serialised every merge
+behind a fresh run). What each gate verifies: [TF-09 §1](TF-09-verification-validation.md) and
+[docs/testing.md](../testing.md).
 
 Two gaps in that enforcement remain open, and bound what the gates evidence:
 
-- **🔲 `enforce_admins` is disabled** — a repository administrator can bypass the required
-  checks. Any bypass is visible in the merge record, but it is not prevented.
-- **🔲 No approving review is mechanically required** (branch protection carries no
-  `required_pull_request_reviews`, and there is no `CODEOWNERS`). The **4-eye approval of §4 is
+- **🔲 An administrator can change the ruleset** — it lists no bypass actors, so its checks
+  apply to administrators too, but an administrator can edit or disable it, and that is not
+  prevented. On 2026-10-13 the required checks were removed for some minutes, and #820 merged
+  with its `smoke` check failing (#823 corrected the test).
+- **🔲 No approving review is mechanically required** (the ruleset carries no
+  pull-request review rule, and there is no `CODEOWNERS`). The **4-eye approval of §4 is
   therefore a process commitment, not an enforced control**; enforcement is scheduled with the
   first beta release, as stated in [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Until then, this
   document must not be read as evidence that every merge was independently approved.

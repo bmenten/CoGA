@@ -342,8 +342,9 @@ Every pull request and push to `main` runs the gates in `ci.yml` (backend, front
 e2e, e2e-playwright, catalogue, plus coverage, the SBOM and a build of both production images
 that pushes nothing) and `security.yml` (`deps`: blocking `pip-audit --require-hashes` and
 production `npm audit`; `secret-scan`: gitleaks over the full history; `codeql` for Python and
-JavaScript/TypeScript). Ten of these are required status checks on `main` with strict,
-up-to-date-before-merge enforcement (S-6); coverage, the SBOM and the image build are not.
+JavaScript/TypeScript). All of these but the SBOM and the image build, and GitHub's `CodeQL`
+code-scanning result, are the twelve required status checks on `main` (S-6, the ruleset
+`CoGA_branch_protect`); a branch need not be up to date with `main` before it merges.
 The list is in [docs/testing.md](testing.md); the policy and its open gaps are in
 [TF-18 §6](regulatory/TF-18-change-configuration-management.md).
 `build.yml` checks the Terraform (`fmt`, `validate`) on pull requests and deploys from `main`.
