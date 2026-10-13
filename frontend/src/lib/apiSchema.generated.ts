@@ -1970,6 +1970,7 @@ export interface NiptVariantOut {
   cytoband: string | null;
   annotation_extra: Record<string, unknown>;
   transcripts: SmallVariantTranscriptOut[];
+  filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
   review: SmallVariantReviewOut | null;
@@ -2809,6 +2810,32 @@ export interface SmallVariantFilterPresetOut {
   updated_at: string;
 }
 
+/**
+ * The transcript a search's annotation filters held on, when the variant's primary
+ * transcript does not meet them (CLIN-51).
+ *
+ * The annotation filters must all hold on one transcript of a variant, while the
+ * variant's own fields describe its primary transcript (MANE Select, else canonical,
+ * else the most severe impact), which need not be that one: a variant kept by SIFT
+ * *deleterious* on a second transcript showed its primary transcript's *tolerated*. Of
+ * the transcripts the filters hold on, this is the one picked as the primary is picked,
+ * with its values of what the card and the CSV show of a transcript.
+ */
+export interface SmallVariantFilterTranscriptOut {
+  gene: string | null;
+  transcript_id: string | null;
+  impact: string | null;
+  effect: string | null;
+  hgvsc: string | null;
+  hgvsp: string | null;
+  lof: string | null;
+  cadd_phred: number | null;
+  revel: number | null;
+  spliceai_max: number | null;
+  sift: string | null;
+  polyphen: string | null;
+}
+
 export interface SmallVariantGroupOut {
   group_type: "compound_het";
   group_key: string;
@@ -3272,6 +3299,7 @@ export interface VariantOut {
   cytoband: string | null;
   annotation_extra: Record<string, unknown>;
   transcripts: SmallVariantTranscriptOut[];
+  filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
   review: SmallVariantReviewOut | null;

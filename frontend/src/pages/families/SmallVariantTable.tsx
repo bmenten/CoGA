@@ -20,6 +20,7 @@ import {
   visibleReviewTagKeys,
   type TableSortKey,
 } from './smallVariantResultUtils';
+import FilterTranscriptNote from './FilterTranscriptNote';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import ReviewTagChip from './ReviewTagChip';
 import VariantScoreCell from './VariantScoreCell';
@@ -221,7 +222,16 @@ export default function SmallVariantTable({
                   <AlleleCell value={variant.alt} />
                 </td>
                 <td>{variant.impact || '—'}</td>
-                <td className="table-wrap-cell">{variant.effect || '—'}</td>
+                <td className="table-wrap-cell">
+                  {variant.effect || '—'}
+                  {/* The row's impact and effect are its primary transcript's; the
+                      transcript the annotation filters held on, when another (CLIN-51). */}
+                  <FilterTranscriptNote
+                    variant={variant}
+                    className="variant-table-filter-transcript"
+                    idClassName="variant-table-filter-transcript-id"
+                  />
+                </td>
                 <td className="table-wrap-cell">
                   <div className="variant-table-review">
                     <div className="variant-table-review-actions">

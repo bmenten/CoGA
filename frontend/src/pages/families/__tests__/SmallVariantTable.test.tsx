@@ -45,6 +45,65 @@ describe('SmallVariantTable', () => {
     expect(allele.closest('table')).toHaveClass('small-variant-table');
   });
 
+  it('names under the effect the transcript the filters held on, when not the row’s own', () => {
+    // CLIN-51: the row's impact and effect are its MANE transcript's, a synonymous change;
+    // HIGH or MODERATE impact kept it as a missense change on a second transcript.
+    const row = {
+      _id: '20-63000301-C-T',
+      chr: '20',
+      start: 63000301,
+      end: 63000301,
+      type: 'SNV',
+      gene: 'SYN51C',
+      ref: 'C',
+      alt: 'T',
+      impact: 'LOW',
+      effect: 'synonymous_variant',
+      genotypes: [],
+    };
+    const matched = {
+      gene: 'SYN51C',
+      transcript_id: 'ENST_SYN51C_2',
+      impact: 'MODERATE',
+      effect: 'missense_variant',
+      hgvsc: null,
+      hgvsp: null,
+      lof: null,
+      cadd_phred: null,
+      revel: null,
+      spliceai_max: null,
+      sift: 'tolerated(0.5)',
+      polyphen: null,
+    };
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[
+            { ...row, filter_transcript: matched },
+            { ...row, _id: '20-63000401-C-T', start: 63000401, end: 63000401, filter_transcript: null },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+    const [note] = screen.getAllByText(/^Filters met on/);
+    expect(note.closest('p')).toHaveTextContent(
+      'Filters met on ENST_SYN51C_2: missense variant · SIFT tolerated (0.5)',
+    );
+    // In the effect cell, beside the row's own effect, which stays.
+    expect(note.closest('td')).toHaveTextContent(/^synonymous_variant/);
+    // The row whose own transcript met the filters says nothing.
+    expect(screen.getAllByText(/^Filters met on/)).toHaveLength(1);
+  });
+
   it('shows a Score column and ranks prioritized variants highest-first', () => {
     const mkVariant = (id: string, gene: string, combined: number) => ({
       _id: id,

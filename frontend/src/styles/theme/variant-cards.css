@@ -630,6 +630,24 @@ a.variant-card-gene:hover {
   gap: 0.25rem;
 }
 
+/* The transcript the search's annotation filters held on, when it is not the one the card
+   describes (CLIN-51): marked, as it says the card's values are not what the filters read. */
+.variant-card-filter-transcript {
+  margin: 0;
+  padding: 0.125rem 0.375rem;
+  border-left: 2px solid var(--color-warning-border);
+  background: var(--color-warning-surface);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.variant-card-filter-transcript-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
 .variant-card-idlist {
   display: flex;
   flex-wrap: wrap;

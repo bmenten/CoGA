@@ -173,7 +173,7 @@ def test_small_variant_out_primary_in_flat_fields_others_in_transcripts() -> Non
         calls=[_small_call("PROBAND", "0/1")],
     )
 
-    variant = _small_variant_out(record, assembly_name="GRCh38")
+    variant = _small_variant_out(record, assembly_name="GRCh38", filters=None)
 
     # The primary transcript (MANE select NM_000059.4) is carried by the flat
     # fields and not duplicated in `transcripts`.
@@ -199,7 +199,7 @@ def test_small_variant_out_says_where_a_male_is_hemizygous() -> None:
             ref="A", alt="G", source=None, rsid=None, filters=[], gene_symbols=[],
             annotations=[], calls=[_small_call("PROBAND", "1")],
         )
-        return _small_variant_out(record, assembly_name=assembly).hemizygous_in_males
+        return _small_variant_out(record, assembly_name=assembly, filters=None).hemizygous_in_males
 
     assert flagged("chrX", 31_500_000)
     assert flagged("chrY", 2_787_000)

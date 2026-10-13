@@ -56,6 +56,23 @@
   color: var(--color-text-muted);
 }
 
+/* Under a small variant's effect: the transcript the search's annotation filters held on,
+   when it is not the one the row describes (CLIN-51), marked as the card marks it. */
+.variant-table-filter-transcript {
+  margin: 0.125rem 0 0;
+  padding: 0 0.25rem;
+  border-left: 2px solid var(--color-warning-border);
+  background: var(--color-warning-surface);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.variant-table-filter-transcript-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
 .variant-results-toolbar {
   display: flex;
   flex-wrap: wrap;
