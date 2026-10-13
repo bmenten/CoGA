@@ -48,7 +48,7 @@ De scoring zit in `backend/app/services/variant_prioritization.py`, een zuivere 
 
 | Deelscore | Meet |
 | --- | --- |
-| Pathogeniciteit | Voorspelde schadelijkheid: impact en loss-of-function, ClinVar, de voorspellers (CADD, REVEL, SpliceAI, AlphaMissense) en genconstraint |
+| Pathogeniciteit | Voorspelde schadelijkheid: impact en loss-of-function, ClinVar, de voorspellers (CADD, REVEL, SpliceAI, AlphaMissense) en genconstraint. Een structurele variant heeft die voorspellers niet: ze scoort op het soort gebeurtenis, het aantal geraakte genen en de genconstraint. Een kopieverlies (een `DEL`, ook `DEL:ME`, of een `CNV` waarvan het opgeslagen kopieaantal een verlies toont: dezelfde regel als de tweede hit, hoofdstuk 8, in `sv_copy_change.py`) scoort als deletie, en in een gen met een pLI van 0,9 of meer als haploinsufficiënt; een kopiewinst (een `DUP`, ook `DUP:TANDEM`, of een `CNV` die een winst toont) als duplicatie. Vroeger telde alleen het exacte type: een `DEL:ME`, een `DUP:TANDEM` en elke `CNV` scoorden als een onbekende gebeurtenis (CLIN-47) |
 | Frequentie | Zeldzaamheid in gnomAD: hoe zeldzamer, hoe hoger |
 | Segregatie | Het overervingspatroon in de stamboom (de novo, homozygoot recessief, compound heterozygoot, X-gebonden, dominant). Bij een zoon op X of Y buiten de pseudo-autosomale regio's volgt het de-novogewicht de ouder die dat chromosoom doorgeeft (hoofdstuk 8). Een structurele variant draagt de *Inheritance*-annotatie van NeedlR voor het query-sample: *de novo* telt als de novo; een geërfde SV telt alleen als dominant wanneer de ouder van wie ze komt (maternaal: de moeder, paternaal: de vader) en het kind aangedaan zijn, anders telt ze niet mee |
 | Fenotype | Hoe goed het gen bij het klinische beeld past |
@@ -108,6 +108,7 @@ Het paneel `MonarchPhenotypeMatchPanel.tsx` roept Monarch pas aan na een klik op
 | `backend/app/services/monarch_ingest.py` | Monarch downloaden en vervangen, status, zoeken |
 | `backend/app/services/monarch_semsim.py` · `monarch_phenotype_score.py` | Gelijkenis: live via Monarch; lokaal voor de prioritering |
 | `backend/app/services/variant_prioritization.py` | De scoring |
+| `backend/app/services/sv_copy_change.py` | Of een SV een kopie verwijdert of toevoegt: voor de SV-scoring en de tweede hit |
 | `backend/app/services/variant_ranking_cache.py` | De ranking-cache |
 | `backend/app/routers/hpo.py` · `backend/app/routers/admin.py` | HPO-endpoints; beheer van HPO en Monarch |
 | `backend/db/schema/postgres/02_reference.sql` · `03_assay.sql` | HPO- en Monarch-tabellen; `individual_hpo` en de cache |
