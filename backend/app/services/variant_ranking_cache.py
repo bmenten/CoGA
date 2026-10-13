@@ -53,9 +53,12 @@ from .hpo_service import get_loaded_hpo_release
 # cached before can match (adding `hpo_imported_at` retired every earlier key this way).
 # 2: a compound-het pair whose two hits trace to one parent is no longer a candidate,
 #    which moves the segregation weight of both variants (compound_het_phase).
-# 3: a ranked compound-het, recessive or carrier-screening search ranks only the variants
+# 3: a SIFT or PolyPhen filter keeps a transcript whose value names the prediction with its
+#    score, "deleterious(0.01)" (CLIN-45). A ranking cached before under such a filter, on
+#    the same filters and data, lacks those variants (an empty ranking is cached too).
+# 4: a ranked compound-het, recessive or carrier-screening search ranks only the variants
 #    and pairs the search keeps unranked (CLIN-44); it ranked every prefiltered candidate.
-_ALGORITHM_VERSION = "3"
+_ALGORITHM_VERSION = "4"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

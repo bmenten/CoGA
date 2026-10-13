@@ -53,6 +53,7 @@ from .sex_chromosomes import (
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
+    in_silico_prediction_pattern,
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
     structural_variant_length,
@@ -2463,24 +2464,15 @@ def _small_annotation_filter_condition(
     if filters.min_revel is not None:
         params["detail_min_revel"] = filters.min_revel
         in_silico_conditions.append("ifNull(a.revel, -1) >= %(detail_min_revel)s")
-    if filters.sift:
-        sift_condition = _text_contains_any(
-            "a.sift",
-            prefix="detail_sift",
-            values=[filters.sift],
-            params=params,
-        )
-        if sift_condition:
-            in_silico_conditions.append(sift_condition)
-    if filters.polyphen:
-        polyphen_condition = _text_contains_any(
-            "a.polyphen",
-            prefix="detail_polyphen",
-            values=[filters.polyphen],
-            params=params,
-        )
-        if polyphen_condition:
-            in_silico_conditions.append(polyphen_condition)
+    # The stored SIFT or PolyPhen value names the prediction asked for, whatever its score:
+    # the Python matcher's own test (in_silico_prediction_pattern, CLIN-45). This condition
+    # used to find the filter's text anywhere in the value, so "deleterious" also kept
+    # "deleterious_low_confidence(0.03)".
+    for column, prediction in (("sift", filters.sift), ("polyphen", filters.polyphen)):
+        pattern = in_silico_prediction_pattern(prediction)
+        if pattern is not None:
+            params[f"detail_{column}_pattern"] = pattern
+            in_silico_conditions.append(f"match(a.{column}, %(detail_{column}_pattern)s)")
     if filters.min_spliceai is not None:
         in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= %(detail_min_spliceai)s")
     if in_silico_conditions:

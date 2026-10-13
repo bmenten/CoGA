@@ -30,8 +30,11 @@ The annotation filters must all hold on one transcript of the variant: impact an
 transcript, HGVS, *Canonical only*, *MANE only* and *LoF only*, the ClinVar status, the in-silico scores
 and the frequencies. With *MANE only* and HIGH impact, a variant whose HIGH-impact transcript is not its
 MANE transcript is left out. Under **In Silico**, one of the predictors you set is enough, and a SpliceAI
-score at its minimum also passes the impact and consequence filter. The gene, the rsID and the excluded
-ClinVar statuses apply to the variant as a whole.
+score at its minimum also passes the impact and consequence filter. A SIFT or PolyPhen choice keeps a
+transcript whose prediction is exactly that one, whatever score VEP wrote after it: *deleterious* keeps
+`deleterious(0.01)` but not `deleterious_low_confidence(0.03)`, which is a choice of its own, and
+*tolerated* leaves out `tolerated_low_confidence`. The gene, the rsID and the excluded ClinVar statuses
+apply to the variant as a whole.
 
 > **MANE only needs GRCh38.** *MANE only* keeps a variant with a MANE Select or MANE Plus Clinical
 > transcript. VEP sets these flags on GRCh38 only, so on a GRCh37 or T2T family *MANE only* keeps
