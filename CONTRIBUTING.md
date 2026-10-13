@@ -106,8 +106,11 @@ For anything touching clinical behaviour, state what you verified and how.
 ### CI
 
 `main` requires the CI and security checks that [docs/testing.md](docs/testing.md) describes,
-and is strict, so your branch must be up to date before it can merge. How that protection is
-enforced, and where it falls short, is recorded in
+and is strict, so your branch must be up to date before it can merge. Both workflows also run
+for GitHub's merge queue (`merge_group`): when `main` requires the queue, *Merge when ready*
+(or `gh pr merge --auto`) adds a pull request to it, and GitHub tests it together with
+`main` and the pull requests ahead of it before merging, so no branch needs updating by hand.
+How that protection is enforced, and where it falls short, is recorded in
 [TF-18 §6](docs/regulatory/TF-18-change-configuration-management.md).
 
 If `deps` fails on something you did not introduce, it is usually a newly published advisory

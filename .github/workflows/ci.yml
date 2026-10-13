@@ -5,6 +5,9 @@ name: CI
 # before a PR can merge.
 on:
   pull_request:
+  # GitHub's merge queue: when main requires one, these checks run on each queued group
+  # (main plus the pull requests ahead of it) before the group merges.
+  merge_group:
   push:
     branches: [main]
 

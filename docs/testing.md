@@ -50,8 +50,9 @@ the CI jobs use for the datastores are in `.github/workflows/ci.yml`.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs these jobs on every pull request and push to `main`; the
-security gates (`deps`, `secret-scan`, `codeql`) are in `.github/workflows/security.yml`.
+`.github/workflows/ci.yml` runs these jobs on every pull request and push to `main`, and on
+each merge-queue group (`merge_group`); the security gates (`deps`, `secret-scan`, `codeql`)
+are in `.github/workflows/security.yml`, which runs on the same events.
 
 | Job | What it runs | Notes |
 | --- | --- | --- |
