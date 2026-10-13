@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any, Sequence
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .review_pg_utils import _json_payload, _normalize_tags
@@ -114,13 +114,10 @@ async def _fetch_review_rows(
     *,
     where_clause: str,
     params: dict[str, Any],
-    expanding: Sequence[str] = (),
 ) -> list[dict[str, Any]]:
     # where_clause is a hardcoded predicate string (never user input); the
-    # values are bound via params. `expanding` names the params bound as a list (IN).
+    # values are bound via params.
     statement = text(f"{_SMALL_VARIANT_REVIEW_SELECT}            WHERE {where_clause}")
-    if expanding:
-        statement = statement.bindparams(*(bindparam(name, expanding=True) for name in expanding))
     result = await session.execute(statement, params)
     return [dict(row) for row in result.mappings().all()]
 
@@ -136,12 +133,17 @@ async def _fetch_review_rows_for_variants(
     Every list of variants carries its reviews through this, so a list serves each review
     as a read of that one review would. A list that selected its own columns once left out
     the ACMG record, and every classified variant then came back without its criteria.
+
+    The ids go as one text[] parameter, not one parameter per id (an expanding IN): a CSV
+    export reads up to 50,001 rows, and asyncpg refuses a statement with more than 32,767
+    parameters, so every export of a larger result failed before its row cap (DATA-3).
     """
     return await _fetch_review_rows(
         session,
-        where_clause="family_id = CAST(:family_id AS uuid) AND variant_id IN :variant_ids",
+        where_clause=(
+            "family_id = CAST(:family_id AS uuid) AND variant_id = ANY(CAST(:variant_ids AS text[]))"
+        ),
         params={"family_id": family_uuid, "variant_ids": list(variant_ids)},
-        expanding=("variant_ids",),
     )
 
 

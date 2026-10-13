@@ -112,7 +112,7 @@ Het endpoint is `GET /api/families/{family_id}/structural-variants`; de SV's van
 - **Scoping in elke query.** De WHERE-bouwers beginnen altijd met de familie en voegen de projectfilter toe. Daarnaast beperkt een filter de rijen tot de samples die de gebruiker mag zien; is die lijst leeg, dan krijgt de query een voorwaarde die niets oplevert. Parameters manipuleren helpt dus niet.
 - **Geen injectie.** Waarden gaan alleen als parameter mee; tabelnamen komen uit een veilige functie; paginagroottes worden begrensd, en bij small variants ook het paginanummer.
 - **Een mislukte vraag is geen leeg resultaat.** Mislukt een zoekopdracht, dan tonen de SV- en de NIPT-pagina "Could not load … — this is not an empty result", met de reden en een knop *Retry*, en tellers "—" in plaats van 0; de small-variantpagina toont dan in de plaats van de resultaten *Unable to load small variants*, met de reden. Een mislukte panellijst zegt dat de standaard-Mendeliome-scope niet is toegepast.
-- **De export is wat de analist zag.** De CSV-export gebruikt dezelfde filters als het scherm, en cellen worden ontdaan van formule-injectie (`csv_safe_cell` in `backend/app/core/csv_export.py`).
+- **De export is wat de analist zag.** De CSV-export gebruikt dezelfde filters als het scherm, en cellen worden ontdaan van formule-injectie (`csv_safe_cell` in `backend/app/core/csv_export.py`). De review, de genconstraint en de SV-tweede-hit van zijn rijen zoekt hij in Postgres op met de id's als één array-parameter. Met één parameter per id brak elke export van meer dan 32.766 rijen af, vóór zijn grens van 50.000 rijen: asyncpg weigert een vraag met meer dan 32.767 parameters.
 
 ## Deel B — Gespecialiseerde analyses
 

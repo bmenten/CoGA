@@ -38,7 +38,7 @@ class _RecordingSession:
 
 
 @pytest.mark.asyncio
-async def test_get_small_variant_review_map_binds_variant_ids_expanding() -> None:
+async def test_get_small_variant_review_map_binds_variant_ids_as_one_array() -> None:
     timestamp = datetime.now(timezone.utc)
     session = _RecordingSession(
         [
@@ -72,7 +72,8 @@ async def test_get_small_variant_review_map_binds_variant_ids_expanding() -> Non
     )
 
     assert session.sql is not None
-    assert "variant_id IN" in session.sql
+    # One text[] parameter for every id, not one parameter per id (DATA-3).
+    assert "variant_id = ANY(CAST(:variant_ids AS text[]))" in session.sql
     assert session.params == {"family_id": "family-uuid", "variant_ids": ["var-1"]}
     assert result["var-1"].variant_id == "var-1"
     assert result["var-1"].tags == ["validated"]
