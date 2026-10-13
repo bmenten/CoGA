@@ -1,17 +1,25 @@
-"""CLIN-27: a narrower panel is served from a broader cached ranking only while that
-ranking's panel holds what it held when the ranking was computed.
+"""A narrower panel served from a broader cached ranking (``_serve_subpanel_from_superset``).
 
-On an exact miss, ``_serve_subpanel_from_superset`` restricts a broader cached ranking to
-the requested panel's variants. That check can only drop variants from the cached
-ranking, never add any, so a ranking computed before its panel gained a gene served the
-panel afterwards without that gene's variants. Each cached ranking now records the genes
-and regions its panel filter applied (``panel_members_digest``): a broader ranking is used
-only while its panel holds exactly those, and one that recorded none is not used.
+CLIN-27: only while that ranking's panel holds what it held when the ranking was computed.
+On an exact miss, a broader cached ranking is restricted to the requested panel's
+variants. That can only drop variants from the cached ranking, never add any, so a
+ranking computed before its panel gained a gene served the panel afterwards without that
+gene's variants. Each cached ranking now records the genes and regions its panel filter
+applied (``panel_members_digest``): a broader ranking is used only while its panel holds
+exactly those, and one that recorded none is not used.
 
 The keys also cover the regions the query applied: a gene's loci are read from the gene
 reference when the query runs, so a reload that moves a gene changes a panel's or a gene
 filter's reach without any version or filter changing; and a ranking computed without the
 query's intervals (the background warm's replay) is not served for the query.
+
+CLIN-34 and CLIN-35: a served panel is what a fresh computation of that panel gives. The
+broader ranking must hold every variant the panel reaches: a panel of more than
+``_PANEL_REGION_INLINE_LIMIT`` regions (the Mendeliome) is matched on gene symbols alone,
+so its ranking lacks a variant a smaller panel reaches by position only. The ranks are
+numbered within the panel, and a compound-het pair whose partner the panel leaves out is no
+pair: such a ranking is not used, and the panel is computed afresh. These tests compare a
+served panel with a fresh computation of the same panel.
 
 Drives ``_prioritized_small_variants_page`` with the real cache keys, the real superset
 path and the real record filter, over an in-memory stand-in for the cache rows, the panel
@@ -30,8 +38,12 @@ from fastapi import HTTPException
 from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services import variant_ranking_cache as vrc
 from backend.app.services.clickhouse_variant_queries import (
+    _PANEL_REGION_INLINE_LIMIT,
     _parse_interval_regions,
+    _segregation_modes_by_variant,
+    _small_record_hits_gene_terms,
     _small_record_matches,
+    _variant_overlaps_regions,
 )
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -41,13 +53,29 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.app.services.variant_prioritization import MODE_COMPOUND_HET
 
-BROAD = "0b5e1c1e-0000-4000-8000-000000000001"
+BROAD ="0b5e1c1e-0000-4000-8000-000000000001"
 NARROW = "0b5e1c1e-0000-4000-8000-000000000002"
 OTHER = "0b5e1c1e-0000-4000-8000-000000000003"
+MENDELIOME = "0b5e1c1e-0000-4000-8000-000000000004"
+
+# Genes of the Mendeliome stand-in besides GENE1-3, one locus each on chromosome 2, where the
+# family has no variant: with them it has more regions than the panel filter inlines, so,
+# like the real Mendeliome, it is matched on gene symbols alone.
+FILLER_GENES = tuple(f"FILLER{index:04d}" for index in range(_PANEL_REGION_INLINE_LIMIT))
 
 
-def _variant(variant_id: str, gene: str, *, start: int) -> SmallVariantRecord:
+def _variant(
+    variant_id: str,
+    gene: str,
+    *,
+    start: int,
+    other_genes: tuple[str, ...] = (),
+    calls: dict[str, str] | None = None,
+) -> SmallVariantRecord:
+    """A variant annotated with ``gene`` (its primary annotation, which a compound-het pair
+    is grouped on) and with ``other_genes``, called ``calls`` (sample -> genotype)."""
     return SmallVariantRecord(
         variant_key=None,
         variant_id=variant_id,
@@ -59,9 +87,12 @@ def _variant(variant_id: str, gene: str, *, start: int) -> SmallVariantRecord:
         source="clair3",
         rsid=None,
         filters=[],
-        gene_symbols=[gene],
-        annotations=[{"gene": gene}],
-        calls=[SmallVariantCall(sample="PROBAND", gt="0/1", gq=None, dp=None, af=[], ad=[], ps=None)],
+        gene_symbols=[gene, *other_genes],
+        annotations=[{"gene": gene}, *({"gene": other} for other in other_genes)],
+        calls=[
+            SmallVariantCall(sample=sample, gt=gt, gq=None, dp=None, af=[], ad=[], ps=None)
+            for sample, gt in (calls or {"PROBAND": "0/1"}).items()
+        ],
     )
 
 
@@ -84,6 +115,61 @@ def _context() -> FamilyMetadataContext:
     )
 
 
+def _trio_context() -> FamilyMetadataContext:
+    """An affected proband and the two unaffected parents the pedigree links to her."""
+    members = {
+        "PROBAND": ("proband", "affected", "female"),
+        "MOTHER": ("mother", "unaffected", "female"),
+        "FATHER": ("father", "unaffected", "male"),
+    }
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM_SUBPANEL",
+        project_ids=["project-uuid"],
+        sample_rows=[
+            {
+                "sample_id": name,
+                "role": role,
+                "affected": status == "affected",
+                "clinical_status": status,
+                "sex": sex,
+            }
+            for name, (role, status, sex) in members.items()
+        ],
+        sample_uuid_to_name={f"sample-{name.lower()}": name for name in members},
+        sample_name_to_uuid={name: f"sample-{name.lower()}" for name in members},
+        affected_sample_names=["PROBAND"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+        relationship_rows=[
+            {
+                "relationship_type": "parent_child",
+                "sample_id_a": parent,
+                "role_a": parent.lower(),
+                "sample_id_b": "PROBAND",
+                "role_b": "child",
+            }
+            for parent in ("MOTHER", "FATHER")
+        ],
+    )
+
+
+def _panel_sql_match(record: SmallVariantRecord, constraints: PanelFilterConstraints | None) -> bool:
+    """The panel part of the SQL filter (``_small_panel_filter_condition``): the variant's
+    gene symbols, or its position while the panel has at most
+    ``_PANEL_REGION_INLINE_LIMIT`` regions. Above that, a panel with genes is matched on its
+    gene symbols alone. The real condition is checked in test_clickhouse_family_variants.py
+    (``test_small_panel_filter_skips_region_inlining_for_large_gene_panels``,
+    ``test_small_panel_filter_keeps_regions_for_normal_panels``)."""
+    if constraints is None or not (constraints.genes or constraints.regions):
+        return True
+    if constraints.genes and _small_record_hits_gene_terms(record, constraints.genes):
+        return True
+    if constraints.genes and len(constraints.regions) > _PANEL_REGION_INLINE_LIMIT:
+        return False
+    return _variant_overlaps_regions(record.chr, record.start, record.end, constraints.regions)
+
+
 class _World:
     """The panel tables, the gene reference, the family's variants and the cache rows."""
 
@@ -95,6 +181,10 @@ class _World:
             "GENE1": [Region(chr="1", start=1000, end=2000)],
             "GENE2": [Region(chr="1", start=3000, end=4000)],
             "GENE3": [Region(chr="1", start=7000, end=8000)],
+            **{
+                gene: [Region(chr="2", start=10_000 * (index + 1), end=10_000 * (index + 1) + 500)]
+                for index, gene in enumerate(FILLER_GENES)
+            },
         }
         self.records = [GENE1_A, GENE2_A, GENE3_A]
         # inputs_hash -> cache row, as family_variant_ranking_cache holds it
@@ -162,6 +252,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
             record
             for record in state.records
             if (wanted is None or record.variant_id in wanted)
+            and _panel_sql_match(record, panel_constraints)
             and _small_record_matches(
                 record,
                 filters,
@@ -233,6 +324,9 @@ def _open(
     gene: str | None = None,
     intervals: str | None = None,
     resolve_intervals: bool = True,
+    context: FamilyMetadataContext | None = None,
+    page: int = 1,
+    page_size: int = 50,
 ):
     """Open the prioritised view as a request does: the panel's genes and regions, and the
     intervals, are resolved first, then handed to the ranking. ``resolve_intervals=False``
@@ -240,7 +334,7 @@ def _open(
 
     async def _run():
         filters = SmallVariantQueryFilters(
-            page=1, page_size=50, panel_id=panel_id, gene=gene, intervals=intervals
+            page=page, page_size=page_size, panel_id=panel_id, gene=gene, intervals=intervals
         )
         constraints = (
             await cfv._fetch_panel_constraints(None, panel_id, assembly_id="assembly-uuid")
@@ -249,10 +343,10 @@ def _open(
         )
         return await cfv._prioritized_small_variants_page(
             None,  # type: ignore[arg-type]
-            context=_context(),
+            context=context or _context(),
             filters=filters,
-            page=1,
-            page_size=50,
+            page=page,
+            page_size=page_size,
             panel_constraints=constraints,
             review_variant_ids=None,
             excluded_review_variant_ids=set(),
@@ -269,6 +363,28 @@ def _open(
 
 def _ids(page) -> list[str]:
     return sorted(str(variant.id) for variant in page.variants)
+
+
+def _ranked(page) -> list[tuple[str, dict[str, Any] | None]]:
+    """The page as ranked: each variant in order, with its rank, scores and segregation."""
+    return [
+        (str(variant.id), variant.priority.model_dump() if variant.priority else None)
+        for variant in page.variants
+    ]
+
+
+def _fresh(world: _World, panel_id: str, **open_kwargs: Any):
+    """The same panel computed afresh: opened over an empty cache, then the cache rows are
+    put back as they were."""
+    kept = dict(world.cache)
+    world.cache.clear()
+    try:
+        page = _open(panel_id, **open_kwargs)
+    finally:
+        world.cache.clear()
+        world.cache.update(kept)
+    assert page.ranking_cached is False
+    return page
 
 
 def test_a_ranking_cached_before_its_panel_gained_a_gene_is_not_served_for_it(world) -> None:
@@ -417,3 +533,164 @@ def test_a_ranking_computed_without_the_query_s_intervals_is_not_served_for_it(w
     opened = _open(None, intervals="1:1000-2000")
     assert opened.ranking_cached is False
     assert _ids(opened) == [GENE1_A.variant_id]
+
+
+# CLIN-34 and CLIN-35: a panel served from a broader ranking is what a fresh computation of
+# that panel gives: the same variants, in the same order, with the same ranks and scores.
+
+
+def _mendeliome(world: _World) -> None:
+    """The Mendeliome stand-in: GENE1-3 and the fillers, more regions than the panel filter
+    inlines, so it is matched on gene symbols alone."""
+    world.set_panel(MENDELIOME, "GENE1", "GENE2", "GENE3", *FILLER_GENES)
+    regions = [region for gene in world.panels[MENDELIOME]["genes"] for region in world.loci[gene]]
+    assert len(regions) > _PANEL_REGION_INLINE_LIMIT
+
+
+def test_a_variant_the_panel_reaches_by_position_is_not_lost_to_a_ranking_on_symbols(world) -> None:
+    # The annotation names the gene by another symbol than the gene reference does (here a
+    # previous symbol of GENE2), so a panel with GENE2 reaches the variant only by its
+    # position in GENE2's locus. The Mendeliome is matched on gene symbols alone, so its
+    # ranking does not hold the variant, and the panel served from it lost the variant.
+    previous_symbol = _variant("1-3600-A-G", "GENE2_PREVIOUS", start=3600)
+    world.records.append(previous_symbol)
+    _mendeliome(world)
+    world.set_panel(NARROW, "GENE2")
+    mendeliome = _open(MENDELIOME)
+    assert _ids(mendeliome) == [GENE1_A.variant_id, GENE2_A.variant_id, GENE3_A.variant_id]
+
+    narrow = _open(NARROW)
+    fresh = _fresh(world, NARROW)
+    assert _ids(fresh) == [GENE2_A.variant_id, previous_symbol.variant_id]
+    assert _ranked(narrow) == _ranked(fresh)
+    assert narrow.total == fresh.total == 2
+    # Not served from the Mendeliome's ranking: computed for the panel itself.
+    assert narrow.ranking_cached is False
+
+
+def test_a_panel_whose_every_variant_the_mendeliome_ranking_holds_is_served_from_it(world) -> None:
+    # The panel reaches GENE3_A by its gene symbol, and the Mendeliome's ranking holds it:
+    # the narrowing stays a cache hit.
+    _mendeliome(world)
+    world.set_panel(NARROW, "GENE3")
+    _open(MENDELIOME)
+
+    narrow = _open(NARROW)
+    assert narrow.ranking_cached is True
+    assert _ranked(narrow) == _ranked(_fresh(world, NARROW))
+
+
+def test_a_served_panel_is_numbered_within_the_panel(world) -> None:
+    # Equal scores rank by variant id, descending: GENE3_A, GENE2_A, GENE1_A in the broader
+    # ranking. Served from it, the narrower panel kept the broader ranks (#2 and #3), which
+    # the card's "#N", the review dialog and the CSV's Rank column show.
+    world.set_panel(BROAD, "GENE1", "GENE2", "GENE3")
+    world.set_panel(NARROW, "GENE1", "GENE2")
+    broad = _open(BROAD)
+    assert [(str(v.id), v.priority.rank) for v in broad.variants] == [
+        (GENE3_A.variant_id, 1),
+        (GENE2_A.variant_id, 2),
+        (GENE1_A.variant_id, 3),
+    ]
+
+    narrow = _open(NARROW)
+    assert narrow.ranking_cached is True
+    assert [(str(v.id), v.priority.rank) for v in narrow.variants] == [
+        (GENE2_A.variant_id, 1),
+        (GENE1_A.variant_id, 2),
+    ]
+    assert _ranked(narrow) == _ranked(_fresh(world, NARROW))
+
+    # A later page goes on from the ranks of the pages before it.
+    second = _open(NARROW, page=2, page_size=1)
+    assert second.ranking_cached is True
+    assert [(str(v.id), v.priority.rank) for v in second.variants] == [(GENE1_A.variant_id, 2)]
+    assert _ranked(second) == _ranked(_fresh(world, NARROW, page=2, page_size=1))
+
+
+def _compound_het_pair(
+    world: _World, monkeypatch: pytest.MonkeyPatch
+) -> tuple[SmallVariantRecord, SmallVariantRecord]:
+    """A compound-het pair in GENE_CH, one variant from each unaffected parent. The maternal
+    one also lies in GENE_OV, a gene overlapping GENE_CH, and is annotated with it. The
+    segregation modes are the real ones, over the trio."""
+    monkeypatch.setattr(cfv, "_segregation_modes_by_variant", _segregation_modes_by_variant)
+    maternal = _variant(
+        "1-5100-A-G",
+        "GENE_CH",
+        start=5100,
+        other_genes=("GENE_OV",),
+        calls={"PROBAND": "0/1", "MOTHER": "0/1", "FATHER": "0/0"},
+    )
+    paternal = _variant(
+        "1-5900-A-G",
+        "GENE_CH",
+        start=5900,
+        calls={"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"},
+    )
+    world.records = [maternal, paternal]
+    world.loci["GENE_CH"] = [Region(chr="1", start=5000, end=6000)]
+    world.loci["GENE_OV"] = [Region(chr="1", start=5050, end=5300)]
+    world.set_panel(BROAD, "GENE_CH", "GENE_OV")
+    return maternal, paternal
+
+
+def test_a_compound_het_pair_the_panel_splits_is_not_carried_over(world, monkeypatch) -> None:
+    # A panel with GENE_OV and not GENE_CH reaches the maternal variant alone. Ranked within
+    # that panel it has no partner, so no compound-het mode, and a lower segregation weight
+    # and score; served from the ranking of both, it kept the pair's.
+    maternal, paternal = _compound_het_pair(world, monkeypatch)
+    world.set_panel(NARROW, "GENE_OV")
+    trio = _trio_context()
+    broad = _open(BROAD, context=trio)
+    paired = {str(v.id): v.priority for v in broad.variants}
+    assert paired[maternal.variant_id].segregation_modes == [MODE_COMPOUND_HET]
+    assert paired[paternal.variant_id].segregation_modes == [MODE_COMPOUND_HET]
+
+    narrow = _open(NARROW, context=trio)
+    fresh = _fresh(world, NARROW, context=trio)
+    assert _ids(fresh) == [maternal.variant_id]
+    alone = fresh.variants[0].priority
+    assert alone.segregation_modes == []
+    assert alone.segregation_weight < paired[maternal.variant_id].segregation_weight
+    assert alone.combined_score < paired[maternal.variant_id].combined_score
+    assert _ranked(narrow) == _ranked(fresh)
+    # Not served from the broader ranking: computed for the panel itself.
+    assert narrow.ranking_cached is False
+
+
+def test_a_panel_is_served_from_another_ranking_that_does_not_hold_the_pair(world, monkeypatch) -> None:
+    # The ranking of both variants is passed over, not the request: a ranking of a panel
+    # with GENE_OV and GENE3 holds the maternal variant without its partner, as the panel
+    # with GENE_OV alone ranks it, and serves that panel. The broader ranking is tried
+    # first (the larger one is preferred).
+    maternal, paternal = _compound_het_pair(world, monkeypatch)
+    world.records.extend([GENE1_A, GENE3_A])
+    world.set_panel(BROAD, "GENE_CH", "GENE_OV", "GENE1")
+    world.set_panel(OTHER, "GENE_OV", "GENE3")
+    world.set_panel(NARROW, "GENE_OV")
+    trio = _trio_context()
+    broad = _open(BROAD, context=trio)
+    assert _ids(broad) == sorted([GENE1_A.variant_id, maternal.variant_id, paternal.variant_id])
+    other = _open(OTHER, context=trio)
+    assert _ids(other) == sorted([maternal.variant_id, GENE3_A.variant_id])
+
+    narrow = _open(NARROW, context=trio)
+    assert narrow.ranking_cached is True
+    assert _ranked(narrow) == _ranked(_fresh(world, NARROW, context=trio))
+    assert narrow.variants[0].priority.segregation_modes == []
+
+
+def test_a_panel_that_keeps_a_compound_het_pair_whole_is_served_with_it(world, monkeypatch) -> None:
+    maternal, paternal = _compound_het_pair(world, monkeypatch)
+    world.set_panel(NARROW, "GENE_CH")
+    trio = _trio_context()
+    _open(BROAD, context=trio)
+
+    narrow = _open(NARROW, context=trio)
+    assert narrow.ranking_cached is True
+    assert _ranked(narrow) == _ranked(_fresh(world, NARROW, context=trio))
+    assert {str(v.id): v.priority.segregation_modes for v in narrow.variants} == {
+        maternal.variant_id: [MODE_COMPOUND_HET],
+        paternal.variant_id: [MODE_COMPOUND_HET],
+    }

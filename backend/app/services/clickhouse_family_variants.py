@@ -1906,26 +1906,48 @@ async def _superset_panel_if_unchanged(
     return constraints
 
 
+def _recorded_segregation_modes(entry: dict[str, Any]) -> list[str] | None:
+    """The segregation modes a cached ranking recorded for one of its variants, if any."""
+    priority = entry.get("priority")
+    modes = priority.get("segregation_modes") if isinstance(priority, dict) else None
+    return [str(mode) for mode in modes] if isinstance(modes, list) else None
+
+
 async def _serve_subpanel_from_superset(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
     base_hash: str,
     panel_constraints: PanelFilterConstraints,
+    records: Sequence[SmallVariantRecord],
+    segregation_modes: Mapping[str, list[str]],
     page: int,
     page_size: int,
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage | None:
     """Serve a gene panel from a broader cached ranking with the same panel-agnostic
-    inputs.
+    inputs, as a fresh computation of the panel ranks it; otherwise None, for a live
+    compute.
 
-    The per-variant scores don't depend on the panel, so a narrower panel's ranking is the
-    superset's ranking restricted to the panel's variants — in the same order. Membership
-    is re-validated against ClickHouse with the *exact* panel filter, which can only drop
-    variants from the superset. So a superset is used only when it is complete (not
-    truncated), has no panel or a panel that still holds exactly the genes and regions it
-    was computed on, and that panel's genes cover the request; otherwise returns None for a
-    live compute.
+    ``records`` are the variants a fresh computation ranks: what this query's own filter
+    fetched (by gene symbol and by position) and kept, from a window that did not overflow;
+    ``segregation_modes`` are the modes it scores them with, compound-het pairs counted
+    within these variants only. A variant's score does not depend on the panel, except
+    through those pairs, so the panel's ranking is the broader ranking restricted to these
+    variants, in the same order, numbered within the panel. A broader ranking is used only
+    when:
+
+    - it is complete (not truncated), and has no panel or a panel that still holds exactly
+      the genes and regions it was computed on, and whose genes cover the request (CLIN-27);
+    - it holds every one of the variants. A panel of more than
+      ``_PANEL_REGION_INLINE_LIMIT`` regions (the Mendeliome) is matched on gene symbols
+      alone, so its ranking can lack a variant a smaller panel reaches by position only
+      (CLIN-34);
+    - it recorded the same segregation modes for each of them. A compound-het pair whose
+      partner the panel leaves out is no pair within the panel: the variant loses that
+      mode, and with it, unless another mode is as strong, segregation weight and score
+      (CLIN-35). Such a ranking is passed over rather than re-scored: it recorded rounded
+      scores, and a score worked back from them can differ from a fresh one.
     """
     request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
     if not request_genes:
@@ -1934,6 +1956,7 @@ async def _serve_subpanel_from_superset(
     candidates = await find_superset_candidates(
         session, family_uuid=context.family_uuid, base_hash=base_hash
     )
+    by_id = {str(record.variant_id): record for record in records}
     for candidate in candidates:
         candidate_panel_id = candidate.get("panel_id")
         if candidate_panel_id:
@@ -1952,26 +1975,15 @@ async def _serve_subpanel_from_superset(
                 ranking = json.loads(ranking)
             except json.JSONDecodeError:
                 continue
-        superset_ids = [str(entry["variant_id"]) for entry in ranking if entry.get("variant_id")]
-        if not superset_ids:
-            continue
-
-        # Re-validate which of the superset's variants are in the requested panel, using
-        # the exact panel filter (SQL + the same Python check the live path applies).
-        fetch_filters = SmallVariantQueryFilters(page=1, page_size=len(superset_ids) + 5)
-        records = await _fetch_small_variant_rows(
-            context,
-            fetch_filters,
-            include_variant_ids=superset_ids,
-            panel_constraints=panel_constraints,
-            limit=len(superset_ids) + 5,
-        )
-        by_id: dict[str, Any] = {}
-        for record in records:
-            if _small_record_matches(
-                record, fetch_filters, [], [], [], panel_constraints=panel_constraints
-            ):
-                by_id[str(record.variant_id)] = record
+        entries = {str(entry["variant_id"]): entry for entry in ranking if entry.get("variant_id")}
+        if not by_id.keys() <= entries.keys():
+            continue  # a variant the panel reaches that this ranking does not hold (CLIN-34)
+        if any(
+            _recorded_segregation_modes(entries[variant_id])
+            != list(segregation_modes.get(variant_id, []))
+            for variant_id in by_id
+        ):
+            continue  # a compound-het pair the panel splits (CLIN-35)
 
         subset_ranking = [
             entry for entry in ranking if str(entry.get("variant_id")) in by_id
@@ -1982,15 +1994,15 @@ async def _serve_subpanel_from_superset(
         page_entries = subset_ranking[skip : skip + page_size] if page_size else subset_ranking[skip:]
 
         page_variants: list[VariantOut] = []
-        for entry in page_entries:
-            record = by_id.get(str(entry.get("variant_id")))
-            if record is None:
-                continue
+        # Numbered within the panel, as a fresh computation numbers it (CLIN-35): the rank
+        # the broader ranking recorded counts the variants the panel leaves out.
+        for rank, entry in enumerate(page_entries, start=skip + 1):
+            record = by_id[str(entry.get("variant_id"))]
             variant_out = _small_variant_out(record, assembly_name=context.assembly_name)
             priority = entry.get("priority")
             if priority:
                 try:
-                    variant_out.priority = VariantPriorityOut.model_validate(priority)
+                    variant_out.priority = VariantPriorityOut.model_validate({**priority, "rank": rank})
                 except Exception:  # noqa: BLE001 - fall back to live compute on a bad blob
                     return None
             page_variants.append(variant_out)
@@ -2089,20 +2101,6 @@ async def _prioritized_small_variants_page(
         if served is not None:
             return served
 
-    # No exact hit: a narrower panel can be served from a broader cached ranking with the
-    # same panel-agnostic inputs (scores are panel-independent), re-validating membership.
-    served = await _serve_subpanel_from_superset(
-        session,
-        context=context,
-        base_hash=base_hash,
-        panel_constraints=panel_constraints,
-        page=page,
-        page_size=page_size,
-        small_variant_summary=small_variant_summary,
-    )
-    if served is not None:
-        return served
-
     records = await _fetch_small_variant_rows(
         context,
         filters,
@@ -2135,6 +2133,30 @@ async def _prioritized_small_variants_page(
             panel_constraints=panel_constraints,
         )
     ]
+    # Compound-het pairs count within these variants only: a pair whose partner the
+    # filters leave out is no pair here.
+    modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
+
+    # No exact hit: a narrower panel can be served from a broader cached ranking with the
+    # same panel-agnostic inputs, when that ranking holds every variant fetched here and
+    # ranks them as this computation would (_serve_subpanel_from_superset). Fetching them
+    # first is what shows it, and the phenotype scoring after this is the costly part. A
+    # window that overflowed ranks a truncated set, which no complete ranking reproduces.
+    if not capped:
+        served = await _serve_subpanel_from_superset(
+            session,
+            context=context,
+            base_hash=base_hash,
+            panel_constraints=panel_constraints,
+            records=filtered,
+            segregation_modes=modes_by_variant,
+            page=page,
+            page_size=page_size,
+            small_variant_summary=small_variant_summary,
+        )
+        if served is not None:
+            return served
+
     if not filtered:
         await store_ranking(
             session,
@@ -2160,7 +2182,6 @@ async def _prioritized_small_variants_page(
             small_variant_summary=small_variant_summary,
         )
 
-    modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
 

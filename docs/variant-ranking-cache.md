@@ -50,34 +50,62 @@ cached and each page is a slice of it.
 
 ## Serving a narrower panel from a broader one
 
-The panel only decides which variants are in scope; it never changes a variant's score. So
-the ranking for a narrower panel is the broader panel's ranking, restricted to the narrower
-panel's variants, in the same order. Each row therefore also stores `base_hash`: the same
-digest without the panel, its version and its genes and regions.
+The panel decides which variants are in scope. A variant's score depends on it in one way
+only: a compound-het pair counts when both of its variants are in scope. So the ranking for
+a narrower panel is the broader panel's ranking, restricted to the narrower panel's
+variants, in the same order, as long as the narrower panel splits no pair. Each row
+therefore also stores `base_hash`: the same digest without the panel, its version and its
+genes and regions.
 
-On a miss, CoGA looks for a cached row with the same `base_hash` that:
+On a miss, CoGA first fetches the variants the requested panel reaches, with the filter a
+direct computation uses (by gene symbol and by position), and works out their segregation
+modes among themselves: the first steps of a direct computation, and quick ones. The
+phenotype scoring that follows them is what takes seconds. CoGA then looks for a cached row
+with the same `base_hash` that:
 
 1. is complete, not truncated (the ranking considers at most 5,000 candidates, and a
-   truncated one may miss a low-ranked variant of the smaller panel);
+   truncated one may miss a low-ranked variant of the smaller panel). A request whose own
+   variants overflow that window is never served from another row;
 2. has no panel, or a panel that still holds the genes and regions the row was computed on.
    Each row records them in its `provenance` (`panel_members`, the same digest as in the
    key), and CoGA compares that record with the panel as it reads it now. A row that
    records nothing (cached before rankings recorded their panel), or whose panel has been
-   deleted, is not used; and
-3. covers the requested panel's genes (a row without a panel covers every gene).
+   deleted, is not used;
+3. covers the requested panel's genes (a row without a panel covers every gene);
+4. holds every variant the requested panel reaches; and
+5. recorded for each of them the segregation modes they have among themselves.
 
-It then asks ClickHouse which of that row's variants match the requested panel, with the
-same filter a direct computation uses, and serves the ranked order restricted to them.
-Narrowing from the Mendeliome to a diagnostic sub-panel is therefore instant. When no row
-qualifies, the ranking is computed directly.
+It serves that row's ranked order restricted to those variants, numbered from 1 within the
+requested panel. That is the ranking a direct computation of the panel gives: the same
+variants, in the same order, with the same scores and ranks. Narrowing from the Mendeliome
+to a diagnostic sub-panel stays a cache hit whenever conditions 4 and 5 hold. When no row
+qualifies, the ranking is computed directly from the variants already fetched.
 
-Why the second condition: the match against the requested panel can only drop variants
-from the row's ranking, never add any. A ranking computed before its panel gained a gene
-holds none of that gene's variants, whatever the panel holds now. Before CoGA compared the
-record, such a ranking served the panel itself once its version had moved (the exact key
-misses), and any other panel the grown panel now covered, the Mendeliome default view
-included (CLIN-27). A new version that leaves the genes and regions as they were, such as an
-edit of the description, still serves the panel from its earlier ranking.
+Why the second condition: restricting the row's ranking can only drop variants from it,
+never add any. A ranking computed before its panel gained a gene holds none of that gene's
+variants, whatever the panel holds now. Before CoGA compared the record, such a ranking
+served the panel itself once its version had moved (the exact key misses), and any other
+panel the grown panel now covered, the Mendeliome default view included (CLIN-27). A new
+version that leaves the genes and regions as they were, such as an edit of the description,
+still serves the panel from its earlier ranking.
+
+Why the fourth: a panel of more than 1,000 regions (`_PANEL_REGION_INLINE_LIMIT`), such as
+the Mendeliome, is matched on gene symbols alone, while a smaller panel is also matched by
+position: its genes' loci in the gene reference and the coordinates it stores. A variant a
+smaller panel reaches by position only, for instance because the annotation names its gene
+by another symbol than the gene reference does, is not in the Mendeliome's ranking, and the
+smaller panel served from that ranking lacked it (CLIN-34). Before, CoGA checked that the
+row's panel held the requested panel's gene symbols, then narrowed the row's variants to the
+requested panel, which cannot bring back a variant the row lacks. Only a panel that reaches
+such a variant is computed directly; the others are still served from the Mendeliome.
+
+Why the fifth: a compound-het pair whose partner the requested panel leaves out is no pair
+within that panel, so that variant loses the compound-het mode the row recorded, and with it,
+unless another mode is as strong, segregation weight and score. Served from the row, the
+panel kept the pair, its weight and score, and the ranks the row numbered among all its own
+variants (CLIN-35). A row records rounded scores, so CoGA
+does not work a new score out of them: a panel that splits a pair is computed directly. The
+ranks are numbered again whenever a panel is served from a broader row.
 
 ## Warming after an edit
 
@@ -118,7 +146,9 @@ rows the new data version could never match again.
 The response (`VariantPage`) carries `ranking_cached` and `ranking_computed_at`. The results
 then show "⚡ Prioritised ranking served from cache · computed N min ago". The note is for
 information only: an exact hit is a ranking computed on the same inputs, and a narrowed one
-comes from a ranking whose panel has not changed since (see above).
+is the ranking a direct computation of the narrower panel gives, from a ranking whose panel
+has not changed since (see above). "Computed N min ago" is when that broader ranking was
+computed.
 
 ## Where the code is
 
@@ -127,4 +157,7 @@ comes from a ranking whose panel has not changed since (see above).
   (`_prioritized_small_variants_page`, `_serve_ranking_from_cache`,
   `_serve_subpanel_from_superset`, `_superset_panel_if_unchanged`,
   `precompute_family_ranking_safe`)
+- The panel filter, and the region limit above which it matches gene symbols alone:
+  `backend/app/services/clickhouse_variant_queries.py` (`_small_panel_filter_condition`,
+  `_PANEL_REGION_INLINE_LIMIT`)
 - Warming hooks: `backend/app/routers/families.py`, `backend/app/routers/ped.py`
