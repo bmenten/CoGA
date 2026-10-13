@@ -364,27 +364,386 @@ def test_segregation_used_when_no_phasing() -> None:
     assert summary["phase_evidence"] == "segregation"
 
 
-def test_scan_groups_svs_by_gene(monkeypatch) -> None:
-    rows = [
-        # variantId, svType, chrom, start, end, gene_symbols, sampleIds, gts, ps
-        ("sv1", "DEL", "1", 100, 200, ["BRCA2", "fgr"], ["S1", "S2"], ["0|1", "0/0"], [1000, None]),
-        ("sv2", "DUP", "1", 300, 400, ["BRCA2"], ["S1"], ["1/1"], [None]),
+# CLIN-28: each SV of the gene gets its own phase against the SNV, and the badge's verdict
+# is drawn from theirs. One read verdict used to cover all of a gene's SVs, and any cis
+# won it: a duplication in cis hid a deletion in trans in the same phase block, and the
+# badge said cis✓ where the SNV is the only copy left.
+
+
+def _sv_at(
+    sv_type: str,
+    start: int,
+    end: int,
+    gt: dict[str, str],
+    ps: dict[str, int] | None = None,
+    cn: dict[str, int] | None = None,
+    chrom: str = "1",
+) -> dict:
+    return {
+        "sv_id": f"{sv_type}-{start}",
+        "sv_type": sv_type,
+        "chr": chrom,
+        "start": start,
+        "end": end,
+        "gt": gt,
+        "ps": ps or {},
+        "cn": cn or {},
+    }
+
+
+def _verdicts(summary: dict) -> list[tuple[str, str, str | None]]:
+    return [(sv["sv_type"], sv["phase"], sv["phase_evidence"]) for sv in summary["svs"]]
+
+
+# The SNV's alt sits on haplotype 1 of phase set 1000 (``0|1``): an SV at ``0|1`` in that
+# block is in cis with it, one at ``1|0`` in trans.
+PHASED_SNV = {"snv_gt_by_sample": {"child": "0|1"}, "snv_ps_by_sample": {"child": 1000}}
+DUP_IN_CIS = _sv_at("DUP", 2_000, 3_000, {"child": "0|1"}, ps={"child": 1000})
+DEL_IN_TRANS = _sv_at("DEL", 5_000, 9_000, {"child": "1|0"}, ps={"child": 1000})
+DEL_IN_CIS = _sv_at("DEL", 5_000, 9_000, {"child": "0|1"}, ps={"child": 1000})
+DUP_IN_TRANS = _sv_at("DUP", 2_000, 3_000, {"child": "1|0"}, ps={"child": 1000})
+
+
+@pytest.mark.parametrize("order", [1, -1], ids=["dup-first", "del-first"])
+def test_a_deletion_in_trans_wins_over_a_duplication_in_cis_in_one_phase_block(order: int) -> None:
+    summary = summarize_second_hit(
+        [DUP_IN_CIS, DEL_IN_TRANS][::order], ["child"], unaffected_samples=[], **PHASED_SNV
+    )
+    # The deletion removes the copy the SNV is not on: the SNV is the only copy left.
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "read"
+    assert summary["deletion_unmasked"] is True
+    assert summary["has_deletion"] is True
+    # Each SV with its own verdict, by position.
+    assert _verdicts(summary) == [("DUP", "cis", "read"), ("DEL", "trans", "read")]
+    assert [
+        (sv["sv_id"], sv["chr"], sv["start"], sv["end"], sv["affected_zygosity"], sv["copy_loss"])
+        for sv in summary["svs"]
+    ] == [("DUP-2000", "1", 2_000, 3_000, "het", False), ("DEL-5000", "1", 5_000, 9_000, "het", True)]
+
+
+def test_a_duplication_in_trans_beside_a_deletion_in_cis_is_a_trans_candidate() -> None:
+    # The deletion is on the SNV's copy, so nothing is unmasked; the duplication is on the
+    # other copy, a compound-het candidate the gene's verdict must not hide behind the cis.
+    summary = summarize_second_hit(
+        [DEL_IN_CIS, DUP_IN_TRANS], ["child"], unaffected_samples=[], **PHASED_SNV
+    )
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "read"
+    assert summary["deletion_unmasked"] is False
+    assert summary["has_deletion"] is True
+    assert _verdicts(summary) == [("DUP", "trans", "read"), ("DEL", "cis", "read")]
+
+
+def test_two_svs_both_in_cis_keep_the_gene_in_cis() -> None:
+    summary = summarize_second_hit(
+        [DUP_IN_CIS, DEL_IN_CIS], ["child"], unaffected_samples=[], **PHASED_SNV
+    )
+    assert summary["phase"] == "cis"
+    assert summary["phase_evidence"] == "read"
+    assert summary["deletion_unmasked"] is False
+    assert _verdicts(summary) == [("DUP", "cis", "read"), ("DEL", "cis", "read")]
+
+
+@pytest.mark.parametrize(
+    ("del_gt", "del_ps"),
+    [("0/1", None), (".|1", 1000), ("1|.", 1000), ("1|0", 2000)],
+    ids=["unphased", "half-call", "half-call-left", "other-phase-set"],
+)
+def test_a_deletion_without_read_backed_phase_leaves_a_singleton_unknown(
+    del_gt: str, del_ps: int | None
+) -> None:
+    # The duplication is in cis by the reads, but the deletion is not placed (no phase set,
+    # a half call that places nothing (#803), another phase block), and a singleton cannot
+    # place it. The gene is no longer called cis on the duplication's word.
+    deletion = _sv_at(
+        "DEL", 5_000, 9_000, {"child": del_gt}, ps={"child": del_ps} if del_ps else None
+    )
+    summary = summarize_second_hit(
+        [DUP_IN_CIS, deletion], ["child"], unaffected_samples=[], **PHASED_SNV
+    )
+    assert summary["phase"] == "unknown"
+    assert summary["phase_evidence"] is None
+    assert summary["deletion_unmasked"] is False
+    assert _verdicts(summary) == [("DUP", "cis", "read"), ("DEL", "unknown", None)]
+
+
+def test_a_deletion_without_read_backed_phase_is_placed_by_the_parents() -> None:
+    # The same, in a trio: the father passed on the SNV and has a reference call at the
+    # deletion, the mother carries the deletion: it is in trans, and wins.
+    duplication = _sv_at(
+        "DUP", 2_000, 3_000, {"child": "0|1", "mother": "0/0", "father": "0/0"}, ps={"child": 1000}
+    )
+    deletion = _sv_at("DEL", 5_000, 9_000, {"child": "0/1", "mother": "0/1", "father": "0/0"})
+    summary = summarize_second_hit(
+        [duplication, deletion],
+        ["child"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"child": "0|1", "mother": "0/0", "father": "0/1"},
+        snv_ps_by_sample={"child": 1000},
+        pedigree=_pedigree(TRIO),
+    )
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "segregation"
+    assert summary["deletion_unmasked"] is True
+    assert _verdicts(summary) == [("DUP", "cis", "read"), ("DEL", "trans", "segregation")]
+
+
+def test_a_parent_carrying_the_snv_and_another_sv_does_not_put_the_deletion_in_cis() -> None:
+    # Joint calls. The unaffected father carries the SNV and the duplication, and has a
+    # reference call at the deletion; the mother carries only the deletion. The father
+    # carried "an SV of the gene" and the SNV, so the gene was cis by segregation, and the
+    # deletion from the mother, in trans, was hidden.
+    duplication = _sv_at("DUP", 2_000, 3_000, {"child": "0/1", "mother": "0/0", "father": "0/1"})
+    deletion = _sv_at("DEL", 5_000, 9_000, {"child": "0/1", "mother": "0/1", "father": "0/0"})
+    summary = summarize_second_hit(
+        [duplication, deletion],
+        ["child"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"child": "0/1", "mother": "0/0", "father": "0/1"},
+        pedigree=_pedigree(TRIO),
+    )
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "segregation"
+    assert summary["deletion_unmasked"] is True
+    assert _verdicts(summary) == [("DUP", "cis", "segregation"), ("DEL", "trans", "segregation")]
+
+
+def test_a_parents_own_call_of_the_same_sv_stands_in_for_a_per_sample_file() -> None:
+    # Per-sample SV files: each record holds one sample's call. The mother's own file holds
+    # the child's deletion (its breakpoints a few bases off), the father's an insertion in
+    # the gene. Only the same SV counts: the mother carries the deletion, the father is not
+    # known to, and the trace puts it in trans. Any SV of the father's used to count, so
+    # the father, unaffected and carrying the SNV, made it cis.
+    svs = [
+        _sv_at("DEL", 10_000, 15_000, {"child": "0/1"}),
+        _sv_at("DEL", 10_040, 14_980, {"mother": "0/1"}),
+        _sv_at("INS", 12_000, 12_000, {"father": "0/1"}),
+    ]
+    summary = summarize_second_hit(
+        svs,
+        ["child"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"child": "0/1", "mother": "0/0", "father": "0/1"},
+        snv_dp_by_sample={"child": 30, "mother": 30, "father": 30},
+        pedigree=_pedigree(TRIO),
+    )
+    assert summary["phase"] == "trans"
+    assert summary["phase_evidence"] == "segregation"
+    assert summary["deletion_unmasked"] is True
+    # Only the child's own call is their second hit; the parents' calls get no phase.
+    assert [
+        (sv["sv_type"], sv["start"], sv["affected_zygosity"], sv["phase"]) for sv in summary["svs"]
+    ] == [
+        ("DEL", 10_000, "het", "trans"),
+        ("DEL", 10_040, None, "unknown"),
+        ("INS", 12_000, None, "unknown"),
     ]
 
+
+@pytest.mark.parametrize(
+    ("father_sv", "phase"),
+    [
+        # Another deletion of the father's, 25 kb away: not the child's, so not evidence.
+        (_sv_at("DEL", 40_000, 40_300, {"father": "0/1"}), "trans"),
+        # One 900 bp past the child's end may be the same deletion called apart: the
+        # unaffected father then carries the SNV and the deletion, which is cis.
+        (_sv_at("DEL", 15_900, 16_500, {"father": "0/1"}), "cis"),
+    ],
+    ids=["far", "within-1kb"],
+)
+def test_only_a_nearby_call_of_the_same_type_stands_in(father_sv: dict, phase: str) -> None:
+    svs = [
+        _sv_at("DEL", 10_000, 15_000, {"child": "0/1"}),
+        _sv_at("DEL", 10_020, 15_010, {"mother": "0/1"}),
+        father_sv,
+    ]
+    summary = summarize_second_hit(
+        svs,
+        ["child"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"child": "0/1", "mother": "0/0", "father": "0/1"},
+        pedigree=_pedigree(TRIO),
+    )
+    assert summary["phase"] == phase
+    assert summary["deletion_unmasked"] is (phase == "trans")
+
+
+@pytest.mark.parametrize(
+    ("other", "same"),
+    [
+        (_sv_at("DEL", 9_000, 11_000, {}), True),  # overlapping
+        (_sv_at("DEL", 16_000, 17_000, {}), True),  # 1,000 bp apart
+        (_sv_at("DEL", 16_001, 17_000, {}), False),  # 1,001 bp apart
+        (_sv_at("DEL:ME", 10_000, 15_000, {}), True),  # a subtype of the same type
+        (_sv_at("DUP", 10_000, 15_000, {}), False),  # another type
+        (_sv_at("DEL", 10_000, 15_000, {}, chrom="2"), False),  # another chromosome
+        ({**_sv_at("DEL", 10_000, 15_000, {}), "end": None}, False),  # no position to compare
+    ],
+)
+def test_what_may_be_the_same_sv_called_in_another_file(other: dict, same: bool) -> None:
+    from backend.app.services.sv_gene_index_service import _same_sv
+
+    assert _same_sv(_sv_at("DEL", 10_000, 15_000, {}), other) is same
+
+
+@pytest.mark.parametrize(
+    ("sv_type", "cn", "copy_loss"),
+    [
+        ("DEL", None, True),
+        ("del", None, True),
+        ("DEL:ME", None, True),
+        ("CNV", None, True),  # no copy number stored: may be a loss, counts as one
+        ("CNV", 1, True),
+        ("CNV", 0, True),
+        ("CNV", 2, False),
+        ("CNV", 3, False),  # a gain
+        ("DUP", None, False),
+        ("INS", None, False),
+        ("INV", None, False),
+        ("BND", None, False),
+    ],
+)
+def test_which_svs_count_as_a_deletion(sv_type: str, cn: int | None, copy_loss: bool) -> None:
+    sv = _sv_at(
+        sv_type, 5_000, 9_000, {"child": "1|0"}, ps={"child": 1000},
+        cn={"child": cn} if cn is not None else None,
+    )
+    summary = summarize_second_hit([sv], ["child"], unaffected_samples=[], **PHASED_SNV)
+    assert summary["phase"] == "trans"
+    assert summary["has_deletion"] is copy_loss
+    assert summary["deletion_unmasked"] is copy_loss
+    assert summary["svs"][0]["copy_loss"] is copy_loss
+
+
+@pytest.mark.parametrize(("cn", "copy_loss"), [(1, False), (0, True)])
+def test_a_male_keeps_one_copy_of_chrx_outside_the_pars(cn: int, copy_loss: bool) -> None:
+    sv = _sv_at("CNV", 50_000_000, 50_010_000, {"son": "1|0"}, ps={"son": 7}, cn={"son": cn}, chrom="X")
+    summary = summarize_second_hit(
+        [sv],
+        ["son"],
+        unaffected_samples=[],
+        snv_gt_by_sample={"son": "0|1"},
+        snv_ps_by_sample={"son": 7},
+        pedigree=_pedigree({}, males={"son"}),
+        snv_locus=("X", 50_005_000),
+    )
+    assert summary["deletion_unmasked"] is copy_loss
+    assert summary["svs"][0]["copy_loss"] is copy_loss
+
+
+def test_an_sv_no_affected_member_carries_is_listed_without_a_phase() -> None:
+    # Only the father carries the deletion (the child has a reference call): it is not
+    # the child's second hit, so the duplication's cis stands for the gene.
+    deletion = _sv_at("DEL", 5_000, 9_000, {"child": "0/0", "father": "0/1"})
+    summary = summarize_second_hit(
+        [DUP_IN_CIS, deletion], ["child"], unaffected_samples=["father"], **PHASED_SNV
+    )
+    assert summary["phase"] == "cis"
+    assert summary["deletion_unmasked"] is False
+    assert [(sv["sv_type"], sv["affected_zygosity"], sv["phase"]) for sv in summary["svs"]] == [
+        ("DUP", "het", "cis"),
+        ("DEL", None, "unknown"),
+    ]
+
+
+def test_a_cis_read_beside_a_cis_by_segregation_is_not_called_read_backed() -> None:
+    # The duplication is in cis by the reads, the insertion by segregation (the unaffected
+    # father carries it and the SNV). The gene is cis, but not every verdict is read-backed.
+    duplication = _sv_at("DUP", 2_000, 3_000, {"child": "0|1", "father": "0/0"}, ps={"child": 1000})
+    insertion = _sv_at("INS", 6_000, 6_000, {"child": "0/1", "father": "0/1"})
+    summary = summarize_second_hit(
+        [duplication, insertion],
+        ["child"],
+        unaffected_samples=["father"],
+        snv_gt_by_sample={"child": "0|1", "father": "0/1"},
+        snv_ps_by_sample={"child": 1000},
+    )
+    assert summary["phase"] == "cis"
+    assert summary["phase_evidence"] == "segregation"
+    assert _verdicts(summary) == [("DUP", "cis", "read"), ("INS", "cis", "segregation")]
+
+
+def test_a_deletion_one_affected_sibling_lacks_is_not_placed_by_segregation() -> None:
+    # Joint calls: the second affected sibling has a reference call at the deletion, so it
+    # is not a second hit the two share, whatever the parents carry.
+    deletion = _sv_at(
+        "DEL", 5_000, 9_000, {"sib1": "0/1", "sib2": "0/0", "mother": "0/1", "father": "0/0"}
+    )
+    summary = summarize_second_hit(
+        [deletion],
+        ["sib1", "sib2"],
+        unaffected_samples=["mother", "father"],
+        snv_gt_by_sample={"sib1": "0/1", "sib2": "0/1", "mother": "0/0", "father": "0/1"},
+        pedigree=_pedigree({"sib1": {"mother", "father"}, "sib2": {"mother", "father"}}),
+    )
+    assert summary["phase"] == "unknown"
+    assert summary["deletion_unmasked"] is False
+    assert _verdicts(summary) == [("DEL", "unknown", None)]
+
+
+def test_a_deletion_in_cis_in_one_affected_sibling_does_not_unmask() -> None:
+    # One SV's own cis in any affected sample still rules that SV out as their shared
+    # second hit; the deletion-in-trans rule is about the other SVs of the gene.
+    sibs = ["sib1", "sib2"]
+    deletion = _sv_at(
+        "DEL", 5_000, 9_000, {"sib1": "1|0", "sib2": "0|1"}, ps={"sib1": 1000, "sib2": 1000}
+    )
+    duplication = _sv_at(
+        "DUP", 2_000, 3_000, {"sib1": "1|0", "sib2": "1|0"}, ps={"sib1": 1000, "sib2": 1000}
+    )
+    summary = summarize_second_hit(
+        [duplication, deletion],
+        sibs,
+        unaffected_samples=[],
+        snv_gt_by_sample={"sib1": "0|1", "sib2": "0|1"},
+        snv_ps_by_sample={"sib1": 1000, "sib2": 1000},
+    )
+    assert summary["phase"] == "trans"  # the duplication, in trans in both
+    assert summary["deletion_unmasked"] is False
+    assert _verdicts(summary) == [("DUP", "trans", "read"), ("DEL", "cis", "read")]
+
+
+def _scan(monkeypatch, rows: list[tuple]) -> tuple[dict, int]:
     async def _fake_execute(query, params):
         assert params["family_guid"] == "u1"
+        assert "e.calls.cn" in query  # the copy number a CNV's direction is read from
         return rows
 
     monkeypatch.setattr(cfv, "execute_clickhouse", _fake_execute)
     context = types.SimpleNamespace(assembly_name="GRCh38", family_uuid="u1")
-    gene_map, sv_total = asyncio.run(cfv._scan_family_sv_gene_map(context))
+    return asyncio.run(cfv._scan_family_sv_gene_map(context))
+
+
+def test_scan_groups_svs_by_gene(monkeypatch) -> None:
+    rows = [
+        # key, variantId, svType, chrom, start, end, gene_symbols, sampleIds, gts, ps, cn
+        (
+            11, "sv1", "DEL", "1", 100, 200, ["BRCA2", "fgr"],
+            ["S1", "S2"], ["0|1", "0/0"], [1000, None], [1, None],
+        ),
+        (12, "sv2", "DUP", "1", 300, 400, ["BRCA2"], ["S1"], ["1/1"], [None], [None]),
+    ]
+    gene_map, sv_total = _scan(monkeypatch, rows)
 
     assert sv_total == 2  # two distinct SVs
     assert set(gene_map) == {"BRCA2", "FGR"}  # gene symbols upper-cased
     assert len(gene_map["BRCA2"]) == 2
     assert gene_map["BRCA2"][0]["gt"] == {"S1": "0|1", "S2": "0/0"}
     assert gene_map["BRCA2"][0]["ps"] == {"S1": 1000}  # phase set captured, nulls dropped
+    assert gene_map["BRCA2"][0]["cn"] == {"S1": 1}  # copy number captured, nulls dropped
     assert gene_map["FGR"][0]["sv_id"] == "sv1"
+
+
+def test_scan_lists_an_sv_stored_once_per_project_once_per_gene(monkeypatch) -> None:
+    # A family in two projects has each SV stored twice (one entries row per project).
+    # The badge lists every SV with its own phase, so it must list this one once, and
+    # count it once.
+    row = (11, "sv1", "DEL", "1", 100, 200, ["BRCA2"], ["S1"], ["0/1"], [None], [None])
+    gene_map, sv_total = _scan(monkeypatch, [row, row])
+
+    assert sv_total == 1
+    assert [sv["sv_id"] for sv in gene_map["BRCA2"]] == ["sv1"]
 
 
 class _Result:
