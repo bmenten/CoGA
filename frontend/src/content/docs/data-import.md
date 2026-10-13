@@ -201,7 +201,7 @@ file that Discover looks for, and Discover warns about it under *Check before wr
 | Existing data policy | What happens when the family or a sample already exists |
 | --- | --- |
 | Cancel if family or samples exist | the import stops |
-| Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped |
+| Update: add missing datasets only | the data is added to the existing family; datasets that already hold data are skipped (tracks and Paraphase results sample by sample), and a dataset skipped whole shows *skipped* |
 | Overwrite imported dataset rows | the data is added to the existing family; the selected datasets are replaced |
 
 **Mitochondrial calls are replaced per sample.** A package holds one mitochondrial file per sample,
@@ -246,7 +246,8 @@ heteroplasmy.
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import has imported each dataset that failed again (an
-  **update** will do), and its report can be signed out only with an acknowledgement
+  **update** will do; a dataset, or a sample, it skips because its data is there is not imported
+  again, and stays named), and its report can be signed out only with an acknowledgement
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
   without them leaves the warning, and says so in its log.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails

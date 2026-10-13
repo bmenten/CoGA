@@ -42,6 +42,21 @@ The second family (the restore fails in the tracks, which the failing import did
 * package 4 (overwrite, coverage alone) completes: the whole family has been imported again,
   the entry goes, and the report signs out with no import acknowledgement.
 
+The third and fourth families (SAFE-20: an update after such a restore):
+
+* package 1 (cancel): 6 small variants and coverage: the family is complete;
+* package 2 (overwrite): 4 other small variants, and coverage, which fails; ClickHouse fails
+  the restore's re-insert of the small variants (third family) or of the tracks (fourth).
+  The third family keeps its coverage rows, the fourth loses them; in both, Postgres still
+  records the coverage track (its restore never ran). The flags name coverage and snv;
+* package 3 (update, coverage alone) completes. The third family's coverage rows are there:
+  the update skips coverage, which ends ``skipped``, and the flag still names it (before:
+  it read ``imported`` and coverage left the flag, though nothing of it was imported
+  again). The fourth's are gone: the update imports coverage again, and only then does
+  coverage leave the flag (before: skipped as there, from Postgres's record, and coverage
+  left the flag all the same, its rows still gone). The restore's entry refuses the
+  sign-out in both: an update removes nothing from it.
+
 The dataset failures and the restores' failures are injected (the import's dataset step,
 and the restore's ``execute_clickhouse``); everything else runs as in production.
 Everything runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
@@ -177,7 +192,12 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
     mp.setattr(snapshots, "execute_clickhouse", execute)
 
     suffix = uuid4().hex[:8].upper()
-    families = {"snv": f"FAM_PARTWAY_{suffix}", "tracks": f"FAM_PARTWAY_T_{suffix}"}
+    families = {
+        "snv": f"FAM_PARTWAY_{suffix}",
+        "tracks": f"FAM_PARTWAY_T_{suffix}",
+        "kept": f"FAM_PARTWAY_K_{suffix}",
+        "removed": f"FAM_PARTWAY_R_{suffix}",
+    }
     out: dict[str, Any] = {"families": families, "steps": {}}
     jobs: list[str] = []
 
@@ -186,7 +206,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             row = (
                 await s.execute(
                     text(
-                        "SELECT status, error, logs FROM family_import_jobs "
+                        "SELECT status, error, logs, dataset_summaries FROM family_import_jobs "
                         "WHERE id = CAST(:j AS uuid)"
                     ),
                     {"j": job_id},
@@ -310,6 +330,23 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
             await sign_out("tracks", step)
             await sign_out("tracks", await run_import("tracks", "3_snv_again", "overwrite", coverage=False))
             await sign_out("tracks", await run_import("tracks", "4_coverage_again", "overwrite", variants=None))
+
+            # The third and fourth families: an update after the restore failed part-way,
+            # its coverage rows left by it, or removed (SAFE-20).
+            for scenario, table in (("kept", "SNV_INDEL/entries"), ("removed", "INTERVAL/entries")):
+                await run_import(scenario, "1_complete", "cancel")
+                failing.update(dataset="coverage", restore=table)
+                try:
+                    await run_import(
+                        scenario,
+                        "2_overwrite_restore_fails",
+                        "overwrite",
+                        variants=_OVERWRITE_VARIANTS,
+                        first_position=10_000,
+                    )
+                finally:
+                    failing.update(dataset=None, restore=None)
+                await sign_out(scenario, await run_import(scenario, "3_coverage_update", "update", variants=None))
     finally:
         async with sm() as s:
             await s.execute(
@@ -474,3 +511,54 @@ def test_an_import_of_the_rest_of_the_family_completes_it(snap) -> None:
     assert step["family"]["coverage_track_rows"] > 0 and step["family"]["snvs"] == _VARIANTS
     assert step["family"]["incomplete"] is None and step["family"]["unfinished"] is None
     _signed(step)
+
+
+# --- the third and fourth families: an update after the restore (SAFE-20) ----------------
+
+
+def _coverage_summary(step: dict) -> dict:
+    return next(dataset for dataset in step["job"]["dataset_summaries"] if dataset["dataset_type"] == "coverage")
+
+
+def test_the_restores_left_the_coverage_rows_or_removed_them_while_postgres_records_them(snap) -> None:
+    for scenario, rows in (("kept", 3), ("removed", 0)):
+        before, step = snap["steps"][f"{scenario}/1_complete"], snap["steps"][f"{scenario}/2_overwrite_restore_fails"]
+        assert before["job"]["status"] == "completed", before["job"]["error"]
+        assert step["job"]["status"] == "failed"
+        assert step["family"]["incomplete"]["failed_datasets"] == ["coverage", "snv"]
+        # What ClickHouse holds, and what Postgres records: its restore never ran.
+        assert step["family"]["coverage_track_rows"] == rows, scenario
+        assert step["family"]["coverage_rows"] == 3, scenario
+
+
+def test_an_update_skips_the_coverage_the_restore_left_and_keeps_it_flagged(snap) -> None:
+    flagged, step = snap["steps"]["kept/2_overwrite_restore_fails"], snap["steps"]["kept/3_coverage_update"]
+    assert step["job"]["status"] == "completed", step["job"]["error"]
+    coverage = _coverage_summary(step)
+    # Before: "imported", and coverage left the flag, though nothing of it was imported again.
+    assert coverage["status"] == "skipped"
+    sample = f"{snap['families']['kept']}_S1"
+    assert coverage["message"] == f"Skipped coverage import in update mode because coverage already exists for {sample}"
+    assert step["family"]["coverage_track_rows"] == 3
+    assert step["family"]["incomplete"]["failed_datasets"] == ["coverage", "snv"]
+    assert step["family"]["incomplete"]["failed_jobs"] == {"coverage": flagged["job_id"], "snv": flagged["job_id"]}
+    note = next(line for line in step["job"]["logs"] if "stays flagged import-incomplete" in line)
+    assert f"coverage, snv in import job {flagged['job_id']}" in note
+    detail = _refused(step)
+    assert detail["import_incomplete"]["failed_datasets"] == ["coverage", "snv"]
+
+
+def test_an_update_imports_the_coverage_the_restore_removed_again(snap) -> None:
+    flagged, step = snap["steps"]["removed/2_overwrite_restore_fails"], snap["steps"]["removed/3_coverage_update"]
+    assert step["job"]["status"] == "completed", step["job"]["error"]
+    coverage = _coverage_summary(step)
+    # Before: skipped from Postgres's record, the rows still gone, and coverage left the flag
+    # all the same.
+    assert (coverage["status"], coverage["message"]) == ("imported", "Imported coverage into interval tracks")
+    assert step["family"]["coverage_track_rows"] == 3
+    assert step["family"]["incomplete"]["failed_datasets"] == ["snv"]
+    # The restore's entry still lists coverage, as an update removes nothing from it: the
+    # sign-out stays refused until an overwrite imports the family again.
+    assert step["family"]["unfinished"][flagged["job_id"]]["datasets"] == ["coverage", "snv"]
+    detail = _refused(step)
+    assert detail["import_unfinished"][flagged["job_id"]]["datasets"] == ["coverage", "snv"]

@@ -210,7 +210,13 @@ The API behind the page:
 `conflict_mode` decides what happens when the family or its samples already exist:
 
 - `cancel` (default): the import fails (`existing_family_or_samples`). A dry run only warns.
-- `update`: import into the existing family, and skip each dataset that already has data.
+- `update`: import into the existing family, and skip each dataset that already has data: data
+  as stored (the small variants, structural variants and tracks in ClickHouse, the repeats and
+  Paraphase results in Postgres), not Postgres's record of a track
+  (`sample_interval_track_sources`), which a failed overwrite's restore can leave behind its
+  rows. The track datasets and Paraphase are skipped sample by sample (the HiFiCNV tracks of
+  `cnv` track by track, its calls whole), and the dataset's message names what was skipped; a
+  dataset skipped whole ends `skipped`, not `imported`.
 - `overwrite`: import into the existing family, and replace each imported dataset.
 
 While a job runs, the page shows each dataset's progress (`progress` in its summary): how
@@ -256,8 +262,10 @@ that looks complete:
   `source_format`; an import that completes without one leaves it flagged, and says so in its
   log. An update will do: the failing loader's rows were rolled back or cleaned up, so the
   update finds none and imports the dataset whole (one whose rows stayed is skipped, and a
-  skipped dataset does not count). A later failure keeps an earlier one's failed datasets in
-  the flag, each with the job that holds its error (`failed_jobs`).
+  skipped dataset does not count; nor does a skipped sample: a dataset the update imported for
+  some samples and skipped for others counts as imported again for those it imported). A later
+  failure keeps an earlier one's failed datasets in the flag, each with the job that holds its
+  error (`failed_jobs`).
 
 An import whose process stops part-way does none of this: nothing runs in a process that
 has ended. So an import marks the family before it writes anything of it, with an entry in
@@ -287,6 +295,10 @@ the family's datasets, whichever import wrote them: table by table, it deletes t
 rows before it puts the backup's back. So the flag it leaves names every dataset the import
 set out to import as failed, including those that imported and those it only registered, and
 none as imported; the family stays flagged until an import has imported each of them again.
+Postgres is put back after ClickHouse, so after such a restore Postgres can still record a
+track whose rows it removed: an `update` reads the rows. It imports again a dataset whose rows
+the restore removed, which then leaves the flag, and skips one whose rows are there, which
+stays flagged.
 
 Such a restore also removes rows of datasets the import did not carry (another small-variant
 source, another package's SV calls), which its flag cannot name. So the import's
