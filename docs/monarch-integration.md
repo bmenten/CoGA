@@ -63,8 +63,11 @@ Both live in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); 
 - **Variant ranking** — `variant_prioritization.py` combines the variant score (pathogenicity × rarity
   × segregation weight) with the phenotype score, half and half; a gene without Monarch data scores 0 on
   the phenotype side. `GET /api/families/{family_id}/small-variants?prioritize=true` ranks at most 5,000
-  candidates (`_PRIORITIZE_CANDIDATE_LIMIT`) and sets `ranking_truncated` when more matched. Rankings are
-  cached; see [variant-ranking-cache.md](variant-ranking-cache.md).
+  candidates (`_PRIORITIZE_CANDIDATE_LIMIT`) and sets `ranking_truncated` when more matched. It ranks
+  what the same search keeps unranked: with compound-het or recessive pairing, or expanded carrier
+  screening, only the pairs' variants, the single variants and the couple's findings, each pair listed
+  at its better-ranked variant, and past the window it also sets `candidates_capped` (CLIN-44). Rankings
+  are cached; see [variant-ranking-cache.md](variant-ranking-cache.md).
 - **ACMG PP4** — the ACMG dialog reads the variant's phenotype score (see
   [acmg-classification.md](acmg-classification.md)).
 
