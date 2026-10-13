@@ -4,6 +4,7 @@ import asyncio
 import types
 
 from backend.app.services import variant_ranking_cache as vrc
+from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 
@@ -178,7 +179,7 @@ def test_the_reference_versions_name_the_loaded_hpo_ontology(monkeypatch) -> Non
     }
 
 
-def _hashes(monkeypatch, *, filters, data="1:1"):
+def _hashes(monkeypatch, *, filters, data="1:1", **scope):
     _patch_db(monkeypatch)
     return asyncio.run(
         vrc.compute_ranking_hashes(
@@ -187,6 +188,7 @@ def _hashes(monkeypatch, *, filters, data="1:1"):
             filters=filters,
             patient_terms=[],
             variant_data_version=data,
+            **scope,
         )
     )
 
@@ -214,3 +216,90 @@ def test_base_hash_changes_with_a_non_panel_filter(monkeypatch) -> None:
         monkeypatch, filters=_default_filters(panel_id="p", impact=["HIGH", "MODERATE"])
     )
     assert base_a != base_b
+
+
+def _members(genes=(), regions=()):
+    return PanelFilterConstraints(
+        genes=tuple(genes),
+        regions=tuple(Region(chr=chrom, start=start, end=end) for chrom, start, end in regions),
+    )
+
+
+def test_the_panel_members_digest_ignores_order_and_is_none_without_a_panel() -> None:
+    # The gene loci come from the gene reference in no fixed order; the same members read
+    # in another order, or twice, are the same panel.
+    digest = vrc.panel_members_digest(_members(["GENE1", "GENE2"], [("1", 10, 20), ("2", 5, 9)]))
+    assert digest == vrc.panel_members_digest(
+        _members(["GENE2", "GENE1", "GENE1"], [("2", 5, 9), ("1", 10, 20), ("1", 10, 20)])
+    )
+    assert digest is not None and len(digest) == 64
+    assert vrc.panel_members_digest(PanelFilterConstraints()) is None
+    assert vrc.panel_members_digest(None) is None
+
+
+def test_the_panel_members_digest_moves_with_a_gene_or_a_region() -> None:
+    digest = vrc.panel_members_digest(_members(["GENE1"], [("1", 10, 20)]))
+    assert vrc.panel_members_digest(_members(["GENE1", "GENE2"], [("1", 10, 20)])) != digest
+    assert vrc.panel_members_digest(_members(["GENE1"], [("1", 10, 30)])) != digest
+    assert vrc.panel_members_digest(_members(["GENE1"], [("1", 10, 20), ("1", 50, 60)])) != digest
+
+
+def test_the_exact_key_covers_the_panel_members_and_the_base_key_leaves_them_out(monkeypatch) -> None:
+    # One panel version, other members: a gene-reference reload moved one of its genes, or
+    # an edit landed between the read of its genes and the read of its version.
+    inputs_a, base_a = _hashes(monkeypatch, filters=_default_filters(), panel_members="members-a")
+    inputs_b, base_b = _hashes(monkeypatch, filters=_default_filters(), panel_members="members-b")
+    assert inputs_a != inputs_b
+    # The base key leaves the panel out, so a broader ranking can serve a narrower panel.
+    assert base_a == base_b
+
+
+def test_both_keys_cover_the_regions_and_genes_the_query_applied(monkeypatch) -> None:
+    # A gene filter's loci are read from the gene reference when the query runs: a reload
+    # that moves the gene changes them, and the filter's text stays as it was.
+    gene_filter = _default_filters(gene="GENE1")
+    before = _hashes(monkeypatch, filters=gene_filter, include_regions=[Region(chr="1", start=1000, end=2000)])
+    moved = _hashes(monkeypatch, filters=gene_filter, include_regions=[Region(chr="1", start=1000, end=3000)])
+    assert before[0] != moved[0] and before[1] != moved[1]
+    # The same regions read in another order are the same keys.
+    two = [Region(chr="1", start=1000, end=2000), Region(chr="1", start=5000, end=6000)]
+    assert _hashes(monkeypatch, filters=gene_filter, include_regions=two) == _hashes(
+        monkeypatch, filters=gene_filter, include_regions=list(reversed(two))
+    )
+
+    # What the query left out counts too: a ranking computed without the excluded gene's
+    # loci or name applied is not one with them.
+    excluded = _default_filters(exclude_gene="GENE2")
+    applied = _hashes(
+        monkeypatch,
+        filters=excluded,
+        exclude_gene_regions=[Region(chr="1", start=3000, end=4000)],
+        exclude_gene_terms=["GENE2"],
+    )
+    for other in (
+        _hashes(monkeypatch, filters=excluded, exclude_gene_terms=["GENE2"]),
+        _hashes(monkeypatch, filters=excluded, exclude_gene_regions=[Region(chr="1", start=3000, end=4000)]),
+        _hashes(
+            monkeypatch,
+            filters=excluded,
+            exclude_regions=[Region(chr="1", start=3000, end=4000)],
+            exclude_gene_terms=["GENE2"],
+        ),
+    ):
+        assert other[0] != applied[0] and other[1] != applied[1]
+
+
+class _RecordingSession:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    async def execute(self, statement, params=None):
+        self.statements.append(str(statement))
+        return types.SimpleNamespace(mappings=lambda: types.SimpleNamespace(all=lambda: []))
+
+
+def test_superset_candidates_carry_what_their_panel_held() -> None:
+    # The superset path compares a row's record of its panel with the panel as it is now.
+    session = _RecordingSession()
+    assert asyncio.run(vrc.find_superset_candidates(session, family_uuid="f", base_hash="b")) == []
+    assert "provenance" in session.statements[0]
