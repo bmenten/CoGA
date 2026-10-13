@@ -574,7 +574,7 @@ The `snv` dataset takes three optional settings:
 | Dataset | Stored as |
 | --- | --- |
 | `snv` | small variants (ClickHouse), with the VEP table if given; a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format: clair3`) as the primary callset, source `clair3` ([below](#per-sample-callsets-of-a-long-read-couple)) |
-| `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample |
+| `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample; a breakend with its mate, the position its ALT names in brackets, read as a structural-variant upload reads it ([below](#6-single-file-uploads)) |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
 | `coverage` | the `coverage` track (a BED per sample, `bed:`), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
@@ -883,6 +883,14 @@ calls are checked and replaced:
   `DUP:TANDEM`), BND for breakend notation (`N]5:3000000]`, or a single breakend such as
   `G.`), INS or DEL for a sequence longer or shorter than REF, and `SV` when the ALT states
   none. A package's NeedlR, HiFiCNV and chrM Sniffles2 files take a missing type the same way.
+- A breakend (a record of type BND) keeps its mate, the position its ALT names in brackets:
+  `N]5:3000000]` has its mate on 5:3000000. The SV list has it in its *Remote chr* and
+  *Remote start* columns, the report sentence names it as the remote breakpoint, and the
+  *Remote chr* and *Remote start ≥* filters find the breakend by it. The import of a package's
+  NeedlR file reads the mate the same way, for a record of type BND (in any capitals) or with
+  an ALT in breakend notation, whatever its SVTYPE says; before, it stored every breakend
+  without its mate. A NeedlR SV's id is still the record's ID, or its coordinates and type
+  when it has none, without the mate.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another

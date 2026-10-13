@@ -25,7 +25,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
-from .structural_variant_ingest import sv_type_from_alt
+from .structural_variant_ingest import is_breakend_alt, parse_bnd_alt, sv_type_from_alt
 from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
 
 
@@ -72,6 +72,21 @@ def _needlr_parent_sample_ids(ped: ParsedPed, sample_id: str) -> tuple[str | Non
     mother = member.mid if member.mid not in {"", "0"} else None
     father = member.pid if member.pid not in {"", "0"} else None
     return mother, father
+
+
+def _needlr_breakend_mate(sv_type: str, alt: str) -> tuple[str | None, int | None]:
+    """A NeedlR breakend's mate, ``(chromosome, position)``, read from its ALT as the SV
+    uploads read it (``parse_bnd_alt``): ``N]chr5:3000000]`` has its mate on 5:3000000.
+
+    A record is a breakend when its type is BND, in any capitals, or when its ALT is written
+    in breakend notation (``is_breakend_alt``). A single breakend (``G.``) names no mate,
+    and nor does any other record: ``(None, None)``. The reader stored no mate at all
+    before (CLIN-40), so a NeedlR translocation named no partner in the SV list, and a
+    search by its mate's position never found it.
+    """
+    if sv_type.strip().upper() == "BND" or is_breakend_alt(alt):
+        return parse_bnd_alt(alt)
+    return None, None
 
 
 def needlr_query_ids(text_value: str) -> set[str]:
@@ -145,6 +160,7 @@ def _needlr_records(
             continue
         info = _parse_vcf_info(info_raw)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
+        remote_chr, remote_start = _needlr_breakend_mate(sv_type, alt)
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
         end = _coerce_int(_first_info_value(info, "END", "End_Pos", "END_POS", "End"))
         if end is None:
@@ -192,6 +208,9 @@ def _needlr_records(
         if not calls:
             continue
 
+        # The id holds no mate, as before the reader read one (CLIN-40): a record without
+        # an ID keeps the id its coordinates and type give it, so the reviews attached to
+        # it stay attached. (An uploaded SV's id holds its mate.)
         variant_id = (
             record_id
             if record_id and record_id != "."
@@ -234,9 +253,9 @@ def _needlr_records(
                 end=end,
                 sv_type=sv_type,
                 source="needlr",
-                remote_chr=None,
-                remote_start=None,
-                remote_end=None,
+                remote_chr=remote_chr,
+                remote_start=remote_start,
+                remote_end=remote_start,
                 sv_len=sv_len,
                 filters=[] if filt is None else [filt],
                 gene_symbols=gene_symbols,
@@ -247,6 +266,8 @@ def _needlr_records(
         call_by_sample = {call.sample: call for call in existing.calls}
         for call in calls:
             call_by_sample[call.sample] = call
+        # Every line under one id has the same ALT (a clash got a discriminator above),
+        # so the record keeps the mate its first line gave it.
         merged[variant_id] = StructuralVariantRecord(
             variant_key=existing.variant_key,
             variant_id=existing.variant_id,

@@ -304,6 +304,10 @@ duplication, inversion or copy-number change SVLEN bases after its start, any ot
 The SV is listed with the genes that span overlaps, so a search for a gene a deletion removes finds it.
 A record without an SVTYPE takes the type its ALT states, so a breakend written as `N]5:3000000]` is
 a BND; a package's NeedlR, HiFiCNV and mitochondrial SV files take a missing type the same way.
+A breakend keeps its mate, the position its ALT names in brackets (5:3000000 here): the structural-variant
+list has it in its **Remote chr** and **Remote start** columns, and the filters of those names find the
+breakend by it. A package's NeedlR file is read the same way: a record with its mate in brackets keeps it,
+whatever its SVTYPE says.
 
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
