@@ -63,6 +63,27 @@ class VariantInternalCohortOut(BaseModel):
     families: int = 0
 
 
+class SvSecondHitSvOut(BaseModel):
+    """One structural variant behind the second-hit badge, with its own phase against the
+    small variant."""
+
+    sv_id: str
+    sv_type: str
+    chr: Optional[str] = None
+    start: Optional[int] = None
+    end: Optional[int] = None
+    # Zygosity of this SV in affected individuals ("het" / "hom" / "mixed"); None when no
+    # affected individual carries it, and then it has no phase.
+    affected_zygosity: Optional[str] = None
+    # It removes a copy of what it spans: a deletion (DEL, any subtype), or a CNV unless the
+    # copy numbers stored for its carriers show no copy lost.
+    copy_loss: bool = False
+    # Phase of the SNV vs this SV: "trans", "cis" or "unknown".
+    phase: str = "unknown"
+    # "read" (shared phase set) or "segregation" (the family); None when phase is unknown.
+    phase_evidence: Optional[str] = None
+
+
 class SvSecondHitOut(BaseModel):
     """The gene of this small variant is also hit by a structural variant — the cross-type
     "second hit" that can complete a recessive (compound-het) genotype."""
@@ -80,18 +101,23 @@ class SvSecondHitOut(BaseModel):
     chr: Optional[str] = None
     start: Optional[int] = None
     end: Optional[int] = None
-    # Zygosity of the overlapping SV in affected individuals ("het" / "hom" / "mixed").
+    # Zygosity of the overlapping SVs in affected individuals ("het" / "hom" / "mixed").
     affected_zygosity: Optional[str] = None
-    # A deletion (or CNV) can remove the second copy and unmask a heterozygous SNV.
+    # One of the SVs removes a copy (see SvSecondHitSvOut.copy_loss) and can unmask a
+    # heterozygous SNV.
     has_deletion: bool = False
-    # Phase of the SNV vs the SV: "trans" (compound-het candidate), "cis" (same allele),
-    # or "unknown".
+    # Phase of the SNV vs the SVs the affected individuals carry, drawn from each one's
+    # own phase (svs): "trans" when one is in trans (compound-het candidate), "cis" when
+    # every one is in cis (same allele), else "unknown".
     phase: str = "unknown"
     # How the phase was determined: "read" (shared phase set on long-read data) or
     # "segregation" (trio/affected-unaffected); None when phase is unknown.
     phase_evidence: Optional[str] = None
-    # A deletion in trans with a heterozygous SNV — effectively biallelic.
+    # A copy loss in trans with a heterozygous SNV, whatever the other SVs' phase —
+    # effectively biallelic.
     deletion_unmasked: bool = False
+    # Each SV that hits the gene, with its own phase, ordered by position.
+    svs: List[SvSecondHitSvOut] = Field(default_factory=list)
 
 
 class VariantPriorityOut(BaseModel):

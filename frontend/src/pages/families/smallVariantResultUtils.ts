@@ -477,11 +477,10 @@ export const buildSmallVariantGeneInfoHref = (
 /**
  * Where a second-hit badge goes: the family's SV list, filtered to this gene.
  *
- * The badge summary carries no SV identity — `summarize_second_hit` collapses the
- * matching SVs to counts, types, zygosity and phase — and a gene can be hit by several
- * SVs, so there is no single SV to jump to. The gene-filtered SV list shows all of them
- * with the type, size, frequency and review state needed to judge whether one completes
- * a recessive genotype, and links on to IGV per SV from there.
+ * A gene can be hit by several SVs, each with its own phase (the badge's tooltip lists
+ * them), so there is no single SV to jump to. The SV list over their span shows all of
+ * them with the type, size, frequency and review state needed to judge whether one
+ * completes a recessive genotype, and links on to IGV per SV from there.
  */
 export const buildSvSecondHitHref = (
   variant: Pick<SmallVariant, 'gene' | 'gene_id' | 'sv_second_hit'>,
