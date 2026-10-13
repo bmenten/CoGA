@@ -34,9 +34,10 @@ implementation.
   carries the SV when an SV of their own may be the same one (`_same_sv`: the same type without subtype,
   overlapping it or within `SAME_SV_MAX_DISTANCE`, 1 kb). `summarize_second_hit` returns each SV with its
   verdict (`svs`, by position) and draws the gene's from them: a copy loss in trans (`_copy_loss`: a `DEL`
-  of any subtype, or a `CNV` unless the copy numbers stored for its carriers show none lost) sets
-  `deletion_unmasked` and trans whatever the other SVs say; otherwise trans when one is in trans, and cis
-  only when every one is. SNV + SNV pairs go through the same `segregation_phase` after read phasing, in
+  of any subtype, a `LOSS` or `CNV_LOSS`, or a `CNV` unless the copy numbers stored for its carriers show
+  none lost) sets `deletion_unmasked` and trans whatever the other SVs say; otherwise trans when one is in
+  trans, and cis only when every one is. The copy-loss rule is `sv_copy_change.copy_change`, which the SV
+  ranking reads too (`variant_prioritization.structural_pathogenicity_score`, CLIN-47). SNV + SNV pairs go through the same `segregation_phase` after read phasing, in
   `_compound_het_pair_verdict` (`clickhouse_variant_queries.py`), which also sets `phase_evidence` (`read`
   or `segregation`); a pair traced to one parent is dropped. The rule itself is described for lab users in
   the in-app reference.

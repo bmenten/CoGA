@@ -38,6 +38,7 @@ from .small_variant_review_pg import (
     list_matching_small_variant_review_ids,
 )
 from .monarch_phenotype_score import score_genes_for_hpo
+from .sv_copy_change import copy_change
 from .sv_gene_index_service import (
     get_sv_hit_genes,
     get_sv_second_hits,
@@ -3439,6 +3440,9 @@ async def _prioritized_structural_variants_page(
 
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
+    # The males, who keep a single copy of chrX and chrY outside the PARs: a CNV that
+    # leaves one of them one copy there removes none.
+    pedigree = _family_pedigree(context)
     patient_terms, term_labels = await _affected_present_hpo(session, context)
 
     # One phenotype-scoring pass over the union of every overlapped gene; each SV then
@@ -3469,6 +3473,16 @@ async def _prioritized_structural_variants_page(
 
         scored = score_structural_variant(
             sv_type=record.sv_type,
+            # Whether the SV removes or adds a copy, by the rule of the SNV + SV second
+            # hit: a DEL:ME is a deletion, and a CNV goes by its copy number (CLIN-47).
+            copy_change=copy_change(
+                record.sv_type,
+                [(call.sample, call.gt, call.copy_number) for call in record.calls],
+                chrom=record.chr,
+                start=record.start,
+                end=record.end,
+                pedigree=pedigree,
+            ),
             gene_count=len([symbol for symbol in record.gene_symbols if symbol]),
             control_af=_coerce_float(annotation_extra.get("control_af")),
             population_af=_coerce_float(annotation_extra.get("population_af")),

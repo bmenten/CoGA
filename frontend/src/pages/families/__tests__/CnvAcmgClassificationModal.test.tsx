@@ -42,6 +42,22 @@ describe('CnvAcmgClassificationModal', () => {
     expect(select.value).toBe('gain');
   });
 
+  it('opens a tandem duplication on gain, without the loss criterion 2H (CLIN-47)', () => {
+    render(
+      <CnvAcmgClassificationModal
+        variant={{ ...variant, _id: 'DUP-1', type: 'DUP:TANDEM', gene_pli: 0.99 }}
+        onClose={vi.fn()}
+        onSave={noop}
+      />,
+    );
+
+    expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('gain');
+    // 2H of a loss (haploinsufficiency predictors) is not suggested, so the gain's own 2H
+    // starts unticked and carries no constrained-gene note.
+    expect(screen.getByRole('checkbox', { name: /^2H:/ })).not.toBeChecked();
+    expect(screen.queryByDisplayValue(/supports haploinsufficiency/)).not.toBeInTheDocument();
+  });
+
   it('lets a criterion be overridden and reflects it in the saved payload', async () => {
     let saved: StructuralVariantReviewSavePayload | undefined;
     const onSave = vi.fn(async (payload: StructuralVariantReviewSavePayload) => {

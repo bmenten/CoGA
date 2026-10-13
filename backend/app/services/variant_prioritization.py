@@ -15,6 +15,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable
 
+from .sv_copy_change import COPY_GAIN, COPY_LOSS, CopyChange, sv_kind
+
 # Segregation modes (compatible inheritance patterns given the pedigree).
 MODE_DE_NOVO = "de_novo"
 MODE_HOM_RECESSIVE = "homozygous_recessive"
@@ -218,13 +220,15 @@ def combine(variant_score: float, phenotype_score: float | None) -> float:
 # and gene-level constraint (a copy-number loss of a LoF-intolerant gene mimics
 # haploinsufficiency). Frequency, segregation, and phenotype combine exactly like
 # small variants, so the combined score is directly comparable for ranking.
+#
+# A copy-number change is scored by its direction, which the caller reads by the rule the
+# SNV + SV second hit reads too (``sv_copy_change.copy_change``): a deletion of any subtype
+# (``DEL:ME``) or a CNV whose copy number shows a loss scores as a loss, a duplication of
+# any subtype (``DUP:TANDEM``) or a CNV gain as a gain. Exact type names were matched, so
+# those scored as an unknown event (CLIN-47).
+_SV_COPY_CHANGE_BASE: dict[CopyChange, float] = {COPY_LOSS: 0.7, COPY_GAIN: 0.5}
+# Every other event, by its type without subtypes (``sv_copy_change.sv_kind``).
 _SV_TYPE_BASE = {
-    "DEL": 0.7,
-    "LOSS": 0.7,
-    "CNV_LOSS": 0.7,
-    "DUP": 0.5,
-    "GAIN": 0.5,
-    "CNV_GAIN": 0.5,
     "INS": 0.5,
     "INV": 0.45,
     "BND": 0.6,
@@ -233,8 +237,6 @@ _SV_TYPE_BASE = {
 _SV_DEFAULT_BASE = 0.4
 # An SV that overlaps no gene is most likely non-coding / benign for ranking purposes.
 _SV_NO_GENE_CAP = 0.15
-# Copy-number loss event types where a high-pLI overlap implies haploinsufficiency.
-_SV_LOSS_TYPES = frozenset({"DEL", "LOSS", "CNV_LOSS"})
 _SV_MULTI_GENE_THRESHOLD = 3
 _SV_MULTI_GENE_BUMP = 0.1
 
@@ -242,16 +244,25 @@ _SV_MULTI_GENE_BUMP = 0.1
 def structural_pathogenicity_score(
     *,
     sv_type: str | None,
+    copy_change: CopyChange | None,
     gene_count: int,
     gene_pli: float | None = None,
 ) -> float:
-    """Predicted impact of a structural variant in [0, 1]."""
+    """Predicted impact of a structural variant in [0, 1].
+
+    ``copy_change`` is the SV's copy-number change (``sv_copy_change.copy_change``). A loss
+    scores as a deletion, and in a gene with a pLI of 0.9 or more at least as a
+    high-confidence loss of function (haploinsufficiency); a gain scores as a duplication.
+    An SV that changes no copy number scores by its type without subtypes.
+    """
     if gene_count <= 0:
         return _SV_NO_GENE_CAP
-    sv_upper = (sv_type or "").strip().upper()
-    score = _SV_TYPE_BASE.get(sv_upper, _SV_DEFAULT_BASE)
+    if copy_change is not None:
+        score = _SV_COPY_CHANGE_BASE[copy_change]
+    else:
+        score = _SV_TYPE_BASE.get(sv_kind(sv_type), _SV_DEFAULT_BASE)
     if (
-        sv_upper in _SV_LOSS_TYPES
+        copy_change == COPY_LOSS
         and gene_pli is not None
         and _PLI_CONSTRAINED <= gene_pli <= 1.0
     ):
@@ -264,6 +275,7 @@ def structural_pathogenicity_score(
 def score_structural_variant(
     *,
     sv_type: str | None,
+    copy_change: CopyChange | None,
     gene_count: int,
     control_af: float | None,
     population_af: float | None,
@@ -272,9 +284,12 @@ def score_structural_variant(
     segregation_evaluated: bool = True,
     gene_pli: float | None = None,
 ) -> VariantScore:
-    """Rank-oriented score for a structural variant (see module docstring)."""
+    """Rank-oriented score for a structural variant (see module docstring).
+
+    ``copy_change`` is the SV's copy-number change, from ``sv_copy_change.copy_change``.
+    """
     pathogenicity = structural_pathogenicity_score(
-        sv_type=sv_type, gene_count=gene_count, gene_pli=gene_pli
+        sv_type=sv_type, copy_change=copy_change, gene_count=gene_count, gene_pli=gene_pli
     )
     # Rarer is more interesting: prefer the population AF, fall back to the cohort
     # control AF (reusing the small-variant rarity bands).

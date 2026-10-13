@@ -31,10 +31,16 @@ export const cnvGeneCountTier = (
   return { code: '3A', points: 0 };
 };
 
+// The SV type without its subtypes, in capitals: DEL:ME is DEL and DUP:TANDEM is DUP, as the
+// server reads an SV's type (sv_copy_change.sv_kind). The exact type was matched, so a
+// tandem duplication opened on the loss criteria, with 2H pre-selected in a constrained
+// gene (CLIN-47).
+const svKind = (type?: string | null): string => (type || '').trim().toUpperCase().split(':')[0];
+
 const GAIN_TYPES = new Set(['DUP', 'GAIN', 'CNV_GAIN', 'INS']);
 
 export const cnvKindForType = (type?: string | null): CnvKind =>
-  GAIN_TYPES.has((type || '').trim().toUpperCase()) ? 'gain' : 'loss';
+  GAIN_TYPES.has(svKind(type)) ? 'gain' : 'loss';
 
 // Section-3 gene counting differs by event class: a deletion changes the copy
 // number of every gene it spans (count all wholly/partially included genes),
@@ -45,7 +51,7 @@ const DISRUPTION_ONLY_TYPES = new Set(['INV', 'BND', 'TRA', 'INS']);
 export type CnvGeneCountMode = 'all' | 'disrupted';
 
 export const cnvGeneCountMode = (type?: string | null): CnvGeneCountMode =>
-  DISRUPTION_ONLY_TYPES.has((type || '').trim().toUpperCase()) ? 'disrupted' : 'all';
+  DISRUPTION_ONLY_TYPES.has(svKind(type)) ? 'disrupted' : 'all';
 
 export const cnvGeneCountHint = (type?: string | null): string =>
   cnvGeneCountMode(type) === 'all'

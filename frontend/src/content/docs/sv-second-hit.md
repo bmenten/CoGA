@@ -32,9 +32,10 @@ Each SV that hits the gene gets its own phase against the small variant, and the
 
 An SV no affected member carries, such as a parent's own SV, gets no phase and does not count.
 
-A **deletion** is an SV that removes a copy: a `DEL`, with any subtype (`DEL:ME`), or a `CNV` unless the
-copy number stored for its carriers shows no copy lost (a gain). A CNV with no stored copy number may be a
-loss and counts as one. A duplication, insertion, inversion or breakend is not a deletion.
+A **deletion** is an SV that removes a copy: a `DEL`, with any subtype (`DEL:ME`), a `LOSS` or
+`CNV_LOSS`, or a `CNV` unless the copy number stored for its carriers shows no copy lost (a gain). A CNV
+with no stored copy number may be a loss and counts as one. A duplication, insertion, inversion or breakend
+is not a deletion. The structural-variant ranking reads a deletion the same way.
 
 Hover or focus the badge for an explanation. It gives the SV zygosity in the affected members (`het`,
 `hom` or `mixed`) and how the phase was decided. When several SVs hit the gene it lists each one with its

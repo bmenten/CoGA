@@ -58,6 +58,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/small_variant_review_tags.py": 63.0,  # (66.5)
     "backend/app/services/structural_variant_evidence.py": 74.0,  # (77.8)
     "backend/app/services/structural_variant_review_pg.py": 59.0,  # (62.2) CNV ACMG persistence
+    # (100.0 measured locally when it was added: CLIN-47, the copy-loss rule of the SV
+    # second hit and the SV ranking)
+    "backend/app/services/sv_copy_change.py": 97.0,
     "backend/app/services/sv_gene_index_service.py": 82.0,  # (85.0)
     "backend/app/services/variant_ranking_cache.py": 63.0,  # (66.7)
 }
