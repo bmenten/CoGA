@@ -12,7 +12,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.csv_export import csv_document, export_response_headers
 from ..core.postgres import get_postgres_session
-from ..core.sql import canonical_uuid
 from ..dependencies import get_current_user
 from ..schemas import (
     GlobalVariantPageOut,
@@ -22,7 +21,6 @@ from ..schemas import (
     VariantExplorerAssemblyOut,
 )
 from ..services.access_control import CurrentUser, is_admin_user
-from ..services.panel_metadata_service import _fetch_panel_genes
 from ..services.small_variant_review_tags import list_small_variant_tag_definitions
 from ..services.variant_explorer_service import (
     GlobalVariantFilters,
@@ -134,17 +132,12 @@ async def _build_global_variant_filters(
     review_tag: List[str] = Query(default_factory=list, alias="review_tag"),
     include_imputed: bool = False,
     sample_gt: List[str] = Query(default_factory=list, alias="sample_gt"),
-    session: AsyncSession = Depends(get_postgres_session),
 ) -> GlobalVariantFilters:
     """Parse the shared small-variant filter query params into a filter object.
 
-    Used by both the paginated listing and the CSV export so they stay in sync.
+    Used by both the paginated listing and the CSV export so they stay in sync. The panel
+    is read by the search, for its assembly, as the family page reads it.
     """
-
-    panel_genes: list[str] = []
-    panel_uuid = canonical_uuid(panel_id)
-    if panel_uuid is not None:
-        panel_genes = (await _fetch_panel_genes(session, [panel_uuid])).get(panel_uuid, [])
 
     return GlobalVariantFilters(
         chromosome=chr,
@@ -152,7 +145,7 @@ async def _build_global_variant_filters(
         end=end,
         variant_type=type,
         gene=gene,
-        panel_genes=panel_genes,
+        panel_id=panel_id,
         impacts=impact,
         effects=effect,
         clinvar=clinvar,

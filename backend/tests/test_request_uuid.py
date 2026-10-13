@@ -349,9 +349,23 @@ def test_a_panel_read_by_its_id_in_braces_keeps_its_genes() -> None:
     assert panel.genes == ["MYH7"]
 
 
-def test_the_variant_explorer_filters_by_a_panel_named_in_braces() -> None:
-    def build(panel_id: str, session: _RecordingSession) -> Any:
-        return asyncio.run(
+def test_the_variant_explorer_filters_by_a_panel_named_in_braces(monkeypatch: pytest.MonkeyPatch) -> None:
+    from backend.app.services import variant_explorer_service as explorer
+
+    async def scope(*_args: Any, **_kwargs: Any) -> Any:
+        return explorer.ExplorerScope(assembly_id=UNKNOWN, assembly_name="GRCh38", project_ids=[UNKNOWN])
+
+    queries: list[str] = []
+
+    async def no_variants(query: str, params: Any = None) -> list[list[int]]:
+        queries.append(query)
+        return [[0]]
+
+    monkeypatch.setattr(explorer, "resolve_scope", scope)
+    monkeypatch.setattr(explorer, "execute_clickhouse", no_variants)
+
+    def search(panel_id: str, session: _RecordingSession) -> Any:
+        filters = asyncio.run(
             variant_explorer_router._build_global_variant_filters(
                 panel_id=panel_id,
                 impact=[],
@@ -361,15 +375,24 @@ def test_the_variant_explorer_filters_by_a_panel_named_in_braces() -> None:
                 classification=[],
                 review_tag=[],
                 sample_gt=[],
-                session=session,  # type: ignore[arg-type]
             )
         )
+        return asyncio.run(explorer.search_global_small_variants(session, user=None, filters=filters))  # type: ignore[arg-type]
 
-    found = _RecordingSession(_Rows([{"panel_id": CANONICAL, "gene_symbol": "MYH7"}]))
-    # The panel filter was dropped: every variant was listed, not the panel's.
-    assert build("{" + CANONICAL + "}", found).panel_genes == ["MYH7"]
+    # The explorer reads the panel as the family page does (CLIN-48): its genes, then its
+    # regions for the explorer's assembly and its genes' loci there, under the canonical id.
+    found = _RecordingSession(_Rows([{"gene_symbol": "MYH7"}]), _Rows([]), _Rows([]))
+    search("{" + CANONICAL + "}", found)
+    # Read as written, the id in braces found no panel, and the filter was dropped: every
+    # variant was listed, not the panel's.
+    assert CANONICAL in found.bound
+    assert "{" + CANONICAL + "}" not in found.bound
+    assert queries and "%(panel_gene_terms)s" in queries[0]
+    # A value that is no UUID is refused, as the family page refuses it, and never bound.
     not_a_uuid = _RecordingSession()
-    assert build(NOT_A_UUID, not_a_uuid).panel_genes == []
+    with pytest.raises(HTTPException) as refused:
+        search(NOT_A_UUID, not_a_uuid)
+    assert (refused.value.status_code, refused.value.detail) == (400, "Invalid panel id")
     assert not_a_uuid.bound == []
 
 
