@@ -979,7 +979,8 @@ calls are checked and replaced:
   none. A package's NeedlR, HiFiCNV and chrM Sniffles2 files take a missing type the same way.
 - A breakend (a record of type BND) keeps its mate, the position its ALT names in brackets:
   `N]5:3000000]` has its mate on 5:3000000. The SV list has it in its *Remote chr* and
-  *Remote start* columns, the report sentence names it as the remote breakpoint, and the
+  *Remote start* columns, and so does its CSV export, beside the locus (empty for an SV
+  without a mate); the report sentence names it as the remote breakpoint, and the
   *Remote chr* and *Remote start ≥* filters find the breakend by it. The import of a package's
   NeedlR file reads the mate the same way, for a record of type BND (in any capitals) or with
   an ALT in breakend notation, whatever its SVTYPE says; before, it stored every breakend
