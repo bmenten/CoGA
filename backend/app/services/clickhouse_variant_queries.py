@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from ..schemas import (
     GenotypeOut,
+    SmallVariantFilterTranscriptOut,
     SmallVariantReviewOut,
     SmallVariantTranscriptOut,
     VariantOut,
@@ -1698,10 +1699,67 @@ def _normalize_alpha_missense_class(value: str | None) -> str | None:
     return text_value
 
 
-def _small_variant_out(record: SmallVariantRecord, *, assembly_name: str | None) -> VariantOut:
+def _filter_transcript_annotation(
+    annotations: Sequence[dict[str, Any]],
+    primary_annotation: dict[str, Any],
+    filters: SmallVariantQueryFilters | None,
+) -> dict[str, Any] | None:
+    """The annotation a search's annotation filters held on, when the primary one does not
+    meet them (CLIN-51); None otherwise.
+
+    The annotation filters must all hold on one transcript (``_annotation_matches_normal``,
+    which reads them as the SQL condition does), while the variant's fields describe its
+    primary transcript, which need not be that one: a variant kept by SIFT *deleterious* on
+    a second transcript showed its primary transcript's *tolerated*. Of the transcripts
+    the filters hold on, the one picked as the primary is picked: MANE Select, then
+    canonical, then the most severe impact (``_annotation_rank``). None without annotation
+    filters, when the primary transcript meets them, and when no transcript does.
+    """
+    if filters is None or not _small_annotation_specific_requested(filters):
+        return None
+    if _annotation_matches_normal(primary_annotation, filters):
+        return None
+    matching = [annotation for annotation in annotations if _annotation_matches_normal(annotation, filters)]
+    if not matching:
+        return None
+    return _select_primary_annotation(matching)
+
+
+def _small_filter_transcript_out(annotation: dict[str, Any]) -> SmallVariantFilterTranscriptOut:
+    """A transcript's values as the variant's own fields read them for its primary one."""
+    return SmallVariantFilterTranscriptOut(
+        gene=_annotation_gene(annotation),
+        transcript_id=_annotation_text(annotation, "transcript_id", "transcriptId"),
+        impact=_annotation_text(annotation, "impact"),
+        effect=_annotation_effect(annotation),
+        hgvsc=_annotation_text(annotation, "hgvsc"),
+        hgvsp=_annotation_text(annotation, "hgvsp"),
+        lof=_annotation_text(annotation, "lof"),
+        cadd_phred=_annotation_float(annotation, "cadd_phred", "caddPhred"),
+        revel=_annotation_float(annotation, "revel"),
+        spliceai_max=_annotation_spliceai_max(annotation),
+        sift=_annotation_sift(annotation),
+        polyphen=_annotation_polyphen(annotation),
+    )
+
+
+def _small_variant_out(
+    record: SmallVariantRecord,
+    *,
+    assembly_name: str | None,
+    filters: SmallVariantQueryFilters | None,
+) -> VariantOut:
+    """A small variant as the API serves it: its fields from its primary transcript.
+
+    ``filters`` are the search's that kept it, or None where no search asked: then the
+    variant names no ``filter_transcript``. Every field read from a transcript is the
+    primary transcript's whatever the filters, so the ranking, the ACMG suggestions and the
+    report read the same values in every view.
+    """
     annotation = _select_primary_annotation(record.annotations)
     population_frequencies = _annotation_population_frequencies(annotation)
     transcripts = _small_transcript_annotations(record.annotations, annotation)
+    filter_annotation = _filter_transcript_annotation(record.annotations, annotation, filters)
     return VariantOut(
         _id=record.variant_id,
         chr=record.chr,
@@ -1757,6 +1815,9 @@ def _small_variant_out(record: SmallVariantRecord, *, assembly_name: str | None)
         ),
         annotation_extra=_annotation_extra(annotation),
         transcripts=transcripts,
+        filter_transcript=(
+            _small_filter_transcript_out(filter_annotation) if filter_annotation is not None else None
+        ),
         genotypes=[
             GenotypeOut(
                 sample=call.sample,

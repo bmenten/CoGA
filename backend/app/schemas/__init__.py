@@ -190,6 +190,7 @@ from .mito import (
 )
 from .variants import (
     GenotypeOut,
+    SmallVariantFilterTranscriptOut,
     SmallVariantTranscriptOut,
     VariantInternalCohortOut,
     SvSecondHitOut,
@@ -504,6 +505,7 @@ __all__ = [
     "MitoDNAStructuralVariantOut",
     "FamilyMitoDNAAnalysisOut",
     "GenotypeOut",
+    "SmallVariantFilterTranscriptOut",
     "SmallVariantTranscriptOut",
     "VariantInternalCohortOut",
     "SvSecondHitOut",

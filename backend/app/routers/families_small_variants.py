@@ -286,10 +286,35 @@ _FAMILY_EXPORT_COLUMNS: list[tuple[str, str]] = [
     ("classification", "Classification"),
     ("tags", "Tags"),
     ("genotypes", "Genotypes"),
+    # The transcript the annotation filters held on, when the row's transcript (the
+    # variant's primary one, which the columns above describe) does not meet them
+    # (CLIN-51), with that transcript's values of the columns above; empty otherwise. Last,
+    # so every column before them keeps its place.
+    ("filter_transcript.transcript_id", "Filter-matched transcript"),
+    ("filter_transcript.gene", "Filter-matched gene"),
+    ("filter_transcript.impact", "Filter-matched impact"),
+    ("filter_transcript.effect", "Filter-matched effect"),
+    ("filter_transcript.hgvsc", "Filter-matched HGVSc"),
+    ("filter_transcript.hgvsp", "Filter-matched HGVSp"),
+    ("filter_transcript.cadd_phred", "Filter-matched CADD"),
+    ("filter_transcript.revel", "Filter-matched REVEL"),
+    ("filter_transcript.spliceai_max", "Filter-matched SpliceAI"),
+    ("filter_transcript.sift", "Filter-matched SIFT"),
+    ("filter_transcript.polyphen", "Filter-matched PolyPhen"),
 ]
+
+_FILTER_TRANSCRIPT_FIELD = "filter_transcript."
 
 
 def _family_export_cell(variant: VariantOut, field: str) -> str:
+    if field.startswith(_FILTER_TRANSCRIPT_FIELD):
+        transcript = variant.filter_transcript
+        value = (
+            getattr(transcript, field.removeprefix(_FILTER_TRANSCRIPT_FIELD))
+            if transcript is not None
+            else None
+        )
+        return "" if value is None else str(value)
     if field == "priority_score":
         return f"{variant.priority.combined_score:.4f}" if variant.priority else ""
     if field == "priority_rank":

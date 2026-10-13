@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import dataclasses
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -457,6 +458,45 @@ async def test_get_family_nipt_variants_classifies_filtered_subset(
     assert result.total == 2
     categories = {item.classification.category for item in result.variants}
     assert categories == {1, 3}
+
+
+@pytest.mark.asyncio
+async def test_get_family_nipt_variants_names_the_transcript_the_filters_held_on(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # CLIN-51: the NIPT variant list uses the family search's annotation filters, so a
+    # variant kept by SIFT deleterious on its second transcript names that transcript
+    # beside its primary one, which SIFT calls tolerated.
+    annotations = [
+        {"gene": "SYN51", "transcript_id": "ENST_SYN51_1", "impact": "MODERATE",
+         "effect": "missense_variant", "canonical": True, "sift": "tolerated(0.2)"},
+        {"gene": "SYN51", "transcript_id": "ENST_SYN51_2", "impact": "MODERATE",
+         "effect": "missense_variant", "sift": "deleterious(0.02)"},
+    ]
+    filtered = [
+        dataclasses.replace(record, annotations=annotations) for record in _de_novo_and_cat3_records()
+    ]
+    _wire_variants_mocks(monkeypatch, cohort=_cohort_cat7_records(), filtered=filtered)
+
+    async def variant_outs(query_filters):
+        result = await get_family_nipt_variants(
+            session=None,  # type: ignore[arg-type]
+            family_id="NIPT001",
+            user=None,  # type: ignore[arg-type]
+            query_filters=query_filters,
+        )
+        return [item.variant_out for item in result.variants]
+
+    kept = await variant_outs({"gene": "SYN51", "sift": "deleterious"})
+    assert len(kept) == 2
+    for variant in kept:
+        assert variant.sift == "tolerated(0.2)"
+        assert variant.filter_transcript is not None
+        assert (variant.filter_transcript.transcript_id, variant.filter_transcript.sift) == (
+            "ENST_SYN51_2",
+            "deleterious(0.02)",
+        )
+    assert all(variant.filter_transcript is None for variant in await variant_outs({"gene": "SYN51"}))
 
 
 @pytest.mark.asyncio

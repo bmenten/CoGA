@@ -33,6 +33,7 @@ import {
   sortReviewTagKeys,
   visibleReviewTagKeys,
 } from './smallVariantResultUtils';
+import FilterTranscriptNote from './FilterTranscriptNote';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import ReviewTagChip from './ReviewTagChip';
 import SvSecondHitBadge from './SvSecondHitBadge';
@@ -174,9 +175,25 @@ const getVariantTranscripts = (variant: SmallVariant): SmallVariantTranscript[] 
 const transcriptRegionLabel = (transcript: SmallVariantTranscript) =>
   transcript.exon ? `Exon ${transcript.exon}` : transcript.intron ? `Intron ${transcript.intron}` : '—';
 
+// The listed transcript the search's annotation filters held on (CLIN-51): the entry with
+// the filter transcript's identity, as the backend lists each transcript once by it.
+const isFilterTranscript = (transcript: SmallVariantTranscript, variant: SmallVariant) => {
+  const matched = variant.filter_transcript;
+  return Boolean(
+    matched &&
+      !transcript.primary &&
+      (transcript.transcript_id ?? null) === matched.transcript_id &&
+      (transcript.hgvsc ?? null) === matched.hgvsc &&
+      (transcript.hgvsp ?? null) === matched.hgvsp &&
+      (transcript.effect ?? null) === matched.effect &&
+      (transcript.impact ?? null) === matched.impact,
+  );
+};
+
 const transcriptBadges = (
   transcript: SmallVariantTranscript,
   detail?: { ccds_id?: string | null },
+  filtersMet = false,
 ) =>
   [
     transcript.mane_select ? { label: 'MANE Select', tone: 'success' } : null,
@@ -185,6 +202,7 @@ const transcriptBadges = (
     // CCDS is not in the VCF annotation; it comes from the imported gene annotation.
     detail?.ccds_id ? { label: 'CCDS', tone: 'neutral' } : null,
     transcript.primary ? { label: 'Shown on card', tone: 'neutral' } : null,
+    filtersMet ? { label: 'Filters met', tone: 'warning' } : null,
   ].filter(
     (value): value is { label: string; tone: 'success' | 'accent' | 'warning' | 'neutral' } =>
       Boolean(value),
@@ -470,7 +488,7 @@ const TranscriptPopup = ({
             {transcripts.map((transcript, index) => {
               const match = matchTranscriptDetail(transcriptDetails.byKey, transcript.transcript_id);
               const detail = match && match.kind !== 'different_version' ? match.detail : undefined;
-              const badges = transcriptBadges(transcript, detail);
+              const badges = transcriptBadges(transcript, detail, isFilterTranscript(transcript, variant));
               // The VCF names one transcript; the annotation knows which RefSeq
               // accessions correspond to it.
               const refseq = (detail?.refseq_accessions ?? []).filter(
@@ -818,6 +836,15 @@ export default function SmallVariantCards({
                     ) : null}
                   </div>
                 ) : null}
+                {/* The card describes the primary transcript; when the search's annotation
+                    filters held on another one, it is named here with what it reads
+                    otherwise (CLIN-51), e.g. a SIFT the filter kept that the card's
+                    transcript does not have. */}
+                <FilterTranscriptNote
+                  variant={variant}
+                  className="variant-card-filter-transcript"
+                  idClassName="variant-card-filter-transcript-id"
+                />
                 <dl className="variant-card-mini-dl">
                   <div>
                     <dt>

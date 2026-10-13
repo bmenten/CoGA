@@ -63,6 +63,63 @@ export const formatPredictionScore = (value?: string | null): string => {
   return `${match[1].replace(/_/g, ' ')} (${match[2]})`;
 };
 
+export interface FilterTranscriptSummary {
+  /** The transcript the filters held on; null for an annotation without a transcript ID. */
+  transcriptId: string | null;
+  /** Its gene, when it is another than the card's. */
+  gene: string | null;
+  /** Its values that read otherwise than the card's, as the card writes them. */
+  details: string[];
+}
+
+/**
+ * What a card says of the transcript the search's annotation filters held on, when the
+ * primary transcript the card describes does not meet them (CLIN-51): the annotation
+ * filters must all hold on one transcript, and a variant kept by SIFT *deleterious* on a
+ * second transcript showed its primary transcript's *tolerated*.
+ *
+ * Gives the transcript, its gene when it is another, and each of its values that the card
+ * would write otherwise: the consequence, LoF, CADD, REVEL, SpliceAI, SIFT and PolyPhen,
+ * formatted as the card formats its own. The card's values stay the primary transcript's.
+ * Null when the filters held on the card's own transcript, or no filter asked.
+ */
+export const describeFilterTranscript = (
+  variant: Pick<
+    SmallVariant,
+    | 'gene'
+    | 'effect'
+    | 'lof'
+    | 'cadd_phred'
+    | 'revel'
+    | 'spliceai_max'
+    | 'sift'
+    | 'polyphen'
+    | 'filter_transcript'
+  >,
+): FilterTranscriptSummary | null => {
+  const matched = variant.filter_transcript;
+  if (!matched) return null;
+  const details: string[] = [];
+  // A value the matched transcript has, written as the card writes it, when the card
+  // writes its own value otherwise (or has none).
+  const add = (label: string, mine: string, theirs: string) => {
+    if (theirs !== '—' && theirs !== mine) details.push(label ? `${label} ${theirs}` : theirs);
+  };
+  const lof = (value?: string | null) => (value ? `LoF ${value}` : '—');
+  add('', formatTokenLabel(variant.effect), formatTokenLabel(matched.effect ?? undefined));
+  add('', lof(variant.lof), lof(matched.lof));
+  add('CADD', formatScore(variant.cadd_phred), formatScore(matched.cadd_phred ?? undefined));
+  add('REVEL', formatScore(variant.revel), formatScore(matched.revel ?? undefined));
+  add('SpliceAI', formatScore(variant.spliceai_max), formatScore(matched.spliceai_max ?? undefined));
+  add('SIFT', formatPredictionScore(variant.sift), formatPredictionScore(matched.sift));
+  add('PolyPhen', formatPredictionScore(variant.polyphen), formatPredictionScore(matched.polyphen));
+  return {
+    transcriptId: matched.transcript_id || null,
+    gene: matched.gene && matched.gene !== variant.gene ? matched.gene : null,
+    details,
+  };
+};
+
 export const formatLocus = (variant: Pick<SmallVariant, 'chr' | 'start' | 'end'>) => {
   const chr = variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`;
   return `${chr}:${variant.start.toLocaleString()}-${Math.max(
