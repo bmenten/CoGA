@@ -1,8 +1,9 @@
 from __future__ import annotations
 
+import glob
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Iterable
 
 from fastapi import HTTPException
 import yaml
@@ -16,7 +17,8 @@ from ..schemas import (
     FamilyPackageManifestWriteOut,
 )
 
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, package_text_handle, sample_id_issues
+from .family_identifiers import visible
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
@@ -587,26 +589,39 @@ def _choose_candidate_path(
     family_id: str,
     sample_id: str | None = None,
 ) -> tuple[str, bool]:
-    rendered = [
-        _format_pattern(pattern, family_id=family_id, sample_id=sample_id)
-        for pattern in patterns
-    ]
-    for value in rendered:
-        if _has_glob(value):
+    """The first of ``patterns`` that names a file in the package for the family and
+    sample, and True; else the path to show as expected, and False.
+
+    The IDs are names. A pattern's own wildcards match, but an ID's ``*``, ``?`` or ``[``
+    matches only itself, so sample ``S?`` never takes ``S1``'s file; and a path an ID leads
+    out of the package is not looked up (``package_path_within``)."""
+    literal: list[str] = []
+    for pattern in patterns:
+        if _has_glob(pattern):
             # Only the discovery scanner understands globs; a written manifest always
             # holds the concrete path a glob resolved to, so validation and import keep
             # treating manifest values as literal paths.
-            matches = _glob_candidate_paths(root, value)
+            escaped = _format_pattern(
+                pattern,
+                family_id=glob.escape(family_id),
+                sample_id=glob.escape(sample_id) if sample_id else sample_id,
+            )
+            matches = _glob_candidate_paths(root, escaped)
             if matches:
                 return matches[-1], True
             continue
-        path = _resolve_package_path(root, value)
+        value = _format_pattern(pattern, family_id=family_id, sample_id=sample_id)
+        literal.append(value)
+        path = package_path_within(root, value)
         if path is not None and path.is_file():
             return value, True
     # Nothing matched: fall back to a literal candidate for the "expected path" display
-    # so a glob pattern is never written into a manifest.
-    fallback = next((value for value in rendered if not _has_glob(value)), rendered[0])
-    return fallback, False
+    # so a glob pattern is never written into a manifest, and to one in the package
+    # when an ID leads the first ones out of it.
+    expected = next((value for value in literal if not path_leaves_package(value)), None)
+    if expected is None:
+        expected = literal[0] if literal else _format_pattern(patterns[0], family_id=family_id, sample_id=sample_id)
+    return expected, False
 
 
 def _availability_file(
@@ -616,13 +631,27 @@ def _availability_file(
     path_value: str,
     sample_id: str | None = None,
 ) -> FamilyManifestFileAvailability:
-    path = _resolve_package_path(root, path_value)
+    path = package_path_within(root, path_value)
     return FamilyManifestFileAvailability(
         role=role,
         path=path_value,
         exists=bool(path is not None and path.is_file()),
         sample_id=sample_id,
     )
+
+
+def _package_ped(root: Path, relative_path: str) -> Path | None:
+    """The PED ``relative_path`` names, a path built from the family ID, when it is a file
+    in the package; None otherwise. A path the ID leads out of the package is not looked
+    up, and a symlink that leads out is not followed: Discover reads no PED from elsewhere."""
+    path = package_path_within(root, relative_path)
+    return path if path is not None and path.is_file() else None
+
+
+def _package_peds(root: Path, found: Iterable[Path]) -> list[Path]:
+    """The PED files a listing of the package found, in name order, but for one that is a
+    symlink leading out of the package."""
+    return sorted(path for path in found if package_path_within(root, path.relative_to(root).as_posix()) is not None)
 
 
 def _detect_ped_path(
@@ -646,17 +675,17 @@ def _detect_ped_path(
             return None, errors, warnings
         return ped_path, errors, warnings
 
-    preferred = root / f"{family_id}.ped"
-    if preferred.is_file():
+    preferred = _package_ped(root, f"{family_id}.ped")
+    if preferred is not None:
         return preferred, errors, warnings
-    ped_files = sorted(root.glob("*.ped"))
+    ped_files = _package_peds(root, root.glob("*.ped"))
     if not ped_files:
         # The PGT pipeline (nf-cmgg/copgtm) writes its PED into a ped/ folder.
         ped_folder = root / PED_FOLDER
-        preferred = ped_folder / f"{family_id}.ped"
-        if preferred.is_file():
+        preferred = _package_ped(root, f"{PED_FOLDER}/{family_id}.ped")
+        if preferred is not None:
             return preferred, errors, warnings
-        ped_files = sorted(ped_folder.glob("*.ped")) if ped_folder.is_dir() else []
+        ped_files = _package_peds(root, ped_folder.glob("*.ped")) if ped_folder.is_dir() else []
     if len(ped_files) == 1:
         return ped_files[0], errors, warnings
     if len(ped_files) > 1:
@@ -1089,7 +1118,7 @@ def _with_long_read_snv_settings(
             for sample_id in sample_ids
         }
         paths = [block["family_vcf"]] if block.get("family_vcf") in long_read_paths else []
-    resolved = [_resolve_package_path(root, value) for value in paths if isinstance(value, str)]
+    resolved = [package_path_within(root, value) for value in paths if isinstance(value, str)]
     files = [path for path in resolved if path is not None and path.is_file()]
     if not files:
         return block
@@ -1610,6 +1639,18 @@ def _no_draft_for_an_id(
     )
 
 
+def _out_of_package_message(kind: str, value: str, *, source: str | None = None) -> str:
+    """The warning for an ID that is a path out of the package folder: an absolute one, or
+    one whose ``..`` climb out of it. Discover names files after IDs and looks for none
+    outside the package (``package_path_within``), so it finds no file of such an ID there.
+    Whether such an ID may be stored at all is the ID rule's to say (family_identifiers)."""
+    origin = f" ({source})" if source else ""
+    return (
+        f"{kind} ID '{visible(value)}'{origin} is a path out of the package folder: Discover "
+        "looks for files only within the package directory. Check the ID."
+    )
+
+
 def discover_family_package_manifest(
     request: FamilyPackageManifestBuildRequest,
     *,
@@ -1676,18 +1717,20 @@ def discover_family_package_manifest(
         or (manifest_family_id if isinstance(manifest_family_id, str) else None)
         or root.name
     ).strip()
-    family_issue = family_id_issue(
-        family_id,
-        source=(
-            "the family_id of the request"
-            if request.family_id
-            else "the manifest's family_id"
-            if isinstance(manifest_family_id, str) and manifest_family_id
-            else "the folder name"
-        ),
+    family_source = (
+        "the family_id of the request"
+        if request.family_id
+        else "the manifest's family_id"
+        if isinstance(manifest_family_id, str) and manifest_family_id
+        else "the folder name"
     )
+    family_issue = family_id_issue(family_id, source=family_source)
     if family_issue is not None:
         return _no_draft_for_an_id(request, root, family_id=None, errors=[family_issue], warnings=warnings)
+    if path_leaves_package(family_id):
+        warnings.append(
+            _issue("family_id_leaves_package", _out_of_package_message("Family", family_id, source=family_source))
+        )
     ped_path, ped_errors, ped_warnings = _detect_ped_path(
         root,
         requested_ped_path=request.ped_path,
@@ -1800,15 +1843,22 @@ def discover_family_package_manifest(
             request, root, family_id=family_id, errors=[*errors, *added_issues], warnings=warnings
         )
     sample_ids = [*sample_ids, *added_ids]
+    warnings.extend(
+        _issue("sample_id_leaves_package", _out_of_package_message("Sample", sample_id), sample_id=sample_id)
+        for sample_id in dict.fromkeys(sample_ids)
+        if path_leaves_package(sample_id)
+    )
 
     # No PED file when the manifest names the members (family.add_members of a PED-less
-    # long-read package).
+    # long-read package). Without one found, the draft names the PED it expects after the
+    # family, unless the family ID puts that outside the package.
+    expected_ped = None if path_leaves_package(f"{family_id}.ped") else f"{family_id}.ped"
     ped_relative_path: str | None = (
         _display_path(root, ped_path)
         if ped_path is not None
         else None
         if folder_sample_ids
-        else (request.ped_path or f"{family_id}.ped")
+        else (request.ped_path or expected_ped)
     )
     manifest_payload, availability = _build_manifest_payload(
         root=root,
