@@ -411,6 +411,16 @@ resource "google_cloud_run_v2_service" "frontend" {
         }
         cpu_idle = true
       }
+
+      # The load balancer ends TLS in front of this service as in front of the backend, so
+      # the app page sends HSTS as the API does:
+      # Strict-Transport-Security: max-age=63072000; includeSubDomains. Exactly "true": the
+      # frontend server compares the string (frontend/securityHeaders.mjs), where the
+      # backend reads its setting as a boolean.
+      env {
+        name  = "ENABLE_HSTS"
+        value = "true"
+      }
     }
   }
 }
