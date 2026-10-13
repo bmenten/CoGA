@@ -139,7 +139,7 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
     async def fake_fetch_mt_records(_context):
         return [_mt_record()]
 
-    async def fake_coverage_by_sample(_context):
+    async def fake_coverage_by_sample(_session, _context):
         return {
             "PROBAND": mitochondrial_analysis.MitoDNACoverageOut(
                 mean_depth=418.5,
@@ -231,7 +231,7 @@ async def test_family_mitochondrial_analysis_surfaces_frequency_consequence_and_
     async def fake_fetch_mt_records(_context):
         return [common_synonymous]
 
-    async def fake_coverage_by_sample(_context):
+    async def fake_coverage_by_sample(_session, _context):
         return {}
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
@@ -263,7 +263,7 @@ async def test_family_mitochondrial_analysis_count_only_skips_variant_payload(
     async def fake_fetch_mt_records(_context):
         return [_mt_record()]
 
-    async def fake_has_mt_coverage(_context):
+    async def fake_has_mt_coverage(_session, _context):
         return False
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
@@ -292,7 +292,7 @@ async def test_family_mitochondrial_analysis_count_only_coverage_without_variant
     async def fake_fetch_mt_records(_context):
         return []  # no chrM variants
 
-    async def fake_has_mt_coverage(_context):
+    async def fake_has_mt_coverage(_session, _context):
         return True  # a coverage track exists even though no variants were called
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
@@ -407,7 +407,7 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
     async def fake_fetch_mt_records(_context):
         return [record]
 
-    async def fake_coverage_by_sample(_context):
+    async def fake_coverage_by_sample(_session, _context):
         return {}
 
     async def fake_thresholds(_session, *, family_uuid):
@@ -468,7 +468,7 @@ async def test_mtdna_response_lists_chrm_structural_variants_with_each_samples_h
     async def fake_fetch_mt_records(_context):
         return []
 
-    async def fake_coverage_by_sample(_context):
+    async def fake_coverage_by_sample(_session, _context):
         return {}
 
     async def fake_thresholds(_session, *, family_uuid):
@@ -494,7 +494,7 @@ async def _transmissions(monkeypatch: pytest.MonkeyPatch, context, records) -> l
     async def fake_fetch_mt_records(_context):
         return records
 
-    async def fake_coverage_by_sample(_context):
+    async def fake_coverage_by_sample(_session, _context):
         return {}
 
     async def fake_thresholds(_session, *, family_uuid):
