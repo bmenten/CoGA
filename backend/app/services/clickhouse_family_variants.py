@@ -4,6 +4,7 @@ import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from itertools import zip_longest
 from typing import Any, Collection, Literal, Mapping, Sequence
 
 from fastapi import HTTPException
@@ -664,14 +665,17 @@ async def fetch_artifact_protection_flags(
 async def _scan_family_sv_gene_map(
     context: FamilyMetadataContext,
 ) -> tuple[dict[str, list[dict[str, Any]]], int]:
-    """Scan the family's structural variants and group them by overlapped gene."""
+    """Scan the family's structural variants and group them by overlapped gene.
+
+    An SV is stored once per project of the family; it is listed once per gene, with the
+    calls of every stored row (the second-hit badge lists each SV with its own phase)."""
     if not context.assembly_name:
         return {}, 0
     entries_table = _structural_table_name(context.assembly_name, "entries")
     rows = await execute_clickhouse(
         f"""
-        SELECT e.variantId, e.svType, e.chrom, e.start, e.end, e.gene_symbols,
-               e.calls.sampleId, e.calls.gt, e.calls.ps
+        SELECT e.key, e.variantId, e.svType, e.chrom, e.start, e.end, e.gene_symbols,
+               e.calls.sampleId, e.calls.gt, e.calls.ps, e.calls.cn
         FROM {entries_table} AS e
         WHERE e.family_guid = %(family_guid)s AND e.sign = 1 AND length(e.gene_symbols) > 0
         """,
@@ -679,31 +683,52 @@ async def _scan_family_sv_gene_map(
     )
     gene_map: dict[str, list[dict[str, Any]]] = {}
     sv_ids: set[str] = set()
-    for variant_id, sv_type, chrom, start, end, genes, sample_ids, gts, phase_sets in rows:
+    svs_by_key: dict[Any, dict[str, Any]] = {}
+    listed: set[tuple[str, Any]] = set()
+    for (
+        key,
+        variant_id,
+        sv_type,
+        chrom,
+        start,
+        end,
+        genes,
+        sample_ids,
+        gts,
+        phase_sets,
+        copy_numbers,
+    ) in rows:
         sv_ids.add(str(variant_id))
-        gt_map = {
-            str(sample): str(gt)
-            for sample, gt in zip(sample_ids or [], gts or [])
-            if sample not in (None, "")
-        }
-        ps_map = {
-            str(sample): int(ps)
-            for sample, ps in zip(sample_ids or [], phase_sets or [])
-            if sample not in (None, "") and ps is not None
-        }
-        sv = {
-            "sv_id": str(variant_id),
-            "sv_type": str(sv_type or ""),
-            "chr": str(chrom or ""),
-            "start": int(start) if start is not None else None,
-            "end": int(end) if end is not None else None,
-            "gt": gt_map,
-            "ps": ps_map,
-        }
+        sv = svs_by_key.get(key)
+        if sv is None:
+            sv = {
+                "sv_id": str(variant_id),
+                "sv_type": str(sv_type or ""),
+                "chr": str(chrom or ""),
+                "start": int(start) if start is not None else None,
+                "end": int(end) if end is not None else None,
+                "gt": {},
+                "ps": {},
+                "cn": {},
+            }
+            svs_by_key[key] = sv
         for gene in genes or []:
-            symbol = str(gene).strip()
-            if symbol:
-                gene_map.setdefault(symbol.upper(), []).append(sv)
+            symbol = str(gene).strip().upper()
+            if symbol and (symbol, key) not in listed:
+                listed.add((symbol, key))
+                gene_map.setdefault(symbol, []).append(sv)
+        for sample, gt, phase_set, copy_number in zip_longest(
+            sample_ids or [], gts or [], phase_sets or [], copy_numbers or []
+        ):
+            if sample in (None, ""):
+                continue
+            name = str(sample)
+            if gt is not None:
+                sv["gt"].setdefault(name, str(gt))
+            if phase_set is not None:
+                sv["ps"].setdefault(name, int(phase_set))
+            if copy_number is not None:
+                sv["cn"].setdefault(name, int(copy_number))
     return gene_map, len(sv_ids)
 
 

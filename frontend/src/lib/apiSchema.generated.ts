@@ -3007,6 +3007,23 @@ export interface SvSecondHitOut {
   phase: string;
   phase_evidence: string | null;
   deletion_unmasked: boolean;
+  svs: SvSecondHitSvOut[];
+}
+
+/**
+ * One structural variant behind the second-hit badge, with its own phase against the
+ * small variant.
+ */
+export interface SvSecondHitSvOut {
+  sv_id: string;
+  sv_type: string;
+  chr: string | null;
+  start: number | null;
+  end: number | null;
+  affected_zygosity: string | null;
+  copy_loss: boolean;
+  phase: string;
+  phase_evidence: string | null;
 }
 
 export interface Token {

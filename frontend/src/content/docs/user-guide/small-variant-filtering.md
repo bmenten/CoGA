@@ -74,6 +74,8 @@ Mendeliome's genes and regions are the same as when that ranking was computed.
 A small variant whose gene is also hit by an SV carries an **SV badge** (for example `SV: DEL`), with a
 `trans` or `cis` chip when a phase was decided. **Also hit by an SV** under *Structural second hit* keeps
 only these genes. The phase comes from read phasing or from the parents' genotypes, by the same rule
-as for compound-het pairs; the reference gives the rule.
+as for compound-het pairs; the reference gives the rule. Each SV of the gene gets its own phase, which
+the badge's explanation lists, and a deletion in trans with the SNV marks the gene *effectively
+biallelic*, whatever the other SVs are.
 
 [SNV + SV compound heterozygosity reference (the badge, trans or cis)](/docs/reference/sv-second-hit "further-reading")

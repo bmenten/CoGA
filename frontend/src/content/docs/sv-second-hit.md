@@ -21,9 +21,25 @@ A small variant whose gene is **also hit by an SV** carries an **SV badge** next
 - red styling when it is a **deletion in trans with a heterozygous SNV**, which CoGA calls *effectively
   biallelic*.
 
+Each SV that hits the gene gets its own phase against the small variant, and the chip sums them up:
+
+- a **deletion in trans** with the SNV makes the gene *effectively biallelic*, whatever the other SVs
+  are: a duplication in cis beside it does not hide it;
+- otherwise the chip says `trans` when any SV the affected members carry is in trans (a
+  compound-heterozygous candidate), and `cis` only when every one of them is in cis, with a `✓` only
+  when every one is in cis by read phasing;
+- otherwise there is no chip: an SV whose phase is unknown may sit on either copy.
+
+An SV no affected member carries, such as a parent's own SV, gets no phase and does not count.
+
+A **deletion** is an SV that removes a copy: a `DEL`, with any subtype (`DEL:ME`), or a `CNV` unless the
+copy number stored for its carriers shows no copy lost (a gain). A CNV with no stored copy number may be a
+loss and counts as one. A duplication, insertion, inversion or breakend is not a deletion.
+
 Hover or focus the badge for an explanation. It gives the SV zygosity in the affected members (`het`,
-`hom` or `mixed`) and how the phase was decided. The badge links to the family's structural variants for
-that gene, in a new tab.
+`hom` or `mixed`) and how the phase was decided. When several SVs hit the gene it lists each one with its
+position, zygosity and phase, the most telling first (a deletion in trans, then trans, cis, unknown), up
+to five. The badge links to the family's structural variants for that gene, in a new tab.
 
 ## The filter
 
@@ -36,12 +52,13 @@ switch. It keeps only variants in genes that also carry an SV, and combines with
 ## trans or cis
 
 A second hit completes a recessive genotype only if the two variants are on opposite alleles (in
-trans). CoGA decides the phase in one of two ways, and the badge says which.
+trans). CoGA decides the phase of each SV in one of two ways, and the badge says which.
 
 **By read phasing**, when the SVs were phased upstream (for example long-read calling with Sniffles2
 and HiPhase or LongPhase). If the SNV and the SV share a phase set in an affected member, CoGA reads
-trans or cis directly. A cis in any affected member wins. A call with one allele missing (a half call
-such as `.|1`) does not show which copy carries the variant, so the phase then comes from segregation.
+trans or cis directly. For one SV, a cis in any affected member wins: it leaves that member an intact
+copy. A call with one allele missing (a half call such as `.|1`) does not show which copy carries the
+variant, so the phase then comes from segregation.
 
 **By segregation**, otherwise, from the family's genotypes. Every affected member must be
 heterozygous for the SNV and carry the SV. Then:
@@ -60,10 +77,12 @@ heterozygous for the SNV and carry the SV. Then:
   either copy.
 
 A reference call counts only with at least 8 reads behind it, where the call reports its depth; a
-missing call or a no-call is not a reference call. An SV file uploaded for one sample holds no calls for
-the other members, so it never shows that a parent lacks the SV; a parent counts as carrying it when any
-SV of theirs hits the same gene. A male is not traced on chrX or chrY outside the pseudo-autosomal
-regions, where he has a single copy.
+missing call or a no-call is not a reference call. Each SV is traced on its own: the gene's other SVs say
+nothing about it. An SV file uploaded for one sample holds no calls for the other members, so it never
+shows that a parent lacks the SV; a parent counts as carrying it when an SV of their own of the same type
+lies over it or within 1 kb of it, the same SV called in their own file. Another SV of theirs in the
+gene, such as a duplication beside the deletion or a deletion more than 1 kb away, does not count. A
+male is not traced on chrX or chrY outside the pseudo-autosomal regions, where he has a single copy.
 
 Two small variants in the same gene (SNV + SNV) are phased the same way, half calls included: by read
 phasing first, and otherwise by this rule. Their pair card says *In trans · read-backed* or
