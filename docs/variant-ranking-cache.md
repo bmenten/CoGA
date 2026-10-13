@@ -15,6 +15,12 @@ the genes and regions its panel filter applied (`panel_members`). It does not ke
 annotations or the review state: those are fetched fresh on every read, so a cached ranking
 never shows stale annotations or a stale review status.
 
+The ranked variants are the ones the search keeps, as it keeps them unranked. A search that
+pairs (compound het, recessive, expanded carrier screening) ranks only its pairs' variants,
+its single variants and the couple's findings, not every candidate its SQL prefilter lets
+through (CLIN-44, see [A search that pairs](#a-search-that-pairs)). The order is of
+variants; the pairs are not cached.
+
 Only the six most recent queries per family are kept; older rows are removed when a new one
 is stored.
 
@@ -24,12 +30,12 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 
 | Input | Where it comes from |
 | --- | --- |
-| The query filters, without the page | the request |
+| The query filters, without the page, the inheritance mode and expanded carrier screening among them | the request |
 | The gene panel and its version | `gene_panels.version` and `external_version` |
 | The genes and regions the panel filter applied | the panel's genes and regions as the query read them for the family's assembly: `gene_panel_genes`, `gene_panel_regions` and each gene's loci in `genes` (a digest, `panel_members_digest`) |
 | The regions the query kept to or left out, and the genes it left out | the intervals, the loci (from `genes`) of the gene filter's genes and of the excluded genes, and the excluded genes' names, as the query resolved them |
 | The present HPO terms of the affected members | `individual_hpo` |
-| The pedigree and who is affected | the family's latest `family_structure_versions.structure_hash` |
+| The pedigree, who is affected and each member's sex, which name a carrier screen's couple and decide its X-linked findings | the family's latest `family_structure_versions.structure_hash` (members with their sex, role and status, and the relationships); for a family without one, the same read from the loaded family |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
 | The Monarch release | `monarch_gene_disease.release_version` |
 | The loaded HPO ontology: its release and import time | the most recently written `hpo_term` row (`release_version`, `updated_at`), read as the signed record reads it ([annotation-provenance.md](annotation-provenance.md#the-reference-modules)); the import time tells apart two imports that recorded no release |
@@ -107,6 +113,31 @@ variants (CLIN-35). A row records rounded scores, so CoGA
 does not work a new score out of them: a panel that splits a pair is computed directly. The
 ranks are numbered again whenever a panel is served from a broader row.
 
+## A search that pairs
+
+A compound-het or recessive search keeps a variant for its partner, and expanded carrier
+screening for what the other partner carries in its gene: no SQL decides these, and the
+search applies them in Python to a window of candidates (`_small_variants_candidate_page`).
+The ranked search applies the same rules to the same window
+(`_prioritized_small_variants_page`), so it keeps the same variants and pairs, and ranks
+only those, each with the segregation modes it has among them. Before CLIN-44 it ranked
+every candidate the SQL prefilter let through: for a compound-het search, every variant
+heterozygous in each affected member, paired or not. `_ALGORITHM_VERSION` 3 retires the
+rankings computed then.
+
+The cache holds the order of the variants, not the pairs. So on an exact hit such a search
+first fetches its candidates and works out its pairs, then numbers its variants in the
+cached order, provided the row holds every one of them with the segregation modes they have
+now; otherwise it is computed again. A narrower panel is served from a broader row under
+the conditions above, applied to the variants the narrower search keeps: its pairs are
+worked out within its own reach. The page lists each pair where its better-ranked variant
+ranks.
+
+Its window is `_PRIORITIZE_CANDIDATE_LIMIT` (5,000), the largest the unranked search reads.
+When the window overflows, the page flags both the ranking truncated and the candidates
+capped, and its total counts the items found within the window, a lower bound: no SQL count
+counts pairs.
+
 ## Warming after an edit
 
 After an edit that changes the ranking, a background task
@@ -155,8 +186,10 @@ computed.
 - Cache rows and keys: `backend/app/services/variant_ranking_cache.py`
 - Serving, sub-panel reuse and warming: `backend/app/services/clickhouse_family_variants.py`
   (`_prioritized_small_variants_page`, `_serve_ranking_from_cache`,
-  `_serve_subpanel_from_superset`, `_superset_panel_if_unchanged`,
-  `precompute_family_ranking_safe`)
+  `_serve_subpanel_from_superset`, `_priorities_from_ranking`, `_superset_panel_if_unchanged`,
+  `precompute_family_ranking_safe`); what a search keeps, ranked or not:
+  `_kept_small_candidates`, `_small_inheritance_items`, and the ranked page
+  `_prioritized_items_page`
 - The panel filter, and the region limit above which it matches gene symbols alone:
   `backend/app/services/clickhouse_variant_queries.py` (`_small_panel_filter_condition`,
   `_PANEL_REGION_INLINE_LIMIT`)

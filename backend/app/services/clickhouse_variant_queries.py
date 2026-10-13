@@ -3013,8 +3013,16 @@ def _can_use_structural_native_page(
     )
 
 
+def _small_search_keeps_by_pairing(filters: SmallVariantQueryFilters) -> bool:
+    """Whether the search keeps a variant for what else it finds, not for the variant alone:
+    compound-het and recessive pairing, and the couple's gene rule of expanded carrier
+    screening. No SQL decides these: such a search reads a window of candidates and applies
+    them in Python, ranked or not (CLIN-44)."""
+    return filters.inheritance in _PAIR_BASED_SMALL_INHERITANCE or filters.expanded_carrier_screening
+
+
 def _small_pair_inheritance_candidate_limit(filters: SmallVariantQueryFilters) -> int | None:
-    if filters.inheritance not in _PAIR_BASED_SMALL_INHERITANCE and not filters.expanded_carrier_screening:
+    if not _small_search_keeps_by_pairing(filters):
         return None
     requested_rows = max(filters.page, 1) * max(filters.page_size, 1) * _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER
     candidate_rows = min(

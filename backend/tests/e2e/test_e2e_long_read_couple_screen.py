@@ -12,7 +12,8 @@ through the front door end to end:
   calls, a partner's DeepVariant reference record is kept as their call where the other
   has a variant, and reference-only sites are left out;
 * the couple's carrier screen keeps the gene both partners carry a variant in and the
-  female partner's X-linked variant, and nothing else;
+  female partner's X-linked variant, and nothing else, ranked by phenotype priority or not
+  (CLIN-44: ranked, it listed every variant either partner carries);
 * sample-integrity QC reads the couple as a couple, sexes both partners, and says that
   the call set was made one sample at a time.
 
@@ -225,19 +226,22 @@ async def _exercise(base: Path, suffix: str) -> dict:
         ac.headers["Authorization"] = f"Bearer {token}"
         family = await ac.get(f"/api/families/{family_id}")
         out["family"] = family.json() if family.status_code == 200 else {"status": family.status_code}
-        screen = await ac.get(
-            f"/api/families/{family_id}/small-variants",
-            params=[
-                ("expanded_carrier_screening", "true"),
-                ("impact", "HIGH"),
-                ("impact", "MODERATE"),
-                ("max_gnomad_af", "0.01"),
-                ("max_gnomad_popmax_af", "0.01"),
-                ("clinvar_overrides_frequency", "true"),
-                ("page_size", "100"),
-            ],
-        )
+        screen_params = [
+            ("expanded_carrier_screening", "true"),
+            ("impact", "HIGH"),
+            ("impact", "MODERATE"),
+            ("max_gnomad_af", "0.01"),
+            ("max_gnomad_popmax_af", "0.01"),
+            ("clinvar_overrides_frequency", "true"),
+            ("page_size", "100"),
+        ]
+        screen = await ac.get(f"/api/families/{family_id}/small-variants", params=screen_params)
         out["screen"] = {"status": screen.status_code, "json": screen.json()}
+        ranked = await ac.get(
+            f"/api/families/{family_id}/small-variants",
+            params=[*screen_params, ("prioritize", "true")],
+        )
+        out["screen_ranked"] = {"status": ranked.status_code, "json": ranked.json()}
         qc = await ac.get(f"/api/families/{family_id}/qc/sample-integrity")
         out["qc"] = {"status": qc.status_code, "json": qc.json()}
         svs = await ac.get(f"/api/families/{family_id}/structural-variants", params=[("page_size", "10")])
@@ -309,6 +313,27 @@ def test_the_carrier_screen_keeps_the_shared_gene_and_the_female_partners_x_link
     )
     assert found == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C"]
     assert not screen["json"].get("candidates_capped")
+
+
+def test_the_ranked_carrier_screen_keeps_the_same_findings(run) -> None:
+    # CLIN-44: Phenotype prioritization orders the screen and keeps what it keeps. Ranked, the
+    # screen listed every variant either partner carries in a gene: the mother's two GENE2
+    # variants and the father's GENEY variant too.
+    screen, ranked = run["screen"], run["screen_ranked"]
+    assert ranked["status"] == 200, ranked["json"]
+
+    def found(page: dict) -> list[str]:
+        return sorted(
+            f"{variant['chr']}-{variant['start']}-{variant['ref']}-{variant['alt']}"
+            for variant in page["json"]["variants"]
+        )
+
+    assert found(ranked) == found(screen) == ["7-117500100-G-A", "7-117600200-C-T", "X-31000100-T-C"]
+    assert ranked["json"]["variant_groups"] == []
+    assert ranked["json"]["total"] == screen["json"]["total"] == 3
+    assert sorted(variant["priority"]["rank"] for variant in ranked["json"]["variants"]) == [1, 2, 3]
+    assert not ranked["json"].get("candidates_capped")
+    assert not ranked["json"].get("ranking_truncated")
 
 
 def test_qc_reads_a_couple_from_one_file_per_partner(run) -> None:
