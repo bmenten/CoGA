@@ -14,6 +14,7 @@ import {
   findImportIncompleteBanner,
   offScopeProject,
 } from '../../../test/familyPageBanners';
+import { held, settle } from '../../../test/settle';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn() } }));
 
@@ -52,12 +53,13 @@ const sv = (chr: string, type: string, length = 5000, source: string | null = 's
 const serve = (
   familyId: string,
   {
+    family = FAMILY as typeof FAMILY | Promise<unknown>,
     lengths = [] as LengthRow[] | Promise<never>,
     shared = {} as Record<string, Record<string, number>> | Promise<never>,
   } = {},
 ) => {
   const routes: Record<string, unknown> = {
-    [`/families/${familyId}`]: FAMILY,
+    [`/families/${familyId}`]: family,
     [`/families/${familyId}/structural-variant-lengths`]: lengths,
     [`/families/${familyId}/shared-structural-variant-counts`]: shared,
   };
@@ -332,5 +334,66 @@ describe('FamilyVariantSummaryPage', () => {
     expect(screen.getByText(/ClickHouse unavailable\. This is not an empty result\./)).toBeInTheDocument();
     expect(screen.queryByText(/not enough structural variant data/)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+  });
+
+  // SAFE-14 — the family record holds what the header warns of: an import that left the
+  // family incomplete, and an assembly outside the validated scope. The summary was shown
+  // without those warnings while the record loaded, and when it could not be loaded.
+  describe('without the family record', () => {
+    it('shows none of the summary before the family, and then its reference, are in', async () => {
+      const family = held();
+      const reference = held();
+      mockedGet.mockImplementation((url: string) => {
+        // The family on project p1, whose assembly is outside the validated scope.
+        if (url === '/families/F1') return family.answered.then(() => ({ data: { ...FAMILY, projects: ['p1'] } }));
+        if (url === '/projects') return reference.answered.then(() => ({ data: [offScopeProject('p1')] }));
+        if (url === '/families/F1/structural-variant-lengths') return Promise.resolve({ data: [sv('1', 'DEL')] });
+        if (url === '/families/F1/shared-structural-variant-counts') {
+          return Promise.resolve({ data: { S1: { S1: 1 } } });
+        }
+        return Promise.reject(new Error(`Unexpected GET ${url}`));
+      });
+      renderPage();
+
+      // The lengths and the matrix are in meanwhile: the page still says it is loading.
+      await settle(mockedGet);
+      expect(screen.getByRole('status', { name: 'Loading variant summary' })).toBeInTheDocument();
+      expect(screen.queryByText(/Total variants/)).not.toBeInTheDocument();
+
+      // The family alone is not enough: without its reference, the scope warning is unknown.
+      family.release();
+      await settle(mockedGet);
+      expect(screen.getByRole('status', { name: 'Loading variant summary' })).toBeInTheDocument();
+      expect(screen.queryByText(/Total variants/)).not.toBeInTheDocument();
+
+      reference.release();
+      expect(await screen.findByText('Total variants: 1')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Family F1' })).toBeInTheDocument();
+      await findAssemblyScopeBanner();
+    });
+
+    it('says the family could not be loaded, shows none of the summary, and loads it on retry', async () => {
+      serve('F1', {
+        family: Promise.reject({ response: { status: 500, data: { detail: 'Postgres unavailable' } } }),
+        lengths: [sv('1', 'DEL')],
+        shared: { S1: { S1: 1 } },
+      });
+      renderPage();
+
+      const failure = (await screen.findByRole('heading', { name: 'Family could not be loaded' })).closest(
+        '.page-state',
+      ) as HTMLElement;
+      // The lengths and the matrix are in meanwhile, and not shown.
+      await settle(mockedGet);
+      expect(failure).toBeInTheDocument();
+      expect(failure).toHaveTextContent('Postgres unavailable This is a failed request, not a missing family.');
+      expect(screen.queryByText(/Total variants/)).not.toBeInTheDocument();
+      expect(screen.queryByRole('table')).not.toBeInTheDocument();
+
+      serve('F1', { lengths: [sv('1', 'DEL')], shared: { S1: { S1: 1 } } });
+      fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText('Total variants: 1')).toBeInTheDocument();
+      expect(screen.getByRole('heading', { name: 'Family F1' })).toBeInTheDocument();
+    });
   });
 });
