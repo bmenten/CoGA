@@ -1860,7 +1860,8 @@ def interval_track_upload_scope(bed_type: str, sample_id: str) -> tuple[str, dic
 # call, the annotation manifest) in transactions that have not committed.
 _UPLOAD_ROW = """
 SELECT metadata -> 'import_unfinished' AS unfinished,
-       metadata -> 'imported_scopes' AS imported_scopes
+       metadata -> 'imported_scopes' AS imported_scopes,
+       metadata -> 'import_incomplete' AS flag
 FROM families
 WHERE id = CAST(:family_uuid AS uuid)
 FOR NO KEY UPDATE
@@ -1880,6 +1881,17 @@ END
 """
 
 
+def _with_import_flag(metadata: str) -> str:
+    """``metadata`` (an expression of the family's metadata) with import_incomplete set to
+    :flag, or removed where :flag is a JSON null."""
+    return f"""
+CASE
+    WHEN CAST(:flag AS jsonb) = 'null'::jsonb THEN ({metadata}) - 'import_incomplete'
+    ELSE jsonb_set(({metadata}), '{{import_incomplete}}', CAST(:flag AS jsonb), true)
+END
+"""
+
+
 async def record_family_upload(
     session: AsyncSession,
     *,
@@ -1895,6 +1907,13 @@ async def record_family_upload(
     from each whole-family entry already there (``whole_family_left``), which goes once
     nothing is left on it. An upload without ``overwrite`` removes nothing, as an import's
     ``update`` removes nothing.
+
+    In either mode it also removes from the ``import_incomplete`` flag each failed dataset
+    it brought again, for the scope the flag records (``failures_left_after``), as an
+    import that imports it again does, and the flag goes with the last: an upload that
+    completes has brought its scope whole, since one without ``overwrite`` is refused while
+    any of it is stored. A failed upload that had deleted what it replaces leaves such a
+    failure (``record_family_upload_failure``).
 
     Read and written under the family row's lock, in the upload's own transaction, which
     the caller commits with what the upload wrote: the record stands or falls with the
@@ -1934,10 +1953,66 @@ async def record_family_upload(
     if struck:
         metadata = _WITH_IMPORTED_SCOPES_AND_UNFINISHED
         params["unfinished"] = json.dumps(entries or None)
+    stored_flag = row.get("flag")
+    if isinstance(stored_flag, str):
+        try:
+            stored_flag = json.loads(stored_flag)
+        except ValueError:
+            pass
+    failed_before = _flag_failures(stored_flag)
+    if failed_before:
+        failures = failures_left_after(stored_flag, {dataset: scope})
+        if set(failures.failed) != set(failed_before):
+            metadata = _with_import_flag(metadata)
+            params["flag"] = json.dumps(failures.flag)
     await session.execute(
         text(f"UPDATE families SET metadata = {metadata} WHERE id = CAST(:family_uuid AS uuid)"),
         params,
     )
+
+
+async def record_family_upload_failure(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family_id: str,
+    dataset: str,
+    scope: Mapping[str, Any],
+) -> None:
+    """A single-file upload that failed after it had begun deleting the rows it replaces
+    (SAFE-25): ClickHouse has no transactions, so what it was to bring (``dataset``, with
+    ``scope``, as ``small_variant_upload_scope`` gives them) is missing or partly written.
+    The family is flagged import-incomplete for it, as an import that failed for a dataset
+    flags it (``_write_import_failure``): merged with a flag already there, under no import
+    job, as an upload runs in none. The flag clears once the dataset has been brought
+    again, by an upload (``record_family_upload``) or an import.
+
+    The upload's own transaction is rolled back first: it failed, and nothing of it is to
+    commit. The flag is written, and committed, in a transaction of its own under the
+    family row's lock. Best-effort: a flag that cannot be written is logged, and the caller
+    raises the upload's own error."""
+    try:
+        await session.rollback()
+        await _write_import_failure(
+            session,
+            family_uuid=family_uuid,
+            failed_datasets=[dataset],
+            imported_datasets=(),
+            job_id=None,
+            import_key=None,
+            scopes={dataset: dict(scope)},
+            imported_scopes={},
+        )
+    except Exception:  # the upload's own error is what the caller raises
+        logger.warning(
+            "Failed to flag family %s as import-incomplete after a failed upload",
+            family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
 
 
 def _enabled_dataset_summaries(validation: FamilyPackageValidationOut) -> list[FamilyImportDatasetSummary]:

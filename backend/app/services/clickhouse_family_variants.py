@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from itertools import zip_longest
@@ -38,6 +39,7 @@ from .small_variant_review_pg import (
     list_matching_small_variant_review_ids,
 )
 from .monarch_phenotype_score import score_genes_for_hpo
+from .sv_copy_change import copy_change
 from .sv_gene_index_service import (
     get_sv_hit_genes,
     get_sv_second_hits,
@@ -266,9 +268,16 @@ async def _fetch_gene_regions_for_terms(
     terms = [str(term).strip() for term in terms if str(term).strip()]
     if not terms:
         return []
-    clauses = ["(upper(hgnc_symbol) IN :terms OR upper(gene_id) IN :terms)"]
+    # The terms go as one text[] parameter, however many there are (ENG-14). An expanding
+    # IN bound one parameter per term, which asyncpg caps at 32,767, and Postgres planned
+    # each such lookup anew: for the Mendeliome's 5,300 genes in a GENCODE-size reference,
+    # a sequential scan of the assembly's transcripts, 0.2 s and more. One array lets it
+    # keep a plan that reads the upper(hgnc_symbol) and upper(gene_id) indexes (0.05 s).
+    clauses = [
+        "(upper(hgnc_symbol) = ANY(CAST(:terms AS text[])) "
+        "OR upper(gene_id) = ANY(CAST(:terms AS text[])))"
+    ]
     params: dict[str, Any] = {"terms": [term.upper() for term in terms]}
-    bind_params = [bindparam("terms", expanding=True)]
     if assembly_id:
         clauses.append("assembly_id = CAST(:assembly_id AS uuid)")
         params["assembly_id"] = assembly_id
@@ -279,7 +288,7 @@ async def _fetch_gene_regions_for_terms(
             FROM genes
             WHERE {' AND '.join(clauses)}
             """
-        ).bindparams(*bind_params),
+        ),
         params,
     )
     return [
@@ -288,13 +297,161 @@ async def _fetch_gene_regions_for_terms(
     ]
 
 
+def _unique_texts(*values: Sequence[Any]) -> dict[str, None]:
+    """Each value's stripped text once, in the order first read, without empty ones: what
+    ``_append_unique`` keeps, as the keys of a dict."""
+    unique: dict[str, None] = {}
+    for sequence in values:
+        for value in sequence:
+            text_value = str(value or "").strip()
+            if text_value:
+                unique.setdefault(text_value, None)
+    return unique
+
+
+# A panel's genes and regions as one assembly resolves them, kept per panel and assembly
+# while nothing they are read from has changed (ENG-14). The Mendeliome resolves to its
+# 5,300 genes and, in a gene reference of one row per transcript, some 40,000 loci: reading
+# them, and the digest of them the ranking cache keys on, took 0.3 to 1.7 s on every
+# Mendeliome request and in the check that serves a sub-panel from the Mendeliome's ranking
+# (CLIN-27), more than computing a small sub-panel's ranking.
+#
+# A kept resolution is used only while its token, read on every use, is unchanged: the
+# panel's version, a SHA-256 of its gene rows and of its region rows in the assembly, and
+# the gene-reference imports recorded for the assembly (_PANEL_RESOLUTION_TOKEN_SQL). Any
+# change of the panel's rows, by an edit or otherwise, and every gene-reference load (each
+# import records itself in the transaction that writes its rows) reads the panel again. A
+# resolution is kept only when the token read after its rows is the one read before them,
+# so it holds no change committed while it was read. The cache is per process and bounded;
+# each process reads the token from the database, so every process sees a change at once.
+_PANEL_RESOLUTION_CACHE_SIZE = 8
+
+_PANEL_RESOLUTION_TOKEN_SQL = """
+    SELECT
+        gp.version,
+        (
+            SELECT encode(sha256(convert_to(
+                array_agg(g.gene_symbol ORDER BY g.gene_symbol)::text, 'UTF8')), 'hex')
+            FROM gene_panel_genes g
+            WHERE g.panel_id = gp.id
+        ) AS genes_sha256,
+        (
+            SELECT encode(sha256(convert_to(
+                array_agg(
+                    ARRAY[r.gene, r.chr, r.start::text, r."end"::text]
+                    ORDER BY r.gene, r.chr, r.start, r."end"
+                )::text, 'UTF8')), 'hex')
+            FROM gene_panel_regions r
+            WHERE r.panel_id = gp.id
+              AND r.assembly_id = CAST(:assembly_id AS uuid)
+        ) AS regions_sha256,
+        (
+            SELECT count(*)
+            FROM reference_dataset_imports i
+            WHERE i.assembly_id = CAST(:assembly_id AS uuid)
+              AND i.dataset_type = 'genes'
+        ) AS gene_imports,
+        (
+            SELECT max(i.performed_at)
+            FROM reference_dataset_imports i
+            WHERE i.assembly_id = CAST(:assembly_id AS uuid)
+              AND i.dataset_type = 'genes'
+        ) AS last_gene_import
+    FROM gene_panels gp
+    WHERE gp.id = CAST(:panel_id AS uuid)
+"""
+_PANEL_RESOLUTION_TOKEN_COLUMNS = (
+    "version",
+    "genes_sha256",
+    "regions_sha256",
+    "gene_imports",
+    "last_gene_import",
+)
+
+
+@dataclass(frozen=True, slots=True)
+class _PanelResolution:
+    """A panel's genes and regions in one assembly, as read under ``token``, with their
+    ``panel_members_digest``."""
+
+    token: tuple[Any, ...]
+    constraints: PanelFilterConstraints
+    members_digest: str | None
+
+
+_panel_resolutions: OrderedDict[tuple[str, str], _PanelResolution] = OrderedDict()
+
+
+async def _panel_resolution_token(
+    session: AsyncSession, panel_id: str, assembly_id: str
+) -> tuple[Any, ...] | None:
+    """What the panel's resolution in the assembly is read from, as it is now; None when
+    the panel does not exist."""
+    result = await session.execute(
+        text(_PANEL_RESOLUTION_TOKEN_SQL),
+        {"panel_id": panel_id, "assembly_id": assembly_id},
+    )
+    rows = result.mappings().all()
+    if not rows or rows[0].get("version") is None:
+        return None
+    return tuple(rows[0].get(column) for column in _PANEL_RESOLUTION_TOKEN_COLUMNS)
+
+
+def _panel_members(constraints: PanelFilterConstraints) -> str | None:
+    """``panel_members_digest`` of a panel's resolution: the one kept with it when it is a
+    kept resolution, which spares digesting the Mendeliome's loci on every request."""
+    for resolution in _panel_resolutions.values():
+        if resolution.constraints is constraints:
+            return resolution.members_digest
+    return panel_members_digest(constraints)
+
+
 async def _fetch_panel_constraints(
     session: AsyncSession,
     panel_id: str,
     *,
     assembly_id: str | None = None,
 ) -> PanelFilterConstraints:
+    """The genes and regions a panel filter applies to a family on ``assembly_id``: the
+    panel's genes, its regions stored for that assembly, and each gene's loci in that
+    assembly's gene reference. Without an assembly, its genes alone (#515).
+
+    Kept per panel and assembly while its token is unchanged (see
+    ``_PANEL_RESOLUTION_CACHE_SIZE``): the same object then serves every request, so no
+    reader may change it (it is frozen, as its regions are).
+    """
     panel_id = require_uuid(panel_id, "Invalid panel id")
+    if not assembly_id:
+        return await _read_panel_constraints(session, panel_id, assembly_id=None)
+    key = (panel_id, assembly_id)
+    token = await _panel_resolution_token(session, panel_id, assembly_id)
+    kept = _panel_resolutions.pop(key, None)
+    if token is not None and kept is not None and kept.token == token:
+        _panel_resolutions[key] = kept
+        return kept.constraints
+    constraints = await _read_panel_constraints(session, panel_id, assembly_id=assembly_id)
+    if (
+        token is not None
+        and (constraints.genes or constraints.regions)
+        and await _panel_resolution_token(session, panel_id, assembly_id) == token
+    ):
+        _panel_resolutions[key] = _PanelResolution(
+            token=token,
+            constraints=constraints,
+            members_digest=panel_members_digest(constraints),
+        )
+        while len(_panel_resolutions) > _PANEL_RESOLUTION_CACHE_SIZE:
+            _panel_resolutions.popitem(last=False)
+    return constraints
+
+
+async def _read_panel_constraints(
+    session: AsyncSession,
+    panel_id: str,
+    *,
+    assembly_id: str | None,
+) -> PanelFilterConstraints:
+    """``_fetch_panel_constraints`` read from the tables, for a valid ``panel_id``."""
     gene_result = await session.execute(
         text(
             """
@@ -306,9 +463,7 @@ async def _fetch_panel_constraints(
         ),
         {"panel_id": panel_id},
     )
-    genes: list[str] = []
-    for row in gene_result.mappings().all():
-        _append_unique(genes, row.get("gene_symbol"))
+    gene_rows = gene_result.mappings().all()
 
     # Stored regions are per assembly: only the family's own assembly's coordinates may
     # constrain its variants. Without a resolved assembly none can be trusted, and the
@@ -332,8 +487,15 @@ async def _fetch_panel_constraints(
         Region(chr=row["chr"], start=int(row["start"]), end=int(row["end"]))
         for row in region_rows
     ]
-    for row in region_rows:
-        _append_unique(genes, row.get("gene"))
+    # Each gene once, in the order first read: the panel's genes, then its regions' genes.
+    # A dict keeps that order and finds a gene in constant time; the list scan it replaces
+    # (_append_unique) made the Mendeliome's 5,300 genes cost about 0.2 s (ENG-14).
+    genes = list(
+        _unique_texts(
+            [row.get("gene_symbol") for row in gene_rows],
+            [row.get("gene") for row in region_rows],
+        )
+    )
     if assembly_id and genes:
         regions.extend(
             await _fetch_gene_regions_for_terms(
@@ -1934,7 +2096,7 @@ async def _superset_panel_if_unchanged(
         )
     except HTTPException:
         return None
-    if panel_members_digest(constraints) != recorded:
+    if _panel_members(constraints) != recorded:
         return None
     return constraints
 
@@ -2308,7 +2470,7 @@ async def _prioritized_small_variants_page(
     # the couple and each member's sex: every input of what the search keeps.
     patient_terms, term_labels = await _affected_present_hpo(session, context)
     variant_data_version = await _family_small_variant_data_version(context)
-    panel_members = panel_members_digest(panel_constraints) if filters.panel_id else None
+    panel_members = _panel_members(panel_constraints) if filters.panel_id else None
     inputs_hash, base_hash = await compute_ranking_hashes(
         session,
         context=context,
@@ -3467,6 +3629,9 @@ async def _prioritized_structural_variants_page(
 
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
+    # The males, who keep a single copy of chrX and chrY outside the PARs: a CNV that
+    # leaves one of them one copy there removes none.
+    pedigree = _family_pedigree(context)
     patient_terms, term_labels = await _affected_present_hpo(session, context)
 
     # One phenotype-scoring pass over the union of every overlapped gene; each SV then
@@ -3497,6 +3662,16 @@ async def _prioritized_structural_variants_page(
 
         scored = score_structural_variant(
             sv_type=record.sv_type,
+            # Whether the SV removes or adds a copy, by the rule of the SNV + SV second
+            # hit: a DEL:ME is a deletion, and a CNV goes by its copy number (CLIN-47).
+            copy_change=copy_change(
+                record.sv_type,
+                [(call.sample, call.gt, call.copy_number) for call in record.calls],
+                chrom=record.chr,
+                start=record.start,
+                end=record.end,
+                pedigree=pedigree,
+            ),
             gene_count=len([symbol for symbol in record.gene_symbols if symbol]),
             control_af=_coerce_float(annotation_extra.get("control_af")),
             population_af=_coerce_float(annotation_extra.get("population_af")),

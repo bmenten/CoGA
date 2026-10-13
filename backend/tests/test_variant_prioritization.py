@@ -15,6 +15,8 @@ from backend.app.services.variant_prioritization import (
     segregation_weight,
     structural_pathogenicity_score,
 )
+from backend.app.services.compound_het_phase import FamilyPedigree
+from backend.app.services.sv_copy_change import copy_change
 from backend.app.services.monarch_phenotype_score import (
     _MAX_GENE_TERMS,
     _cap_terms_by_ic,
@@ -232,32 +234,90 @@ def test_score_variant_end_to_end_ranks_phenotype_match_higher() -> None:
 
 def test_structural_pathogenicity_no_gene_is_capped_low() -> None:
     # An SV that overlaps no gene is most likely non-coding for ranking purposes.
-    assert structural_pathogenicity_score(sv_type="DEL", gene_count=0) == 0.15
+    assert structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=0) == 0.15
 
 
 def test_structural_pathogenicity_loss_of_constrained_gene_is_high() -> None:
-    base = structural_pathogenicity_score(sv_type="DEL", gene_count=1)
-    constrained = structural_pathogenicity_score(sv_type="DEL", gene_count=1, gene_pli=0.99)
+    base = structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=1)
+    constrained = structural_pathogenicity_score(
+        sv_type="DEL", copy_change="loss", gene_count=1, gene_pli=0.99
+    )
     assert constrained >= base
     assert constrained == 0.9
 
 
 def test_structural_pathogenicity_gain_does_not_use_pli_floor() -> None:
     # The haploinsufficiency floor only applies to copy-number losses.
-    gain = structural_pathogenicity_score(sv_type="DUP", gene_count=1, gene_pli=0.99)
+    gain = structural_pathogenicity_score(
+        sv_type="DUP", copy_change="gain", gene_count=1, gene_pli=0.99
+    )
     assert gain == 0.5
 
 
 def test_structural_pathogenicity_multi_gene_bump_is_capped() -> None:
-    single = structural_pathogenicity_score(sv_type="DEL", gene_count=1)
-    multi = structural_pathogenicity_score(sv_type="DEL", gene_count=5)
+    single = structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=1)
+    multi = structural_pathogenicity_score(sv_type="DEL", copy_change="loss", gene_count=5)
     assert multi > single
     assert multi <= 0.9
+
+
+# Each SV with the score its copy-number change gives it in a gene with a pLI of 0.99, by the
+# rule the SNV + SV second hit reads too (sv_copy_change.copy_change). The ranking matched
+# exact type names: a DEL:ME, a DUP:TANDEM and every CNV scored as an unknown event (0.4),
+# and only DEL got the haploinsufficiency floor (CLIN-47).
+_SON_ON_X = dict(chrom="X", start=50_000_000, end=50_010_000)
+
+
+@pytest.mark.parametrize(
+    ("sv_type", "calls", "where", "pathogenicity"),
+    [
+        ("DEL", [], {}, 0.9),
+        ("DEL:ME", [], {}, 0.9),  # a deletion, of any subtype
+        ("CNV", [("child", "0/1", 1)], {}, 0.9),  # one copy left: a loss
+        ("CNV", [("child", "1/1", 0)], {}, 0.9),
+        ("CNV", [("child", "0/1", None)], {}, 0.9),  # no copy number: may be a loss
+        ("CNV", [("child", "0/1", 3)], {}, 0.5),  # a gain, not haploinsufficient
+        ("DUP", [], {}, 0.5),  # unchanged
+        ("DUP:TANDEM", [], {}, 0.5),  # a duplication, of any subtype
+        ("CNV", [("son", "1", 1)], _SON_ON_X, 0.4),  # a male's one copy of chrX: no loss
+        ("CNV", [("son", "1", 0)], _SON_ON_X, 0.9),
+        ("CNV", [("child", "0/1", 2)], {}, 0.4),  # two copies kept: neither
+        ("INS", [], {}, 0.5),  # unchanged
+        ("INV", [], {}, 0.45),  # unchanged
+        ("BND", [], {}, 0.6),  # unchanged
+    ],
+)
+def test_an_svs_copy_number_change_sets_its_pathogenicity(
+    sv_type: str, calls: list, where: dict, pathogenicity: float
+) -> None:
+    pedigree = FamilyPedigree(males=frozenset({"son"}), assembly_name="GRCh38")
+    change = copy_change(sv_type, calls, pedigree=pedigree, **where)
+    score = structural_pathogenicity_score(
+        sv_type=sv_type, copy_change=change, gene_count=1, gene_pli=0.99
+    )
+    assert score == pathogenicity
+
+
+def test_only_a_copy_loss_takes_the_haploinsufficiency_floor() -> None:
+    def score(sv_type: str, calls: list, gene_pli: float | None) -> float:
+        return structural_pathogenicity_score(
+            sv_type=sv_type,
+            copy_change=copy_change(sv_type, calls),
+            gene_count=1,
+            gene_pli=gene_pli,
+        )
+
+    assert score("CNV", [("child", "0/1", 1)], None) == 0.7  # a loss, as a deletion
+    assert score("CNV", [("child", "0/1", 1)], 0.99) == 0.9
+    assert score("DEL:ME", [], 0.5) == 0.7
+    assert score("CNV", [("child", "0/1", 4)], 0.99) == 0.5  # a gain, as a duplication
+    assert score("DUP:TANDEM", [], 0.99) == 0.5
 
 
 def test_score_structural_variant_ranks_phenotype_match_higher() -> None:
     common = dict(
         sv_type="DEL",
+        copy_change="loss",
         gene_count=1,
         control_af=1e-6,
         population_af=1e-6,
@@ -273,11 +333,11 @@ def test_score_structural_variant_ranks_phenotype_match_higher() -> None:
 
 def test_score_structural_variant_common_event_scores_low() -> None:
     rare = score_structural_variant(
-        sv_type="DEL", gene_count=1, control_af=0.0, population_af=0.0,
+        sv_type="DEL", copy_change="loss", gene_count=1, control_af=0.0, population_af=0.0,
         segregation_modes=[], phenotype_score=None,
     )
     common = score_structural_variant(
-        sv_type="DEL", gene_count=1, control_af=0.2, population_af=0.2,
+        sv_type="DEL", copy_change="loss", gene_count=1, control_af=0.2, population_af=0.2,
         segregation_modes=[], phenotype_score=None,
     )
     assert rare.combined_score > common.combined_score

@@ -49,14 +49,20 @@ from ..schemas import (
     VariantCarriersOut,
     VariantExplorerAssemblyOut,
 )
+from .clickhouse_family_variants import _fetch_panel_constraints
 from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_queries import (
     IMPUTED_SMALL_VARIANT_SOURCES,
+    _clickhouse_chromosome_match_expr,
     _small_annotation_filter_condition,
+    _small_panel_filter_condition,
+    _small_region_bounds,
 )
+from .clickhouse_variant_records import PanelFilterConstraints, Region
 from .family_variant_filters import SmallVariantQueryFilters
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
+from .variant_ranking_cache import panel_members_digest
 
 
 # Carrier / homozygous / heterozygous conditions on a genotype column, from the one
@@ -113,11 +119,20 @@ _RAW_XPOS_COL = 7
 _RAW_KEY_COL = 0
 
 
-def _filters_fingerprint(filters: GlobalVariantFilters, assembly_id: str | None) -> str:
-    """A short stable hash of everything that changes the result set (filter surface +
-    assembly). Bound into the cursor so a cursor leaked across a filter change (e.g. clicked
-    during an in-flight refetch) is rejected rather than silently mis-paging."""
-    payload = json.dumps({"f": asdict(filters), "a": assembly_id}, sort_keys=True, default=str)
+def _filters_fingerprint(
+    filters: GlobalVariantFilters,
+    assembly_id: str | None,
+    panel_constraints: PanelFilterConstraints | None = None,
+) -> str:
+    """A short stable hash of everything that changes the result set (filter surface,
+    assembly, and the genes and regions the panel filter applied). Bound into the cursor so
+    a cursor leaked across a filter change (e.g. clicked during an in-flight refetch), or
+    across an edit of the panel, is rejected rather than silently mis-paging."""
+    payload = json.dumps(
+        {"f": asdict(filters), "a": assembly_id, "p": panel_members_digest(panel_constraints)},
+        sort_keys=True,
+        default=str,
+    )
     return hashlib.sha256(payload.encode()).hexdigest()[:16]
 
 
@@ -240,7 +255,9 @@ class GlobalVariantFilters:
     end: int | None = None
     variant_type: str | None = None
     gene: str | None = None
-    panel_genes: list[str] = field(default_factory=list)
+    # The gene panel's id, as the request names it. The search reads the panel's genes and
+    # regions for its assembly as the family page does (_panel_constraints).
+    panel_id: str | None = None
     impacts: list[str] = field(default_factory=list)
     effects: list[str] = field(default_factory=list)
     clinvar: list[str] = field(default_factory=list)
@@ -570,10 +587,10 @@ def _annotation_index_clauses(
 ) -> list[str]:
     """The filters that hold for a variant as a whole, as WHERE conditions on the
     ``annotation_index`` (alias ``ai``), which pools a variant's transcripts: the gene, the
-    panel's genes, the rsID and the excluded ClinVar significances, as on the family page.
+    rsID and the excluded ClinVar significances, as on the family page.
 
     The annotation filters that the family page applies per transcript are
-    :func:`_transcript_annotation_condition`'s.
+    :func:`_transcript_annotation_condition`'s, and the panel is :func:`_panel_condition`.
     """
 
     clauses: list[str] = []
@@ -584,13 +601,6 @@ def _annotation_index_clauses(
         clauses.append(
             "(arrayExists(g -> lowerUTF8(g) IN %(ann_genes)s, ai.gene_symbols)"
             " OR arrayExists(g -> lowerUTF8(g) IN %(ann_genes)s, ai.gene_ids))"
-        )
-
-    panel_genes = [str(term).lower() for term in filters.panel_genes if str(term).strip()]
-    if panel_genes:
-        params["ann_panel_genes"] = panel_genes
-        clauses.append(
-            "arrayExists(g -> lowerUTF8(g) IN %(ann_panel_genes)s, ai.gene_symbols)"
         )
 
     exclude_clinvar = [value.lower() for value in filters.exclude_clinvar if str(value).strip()]
@@ -677,13 +687,130 @@ def _locus_clauses(
     return clauses
 
 
+# --------------------------------------------------------------------------- #
+# The gene panel, as the family page applies it                               #
+# --------------------------------------------------------------------------- #
+
+
+async def _panel_constraints(
+    session: AsyncSession, scope: ExplorerScope, filters: GlobalVariantFilters
+) -> PanelFilterConstraints | None:
+    """The panel's genes and regions as the family page reads them, for the explorer's
+    assembly; None without a panel filter.
+
+    It is the family page's own reading (``_fetch_panel_constraints``): the panel's genes
+    and the names of its stored regions, the regions stored for this assembly (PanelApp's
+    coordinates), and each gene's loci in this assembly's gene reference. An id that is no
+    UUID is refused (400), and a panel that does not exist answers 404, as on the family
+    page. The explorer used to read the panel's gene symbols alone: a panel of regions only
+    filtered nothing, and a variant in one of a panel's regions was left out (CLIN-48).
+    """
+    if not filters.panel_id:
+        return None
+    return await _fetch_panel_constraints(session, filters.panel_id, assembly_id=scope.assembly_id)
+
+
+def _panel_keeps_nothing(panel_constraints: PanelFilterConstraints | None) -> bool:
+    """A panel with neither genes nor regions for the assembly keeps no variant, as on the
+    family page."""
+    return panel_constraints is not None and not (
+        panel_constraints.genes or panel_constraints.regions
+    )
+
+
+# The window of the panel-region join (_region_key_condition), in bases.
+_REGION_WINDOW = 1 << 16
+
+
+def _region_key_condition(
+    assembly_name: str, regions: Sequence[Region], *, prefix: str, params: dict[str, Any]
+) -> str | None:
+    """``key IN`` the variants of the assembly that overlap one of ``regions`` by the family
+    page's rule (``_small_region_filter_condition``), each variant at its position in the
+    annotation index; None without a region.
+
+    The family page tests each of its rows against every region. Across every family of the
+    cohort that took minutes for a panel of a thousand genes. Here each region is listed
+    under every 64-kb window it touches and each variant under every window its REF
+    touches, and a pair that shares a window is kept when the two overlap as on the family
+    page: on the same chromosome (by match key), with the REF's first base at or before the
+    region's end and its last base at or after the region's start. Two that overlap share
+    the window of a base they share, so none is missed. The regions are read as the family
+    page reads them (``_small_region_bounds``).
+
+    The windows of a REF are counted in signed numbers: a row without a REF at position 0
+    (no VCF record has one) falls in window 0 instead of wrapping to every window.
+    """
+    chromosomes, starts, ends = _small_region_bounds(regions)
+    if not chromosomes:
+        return None
+    chromosomes_param, starts_param, ends_param = (
+        f"{prefix}_chromosomes",
+        f"{prefix}_starts",
+        f"{prefix}_ends",
+    )
+    params[chromosomes_param] = chromosomes
+    params[starts_param] = starts
+    params[ends_param] = ends
+    annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
+    chromosome = _clickhouse_chromosome_match_expr("ai.chrom")
+    ref_first = "toInt64(ai.pos)"
+    ref_last = "toInt64(ai.pos) + length(ai.ref) - 1"
+    return (
+        "key IN (SELECT v.key FROM ("
+        f"SELECT ai.key AS key, {chromosome} AS chrom_key, ai.pos AS pos,"
+        " ai.pos + length(ai.ref) - 1 AS ref_end, variant_window"
+        f" FROM {annotation_index} AS ai"
+        f" ARRAY JOIN range(intDiv(least({ref_first}, {ref_last}), {_REGION_WINDOW}),"
+        f" intDiv(greatest({ref_first}, {ref_last}), {_REGION_WINDOW}) + 1) AS variant_window"
+        ") AS v INNER JOIN ("
+        "SELECT region.1 AS region_chrom, region.2 AS region_start, region.3 AS region_end,"
+        " region_window"
+        f" FROM (SELECT arrayJoin(arrayZip(%({chromosomes_param})s, %({starts_param})s,"
+        f" %({ends_param})s)) AS region)"
+        f" ARRAY JOIN range(intDiv(toInt64(region.2), {_REGION_WINDOW}),"
+        f" intDiv(toInt64(region.3), {_REGION_WINDOW}) + 1) AS region_window"
+        ") AS r ON v.chrom_key = r.region_chrom AND v.variant_window = r.region_window"
+        " WHERE v.pos <= r.region_end AND v.ref_end >= r.region_start)"
+    )
+
+
+def _panel_condition(
+    scope: ExplorerScope, panel_constraints: PanelFilterConstraints, params: dict[str, Any]
+) -> str | None:
+    """The family page's panel condition (``_small_panel_filter_condition``) on the
+    explorer's entry rows (alias ``e``): a variant in one of the panel's regions, or
+    annotated with one of its genes in the row's own gene symbols or in the gene index. A
+    panel of genes with more than ``_PANEL_REGION_INLINE_LIMIT`` regions, such as the
+    Mendeliome, is matched on gene symbols alone, as on the family page. Only the regions
+    are tested another way, with the same answer (:func:`_region_key_condition`)."""
+
+    def region_condition(
+        regions: Sequence[Region], *, prefix: str, params: dict[str, Any]
+    ) -> str | None:
+        return _region_key_condition(scope.assembly_name, regions, prefix=prefix, params=params)
+
+    return _small_panel_filter_condition(
+        scope,
+        # No locus: the gene index is read for the whole assembly; the entry rows carry
+        # the locus filter.
+        SmallVariantQueryFilters(page=1, page_size=1),
+        panel_constraints,
+        params=params,
+        region_condition=region_condition,
+    )
+
+
 def _entries_where(
     scope: ExplorerScope,
     filters: GlobalVariantFilters,
     params: dict[str, Any],
     *,
     tag_variant_ids: Sequence[str] | None,
+    panel_constraints: PanelFilterConstraints | None = None,
 ) -> list[str]:
+    """The WHERE clauses on the ``entries`` rows (alias ``e``) for these filters.
+    ``panel_constraints`` is the panel as :func:`_panel_constraints` read it."""
     clauses = ["sign = 1", "project_guid IN %(project_guids)s"]
     params["project_guids"] = tuple(scope.project_ids)
 
@@ -731,6 +858,11 @@ def _entries_where(
             "key IN (SELECT DISTINCT ai.key FROM "
             f"{annotation_index} AS ai WHERE {' AND '.join(annotation_clauses)})"
         )
+
+    if panel_constraints is not None:
+        # A panel with neither genes nor regions keeps nothing ("0"); the search returns
+        # before it asks ClickHouse.
+        clauses.append(_panel_condition(scope, panel_constraints, params) or "0")
 
     transcript_condition = _transcript_annotation_condition(filters, params)
     if transcript_condition:
@@ -785,22 +917,33 @@ async def search_global_small_variants(
     if scope is None:
         return GlobalVariantPageOut(total=0, page_size=page_size, assembly_id=assembly_id)
 
+    empty_page = GlobalVariantPageOut(
+        total=0,
+        page_size=page_size,
+        assembly_id=scope.assembly_id,
+        assembly_name=scope.assembly_name,
+    )
+    # The panel first, as on the family page: a panel that does not exist answers 404.
+    panel_constraints = await _panel_constraints(session, scope, filters)
+    if _panel_keeps_nothing(panel_constraints):
+        return empty_page
     # A capped tag set is reported by the export only: the page has no field for it.
     tag_variant_ids, _review_filter_capped = await _review_filter_variant_ids(
         session, scope, filters
     )
     if tag_variant_ids == []:
-        return GlobalVariantPageOut(
-            total=0,
-            page_size=page_size,
-            assembly_id=scope.assembly_id,
-            assembly_name=scope.assembly_name,
-        )
+        return empty_page
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
 
     params: dict[str, Any] = {}
-    where_clauses = _entries_where(scope, filters, params, tag_variant_ids=tag_variant_ids)
+    where_clauses = _entries_where(
+        scope,
+        filters,
+        params,
+        tag_variant_ids=tag_variant_ids,
+        panel_constraints=panel_constraints,
+    )
     where_sql = " AND ".join(where_clauses)
     has_carrier = f"arrayExists(g -> {_gt_is_carrier('g', params)}, `calls.gt`)"
 
@@ -812,7 +955,7 @@ async def search_global_small_variants(
         SELECT count()
         FROM (
             SELECT key
-            FROM {entries_table}
+            FROM {entries_table} AS e
             WHERE {where_sql}
               AND {has_carrier}
             GROUP BY key
@@ -824,16 +967,12 @@ async def search_global_small_variants(
     raw_count = int(count_rows[0][0]) if count_rows and count_rows[0] else 0
     total, total_is_estimated = _bounded_total(raw_count)
     if total == 0:
-        return GlobalVariantPageOut(
-            total=0,
-            page_size=page_size,
-            assembly_id=scope.assembly_id,
-            assembly_name=scope.assembly_name,
-        )
+        return empty_page
 
     # Keyset (seek) page: the cursor carries the previous page's last (sort_value, xpos,
-    # key); a stale cursor (sort/order/filters changed) decodes to None and we start at top.
-    fingerprint = _filters_fingerprint(filters, assembly_id)
+    # key); a stale cursor (sort/order/filters, or the panel's genes and regions, changed)
+    # decodes to None and we start at top.
+    fingerprint = _filters_fingerprint(filters, assembly_id, panel_constraints)
     seek_having: str | None = None
     seek_params: dict[str, Any] | None = None
     decoded = _decode_cursor(cursor, sort, order, fingerprint) if cursor else None
@@ -933,7 +1072,7 @@ async def _fetch_variant_rows(
                 gene_symbols,
                 sample_id,
                 ({is_hom}) AS is_hom
-            FROM {entries_table}
+            FROM {entries_table} AS e
             ARRAY JOIN `calls.sampleId` AS sample_id, `calls.gt` AS gt
             WHERE {where_sql}
               AND {is_carrier}
@@ -1072,6 +1211,12 @@ async def export_global_small_variants(
     if scope is None:
         return GlobalVariantExport(assembly_name=None, rows=[], truncated_reason=None, limit=limit)
 
+    # The panel first, as on the family page and in the search.
+    panel_constraints = await _panel_constraints(session, scope, filters)
+    if _panel_keeps_nothing(panel_constraints):
+        return GlobalVariantExport(
+            assembly_name=scope.assembly_name, rows=[], truncated_reason=None, limit=limit
+        )
     tag_variant_ids, review_filter_capped = await _review_filter_variant_ids(
         session, scope, filters
     )
@@ -1086,7 +1231,13 @@ async def export_global_small_variants(
 
     entries_table = _small_table_name(scope.assembly_name, "entries")
     params: dict[str, Any] = {}
-    where_clauses = _entries_where(scope, filters, params, tag_variant_ids=tag_variant_ids)
+    where_clauses = _entries_where(
+        scope,
+        filters,
+        params,
+        tag_variant_ids=tag_variant_ids,
+        panel_constraints=panel_constraints,
+    )
     where_sql = " AND ".join(where_clauses)
 
     variants, _row_cursors = await _fetch_variant_rows(

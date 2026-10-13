@@ -53,7 +53,10 @@ no ClinVar support (built without ClinVar, or loaded from a BED-style file), not
 `gene_panel_regions` is keyed on `(panel_id, assembly_id, gene, chr, start, end)`. A family's
 panel filter reads only the rows of its own assembly, plus the loci of the panel's genes
 resolved in that assembly at query time. With no resolved assembly it narrows by gene symbol
-alone. PanelApp's own coordinates are stored for the assembly they were requested for.
+alone. PanelApp's own coordinates are stored for the assembly they were requested for. Each
+backend process keeps a panel's resolution per panel and assembly while the panel's version,
+its gene and region rows and the assembly's gene-reference imports are unchanged
+([variant-ranking-cache.md](variant-ranking-cache.md#resolving-a-panel)).
 
 `reference_dataset_imports.source_version` and `source_release_date` hold the release the
 source states about itself. A GENCODE gene import takes both from its GTF header. No other
@@ -223,8 +226,8 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | --- | --- |
 | `SNV_INDEL/variants/details` | one row per small variant and annotation set: position, alleles, the full annotation |
 | `SNV_INDEL/variants/annotations` | per variant and transcript: gene, consequence, HGVS, population frequencies, scores. The family search and the Variant Explorer test their annotation filters here, all on one row (one transcript) |
-| `SNV_INDEL/variants/annotation_index` | per variant: its genes and the fields the filters use, pooled over its transcripts, for what holds for the variant as a whole (its rsID, genes and ClinVar terms) |
-| `SNV_INDEL/variants/gene_index` | per gene term and variant, for gene searches |
+| `SNV_INDEL/variants/annotation_index` | per variant: its genes and the fields the filters use, pooled over its transcripts, for what holds for the variant as a whole (its rsID, genes and ClinVar terms). The Variant Explorer also reads each variant's position here to apply a gene panel's regions to every family at once |
+| `SNV_INDEL/variants/gene_index` | per gene term (symbol or gene id) and variant, for gene searches and the gene panel filter of the family page and the Variant Explorer |
 | `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |

@@ -59,13 +59,13 @@ def test_small_table_name_normalizes_assembly() -> None:
 
 
 def test_annotation_index_clauses_hold_the_per_variant_filters_only() -> None:
-    # The gene, panel, rsID and excluded ClinVar filters hold for a variant as a whole, as
-    # on the family page, so they read the annotation index, which pools its transcripts.
-    # The annotation filters the family page applies per transcript are not read there
-    # (CLIN-29).
+    # The gene, rsID and excluded ClinVar filters hold for a variant as a whole, as on the
+    # family page, so they read the annotation index, which pools its transcripts. The
+    # annotation filters the family page applies per transcript are not read there
+    # (CLIN-29), nor is the panel, which is the family page's own condition (CLIN-48).
     filters = GlobalVariantFilters(
         gene="BRCA1, SCN1A",
-        panel_genes=["TP53"],
+        panel_id="00000000-0000-4000-8000-000000000048",
         rsid="rs123",
         exclude_clinvar=["Benign"],
         impacts=["high", "moderate"],
@@ -90,7 +90,6 @@ def test_annotation_index_clauses_hold_the_per_variant_filters_only() -> None:
     # Gene terms are normalised for matching.
     assert params == {
         "ann_genes": ["brca1", "scn1a"],
-        "ann_panel_genes": ["tp53"],
         "ann_exclude_clinvar": ["benign"],
         "ann_rsid": "rs123",
     }
@@ -395,11 +394,9 @@ def test_the_explorer_applies_the_family_search_annotation_condition(filters: di
 
 
 def test_per_variant_filters_stay_on_the_annotation_index() -> None:
-    # The gene, the panel, the rsID and the excluded ClinVar significances hold for the
-    # variant as a whole, on the family page too: they need no transcript of their own.
-    clauses, _params = _explorer_where(
-        gene="BRCA1", panel_genes=["BRCA1"], rsid="rs80357", exclude_clinvar=["Benign"]
-    )
+    # The gene, the rsID and the excluded ClinVar significances hold for the variant as a
+    # whole, on the family page too: they need no transcript of their own.
+    clauses, _params = _explorer_where(gene="BRCA1", rsid="rs80357", exclude_clinvar=["Benign"])
     assert len(_index_subqueries(clauses)) == 1
     assert not _transcript_subqueries(clauses)
 
@@ -491,3 +488,235 @@ def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript() -> N
     # Off, it adds nothing.
     clauses, _params = _explorer_where()
     assert not _transcript_subqueries(clauses) and not _index_subqueries(clauses)
+
+
+# --- the gene panel, as the family page applies it (CLIN-48) ------------------------------
+
+from fastapi import HTTPException  # noqa: E402
+
+from backend.app.services.clickhouse_variant_queries import (  # noqa: E402
+    _PANEL_REGION_INLINE_LIMIT,
+    _small_panel_filter_condition,
+    _small_region_filter_condition,
+)
+from backend.app.services.clickhouse_variant_records import (  # noqa: E402
+    PanelFilterConstraints,
+    Region,
+)
+from backend.app.services.family_metadata_context import FamilyMetadataContext  # noqa: E402
+
+_FAMILY = FamilyMetadataContext(
+    family_uuid="f1",
+    family_id="F1",
+    project_ids=[_PROJECT],
+    sample_rows=[],
+    sample_uuid_to_name={},
+    sample_name_to_uuid={},
+    affected_sample_names=[],
+    assembly_id="a1",
+    assembly_name="GRCh38",
+)
+_PANEL_ID = "00000000-0000-4000-8000-000000000048"
+
+
+def _panel(genes: tuple[str, ...] = (), regions: tuple[tuple[str, int, int], ...] = ()) -> PanelFilterConstraints:
+    return PanelFilterConstraints(
+        genes=genes, regions=tuple(Region(chr=chrom, start=start, end=end) for chrom, start, end in regions)
+    )
+
+
+def _explorer_panel(panel: PanelFilterConstraints, **filters: Any) -> tuple[list[str], dict[str, Any]]:
+    """The explorer's WHERE clauses and parameters for this panel, read as the family page
+    reads it."""
+    params: dict[str, Any] = {}
+    clauses = _entries_where(
+        _SCOPE, GlobalVariantFilters(**filters), params, tag_variant_ids=None, panel_constraints=panel
+    )
+    return clauses, params
+
+
+def _family_panel(panel: PanelFilterConstraints) -> tuple[str | None, dict[str, Any]]:
+    """The family page's panel condition, with its parameters, for the same panel."""
+    params: dict[str, Any] = {}
+    condition = _small_panel_filter_condition(
+        _FAMILY, SmallVariantQueryFilters(page=1, page_size=100), panel, params=params
+    )
+    return condition, params
+
+
+def _region_join(panel: PanelFilterConstraints) -> str:
+    from backend.app.services.variant_explorer_service import _region_key_condition
+
+    condition = _region_key_condition("GRCh38", panel.regions, prefix="panel_region", params={})
+    assert condition is not None
+    return condition
+
+
+def test_the_panel_is_the_family_page_condition_with_its_regions_joined() -> None:
+    # CLIN-48: the explorer read the panel's gene symbols only, on the annotation index. A
+    # variant in one of the panel's regions (a PanelApp region, or a gene's locus in the
+    # gene reference) was left out, which the family page keeps. Now the explorer's panel
+    # condition is the family page's own, with the same parameters: the regions, the row's
+    # gene symbols, the gene index. Only the regions are tested as a join, which reads every
+    # family's variants at once with the same answer.
+    panel = _panel(genes=("SYN48A",), regions=(("chr9", 137_101_312, 137_101_900), ("9", 100, 200)))
+    clauses, params = _explorer_panel(panel)
+    family_condition, family_params = _family_panel(panel)
+    family_regions = _small_region_filter_condition(panel.regions, prefix="panel_region", params={})
+    assert family_condition is not None and family_regions is not None
+    assert family_regions in family_condition
+    assert family_condition.replace(family_regions, _region_join(panel)) in clauses
+    assert {name: params.get(name) for name in family_params} == family_params
+    # The genes are read as the family page reads them: the row's own symbols and the gene
+    # index (its symbols and gene ids), not the annotation index's symbols alone.
+    assert params["panel_gene_terms"] == ("syn48a",)
+    assert params["panel_annotation_gene_terms"] == ("syn48a",)
+    assert not [clause for clause in clauses if "ai.gene_symbols" in clause]
+    bind_query("SELECT 1 FROM t AS e WHERE " + " AND ".join(clauses), params)
+
+
+def test_a_panel_of_regions_only_keeps_the_variants_in_its_regions() -> None:
+    # A panel of PanelApp regions has no gene: the explorer applied no panel at all and
+    # listed every variant. The family page keeps the variants in its regions.
+    panel = _panel(regions=(("9", 137_101_312, 137_101_900),))
+    clauses, params = _explorer_panel(panel)
+    family_condition, family_params = _family_panel(panel)
+    assert family_condition == f"({_small_region_filter_condition(panel.regions, prefix='panel_region', params={})})"
+    assert f"({_region_join(panel)})" in clauses
+    assert params == {**params, **family_params}
+    assert "panel_gene_terms" not in params
+
+
+def test_a_large_gene_panel_is_matched_on_gene_symbols_alone() -> None:
+    # As on the family page (CLIN-34): a panel of genes with more than 1,000 regions, such
+    # as the Mendeliome, is matched on its genes' symbols alone. Its regions are not read.
+    regions = tuple(("2", 10_000 * index, 10_000 * index + 500) for index in range(_PANEL_REGION_INLINE_LIMIT + 1))
+    panel = _panel(genes=("SYN48A", "SYN48B"), regions=regions)
+    clauses, params = _explorer_panel(panel)
+    family_condition, family_params = _family_panel(panel)
+    assert family_condition in clauses
+    assert params == {**params, **family_params}
+    assert "panel_region_chromosomes" not in params
+    assert not [clause for clause in clauses if "variant_window" in clause]
+    # The same number of regions without a gene is still read by its regions.
+    clauses, params = _explorer_panel(_panel(regions=regions))
+    assert len(params["panel_region_chromosomes"]) == _PANEL_REGION_INLINE_LIMIT + 1
+    assert [clause for clause in clauses if "variant_window" in clause]
+
+
+def test_the_region_join_reads_the_regions_as_the_family_page_does() -> None:
+    # One reading of a region (_small_region_bounds): the chromosome by its match key ("chr"
+    # dropped, M read as MT), start and end in order, each region once, one without a
+    # chromosome left out.
+    from backend.app.services.variant_explorer_service import _region_key_condition
+
+    panel = _panel(
+        regions=(("chr1", 200, 100), ("1", 100, 200), ("chrM", 5, 10), ("", 1, 2), ("X", 7, 7))
+    )
+    explorer_params: dict[str, Any] = {}
+    family_params: dict[str, Any] = {}
+    condition = _region_key_condition("GRCh38", panel.regions, prefix="panel_region", params=explorer_params)
+    _small_region_filter_condition(panel.regions, prefix="panel_region", params=family_params)
+    assert explorer_params == family_params == {
+        "panel_region_chromosomes": ["1", "MT", "X"],
+        "panel_region_starts": [100, 5, 7],
+        "panel_region_ends": [200, 10, 7],
+    }
+    assert condition is not None
+    # The family page's overlap: the same chromosome, the REF's first base at or before the
+    # region's end and its last base (pos + length(ref) - 1) at or after its start.
+    assert "ai.pos + length(ai.ref) - 1 AS ref_end" in condition
+    assert "WHERE v.pos <= r.region_end AND v.ref_end >= r.region_start" in condition
+    assert "v.chrom_key = r.region_chrom" in condition
+    # A REF is listed under the windows of its first and its last base, so a deletion that
+    # starts before a region and ends in it meets the region in the region's window.
+    assert "range(intDiv(least(toInt64(ai.pos), toInt64(ai.pos) + length(ai.ref) - 1), 65536)" in condition
+    assert f"FROM {_ANNOTATION_INDEX} AS ai" in condition
+    bind_query(f"SELECT 1 FROM t AS e WHERE {condition}", explorer_params)
+    # No region: no condition.
+    assert _region_key_condition("GRCh38", (Region(chr="", start=1, end=2),), prefix="p", params={}) is None
+
+
+def test_a_panel_with_neither_genes_nor_regions_keeps_nothing() -> None:
+    # The family page answers an empty page for a panel with no genes and no regions for
+    # its assembly (a PanelApp panel whose regions are stored for another assembly only).
+    # The explorer listed every variant.
+    clauses, _params = _explorer_panel(PanelFilterConstraints())
+    assert "0" in clauses
+
+
+def _explorer_search(monkeypatch: pytest.MonkeyPatch, panel: PanelFilterConstraints | Exception) -> dict[str, Any]:
+    """Run the explorer's search and export with ``panel`` as the family page's reading of
+    the panel; record what was asked."""
+    import backend.app.services.variant_explorer_service as explorer
+
+    seen: dict[str, Any] = {"panel_reads": [], "queries": []}
+
+    async def fake_scope(session, user, assembly_id):
+        return _SCOPE
+
+    async def fake_panel(session, panel_id, *, assembly_id=None):
+        seen["panel_reads"].append((panel_id, assembly_id))
+        if isinstance(panel, Exception):
+            raise panel
+        return panel
+
+    async def fake_clickhouse(query, params=None):
+        seen["queries"].append(query)
+        # The search's count finds nothing; the export's rows are none.
+        return [[0]] if "SELECT count()" in query else []
+
+    monkeypatch.setattr(explorer, "resolve_scope", fake_scope)
+    monkeypatch.setattr(explorer, "_fetch_panel_constraints", fake_panel)
+    monkeypatch.setattr(explorer, "execute_clickhouse", fake_clickhouse)
+    filters = GlobalVariantFilters(panel_id=_PANEL_ID)
+    seen["page"] = asyncio.run(
+        explorer.search_global_small_variants(None, user=None, filters=filters, assembly_id="a1")
+    )
+    seen["export"] = asyncio.run(
+        explorer.export_global_small_variants(None, user=None, filters=filters, assembly_id="a1")
+    )
+    return seen
+
+
+def test_the_panel_is_read_for_the_explorers_assembly(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The family page's reading of the panel, for the assembly the explorer searches: the
+    # regions stored for that assembly and its genes' loci in that assembly (#515).
+    seen = _explorer_search(monkeypatch, _panel(genes=("SYN48A",), regions=(("9", 100, 200),)))
+    assert seen["panel_reads"] == [(_PANEL_ID, _SCOPE.assembly_id), (_PANEL_ID, _SCOPE.assembly_id)]
+    # The search's count and the export's rows apply it, on the entry rows as alias "e".
+    count, export = seen["queries"]
+    for query in (count, export):
+        assert "AS e" in query
+        assert "variant_window" in query
+        assert "e.gene_symbols" in query
+        assert "(e.key, e.annotation_version, e.annotationSetHash) IN" in query
+
+
+def test_a_panel_that_keeps_nothing_asks_clickhouse_nothing(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen = _explorer_search(monkeypatch, PanelFilterConstraints())
+    assert seen["queries"] == []
+    assert (seen["page"].total, seen["page"].variants) == (0, [])
+    assert (seen["export"].rows, seen["export"].truncated_reason) == ([], None)
+
+
+def test_a_panel_that_does_not_exist_is_answered_as_on_the_family_page(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The family page's lookup answers 404 for an unknown panel; the explorer listed every
+    # variant instead.
+    with pytest.raises(HTTPException) as missing:
+        _explorer_search(monkeypatch, HTTPException(status_code=404, detail="Panel not found"))
+    assert (missing.value.status_code, missing.value.detail) == (404, "Panel not found")
+
+
+def test_the_cursor_belongs_to_the_panels_genes_and_regions() -> None:
+    # A cursor issued before an edit of the panel restarts the list rather than paging on
+    # with other genes or regions, as it did when the filters held the panel's genes.
+    from backend.app.services.variant_explorer_service import _filters_fingerprint
+
+    filters = GlobalVariantFilters(panel_id=_PANEL_ID)
+    before = _panel(genes=("SYN48A",), regions=(("9", 100, 200),))
+    assert _filters_fingerprint(filters, "a1", before) == _filters_fingerprint(filters, "a1", before)
+    assert _filters_fingerprint(filters, "a1", before) != _filters_fingerprint(
+        filters, "a1", _panel(genes=("SYN48A",), regions=(("9", 100, 300),))
+    )
+    assert _filters_fingerprint(filters, "a1", before) != _filters_fingerprint(filters, "a1")

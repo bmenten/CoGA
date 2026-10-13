@@ -64,6 +64,27 @@ describe('cnvAcmg evaluate', () => {
     expect(cnvKindForType('DUP')).toBe('gain');
   });
 
+  it('reads an SV type without its subtypes, as the server does (CLIN-47)', () => {
+    // A tandem duplication opened on the loss criteria: only the exact type DUP was a gain.
+    expect(cnvKindForType('DUP:TANDEM')).toBe('gain');
+    expect(cnvKindForType('dup:tandem')).toBe('gain');
+    expect(cnvKindForType('INS:ME')).toBe('gain');
+    expect(cnvKindForType('DEL:ME')).toBe('loss');
+    // A CNV names no direction in its type: the dialog opens it on loss, as before.
+    expect(cnvKindForType('CNV')).toBe('loss');
+    expect(cnvGeneCountMode('DUP:TANDEM')).toBe('all');
+    expect(cnvGeneCountMode('DEL:ME')).toBe('all');
+    expect(cnvGeneCountMode('INS:ME')).toBe('disrupted');
+  });
+
+  it('suggests the gain criteria for a tandem duplication in a constrained gene', () => {
+    const suggestions = evaluateCnv({ type: 'DUP:TANDEM', gene: 'TCF4', genePli: 0.99, geneCount: 40 });
+    // 2H is a loss criterion (haploinsufficiency predictors), and 40 genes is 3B for a gain
+    // (35–49), where it is 3C for a loss.
+    expect(suggestions.some((s) => s.code === '2H')).toBe(false);
+    expect(suggestions.find((s) => s.code.startsWith('3'))?.code).toBe('3B');
+  });
+
   it('suggests 1B for an intergenic event', () => {
     const suggestions = evaluateCnv({ type: 'DEL', gene: null });
     expect(suggestions.some((s) => s.code === '1B')).toBe(true);

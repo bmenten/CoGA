@@ -394,10 +394,16 @@ async def _replace_existing_families(
     family_ids: list[str],
     overwrite: bool,
     user: CurrentUser,
-) -> None:
+) -> list[tuple[str, str]]:
+    """Delete the stored families of these IDs (with ``overwrite``; else refuse, 409), in
+    the caller's transaction, and return their variants in ClickHouse, (assembly, family
+    uuid), for the caller to delete with ``_delete_replaced_family_variants`` once the rest
+    of the replacement is written, just before it commits. ClickHouse has no transactions:
+    deleted here, the variants were gone when a check after this refused the upload, while
+    the rollback brought the family back (SAFE-25)."""
     existing_rows = await _existing_family_rows(session, family_ids)
     if not existing_rows:
-        return
+        return []
     existing_family_ids = sorted({row["family_id"] for row in existing_rows if row["family_id"]})
     if not overwrite:
         raise HTTPException(
@@ -417,14 +423,28 @@ async def _replace_existing_families(
     # Taken family by family in one order, so two replacements never wait for each other.
     for family_uuid in sorted(family_uuid_by_id.values()):
         await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
+    replaced: list[tuple[str, str]] = []
     for family_id, family_uuid in family_uuid_by_id.items():
-        for assembly_name in assembly_rows_by_family.get(family_id, set()):
-            await delete_family_small_variants(assembly_name, family_uuid)
-            await delete_family_structural_variants(assembly_name, family_uuid)
+        replaced.extend(
+            (assembly_name, family_uuid)
+            for assembly_name in sorted(assembly_rows_by_family.get(family_id, set()))
+        )
         await session.execute(
             text("DELETE FROM families WHERE id = CAST(:family_uuid AS uuid)"),
             {"family_uuid": family_uuid},
         )
+    return replaced
+
+
+async def _delete_replaced_family_variants(replaced: list[tuple[str, str]] | None) -> None:
+    """Delete the small variants and structural variants of the families a PED upload or a
+    manual family replaced (``_replace_existing_families``), last, after everything else of
+    the replacement is written and just before its commit: a check that refuses the upload
+    leaves them, with the family the rollback brings back. The variant-write locks taken
+    with the replacement are still held."""
+    for assembly_name, family_uuid in replaced or ():
+        await delete_family_small_variants(assembly_name, family_uuid)
+        await delete_family_structural_variants(assembly_name, family_uuid)
 
 
 async def _ensure_sample_ids_are_available(
@@ -868,7 +888,7 @@ async def upload_ped_data(
     resolved_project_id = await _resolve_accessible_project_id(session, user, project_id)
     text_value = await decode_upload_text(file, kind="PED")
     families = _parse_ped_text(text_value)
-    await _replace_existing_families(session, list(families.keys()), overwrite, user)
+    replaced = await _replace_existing_families(session, list(families.keys()), overwrite, user)
     sample_ids = sorted({member["iid"] for members in families.values() for member in members})
     await _ensure_sample_ids_are_available(session, sample_ids)
     inheritance = _normalize_inheritance_model(inheritance_model)
@@ -970,6 +990,7 @@ async def upload_ped_data(
                 created_by=user.id,
             )
         )
+    await _delete_replaced_family_variants(replaced)
     await session.commit()
     return PedUploadResult(families=inserted)
 
@@ -984,7 +1005,7 @@ async def create_manual_family_data(
     family = family.model_copy(update={"family_id": family.family_id.strip()})
     resolved_project_id = await _resolve_accessible_project_id(session, user, family.project_id)
     normalized_members = _validate_manual_family(family)
-    await _replace_existing_families(session, [family.family_id], overwrite, user)
+    replaced = await _replace_existing_families(session, [family.family_id], overwrite, user)
     await _ensure_sample_ids_are_available(
         session,
         [member.sample_id for member in normalized_members],
@@ -1033,5 +1054,6 @@ async def create_manual_family_data(
         project_id=resolved_project_id,
         created_by=user.id,
     )
+    await _delete_replaced_family_variants(replaced)
     await session.commit()
     return PedUploadResult(families=[inserted])

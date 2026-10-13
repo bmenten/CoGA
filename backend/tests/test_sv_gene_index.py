@@ -598,10 +598,16 @@ def test_what_may_be_the_same_sv_called_in_another_file(other: dict, same: bool)
         ("CNV", 0, True),
         ("CNV", 2, False),
         ("CNV", 3, False),  # a gain
+        # Types that name their direction, as the SV ranking has read them (CLIN-47).
+        ("LOSS", None, True),
+        ("CNV_LOSS", None, True),
+        ("GAIN", None, False),
         ("DUP", None, False),
+        ("DUP:TANDEM", None, False),
         ("INS", None, False),
         ("INV", None, False),
         ("BND", None, False),
+        ("TRA", None, False),
     ],
 )
 def test_which_svs_count_as_a_deletion(sv_type: str, cn: int | None, copy_loss: bool) -> None:

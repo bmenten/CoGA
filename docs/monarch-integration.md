@@ -68,6 +68,13 @@ Both live in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); 
   screening, only the pairs' variants, the single variants and the couple's findings, each pair listed
   at its better-ranked variant, and past the window it also sets `candidates_capped` (CLIN-44). Rankings
   are cached; see [variant-ranking-cache.md](variant-ranking-cache.md).
+  `GET /api/families/{family_id}/structural-variants?prioritize=true` (not cached) scores an SV's
+  pathogenicity from its event class, the genes it overlaps and their pLI
+  (`structural_pathogenicity_score`). A copy-number change is scored by its direction, by the rule of the
+  SNV + SV second hit (`sv_copy_change.copy_change`): a `DEL` of any subtype, or a `CNV` whose carriers'
+  copy number shows a loss (or that stores none), as a loss (0.7, at least 0.9 in a gene with pLI ≥ 0.9);
+  a `DUP` of any subtype, or a CNV gain, as a gain (0.5). Exact type names were matched before, so a
+  `DEL:ME`, a `DUP:TANDEM` and every CNV scored 0.4 (CLIN-47).
 - **ACMG PP4** — the ACMG dialog reads the variant's phenotype score (see
   [acmg-classification.md](acmg-classification.md)).
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Collection, Iterable, Sequence
+from typing import Any, Collection, Iterable, Protocol, Sequence
 
 from fastapi import HTTPException
 
@@ -99,6 +99,14 @@ from .clickhouse_variant_records import (
     _annotation_matches_normal,
     mane_only_condition,
 )
+
+
+class _SearchAssembly(Protocol):
+    """What a condition over the shared annotation tables reads of its search: the
+    assembly whose tables it queries. A family's context, or the Variant Explorer's scope."""
+
+    @property
+    def assembly_name(self) -> str | None: ...
 
 
 # Callset ``source`` values that hold imputed (not directly-called) genotypes.
@@ -2307,12 +2315,10 @@ def _small_gene_filter_condition(
     return entry_gene_condition
 
 
-def _small_region_filter_condition(
-    regions: Sequence[Region],
-    *,
-    prefix: str,
-    params: dict[str, Any],
-) -> str | None:
+def _small_region_bounds(regions: Sequence[Region]) -> tuple[list[str], list[int], list[int]]:
+    """The regions as the small-variant region condition reads them, as three parallel
+    lists: each chromosome by its match key (``_chromosome_match_key``), each start and end
+    in order, each region once. A region without a chromosome is left out."""
     region_chromosomes: list[str] = []
     region_starts: list[int] = []
     region_ends: list[int] = []
@@ -2332,6 +2338,16 @@ def _small_region_filter_condition(
         region_chromosomes.append(chrom)
         region_starts.append(start)
         region_ends.append(end)
+    return region_chromosomes, region_starts, region_ends
+
+
+def _small_region_filter_condition(
+    regions: Sequence[Region],
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    region_chromosomes, region_starts, region_ends = _small_region_bounds(regions)
     if not region_chromosomes:
         return None
 
@@ -2362,29 +2378,44 @@ def _small_region_filter_condition(
 _PANEL_REGION_INLINE_LIMIT = 1000
 
 
+def _panel_regions_apply(panel_constraints: PanelFilterConstraints) -> bool:
+    """Whether a panel filter keeps a variant in one of the panel's regions as well as one
+    of its genes: always, except for a panel of genes with more than
+    ``_PANEL_REGION_INLINE_LIMIT`` regions, which is matched on gene symbols alone."""
+    return not (
+        bool(panel_constraints.genes)
+        and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT
+    )
+
+
+class _SmallRegionCondition(Protocol):
+    """Builds "the variant overlaps one of these regions", as ``_small_region_filter_condition``
+    does, or None without a region."""
+
+    def __call__(
+        self, regions: Sequence[Region], *, prefix: str, params: dict[str, Any]
+    ) -> str | None: ...
+
+
 def _small_panel_filter_condition(
-    context: FamilyMetadataContext,
+    context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
     panel_constraints: PanelFilterConstraints,
     *,
     params: dict[str, Any],
+    region_condition: _SmallRegionCondition = _small_region_filter_condition,
 ) -> str | None:
+    """A variant in one of the panel's regions (``_panel_regions_apply``), or annotated
+    with one of its genes: in the entry row's own gene symbols or in the gene index.
+
+    ``region_condition`` builds the regions' condition. The Variant Explorer passes one
+    that applies the same regions by the same overlap rule to every family's variants at
+    once (``variant_explorer_service._region_key_condition``, CLIN-48)."""
     conditions: list[str] = []
-    skip_regions = (
-        bool(panel_constraints.genes)
-        and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT
-    )
-    region_condition = (
-        None
-        if skip_regions
-        else _small_region_filter_condition(
-            panel_constraints.regions,
-            prefix="panel_region",
-            params=params,
-        )
-    )
-    if region_condition:
-        conditions.append(region_condition)
+    if _panel_regions_apply(panel_constraints):
+        in_regions = region_condition(panel_constraints.regions, prefix="panel_region", params=params)
+        if in_regions:
+            conditions.append(in_regions)
     gene_condition = _small_gene_filter_condition(
         panel_constraints.genes,
         prefix="panel_gene",
@@ -2587,7 +2618,7 @@ def _small_annotation_scope_clauses(
 
 
 def _small_annotation_gene_membership_condition(
-    context: FamilyMetadataContext,
+    context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
     gene_values: Sequence[str],
     *,

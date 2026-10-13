@@ -54,6 +54,70 @@ A request whose inputs differ from every cached row misses, so an exact hit is n
 ranking computed on other inputs. The page number is not part of the key: the whole order is
 cached and each page is a slice of it.
 
+## Resolving a panel
+
+A panel filter applies the panel's genes, the regions the panel stores for the family's
+assembly, and each of its genes' loci in that assembly's gene reference
+(`_fetch_panel_constraints`). The key digests them, and the check below that lets a broader
+ranking serve a narrower panel reads the broader ranking's panel the same way. For the
+Mendeliome that is 5,300 genes and, since the gene reference holds one row per transcript,
+some 40,000 loci. Read again on every request, it cost more than computing a small panel's
+ranking: 0.3 to 0.6 s per request with a gene reference of one row per gene, and 0.4 to 1.7 s
+with one of GENCODE's size (ENG-14). Every request with the Mendeliome paid it, the default
+view's exact hit included, and a narrower panel opened from the Mendeliome's ranking paid it
+for the check.
+
+Each process therefore keeps a panel's resolution, with its digest, per panel and assembly,
+and uses it only while its token is unchanged. The token is read on every use, in one
+statement (`_PANEL_RESOLUTION_TOKEN_SQL`):
+
+| Part of the token | What moves it |
+| --- | --- |
+| The panel's version | every change of its genes or regions through the panel service (an edit, a Mendeliome rebuild, a PanelApp import) |
+| A SHA-256 of the panel's gene rows, and one of its region rows for the assembly | any change of those rows, by any path, a version raised or not |
+| The gene-reference imports recorded for the assembly (their number and the latest) | every load of the gene reference: each import records itself in `reference_dataset_imports` in the transaction that writes its rows |
+
+A resolution is kept only when the token read after its rows is the one read before them, so
+it holds no change committed while it was read. At most eight resolutions are kept, the most
+recently used, and every process reads the token from the database, so all of them see a
+change at once. The kept resolution, and each of its regions, is frozen: the same object
+serves every request that applies the panel.
+
+The gene reference is written only by the reference import (`apply_reference_gene_rows`,
+`apply_reference_dataset_text`), which records itself with its rows. A row of `genes` written
+past it, by hand in the database, is not seen by a kept resolution until the next import of
+the assembly's gene reference or a restart.
+
+Reading a panel became cheaper as well. Its genes are kept once each with a dict, where a list
+scan took about 0.2 s for the Mendeliome, and the gene-reference lookup binds its gene list as
+one array parameter (`= ANY(CAST(:terms AS text[]))`) instead of one parameter per gene.
+asyncpg refuses a statement of more than 32,767 parameters, and Postgres planned the
+expanding IN anew on every lookup: for the Mendeliome in a GENCODE-size reference, a
+sequential scan of the assembly's transcripts, 0.2 s and more. As one array it keeps a plan
+that reads the `upper(hgnc_symbol)` and `upper(gene_id)` indexes, 0.05 s.
+
+Measured with #839's benchmark on the throwaway stack (a synthetic trio of 2,900 variants, a
+5,300-gene Mendeliome and sub-panels of it, before and after ENG-14 back to back on a shared
+machine; best and median of 7, in seconds), with a gene reference of one row per gene and one
+of GENCODE's size (eight transcripts per gene, 247,200 rows):
+
+| Request | One row per gene: before | after | GENCODE size: before | after |
+| --- | --- | --- | --- | --- |
+| A 25-gene sub-panel, the Mendeliome's ranking cached | 0.33 / 0.33 | 0.06 / 0.06 | 0.48 / 0.51 | 0.06 / 0.06 |
+| The same computed afresh | 0.06 / 0.06 | | 0.06 / 0.06 | |
+| A 100-gene sub-panel, the Mendeliome's ranking cached | 0.34 / 0.35 | 0.06 / 0.07 | 0.50 / 0.52 | 0.08 / 0.09 |
+| The same computed afresh | 0.09 / 0.10 | | 0.10 / 0.11 | |
+| A 500-gene sub-panel, the Mendeliome's ranking cached | 0.38 / 0.40 | 0.10 / 0.11 | 0.57 / 0.65 | 0.10 / 0.11 |
+| The same computed afresh | 0.29 / 0.37 | | 0.27 / 0.37 | |
+| The Mendeliome's exact hit, a page of 100 | 0.33 / 0.33 | 0.07 / 0.07 | 0.57 / 0.58 | 0.06 / 0.06 |
+| The default view's exact hit (the preset's filters), a page of 100 | 0.31 / 0.34 | 0.06 / 0.06 | 0.49 / 0.50 | 0.06 / 0.07 |
+| Resolving the Mendeliome alone | 0.26 / 0.27 | 0.003 / 0.003 | 0.37 / 0.39 | 0.006 / 0.008 |
+
+The fresh computations are those measured after the change. Each sub-panel came out the same
+served and fresh (variants, order, scores, ranks, total). What a sub-panel served from the
+Mendeliome's ranking reads beyond a fresh computation is that ranking itself, about 0.015 s for
+its 2,299 variants; the check of the Mendeliome's panel reads its token, about 0.003 s.
+
 ## Serving a narrower panel from a broader one
 
 The panel decides which variants are in scope. A variant's score depends on it in one way
@@ -74,9 +138,10 @@ with the same `base_hash` that:
    variants overflow that window is never served from another row;
 2. has no panel, or a panel that still holds the genes and regions the row was computed on.
    Each row records them in its `provenance` (`panel_members`, the same digest as in the
-   key), and CoGA compares that record with the panel as it reads it now. A row that
-   records nothing (cached before rankings recorded their panel), or whose panel has been
-   deleted, is not used;
+   key), and CoGA compares that record with the panel as it resolves now: its kept
+   resolution while the token is unchanged (see [Resolving a panel](#resolving-a-panel)),
+   else the panel read again. A row that records nothing (cached before rankings recorded
+   their panel), or whose panel has been deleted, is not used;
 3. covers the requested panel's genes (a row without a panel covers every gene);
 4. holds every variant the requested panel reaches; and
 5. recorded for each of them the segregation modes they have among themselves.
@@ -190,6 +255,9 @@ computed.
   `precompute_family_ranking_safe`); what a search keeps, ranked or not:
   `_kept_small_candidates`, `_small_inheritance_items`, and the ranked page
   `_prioritized_items_page`
+- Resolving a panel and keeping its resolution: the same module (`_fetch_panel_constraints`,
+  `_read_panel_constraints`, `_panel_resolution_token`, `_PANEL_RESOLUTION_TOKEN_SQL`,
+  `_panel_members`, `_fetch_gene_regions_for_terms`)
 - The panel filter, and the region limit above which it matches gene symbols alone:
   `backend/app/services/clickhouse_variant_queries.py` (`_small_panel_filter_condition`,
   `_PANEL_REGION_INLINE_LIMIT`)

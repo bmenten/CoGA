@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import replace
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import gzip
 import io
@@ -10,6 +10,7 @@ import json
 import logging
 import math
 from typing import Any, Awaitable, Callable, Collection, Iterable, Literal, Sequence
+import zlib
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
@@ -52,6 +53,7 @@ from .family_metadata_context import FamilyMetadataContext, SampleMetadataContex
 from .family_package_common import VcfSampleColumnError, known_vcf_sample_ids, per_sample_vcf_column
 from .family_package_registration import (
     record_family_upload,
+    record_family_upload_failure,
     small_variant_upload_scope,
     structural_variant_upload_scope,
 )
@@ -198,7 +200,10 @@ def _iter_upload_text_lines(file: UploadFile, *, kind: str):
                 yield from _iter_bounded_lines(wrapper, kind=kind)
             finally:
                 wrapper.detach()
-    except OSError as exc:
+    # A gzip file cut short (an interrupted copy) ends in EOFError, and a damaged one can end
+    # in a zlib error; neither is an OSError, and each is the file's fault, as a bad header
+    # or checksum is.
+    except (OSError, EOFError, zlib.error) as exc:
         raise HTTPException(status_code=400, detail=f"{kind} file must be plain text or gzipped") from exc
 
 
@@ -607,6 +612,26 @@ async def remove_family_small_variant_sample_calls(
     return held
 
 
+@dataclass
+class _SmallVariantFileRead:
+    """What one read of a small-variant VCF found (``upload_family_small_variant_file``):
+    its samples and meta-header, the records it stored (or, read to check the file, would
+    have stored) and those it left out, and the haplotype blocks its records make."""
+
+    haplotype_blocks: HaplotypeBlockBuilder | None
+    sample_names: list[str] = field(default_factory=list)
+    annotation_state: AnnotationHeaderState = field(default_factory=AnnotationHeaderState)
+    provenance_header_lines: list[str] = field(default_factory=list)
+    # A per-sample upload: the ids the replaced samples' calls may be stored under, and the
+    # file's own rows, merged into the stored ones at its end.
+    replaced_call_ids: set[str] = field(default_factory=set)
+    uploaded_entries: list[dict[str, Any]] = field(default_factory=list)
+    inserted: int = 0
+    skipped_malformed: int = 0
+    skipped_filtered: int = 0
+    skipped_by_filter: int = 0
+
+
 async def upload_family_small_variant_file(
     session: AsyncSession,
     *,
@@ -624,6 +649,7 @@ async def upload_family_small_variant_file(
     record_filter: SmallVariantRecordFilter | None = None,
     sample_column: str | None = None,
     record_upload: bool = False,
+    check_before_replacing: bool = True,
 ) -> dict[str, Any]:
     """Load a family's small-variant VCF into ClickHouse.
 
@@ -671,6 +697,21 @@ async def upload_family_small_variant_file(
     family, and with ``overwrite`` struck off a whole-family entry, in the transaction that
     commits its rows (``record_family_upload``). A package import records what it imported
     itself, when it ends.
+
+    An upload that replaces stored rows (with ``overwrite``, the family's rows of its
+    callset, and for imputed genotypes the family's haplotype blocks) reads and checks the
+    whole file before it deletes them (``check_before_replacing``, SAFE-25): a first read
+    builds every record as the write builds it, and the haplotype blocks, and stores
+    nothing, so a file the upload refuses (400, 413) or cannot read leaves the stored rows
+    as they were. Then the rows are deleted and the file is read again and written: the
+    file streams through both reads, and is never held in memory. The check reports no
+    progress. ClickHouse has no transactions, so a write that fails after the delete (an
+    insert error) leaves the callset without its rows: the clean-up below removes what the
+    write stored, and a single-file upload then flags the family import-incomplete for
+    what it was to bring (``record_family_upload_failure``), as an import flags a dataset
+    that failed. A package import passes ``check_before_replacing=False``: when one of its
+    datasets fails it puts the family back from the snapshot it took first, and it reads a
+    whole-genome callset once.
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -680,8 +721,6 @@ async def upload_family_small_variant_file(
 
     alias_map = {str(key): str(value) for key, value in (sample_aliases or {}).items()}
     excluded_filters = {str(value).strip() for value in (exclude_filters or []) if str(value).strip()}
-    skipped_filtered = 0
-    skipped_by_filter = 0
     if annotation_file is not None:
         vep_annotations = await asyncio.to_thread(
             _parse_vep_tsv_annotation_upload,
@@ -692,15 +731,17 @@ async def upload_family_small_variant_file(
     # upload's own source even if detection itself is what failed.
     resolved_format: SmallVariantFormat | None = None
     # Only compensate once we've entered the mutating phase (past the "refuse if data
-    # already exists and not overwrite" 409). Otherwise a non-overwrite conflict would
-    # trigger a delete of the very rows the refusal was protecting.
+    # already exists and not overwrite" 409, and past the check of the whole file).
+    # Otherwise a non-overwrite conflict, or a file the check refused, would trigger a
+    # delete of the very rows the refusal was protecting.
     mutation_started = False
+    # Set as the upload begins deleting the stored rows it replaces: a failure from then on
+    # leaves the family without them (SAFE-25).
+    replacing = False
     samples_scope = overwrite_scope == "samples"
-    # A per-sample upload: the callset's rows as stored, the ids the replaced samples'
-    # calls may be stored under, and the file's own rows, merged at its end.
+    # A per-sample upload: the callset's rows as stored, which the rewrite at its end
+    # merges the file's rows into.
     stored_entries: list[dict[str, Any]] = []
-    replaced_call_ids: set[str] = set()
-    uploaded_entries: list[dict[str, Any]] = []
     try:
         resolved_format = _detect_small_variant_format_from_upload(file, format_hint)
         # A family holds more than one small-variant callset at once (annotated
@@ -750,12 +791,276 @@ async def upload_family_small_variant_file(
             if loads_haplotype_blocks
             else 0
         )
-        if existing_variants or existing_haplotypes:
-            if not overwrite:
-                raise HTTPException(
-                    status_code=409,
-                    detail="Small variants or haplotype blocks already exist for this family",
+        replaces_stored = bool(existing_variants or existing_haplotypes)
+        if replaces_stored and not overwrite:
+            raise HTTPException(
+                status_code=409,
+                detail="Small variants or haplotype blocks already exist for this family",
+            )
+
+        metadata_json = _upload_metadata(resolved_format, file)
+        # Haplotype blocks come only from the imputed glimpse2 genotypes.
+        chromosome_sizes = (
+            await _fetch_chromosome_sizes(session, context.assembly_id) if loads_haplotype_blocks else {}
+        )
+        bytes_total = _upload_size(file) if progress is not None else None
+
+        async def read_file(*, write: bool) -> _SmallVariantFileRead:
+            """Read the whole file, record by record, and build each record as it is stored.
+            With ``write``, store them a batch at a time and report the progress; without,
+            store nothing: the check of a file before it replaces stored rows."""
+            read = _SmallVariantFileRead(
+                haplotype_blocks=(
+                    HaplotypeBlockBuilder(
+                        context=context,
+                        sample_contexts=sample_contexts,
+                        chromosome_sizes=chromosome_sizes,
+                        metadata_json=metadata_json,
+                    )
+                    if loads_haplotype_blocks
+                    else None
                 )
+            )
+            haplotype_blocks = read.haplotype_blocks
+            # The #CHROM line's sample-column count, and the one column read when the
+            # upload reads a single column of the file (``sample_column``).
+            header_column_count = 0
+            selected_column: int | None = None
+            records_read = 0
+            last_reported = 0
+            variant_batch: list[SmallVariantRecord] = []
+
+            async def report_read_progress() -> None:
+                nonlocal last_reported
+                last_reported = records_read
+                if progress is None or not write:
+                    return
+                await progress(
+                    {
+                        "processed": records_read,
+                        "inserted": read.inserted - len(variant_batch),
+                        "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
+                        **read_stats(bytes_read_on_disk(file.file), bytes_total),
+                    }
+                )
+
+            async def flush_variant_batch() -> None:
+                if not variant_batch:
+                    return
+                if write:
+                    await insert_small_variant_records(
+                        context.assembly_name or "",
+                        context.family_uuid,
+                        context.project_ids,
+                        variant_batch,
+                        annotation_version=annotation_version,
+                        entries=not samples_scope,
+                    )
+                    if samples_scope:
+                        read.uploaded_entries.extend(
+                            small_variant_record_entries(
+                                context.assembly_name or "",
+                                context.family_uuid,
+                                context.project_ids,
+                                variant_batch,
+                                annotation_version=annotation_version,
+                            )
+                        )
+                variant_batch.clear()
+
+            for line in _iter_upload_text_lines(file, kind="VCF"):
+                if line.startswith("##INFO"):
+                    update_annotation_header_state(read.annotation_state, line.strip())
+                elif (
+                    line.startswith("##")
+                    and not line.startswith(_PROVENANCE_SKIP_PREFIXES)
+                    and len(read.provenance_header_lines) < _PROVENANCE_HEADER_CAP
+                ):
+                    read.provenance_header_lines.append(line.rstrip())
+                if line.startswith("#CHROM"):
+                    header = line.strip().split("\t")
+                    header_columns = header[9:]
+                    header_column_count = len(header_columns)
+                    if sample_column is not None:
+                        if sample_column not in header_columns:
+                            raise HTTPException(
+                                status_code=400,
+                                detail=f"The VCF has no sample column '{sample_column}'",
+                            )
+                        selected_column = header_columns.index(sample_column)
+                        header_columns = [sample_column]
+                    # Rewrite each VCF sample column to its family sample id up front, so
+                    # every downstream lookup (calls, haplotype state, parent roles) works
+                    # in family-sample-id space and never has to know about the alias.
+                    read.sample_names = [alias_map.get(name, name) for name in header_columns]
+                    unique_names = list(dict.fromkeys(read.sample_names))
+                    for name in unique_names:
+                        if name not in sample_contexts:
+                            raise HTTPException(status_code=400, detail=f"Sample '{name}' not found in family")
+                        if haplotype_blocks is not None:
+                            haplotype_blocks.add_sample(name)
+                    if samples_scope:
+                        read.replaced_call_ids = _sample_call_ids(
+                            sample_contexts[name] for name in unique_names
+                        )
+                        if not overwrite and any(
+                            str(sample) in read.replaced_call_ids
+                            for entry in stored_entries
+                            for sample in entry["calls.sampleId"] or []
+                        ):
+                            raise HTTPException(
+                                status_code=409,
+                                detail="Small variants already exist for this file's samples in this callset",
+                            )
+                    continue
+                if not line or line.startswith("#"):
+                    continue
+                records_read += 1
+                # Counted before any is left out, so a file whose records mostly are
+                # (RefCall blocks, a NIPT father's noise) still reports as it goes.
+                if progress is not None and records_read - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
+                    await report_read_progress()
+                fields = line.strip().split("\t")
+                if len(fields) < 10:
+                    continue
+                if samples_scope and not read.sample_names:
+                    # Without the #CHROM line the file names no sample whose calls it
+                    # replaces.
+                    raise HTTPException(
+                        status_code=400, detail="The VCF has no #CHROM line naming its samples"
+                    )
+
+                chrom, pos, _vid, ref, alt, qual, filt, info_field, fmt = fields[:9]
+                # Drop caller-declared non-variant records (DeepVariant RefCall/NoCall)
+                # before any parsing work: they are half of a whole-genome long-read VCF
+                # and carry nothing to review. A record is excluded only when every one
+                # of its FILTER values is excluded, so a genuine variant that also picked
+                # up an excluded flag is kept.
+                if excluded_filters and filt not in {"", "."}:
+                    record_filters = [value for value in filt.split(";") if value]
+                    if record_filters and all(value in excluded_filters for value in record_filters):
+                        read.skipped_filtered += 1
+                        continue
+                sample_fields = fields[9:]
+                # A data row whose sample-column count doesn't match the #CHROM header is
+                # malformed: a bare zip() would silently truncate to the shorter side and
+                # attach genotype calls to the wrong samples. Skip it (counted) instead.
+                if read.sample_names and len(sample_fields) != header_column_count:
+                    read.skipped_malformed += 1
+                    continue
+                if selected_column is not None:
+                    sample_fields = [sample_fields[selected_column]]
+                chrom = normalize_chromosome(chrom)
+                # A malformed POS can't position the variant. Skip the row (counted +
+                # reported below) rather than aborting the whole ingest with a 500 and
+                # leaving partially-flushed rows behind (mirrors the package-import path,
+                # which coerces + skips unparseable records).
+                start = _coerce_int(pos)
+                if start is None:
+                    read.skipped_malformed += 1
+                    continue
+                end = start + len(ref) - 1
+
+                calls: list[SmallVariantCall] = []
+                calls_by_sample: dict[str, SmallVariantCall] = {}
+                # A one-sample VCF's record is that call's own: its FILTER and caller
+                # metrics go with the call (a Mutect2 tumour-only call's quality is TLOD; it
+                # has no QUAL). One column read from a multi-sample file is not: its record
+                # is every sample's.
+                single_sample = header_column_count == 1
+                for sample_name, sample_field in zip(read.sample_names, sample_fields):
+                    fmt_vals = _parse_format(fmt, sample_field)
+                    gt_val = fmt_vals.get("GT", "./.")
+                    call = SmallVariantCall(
+                        sample=sample_name,
+                        gt=gt_val,
+                        gq=_first_present_float(fmt_vals, "GQ"),
+                        dp=_first_present_int(fmt_vals, "DP", "MED_DP", "MIN_DP"),
+                        # DeepVariant writes the per-allele alt fraction as VAF, not AF.
+                        # On chrM that fraction *is* the heteroplasmy level the mtDNA
+                        # workspace reads out of calls.af, so it must not be dropped.
+                        af=_parse_float_list(fmt_vals.get("AF") or fmt_vals.get("VAF")),
+                        ad=_parse_int_list(fmt_vals.get("AD")),
+                        ps=_first_present_int(fmt_vals, "PS"),
+                        filters=record_filter_values(filt) if single_sample else [],
+                        metrics=single_sample_call_metrics(info_field, qual) if single_sample else {},
+                    )
+                    calls.append(call)
+                    calls_by_sample[sample_name] = call
+                if record_filter is not None and not record_filter(chrom, start, end, calls):
+                    # Before the annotation is parsed: a NIPT father's file drops over a
+                    # million noise calls here, and their VEP annotation is most of a
+                    # record's parsing.
+                    read.skipped_by_filter += 1
+                    continue
+                info = _parse_info(info_field)
+                variant_id = build_small_variant_id(chrom, start, ref, alt)
+                annotations = (
+                    vep_annotations.get(variant_id, chrom, start, ref, alt)
+                    if vep_annotations
+                    else None
+                ) or extract_small_variant_annotations(info, read.annotation_state)
+                if haplotype_blocks is not None:
+                    haplotype_blocks.observe(
+                        chrom=chrom,
+                        start=start,
+                        sample_names=read.sample_names,
+                        calls=calls,
+                        calls_by_sample=calls_by_sample,
+                    )
+
+                variant_batch.append(
+                    SmallVariantRecord(
+                        variant_key=None,
+                        variant_id=variant_id,
+                        chr=chrom,
+                        start=start,
+                        end=end,
+                        ref=ref,
+                        alt=alt,
+                        source=resolved_format,
+                        rsid=info.get("RS") or info.get("dbSNP") or None,
+                        filters=[] if filt in {"", "."} else [filt],
+                        gene_symbols=[],
+                        annotations=annotations,
+                        calls=calls,
+                        qual=_parse_qual(qual),
+                    )
+                )
+                read.inserted += 1
+                if len(variant_batch) >= SMALL_VARIANT_UPLOAD_BATCH_SIZE:
+                    await flush_variant_batch()
+
+            if read.inserted == 0:
+                detail = "No valid small-variant records found"
+                if read.skipped_by_filter and not read.skipped_filtered:
+                    detail = (
+                        f"No small-variant records remained after the import's record filter "
+                        f"({read.skipped_by_filter} record(s) left out)"
+                    )
+                if read.skipped_filtered:
+                    detail = (
+                        f"No small-variant records remained after excluding FILTER "
+                        f"{sorted(excluded_filters)} ({read.skipped_filtered} record(s) dropped)"
+                    )
+                raise HTTPException(status_code=400, detail=detail)
+
+            await flush_variant_batch()
+            return read
+
+        async def check_file() -> None:
+            """The whole file read as the write reads it, the haplotype blocks made as the
+            write makes them, and nothing stored or kept."""
+            checked = await read_file(write=False)
+            if checked.haplotype_blocks is not None:
+                checked.haplotype_blocks.finish()
+
+        if replaces_stored:
+            if check_before_replacing:
+                # A file the upload refuses, or cannot read, is refused here, before the
+                # delete below: the stored rows stay as they were (SAFE-25).
+                await check_file()
+            replacing = True
             await delete_family_small_variants(
                 context.assembly_name, context.family_uuid, source=resolved_format
             )
@@ -772,252 +1077,15 @@ async def upload_family_small_variant_file(
         # that puts them back itself when it fails; cleaning the source would delete
         # every other sample's calls.
         mutation_started = not samples_scope
-        sample_names: list[str] = []
-        # The #CHROM line's sample-column count, and the one column read when the upload
-        # reads a single column of the file (``sample_column``).
-        header_column_count = 0
-        selected_column: int | None = None
-        annotation_state = AnnotationHeaderState()
-        provenance_header_lines: list[str] = []
-        inserted = 0
-        skipped_malformed = 0
-        records_read = 0
-        last_reported = 0
-        bytes_total = _upload_size(file) if progress is not None else None
-        variant_batch: list[SmallVariantRecord] = []
-        metadata_json = _upload_metadata(resolved_format, file)
-        # Haplotype blocks come only from the imputed glimpse2 genotypes.
-        haplotype_blocks = (
-            HaplotypeBlockBuilder(
-                context=context,
-                sample_contexts=sample_contexts,
-                chromosome_sizes=await _fetch_chromosome_sizes(session, context.assembly_id),
-                metadata_json=metadata_json,
-            )
-            if resolved_format == "glimpse2"
-            else None
-        )
-
-        async def report_read_progress() -> None:
-            nonlocal last_reported
-            last_reported = records_read
-            if progress is None:
-                return
-            await progress(
-                {
-                    "processed": records_read,
-                    "inserted": inserted - len(variant_batch),
-                    "annotation_rows": vep_annotations.row_count if vep_annotations else 0,
-                    **read_stats(bytes_read_on_disk(file.file), bytes_total),
-                }
-            )
-
-        async def flush_variant_batch() -> None:
-            if not variant_batch:
-                return
-            await insert_small_variant_records(
-                context.assembly_name or "",
-                context.family_uuid,
-                context.project_ids,
-                variant_batch,
-                annotation_version=annotation_version,
-                entries=not samples_scope,
-            )
-            if samples_scope:
-                uploaded_entries.extend(
-                    small_variant_record_entries(
-                        context.assembly_name or "",
-                        context.family_uuid,
-                        context.project_ids,
-                        variant_batch,
-                        annotation_version=annotation_version,
-                    )
-                )
-            variant_batch.clear()
-
-        for line in _iter_upload_text_lines(file, kind="VCF"):
-            if line.startswith("##INFO"):
-                update_annotation_header_state(annotation_state, line.strip())
-            elif (
-                line.startswith("##")
-                and not line.startswith(_PROVENANCE_SKIP_PREFIXES)
-                and len(provenance_header_lines) < _PROVENANCE_HEADER_CAP
-            ):
-                provenance_header_lines.append(line.rstrip())
-            if line.startswith("#CHROM"):
-                header = line.strip().split("\t")
-                header_columns = header[9:]
-                header_column_count = len(header_columns)
-                if sample_column is not None:
-                    if sample_column not in header_columns:
-                        raise HTTPException(
-                            status_code=400,
-                            detail=f"The VCF has no sample column '{sample_column}'",
-                        )
-                    selected_column = header_columns.index(sample_column)
-                    header_columns = [sample_column]
-                # Rewrite each VCF sample column to its family sample id up front, so
-                # every downstream lookup (calls, haplotype state, parent roles) works
-                # in family-sample-id space and never has to know about the alias.
-                sample_names = [alias_map.get(name, name) for name in header_columns]
-                unique_names = list(dict.fromkeys(sample_names))
-                for name in unique_names:
-                    if name not in sample_contexts:
-                        raise HTTPException(status_code=400, detail=f"Sample '{name}' not found in family")
-                    if haplotype_blocks is not None:
-                        haplotype_blocks.add_sample(name)
-                if samples_scope:
-                    replaced_call_ids = _sample_call_ids(
-                        sample_contexts[name] for name in unique_names
-                    )
-                    if not overwrite and any(
-                        str(sample) in replaced_call_ids
-                        for entry in stored_entries
-                        for sample in entry["calls.sampleId"] or []
-                    ):
-                        raise HTTPException(
-                            status_code=409,
-                            detail="Small variants already exist for this file's samples in this callset",
-                        )
-                continue
-            if not line or line.startswith("#"):
-                continue
-            records_read += 1
-            # Counted before any is left out, so a file whose records mostly are (RefCall
-            # blocks, a NIPT father's noise) still reports as it goes.
-            if progress is not None and records_read - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
-                await report_read_progress()
-            fields = line.strip().split("\t")
-            if len(fields) < 10:
-                continue
-            if samples_scope and not sample_names:
-                # Without the #CHROM line the file names no sample whose calls it replaces.
-                raise HTTPException(
-                    status_code=400, detail="The VCF has no #CHROM line naming its samples"
-                )
-
-            chrom, pos, _vid, ref, alt, qual, filt, info_field, fmt = fields[:9]
-            # Drop caller-declared non-variant records (DeepVariant RefCall/NoCall)
-            # before any parsing work: they are half of a whole-genome long-read VCF
-            # and carry nothing to review. A record is excluded only when every one of
-            # its FILTER values is excluded, so a genuine variant that also picked up
-            # an excluded flag is kept.
-            if excluded_filters and filt not in {"", "."}:
-                record_filters = [value for value in filt.split(";") if value]
-                if record_filters and all(value in excluded_filters for value in record_filters):
-                    skipped_filtered += 1
-                    continue
-            sample_fields = fields[9:]
-            # A data row whose sample-column count doesn't match the #CHROM header is
-            # malformed: a bare zip() would silently truncate to the shorter side and
-            # attach genotype calls to the wrong samples. Skip it (counted) instead.
-            if sample_names and len(sample_fields) != header_column_count:
-                skipped_malformed += 1
-                continue
-            if selected_column is not None:
-                sample_fields = [sample_fields[selected_column]]
-            chrom = normalize_chromosome(chrom)
-            # A malformed POS can't position the variant. Skip the row (counted +
-            # reported below) rather than aborting the whole ingest with a 500 and
-            # leaving partially-flushed rows behind (mirrors the package-import path,
-            # which coerces + skips unparseable records).
-            start = _coerce_int(pos)
-            if start is None:
-                skipped_malformed += 1
-                continue
-            end = start + len(ref) - 1
-
-            calls: list[SmallVariantCall] = []
-            calls_by_sample: dict[str, SmallVariantCall] = {}
-            # A one-sample VCF's record is that call's own: its FILTER and caller metrics
-            # go with the call (a Mutect2 tumour-only call's quality is TLOD; it has no QUAL).
-            # One column read from a multi-sample file is not: its record is every sample's.
-            single_sample = header_column_count == 1
-            for sample_name, sample_field in zip(sample_names, sample_fields):
-                fmt_vals = _parse_format(fmt, sample_field)
-                gt_val = fmt_vals.get("GT", "./.")
-                call = SmallVariantCall(
-                    sample=sample_name,
-                    gt=gt_val,
-                    gq=_first_present_float(fmt_vals, "GQ"),
-                    dp=_first_present_int(fmt_vals, "DP", "MED_DP", "MIN_DP"),
-                    # DeepVariant writes the per-allele alt fraction as VAF, not AF.
-                    # On chrM that fraction *is* the heteroplasmy level the mtDNA
-                    # workspace reads out of calls.af, so it must not be dropped.
-                    af=_parse_float_list(fmt_vals.get("AF") or fmt_vals.get("VAF")),
-                    ad=_parse_int_list(fmt_vals.get("AD")),
-                    ps=_first_present_int(fmt_vals, "PS"),
-                    filters=record_filter_values(filt) if single_sample else [],
-                    metrics=single_sample_call_metrics(info_field, qual) if single_sample else {},
-                )
-                calls.append(call)
-                calls_by_sample[sample_name] = call
-            if record_filter is not None and not record_filter(chrom, start, end, calls):
-                # Before the annotation is parsed: a NIPT father's file drops over a million
-                # noise calls here, and their VEP annotation is most of a record's parsing.
-                skipped_by_filter += 1
-                continue
-            info = _parse_info(info_field)
-            variant_id = build_small_variant_id(chrom, start, ref, alt)
-            annotations = (
-                vep_annotations.get(variant_id, chrom, start, ref, alt)
-                if vep_annotations
-                else None
-            ) or extract_small_variant_annotations(info, annotation_state)
-            if haplotype_blocks is not None:
-                haplotype_blocks.observe(
-                    chrom=chrom,
-                    start=start,
-                    sample_names=sample_names,
-                    calls=calls,
-                    calls_by_sample=calls_by_sample,
-                )
-
-            variant_batch.append(
-                SmallVariantRecord(
-                    variant_key=None,
-                    variant_id=variant_id,
-                    chr=chrom,
-                    start=start,
-                    end=end,
-                    ref=ref,
-                    alt=alt,
-                    source=resolved_format,
-                    rsid=info.get("RS") or info.get("dbSNP") or None,
-                    filters=[] if filt in {"", "."} else [filt],
-                    gene_symbols=[],
-                    annotations=annotations,
-                    calls=calls,
-                    qual=_parse_qual(qual),
-                )
-            )
-            inserted += 1
-            if len(variant_batch) >= SMALL_VARIANT_UPLOAD_BATCH_SIZE:
-                await flush_variant_batch()
-
-        if inserted == 0:
-            detail = "No valid small-variant records found"
-            if skipped_by_filter and not skipped_filtered:
-                detail = (
-                    f"No small-variant records remained after the import's record filter "
-                    f"({skipped_by_filter} record(s) left out)"
-                )
-            if skipped_filtered:
-                detail = (
-                    f"No small-variant records remained after excluding FILTER "
-                    f"{sorted(excluded_filters)} ({skipped_filtered} record(s) dropped)"
-                )
-            raise HTTPException(status_code=400, detail=detail)
-
-        await flush_variant_batch()
+        read = await read_file(write=True)
         if samples_scope:
             # The rewrite also rebuilds the family summaries.
             await _rewrite_with_sample_calls(
                 context,
                 source=resolved_format,
                 stored=stored_entries,
-                replaced=replaced_call_ids,
-                uploaded=uploaded_entries,
+                replaced=read.replaced_call_ids,
+                uploaded=read.uploaded_entries,
             )
         else:
             await refresh_family_small_variant_summaries(
@@ -1025,7 +1093,7 @@ async def upload_family_small_variant_file(
                 context.family_uuid,
             )
 
-        haplotype_rows = haplotype_blocks.finish() if haplotype_blocks is not None else []
+        haplotype_rows = read.haplotype_blocks.finish() if read.haplotype_blocks is not None else []
 
         await _insert_haplotype_rows(
             session,
@@ -1035,7 +1103,9 @@ async def upload_family_small_variant_file(
             filename=file.filename or "",
             metadata_json=metadata_json,
         )
-        phase_corrections = haplotype_blocks.phase_corrections if haplotype_blocks is not None else []
+        phase_corrections = (
+            read.haplotype_blocks.phase_corrections if read.haplotype_blocks is not None else []
+        )
         if loads_haplotype_blocks:
             # Replaced with the blocks, so no view swaps a parent's alleles where another
             # callset's phase switched.
@@ -1049,7 +1119,7 @@ async def upload_family_small_variant_file(
             # clean-up below removes. A per-sample upload brought its file's samples' calls.
             dataset, scope = small_variant_upload_scope(resolved_format)
             if samples_scope:
-                scope = {**scope, "samples": sorted(set(sample_names))}
+                scope = {**scope, "samples": sorted(set(read.sample_names))}
             await record_family_upload(
                 session,
                 family_uuid=context.family_uuid,
@@ -1063,7 +1133,7 @@ async def upload_family_small_variant_file(
         from .annotation_manifest_service import merge_vcf_header_provenance
 
         annotation_provenance = extract_header_provenance(
-            provenance_header_lines, modality="snv"
+            read.provenance_header_lines, modality="snv"
         ).as_modules()
         if vep_annotations is not None and vep_annotations.provenance_modules:
             # The VCF header carries the caller; a separate VEP TSV carries the
@@ -1079,18 +1149,18 @@ async def upload_family_small_variant_file(
             modality="snv",
         )
         await session.commit()
-        if skipped_malformed:
+        if read.skipped_malformed:
             logger.warning(
                 "Skipped %d malformed small-variant row(s) (unparseable POS) during "
                 "upload for family %s",
-                skipped_malformed,
+                read.skipped_malformed,
                 context.family_id,
             )
         result = {
-            "inserted": inserted,
-            "skipped_malformed": skipped_malformed,
-            "skipped_filtered": skipped_filtered,
-            "skipped_by_filter": skipped_by_filter,
+            "inserted": read.inserted,
+            "skipped_malformed": read.skipped_malformed,
+            "skipped_filtered": read.skipped_filtered,
+            "skipped_by_filter": read.skipped_by_filter,
             "excluded_filters": sorted(excluded_filters),
             "haplotypes_inserted": len(haplotype_rows),
             "haplotype_phase_corrections": len(phase_corrections),
@@ -1129,6 +1199,19 @@ async def upload_family_small_variant_file(
                     context.family_id,
                     exc_info=True,
                 )
+        if replacing and record_upload and resolved_format is not None:
+            # The upload had begun deleting the stored rows it replaces, and failed: the
+            # family may hold neither those nor its own, so it is flagged import-incomplete
+            # for what the upload was to bring, and does not read as complete (SAFE-25).
+            # Best-effort; the upload's own error is raised.
+            dataset, scope = small_variant_upload_scope(resolved_format)
+            await record_family_upload_failure(
+                session,
+                family_uuid=context.family_uuid,
+                family_id=context.family_id,
+                dataset=dataset,
+                scope=scope,
+            )
         raise
     finally:
         # The lookup parsed from ``annotation_file`` is this upload's; a caller's is not.

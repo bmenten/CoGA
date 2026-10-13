@@ -29,7 +29,7 @@ De router `/api/cnvs` heeft drie leesendpoints, alle achter een login: één CNV
 
 ## Genpanels
 
-Een **genpanel** is een benoemde lijst genen (eventueel met regio's en repeatloci) waarmee je variantfilters afbakent. De catalogus voedt het panelfilter op de filterpagina's (hoofdstuk 8) en het panellidmaatschap in de Gene Explorer (hoofdstuk 13).
+Een **genpanel** is een benoemde lijst genen (eventueel met regio's en repeatloci) waarmee je variantfilters afbakent. De catalogus voedt het panelfilter op de filterpagina's (hoofdstuk 8) en in de Variant Explorer, die een panel toepast zoals de familiepagina (hoofdstuk 14), en het panellidmaatschap in de Gene Explorer (hoofdstuk 13).
 
 - **Lezen** (elke ingelogde gebruiker): de lijst, één panel, zijn versies, en zoeken in PanelApp.
 - **Schrijven** (alleen beheerders): aanmaken, wijzigen, verwijderen, een PanelApp-panel importeren en het Mendeliome opnieuw opbouwen.

@@ -41,11 +41,8 @@ from .compound_het_phase import (
     small_variant_carriage,
 )
 from .genotypes import HET, HOM_ALT, HOM_REF, classify_genotype, genotype_has_alt
+from .sv_copy_change import COPY_LOSS, copy_change, sv_kind
 
-# The SV type that removes a copy of what it spans, whatever its subtype (``DEL:ME``).
-DELETION_SV_TYPE = "DEL"
-# A CNV names no direction: its copy number says whether it removed a copy.
-COPY_NUMBER_SV_TYPE = "CNV"
 # How far apart two SV calls of one type may lie and still be read as one SV, when a
 # relative's own call stands in for an SV whose record holds no call for them
 # (``_sv_carriage``): a caller run on each sample apart places the same SV's breakpoints a
@@ -60,7 +57,7 @@ def _gt_has_alt(gt: str | None) -> bool:
 
 def _sv_kind(sv: dict[str, Any]) -> str:
     """The SV's type without its subtypes, in capitals: ``DEL:ME`` is ``DEL``."""
-    return str(sv.get("sv_type") or "").strip().upper().split(":", 1)[0]
+    return sv_kind(sv.get("sv_type"))
 
 
 def _sv_span(sv: dict[str, Any]) -> tuple[int, int] | None:
@@ -90,39 +87,23 @@ def _same_sv(sv: dict[str, Any], other: dict[str, Any]) -> bool:
 
 
 def _copy_loss(sv: dict[str, Any], pedigree: FamilyPedigree | None) -> bool:
-    """Whether the SV removes a copy of what it spans: a deletion (``DEL``, ``DEL:ME``), or
-    a CNV unless its stored copy numbers show no copy lost.
-
-    A CNV states its direction only in its copy number (``calls.cn``). It is a loss when a
-    sample that carries it has fewer copies than that sample has there: two, or one for a
-    male on chrX or chrY outside the PARs. A CNV that stores no copy number for its
-    carriers may be a loss, and counts as one; one whose carriers all keep their copies (a
-    gain) does not. Every other type (DUP, INS, INV, BND) removes no copy.
-    """
-    kind = _sv_kind(sv)
-    if kind == DELETION_SV_TYPE:
-        return True
-    if kind != COPY_NUMBER_SV_TYPE:
-        return False
+    """Whether the SV removes a copy of what it spans, by the rule the SV ranking reads too
+    (``sv_copy_change.copy_change``, CLIN-47): a deletion of any subtype (``DEL:ME``; a
+    ``LOSS`` or ``CNV_LOSS`` likewise), or a CNV unless the copy numbers stored for its
+    carriers (``calls.cn``) show none lost (two copies, or one for a male on chrX or chrY
+    outside the PARs). A CNV that stores no copy number for its carriers may be a loss, and
+    counts as one. A duplication, insertion, inversion or breakend removes no copy."""
     calls = sv.get("gt") or {}
     copy_numbers = sv.get("cn") or {}
-    stated = {
-        sample: int(copy_numbers[sample])
-        for sample, genotype in calls.items()
-        if _gt_has_alt(genotype) and copy_numbers.get(sample) is not None
-    }
-    if not stated:
-        return True
-    single_copy = (
-        pedigree.single_copy_samples(
-            [(sv.get("chr"), sv.get("start")), (sv.get("chr"), sv.get("end"))]
-        )
-        if pedigree is not None
-        else frozenset()
+    change = copy_change(
+        sv.get("sv_type"),
+        [(sample, genotype, copy_numbers.get(sample)) for sample, genotype in calls.items()],
+        chrom=sv.get("chr"),
+        start=sv.get("start"),
+        end=sv.get("end"),
+        pedigree=pedigree,
     )
-    return any(
-        copies < (1 if sample in single_copy else 2) for sample, copies in stated.items()
-    )
+    return change == COPY_LOSS
 
 
 def _affected_zygosity(svs: Sequence[dict[str, Any]], affected: set[str]) -> str | None:

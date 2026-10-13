@@ -151,7 +151,9 @@ report, which has no sign-out to stop on it.
 
 Results on such a family can lack whole datasets, for example all its structural variants. Import
 the datasets that failed again to complete the family: the warning goes once each has been imported
-again, and an import without them leaves it. If a later import fails too, the warning names both,
+again, and an import without them leaves it. A family small-variant upload that fails after it has
+deleted the calls it replaced marks the family the same way, for those calls and with no import job;
+uploading them again, or importing them, removes the warning. If a later import fails too, the warning names both,
 each with its import job. A failed overwrite is put back as it was before the import; if that fails
 too, any dataset of the family may have lost data, whichever import or upload it came from, so the
 warning names every dataset of that import as failed, the ones that imported too, and every dataset

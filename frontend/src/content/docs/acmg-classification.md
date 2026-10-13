@@ -269,7 +269,7 @@ the gene–phenotype link has been published.
 On the structural-variant page, **ACMG (CNV)** opens a separate classifier that follows the ClinGen /
 ACMG technical standard for copy-number variants (Riggs et al. 2020). Choose **Copy-number loss** or
 **Copy-number gain** at the top: the two have different criteria and point values. CoGA picks gain for a
-duplication or insertion and loss otherwise.
+duplication or insertion, whatever its subtype (`DUP:TANDEM`, `INS:ME`), and loss otherwise.
 
 Each criterion carries a point value, some with a range you can adjust, and counts once. The server
 keeps each value within its allowed range, refuses a classification that lists a criterion twice, and

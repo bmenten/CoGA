@@ -79,14 +79,16 @@ _KNOWN_ANNOTATION_KEYS = {
 }
 
 
-@dataclass(slots=True)
+# Frozen: a panel's resolution, these regions included, is kept and handed to every
+# request that applies the panel (clickhouse_family_variants._fetch_panel_constraints).
+@dataclass(frozen=True, slots=True)
 class Region:
     chr: str
     start: int
     end: int
 
 
-@dataclass(slots=True)
+@dataclass(frozen=True, slots=True)
 class PanelFilterConstraints:
     genes: tuple[str, ...] = ()
     regions: tuple[Region, ...] = ()
