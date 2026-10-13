@@ -37,6 +37,8 @@ De pagina `FamilySmallVariantsPage.tsx` laadt de familie en de genpanels; de zoe
 
 Opent de pagina zonder zoekopdracht in de URL, dan past ze het ingebouwde preset *Phenotype priority (Exomiser-style)* toe binnen het Mendeliome-panel: fenotypeprioritering, impact HIGH of MODERATE, in gnomAD (exomen, genomen, popmax) hoogstens 1% en hoogstens 10 homo- en hemizygoten, een (waarschijnlijk) pathogene ClinVar-variant als uitzondering op de frequentiegrens, ClinVar (waarschijnlijk) benigne uitgesloten, en bij de aangedane leden Hom of Het met een genotypekwaliteit van minstens 20, een diepte van minstens 10, een allelfractie van minstens 0,2 en minstens 4 alt-reads.
 
+**De annotatiefilters gelden per transcript.** Impact en gevolg, transcript, HGVS, *Canonical only*, *MANE only* en *LoF only*, de ClinVar-status, de frequenties en de voorspellers moeten samen gelden voor één transcript van de variant: in SQL één rij van de tabel `annotations`, in Python (`_annotation_matches_normal`) één annotatie. Met *MANE only* en impact HIGH valt zo een variant weg waarvan het HIGH-transcript niet het MANE-transcript is. Van de voorspellers volstaat er één, en een SpliceAI-score vanaf de grens telt ook als treffer voor impact en gevolg. Het gen, het panel, de rsID en de uit te sluiten ClinVar-statussen gelden voor de variant als geheel. De Variant Explorer bouwt zijn voorwaarde met dezelfde functie (hoofdstuk 14). *MANE only* houdt een variant over met een MANE Select- of MANE Plus Clinical-transcript; VEP zet die vlaggen alleen op GRCh38, zodat *MANE only* op GRCh37 en T2T niets overhoudt.
+
 **Waar in de code:** `frontend/src/pages/families/SmallVariantFilterForm.tsx`, `smallVariantFilterSections.tsx` en `smallVariantSearch.ts`.
 
 ### Van formulier naar verzoek

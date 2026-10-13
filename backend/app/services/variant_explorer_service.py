@@ -50,12 +50,11 @@ from ..schemas import (
     VariantExplorerAssemblyOut,
 )
 from .clickhouse_variant_ids import _small_table_name
-from .clickhouse_variant_queries import IMPUTED_SMALL_VARIANT_SOURCES
-from .clickhouse_variant_records import (
-    CLINVAR_FREQUENCY_RESCUE_TERMS,
-    _status_filter_terms,
-    mane_only_condition,
+from .clickhouse_variant_queries import (
+    IMPUTED_SMALL_VARIANT_SOURCES,
+    _small_annotation_filter_condition,
 )
+from .family_variant_filters import SmallVariantQueryFilters
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
 
@@ -569,7 +568,13 @@ async def _review_display_map(
 def _annotation_index_clauses(
     filters: GlobalVariantFilters, params: dict[str, Any]
 ) -> list[str]:
-    """Build WHERE conditions on the ``annotation_index`` (alias ``ai``)."""
+    """The filters that hold for a variant as a whole, as WHERE conditions on the
+    ``annotation_index`` (alias ``ai``), which pools a variant's transcripts: the gene, the
+    panel's genes, the rsID and the excluded ClinVar significances, as on the family page.
+
+    The annotation filters that the family page applies per transcript are
+    :func:`_transcript_annotation_condition`'s.
+    """
 
     clauses: list[str] = []
 
@@ -588,21 +593,6 @@ def _annotation_index_clauses(
             "arrayExists(g -> lowerUTF8(g) IN %(ann_panel_genes)s, ai.gene_symbols)"
         )
 
-    impacts = [value.upper() for value in filters.impacts if str(value).strip()]
-    if impacts:
-        params["ann_impacts"] = impacts
-        clauses.append("arrayExists(x -> upperUTF8(x) IN %(ann_impacts)s, ai.impacts)")
-
-    effects = [value.lower() for value in filters.effects if str(value).strip()]
-    if effects:
-        params["ann_effects"] = effects
-        clauses.append("arrayExists(x -> lowerUTF8(x) IN %(ann_effects)s, ai.effects)")
-
-    clinvar = [value.lower() for value in filters.clinvar if str(value).strip()]
-    if clinvar:
-        params["ann_clinvar"] = clinvar
-        clauses.append("arrayExists(x -> lowerUTF8(x) IN %(ann_clinvar)s, ai.clinvar_terms)")
-
     exclude_clinvar = [value.lower() for value in filters.exclude_clinvar if str(value).strip()]
     if exclude_clinvar:
         params["ann_exclude_clinvar"] = exclude_clinvar
@@ -613,80 +603,77 @@ def _annotation_index_clauses(
     if filters.rsid:
         params["ann_rsid"] = filters.rsid
         clauses.append("positionCaseInsensitive(ifNull(ai.rsid, ''), %(ann_rsid)s) > 0")
-    if filters.hgvsc:
-        params["ann_hgvsc"] = filters.hgvsc
-        clauses.append(
-            "arrayExists(x -> positionCaseInsensitive(x, %(ann_hgvsc)s) > 0, ai.hgvsc_values)"
-        )
-    if filters.hgvsp:
-        params["ann_hgvsp"] = filters.hgvsp
-        clauses.append(
-            "arrayExists(x -> positionCaseInsensitive(x, %(ann_hgvsp)s) > 0, ai.hgvsp_values)"
-        )
 
-    frequency_columns = {
-        "max_gnomad_af": filters.max_gnomad_af,
-        "max_gnomad_exomes_af": filters.max_gnomad_exomes_af,
-        "max_gnomad_genomes_af": filters.max_gnomad_genomes_af,
-        "max_gnomad_popmax_af": filters.max_gnomad_popmax_af,
-        "max_topmed_af": filters.max_topmed_af,
-        "max_gnomad_ac": filters.max_gnomad_ac,
-        "max_gnomad_hom_count": filters.max_gnomad_hom_count,
-        "max_gnomad_hemi_count": filters.max_gnomad_hemi_count,
-    }
-    frequency_clauses: list[str] = []
-    for column, value in frequency_columns.items():
-        if value is None:
-            continue
-        param = f"ann_{column}"
-        params[param] = value
-        frequency_clauses.append(f"(ai.{column} IS NULL OR ai.{column} <= %({param})s)")
-    if frequency_clauses:
-        frequency_block = " AND ".join(frequency_clauses)
-        if filters.clinvar_overrides_frequency:
-            # The family search's rescue (clickhouse_variant_queries), on the same
-            # normalised terms: the page offered this, on by default, and the explorer
-            # ignored it, so a ClinVar P/LP variant above a cut-off was dropped.
-            rescue_terms = list(_status_filter_terms(CLINVAR_FREQUENCY_RESCUE_TERMS))
-            rescue_terms.append("/".join(rescue_terms))
-            params["ann_clinvar_rescue_terms"] = rescue_terms
-            clauses.append(
-                f"(({frequency_block}) OR hasAny(ai.clinvar_terms, %(ann_clinvar_rescue_terms)s))"
-            )
-        else:
-            clauses.extend(frequency_clauses)
+    return clauses
 
-    minimum_columns = {
-        "max_cadd_phred": filters.min_cadd,
-        "max_revel": filters.min_revel,
-        "max_spliceai": filters.min_spliceai,
-    }
-    for column, value in minimum_columns.items():
-        if value is None:
-            continue
-        param = f"ann_min_{column}"
-        params[param] = value
-        clauses.append(f"ai.{column} >= %({param})s")
 
-    if filters.canonical_only:
-        clauses.append("ai.has_canonical")
-    if filters.mane_only:
-        # MANE Select or MANE Plus Clinical, as in the family search (CLIN-5).
-        clauses.append(mane_only_condition("ai.has_"))
-    if filters.lof_only:
-        clauses.append("ai.has_lof")
+def _family_search_annotation_filters(filters: GlobalVariantFilters) -> SmallVariantQueryFilters:
+    """The explorer's per-transcript annotation filters as the family search's filter set,
+    so both pages build their condition with one function. The explorer offers no
+    transcript filter."""
+    return SmallVariantQueryFilters(
+        page=1,
+        page_size=1,
+        impact=list(filters.impacts),
+        effect=list(filters.effects),
+        clinvar=list(filters.clinvar),
+        clinvar_overrides_frequency=filters.clinvar_overrides_frequency,
+        hgvsc=filters.hgvsc,
+        hgvsp=filters.hgvsp,
+        canonical_only=filters.canonical_only,
+        mane_only=filters.mane_only,
+        lof_only=filters.lof_only,
+        max_gnomad_af=filters.max_gnomad_af,
+        max_gnomad_exomes_af=filters.max_gnomad_exomes_af,
+        max_gnomad_genomes_af=filters.max_gnomad_genomes_af,
+        max_gnomad_popmax_af=filters.max_gnomad_popmax_af,
+        max_topmed_af=filters.max_topmed_af,
+        max_gnomad_ac=filters.max_gnomad_ac,
+        max_gnomad_hom_count=filters.max_gnomad_hom_count,
+        max_gnomad_hemi_count=filters.max_gnomad_hemi_count,
+        min_cadd=filters.min_cadd,
+        min_revel=filters.min_revel,
+        min_spliceai=filters.min_spliceai,
+        sift=filters.sift,
+        polyphen=filters.polyphen,
+    )
 
-    if filters.sift:
-        params["ann_sift"] = filters.sift
-        clauses.append(
-            "arrayExists(x -> positionCaseInsensitive(x, %(ann_sift)s) > 0, ai.sift_terms)"
-        )
-    if filters.polyphen:
-        params["ann_polyphen"] = filters.polyphen
-        clauses.append(
-            "arrayExists(x -> positionCaseInsensitive(x, %(ann_polyphen)s) > 0, ai.polyphen_terms)"
-        )
 
+def _transcript_annotation_condition(
+    filters: GlobalVariantFilters, params: dict[str, Any]
+) -> str | None:
+    """The condition one transcript of a variant must meet, on a row of the
+    ``annotations`` table (alias ``a``), or None without such a filter.
+
+    It is the family search's own condition (``_small_annotation_filter_condition``), so
+    both pages keep and drop the same variants: the impact, consequence, ClinVar, HGVS,
+    frequency ceilings (with the ClinVar P/LP rescue), in-silico minimums and Canonical,
+    MANE and LoF only must hold on one transcript together. The explorer tested each
+    against the annotation index, which pools a variant's transcripts, so with *MANE only*
+    and impact HIGH it kept a variant whose HIGH transcript is not its MANE transcript,
+    which the family page drops (CLIN-29).
+    """
+    return _small_annotation_filter_condition(
+        _family_search_annotation_filters(filters), params=params
+    )
+
+
+def _locus_clauses(
+    filters: GlobalVariantFilters, params: dict[str, Any], *, alias: str = ""
+) -> list[str]:
+    """The chromosome, start and end filters on the ``chrom`` and ``pos`` columns of
+    ``alias`` (none: the ``entries`` table)."""
+    prefix = f"{alias}." if alias else ""
+    clauses: list[str] = []
+    if filters.chromosome:
+        params["chromosome"] = filters.chromosome
+        clauses.append(f"{prefix}chrom = %(chromosome)s")
+    if filters.start is not None:
+        params["start"] = filters.start
+        clauses.append(f"{prefix}pos >= %(start)s")
+    if filters.end is not None:
+        params["end"] = filters.end
+        clauses.append(f"{prefix}pos <= %(end)s")
     return clauses
 
 
@@ -745,6 +732,17 @@ def _entries_where(
             f"{annotation_index} AS ai WHERE {' AND '.join(annotation_clauses)})"
         )
 
+    transcript_condition = _transcript_annotation_condition(filters, params)
+    if transcript_condition:
+        # One transcript row must meet every per-transcript filter. The locus narrows the
+        # scan of the per-transcript table, as in the family search; a variant's position
+        # is the same in every table, so it changes no result.
+        annotations = _small_table_name(scope.assembly_name, "variants/annotations")
+        transcript_where = [*_locus_clauses(filters, params, alias="a"), transcript_condition]
+        clauses.append(
+            f"key IN (SELECT a.key FROM {annotations} AS a WHERE {' AND '.join(transcript_where)})"
+        )
+
     variant_type = (filters.variant_type or "").strip().upper()
     if variant_type == "SNV":
         clauses.append("length(ref) = 1 AND length(alt) = 1")
@@ -753,15 +751,7 @@ def _entries_where(
     elif variant_type == "INDEL":
         clauses.append("NOT (length(ref) = 1 AND length(alt) = 1)")
 
-    if filters.chromosome:
-        params["chromosome"] = filters.chromosome
-        clauses.append("chrom = %(chromosome)s")
-    if filters.start is not None:
-        params["start"] = filters.start
-        clauses.append("pos >= %(start)s")
-    if filters.end is not None:
-        params["end"] = filters.end
-        clauses.append("pos <= %(end)s")
+    clauses.extend(_locus_clauses(filters, params))
 
     return clauses
 
