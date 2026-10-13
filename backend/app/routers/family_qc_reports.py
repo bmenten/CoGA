@@ -9,8 +9,9 @@ origin without isolation. Two things enforce that:
   into an opaque origin — it cannot read the application origin's storage (where the
   session token lives) or call the API as the user;
 * the served path is never client-supplied. It comes from the path recorded on the
-  sample at import time and is re-checked for containment inside the authorized
-  package root, so this endpoint cannot be turned into an arbitrary file read.
+  sample at import time and is re-checked for containment inside the family's own
+  folders, below the authorized import roots, so this endpoint cannot be turned into an
+  arbitrary file read, nor into a read of another family's report.
 
 Access is a two-step flow because the SPA authenticates with a bearer token, which a
 plain ``<a href>`` navigation cannot carry: the client asks for a link, gets a
@@ -20,6 +21,7 @@ short-lived URL scoped to exactly this one report, and opens that.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import os
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -30,12 +32,13 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import settings
+from ..core.family_folders import PACKAGES_FOLDER, family_folders, path_in_family_folder
 from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_remote
 from ..core.postgres import get_postgres_session
 from ..core.url_path import url_path
 from ..dependencies import get_current_user
 from ..schemas import FamilyQcReportLinkOut
-from ..services.family_package_common import _metadata_dict, _resolve_package_path
+from ..services.family_package_common import _metadata_dict
 from ..services.family_package_source import _ensure_authorized_package_path
 from ..services.metadata_service import get_family_record
 from ..services.access_control import CurrentUser
@@ -134,22 +137,33 @@ def _stored_report_key(family_id: str, relative_path: str) -> str:
 
 
 def _resolve_report_file(family_id: str, relative_path: str) -> Path:
-    """Resolve the recorded relative path inside the family's package folder.
+    """The file the recorded relative path names in the family's package folder,
+    ``<data>/families/<family>``, else in its flat folder ``<data>/<family>``; 404 when
+    neither holds it.
 
-    ``_ensure_authorized_package_path`` restricts the root to the configured import
-    roots and ``_resolve_package_path`` rejects anything that escapes it, so a
-    tampered metadata value cannot reach outside the package.
+    The path comes back from ``samples.metadata`` as data: an edited row can hold ``..``
+    or an absolute path. It is joined to the folder and normalised as a string, and one
+    that leaves the folder is dropped before anything is looked up by it. One that stays
+    is kept only when its real path lies inside that folder too, so a symlink (the package
+    folder itself, or a folder or file in it) leads neither into another family's folder
+    nor anywhere else, and a family ID that is no single folder name has no folder
+    (``core/family_folders.py``). The folder must lie under the configured import roots
+    (``_ensure_authorized_package_path``).
     """
-    for root in (DATA_DIR / "families" / family_id, DATA_DIR / family_id):
+    folders = family_folders(DATA_DIR, family_id)
+    for parent in (PACKAGES_FOLDER, ""):
+        folder = folders.get(parent)
+        if folder is None:
+            continue
+        path = path_in_family_folder(folder, [folder], relative_path)
+        if path is None:
+            continue
         try:
-            package_root = _ensure_authorized_package_path(root)
+            _ensure_authorized_package_path(Path(folder))
         except HTTPException:
             continue
-        if not package_root.is_dir():
-            continue
-        resolved = _resolve_package_path(package_root, relative_path)
-        if resolved is not None and resolved.is_file():
-            return resolved
+        if os.path.isfile(path):
+            return Path(path)
     raise HTTPException(status_code=404, detail="QC report file is no longer available")
 
 
