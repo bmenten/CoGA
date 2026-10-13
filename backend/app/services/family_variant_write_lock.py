@@ -13,7 +13,11 @@ between its own details and entries inserts.
 So each writer of a family's variants holds a Postgres advisory lock for the family's small
 variants, its structural variants or both, from before its first read of the rows until its
 transaction ends. A second writer of the same family and variant type waits for the first to
-commit or roll back, whichever worker or process runs it. The locks are transaction-scoped
+commit or roll back, whichever worker or process runs it. The single-file uploads of a
+sample's repeat calls and interval tracks hold both: a package import's restore rewrites
+those rows too, and the import holds both locks from its snapshot to its restore, so such an
+upload never falls in between. A restore then neither undoes the upload nor removes rows the
+upload has struck off a whole-family entry (``family_package_registration.record_family_upload``). The locks are transaction-scoped
 (``pg_advisory_xact_lock``), as the other locks of this code base are: a commit, a rollback
 or a lost connection releases them. Readers take no lock, except the one reader whose reads
 must all see one state of the family's variants: the report sign-out, which freezes them

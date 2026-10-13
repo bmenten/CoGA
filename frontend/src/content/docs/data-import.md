@@ -258,11 +258,13 @@ heteroplasmy.
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
   without them leaves the warning, and says so in its log.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
-  too, part of the family's data may be gone, whichever import it came from: the warning then names
-  every dataset of that import as failed, the ones that imported too, and every dataset the family
-  holds as possibly partly written or missing, those of its other packages too. Import the whole
-  family again with **overwrite**, every package of it, not only the datasets that failed: the
-  warning stays until each of them has been. **Update** skips a dataset whose data is there.
+  too, part of the family's data may be gone, whichever import or upload it came from: the warning
+  then names every dataset of that import as failed, the ones that imported too, and every dataset
+  the family holds as possibly partly written or missing, those of its other packages and its
+  uploads too. Import the whole family again with **overwrite**, every package of it, not only the
+  datasets that failed, and upload again with **overwrite** what an upload brought (an uploaded
+  caller's SV calls, `sv_sniffles` say, or a BED track, `bed_coverage`): the warning stays until
+  each of them has been. **Update** skips a dataset whose data is there.
 - **An import that stopped part-way** (the server restarted, or ran out of memory, while it ran) is not
   run again: about ten minutes later its job ends as *failed*, interrupted, with its log as the import
   left it. An import that was still running, but could not record that it was for those ten minutes,
@@ -321,10 +323,18 @@ Deleting a sample's structural variants on **Admin → Family & Sample Data** re
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
 of a member removed from the family.
 
-The uploads, deletes and package imports of one family's variants take turns. An upload started while
-another of them is writing the family's variants waits until it has finished, a package import until the
-whole import has, and then starts from what it left. If that write deleted the sample or the family, the
-upload stores nothing and says *Sample not found* or *Family not found*.
+The uploads, the deletes of a family's variants and the package imports of one family take turns. An
+upload started while another of them is writing the family waits until it has finished, a package import
+until the whole import has, and then starts from what it left. If that write deleted the sample or the
+family, the upload stores nothing and says *Sample not found* or *Family not found*.
+
+Each upload records what it brought for the family, as a package import records what it imported. When
+a failed overwrite could not put the family's data back, the warning names what the uploads brought
+too: small variants as `snv` (imputed genotypes as `haplotypes`), TRGT calls as `repeats_trgt`, a
+caller's SV calls as `sv_sniffles`, `sv_spectre` or `sv_manual`, and a BED track as `bed_coverage`,
+`bed_segments`, `bed_apcad` or `bed_apcad_pcf`. Upload each again with **overwrite** to complete the
+family; an upload without overwrite does not count. Data uploaded before CoGA recorded uploads is not
+named: upload it again to record it.
 
 ---
 

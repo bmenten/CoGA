@@ -152,8 +152,8 @@ def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
 def _still_not_restored_message(family_id: str, remaining: Mapping[str, Any]) -> str:
     """The log line of an import that completed while the family stays marked by an
     earlier failed overwrite whose restore did not finish (its whole-family entry in
-    ``import_unfinished``): what of the family no import has imported again with
-    overwrite since."""
+    ``import_unfinished``): what of the family no import, or single-file upload, has
+    brought again with overwrite since."""
     restores: list[str] = []
     for _key, entry in sorted(remaining.items()):
         job_id = entry.get("job_id") if isinstance(entry, Mapping) else None
@@ -164,7 +164,8 @@ def _still_not_restored_message(family_id: str, remaining: Mapping[str, Any]) ->
         f"Family {family_id} stays marked import-incomplete: the restore of an earlier "
         f"overwrite that failed did not finish ({'; '.join(restores)}), so the family's "
         "data of each of these datasets may be partly written or missing, whichever import "
-        "wrote it. Import each of them again with overwrite to complete the family: the "
+        "or upload wrote it. Import each of them again with overwrite to complete the "
+        "family, and upload again with overwrite what a single-file upload brought: the "
         "whole family, not only the datasets that failed."
     )
 
@@ -183,10 +184,11 @@ def _restore_failed_message(flagged_failed: list[str], whole: list[str] | None) 
     return (
         "Import failed and the snapshot restore also failed; flagged the family metadata as "
         "import-incomplete. The restore may have removed the family's rows of any dataset, "
-        "whichever import wrote them: the flag names every dataset of this import as "
-        f"failed, those that imported too ({', '.join(flagged_failed)}), and {marked}. "
-        "Import the whole family again with overwrite, not only the datasets that failed: "
-        "an update skips a dataset whose rows are there."
+        "whichever import or upload wrote them: the flag names every dataset of this import "
+        f"as failed, those that imported too ({', '.join(flagged_failed)}), and {marked}. "
+        "Import the whole family again with overwrite, not only the datasets that failed, "
+        "and upload again with overwrite what a single-file upload brought: an update skips "
+        "a dataset whose rows are there."
     )
 
 

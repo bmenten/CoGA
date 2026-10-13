@@ -651,15 +651,16 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 # holds data, partial data included.
 #
 # A failed overwrite's restore is the exception. It rewrites the family's rows in every
-# variant and track table, whichever import wrote them, so once it begins, its import's
-# entry lists every dataset the family holds (`imported_scopes`: ``merged_imported_scopes``)
-# besides its own, under `whole_family`, each with its scope (``whole_family_entry``). A
-# restore that puts the family back, or that refuses to start, removes the entry as before.
-# One that fails part-way, or whose process stops in it, leaves it: any dataset of the
-# family may then be partly written or missing, whichever import wrote it. Each later
-# import that completes with `overwrite` removes from it what it imported again, and the
-# entry goes with the last: the family has then been imported again in full. Nothing else
-# removes it.
+# variant and track table, whichever import or single-file upload wrote them, so once it
+# begins, its import's entry lists every dataset the family holds (`imported_scopes`:
+# ``merged_imported_scopes``, which the uploads add to as the imports do) besides its own,
+# under `whole_family`, each with its scope (``whole_family_entry``). A restore that puts
+# the family back, or that refuses to start, removes the entry as before. One that fails
+# part-way, or whose process stops in it, leaves it: any dataset of the family may then be
+# partly written or missing, whichever import or upload wrote it. Each later import that
+# completes with `overwrite` removes from it what it imported again, and each upload with
+# `overwrite` what it brought again (``record_family_upload``); the entry goes with the
+# last: the family has then been imported again in full. Nothing else removes it.
 IMPORT_UNFINISHED_KEY = "import_unfinished"
 WHOLE_FAMILY_KEY = "whole_family"
 
@@ -970,12 +971,14 @@ def merged_imported_scopes(
     """``families.metadata.imported_scopes`` with each (dataset, scope) of ``additions``
     added: by dataset, each scope once, one sample at a time, sorted.
 
-    The key holds what the family's imports imported, each dataset with its scope as
-    ``dataset_scopes`` gives it: what a restore may remove that its own import did not
-    carry. An import adds what it imported when it ends, under the family row's lock, with
-    its flag or its clear, and what an earlier import that stopped had finished once that
-    one's entry goes. An addition without a scope (an import run without its bookkeeping)
-    adds nothing; a stored value not in this shape is read as holding nothing."""
+    The key holds what the family's imports imported, and its single-file uploads brought,
+    each dataset with its scope as ``dataset_scopes`` gives it: what a restore may remove
+    that its own import did not carry. An import adds what it imported when it ends, under
+    the family row's lock, with its flag or its clear, and what an earlier import that
+    stopped had finished once that one's entry goes; an upload adds what it brought with
+    its own commit (``record_family_upload``). An addition without a scope (an import run
+    without its bookkeeping) adds nothing; a stored value not in this shape is read as
+    holding nothing."""
     if isinstance(stored, str):
         try:
             stored = json.loads(stored)
@@ -1005,14 +1008,14 @@ def whole_family_entry(
     family_samples: Collection[str] | None = None,
 ) -> dict[str, Any]:
     """This import's ``import_unfinished`` entry once its restore begins: the restore
-    rewrites the family's rows in every variant and track table, whichever import wrote
-    them, so until the family has been imported again in full, any of its datasets may be
-    partly written or missing. It lists, under ``whole_family``, every dataset the family
-    holds -- what its imports imported (``imported``: ``imported_scopes``) and what the
-    other imports that have not finished set out to import -- and every dataset of this
-    import, each with its scope, one sample at a time; ``datasets`` names them all and
-    none is finished. A sample that is no longer the family's (``family_samples``) is left
-    out: no import of the family can name it."""
+    rewrites the family's rows in every variant and track table, whichever import or upload
+    wrote them, so until the family has been imported again in full, any of its datasets may
+    be partly written or missing. It lists, under ``whole_family``, every dataset the family
+    holds -- what its imports imported and its single-file uploads brought (``imported``:
+    ``imported_scopes``) and what the other imports that have not finished set out to
+    import -- and every dataset of this import, each with its scope, one sample at a time;
+    ``datasets`` names them all and none is finished. A sample that is no longer the
+    family's (``family_samples``) is left out: no import of the family can name it."""
     pairs: list[tuple[str, Any]] = [(name, mark.scopes.get(name)) for name in mark.datasets]
     for dataset, held in merged_imported_scopes(imported, ()).items():
         pairs.extend((dataset, scope) for scope in held)
@@ -1050,10 +1053,11 @@ def whole_family_entry(
 
 
 def whole_family_left(entry: Mapping[str, Any], replaced: Mapping[str, Any]) -> dict[str, Any] | None:
-    """A whole-family entry after an import that completed with ``overwrite``, replacing
-    ``replaced`` (each dataset it imported, with its scope): without what that import
-    covered (``_scope_covers``), or None when it covered all that was left. A list not in
-    the shape ``whole_family_entry`` writes stays as it is: nothing can show it complete."""
+    """A whole-family entry after an import that completed with ``overwrite``, or a
+    single-file upload with ``overwrite``, replacing ``replaced`` (each dataset it imported
+    or brought, with its scope): without what it covered (``_scope_covers``), or None when
+    it covered all that was left. A list not in the shape ``whole_family_entry`` writes
+    stays as it is: nothing can show it complete."""
     listed = entry.get(WHOLE_FAMILY_KEY)
     if not isinstance(listed, list):
         return dict(entry)
@@ -1781,6 +1785,137 @@ async def _clear_family_import_incomplete(
         except Exception:  # noqa: BLE001 - best-effort; nothing else to do
             pass
         return None
+
+
+# A single-file upload records what it brought in `imported_scopes`, as an import records
+# what it imported: a restore that fails part-way rewrites the family's rows whichever
+# import or upload wrote them, so its whole-family entry must name an upload's data too.
+# Each upload records under the dataset, and with the scope, that a package import of the
+# same data records: the package dataset whose loader replaces the same rows, where there
+# is one, so that an overwrite of either brings again what the other brought; a name of its
+# own where there is none.
+
+
+def small_variant_upload_scope(callset: str) -> tuple[str, dict[str, Any]]:
+    """What a family small-variant upload of ``callset`` brought (the source its rows are
+    stored under, ``auto`` as the upload resolved it). Imputed genotypes (``glimpse2``),
+    with the haplotype blocks made from them, are what a package ``haplotypes`` dataset
+    brings; any other callset is what a package ``snv`` dataset whose ``source_format``
+    names it brings. Each loads its family VCF through the same loader, which replaces the
+    family's rows of that callset."""
+    if callset == "glimpse2":
+        return "haplotypes", {"source": None, "samples": None}
+    return "snv", {"source": callset, "samples": None}
+
+
+def structural_variant_upload_scope(record_format: str, sample_id: str) -> tuple[str, dict[str, Any]]:
+    """What an upload of one sample's structural variants from one caller (``sniffles``,
+    ``spectre``, ``manual``) brought. No package dataset stores that caller's calls, so it
+    has a dataset of its own, ``sv_<caller>``."""
+    return f"sv_{record_format}", {"source": None, "samples": [sample_id]}
+
+
+def repeat_upload_scope(sample_id: str) -> tuple[str, dict[str, Any]]:
+    """What a TRGT upload of one sample's calls brought: what a package ``repeats_trgt``
+    dataset's file for that sample brings, which replaces the sample's TRGT calls as the
+    upload does."""
+    return "repeats_trgt", {"source": None, "samples": [sample_id]}
+
+
+def interval_track_upload_scope(bed_type: str, sample_id: str) -> tuple[str, dict[str, Any]]:
+    """What a BED upload of one sample's ``bed_type`` track brought; it replaces every track
+    of that type the sample has. A package dataset that writes such a track may read
+    another kind of file, or write another track (a coverage dataset's target table, an
+    APCAD VCF), so neither can show that it replaced what the other wrote: the upload has a
+    dataset of its own, ``bed_<type>``."""
+    return f"bed_{bed_type}", {"source": None, "samples": [sample_id]}
+
+
+# The family row an upload's bookkeeping reads, locked as an UPDATE of its metadata locks
+# it: every other writer of the family's metadata waits for it, and it for them (a package
+# import's bookkeeping reads the row FOR UPDATE). Unlike FOR UPDATE, it does not wait for
+# the key-share locks that inserts of rows referencing the family take (a sample, a repeat
+# call, the annotation manifest) in transactions that have not committed.
+_UPLOAD_ROW = """
+SELECT metadata -> 'import_unfinished' AS unfinished,
+       metadata -> 'imported_scopes' AS imported_scopes
+FROM families
+WHERE id = CAST(:family_uuid AS uuid)
+FOR NO KEY UPDATE
+"""
+# The family's metadata with imported_scopes set to :imported_scopes, and, in the second,
+# import_unfinished to :unfinished (a JSON null removes it).
+_WITH_IMPORTED_SCOPES = (
+    "jsonb_set(COALESCE(metadata, '{}'::jsonb), '{imported_scopes}', "
+    "CAST(:imported_scopes AS jsonb), true)"
+)
+_WITH_IMPORTED_SCOPES_AND_UNFINISHED = f"""
+CASE
+    WHEN CAST(:unfinished AS jsonb) = 'null'::jsonb
+        THEN {_WITH_IMPORTED_SCOPES} - 'import_unfinished'
+    ELSE jsonb_set({_WITH_IMPORTED_SCOPES}, '{{import_unfinished}}', CAST(:unfinished AS jsonb), true)
+END
+"""
+
+
+async def record_family_upload(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    dataset: str,
+    scope: Mapping[str, Any],
+    overwrite: bool,
+) -> None:
+    """A single-file upload's bookkeeping, as an import's: add what it brought
+    (``dataset``, with its ``scope``, as ``small_variant_upload_scope`` and the functions
+    after it give them) to the family's ``imported_scopes``, so that the whole-family entry
+    of a restore that fails part-way later names it; and, with ``overwrite``, remove it
+    from each whole-family entry already there (``whole_family_left``), which goes once
+    nothing is left on it. An upload without ``overwrite`` removes nothing, as an import's
+    ``update`` removes nothing.
+
+    Read and written under the family row's lock, in the upload's own transaction, which
+    the caller commits with what the upload wrote: the record stands or falls with the
+    upload, and an upload whose record cannot be written fails. The caller holds the
+    family's variant-write locks from before its first read until that commit, so the
+    upload never falls between a package import's snapshot and its restore: no restore
+    removes what it struck off, or misses what it recorded. Called before the upload takes
+    the annotation manifest's lock, as the imputed small-variant upload takes the row (for
+    its phase corrections) before it: two uploads of the family that run at once (a
+    small-variant and a structural-variant upload) take the two in one order."""
+    row = (
+        await session.execute(text(_UPLOAD_ROW), {"family_uuid": family_uuid})
+    ).mappings().first()
+    if row is None:  # the family is gone, and with it what the upload brought
+        return
+    params: dict[str, Any] = {
+        "family_uuid": family_uuid,
+        "imported_scopes": json.dumps(
+            merged_imported_scopes(row["imported_scopes"], [(dataset, scope)])
+        ),
+    }
+    entries = _unfinished_entries(row["unfinished"])
+    struck = False
+    if overwrite:
+        for key, entry in list(entries.items()):
+            if not is_whole_family_entry(entry):
+                continue
+            left = whole_family_left(entry, {dataset: scope})
+            if left is None:
+                del entries[key]
+            elif left != entry:
+                entries[key] = left
+            else:
+                continue
+            struck = True
+    metadata = _WITH_IMPORTED_SCOPES
+    if struck:
+        metadata = _WITH_IMPORTED_SCOPES_AND_UNFINISHED
+        params["unfinished"] = json.dumps(entries or None)
+    await session.execute(
+        text(f"UPDATE families SET metadata = {metadata} WHERE id = CAST(:family_uuid AS uuid)"),
+        params,
+    )
 
 
 def _enabled_dataset_summaries(validation: FamilyPackageValidationOut) -> list[FamilyImportDatasetSummary]:
