@@ -7,6 +7,7 @@ import gzip
 import json
 import logging
 import math
+import os
 from pathlib import Path
 import re
 from typing import Any, Awaitable, Callable, Iterable, TextIO
@@ -580,6 +581,38 @@ def _package_path_or_none(root: Path, value: str | None) -> Path | None:
         return _resolve_package_path(root, value)
     except HTTPException:
         return None
+
+
+def path_leaves_package(relative_path: str) -> bool:
+    """Whether ``relative_path``, a path in a package as written, leads out of the package
+    folder: it is absolute, or its ``..`` climb above the folder. Told from the string
+    alone, so nothing is looked up to tell it."""
+    normalized = os.path.normpath(relative_path)
+    return os.path.isabs(normalized) or normalized == os.pardir or normalized.startswith(os.pardir + os.sep)
+
+
+def package_path_within(root: Path, relative_path: str) -> Path | None:
+    """The path in the package that a path built from an ID names (``<family ID>.ped``,
+    ``bams/<sample ID>.cram``), normalised; None when it leads out of the package.
+
+    An ID is a name, but it can hold a path: an absolute one, or ``..`` that climbs out of
+    the folder. The joined path is normalised and checked as a string first, so such a path
+    is never looked up: nothing outside the package is read, nor found to exist. A path that
+    stays in the folder goes through the package guard, so a symlink cannot lead out either.
+    Unlike in a manifest path, a leading ``~`` is part of the name, not the home folder.
+    """
+    if not relative_path or os.path.isabs(relative_path):
+        return None
+    folder = str(root.resolve())
+    path = os.path.normpath(os.path.join(folder, relative_path))
+    if not path.startswith(folder + os.sep):
+        return None
+    try:
+        inside = _package_path_or_none(Path(folder), path) is not None
+    except (OSError, RuntimeError, ValueError):
+        # A NUL in the name (ValueError); a symlink loop (RuntimeError before Python 3.13).
+        return None
+    return Path(path) if inside else None
 
 
 def _display_path(root: Path, path: Path) -> str:

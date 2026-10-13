@@ -189,7 +189,12 @@ are colleagues, so there is no tenant boundary to protect.
   other row of its async batch, reached only the log. Such a value is now stored as a visible
   escape, with the columns named in `request_meta._escaped` ([database.md](database.md)); the
   UI-event log does the same. A NUL in the URL is now refused at sign-in (§1), and the
-  refusal's row is kept the same way, under the caller's name.
+  refusal's row is kept the same way, under the caller's name. A UI event's `occurred_at`, the
+  browser's clock, is kept only from a day before to five minutes after the server received
+  the event; any other value is stored as the receive time, with the client's value in
+  `detail._client_occurred_at`, which a client cannot set. Before, a value the database driver
+  cannot convert to UTC, such as `0001-01-01T00:00:00+05:00`, lost its event, and in the async
+  mode every other event of its batch, any user's (`routers/ui_events.py`).
 - ✅ **A failed audit write is logged by its kind.** The log line names the exception by its
   type and SQLSTATE (`describe_error` in `core/coga_logging.py`), never by the error's text,
   which quotes the statement and the row it could not insert. The row itself is logged once,
