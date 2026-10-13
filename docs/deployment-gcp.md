@@ -449,7 +449,13 @@ warning — that's expected during this window.
 curl -i https://coga.cmgg.be/api/health         # 200 {"status":"ok"} once the app runs
 curl -i https://coga.cmgg.be/api/health/ready   # 200 only when Postgres and ClickHouse answer
 curl -s https://coga.cmgg.be/api/version        # the version and git commit that are running
+curl -s -o /dev/null -D - https://coga.cmgg.be/ | grep -i strict-transport-security
+curl -s -o /dev/null -D - https://coga.cmgg.be/api/health | grep -i strict-transport-security
 ```
+
+The last two print `strict-transport-security: max-age=63072000; includeSubDomains`: the
+app page and the API both tell the browser to use only HTTPS for this host, for two years
+(`ENABLE_HSTS=true` on both Cloud Run services).
 
 Then open `https://coga.cmgg.be` in a browser and log in with:
 
@@ -766,7 +772,7 @@ This deployment closes the deployment-level security items tracked in
 | **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
 | DB privilege separation (#262) | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
 | Backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
-| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile |
+| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile; the app page and the API send HSTS (`max-age=63072000; includeSubDomains`) |
 
 **Still your responsibility (process, not code):** IVDR **change control** (TF-18) for
 each switch in 12.7–12.10 and for the first production deployment, and the IFU (TF-15)
