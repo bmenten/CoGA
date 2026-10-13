@@ -8,6 +8,7 @@ import FamilyPageHeader from './FamilyPageHeader';
 import FilterCollapseToggle from './FilterCollapseToggle';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import PageState from '../../components/PageState';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import AnnotationProvenanceSummary from './AnnotationProvenanceSummary';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
@@ -87,7 +88,14 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     [location.search],
   );
 
-  const { data: familyData } = useQuery<StructuralVariantFamily>({
+  // The family record holds what the header warns of: an import that left the family
+  // incomplete, and (through its project) an assembly outside the validated scope.
+  const {
+    data: familyData,
+    isError: familyFailed,
+    error: familyError,
+    refetch: refetchFamily,
+  } = useQuery<StructuralVariantFamily>({
     queryKey: ['family', familyId],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}`);
@@ -163,11 +171,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     familyData?.projects as string[] | undefined,
     preferredProjectId,
   );
+  // The page waits for the reference (below), so it is never shown as loading here.
   const referenceLabel = formatResolvedReferenceLabel(
     { speciesName, assemblyName, assemblyVersion, isError: referenceFailed },
-    familyData?.projects?.length && referenceLoading
-      ? 'Loading linked reference...'
-      : 'Reference not linked',
+    'Reference not linked',
   );
 
   const { data: presets = [] } = useQuery<StructuralVariantFilterPreset[]>({
@@ -300,7 +307,22 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     },
   });
 
-  if (isLoading && !data) {
+  // Without the family it is not known whether its import is complete, nor whether its
+  // assembly is validated: the SVs are not shown without those warnings (SAFE-14).
+  if (familyFailed) {
+    return (
+      <FamilyLoadFailure
+        kicker="Structural Variants"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
+      />
+    );
+  }
+
+  // Nor are they shown before the family and its reference are in, the header with them.
+  if (!familyData || (familyData.projects?.length && referenceLoading) || (isLoading && !data)) {
     return (
       <PageState
         loading
