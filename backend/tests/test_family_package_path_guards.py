@@ -23,6 +23,14 @@ it loops. The guards look a resolved path up to find a loop, so every Python ans
 each loop test runs with this Python's ``Path.resolve`` and with 3.12's, emulated here when
 the tests run on 3.13. A symlink that stays in the package is still followed.
 
+The package list followed a package folder that is a symlink leading out of the import root:
+it read the manifest it found there, listed the package under that manifest's family and
+analysis type, and named its path outside the root, which selection then refused (403). Now
+the list checks each folder with selection's guard before it looks anything up in it, and
+leaves out one selection refuses (a symlink out of the import roots, or one that loops) and
+one in the staging root; a symlink that stays under the roots is followed, so every folder the
+list shows is one selection takes.
+
 All packages, IDs and files are synthetic.
 """
 
@@ -584,6 +592,144 @@ def test_the_guard_refuses_a_symlink_loop_alike_on_every_python(tmp_path: Path, 
 
 
 # --------------------------------------------------------------------------- #
+# The package list: a package folder that is a symlink out of the import root
+# --------------------------------------------------------------------------- #
+
+
+def _foreign_package(folder: Path) -> Path:
+    """A package at ``folder``, outside the import root, for another family: its manifest and
+    its PED. Nothing of it may reach the package list."""
+    folder.mkdir(parents=True)
+    payload = {"schema_version": 1, "family_id": DECOY_FAMILY, "ped": "family.ped", "analysis_type": DECOY_TYPE}
+    (folder / "manifest.yaml").write_text(yaml.safe_dump(payload), encoding="utf-8")
+    (folder / "family.ped").write_text(f"{DECOY_FAMILY} D1 0 0 1 2\n", encoding="utf-8")
+    return folder
+
+
+@contextmanager
+def _looked_up(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
+    """The paths looked up in the block: each folder listed, and each name asked about
+    (``is_dir``, ``is_file``, ``exists``), as the path it reaches (its symlinks resolved).
+    Resolving a path, which a guard does to tell where a symlink leads, is not counted."""
+    looked: list[str] = []
+
+    def spied(original: Any) -> Any:
+        def spy(*args: Any, **kwargs: Any) -> Any:
+            if args and not isinstance(args[0], int):
+                looked.append(os.path.realpath(os.fspath(args[0])))
+            return original(*args, **kwargs)
+
+        return spy
+
+    with monkeypatch.context() as patch:
+        for name in ("is_dir", "is_file", "exists", "iterdir", "glob"):
+            patch.setattr(Path, name, spied(getattr(Path, name)))
+        for name in ("scandir", "listdir"):
+            patch.setattr(os, name, spied(getattr(os, name)))
+        yield looked
+
+
+def _within(path: str, folder: Path) -> bool:
+    return path == str(folder) or path.startswith(f"{folder}{os.sep}")
+
+
+def test_the_package_list_leaves_out_a_package_folder_linked_out_of_the_import_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
+) -> None:
+    outside = _foreign_package(tmp_path / "outside" / "OUTFAM").resolve()
+    (imports / "LINKED").symlink_to(outside)
+    _package(imports)
+
+    with _looked_up(monkeypatch) as looked, _opened(monkeypatch) as opened:
+        listed = scan_family_import_packages()
+
+    # LINKED was listed by its path outside the root, under the family and analysis type of
+    # the manifest found there: its folder listed, its manifest read.
+    assert [(item["name"], item["folder_path"]) for item in listed] == [(FAMILY, str((imports / FAMILY).resolve()))]
+    assert [path for path in looked + opened if _within(path, outside)] == []
+
+
+def test_the_package_list_leaves_out_a_package_folder_that_loops(imports: Path, resolve_as: str) -> None:
+    _loop(imports / "LOOPFAM")
+    _package(imports)
+
+    listed = scan_family_import_packages()
+
+    # Left out before too (looked up, it is no folder); now by the guard that refuses it for
+    # selection, before it is looked up.
+    assert [item["name"] for item in listed] == [FAMILY]
+
+
+@pytest.mark.parametrize("where", ["its own import root", "another import root"])
+def test_the_package_list_follows_a_package_folder_linked_under_the_import_roots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path, where: str
+) -> None:
+    holder = imports / "archive"
+    if where == "another import root":
+        second = tmp_path / "second-imports"
+        holder = second / "archive"
+        monkeypatch.setattr(settings, "family_import_roots", [str(imports), str(second)])
+    holder.mkdir(parents=True)
+    target = _package(holder, manifest={"analysis_type": "trio_check"})
+    (imports / "LINKED").symlink_to(target)
+
+    listed = scan_family_import_packages()
+    validation, bundle = load_validated_family_package(imports / "LINKED")
+
+    # Listed, read and named as before: the folder it leads to lies under the import roots.
+    assert [(item["name"], item["folder_path"], item["family_id"], item["analysis_type"]) for item in listed] == [
+        ("LINKED", str(target.resolve()), FAMILY, "trio_check")
+    ]
+    # And selection takes it.
+    assert validation.valid, validation.errors
+    assert bundle is not None
+
+
+def test_the_package_list_leaves_out_a_package_folder_linked_into_the_staging_root(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, imports: Path
+) -> None:
+    from backend.app.services import family_package_source
+
+    # Where a package from a bucket is downloaded for its import. Selection takes a folder
+    # there, but it is no import root.
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    monkeypatch.setattr(family_package_source, "_staging_root", lambda: staging.resolve())
+    staged = _foreign_package(staging / "pkg-1").resolve()
+    (imports / "STAGED").symlink_to(staged)
+    _package(imports)
+
+    with _opened(monkeypatch) as opened:
+        listed = scan_family_import_packages()
+
+    # STAGED was listed by its path in the staging root, under its manifest's family.
+    assert [item["name"] for item in listed] == [FAMILY]
+    assert [path for path in opened if _within(path, staged)] == []
+
+
+def test_selection_takes_each_folder_the_package_list_shows_and_refuses_each_it_leaves_out(
+    tmp_path: Path, imports: Path, resolve_as: str
+) -> None:
+    linked_out = imports / "LINKED"
+    linked_out.symlink_to(_foreign_package(tmp_path / "outside" / "OUTFAM"))
+    looping = _loop(imports / "LOOPFAM")
+    (imports / "archive").mkdir()
+    (imports / "INLINK").symlink_to(_package(imports / "archive", "INSIDE"))
+    _package(imports)
+
+    listed = scan_family_import_packages()
+
+    assert [item["name"] for item in listed] == [FAMILY, "INLINK"]
+    for item in listed:
+        validation, _bundle = load_validated_family_package(item["folder_path"])
+        assert "package_folder_not_allowed" not in _codes(validation.errors), (item, validation.errors)
+    # The list showed LINKED by its path outside the root; picked, that path was refused.
+    for folder in (linked_out, looping):
+        validation, bundle = load_validated_family_package(folder)
+        assert (_codes(validation.errors), bundle) == (["package_folder_not_allowed"], None)
+
+
+# --------------------------------------------------------------------------- #
 # The routes
 # --------------------------------------------------------------------------- #
 
@@ -701,3 +847,32 @@ def test_the_routes_refuse_a_tilde_and_a_symlink_loop_without_a_500(imports: Pat
     assert discover_long_read.json()["sample_ids"] == ["MOTHER1"]
     assert listed.status_code == 200, listed.text
     assert {item["name"] for item in listed.json()} >= {"TILDE", "LOOPED", "COUPLE1"}
+
+
+def test_the_package_list_route_leaves_out_a_folder_linked_out_of_the_import_root(tmp_path: Path, imports: Path) -> None:
+    outside = _foreign_package(tmp_path / "outside" / "OUTFAM").resolve()
+    (imports / "LINKED").symlink_to(outside)
+    _loop(imports / "LOOPFAM")
+    (imports / "archive").mkdir()
+    inside = _package(imports / "archive", "INSIDE")
+    (imports / "INLINK").symlink_to(inside)
+    _package(imports)
+
+    with _admin_client() as client:
+        listed = client.get("/api/family-imports/packages")
+        typed = client.post("/api/family-imports/validate", json={"folder_path": str(imports / "LINKED")})
+
+    # The list showed LINKED by its path outside the root, under the family and analysis type
+    # of the manifest found there.
+    assert listed.status_code == 200, listed.text
+    assert [(item["name"], item["folder_path"]) for item in listed.json()] == [
+        (FAMILY, str((imports / FAMILY).resolve())),
+        ("INLINK", str(inside.resolve())),
+    ]
+    for value in (str(outside), DECOY_FAMILY, DECOY_TYPE):
+        assert value not in listed.text
+    # Typed, the folder is refused with the reason, as it was.
+    assert typed.status_code == 200, typed.text
+    assert [(issue["code"], issue["message"]) for issue in typed.json()["errors"]] == [
+        ("package_folder_not_allowed", f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {imports.resolve()}")
+    ]
