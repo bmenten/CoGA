@@ -323,9 +323,9 @@ The SV is listed with the genes that span overlaps, so a search for a gene a del
 A record without an SVTYPE takes the type its ALT states, so a breakend written as `N]5:3000000]` is
 a BND; a package's NeedlR, HiFiCNV and mitochondrial SV files take a missing type the same way.
 A breakend keeps its mate, the position its ALT names in brackets (5:3000000 here): the structural-variant
-list has it in its **Remote chr** and **Remote start** columns, and the filters of those names find the
-breakend by it. A package's NeedlR file is read the same way: a record with its mate in brackets keeps it,
-whatever its SVTYPE says.
+list has it in its **Remote chr** and **Remote start** columns, as does its CSV export, beside the locus
+(empty for an SV without a mate), and the filters of those names find the breakend by it. A package's
+NeedlR file is read the same way: a record with its mate in brackets keeps it, whatever its SVTYPE says.
 
 A package's NeedlR SVs are named by their breakpoints and type, and a breakend's mate, as an upload's
 are, not by the caller's record ID, which repeats from one run to the next (`Sniffles2.DEL.1S0`). Two
