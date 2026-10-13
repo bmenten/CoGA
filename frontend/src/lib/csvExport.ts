@@ -4,16 +4,21 @@ export interface CsvExportInfo {
   truncated: boolean;
   /**
    * Why a truncated export is incomplete: it hit its row cap (`row-limit`, the file is the
-   * first `limit` rows), or the search behind it read a capped candidate window
-   * (`candidate-limit`: matches can be missing however few rows the file holds). Null
-   * when the export is complete.
+   * first `limit` rows), the search behind it read a capped candidate window
+   * (`candidate-limit`), or its tag or classification filter matched more variants than the
+   * search takes (`review-filter-limit`, the Variant Explorer); in the last two, matches can
+   * be missing however few rows the file holds. Null when the export is complete.
    */
   reason: CsvTruncationReason | null;
   rows: number | null;
   limit: number | null;
 }
 
-export type CsvTruncationReason = 'row-limit' | 'candidate-limit';
+export type CsvTruncationReason = 'row-limit' | 'candidate-limit' | 'review-filter-limit';
+
+// The reasons that make the search itself partial: a match can be missing anywhere in the file.
+const isPartialSearchReason = (value: string): value is 'candidate-limit' | 'review-filter-limit' =>
+  value === 'candidate-limit' || value === 'review-filter-limit';
 
 type HeaderBag = Record<string, unknown> | undefined;
 
@@ -38,25 +43,27 @@ export function describeCsvExport(
   // A truncation without a stated reason is the row cap, as on the server (core/csv_export.py).
   let reason: CsvTruncationReason | null = null;
   if (truncated) {
-    reason =
-      String(headers?.['x-coga-export-truncated-reason'] ?? '') === 'candidate-limit'
-        ? 'candidate-limit'
-        : 'row-limit';
+    const stated = String(headers?.['x-coga-export-truncated-reason'] ?? '');
+    reason = isPartialSearchReason(stated) ? stated : 'row-limit';
   }
   let filename = `${filenameStem}.csv`;
-  if (reason === 'candidate-limit') filename = `${filenameStem}-TRUNCATED-partial-search.csv`;
-  else if (reason === 'row-limit') filename = `${filenameStem}-TRUNCATED-first-${limit ?? rows ?? 'N'}.csv`;
+  if (reason === 'row-limit') filename = `${filenameStem}-TRUNCATED-first-${limit ?? rows ?? 'N'}.csv`;
+  else if (reason !== null) filename = `${filenameStem}-TRUNCATED-partial-search.csv`;
   return { filename, truncated, reason, rows, limit };
 }
 
-export const truncatedExportMessage = (info: CsvExportInfo): string =>
-  info.reason === 'candidate-limit'
-    ? `The search behind this export read only part of the callset (its candidate limit was reached), so matching variants may be missing from the file${
-        info.rows !== null ? ` (${info.rows.toLocaleString()} rows)` : ''
-      } — it is incomplete. Narrow the filters (a region, a gene panel, tighter frequency or impact) to export everything.`
-    : `The export was capped at ${
-        info.limit !== null ? info.limit.toLocaleString() : 'its maximum number of'
-      } rows — the filtered result is larger, so the file is incomplete. Narrow the filters to export everything.`;
+export const truncatedExportMessage = (info: CsvExportInfo): string => {
+  const rowCount = info.rows !== null ? ` (${info.rows.toLocaleString()} rows)` : '';
+  if (info.reason === 'candidate-limit') {
+    return `The search behind this export read only part of the callset (its candidate limit was reached), so matching variants may be missing from the file${rowCount} — it is incomplete. Narrow the filters (a region, a gene panel, tighter frequency or impact) to export everything.`;
+  }
+  if (info.reason === 'review-filter-limit') {
+    return `The tag or classification filter matched more variants than one search can take, so matching variants may be missing from the file${rowCount} — it is incomplete. Filter on fewer tags or classifications to export everything.`;
+  }
+  return `The export was capped at ${
+    info.limit !== null ? info.limit.toLocaleString() : 'its maximum number of'
+  } rows — the filtered result is larger, so the file is incomplete. Narrow the filters to export everything.`;
+};
 
 /** Save a downloaded CSV under `filename`. */
 export function saveCsvBlob(data: BlobPart, filename: string): void {
