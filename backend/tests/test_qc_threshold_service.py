@@ -367,20 +367,27 @@ class _RecordingThresholdSession:
     ``set_qc_threshold`` asks two questions before it writes: the profile's id
     (``scalar_one_or_none``) and the bounds currently in force (``mappings().first()``).
     ``previous`` is the answer to the second; None means the metric had no cut-off.
+    ``profile_id`` is the answer to the first; None means no profile has that key.
     """
 
-    def __init__(self, previous: dict | None = None) -> None:
+    def __init__(
+        self,
+        previous: dict | None = None,
+        profile_id: str | None = "00000000-0000-0000-0000-000000000009",
+    ) -> None:
         self.previous = previous
+        self.profile_id = profile_id
         self.statements: list[tuple[str, dict]] = []
         self.commits = 0
 
     async def execute(self, statement, params=None):
         self.statements.append((" ".join(str(statement).split()), dict(params or {})))
         previous = self.previous
+        profile_id = self.profile_id
 
         class _Result:
             def scalar_one_or_none(self_inner):
-                return "00000000-0000-0000-0000-000000000009"
+                return profile_id
 
             def mappings(self_inner):
                 class _M:
@@ -510,3 +517,260 @@ async def test_a_refused_cut_off_change_writes_nothing(warn_value, error_value, 
     assert session.written("INSERT INTO qc_thresholds") == []
     assert session.written("INSERT INTO qc_threshold_changes") == []
     assert session.commits == 0
+
+
+# ---------------------------------------------------------------------------
+# The software fixes which metrics take a limit, and the failing side of each
+# ---------------------------------------------------------------------------
+
+# Keys that are no metric of the catalogue: a made-up one, the two the catalogue leaves out
+# on purpose (a duplicate of an aligned yield and a per-bucket structure), a catalogue key
+# in other capitals, and none at all.
+_NOT_IN_THE_CATALOGUE = [
+    "depth.median_depth",
+    "depth.total_bases",
+    "reads.quality_cutoffs",
+    "Depth.Mean_Depth",
+    "",
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metric_key", _NOT_IN_THE_CATALOGUE)
+async def test_a_limit_on_a_metric_outside_the_catalogue_is_refused_before_anything_is_read(
+    metric_key: str,
+) -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    # An operator cannot add a metric, so no limit can name one the parsers do not emit
+    # or whose failing side the software does not know.
+    assert metric_key not in QC_METRICS_BY_KEY
+    session = _RecordingThresholdSession(previous=None)
+    with pytest.raises(HTTPException) as excinfo:
+        await set_qc_threshold(
+            session,
+            profile_key="default",
+            metric_key=metric_key,
+            warn_value=20.0,
+            error_value=10.0,
+            reason="Per the validation report",
+            **_ACTOR,
+        )
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == f"Unknown QC metric: {metric_key}"
+    assert session.statements == []
+    assert session.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_every_catalogue_metric_takes_a_limit_stored_with_its_own_failing_side() -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    for metric in QC_METRICS:
+        # A pair the right way round for the metric's side.
+        warn_value, error_value = (20.0, 10.0) if metric.direction == "lower_is_worse" else (10.0, 20.0)
+        session = _RecordingThresholdSession(previous=None)
+        await set_qc_threshold(
+            session,
+            profile_key="default",
+            metric_key=metric.key,
+            warn_value=warn_value,
+            error_value=error_value,
+            reason="Per the validation report",
+            **_ACTOR,
+        )
+
+        [upsert] = session.written("INSERT INTO qc_thresholds")
+        assert upsert["metric_key"] == metric.key
+        assert upsert["direction"] == metric.direction, metric.key
+        assert (upsert["warn_value"], upsert["error_value"]) == (warn_value, error_value)
+        assert session.commits == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("metric_key", "warn_value", "error_value", "detail"),
+    [
+        (
+            "depth.mean_depth",
+            10.0,
+            20.0,
+            "For 'Mean depth' a lower value is worse, so the warning bound must be greater than "
+            "or equal to the error bound",
+        ),
+        (
+            "alignment.duplicated_reads_percent",
+            30.0,
+            20.0,
+            "For 'Duplicate reads' a higher value is worse, so the warning bound must be less than "
+            "or equal to the error bound",
+        ),
+    ],
+)
+async def test_a_warning_limit_beyond_the_error_limit_is_refused_on_either_side(
+    metric_key: str, warn_value: float, error_value: float, detail: str
+) -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    # Such a pair could never warn: the error limit would be crossed first.
+    session = _RecordingThresholdSession(previous={"warn_value": 25.0, "error_value": 25.0})
+    with pytest.raises(HTTPException) as excinfo:
+        await set_qc_threshold(
+            session,
+            profile_key="default",
+            metric_key=metric_key,
+            warn_value=warn_value,
+            error_value=error_value,
+            reason="Per the validation report",
+            **_ACTOR,
+        )
+
+    assert excinfo.value.status_code == 400
+    assert excinfo.value.detail == detail
+    assert session.written("INSERT INTO qc_thresholds") == []
+    assert session.written("INSERT INTO qc_threshold_changes") == []
+    assert session.commits == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metric_key", ["depth.mean_depth", "alignment.duplicated_reads_percent"])
+async def test_a_warning_limit_equal_to_the_error_limit_is_accepted(metric_key: str) -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    session = _RecordingThresholdSession(previous=None)
+    await set_qc_threshold(
+        session,
+        profile_key="default",
+        metric_key=metric_key,
+        warn_value=15.0,
+        error_value=15.0,
+        reason="One limit: below it the run fails",
+        **_ACTOR,
+    )
+
+    [upsert] = session.written("INSERT INTO qc_thresholds")
+    assert (upsert["warn_value"], upsert["error_value"]) == (15.0, 15.0)
+    assert session.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_a_limit_in_a_profile_that_does_not_exist_is_refused() -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    session = _RecordingThresholdSession(previous=None, profile_id=None)
+    with pytest.raises(HTTPException) as excinfo:
+        await set_qc_threshold(
+            session,
+            profile_key="no_such_assay",
+            metric_key="depth.mean_depth",
+            warn_value=20.0,
+            error_value=10.0,
+            reason="Per the validation report",
+            **_ACTOR,
+        )
+
+    assert excinfo.value.status_code == 404
+    assert excinfo.value.detail == "Unknown QC threshold profile: no_such_assay"
+    assert session.written("INSERT INTO qc_thresholds") == []
+    assert session.written("INSERT INTO qc_threshold_changes") == []
+    assert session.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_the_limit_records_the_user_who_changed_it_last() -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    session = _RecordingThresholdSession(previous={"warn_value": 20.0, "error_value": 10.0})
+    await set_qc_threshold(
+        session,
+        profile_key="default",
+        metric_key="depth.mean_depth",
+        warn_value=22.0,
+        error_value=11.0,
+        reason="Per the validation report",
+        **_ACTOR,
+    )
+
+    # The limit row names its last editor (`updated_by`), the history row the editor of
+    # each change.
+    [upsert] = session.written("INSERT INTO qc_thresholds")
+    assert upsert["user_id"] == _ACTOR["user_id"]
+    [change] = session.written("INSERT INTO qc_threshold_changes")
+    assert (change["user_id"], change["user_email"]) == (_ACTOR["user_id"], _ACTOR["user_email"])
+
+
+class _ProfileRowsSession:
+    """Answers ``list_qc_threshold_profiles``'s one query with the rows given."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+
+    async def execute(self, statement, params=None):
+        rows = self.rows
+
+        class _Result:
+            def mappings(self_inner):
+                return iter(rows)
+
+        return _Result()
+
+
+@pytest.mark.asyncio
+async def test_the_profiles_list_each_profile_with_its_limits_and_flag_a_metric_the_catalogue_dropped() -> None:
+    from app.services.qc_threshold_service import list_qc_threshold_profiles
+
+    def row(profile: str, metric_key: str | None, warn=None, error=None) -> dict:
+        return {
+            "id": f"id-{profile}",
+            "key": profile,
+            "label": profile.upper(),
+            "description": None,
+            "is_default": profile == "default",
+            "sort_order": 10 if profile == "default" else 20,
+            "metric_key": metric_key,
+            "warn_value": warn,
+            "error_value": error,
+        }
+
+    profiles = await list_qc_threshold_profiles(
+        _ProfileRowsSession(
+            [
+                row("default", "alignment.duplicated_reads_percent", 20.0, 30.0),
+                row("default", "depth.mean_depth", 20.0, 10.0),
+                # A stored limit on a key the catalogue no longer has.
+                row("default", "depth.total_bases", 1.0, None),
+                # A profile without limits: the LEFT JOIN's one row with no metric.
+                row("pgt", None),
+            ]
+        )
+    )
+
+    assert [(profile["key"], profile["is_default"]) for profile in profiles] == [("default", True), ("pgt", False)]
+    assert profiles[1]["thresholds"] == []
+    duplicates, depth, dropped = profiles[0]["thresholds"]
+    assert duplicates == {
+        "metric_key": "alignment.duplicated_reads_percent",
+        "label": "Duplicate reads",
+        "unit": "%",
+        "direction": "higher_is_worse",
+        "known_metric": True,
+        "warn_value": 20.0,
+        "error_value": 30.0,
+    }
+    assert (depth["label"], depth["unit"], depth["direction"], depth["known_metric"]) == (
+        "Mean depth",
+        "x",
+        "lower_is_worse",
+        True,
+    )
+    # Shown, so an admin can see and clear it, and marked as no metric the software knows.
+    assert dropped == {
+        "metric_key": "depth.total_bases",
+        "label": "depth.total_bases",
+        "unit": "",
+        "direction": "lower_is_worse",
+        "known_metric": False,
+        "warn_value": 1.0,
+        "error_value": None,
+    }

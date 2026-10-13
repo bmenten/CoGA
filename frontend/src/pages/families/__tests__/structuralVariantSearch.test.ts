@@ -162,4 +162,13 @@ describe('buildStructuralVariantQueryParams', () => {
         '&prioritize=true',
     );
   });
+
+  // REQ-PGT-007: the types ticked, as the form joins them, and each length bound under the
+  // name the API reads it by.
+  it('sends the SV types and the length bounds', () => {
+    expect(query({ type: 'DEL, DUP', minLength: '10000000' })).toBe(
+      'page=1&page_size=100&min_length=10000000&type=DEL%2C+DUP&prioritize=true',
+    );
+    expect(query({ length: '5000' })).toBe('page=1&page_size=100&length=5000&prioritize=true');
+  });
 });
