@@ -2,7 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
-import type { NiptDeNovoTriageOut, NiptRecessiveGeneOut } from '../../lib/apiSchema.generated';
+import type {
+  NiptDeNovoTriageOut,
+  NiptRecessiveGeneOut,
+  SvSecondHitSvOut,
+} from '../../lib/apiSchema.generated';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { logUiEvent } from '../../lib/telemetry';
 import {
@@ -216,9 +220,14 @@ export interface SvSecondHit {
   end?: number | null;
   affected_zygosity?: string | null;
   has_deletion: boolean;
+  // Drawn from each SV's own phase (svs): trans when one the affected members carry is in
+  // trans, cis when every one is in cis.
   phase?: string;
   phase_evidence?: string | null;
+  // A copy loss in trans with this heterozygous SNV, whatever the other SVs' phase.
   deletion_unmasked?: boolean;
+  // Each SV that hits the gene, with its own phase against this variant, by position.
+  svs?: SvSecondHitSvOut[];
 }
 
 export interface SmallVariantPriorityMatch {
