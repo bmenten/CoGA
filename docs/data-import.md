@@ -303,20 +303,20 @@ the restore removed, which then leaves the flag, and skips one whose rows are th
 stays flagged.
 
 Such a restore also removes rows of datasets the import did not carry (another small-variant
-source, another package's SV calls), which its flag cannot name. So the import's
-`import_unfinished` entry stays too: once its restore begins, it names every dataset the
-family holds, as the family's imports record what they imported
-(`families.metadata.imported_scopes`), and every dataset of the import, each with its samples
-and (for the small variants) its `source_format`. The family stays marked import-incomplete
-until each of them has been imported again with `overwrite`: import the whole family again,
-every package of it, not only the datasets that failed. Each import that completes with
-`overwrite` removes from the entry what it imported again, and the entry goes with the last;
-an `update` removes nothing, as it skips a dataset whose rows are there. The job's log says so
+source, another package's SV calls, an upload's data), which its flag cannot name. So the
+import's `import_unfinished` entry stays too: once its restore begins, it names every dataset
+the family holds, as the family's imports and single-file uploads record what they brought
+(`families.metadata.imported_scopes`; [What an upload records](#what-an-upload-records)), and
+every dataset of the import, each with its samples and (for the small variants) its
+`source_format`. The family stays marked import-incomplete until each of them has been brought
+again with `overwrite`: import the whole family again, every package of it, not only the
+datasets that failed, and upload again with `overwrite` what an upload brought. Each import
+that completes with `overwrite`, and each upload with `overwrite`, removes from the entry what
+it brought again, and the entry goes with the last; an `update` removes nothing, as it skips a
+dataset whose rows are there, and nor does an upload without `overwrite`. The job's log says so
 and names the datasets, and so does the log of each import that leaves some of them still to
 import. An import whose process stops during its restore leaves the same entry. A restore that
-puts the family back, or that refuses to start, removes the entry as before. Data loaded by a
-single-file upload (section 6) is not recorded among what the family holds, so such an entry
-does not name it ([ROADMAP.md](ROADMAP.md)).
+puts the family back, or that refuses to start, removes the entry as before.
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
@@ -943,6 +943,39 @@ Deleting a sample's structural variants on **Admin → Family & Sample Data** re
 from every source. Both this delete and an upload rewrite the stored rows, and write every
 call they do not change back as stored: with its phase set and breakend end, in its project,
 an inactive member's included.
+
+### What an upload records
+
+Each upload records what it brought in the family's `imported_scopes`, as a package import
+records what it imported, in the transaction that commits the upload: a failed overwrite whose
+restore fails part-way then names it among what the family holds, and the family stays marked
+import-incomplete until it has been brought again ([The import job](#the-import-job)). It is
+recorded as the package dataset that brings the same data records it, so that an overwrite of
+either brings again what the other brought; where no package dataset brings it, under a name of
+its own:
+
+| Upload | Recorded as |
+| --- | --- |
+| Family small variants | `snv`, with the callset it stored (`clair3` or `mito`; `auto` as it resolved): what a package `snv` dataset whose `source_format` names that callset brings. Imputed genotypes (`glimpse2`), with their haplotype blocks: `haplotypes`, as a package's imputed family VCF |
+| Structural variants | `sv_sniffles`, `sv_spectre` or `sv_manual`, for the sample: no package dataset brings them |
+| Repeat expansions (TRGT) | `repeats_trgt`, for the sample: what a package's TRGT file of that sample brings |
+| Interval tracks (BED) | `bed_coverage`, `bed_segments`, `bed_apcad` or `bed_apcad_pcf`, for the sample: a package dataset that writes such a track may read another kind of file into it, or write another track |
+
+An upload with `overwrite` also removes from such an entry what it brought again: the same
+dataset, for the same sample and (for the small variants) the same callset. One without
+`overwrite` removes nothing, as a package import's `update` removes nothing. A package `snv`
+dataset that leaves `source_format` at `auto` and an upload never bring again each other's
+callset: either may have stored another callset than the other.
+
+An upload made before uploads were recorded is not in `imported_scopes`: a restore that fails
+part-way does not name its data, so the gate opens once the rest of the family has been imported
+again, though that data may be missing. Upload such data again to record it.
+
+The repeat-expansion and interval-track uploads hold the family's write locks from their first
+read until they commit, as the small-variant and structural-variant uploads do
+([database.md](database.md#one-write-at-a-time-per-family)): such an upload waits while a
+package import of the family runs, which would otherwise undo it when it puts the family back,
+and a sign-out is refused while one runs.
 
 ### The NIPT artifact list
 

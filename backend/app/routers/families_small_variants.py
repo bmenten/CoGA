@@ -109,6 +109,7 @@ async def upload_family_small_variants(
         file=file,
         overwrite=overwrite,
         format_hint=source_format,
+        record_upload=True,
     )
     await record_upload_file_obj(
         session,

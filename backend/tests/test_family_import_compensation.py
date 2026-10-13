@@ -13,6 +13,9 @@ Covers the fail-clean plumbing without a live database:
     keeps the import's entry naming every dataset of the family (SAFE-16), which each
     completed overwrite shrinks and the last removes; what imports imported is recorded
     in `imported_scopes`.
+  * Each single-file upload records what it brought in `imported_scopes`, in its own
+    transaction, so such an entry names it, and an upload with overwrite strikes it off
+    (SAFE-19); each upload holds the family's write locks from its first read.
 The SQL itself runs against Postgres in
 integration/test_import_crash_bookkeeping_integration.py.
 """
@@ -86,7 +89,8 @@ class _FamilyRow(_FakeSession):
     documents, told apart by what it binds: the mark binds an ``entry`` for its
     ``import_key``; an import's failure and a completed import's clear bind the new
     ``flag`` and ``unfinished`` (JSON null: none) and ``imported_scopes`` (JSON null: left
-    as it is)."""
+    as it is); a single-file upload's record binds no flag, its ``imported_scopes``, and
+    ``unfinished`` only when it struck something off a whole-family entry."""
 
     def __init__(self, flag=None, unfinished=None, imported=None) -> None:
         super().__init__()
@@ -114,6 +118,10 @@ class _FamilyRow(_FakeSession):
             if isinstance(self.unfinished, dict):
                 self.unfinished.pop(params.get("import_key"), None)
                 self.unfinished = self.unfinished or None
+        elif "flag" not in params:
+            self.imported = json.loads(params["imported_scopes"])
+            if "unfinished" in params:
+                self.unfinished = json.loads(params["unfinished"])
         else:
             self.flag = json.loads(params["flag"])
             self.unfinished = json.loads(params["unfinished"])
@@ -672,3 +680,419 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
     # An SNV callset without a declared source is read as "auto".
     bundle.manifest.datasets["snv"] = dataset(family_vcf="snv/family.vcf")
     assert registration.dataset_scopes(bundle, ["snv"])["snv"]["source"] == "auto"
+
+
+# --- single-file uploads: recorded in what the family holds (SAFE-19) ----------------------
+#
+# Each upload's route is driven against the family row (``_UploadFamily``), its stores
+# patched out: what it writes of the family's metadata, and when, is what is tested.
+
+_FAMILY_SAMPLES = [
+    {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "female", "role": "proband"},
+    {"sample_uuid": "uuid-S2", "sample_id": "S2", "sex": "male", "role": "sibling"},
+]
+
+# What each upload of S1's data records (dataset, scope).
+_UPLOADS = {
+    "small_variants": ("snv", {"source": "clair3", "samples": None}),
+    "structural_variants": ("sv_manual", _one("S1")),
+    "repeats": ("repeats_trgt", _one("S1")),
+    "track": ("bed_coverage", _one("S1")),
+}
+
+
+class _UploadFamily(_FamilyRow):
+    """``_FamilyRow`` as an upload's route meets it: the upload's other statements are
+    answered too (the sample's metadata the structural-variant upload reads and writes
+    back; ``repeats``, the count of the sample's TRGT calls the TRGT upload reads), and
+    each commit is recorded among the statements, so a test sees what came before it."""
+
+    def __init__(self, *, repeats: int = 0, **row) -> None:
+        super().__init__(**row)
+        self.repeats = repeats
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        if sql.startswith("UPDATE families") or " FROM families " in sql:
+            return await super().execute(statement, params)
+        self.executed.append((sql, params))
+        if "COUNT(*)" in sql:
+            return SimpleNamespace(scalar_one=lambda: self.repeats)
+        return SimpleNamespace(scalar_one_or_none=lambda: None)
+
+    async def commit(self) -> None:
+        self.executed.append(("COMMIT", None))
+
+    def index(self, prefix: str) -> int:
+        return next(i for i, (sql, _) in enumerate(self.executed) if sql.lstrip().startswith(prefix))
+
+
+def _upload_file(text: str, name: str):
+    from io import BytesIO
+
+    from fastapi import UploadFile
+
+    return UploadFile(file=BytesIO(text.encode()), filename=name)
+
+
+@pytest.fixture
+def uploads(monkeypatch):
+    """``await uploads(kind, row, ...)`` runs that upload's route (``_UPLOADS``) for S1 (or
+    ``sample_id``) of family F1 against ``row``; ``rows`` is how many rows it finds of what
+    it would replace. Returns the events of its stores and locks, in order."""
+    from app.routers import bed as bed_router
+    from app.routers import families_small_variants as snv_router
+    from app.routers import repeat_expansions as trgt_router
+    from app.routers import structural_variants as sv_router
+    from app.services import annotation_manifest_service, bed_service, variant_upload_service
+    from app.services.family_metadata_context import SampleMetadataContext
+
+    family = SimpleNamespace(
+        family_uuid="uuid-1",
+        family_id="F1",
+        project_ids=["project-1"],
+        assembly_id="assembly-1",
+        assembly_name="GRCh38",
+        sample_rows=_FAMILY_SAMPLES,
+        relationship_rows=[],
+        affected_sample_names=[],
+    )
+    events: list[tuple] = []
+    existing = {"rows": 0}
+
+    def recorder(name: str, result=None):
+        async def record(*args, **kwargs):
+            events.append((name, args, kwargs))
+            return result() if callable(result) else result
+
+        return record
+
+    async def lock(session, family_uuid, variant_types, *, samples=None):
+        events.append(("lock", tuple(variant_types), sorted(samples or []), len(session.executed)))
+
+    async def nothing(*_args, **_kwargs):
+        return None
+
+    async def family_context(*_args, **_kwargs):
+        return family
+
+    async def ingest_trgt_text(session, *, sample_context, text_value, metadata, declared=None):
+        session.executed.append(("INSERT INTO repeat_expansions", {"sample": sample_context.sample_id}))
+        await session.commit()
+        return {"processed": 1, "inserted": 1, "source_format": "trgt"}
+
+    for module in (snv_router, sv_router, trgt_router, bed_router):
+        monkeypatch.setattr(module, "record_upload_file_obj", nothing)
+    monkeypatch.setattr(snv_router, "build_family_metadata_context", family_context)
+    monkeypatch.setattr(sv_router, "build_family_metadata_context", family_context)
+    monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", nothing)
+    # The small-variant and structural-variant stores.
+    monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", lock)
+    monkeypatch.setattr(
+        variant_upload_service, "count_family_small_variants", recorder("count", lambda: existing["rows"])
+    )
+    monkeypatch.setattr(variant_upload_service, "delete_family_small_variants", recorder("delete"))
+    monkeypatch.setattr(variant_upload_service, "insert_small_variant_records", recorder("insert"))
+    monkeypatch.setattr(variant_upload_service, "refresh_family_small_variant_summaries", nothing)
+    monkeypatch.setattr(
+        variant_upload_service, "get_track_presence_by_sample", recorder("haplotypes", lambda: {})
+    )
+    monkeypatch.setattr(
+        variant_upload_service, "_fetch_chromosome_sizes", recorder("sizes", lambda: {"1": 10_000})
+    )
+    monkeypatch.setattr(
+        variant_upload_service, "_delete_family_haplotype_blocks", recorder("delete haplotypes")
+    )
+    monkeypatch.setattr(variant_upload_service, "_insert_haplotype_rows", nothing)
+    monkeypatch.setattr(variant_upload_service, "record_haplotype_phase_corrections", nothing)
+    monkeypatch.setattr(
+        variant_upload_service, "fetch_family_structural_variant_rows", recorder("fetch", lambda: [])
+    )
+    monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", recorder("genes", lambda: {}))
+    monkeypatch.setattr(variant_upload_service, "rewrite_family_structural_variants", recorder("rewrite"))
+    # The TRGT upload's route reads and clears the sample's calls itself.
+    monkeypatch.setattr(trgt_router, "lock_family_variant_writes", lock, raising=False)
+    monkeypatch.setattr(trgt_router, "clear_sample_repeat_expansions", recorder("clear"))
+    monkeypatch.setattr(trgt_router, "ingest_trgt_text", ingest_trgt_text)
+    # The interval-track store; the BED upload's route takes the family's write locks.
+    monkeypatch.setattr(bed_router, "lock_family_variant_writes", lock, raising=False)
+    monkeypatch.setattr(
+        bed_service, "count_interval_track_source_rows", recorder("count", lambda: existing["rows"])
+    )
+    monkeypatch.setattr(bed_service, "delete_interval_tracks", recorder("delete"))
+    monkeypatch.setattr(bed_service, "delete_interval_track_sources", recorder("delete sources"))
+    monkeypatch.setattr(bed_service, "insert_interval_track_rows", recorder("insert"))
+    monkeypatch.setattr(bed_service, "upsert_interval_track_source", recorder("upsert"))
+
+    async def run(kind, row, *, sample_id="S1", overwrite=False, callset="clair3", rows=0):
+        events.clear()
+        existing["rows"] = rows
+        row.repeats = rows
+        user = SimpleNamespace(id="admin", username="admin")
+        target = SampleMetadataContext(
+            sample_uuid=f"uuid-{sample_id}",
+            sample_id=sample_id,
+            family_uuid="uuid-1",
+            family_id="F1",
+            sex="female",
+            project_ids=["project-1"],
+            assembly_id="assembly-1",
+            assembly_name="GRCh38",
+        )
+
+        async def sample_context(*_args, **_kwargs):
+            return target
+
+        for module in (sv_router, trgt_router, bed_router):
+            monkeypatch.setattr(module, "build_sample_metadata_context", sample_context)
+        if kind == "small_variants":
+            glimpse2 = callset == "glimpse2"
+            await snv_router.upload_family_small_variants(
+                family_id="F1",
+                file=_upload_file(
+                    "##fileformat=VCFv4.2\n"
+                    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n"
+                    + (
+                        "1\t100\t.\tA\tG\t60\tPASS\t.\tGT:GP\t0|1:0.1,0.8,0.1\t0|0:0.9,0.05,0.05\n"
+                        if glimpse2
+                        else "1\t100\t.\tA\tG\t60\tPASS\t.\tGT\t0/1\t0/0\n"
+                    ),
+                    "family.vcf",
+                ),
+                overwrite=overwrite,
+                source_format=callset,
+                session=row,
+                user=user,
+            )
+        elif kind == "structural_variants":
+            await sv_router.upload_structural_variants(
+                sample_id=sample_id,
+                file=_upload_file("SV1\t1\t10000\t20000\tN\t<DEL>\tDEL\t0/1\n", "calls.tsv"),
+                overwrite=overwrite,
+                source_format="manual",
+                session=row,
+                user=user,
+            )
+        elif kind == "repeats":
+            await trgt_router.upload_repeat_expansions(
+                sample_id=sample_id,
+                file=_upload_file("##fileformat=VCFv4.2\n", "repeats.vcf"),
+                overwrite=overwrite,
+                session=row,
+                user=user,
+            )
+        else:
+            await bed_router.upload_bed(
+                sample_id=sample_id,
+                bed_type="coverage",
+                file=_upload_file("1\t0\t1000\tbin1\t31.0\n", "coverage.bed"),
+                overwrite=overwrite,
+                session=row,
+                user=user,
+            )
+        return list(events)
+
+    run.events = events  # what the last upload did, also when it raised
+    return run
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", sorted(_UPLOADS))
+async def test_a_single_file_upload_records_what_it_brought_with_its_commit(uploads, kind) -> None:
+    # The family holds a package import's SNV callset. Before (SAFE-19): an upload left
+    # imported_scopes as it was, so nothing recorded that the family held its data.
+    row = _UploadFamily(imported={"snv": [_SCOPES["snv"]]})
+
+    await uploads(kind, row)
+
+    dataset, scope = _UPLOADS[kind]
+    expected = {"snv": [_SCOPES["snv"]], dataset: [scope]}
+    if dataset == "snv":  # the upload's callset beside the package's, each scope once
+        expected = {"snv": [_SCOPES["snv"], scope]}
+    assert row.imported == expected
+    # Read under the family row's lock, and written in the transaction that commits what
+    # the upload wrote: the record stands or falls with the upload.
+    locked = row.index("SELECT metadata -> 'import_unfinished'")
+    assert row.executed[locked][0].rstrip().endswith("FOR NO KEY UPDATE")
+    assert locked < row.index("UPDATE families") < row.index("COMMIT")
+    assert [sql for sql, _ in row.executed].count("COMMIT") == 1
+    # An upload's record leaves the flag and the entries as they are.
+    assert row.flag is None and row.unfinished is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", sorted(_UPLOADS))
+async def test_a_restore_that_fails_part_way_names_what_an_upload_brought(uploads, kind) -> None:
+    # The family's data came from an upload; an overwrite of another dataset (coverage)
+    # failed, and its restore, which rewrites every table's rows of the family whichever
+    # import or upload wrote them, failed part-way.
+    row = _UploadFamily()
+    await uploads(kind, row)
+    mark = _mark(datasets=("coverage",))
+    row.unfinished = {mark.key: mark.entry()}
+
+    listed = await fpi._flag_family_restore_failed(
+        row,
+        _ctx(),
+        failed_datasets=["coverage"],
+        job_id="job-2",
+        mark=mark,
+        scopes=mark.scopes,
+        family_samples=["S1", "S2"],
+    )
+
+    # Before: the entry named the import's coverage alone, and an import of that again
+    # opened the gate with the uploaded data gone.
+    dataset, scope = _UPLOADS[kind]
+    assert listed == sorted({"coverage", dataset})
+    assert {"dataset": dataset, "scope": scope} in row.unfinished[mark.key]["whole_family"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", sorted(_UPLOADS))
+async def test_an_overwrite_upload_strikes_what_it_brought_again_off_the_whole_family_entry(
+    uploads, kind
+) -> None:
+    dataset, scope = _UPLOADS[kind]
+    mark = _mark(datasets=("coverage",))
+    entry = registration.whole_family_entry(
+        mark, imported={dataset: [scope]}, unfinished={}, family_samples=["S1", "S2"]
+    )
+    row = _UploadFamily(unfinished={mark.key: copy.deepcopy(entry)}, imported={dataset: [scope]})
+
+    # Without overwrite (nothing was left to replace) it stays listed, as after an update.
+    await uploads(kind, row)
+    assert row.unfinished == {mark.key: entry}
+
+    # With overwrite it is struck off (before: it stayed listed until a package import
+    # brought it again, which none can). The import's own coverage is still to import.
+    await uploads(kind, row, overwrite=True, rows=3)
+    left = row.unfinished[mark.key]
+    assert (left["datasets"], left["finished_datasets"]) == (["coverage"], [])
+    assert [item["dataset"] for item in left["whole_family"]] == ["coverage", "coverage"]
+
+    # The coverage imported again with overwrite: the family has been imported again in
+    # full, and the entry goes.
+    cleared = await fpi._clear_family_import_incomplete(
+        row, _ctx(), rewritten={"coverage": _SCOPES["coverage"]}
+    )
+    assert cleared is not None and cleared.unfinished == {} and row.unfinished is None
+
+
+@pytest.mark.asyncio
+async def test_an_upload_strikes_off_only_the_samples_and_the_callset_it_brought(uploads) -> None:
+    mark = _mark(datasets=("coverage",))
+    entry = registration.whole_family_entry(
+        mark,
+        imported={
+            "snv": [_SCOPES["snv"], {"source": "clair3", "samples": None}],
+            "sv_manual": [_one("S1"), _one("S2")],
+            "repeats_trgt": [_one("S1")],
+        },
+        unfinished={},
+        family_samples=["S1", "S2"],
+    )
+    row = _UploadFamily(unfinished={mark.key: entry})
+
+    await uploads("structural_variants", row, sample_id="S2", overwrite=True)
+    await uploads("repeats", row, sample_id="S2", overwrite=True)
+    await uploads("small_variants", row, overwrite=True)
+
+    # S2's manual SV calls and the uploaded clair3 callset are struck off. S1's calls, the
+    # TRGT calls of S1 and the package's callset (source_format auto: whichever callset it
+    # resolved to) are still to bring again.
+    assert [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] != "coverage"] == [
+        {"dataset": "repeats_trgt", "scope": _one("S1")},
+        {"dataset": "snv", "scope": _SCOPES["snv"]},
+        {"dataset": "sv_manual", "scope": _one("S1")},
+    ]
+    # Each recorded what it brought.
+    assert row.imported["repeats_trgt"] == [_one("S2")]
+    assert row.imported["sv_manual"] == [_one("S2")]
+
+
+@pytest.mark.asyncio
+async def test_imputed_genotypes_are_recorded_as_the_haplotypes_a_package_brings(uploads) -> None:
+    # A package's haplotypes dataset loads the imputed family VCF through the same loader:
+    # an overwrite upload of one brings again what the other brought.
+    haplotypes = _SCOPES["haplotypes"]
+    mark = _mark(datasets=("coverage",))
+    entry = registration.whole_family_entry(
+        mark, imported={"haplotypes": [haplotypes]}, unfinished={}, family_samples=["S1", "S2"]
+    )
+    row = _UploadFamily(unfinished={mark.key: entry})
+
+    events = await uploads("small_variants", row, callset="glimpse2", overwrite=True, rows=3)
+
+    assert "delete haplotypes" in [event[0] for event in events]
+    assert row.imported == {"haplotypes": [haplotypes]}
+    assert row.unfinished[mark.key]["datasets"] == ["coverage"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", sorted(_UPLOADS))
+async def test_each_upload_holds_the_family_write_locks_from_its_first_read(uploads, kind) -> None:
+    # A package import holds both of the family's variant-write locks from its snapshot to
+    # its restore. An upload that held neither could fall in between: its rows undone by the
+    # restore, or struck off a whole-family entry and then removed by it. Before, the TRGT
+    # and BED uploads took no lock.
+    row = _UploadFamily()
+
+    events = await uploads(kind, row, overwrite=True, rows=3)
+
+    locks = [event for event in events if event[0] == "lock"]
+    assert len(locks) == 1, events
+    _, types, samples, statements_before = locks[0]
+    assert events.index(locks[0]) == 0 and statements_before == 0, "taken before the first read"
+    expected = {
+        "small_variants": ("small_variants",),
+        "structural_variants": ("structural_variants",),
+        "repeats": ("small_variants", "structural_variants"),
+        "track": ("small_variants", "structural_variants"),
+    }
+    assert types == expected[kind]
+    assert samples == (["uuid-S1", "uuid-S2"] if kind == "small_variants" else ["uuid-S1"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", sorted(_UPLOADS))
+async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_its_rows(
+    uploads, kind
+) -> None:
+    class _RecordFails(_UploadFamily):
+        async def execute(self, statement, params=None):
+            if "FOR NO KEY UPDATE" in str(statement):
+                raise RuntimeError("database unavailable")
+            return await super().execute(statement, params)
+
+    row = _RecordFails()
+
+    with pytest.raises(RuntimeError, match="database unavailable"):
+        await uploads(kind, row, overwrite=True, rows=3)
+
+    # Nothing committed, and no rows the family does not record: the small-variant upload
+    # records once its rows are written and its clean-up removes them again; the others
+    # record before their first write.
+    assert ("COMMIT", None) not in row.executed
+    assert row.imported is None
+    writes = [
+        (event[0], event[2])
+        for event in uploads.events
+        if event[0] in {"delete", "insert", "rewrite", "delete sources", "upsert"}
+    ]
+    if kind == "small_variants":
+        assert [name for name, _ in writes] == ["delete", "insert", "delete"]
+        assert writes[-1][1] == {"source": "clair3"}
+    else:
+        assert writes == []
+    assert ("INSERT INTO repeat_expansions", {"sample": "S1"}) not in row.executed
+
+
+def test_each_upload_has_the_dataset_of_the_package_import_that_brings_the_same() -> None:
+    assert registration.small_variant_upload_scope("clair3") == ("snv", {"source": "clair3", "samples": None})
+    assert registration.small_variant_upload_scope("mito") == ("snv", {"source": "mito", "samples": None})
+    assert registration.small_variant_upload_scope("glimpse2") == ("haplotypes", _SCOPES["haplotypes"])
+    assert registration.repeat_upload_scope("S1") == ("repeats_trgt", _one("S1"))
+    # No package dataset brings these.
+    assert registration.structural_variant_upload_scope("sniffles", "S1") == ("sv_sniffles", _one("S1"))
+    assert registration.interval_track_upload_scope("apcad_pcf", "S1") == ("bed_apcad_pcf", _one("S1"))

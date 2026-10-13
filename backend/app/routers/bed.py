@@ -14,6 +14,7 @@ from ..services.bed_service import (
     upload_bed_data,
 )
 from ..services.family_metadata_context import build_sample_metadata_context
+from ..services.family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from ..services.access_control import CurrentUser
 from ..services.raw_import_files_pg import record_upload_file_obj
 
@@ -34,12 +35,23 @@ async def upload_bed(
         sample_identifier=sample_id,
         user=user,
     )
+    # From the upload's first read until it commits: a package import's restore rewrites the
+    # family's tracks too, and the import holds these locks from its snapshot to its
+    # restore, so the upload never falls in between. The sample must still be stored once
+    # it is this upload's turn.
+    await lock_family_variant_writes(
+        session,
+        sample_context.family_uuid,
+        VARIANT_TYPES,
+        samples=[sample_context.sample_uuid],
+    )
     result = await upload_bed_data(
         session,
         sample_context=sample_context,
         bed_type=bed_type,
         file=file,
         overwrite=overwrite,
+        record_upload=True,
     )
     await record_upload_file_obj(
         session,

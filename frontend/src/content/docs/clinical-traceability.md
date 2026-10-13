@@ -119,7 +119,7 @@ Sign-out stops at each of these, in this order:
 | Check | Stops when | To go on |
 | --- | --- | --- |
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
-| **Data being written** | A data import of the family is queued or running, or its variants are being written (an upload or a deletion). | No override: sign out once it has finished. |
+| **Data being written** | A data import of the family is queued or running, or its data are being written (an upload, or a deletion of its variants). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
 | **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
@@ -149,11 +149,12 @@ Results on such a family can lack whole datasets, for example all its structural
 the datasets that failed again to complete the family: the warning goes once each has been imported
 again, and an import without them leaves it. If a later import fails too, the warning names both,
 each with its import job. A failed overwrite is put back as it was before the import; if that fails
-too, any dataset of the family may have lost data, whichever import it came from, so the warning
-names every dataset of that import as failed, the ones that imported too, and every dataset the
-family holds as possibly partly written or missing. It stays until the whole family has been
-imported again with **overwrite**, not only what failed. Signing out before then needs an
-acknowledgement with a reason, and the signed version records which datasets were missing.
+too, any dataset of the family may have lost data, whichever import or upload it came from, so the
+warning names every dataset of that import as failed, the ones that imported too, and every dataset
+the family holds as possibly partly written or missing. It stays until the whole family has been
+imported again with **overwrite**, not only what failed, and what an upload brought has been uploaded
+again with **overwrite**. Signing out before then needs an acknowledgement with a reason, and the
+signed version records which datasets were missing.
 
 An import also marks the family before it writes anything of it, and removes the mark when it ends.
 While it runs the pages carry *Import incomplete* too. If it stops part-way (the server restarted,
