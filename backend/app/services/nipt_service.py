@@ -50,6 +50,7 @@ from .clickhouse_variant_records import (
 if TYPE_CHECKING:
     from ..schemas import FamilyOut, VariantOut
 from .clickhouse_interval_tracks import fetch_interval_track_rows
+from .coverage_read_depth import COVERAGE_TRACK_TYPE, read_depth_sources_by_sample
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
@@ -1206,14 +1207,38 @@ async def _resolve_nipt_target_regions(
 
 
 async def _load_coverage_intervals(
-    assembly_name: str, sample_uuid: str, target_regions: list[TargetRegion]
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    sample_id: str,
+    target_regions: list[TargetRegion],
 ) -> list[CoverageInterval]:
+    """The sample's coverage on the target regions' chromosomes, from its one coverage track
+    whose values are read depth (CLIN-46): the coverage BED, or a depth track stored as read
+    (``coverage_read_depth``). WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth
+    are log2 ratios: merged with the BED's depths they pulled its median down, and their rows
+    over a region counted its bases again, which can hide an uncovered stretch from the
+    completeness check. Without a depth track, [], which reads as no coverage."""
+    sample_uuid = context.sample_name_to_uuid.get(sample_id)
+    if not sample_uuid or not context.assembly_name or not target_regions:
+        return []
     chromosomes = sorted({region.chrom for region in target_regions})
-    rows = await fetch_interval_track_rows(
-        assembly_name,
-        sample_uuid=sample_uuid,
-        track_type="coverage",
+    depth_sources = await read_depth_sources_by_sample(
+        session,
+        assembly_name=context.assembly_name,
+        family_uuid=context.family_uuid,
+        sample_uuid_to_name={sample_uuid: sample_id},
         chromosomes=chromosomes,
+    )
+    source = depth_sources.get(sample_id)
+    if source is None:
+        return []
+    rows = await fetch_interval_track_rows(
+        context.assembly_name,
+        sample_uuid=sample_uuid,
+        family_uuid=context.family_uuid,
+        track_type=COVERAGE_TRACK_TYPE,
+        chromosomes=chromosomes,
+        source=source,
     )
     intervals: list[CoverageInterval] = []
     for row in rows:
@@ -1270,12 +1295,9 @@ async def get_family_nipt_coverage(
     target_regions = await _resolve_nipt_target_regions(
         session, family=family, context=context, gene=gene, panel_id=panel_id
     )
-    sample_uuid = context.sample_name_to_uuid.get(trio.cfdna_sample_id)
-    coverage: list[CoverageInterval] = []
-    if sample_uuid and context.assembly_name and target_regions:
-        coverage = await _load_coverage_intervals(
-            context.assembly_name, sample_uuid, target_regions
-        )
+    coverage = await _load_coverage_intervals(
+        session, context, trio.cfdna_sample_id, target_regions
+    )
     return NiptCoverageResult(
         regions=summarize_on_target_coverage(target_regions, coverage, min_depth=min_depth)
     )
