@@ -75,8 +75,11 @@ compatible inheritance modes and the matched phenotypes.
 anything it depends on changes: the phenotypes, the pedigree, the panel's genes and regions, the filters
 (including review-tag filters), the family's variant data, or the reference data (the Monarch release,
 each import of the HPO ontology, gene constraint, and the gene positions a panel or gene filter uses).
-Narrowing from the Mendeliome to a smaller panel is served from the broader ranking, as long as the
-Mendeliome's genes and regions are the same as when that ranking was computed.
+Narrowing from the Mendeliome to a smaller panel is served from the broader ranking, ranked from 1
+within the smaller panel, as long as the Mendeliome's genes and regions are the same as when that
+ranking was computed. A smaller panel that reaches a variant the broader ranking lacks (one it
+matches by position only), or that keeps one variant of a compound-het pair without the other, is
+computed for itself instead.
 
 **Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on.
 

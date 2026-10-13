@@ -1,7 +1,7 @@
 # Open issues
 
-Every known open issue, ranked by priority. Status of **2026-10-13**, `main` at `6cc717de`
-(after the fixes #790–#829). Sources: the open GitHub issues and pull requests, the
+Every known open issue, ranked by priority. Status of **2026-10-13**, `main` at `63f45cb2`
+(after the fixes #790–#831). Sources: the open GitHub issues and pull requests, the
 follow-ups recorded in the pull requests of the last weeks, the residuals and open items in
 `docs/` and the technical file, the codebase audit of 2026-10-08, whose agents checked each
 item in the code, and what the fixes of 2026-10-09 to 10-13 found. Line numbers drift:
@@ -14,7 +14,8 @@ are also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 
 - **P0** — a defect that silently gives a wrong clinical result, loses data or opens a
   security hole in production: fix before anything else. **None:** nothing is in clinical
-  use and the data are synthetic. CLIN-33 would be P0 in production.
+  use and the data are synthetic. Every open P1 is a release, operations or regulatory step;
+  the clinical defects left are P2.
 - **P1** — blocks the first release candidate (RC): wrong behaviour or records with
   clinical or audit impact, or a step the RC needs.
 - **P2** — to be done before the RC.
@@ -33,22 +34,22 @@ merges; CI green on `main`; no image pushed, nothing deployed, no release tagged
 
 | Rank | ID | Pri | Issue | Owner |
 |---:|---|---|---|---|
-| 1 | CLIN-33 | P1 | An uploaded SV without an END covers one base | Eng |
-| 2 | REG-1 | P1 | Traceability-matrix rows marked verified that the software does not fully meet | QA, Owner, Eng |
-| 3 | REG-2 | P1 | Decide what the signed record holds per application | Owner |
-| 4 | OPS-2 | P1 | No image pushed; the CI image build does not block a merge | Owner, Ops |
-| 5 | OPS-3 | P1 | Terraform never applied; one environment; every push would deploy | Ops, Owner |
-| 6 | OPS-4 | P1 | The go-live switches are all off (#364) | Ops |
-| 7 | OPS-5 | P1 | No restore has been tested; no consistent Postgres + ClickHouse restore | Ops, Eng |
-| 8 | REG-3 | P1 | The RC steps of TF-18 §3a have not started | Owner, QA |
-| 9 | REG-4 | P1 | Technical-file sign-off (#518) | Owner, QA, RA |
-| 10 | REG-5 | P1 | Risk-file confirmations | LD, QA |
-| 11 | REG-6 | P1 | Performance-evaluation inputs (TF-10) | Owner, QA |
-| 12 | REG-7 | P1 | Usability evaluation, DPIA filing, national provisions | Owner, DPO, RA, QA |
-| 13 | REG-8 | P1 | Independent (4-eye) review is not enforced on `main` | Owner, Ops |
-| 14 | CLIN-34 | P2 | A sub-panel served from the Mendeliome's ranking is checked on gene symbols only | Eng |
-| 15 | CLIN-35 | P2 | A sub-panel served from a broader ranking keeps that ranking's numbers and pairs | Eng |
-| 16 | CLIN-37 | P2 | A breakend without SVTYPE is stored with its ALT as its type | Eng |
+| 1 | REG-1 | P1 | Traceability-matrix rows marked verified that the software does not fully meet | QA, Owner, Eng |
+| 2 | REG-2 | P1 | Decide what the signed record holds per application | Owner |
+| 3 | OPS-2 | P1 | No image pushed; the CI image build does not block a merge | Owner, Ops |
+| 4 | OPS-3 | P1 | Terraform never applied; one environment; every push would deploy | Ops, Owner |
+| 5 | OPS-4 | P1 | The go-live switches are all off (#364) | Ops |
+| 6 | OPS-5 | P1 | No restore has been tested; no consistent Postgres + ClickHouse restore | Ops, Eng |
+| 7 | REG-3 | P1 | The RC steps of TF-18 §3a have not started | Owner, QA |
+| 8 | REG-4 | P1 | Technical-file sign-off (#518) | Owner, QA, RA |
+| 9 | REG-5 | P1 | Risk-file confirmations | LD, QA |
+| 10 | REG-6 | P1 | Performance-evaluation inputs (TF-10) | Owner, QA |
+| 11 | REG-7 | P1 | Usability evaluation, DPIA filing, national provisions | Owner, DPO, RA, QA |
+| 12 | REG-8 | P1 | Independent (4-eye) review is not enforced on `main` | Owner, Ops |
+| 13 | CLIN-34 | P2 | A sub-panel served from the Mendeliome's ranking is checked on gene symbols only | Eng |
+| 14 | CLIN-35 | P2 | A sub-panel served from a broader ranking keeps that ranking's numbers and pairs | Eng |
+| 15 | CLIN-40 | P2 | A NeedlR breakend is stored without its mate | Eng |
+| 16 | CLIN-41 | P2 | An insertion written as its sequence, without SVLEN, measures 0 bp | Owner, Eng |
 | 17 | SAFE-19 | P2 | Single-file uploads are not recorded in what a family holds | Eng |
 | 18 | SAFE-20 | P2 | In update mode the coverage import reports a dataset it skipped as imported | Eng |
 | 19 | CLIN-28 | P2 | The SNV + SV second-hit badge lets any cis verdict win | Eng |
@@ -87,17 +88,6 @@ merges; CI green on `main`; no image pushed, nothing deployed, no release tagged
 | 52 | OPS-10 | P2 | Secrets in the Terraform state | Owner |
 
 ## P1 — before the release candidate
-
-### CLIN-33 · An uploaded SV without an END covers one base
-
-The Sniffles and Spectre uploads store a call whose INFO has no END at END = POS
-(`info.get("END", pos)` in `structural_variant_ingest.py`). A symbolic deletion or
-duplication written with SVLEN alone then spans no bases: its region, its gene overlap and
-its track drawing are wrong, so a gene or panel filter can miss a deletion that covers the
-gene (the length filters measure SVLEN since #827). The package importers of NeedlR and
-HiFiCNV store END = POS + |SVLEN| instead. Found while fixing CLIN-25 (#827) and read in the
-code. **Next:** store END = POS + |SVLEN| for a symbolic DEL, DUP or INV without END, as the
-package importers do, and test the gene overlap and the panel filter on such a call.
 
 ### REG-1 · Traceability-matrix rows marked verified that the software does not fully meet
 
@@ -220,10 +210,19 @@ met, by the first beta at the latest.
   pairs.** It keeps the broader `rank` (the card's "#N", the review dialog, the CSV's Rank
   column) and its compound-het pairs and segregation weights: a pair whose partner the
   narrower panel excludes stays (#828).
-- **CLIN-37 · A breakend without SVTYPE is stored with its ALT as its type.** An uploaded
-  record without SVTYPE takes its ALT without `<>` as its type, so a breakend becomes
-  `N]5:3000000]`: neither the type filter nor the translocation rule of #827 sees it. Map a
-  breakend ALT to BND.
+- **CLIN-40 · A NeedlR breakend is stored without its mate.** The package's NeedlR reader
+  stores every breakend with no mate position (`remote_chr`, `remote_start` are always None
+  in `_needlr_records`), so a NeedlR translocation names no partner in the SV list and a
+  search by the mate's position never finds it; its ALT, which holds the mate in brackets,
+  is kept in the annotation. The uploads read the mate from the ALT (`parse_bnd_alt`). Found
+  while fixing CLIN-37 (#831).
+- **CLIN-41 · An insertion written as its sequence, without SVLEN, measures 0 bp.** VCF 4.4
+  defines SVLEN for symbolic alleles only and writes it `.` for a sequence allele, so such a
+  file's insertions carry no SVLEN: the length filters measure them by END − POS, 0 bp, and
+  a minimum length drops them (#827's rule: SVLEN, else END − POS). A deletion written as
+  its sequence measures its REF since #831. Today's callers (Sniffles2, pbsv) write SVLEN.
+  The owner decides whether a call without SVLEN is measured by its alleles. Found while
+  fixing CLIN-33 (#831).
 - **SAFE-19 · Single-file uploads are not recorded in what a family holds.** #829's
   `imported_scopes` records what each package import brought in. Data loaded by a
   single-file upload is not in it, so the whole-family entry a part-way restore leaves
@@ -387,6 +386,10 @@ met, by the first beta at the latest.
     description-only edit still serves; the TF-09b and TF-09c rows.
   - #829 (partial restore): clearing counts each overwrite; Postgres-only datasets are
     required; a stop during the restore keeps the entry; TF-06 H16.
+
+  Round 4:
+  - #831 (SV records without END or SVTYPE): the TF-10 §8 phrase; `SV` as the type of an ALT
+    that states none, or refusing such a record.
 - **CLIN-9 · QA confirmation of the carrier-screening preset and the chrM exclusion** (#763).
   TF-09a records the chrM exclusion as the owner's decision.
 - **CLIN-10 · Parent–embryo IBS0 never checked on real imputed data** since the genome-wide
@@ -575,7 +578,14 @@ met, by the first beta at the latest.
 - **CLIN-39 ·** SV details (#827): a translocation shows as 0 or 1 bp (the report sentence
   reads "A 0 bp breakend"); a call with neither END nor SVLEN is 1 bp from NeedlR and
   HiFiCNV and 0 bp elsewhere; a negative exact length (the list writes deletions with a
-  minus sign) silently matches nothing.
+  minus sign) silently matches nothing. And a call without END: the package's NeedlR,
+  HiFiCNV and chrM Sniffles2 readers end it at POS + SVLEN, its sign dropped, whatever its
+  type (without SVLEN at POS + 1, chrM at POS), so an insertion or a breakend spans bases
+  after it there, while the uploads put it on its POS as VCF 4.4 does (#831).
+- **CLIN-42 ·** SV records (#831): a symbolic deletion, duplication, inversion or CNV with
+  neither END nor SVLEN stays on its POS and is stored without a word (the upload could
+  count or refuse it); an SVTYPE written in lower case (`bnd`) gets no mate, as the readers
+  compare `BND` exactly.
 
 ### Technical file and documentation
 
@@ -704,6 +714,9 @@ met, by the first beta at the latest.
 - **PROD-8 ·** The UI can add or delete a phenotype term but not edit one.
 
 ## Closed since the last review
+
+Fixed on 2026-10-13, round 4: SV records without END or SVTYPE, read as VCF 4.4 defines them
+(CLIN-33 and CLIN-37, #831). What it left open is listed above.
 
 Fixed on 2026-10-13, round 3: the SV length filters (CLIN-25, #827), the *not assessed*
 repeat status (CLIN-26, #826), the sub-panel ranking cache (CLIN-27, #828) and the

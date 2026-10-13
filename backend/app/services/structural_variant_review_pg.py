@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Sequence
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid
@@ -192,6 +192,9 @@ async def get_structural_variant_review_map(
     normalized_variant_ids = [str(variant_id).strip() for variant_id in variant_ids if str(variant_id).strip()]
     if not normalized_variant_ids:
         return {}
+    # The ids go as one text[] parameter, not one parameter per id (an expanding IN): a CSV
+    # export reads up to 50,001 rows, and asyncpg refuses a statement with more than 32,767
+    # parameters, so every export of a larger result failed before its row cap (DATA-3).
     result = await session.execute(
         text(
             """
@@ -208,9 +211,9 @@ async def get_structural_variant_review_map(
                 updated_at
             FROM structural_variant_reviews
             WHERE family_id = CAST(:family_id AS uuid)
-              AND variant_id IN :variant_ids
+              AND variant_id = ANY(CAST(:variant_ids AS text[]))
             """
-        ).bindparams(bindparam("variant_ids", expanding=True)),
+        ),
         {"family_id": family_uuid, "variant_ids": normalized_variant_ids},
     )
     return {

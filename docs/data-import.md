@@ -168,7 +168,9 @@ FAMILY_IMPORT_ROOTS=gs://my-coga-bucket/imports   # a bucket; s3:// also works
 
 On Google Cloud, Terraform sets `gs://<phi bucket>/imports` when `storage_backend` is `gcs`
 (see [deployment-gcp.md](deployment-gcp.md) §11). The backend's cloud identity needs read
-access to the bucket. A path outside these roots is refused (`package_folder_not_allowed`).
+access to the bucket. A path outside these roots is refused (`package_folder_not_allowed`),
+and so is a local path that cannot be followed: one that runs through a symlink loop, or
+starts with `~` for a home folder the server does not have (both failed with a 500).
 
 A package in a bucket is downloaded to a temporary folder for validation and import,
 except its aligned reads: `.cram`, `.crai`, `.bam` and `.bai` files, and a `.csi` named after
@@ -210,7 +212,13 @@ The API behind the page:
 `conflict_mode` decides what happens when the family or its samples already exist:
 
 - `cancel` (default): the import fails (`existing_family_or_samples`). A dry run only warns.
-- `update`: import into the existing family, and skip each dataset that already has data.
+- `update`: import into the existing family, and skip each dataset that already has data: data
+  as stored (the small variants, structural variants and tracks in ClickHouse, the repeats and
+  Paraphase results in Postgres), not Postgres's record of a track
+  (`sample_interval_track_sources`), which a failed overwrite's restore can leave behind its
+  rows. The track datasets and Paraphase are skipped sample by sample (the HiFiCNV tracks of
+  `cnv` track by track, its calls whole), and the dataset's message names what was skipped; a
+  dataset skipped whole ends `skipped`, not `imported`.
 - `overwrite`: import into the existing family, and replace each imported dataset.
 
 While a job runs, the page shows each dataset's progress (`progress` in its summary): how
@@ -256,8 +264,10 @@ that looks complete:
   `source_format`; an import that completes without one leaves it flagged, and says so in its
   log. An update will do: the failing loader's rows were rolled back or cleaned up, so the
   update finds none and imports the dataset whole (one whose rows stayed is skipped, and a
-  skipped dataset does not count). A later failure keeps an earlier one's failed datasets in
-  the flag, each with the job that holds its error (`failed_jobs`).
+  skipped dataset does not count; nor does a skipped sample: a dataset the update imported for
+  some samples and skipped for others counts as imported again for those it imported). A later
+  failure keeps an earlier one's failed datasets in the flag, each with the job that holds its
+  error (`failed_jobs`).
 
 An import whose process stops part-way does none of this: nothing runs in a process that
 has ended. So an import marks the family before it writes anything of it, with an entry in
@@ -287,6 +297,10 @@ the family's datasets, whichever import wrote them: table by table, it deletes t
 rows before it puts the backup's back. So the flag it leaves names every dataset the import
 set out to import as failed, including those that imported and those it only registered, and
 none as imported; the family stays flagged until an import has imported each of them again.
+Postgres is put back after ClickHouse, so after such a restore Postgres can still record a
+track whose rows it removed: an `update` reads the rows. It imports again a dataset whose rows
+the restore removed, which then leaves the flag, and skips one whose rows are there, which
+stays flagged.
 
 Such a restore also removes rows of datasets the import did not carry (another small-variant
 source, another package's SV calls), which its flag cannot name. So the import's
@@ -446,9 +460,30 @@ of the folder (an absolute path, or one whose `..` climb out of it): such an ID 
 Discover looks for, Discover warns about it (`family_id_leaves_package`,
 `sample_id_leaves_package`), and when it finds no PED it does not propose `<family ID>.ped` for
 such a family ID. A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
-package counts as absent, as validation refuses it.
+package, or one that loops, counts as absent, as validation refuses it; so does a long-read
+per-sample entry that loops (looked up, it failed Discover and the package list with a 500).
 
 ### The manifest
+
+The manifest is a file in the package folder. A `manifest.yaml`, `.yml` or `.json` that is a
+symlink leading out of the folder, or one that loops, is refused (`manifest_outside_package`,
+`manifest_link_out_of_package` in
+[family_package_source.py](../backend/app/services/family_package_source.py)): Discover drafts
+nothing, validation reads nothing more of the package, the package list shows it under its
+folder's name, and **Write manifest.yaml** answers 400. Before, Discover and validation read
+whatever file the link pointed at as the package's manifest, and Write manifest wrote through
+it, replacing that file or creating the one a dangling link named. A symlink that stays in the
+package is followed.
+
+Every path the manifest names is relative to the package folder, or an absolute path inside
+it. Validation refuses with 400 a path that leads out of the package (an absolute path
+elsewhere, `..` that climbs out of it, a symlink that leads out), one that starts with `~`, and
+one that runs through a symlink loop (`_resolve_package_path` in
+[family_package_common.py](../backend/app/services/family_package_common.py)). A `~` is not
+the home folder: it was expanded, so `~/x.vcf` named a file in the backend's home folder and
+`~nouser/x.vcf` failed with a 500; CoGA reads no home folder. A `~` further on in a path is part
+of a name. The guard finds a loop by looking the resolved path up, so Python 3.12, whose
+`Path.resolve` raises on a loop, and 3.13, whose does not, refuse it alike.
 
 ```yaml
 schema_version: 1          # must be 1
@@ -574,7 +609,7 @@ The `snv` dataset takes three optional settings:
 | Dataset | Stored as |
 | --- | --- |
 | `snv` | small variants (ClickHouse), with the VEP table if given; a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format: clair3`) as the primary callset, source `clair3` ([below](#per-sample-callsets-of-a-long-read-couple)) |
-| `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample |
+| `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample; a breakend with its mate, the position its ALT names in brackets, read as a structural-variant upload reads it ([below](#6-single-file-uploads)) |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
 | `coverage` | the `coverage` track (a BED per sample, `bed:`), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
@@ -582,7 +617,7 @@ The `snv` dataset takes three optional settings:
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
-| `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md)), and the MAF bigWig as `apcad` |
+| `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md); a depth file without autosomal depth gives no median to normalise by, and its depths are stored as read, recorded as `none`), and the MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name; the chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
@@ -598,8 +633,10 @@ The chrM SV files follow the same rule: one deletion called in the mother and th
 SV with both calls, and a sample's new SV file replaces only that sample's calls.
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
-lists them). The three HiFiCNV files are also served unchanged to the genome browser (IGV),
-from the bucket for a package in a bucket.
+lists them, with the transform each coverage track's record names, `coverage_normalizations`).
+A coverage track whose values are not a log2 ratio, such as HiFiCNV depths stored as read, is
+not drawn on the viewers' log2-ratio axis: its place says why. The three HiFiCNV files are also
+served unchanged to the genome browser (IGV), from the bucket for a package in a bucket.
 
 Every file a dataset names, per sample or for the whole family, is recorded in
 `raw_import_files` with its size and SHA-256 ([database.md](database.md)), whichever of its
@@ -731,10 +768,12 @@ the entry's. One SV called in both partners with the same alleles is one SV with
 
 Discover, dry run and import check that:
 
-- the folder and the manifest exist, and `schema_version` is 1;
+- the folder and the manifest exist, the manifest is a file in the folder rather than a symlink
+  out of it or one that loops (`manifest_outside_package`), and `schema_version` is 1;
 - the family ID (the manifest's `family_id`, else the folder name; for Discover, the request's
-  `family_id` first) and every sample ID (in the PED, under `family.add_members` as a member or
-  a parent, a long-read package's per-sample folder) is printable text without spaces. The
+  `family_id` first) and every sample ID (in the PED, and for Discover a parent the PED names
+  but lacks as a member; under `family.add_members` as a member or a parent; a long-read
+  package's per-sample folder) is printable text without spaces. The
   whitespace around an ID is stripped. An ID that holds a control character (C0, `\x00`–`\x1f`:
   a line break, a tab, an escape; or DEL, `\x7f`) or whitespace is refused (`family_id_invalid`,
   `sample_id_invalid`), and nothing else of the package is read until it is corrected: Discover
@@ -750,9 +789,11 @@ Discover, dry run and import check that:
   `family.add_members`, an added member is not already in the PED, and every
   `family.relationships` entry names members;
 - a phenotype file named in the manifest exists and uses `format: hpo_tsv`;
-- every file the manifest names exists (for a package in a bucket, an alignment exists in the
-  bucket), and a compressed family VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or
-  given as `index:`); a plain `.vcf` needs none;
+- every file the manifest names lies in the package (a path that leads out of it, starts with
+  `~` or runs through a symlink loop is refused with 400, see [the manifest](#the-manifest)) and
+  exists (for a package in a bucket, an alignment exists in the bucket), and a compressed family
+  VCF has its index (`.tbi`, `.csi` or `.idx`, next to it or given as `index:`); a plain `.vcf`
+  needs none;
 - a per-sample SNV callset (`snv.per_sample` without `family_vcf`) is read for a family with
   `analysis_type: monogenic_nipt`, or as the primary callset of germline calls made one sample at
   a time when the dataset says `source_format: clair3` (`dataset_per_sample_unsupported`
@@ -883,6 +924,14 @@ calls are checked and replaced:
   `DUP:TANDEM`), BND for breakend notation (`N]5:3000000]`, or a single breakend such as
   `G.`), INS or DEL for a sequence longer or shorter than REF, and `SV` when the ALT states
   none. A package's NeedlR, HiFiCNV and chrM Sniffles2 files take a missing type the same way.
+- A breakend (a record of type BND) keeps its mate, the position its ALT names in brackets:
+  `N]5:3000000]` has its mate on 5:3000000. The SV list has it in its *Remote chr* and
+  *Remote start* columns, the report sentence names it as the remote breakpoint, and the
+  *Remote chr* and *Remote start ≥* filters find the breakend by it. The import of a package's
+  NeedlR file reads the mate the same way, for a record of type BND (in any capitals) or with
+  an ALT in breakend notation, whatever its SVTYPE says; before, it stored every breakend
+  without its mate. A NeedlR SV's id is still the record's ID, or its coordinates and type
+  when it has none, without the mate.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another
@@ -933,11 +982,13 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 
 | Message or symptom | Cause |
 | --- | --- |
-| `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`. |
+| `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`, or its path cannot be followed: it runs through a symlink loop, or starts with `~` for a home folder the server does not have. |
 | `family_id_invalid` | The family ID holds a control character or whitespace, or is empty. The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
 | `sample_id_invalid` | A sample ID holds a control character or whitespace. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
 | `family_id_leaves_package`, `sample_id_leaves_package` (warning) | The family or sample ID is a path out of the package folder: an absolute path, or one that climbs out with `..`. Discover looked for none of its files outside the package. Check the ID where it comes from. |
 | `manifest_missing` | The folder has no `manifest.yaml`, `.yml` or `.json`. Run Discover and Write manifest (local folders only). |
+| `manifest_outside_package` | The folder's `manifest.yaml` (`.yml`, `.json`) is a symlink that leads out of the folder, or one that loops. Put the manifest itself in the folder. Write manifest answers 400 with the same message. |
+| "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest, or the PED path given to Discover, names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |
 | `dataset_vcf_index_missing` | A compressed VCF has no `.tbi`, `.csi` or `.idx`. |

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, suppress
 from dataclasses import dataclass, field
+import errno
 import gzip
 import json
 import logging
@@ -552,26 +553,60 @@ def read_vcf_sample_columns(path: Path) -> list[str]:
     return []
 
 
+def runs_through_symlink_loop(path: str | os.PathLike[str]) -> bool:
+    """Whether looking ``path`` up meets a symlink loop.
+
+    ``os.path.realpath`` leaves a loop unresolved rather than raise, and so does
+    ``Path.resolve`` from Python 3.13; on 3.12, which CI and the image run, ``Path.resolve``
+    raises RuntimeError. A path that ran through a loop is looked up here, so a guard refuses
+    it the same way on every version."""
+    try:
+        os.stat(path)
+    except OSError as exc:
+        return exc.errno == errno.ELOOP
+    return False
+
+
 def _resolve_package_path(root: Path, value: str | None) -> Path | None:
+    """The path a manifest names (or Discover's requested ``ped_path``) in the package folder
+    ``root``, its ``..`` and symlinks resolved; None for an empty value.
+
+    A manifest-declared asset path is relative to the (already-authorized) package folder, or
+    an absolute path inside it. Refused with 400: a path that leads out of the package (``ped:
+    /etc/passwd``, ``../../etc/passwd``, a symlink that leads out), so that a crafted manifest
+    reads no other host file; one that starts with ``~``; one that runs through a symlink
+    loop. A ``~`` was expanded: ``~/x`` named a file in the backend's home folder, and
+    ``~nouser/x`` failed with a RuntimeError (a 500), as a loop did on Python 3.12.
+    """
     if value is None or not str(value).strip():
         return None
-    candidate = Path(str(value).strip()).expanduser()
-    # A manifest-declared asset path must stay inside the (already-authorized) package
-    # root. Resolving the joined path collapses any '..'/symlink and lets an absolute
-    # value override the join, so the containment check below rejects a crafted manifest
-    # trying to read arbitrary host files (e.g. `ped: /etc/passwd` or `../../etc/passwd`)
-    # while still allowing ordinary relative paths and absolute paths that point inside
-    # the package root.
-    root_resolved = root.resolve()
-    resolved = (root_resolved / candidate).resolve()
-    try:
-        resolved.relative_to(root_resolved)
-    except ValueError as exc:
+    written = str(value).strip()
+    if written.startswith("~"):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Package manifest path '{visible(written)}' starts with '~': a manifest path is "
+                "relative to the package directory, and CoGA does not read a home folder"
+            ),
+        )
+    # The joined path, resolved (an absolute value replaces the join), is checked against the
+    # package folder as a string before anything is looked up by it. os.path.realpath does not
+    # raise on a symlink loop, on any Python version: the look-up below finds one.
+    folder = os.path.realpath(root)
+    resolved = os.path.realpath(os.path.join(folder, written))
+    if resolved == folder:
+        return Path(folder)
+    if not resolved.startswith(folder + os.sep):
         raise HTTPException(
             status_code=400,
             detail="Package manifest paths must stay within the package directory",
-        ) from exc
-    return resolved
+        )
+    if runs_through_symlink_loop(resolved):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Package manifest path '{visible(written)}' runs through a symlink loop",
+        )
+    return Path(resolved)
 
 
 def _package_path_or_none(root: Path, value: str | None) -> Path | None:
@@ -598,8 +633,9 @@ def package_path_within(root: Path, relative_path: str) -> Path | None:
     An ID is a name, but it can hold a path: an absolute one, or ``..`` that climbs out of
     the folder. The joined path is normalised and checked as a string first, so such a path
     is never looked up: nothing outside the package is read, nor found to exist. A path that
-    stays in the folder goes through the package guard, so a symlink cannot lead out either.
-    Unlike in a manifest path, a leading ``~`` is part of the name, not the home folder.
+    stays in the folder goes through the package guard, so neither a symlink that leads out
+    nor one that loops is followed. A leading ``~`` is part of the name, not the home folder
+    (a manifest path may not start with one).
     """
     if not relative_path or os.path.isabs(relative_path):
         return None
@@ -609,8 +645,8 @@ def package_path_within(root: Path, relative_path: str) -> Path | None:
         return None
     try:
         inside = _package_path_or_none(Path(folder), path) is not None
-    except (OSError, RuntimeError, ValueError):
-        # A NUL in the name (ValueError); a symlink loop (RuntimeError before Python 3.13).
+    except ValueError:
+        # A NUL in the name: no file is named after it.
         return None
     return Path(path) if inside else None
 

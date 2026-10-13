@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
+import errno
 import json
 import os
 from pathlib import Path
@@ -20,8 +21,10 @@ from ..core.object_storage import (
     list_remote_package_candidates,
     remote_uri_within,
 )
+from ..schemas import FamilyImportValidationIssue
 
-from .family_package_common import PED_FOLDER, PackageManifest
+from .family_identifiers import visible
+from .family_package_common import PED_FOLDER, PackageManifest, _issue, package_path_within, runs_through_symlink_loop
 from .family_package_long_read import long_read_sample_ids
 
 
@@ -145,7 +148,11 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
             if resolved in seen:
                 continue
             seen.add(resolved)
-            info = _scan_manifest_info(manifest_path) if manifest_path is not None else {}
+            info: dict[str, Any] = {}
+            # A manifest that is a symlink out of the package is not read: the package is
+            # listed without its details, as an unreadable manifest is.
+            if manifest_path is not None and manifest_link_out_of_package(child) is None:
+                info = _scan_manifest_info(manifest_path)
             family_id = info.get("family_id") or child.name
             packages.append(
                 {
@@ -183,7 +190,49 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
     return packages
 
 
+def _symlink_loop_error(exc: BaseException) -> bool:
+    """Whether ``exc``, raised by ``Path.resolve``, reports a symlink loop: Python 3.12 raises
+    RuntimeError for one, and a strict resolve an OSError with ELOOP."""
+    return isinstance(exc, RuntimeError) or (isinstance(exc, OSError) and exc.errno == errno.ELOOP)
+
+
+def _folder_loop_refusal(written: str) -> HTTPException:
+    return HTTPException(
+        status_code=400,
+        detail=f"Family import path '{visible(written)}' runs through a symlink loop",
+    )
+
+
 def _ensure_authorized_package_path(path: Path) -> Path:
+    """The local package folder ``path`` names, ``~`` expanded and symlinks resolved, when it
+    lies under FAMILY_IMPORT_ROOTS (``_authorized_package_folder``; 403 otherwise).
+
+    400 when the path cannot be followed: it starts with ``~`` and the server has no such home
+    folder (``~nouser/FAM1``), or it runs through a symlink loop. Both failed the request with
+    a RuntimeError, a 500: ``Path.expanduser`` raised it for the home folder, and, on Python
+    3.12, ``Path.resolve`` for the loop. From 3.13 ``Path.resolve`` returns a loop unresolved,
+    so the authorized folder is looked up to find one, and a loop is refused on every version.
+    """
+    written = str(path)
+    if os.path.expanduser(written).startswith("~"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Family import path '{visible(written)}' starts with '~', and the server has no such home folder",
+        )
+    try:
+        resolved = _authorized_package_folder(path)
+    except (OSError, RuntimeError) as exc:
+        if not _symlink_loop_error(exc):
+            raise
+        raise _folder_loop_refusal(written) from exc
+    if runs_through_symlink_loop(resolved):
+        raise _folder_loop_refusal(written)
+    return resolved
+
+
+def _authorized_package_folder(path: Path) -> Path:
+    """``path`` resolved, when it lies under FAMILY_IMPORT_ROOTS or the staging root; 403
+    otherwise. Callers go through ``_ensure_authorized_package_path``."""
     resolved = path.expanduser().resolve()
     staging_root = _staging_root()
     # A package staged from S3 lives under the staging root and is pre-authorized
@@ -283,6 +332,34 @@ def _manifest_candidates(root: Path) -> list[Path]:
 
 def _find_manifest(root: Path) -> Path | None:
     return next((candidate for candidate in _manifest_candidates(root) if candidate.is_file()), None)
+
+
+def manifest_link_out_of_package(root: Path) -> Path | None:
+    """The first manifest name in the package folder ``root`` (``manifest.yaml``, ``.yml``,
+    ``.json``) that is a symlink leading out of the folder, or one that loops; None when none
+    is.
+
+    No manifest is read or written through it. Read, it was any YAML or JSON file the backend
+    can read, and Discover and validation took the package's family and files from it;
+    written, the manifest replaced or created a file wherever the link pointed. Told by the
+    package guard (``package_path_within``), as for a PED or a dataset's file: a symlink that
+    stays in the package is followed."""
+    for candidate in _manifest_candidates(root):
+        if candidate.is_symlink() and package_path_within(root, candidate.name) is None:
+            return candidate
+    return None
+
+
+def manifest_outside_package_issue(link: Path) -> FamilyImportValidationIssue:
+    """The error Discover and validation refuse a package with when ``link``, one of its
+    manifest names, is a symlink out of the folder or one that loops."""
+    return _issue(
+        "manifest_outside_package",
+        f"{link.name} is a symlink that leads out of the package folder, or one that loops: "
+        "CoGA reads and writes a package's manifest only in the package folder. Put the "
+        "manifest itself in the folder.",
+        path=link,
+    )
 
 
 def _parse_manifest(path: Path) -> tuple[dict[str, Any], PackageManifest]:

@@ -223,6 +223,7 @@ describe('GenomeOverviewWorkspace', () => {
             PROBAND: {
               coverage: true,
               coverageSources: ['hificnv'],
+              coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
               segmentsSources: [],
               segments: false,
               apcadSources: [],
@@ -336,6 +337,7 @@ describe('GenomeOverviewWorkspace', () => {
               // Deliberately out of display order: the view must not depend on
               // what order the availability query returned.
               coverageSources: ['qdnaseq', 'hificnv', 'wisecondorx'],
+              coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
               segmentsSources: ['hificnv'],
               segments: true,
               apcadSources: [],
@@ -387,5 +389,82 @@ describe('GenomeOverviewWorkspace', () => {
     ]);
     expect(screen.getAllByTestId('coverage-chart')).toHaveLength(3);
     expect(screen.getByTestId('genome-region-select-coverage-PROBAND-qdnaseq')).toBeInTheDocument();
+  });
+
+  // TRACE-7 — a HiFiCNV depth file without a usable autosomal median is stored as read, and
+  // its record says so. Drawn on the chart's log2-ratio axis, the raw depths sat above its
+  // top and read as a gain across the genome.
+  it('leaves a coverage track whose values are not a log2 ratio off the axis, and says why', () => {
+    const coverageTrackUrls = vi.fn((_sampleId: string, source: string) => ({
+      coverageUrls: [`http://test/coverage?source=${source}`],
+      segmentsUrls: [`http://test/segments?source=${source}`],
+    }));
+    render(
+      <MemoryRouter>
+        <GenomeOverviewWorkspace
+          familyId="F1"
+          familyDisplayId="F1"
+          speciesName="Homo sapiens"
+          assemblyVersion="p14"
+          assembly="GRCh38"
+          projectId="p1"
+          trackAreaRef={{ current: null }}
+          backDest="/families/F1/structural-variants"
+          visibleRoi={null}
+          genomeRoiRange={null}
+          navigateToChromosome={vi.fn()}
+          familyMembers={[MEMBER]}
+          visibleMembers={[MEMBER]}
+          membersWithData={[MEMBER]}
+          trackVisibility={{
+            coverage: true,
+            segments: true,
+            apcad: false,
+            haplotypes: false,
+            sv: false,
+            repeatExpansions: false,
+          }}
+          availability={{
+            PROBAND: {
+              coverage: true,
+              coverageSources: ['wisecondorx', 'hificnv'],
+              coverageNormalizations: { hificnv: ['none'] },
+              segmentsSources: ['hificnv'],
+              segments: true,
+              apcadSources: [],
+              apcad: false,
+              apcadPcf: false,
+              haplotypes: false,
+              sv: false,
+              repeatExpansions: false,
+            },
+          }}
+          variantFilters={{}}
+          sampleFilterMap={{}}
+          urlMaps={{ coverageTrackUrls, apcad: {}, apcadPcf: {}, haplotypes: {}, sv: {} }}
+          layout={{ chroms: ['1'], offsets: { '1': 0 }, lengths: { '1': 1000 }, total: 1000 }}
+          trackWidth={1200}
+          trackHeight={120}
+          svTrackHeight={80}
+          showViewerLoading={false}
+        />
+      </MemoryRouter>,
+    );
+
+    // Both callers keep their row, in display order ...
+    const labels = screen
+      .getAllByRole('heading')
+      .map((node) => node.textContent)
+      .filter((text) => text?.startsWith('Coverage'));
+    expect(labels).toEqual(['Coverage · HiFiCNV', 'Coverage · WisecondorX']);
+    // ... WisecondorX's log2 ratios are drawn, HiFiCNV's raw depths not even fetched ...
+    expect(screen.getAllByTestId('coverage-chart')).toHaveLength(1);
+    expect(screen.getByTestId('genome-region-select-coverage-PROBAND-wisecondorx')).toBeInTheDocument();
+    expect(screen.queryByTestId('genome-region-select-coverage-PROBAND-hificnv')).not.toBeInTheDocument();
+    expect(coverageTrackUrls).not.toHaveBeenCalledWith('PROBAND', 'hificnv');
+    // ... and the HiFiCNV track's place says why.
+    expect(screen.getByRole('note')).toHaveTextContent(
+      'Not drawn: no usable autosomal median, so these depths are stored as read, not as a log2 ratio. IGV shows the depth file.',
+    );
   });
 });

@@ -285,9 +285,10 @@ async def test_following_the_manifests_and_the_qc_link_reaches_the_samples_own_f
 
 @pytest.mark.asyncio
 async def test_an_id_with_dot_dot_and_slash_never_reaches_another_familys_files(families: _Families) -> None:
-    # Family F1 lists a sample whose ID climbs into family F2. Its manifest entries are
-    # found (the file lookups join the ID into a path, which is only kept inside the data
-    # directory), but following them must not fetch F2's reads or depth track under F1's
+    # Family F1 lists a sample whose ID climbs into family F2. The alignment lookup keeps to
+    # F1's own folders (SEC-20, test_alignment_lookup_family_folders.py), so the manifest lists
+    # none of F2's reads for it. Its depth track is recorded in F1's own package, so that entry
+    # is found, but following it, or the reads' URL, must not fetch F2's files under F1's
     # sample: the server reads the ID's `/` as a separator, and no route matches.
     families.add("F2", "S2")
     families.add("F1", "S1")
@@ -296,14 +297,15 @@ async def test_an_id_with_dot_dot_and_slash_never_reaches_another_familys_files(
     (families.root / "families" / "F1" / "cnv" / "climb.bw").write_bytes(b"F1 track")
 
     async with _client() as client:
-        [alignment] = await _manifest(client, "cram", "F1", "../F2/S2")
+        alignments = await _manifest(client, "cram", "F1", "../F2/S2")
         [signal] = await _manifest(client, "signal-tracks", "F1", "../F2/S2")
         fetched = [
-            await _follow(client, alignment["url"]),
-            await _follow(client, alignment["index_url"]),
+            await _follow(client, url_path("cram", "F1", "../F2/S2.cram")),
+            await _follow(client, url_path("cram", "F1", "../F2/S2.cram.crai")),
             await _follow(client, signal["url"]),
         ]
 
+    assert alignments == []
     assert [(response.status_code, response.content) for response in fetched] == [
         (404, b'{"detail":"Not Found"}')
     ] * 3
