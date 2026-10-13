@@ -54,8 +54,9 @@ rest and reports how many.
 median and covered share) belong with the VCFs. The plasma's table drives the coverage check and the
 sex profile, and it gives the plasma's depth where its VCF has no call, which tells whether a missing
 paternal allele would have shown (see *Paternal alleles*). The father's table gives his depth where his
-VCF has none. Without the tables CoGA falls back on a coverage track over the family's region of
-interest, and an allele the plasma does not show cannot be read.
+VCF has none. Without the tables CoGA falls back on the plasma's coverage BED, or another coverage
+track of read depth (see *Coverage*), over the family's region of interest, and an allele the plasma
+does not show cannot be read.
 
 ### The father's genotype
 
@@ -439,6 +440,11 @@ Without the table, on-target coverage is the median depth of the cfDNA sample's 
 selected genes, otherwise the family's region of interest. A region is flagged when it has no coverage,
 a median below 20×, or less than 90% of its length covered. The card counts the flagged regions; the
 coverage page lists the regions below and above target.
+
+The coverage track read here is one that holds read depth: the plasma's coverage BED, otherwise
+HiFiCNV's depth when the import stored it as read. WisecondorX's and QDNAseq's bins and HiFiCNV's
+normalised depth hold log2 ratios, not depths, and are never read here, also beside a BED. A plasma
+without a coverage BED or such a depth track shows every region as without coverage.
 
 NIPT has its own sample-integrity checks on the Sample QC page as well (paternity, fetal sex, parent
 sex and the category distribution): see the [Sample-integrity QC reference](/docs/reference/sample-qc).

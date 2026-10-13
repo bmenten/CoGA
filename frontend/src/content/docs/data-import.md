@@ -223,7 +223,10 @@ HiFiCNV's minor allele fraction; the viewers draw each caller's coverage as a tr
 import or an upload replaces only its own caller's tracks: a coverage BED leaves the WisecondorX and
 QDNAseq bins and HiFiCNV's depth, and an APCAD import leaves HiFiCNV's minor allele fraction.
 **Update** skips a sample only when its own caller's track is there. A package's coverage BED and an
-uploaded coverage BED count as one caller: each replaces the other.
+uploaded coverage BED count as one caller: each replaces the other. The mtDNA analysis, and the NIPT
+coverage check without a per-target table, read as depth only a coverage BED, or HiFiCNV's depth where
+the import stored it as read: never the WisecondorX or QDNAseq bins or HiFiCNV's normalised depth,
+which are log2 ratios.
 
 ### What validation checks
 
