@@ -202,9 +202,15 @@ def test_a_ui_event_whose_time_the_driver_cannot_encode_costs_only_itself(pipeli
     assert len(lost) == 1, lines
     assert lost[0].startswith(
         "Audit pipeline ui_event: event not persisted (batch write failed, then its own write: "
-        "InterfaceError (DataError)); dropped_total=1 "
+    ), lost[0]
+    # The driver refuses to encode the time (asyncpg's DataError). How SQLAlchemy wraps that
+    # refusal differs between environments (InterfaceError locally; DBAPIError with SQLSTATE
+    # 22000 in CI's job), so only the driver's error is pinned, then the rest of the line.
+    reason, _, rest = lost[0].partition("); dropped_total=1 ")
+    assert "DataError" in reason, lost[0]
+    assert rest.startswith(
         f"payload=UiEventPayload(event_type='click', category='button', label='{labels[1]}',"
-    )
+    ), lost[0]
     assert (
         "Audit pipeline ui_event: of the batch's 3 events, 2 stored one at a time, 1 not persisted"
         in lines
