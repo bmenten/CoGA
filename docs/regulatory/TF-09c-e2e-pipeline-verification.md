@@ -71,6 +71,7 @@ Each suite drives the real stack and asserts against `EXPECTED.yaml`. Skipped un
 | Realistic demo bundles through their real ingestion paths | [test_e2e_demo_smoke.py](../../backend/tests/e2e/test_e2e_demo_smoke.py) |
 | Haplotype / lineage stage against the real stack (PGT segregation) | [test_e2e_haplotypes.py](../../backend/tests/e2e/test_e2e_haplotypes.py) |
 | Prioritised-ranking cache invalidated by a variant-data change on a non-import path | [test_e2e_ranking_cache.py](../../backend/tests/e2e/test_e2e_ranking_cache.py) |
+| A narrower panel served from a broader cached ranking only while that ranking's panel holds the genes it was computed on: not after an edit adds a gene, nor from a row without that record or whose panel was deleted (CLIN-27) | [test_e2e_ranking_cache_sub_panel.py](../../backend/tests/e2e/test_e2e_ranking_cache_sub_panel.py) |
 | SV second-hit index rebuilt after SV writes on non-import paths (admin delete, per-sample upload) | [test_e2e_sv_second_hit_index.py](../../backend/tests/e2e/test_e2e_sv_second_hit_index.py) |
 
 A consolidated catalogue of these is in [docs/testing.md](../testing.md) ("End-to-end (golden pipeline)").
