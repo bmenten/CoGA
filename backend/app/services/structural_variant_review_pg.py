@@ -12,9 +12,9 @@ from ..schemas import (
     CnvAcmgClassificationPayload,
     SmallVariantReviewOut,
     SmallVariantReviewSummaryOut,
-    SmallVariantReviewUpdate,
     StructuralVariantFilterPresetCreate,
     StructuralVariantFilterPresetOut,
+    StructuralVariantReviewUpdate,
 )
 from . import cnv_acmg_points
 from .clinical_audit_service import record_structural_review_changes
@@ -34,7 +34,7 @@ from .small_variant_review_tags import list_small_variant_tag_definitions
 from .clickhouse_variant_records import StructuralVariantRecord
 from .structural_variant_evidence import (
     build_structural_evidence_snapshot,
-    fetch_structural_variant_record,
+    fetch_structural_variant_records,
     read_structural_evidence_versions,
 )
 
@@ -308,12 +308,38 @@ async def get_structural_variant_review_summary(
     )
 
 
+def _classified_row(rows: Sequence[StructuralVariantRecord]) -> StructuralVariantRecord:
+    """The row whose evidence a CNV scoring freezes: that of the caller the save names, or,
+    when it names none, the SV's one row.
+
+    Several callers can call one SV under one id and share its review, each with its own
+    genes, pLI and inheritance, and the scoring rests on the row it was made on (TRACE-11).
+    A save that names no caller (a client from before ``source``) cannot say which row that
+    was when several callers call the SV, so it is refused rather than freezing another
+    caller's evidence, as taking the lowest storage key did: 422, since the request lacks
+    what the server needs, not 409, which here means another reviewer's save (#513).
+    """
+    if not rows:
+        raise HTTPException(status_code=404, detail="Structural variant not found")
+    if len(rows) > 1:
+        callers = ", ".join(sorted({row.source or "" for row in rows}))
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"Several callers called this structural variant ({callers}); the save must "
+                "name the caller whose row the CNV classification was made on (source). "
+                "Reload the page and save it again."
+            ),
+        )
+    return rows[0]
+
+
 async def upsert_structural_variant_review(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
     variant_id: str,
-    payload: SmallVariantReviewUpdate,
+    payload: StructuralVariantReviewUpdate,
     user: CurrentUser,
 ) -> SmallVariantReviewOut:
     normalized_variant_id = str(variant_id).strip()
@@ -328,14 +354,15 @@ async def upsert_structural_variant_review(
     cnv_requested = "cnv_acmg" in payload.model_fields_set
     cnv_blob, cnv_point_total, cnv_class = _normalize_cnv_acmg_payload(payload.cnv_acmg)
     # A scoring that is saved freezes the evidence it rests on, as an ACMG save does for a
-    # small variant: the SV as the family's data holds it, and the annotation versions
-    # behind it, read before the lock. Without SV storage (no assembly) there is nothing
-    # to read, and the scoring is saved without it; sign-out counts that as unverified.
+    # small variant: the SV as the family's data holds it, in the row of the caller the
+    # scoring was made on, and the annotation versions behind it, read before the lock.
+    # Without SV storage (no assembly) there is nothing to read, and the scoring is saved
+    # without it; sign-out counts that as unverified.
     evidence_source: tuple[StructuralVariantRecord, dict[str, str]] | None = None
     if cnv_requested and cnv_blob is not None and getattr(context, "assembly_name", None):
-        sv_record = await fetch_structural_variant_record(context, normalized_variant_id)
-        if sv_record is None:
-            raise HTTPException(status_code=404, detail="Structural variant not found")
+        sv_record = _classified_row(
+            await fetch_structural_variant_records(context, normalized_variant_id, source=payload.source)
+        )
         evidence_source = (
             sv_record,
             await read_structural_evidence_versions(session, context=context, user=user),

@@ -2991,6 +2991,17 @@ export interface StructuralVariantFilterPresetOut {
   scope: "family" | "global";
 }
 
+export interface StructuralVariantReviewUpdate {
+  expected_updated_at?: string | null;
+  classification?: string | null;
+  tags?: string[];
+  note?: string | null;
+  compound_het?: SmallVariantCompoundHetReviewUpdate | null;
+  acmg?: AcmgClassificationPayload | null;
+  cnv_acmg?: CnvAcmgClassificationPayload | null;
+  source?: string | null;
+}
+
 /**
  * The gene of this small variant is also hit by a structural variant — the cross-type
  * "second hit" that can complete a recessive (compound-het) genotype.

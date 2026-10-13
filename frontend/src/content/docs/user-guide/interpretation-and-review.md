@@ -39,7 +39,8 @@ A variant opened from the **mtDNA analysis** page gets a mitochondrial rule set.
 
 The structural-variant page works the same way: **Review**, **Exclude**, **Report**, tags and notes, and
 **ACMG (CNV)** for the ClinGen copy-number classifier. Saving a CNV classification also freezes its
-evidence, so the report can tell whether it changed. Small-variant and SV review are counted separately
-on the family page.
+evidence, so the report can tell whether it changed. An event called by more than one caller is listed
+once per caller, with one shared review: the classification freezes the evidence of the row you opened
+it from. Small-variant and SV review are counted separately on the family page.
 
 [ACMG classification reference (rules, points, mtDNA, CNV)](/docs/reference/acmg-classification "further-reading")
