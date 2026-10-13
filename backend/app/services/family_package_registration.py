@@ -664,7 +664,9 @@ IMPORT_UNFINISHED_KEY = "import_unfinished"
 WHOLE_FAMILY_KEY = "whole_family"
 
 # A dataset an import ended with one of these left nothing partly written: it imported
-# completely, skipped (update mode: data was there), or registered its files only.
+# completely, skipped (update mode: data was there), or registered its files only. This
+# says only what the import's own entry no longer lists as pending: only `imported`
+# counts as importing a dataset again (``imported_dataset_scopes``), which a skip never is.
 _FINISHED_DATASET_STATUSES = frozenset({"imported", "skipped", "registered"})
 
 
@@ -706,6 +708,34 @@ def _scope_covers(replaced: Any, wanted: Any) -> bool:
     if not isinstance(have, list) or not isinstance(want, list):
         return False
     return {str(sample) for sample in want} <= {str(sample) for sample in have}
+
+
+def imported_dataset_scopes(
+    imported: Iterable[str],
+    scopes: Mapping[str, Any],
+    skipped: Mapping[str, Collection[str]],
+) -> dict[str, Any]:
+    """What an import imported again: each dataset it ended ``imported`` (``imported``),
+    with its scope (``scopes``, as ``dataset_scopes`` gives it) less the samples an update
+    left as they were, their rows being there (``skipped``). A skip imports nothing again,
+    so it completes no failure the flag records and no entry: a dataset left with no
+    sample, or one whose scope is not split by sample and that skipped any, is not
+    listed (SAFE-20). A dataset an update skipped whole ends ``skipped``, and is not in
+    ``imported``."""
+    result: dict[str, Any] = {}
+    for name in imported:
+        scope = scopes.get(name)
+        left_out = {str(sample) for sample in skipped.get(name, ())}
+        if not left_out:
+            result[name] = scope
+            continue
+        samples = scope.get("samples") if isinstance(scope, Mapping) else None
+        if not isinstance(samples, list):
+            continue
+        kept = sorted({str(sample) for sample in samples if sample} - left_out)
+        if kept:
+            result[name] = {**scope, "samples": kept}
+    return result
 
 
 def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) -> bool:

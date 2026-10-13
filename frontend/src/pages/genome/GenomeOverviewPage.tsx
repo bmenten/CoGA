@@ -340,6 +340,7 @@ const GenomeOverviewPage: React.FC = () => {
           {
             coverage: entry.coverage,
             coverageSources: entry.coverage_sources ?? [],
+            coverageNormalizations: entry.coverage_normalizations ?? {},
             segmentsSources: entry.segments_sources ?? [],
             segments: entry.segments,
             apcad: entry.apcad,
@@ -355,6 +356,7 @@ const GenomeOverviewPage: React.FC = () => {
         {
           coverage: boolean;
           coverageSources: string[];
+          coverageNormalizations: Record<string, string[]>;
           segmentsSources: string[];
           segments: boolean;
           apcad: boolean;

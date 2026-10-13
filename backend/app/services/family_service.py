@@ -30,6 +30,7 @@ from .clickhouse_family_variants import (
     _small_variant_present_sample_names,
     _structural_present_sample_names,
 )
+from .clickhouse_interval_tracks import interval_track_normalizations_by_sample
 from .clickhouse_variant_queries import _structural_record_matches
 from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
@@ -445,6 +446,21 @@ async def get_family_track_availability_for_user(
         haplotype_task,
         repeat_task,
     )
+    # What each caller's coverage values are, as its import recorded them. A HiFiCNV depth
+    # track is a log2 ratio unless its sample had no usable autosomal median, when its
+    # depths are stored as read and must not be drawn on the views' log2-ratio axis
+    # (TRACE-7). A Postgres read, so not in the gather, which already runs one on this
+    # session.
+    coverage_normalizations = (
+        await interval_track_normalizations_by_sample(
+            session,
+            family_uuid=context.family_uuid,
+            sample_uuid_to_name=context.sample_uuid_to_name,
+            track_type="coverage",
+        )
+        if any(coverage_sources.values())
+        else {}
+    )
 
     overlap = start is not None and end is not None and len(chromosomes) == 1
     structural_filters = StructuralVariantQueryFilters(
@@ -520,6 +536,11 @@ async def get_family_track_availability_for_user(
 
     for sample_name, sample_availability in availability.items():
         sample_availability.coverage_sources = coverage_sources.get(sample_name, [])
+        sample_availability.coverage_normalizations = {
+            source: transforms
+            for source, transforms in coverage_normalizations.get(sample_name, {}).items()
+            if source in sample_availability.coverage_sources
+        }
         sample_availability.segments_sources = segment_sources.get(sample_name, [])
         sample_availability.coverage = bool(sample_availability.coverage_sources)
         sample_availability.segments = bool(sample_availability.segments_sources)

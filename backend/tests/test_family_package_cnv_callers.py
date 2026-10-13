@@ -88,15 +88,21 @@ def test_wisecondorx_is_found_under_its_sample_prefixed_names(tmp_path: Path) ->
 
 
 class _Recorder:
-    """Captures the (track_type, source) pairs cleared before an import runs."""
+    """Captures the (track_type, source) pairs cleared before an import runs. ``existing``
+    is what Postgres records of the track (``sample_interval_track_sources``), ``stored``
+    how many of its rows the interval table holds (by default as many)."""
 
-    def __init__(self, existing: int) -> None:
+    def __init__(self, existing: int, stored: int | None = None) -> None:
         self.existing = existing
+        self.stored = existing if stored is None else stored
         self.cleared: list[tuple[str, str]] = []
         self.imported = False
 
     async def count(self, session: Any, **kwargs: Any) -> int:
         return self.existing
+
+    async def stored_rows(self, sample_context: Any, **kwargs: Any) -> int:
+        return self.stored
 
     async def delete(self, session: Any, **kwargs: Any) -> None:
         self.cleared.append((kwargs["track_type"], kwargs["source"]))
@@ -112,6 +118,7 @@ async def _run_guard(
     from app.services import family_package_datasets as datasets
 
     monkeypatch.setattr(datasets, "_interval_track_count", recorder.count)
+    monkeypatch.setattr(datasets, "_stored_track_rows", recorder.stored_rows)
     monkeypatch.setattr(datasets, "_delete_sample_interval_source", recorder.delete)
     return await datasets._import_interval_track_unless_present(
         None,
@@ -147,6 +154,34 @@ async def test_update_mode_leaves_an_existing_track_untouched(
     assert result == {"skipped": True, "existing": 500}
     assert recorder.cleared == []
     assert not recorder.imported
+
+
+@pytest.mark.asyncio
+async def test_update_mode_imports_a_track_whose_rows_are_gone_though_postgres_records_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # A failed overwrite's restore that stopped part-way deleted the rows and left their
+    # record (SAFE-20). An update reads the store: it imports the track again, clearing the
+    # stale record first. Before: skipped as there.
+    recorder = _Recorder(existing=500, stored=0)
+    result = await _run_guard(monkeypatch, recorder, "update")
+
+    assert recorder.cleared == [("coverage", "qdnaseq")]
+    assert recorder.imported
+    assert result == {"processed": 1, "inserted": 1, "skipped": 0}
+
+
+@pytest.mark.asyncio
+async def test_update_mode_leaves_stored_rows_postgres_does_not_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Rows stored without their record yet (a track whose import stopped part-way): an
+    # update leaves what is stored, as it leaves partly written small variants.
+    recorder = _Recorder(existing=0, stored=40)
+    result = await _run_guard(monkeypatch, recorder, "update")
+
+    assert result == {"skipped": True, "existing": 40}
+    assert (recorder.cleared, recorder.imported) == ([], False)
 
 
 @pytest.mark.asyncio

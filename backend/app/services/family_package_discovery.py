@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import glob
+import os
 from pathlib import Path
 import re
 from typing import Any, Iterable
@@ -24,7 +25,7 @@ from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
-from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict
+from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_path
 from .family_package_validation import validate_family_package
 
 
@@ -1651,6 +1652,28 @@ def _out_of_package_message(kind: str, value: str, *, source: str | None = None)
     )
 
 
+def _absent_parent_id_issues(ped: ParsedPed, *, path: Path | None) -> list[FamilyImportValidationIssue]:
+    """A ``sample_id_invalid`` error for each father or mother the PED names but lacks as a
+    member, whose ID cannot be stored (see family_identifiers); the message names the first
+    member it is a parent of.
+
+    The PED check reports such a parent as missing (``ped_missing_father``,
+    ``ped_missing_mother``), but Discover still uses its ID: it looks a NIPT parent's VCF up
+    under it, and drafts the parent the PGT pipeline traced into the manifest. So it is held
+    to the rule every other ID is, before Discover looks anything up under it or drafts."""
+    members = set(ped.sample_ids)
+    child_of: dict[str, str] = {}
+    for member in ped.members:
+        for parent_id in (member.pid, member.mid):
+            if parent_id not in {"", "0"} and parent_id not in members:
+                child_of.setdefault(parent_id, member.iid)
+    return [
+        issue
+        for parent_id, child_id in child_of.items()
+        for issue in sample_id_issues([parent_id], source=f"a parent of {visible(child_id)} in the PED", path=path)
+    ]
+
+
 def discover_family_package_manifest(
     request: FamilyPackageManifestBuildRequest,
     *,
@@ -1659,16 +1682,19 @@ def discover_family_package_manifest(
     try:
         root = _ensure_authorized_package_path(Path(request.folder_path))
     except HTTPException as exc:
+        # The folder as typed, `~` expanded as a string: a `~` naming no home folder is why
+        # the guard refused it, and Path.expanduser would raise on it again.
+        typed_folder = package_folder_path(request.folder_path)
         return FamilyPackageManifestBuildOut(
             valid=False,
-            manifest_path=str(Path(request.folder_path).expanduser() / "manifest.yaml"),
+            manifest_path=os.path.join(typed_folder, "manifest.yaml"),
             naming_scheme=request.naming_scheme,
             manifest_yaml="",
             errors=[
                 _issue(
                     "package_folder_not_allowed",
                     str(exc.detail),
-                    path=Path(request.folder_path).expanduser(),
+                    path=typed_folder,
                 )
             ],
         )
@@ -1704,6 +1730,18 @@ def discover_family_package_manifest(
             naming_scheme=request.naming_scheme,
             manifest_yaml="",
             errors=errors,
+        )
+    # A manifest name that is a symlink out of the package (or one that loops): its manifest
+    # is not read, and no draft is made that Write manifest would write through the link.
+    manifest_link = manifest_link_out_of_package(root)
+    if manifest_link is not None:
+        return FamilyPackageManifestBuildOut(
+            valid=False,
+            family_id=request.family_id,
+            manifest_path=str(root / "manifest.yaml"),
+            naming_scheme=request.naming_scheme,
+            manifest_yaml="",
+            errors=[manifest_outside_package_issue(manifest_link)],
         )
 
     # Prefer an explicit request id, then an existing manifest's family_id (the
@@ -1771,6 +1809,7 @@ def discover_family_package_manifest(
     if parsed_ped is not None:
         sample_ids = parsed_ped.sample_ids
         errors.extend(sample_id_issues(sample_ids, source="in the PED", path=ped_path))
+        errors.extend(_absent_parent_id_issues(parsed_ped, path=ped_path))
     elif use_db_structure:
         sample_ids = list(db_sample_ids or [])
         errors.extend(sample_id_issues(sample_ids, source="of the family in the database"))
@@ -1984,6 +2023,11 @@ def write_family_package_manifest(
     root = _ensure_authorized_package_path(Path(folder_path))
     if not root.exists() or not root.is_dir():
         raise HTTPException(status_code=404, detail="Family package folder not found")
+    # Never written through a symlink out of the package: the manifest replaced, or created,
+    # a file wherever the link pointed. Nor through one that loops.
+    manifest_link = manifest_link_out_of_package(root)
+    if manifest_link is not None:
+        raise HTTPException(status_code=400, detail=manifest_outside_package_issue(manifest_link).message)
     manifest_path = root / "manifest.yaml"
     if manifest_path.exists() and not overwrite:
         raise HTTPException(status_code=409, detail="manifest.yaml already exists")

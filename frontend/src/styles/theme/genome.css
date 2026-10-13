@@ -603,6 +603,17 @@
   color: var(--color-text-muted);
 }
 
+/* A coverage track left off the chart's log2-ratio axis because its values are not a log2
+   ratio (TRACE-7): said in the track's place, in the warning tone, so it is not read as an
+   empty region. */
+.viz-not-drawn-note {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  color: var(--color-warning-strong);
+}
+
 /* A failed track request — deliberately unlike the quiet empty-state text above, so a
    failure can never be read as "nothing in this region" (#510). */
 .viz-error-overlay {

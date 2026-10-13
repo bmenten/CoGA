@@ -24,9 +24,11 @@ Any change flips ``inputs_hash``, so an exact hit is never a ranking computed on
 inputs. ``base_hash`` leaves the panel out, so that a narrower panel can be served from a
 broader cached ranking (see ``compute_ranking_hashes``); the row records what its panel
 held (``provenance.panel_members``), and is used for another panel only while its own
-panel holds exactly that (CLIN-27). Before the data version was part of the hash, only the
-package import invalidated the cache, and a direct upload or an admin delete left an
-outdated ranking in place (#509).
+panel holds exactly that (CLIN-27), and only when it holds every variant the other panel
+reaches and ranks them as that panel's own computation would (CLIN-34, CLIN-35; the
+caller checks both). Before the data version was part of the hash, only the package
+import invalidated the cache, and a direct upload or an admin delete left an outdated
+ranking in place (#509).
 
 This module owns only the hash + Postgres cache rows; the (de)serialisation of variant
 records is done by the caller (clickhouse_family_variants) which holds those helpers.
@@ -347,7 +349,9 @@ async def find_superset_candidates(
     """Complete (non-truncated) cached rankings over the same panel-agnostic inputs.
 
     Any of these can serve a narrower panel whose genes it covers, while its own panel
-    holds what its ``provenance`` records it held. Largest first, so the broadest superset
+    holds what its ``provenance`` records it held, and when it holds every variant of the
+    narrower panel with the segregation the narrower panel gives them (the caller,
+    ``_serve_subpanel_from_superset``, checks). Largest first, so the broadest superset
     (e.g. a no-panel all-genes ranking) is preferred.
     """
     rows = (

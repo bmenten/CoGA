@@ -7,8 +7,9 @@ screen shows, or (a NUL) not be stored at all. Discover and the package validati
 it (``family_id_invalid``, ``sample_id_invalid``) and read nothing else under it; the import
 job, the Family Builder and the PED upload refuse it; the whitespace around an ID is
 stripped. A PED field holds no whitespace but can hold the other control characters, and a
-package without a PED takes its IDs from the request, the manifest or folder names. All IDs
-here are synthetic.
+package without a PED takes its IDs from the request, the manifest or folder names. Discover
+holds a parent the PED names but lacks as a member to the rule too. All IDs here are
+synthetic.
 """
 
 from __future__ import annotations
@@ -26,10 +27,11 @@ import yaml
 
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildRequest, ManualPedFamilyCreate, ManualPedMemberCreate
+from backend.app.services import family_package_discovery
 from backend.app.services import family_package_import as package_import
 from backend.app.services import ped_service
 from backend.app.services.access_control import CurrentUser
-from backend.app.services.family_identifiers import CONTROL_CHARACTERS, identifier_problem, visible
+from backend.app.services.family_identifiers import CONTROL_CHARACTERS, IDENTIFIER_RULE, identifier_problem, visible
 from backend.app.services.family_package_common import PackageManifest, _issue
 from backend.app.services.family_package_discovery import discover_family_package_manifest
 from backend.app.services.family_package_jobs import queue_family_import_job
@@ -209,6 +211,47 @@ def test_discover_refuses_a_sample_id_in_the_ped_that_cannot_be_stored(tmp_path:
     issue = out.errors[0]
     assert issue.message.startswith("Sample ID 'MOTHER\\x001' (in the PED) contains a control character (\\x00).")
     assert issue.path == str(root / "family.ped")
+
+
+@pytest.mark.parametrize("control", [NUL, ESC, DEL])
+def test_discover_refuses_a_parent_id_the_ped_lacks_that_cannot_be_stored(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, control: str
+) -> None:
+    father = f"FATHER{control}1"
+    # The children's father is no member of the PED. The PED check reports him missing, but
+    # Discover looked his NIPT VCF up under his ID and could draft him into the manifest.
+    root = _write_package(
+        tmp_path / FAMILY,
+        ped=f"{FAMILY} {MOTHER} 0 0 2 1\n{FAMILY} {CHILD} {father} {MOTHER} 1 2\n{FAMILY} CHILD2 {father} {MOTHER} 2 2\n",
+    )
+    looked_up: list[str] = []
+    monkeypatch.setattr(
+        family_package_discovery, "discover_nipt_package_files", lambda root, ped: looked_up.append("nipt")
+    )
+
+    out = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(root)))
+
+    # No draft, and nothing looked up under the ID; named once, after the first child.
+    assert (out.valid, out.manifest_yaml) == (False, "")
+    assert looked_up == []
+    assert [(issue.message, issue.path) for issue in out.errors if issue.code == "sample_id_invalid"] == [
+        (
+            f"Sample ID '{visible(father)}' (a parent of {CHILD} in the PED) contains a control character "
+            f"({visible(control)}). {IDENTIFIER_RULE}",
+            str(root / "family.ped"),
+        )
+    ]
+    assert _strings_with_control_characters(out.model_dump(mode="json")) == []
+
+
+def test_discover_drafts_for_a_parent_the_ped_lacks_whose_id_can_be_stored(tmp_path: Path) -> None:
+    root = _write_package(tmp_path / FAMILY, ped=f"{FAMILY} {MOTHER} 0 0 2 1\n{FAMILY} {CHILD} {FATHER} {MOTHER} 1 2\n")
+
+    out = discover_family_package_manifest(FamilyPackageManifestBuildRequest(folder_path=str(root)))
+
+    # Only the PED check's own error: the father is missing from it.
+    assert [issue.code for issue in out.errors] == ["ped_missing_father"]
+    assert out.manifest_yaml
 
 
 def test_discover_reports_a_per_sample_folder_no_sample_can_be_stored_under(tmp_path: Path) -> None:

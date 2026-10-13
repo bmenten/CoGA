@@ -80,6 +80,7 @@ from .family_package_registration import (
     _mark_family_import_restoring,
     _record_family_import_finished,
     _enabled_dataset_summaries,
+    imported_dataset_scopes,
     _normalized_conflict_mode,
     _execution_metadata,
     _merge_validation_metadata,
@@ -460,6 +461,9 @@ async def _import_family_datasets(
     stays."""
     import_key = import_mark.key if import_mark is not None else None
     finished: set[str] = set()
+    # The samples of each dataset an update left as they were, their rows being there
+    # (``DatasetImportJob.skipped_samples``).
+    skipped_samples: dict[str, set[str]] = {}
     # Overwrite of a PRE-EXISTING family is delete-then-insert, so a mid-import failure
     # can destroy the family's prior data. Snapshot it first so a failed overwrite is
     # atomically rolled back to the pre-import state (issue #365) instead of only being
@@ -532,6 +536,7 @@ async def _import_family_datasets(
                 sample_contexts=sample_contexts,
                 conflict_mode=conflict_mode,
                 progress=dataset_progress,
+                skipped_samples=skipped_samples.setdefault(summary.dataset_type, set()),
             )
             datasets[index] = imported.model_copy(update={"progress": timer.finish()})
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
@@ -559,9 +564,11 @@ async def _import_family_datasets(
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
     # What each imported dataset replaced (dataset_scopes): an earlier import's failure or
-    # unfinished entry for the same scope is completed by it.
+    # unfinished entry for the same scope is completed by it. Not the samples an update
+    # skipped, nor a dataset it skipped whole (`skipped`): a skip imports nothing again,
+    # so it completes nothing (SAFE-20).
     mark_scopes: Mapping[str, Any] = import_mark.scopes if import_mark is not None else {}
-    imported_scopes = {name: mark_scopes.get(name) for name in imported_datasets}
+    imported_scopes = imported_dataset_scopes(imported_datasets, mark_scopes, skipped_samples)
 
     # Fail-clean. A failed import must not leave a silently-partial family behind:
     #   * NEW family, and NOTHING imported -> compensate by deleting the freshly-created

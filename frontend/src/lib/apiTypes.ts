@@ -633,6 +633,12 @@ export interface ApiChromosomeTrackAvailability {
    * as its own track; `coverage` remains the "any at all" flag.
    */
   coverage_sources?: string[];
+  /**
+   * The transforms each caller's coverage track records, by caller; a caller whose
+   * records name none is absent. Decides whether a track is drawn on the log2-ratio axis
+   * (`coverageNotDrawnNote`).
+   */
+  coverage_normalizations?: Record<string, string[]>;
   segments_sources?: string[];
   /** Which callers wrote the APCAD track; decides the axis (see MAF_AXIS_MAX). */
   apcad_sources?: string[];
@@ -648,6 +654,7 @@ export interface ApiGenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
   coverage_sources?: string[];
+  coverage_normalizations?: Record<string, string[]>;
   segments_sources?: string[];
   apcad_sources?: string[];
   apcad: boolean;

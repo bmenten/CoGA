@@ -588,6 +588,44 @@ async def get_interval_track_lineage_hash(
     return value or None
 
 
+async def count_interval_track_rows(
+    assembly_name: str,
+    *,
+    family_uuid: str,
+    sample_uuid: str,
+    track_type: str,
+    source: str | None = None,
+) -> int:
+    """How many rows the interval table holds of one sample's ``track_type`` track, of
+    ``source`` or of every source: what is stored. ``count_interval_track_source_rows``
+    reads instead what the loaders recorded in Postgres, which a failed overwrite's restore
+    does not rewrite with these rows: one that fails part-way can leave the record of a
+    track whose rows it deleted (SAFE-20)."""
+    await ensure_clickhouse_interval_table(assembly_name)
+    clauses = [
+        "family_guid = %(family_uuid)s",
+        "sample_guid = %(sample_uuid)s",
+        "track_type = %(track_type)s",
+    ]
+    params: dict[str, Any] = {
+        "family_uuid": str(family_uuid),
+        "sample_uuid": str(sample_uuid),
+        "track_type": track_type,
+    }
+    if source is not None:
+        clauses.append("source = %(source)s")
+        params["source"] = source
+    rows = await _execute(
+        f"""
+        SELECT count()
+        FROM {_interval_table_name(assembly_name)}
+        WHERE {' AND '.join(clauses)}
+        """,
+        params,
+    )
+    return int(rows[0][0]) if rows else 0
+
+
 def _track_source_filters(
     *,
     sample_uuid: str | None,
@@ -802,3 +840,56 @@ async def interval_counts_by_sample(
         counts.setdefault(row["sample_uuid"], {track_type: 0 for track_type in track_types})
         counts[row["sample_uuid"]][row["track_type"]] = int(row["count"])
     return counts
+
+
+async def interval_track_normalizations_by_sample(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    sample_uuid_to_name: dict[str, str],
+    track_type: str,
+) -> dict[str, dict[str, list[str]]]:
+    """Sample name → source → the transforms its ``track_type`` records name.
+
+    An import that stores a track's values otherwise than as its file holds them records
+    the transform in ``metadata.normalization``: ``log2_ratio_to_autosomal_median`` on a
+    HiFiCNV depth track, or ``none`` when that sample's depth file gave no usable
+    autosomal median and its depths are stored as read. A source whose records name none
+    is left out: its values are its file's. Each source's values are distinct and sorted,
+    so two records that disagree are both named rather than one picked.
+    """
+
+    if not sample_uuid_to_name:
+        return {}
+    result = await session.execute(
+        text(
+            """
+            SELECT DISTINCT
+                sample_id::text AS sample_uuid,
+                source,
+                metadata ->> 'normalization' AS normalization
+            FROM sample_interval_track_sources
+            WHERE family_id = CAST(:family_uuid AS uuid)
+              AND sample_id IN :sample_uuids
+              AND track_type = :track_type
+              AND metadata ->> 'normalization' IS NOT NULL
+            """
+        ).bindparams(uuid_list_bindparam("sample_uuids")),
+        {
+            "family_uuid": family_uuid,
+            "sample_uuids": uuid_values(list(sample_uuid_to_name)),
+            "track_type": track_type,
+        },
+    )
+    by_sample: dict[str, dict[str, set[str]]] = {}
+    for row in result.mappings().all():
+        name = sample_uuid_to_name.get(str(row["sample_uuid"]))
+        if name is None:
+            continue
+        by_sample.setdefault(name, {}).setdefault(str(row["source"]), set()).add(
+            str(row["normalization"])
+        )
+    return {
+        name: {source: sorted(values) for source, values in sources.items()}
+        for name, sources in by_sample.items()
+    }
