@@ -683,7 +683,19 @@ The track viewers draw one track per caller (`GET /families/{family_id}/track-av
 lists them, with the transform each coverage track's record names, `coverage_normalizations`).
 A coverage track whose values are not a log2 ratio, such as HiFiCNV depths stored as read, is
 not drawn on the viewers' log2-ratio axis: its place says why. The three HiFiCNV files are also
-served unchanged to the genome browser (IGV), from the bucket for a package in a bucket.
+served unchanged to the genome browser (IGV): with local storage from the family's package
+folder, `data/families/<family>/`, at the path the import recorded, and never from outside the
+family's own folders (a recorded path or a symlink that leads elsewhere names no file); from the
+bucket for a package in a bucket.
+
+The readers that take coverage as read depth, the mtDNA coverage with its depth verdict and the
+NIPT coverage check without a per-target table, read one coverage track per sample, one whose
+values are depth: the coverage BED (`web`), otherwise HiFiCNV's depth when its record says it is
+stored as read (`none`). WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth are log2
+ratios and are never read as depth, nor is another caller's track whose record names no transform.
+A sample without such a track has no coverage to these readers: the mtDNA analysis reads its
+calls' depth, and the NIPT check reports its regions as without coverage
+([database.md](database.md)).
 
 Every file a dataset names, per sample or for the whole family, is recorded in
 `raw_import_files` with its size and SHA-256 ([database.md](database.md)), whichever of its

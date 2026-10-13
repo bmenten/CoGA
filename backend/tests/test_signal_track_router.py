@@ -304,6 +304,23 @@ async def test_the_layout_probe_stays_in_the_family_folder(monkeypatch: pytest.M
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("family_id", ["other-family/cnv", "other-family/cnv/", "/other-family/cnv", ".."])
+async def test_the_layout_probe_takes_a_family_id_only_when_it_is_one_folder_name(
+    monkeypatch: pytest.MonkeyPatch, family_id: str
+) -> None:
+    # `<prefix>/<family>/<recorded path>`: a family ID holding `/` named another family's
+    # folder, here its object `cnv/x.bw`, from a recorded path of its own (SEC-25).
+    use_store(monkeypatch, "gs", {"other-family/cnv/x.bw": "bigwig"})
+    _members(monkeypatch, "HG002")
+    signed = _sign(monkeypatch)
+    session: Any = _RowsSession({"HG002": {"hificnv": {"depth_bigwig": "x.bw"}}})
+
+    assert signal_tracks._probed_track_key(family_id, "x.bw", "depth_bigwig") is None
+    assert await signal_tracks.get_signal_track_manifest(family_id, sample_ids=["HG002"], session=session, user=object()) == []
+    assert signed == []
+
+
+@pytest.mark.asyncio
 async def test_local_mode_still_serves_the_data_directory(
     data_root: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
