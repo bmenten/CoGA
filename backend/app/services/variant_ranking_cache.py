@@ -56,7 +56,9 @@ from .hpo_service import get_loaded_hpo_release
 # 3: a SIFT or PolyPhen filter keeps a transcript whose value names the prediction with its
 #    score, "deleterious(0.01)" (CLIN-45). A ranking cached before under such a filter, on
 #    the same filters and data, lacks those variants (an empty ranking is cached too).
-_ALGORITHM_VERSION = "3"
+# 4: a ranked compound-het, recessive or carrier-screening search ranks only the variants
+#    and pairs the search keeps unranked (CLIN-44); it ranked every prefiltered candidate.
+_ALGORITHM_VERSION = "4"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 
@@ -90,12 +92,14 @@ async def _pedigree_signature(session: AsyncSession, context: Any) -> Any:
     ).scalar()
     if structure_hash:
         return {"structure_hash": structure_hash}
-    # Fallback: derive from the loaded context.
+    # Fallback: derive from the loaded context. Sex too, as the structure hash has it: the
+    # X-linked rules read it, in the segregation and in what a carrier screen keeps.
     samples = sorted(
         (
             {
                 "id": row.get("sample_id"),
                 "role": row.get("role"),
+                "sex": row.get("sex"),
                 "affected": row.get("affected"),
                 "clinical_status": row.get("clinical_status"),
             }

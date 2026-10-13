@@ -52,10 +52,11 @@ save your own to standardise a search. Compound-heterozygous candidates are show
 matches show as cards, more as a table.
 
 > **A search can stop part-way.** Compound-het and recessive pairing and *Expanded carrier screening*
-> read a limited number of candidates (up to 5,000) before they filter. When a search fills that window,
-> a warning above the results says *"Results may be incomplete"* and after how many candidates the search
-> stopped; the count is then a lower bound (for example *12+*) and a match beyond the window is not shown.
-> Narrow the filters with a region, a gene panel or a gene until the warning is gone.
+> read a limited number of candidates (up to 5,000) before they filter, ranked or not. When a search
+> fills that window, a warning above the results says *"Results may be incomplete"* and after how many
+> candidates the search stopped; the count is then a lower bound (for example *12+*) and a match beyond
+> the window is not shown. Narrow the filters with a region, a gene panel or a gene until the warning is
+> gone.
 
 ### The phenotype ranking
 
@@ -68,6 +69,10 @@ compatible inheritance modes and the matched phenotypes.
 - A gene without Monarch data gets no phenotype credit and ranks lower; its *Variant* score is not
   affected. Look further down for strong variants, or untick **Phenotype prioritization**.
 - Without HPO terms on the affected members, the ranking uses the variant evidence only.
+- The ranking changes the order of a search, not what it finds. With an inheritance mode or
+  *Expanded carrier screening* it ranks the same variants and compound-het pairs the search finds
+  without it. A pair stays a pair, listed where its better-ranked variant ranks; each variant shows
+  its own rank.
 - The score orders candidates within the family; it is not a probability of pathogenicity.
 - A warning that *"Ranking may be incomplete"* means more candidates matched than CoGA ranks at once
   (it says how many were ranked), so the best one may be missing: narrow the filters (a region, a panel,

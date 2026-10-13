@@ -67,6 +67,7 @@ from .clickhouse_variant_records import (
     PanelFilterConstraints,
     Region,
     SmallVariantCall,
+    SmallVariantCompoundHetPair,
     SmallVariantRecord,
     StructuralVariantCall,
     StructuralVariantRecord,
@@ -114,6 +115,7 @@ from .clickhouse_variant_queries import (
     _small_pair_inheritance_candidate_limit,
     _small_query_filter_parts,
     _small_record_matches,
+    _small_search_keeps_by_pairing,
     _small_summary_table_name,
     _small_track_limit_response,
     _small_variant_out,
@@ -1777,7 +1779,9 @@ async def _structural_present_sample_names(
 # preset applies strict frequency/impact filters first, so the candidate set is normally
 # far smaller than this; when it is exceeded the ranking covers only this many (the
 # highest-priority variant could lie outside the window), so the response flags
-# `ranking_truncated` to prompt the user to narrow their filters.
+# `ranking_truncated` to prompt the user to narrow their filters. A ranked compound-het,
+# recessive or carrier-screening search pairs within this window, the largest the unranked
+# search reads (_SMALL_INHERITANCE_MAX_CANDIDATE_ROWS), and flags `candidates_capped` too.
 _PRIORITIZE_CANDIDATE_LIMIT = 5000
 
 
@@ -1825,7 +1829,9 @@ async def _serve_ranking_from_cache(
     page_size: int,
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage | None:
-    """Rebuild a prioritised page from a cached ranking.
+    """Rebuild a prioritised page from a cached ranking, for a search that keeps each
+    variant for its own record (a search that pairs works its pairs out first, see
+    ``_prioritized_small_variants_page``).
 
     The cache holds the ranked (variant id + score breakdown) order; the page's variant
     records and review state are fetched fresh so annotations and review status are never
@@ -1938,6 +1944,57 @@ def _recorded_segregation_modes(entry: dict[str, Any]) -> list[str] | None:
     return [str(mode) for mode in modes] if isinstance(modes, list) else None
 
 
+def _priorities_from_ranking(
+    ranking: Any,
+    records: Sequence[SmallVariantRecord],
+    segregation_modes: Mapping[str, list[str]],
+) -> dict[str, VariantPriorityOut] | None:
+    """A cached ranking narrowed to ``records``: each one's priority, numbered from 1 among
+    them in the ranking's order, best first. None unless the ranking holds every one of them
+    and recorded for each the segregation modes given, or when it cannot be read.
+
+    ``records`` are the variants a fresh computation ranks, and ``segregation_modes`` the
+    modes it scores them with, compound-het pairs counted among these variants only. A
+    variant's score depends on the other variants only through those pairs, so when the
+    modes agree, the ranking's order of these variants is the order a fresh computation
+    gives them. A ranking that lacks one of them (CLIN-34), or recorded other modes for one,
+    a pair the narrower search splits (CLIN-35), is passed over rather than re-scored: it
+    recorded rounded scores, and a score worked back from them can differ from a fresh one.
+    """
+    if isinstance(ranking, str):
+        try:
+            ranking = json.loads(ranking)
+        except json.JSONDecodeError:
+            return None
+    if not isinstance(ranking, list):
+        return None
+    entries = [entry for entry in ranking if isinstance(entry, dict) and entry.get("variant_id")]
+    by_id = {str(entry["variant_id"]): entry for entry in entries}
+    wanted = {record.variant_id for record in records}
+    if not wanted <= by_id.keys():
+        return None
+    if any(
+        _recorded_segregation_modes(by_id[variant_id]) != list(segregation_modes.get(variant_id, []))
+        for variant_id in wanted
+    ):
+        return None
+    priorities: dict[str, VariantPriorityOut] = {}
+    for entry in entries:
+        variant_id = str(entry["variant_id"])
+        if variant_id not in wanted or variant_id in priorities:
+            continue
+        priority = entry.get("priority")
+        if not isinstance(priority, dict):
+            return None
+        try:
+            priorities[variant_id] = VariantPriorityOut.model_validate(
+                {**priority, "rank": len(priorities) + 1}
+            )
+        except Exception:  # noqa: BLE001 - a bad cached blob falls back to a live compute
+            return None
+    return priorities
+
+
 async def _serve_subpanel_from_superset(
     session: AsyncSession,
     *,
@@ -1946,6 +2003,8 @@ async def _serve_subpanel_from_superset(
     panel_constraints: PanelFilterConstraints,
     records: Sequence[SmallVariantRecord],
     segregation_modes: Mapping[str, list[str]],
+    items: Sequence[_SmallResultItem],
+    pairing: bool,
     page: int,
     page_size: int,
     small_variant_summary: SmallVariantSummaryOut | None,
@@ -1955,7 +2014,9 @@ async def _serve_subpanel_from_superset(
     compute.
 
     ``records`` are the variants a fresh computation ranks: what this query's own filter
-    fetched (by gene symbol and by position) and kept, from a window that did not overflow;
+    fetched (by gene symbol and by position) and kept, from a window that did not overflow,
+    and ``items`` what the search lists of them, a compound-het pair as one item (for a
+    search that keeps a variant for its own record alone, each variant);
     ``segregation_modes`` are the modes it scores them with, compound-het pairs counted
     within these variants only. A variant's score does not depend on the panel, except
     through those pairs, so the panel's ranking is the broader ranking restricted to these
@@ -1964,15 +2025,13 @@ async def _serve_subpanel_from_superset(
 
     - it is complete (not truncated), and has no panel or a panel that still holds exactly
       the genes and regions it was computed on, and whose genes cover the request (CLIN-27);
-    - it holds every one of the variants. A panel of more than
-      ``_PANEL_REGION_INLINE_LIMIT`` regions (the Mendeliome) is matched on gene symbols
-      alone, so its ranking can lack a variant a smaller panel reaches by position only
-      (CLIN-34);
-    - it recorded the same segregation modes for each of them. A compound-het pair whose
-      partner the panel leaves out is no pair within the panel: the variant loses that
+    - it holds every one of the variants, and recorded the same segregation modes for each
+      (``_priorities_from_ranking``). A panel of more than ``_PANEL_REGION_INLINE_LIMIT``
+      regions (the Mendeliome) is matched on gene symbols alone, so its ranking can lack a
+      variant a smaller panel reaches by position only (CLIN-34); a compound-het pair whose
+      partner the panel leaves out is no pair within the panel, so the variant loses that
       mode, and with it, unless another mode is as strong, segregation weight and score
-      (CLIN-35). Such a ranking is passed over rather than re-scored: it recorded rounded
-      scores, and a score worked back from them can differ from a fresh one.
+      (CLIN-35).
     """
     request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
     if not request_genes:
@@ -1981,7 +2040,6 @@ async def _serve_subpanel_from_superset(
     candidates = await find_superset_candidates(
         session, family_uuid=context.family_uuid, base_hash=base_hash
     )
-    by_id = {str(record.variant_id): record for record in records}
     for candidate in candidates:
         candidate_panel_id = candidate.get("panel_id")
         if candidate_panel_id:
@@ -1994,56 +2052,23 @@ async def _serve_subpanel_from_superset(
             if not request_genes.issubset(candidate_genes):
                 continue  # this superset doesn't cover all the requested genes
 
-        ranking = candidate.get("ranking") or []
-        if isinstance(ranking, str):
-            try:
-                ranking = json.loads(ranking)
-            except json.JSONDecodeError:
-                continue
-        entries = {str(entry["variant_id"]): entry for entry in ranking if entry.get("variant_id")}
-        if not by_id.keys() <= entries.keys():
-            continue  # a variant the panel reaches that this ranking does not hold (CLIN-34)
-        if any(
-            _recorded_segregation_modes(entries[variant_id])
-            != list(segregation_modes.get(variant_id, []))
-            for variant_id in by_id
-        ):
-            continue  # a compound-het pair the panel splits (CLIN-35)
-
-        subset_ranking = [
-            entry for entry in ranking if str(entry.get("variant_id")) in by_id
-        ]
-        total = len(subset_ranking)
-        reported_total = min(total, _SMALL_COUNT_LIMIT)
-        skip = max(page - 1, 0) * page_size if page_size else 0
-        page_entries = subset_ranking[skip : skip + page_size] if page_size else subset_ranking[skip:]
-
-        page_variants: list[VariantOut] = []
-        # Numbered within the panel, as a fresh computation numbers it (CLIN-35): the rank
-        # the broader ranking recorded counts the variants the panel leaves out.
-        for rank, entry in enumerate(page_entries, start=skip + 1):
-            record = by_id[str(entry.get("variant_id"))]
-            variant_out = _small_variant_out(record, assembly_name=context.assembly_name)
-            priority = entry.get("priority")
-            if priority:
-                try:
-                    variant_out.priority = VariantPriorityOut.model_validate({**priority, "rank": rank})
-                except Exception:  # noqa: BLE001 - fall back to live compute on a bad blob
-                    return None
-            page_variants.append(variant_out)
-        await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
-
-        unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
-        return VariantPage(
-            total=reported_total,
-            total_is_estimated=False,
-            unfiltered_total=unfiltered_total,
-            unfiltered_total_is_estimated=False,
-            count_limit=_SMALL_COUNT_LIMIT - 1,
-            ranking_truncated=False,
+        priorities = _priorities_from_ranking(candidate.get("ranking"), records, segregation_modes)
+        if priorities is None:
+            continue  # a variant it lacks (CLIN-34), or a pair the panel splits (CLIN-35)
+        total = len(items)
+        return await _prioritized_items_page(
+            session,
+            context=context,
+            items=items,
+            priorities=priorities,
+            page=page,
+            page_size=page_size,
+            total=total,
+            total_is_estimated=total >= _SMALL_COUNT_LIMIT,
+            capped=False,
+            pairing=pairing,
             ranking_cached=True,
             ranking_computed_at=candidate.get("computed_at"),
-            variants=page_variants,
             small_variant_summary=small_variant_summary,
         )
     return None
@@ -2056,161 +2081,24 @@ async def _family_small_variant_data_version(context: FamilyMetadataContext) -> 
     return await get_family_small_variant_data_version(context.assembly_name, context.family_uuid)
 
 
-async def _prioritized_small_variants_page(
+async def _rank_small_variants(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
-    filters: SmallVariantQueryFilters,
-    page: int,
-    page_size: int,
-    panel_constraints: PanelFilterConstraints,
-    review_variant_ids: set[str] | None,
-    excluded_review_variant_ids: set[str],
-    include_review_filter_active: bool,
-    include_regions: list[Region],
-    exclude_regions: Sequence[Region],
-    exclude_gene_regions: Sequence[Region],
-    exclude_gene_terms: Sequence[str],
-    small_variant_summary: SmallVariantSummaryOut | None,
-) -> VariantPage:
-    if filters.gene:
-        include_regions = [
-            *include_regions,
-            *await _fetch_gene_regions(
-                session, gene_query=filters.gene, assembly_id=context.assembly_id
-            ),
-        ]
+    records: Sequence[SmallVariantRecord],
+    segregation_modes: Mapping[str, list[str]],
+    patient_terms: Sequence[str],
+    term_labels: Mapping[str, str],
+) -> dict[str, VariantPriorityOut]:
+    """Each variant's priority (the Exomiser-style score breakdown and its rank), best first.
 
-    # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
-    # when its inputs are unchanged — filters, HPO, pedigree, panel, reference releases and
-    # the family's variant data (the storage-level data version, see #509) — and the genes
-    # and regions this query applies, read here from the panel and the gene reference.
-    patient_terms, term_labels = await _affected_present_hpo(session, context)
-    variant_data_version = await _family_small_variant_data_version(context)
-    panel_members = panel_members_digest(panel_constraints) if filters.panel_id else None
-    inputs_hash, base_hash = await compute_ranking_hashes(
-        session,
-        context=context,
-        filters=filters,
-        patient_terms=patient_terms,
-        variant_data_version=variant_data_version,
-        review_variant_ids=review_variant_ids if include_review_filter_active else None,
-        excluded_review_variant_ids=excluded_review_variant_ids,
-        include_review_filter_active=include_review_filter_active,
-        panel_members=panel_members,
-        include_regions=include_regions,
-        exclude_regions=exclude_regions,
-        exclude_gene_regions=exclude_gene_regions,
-        exclude_gene_terms=exclude_gene_terms,
-    )
-    provenance = {
-        "hpo_count": len(patient_terms),
-        "panel_id": filters.panel_id,
-        # What the panel held when this ranking was computed: it serves another panel only
-        # while its panel still holds exactly this (_serve_subpanel_from_superset).
-        "panel_members": panel_members,
-        "filters": canonical_filters(filters),
-    }
-    cached = await get_cached_ranking(
-        session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
-    )
-    if cached is not None:
-        served = await _serve_ranking_from_cache(
-            session,
-            context=context,
-            cached=cached,
-            page=page,
-            page_size=page_size,
-            small_variant_summary=small_variant_summary,
-        )
-        if served is not None:
-            return served
-
-    records = await _fetch_small_variant_rows(
-        context,
-        filters,
-        panel_constraints=panel_constraints,
-        include_variant_ids=review_variant_ids if include_review_filter_active else None,
-        exclude_variant_ids=excluded_review_variant_ids,
-        # Fetch one extra to detect overflow without dropping a genuine candidate when
-        # the set is exactly at the limit.
-        limit=_PRIORITIZE_CANDIDATE_LIMIT + 1,
-        include_regions=include_regions,
-        exclude_regions=exclude_regions,
-        exclude_gene_regions=exclude_gene_regions,
-        exclude_gene_terms=exclude_gene_terms,
-    )
-    capped = len(records) > _PRIORITIZE_CANDIDATE_LIMIT
-    if capped:
-        records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
-
-    filtered = [
-        record
-        for record in records
-        if record.variant_id not in excluded_review_variant_ids
-        and ((not include_review_filter_active) or record.variant_id in (review_variant_ids or set()))
-        and _small_record_matches(
-            record,
-            filters,
-            include_regions,
-            exclude_regions,
-            exclude_gene_regions,
-            panel_constraints=panel_constraints,
-        )
-    ]
-    # Compound-het pairs count within these variants only: a pair whose partner the
-    # filters leave out is no pair here.
-    modes_by_variant = _segregation_modes_by_variant(filtered, context=context)
-
-    # No exact hit: a narrower panel can be served from a broader cached ranking with the
-    # same panel-agnostic inputs, when that ranking holds every variant fetched here and
-    # ranks them as this computation would (_serve_subpanel_from_superset). Fetching them
-    # first is what shows it, and the phenotype scoring after this is the costly part. A
-    # window that overflowed ranks a truncated set, which no complete ranking reproduces.
-    if not capped:
-        served = await _serve_subpanel_from_superset(
-            session,
-            context=context,
-            base_hash=base_hash,
-            panel_constraints=panel_constraints,
-            records=filtered,
-            segregation_modes=modes_by_variant,
-            page=page,
-            page_size=page_size,
-            small_variant_summary=small_variant_summary,
-        )
-        if served is not None:
-            return served
-
-    if not filtered:
-        await store_ranking(
-            session,
-            family_uuid=context.family_uuid,
-            inputs_hash=inputs_hash,
-            base_hash=base_hash,
-            panel_id=filters.panel_id,
-            total=0,
-            total_is_estimated=capped,
-            ranking_truncated=capped,
-            ranking=[],
-            provenance=provenance,
-        )
-        # Nothing in the window survived the filters, but when the window overflowed a
-        # match may lie beyond it: the empty ranking is as incomplete as a full one.
-        return VariantPage(
-            total=0,
-            total_is_estimated=capped,
-            count_limit=_SMALL_COUNT_LIMIT - 1,
-            ranking_truncated=capped,
-            candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
-            variants=[],
-            small_variant_summary=small_variant_summary,
-        )
-
+    The phenotype score of each gene against the affected members' HPO terms is the costly
+    part (~10s for the Mendeliome default view), which the ranking cache saves.
+    """
     affected_names, _unaffected = _family_affected_unaffected_sample_names(context)
     segregation_evaluated = bool(affected_names)
 
-    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in filtered]
+    variants = [_small_variant_out(record, assembly_name=context.assembly_name) for record in records]
     gene_symbols = {variant.gene for variant in variants if variant.gene}
     phenotype_scores = (
         await score_genes_for_hpo(
@@ -2220,7 +2108,7 @@ async def _prioritized_small_variants_page(
         else {}
     )
     # Gene-level constraint (pLI / missense-Z) from gene_info, for all candidates (the
-    # hydrate step only covers the page); also fills variant.gene_pli for display.
+    # hydrate step only covers the page).
     constraint_map = await _fetch_gene_constraint_metric_map(session, variants)
 
     for variant in variants:
@@ -2231,7 +2119,7 @@ async def _prioritized_small_variants_page(
             if variant.gene_missense_z is None:
                 variant.gene_missense_z = metrics.get("gene_missense_z")
 
-        modes = modes_by_variant.get(str(variant.id), [])
+        modes = segregation_modes.get(str(variant.id), [])
         gene_score = phenotype_scores.get(variant.gene.upper()) if variant.gene else None
         phenotype_value = gene_score.score if gene_score else None
         scored = score_variant(
@@ -2284,33 +2172,293 @@ async def _prioritized_small_variants_page(
         ),
         reverse=True,
     )
+    priorities: dict[str, VariantPriorityOut] = {}
     for index, variant in enumerate(variants, start=1):
         if variant.priority:
             variant.priority.rank = index
+            priorities[str(variant.id)] = variant.priority
+    return priorities
 
-    ranked_total = len(variants)
+
+async def _prioritized_items_page(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    items: Sequence[_SmallResultItem],
+    priorities: Mapping[str, VariantPriorityOut],
+    page: int,
+    page_size: int,
+    total: int,
+    total_is_estimated: bool,
+    capped: bool,
+    pairing: bool,
+    ranking_cached: bool,
+    ranking_computed_at: datetime | None,
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage:
+    """A page of a ranked search: its items in the ranking's order (``priorities``, best
+    first), each variant with its priority and rank.
+
+    An item is placed where its best-ranked variant ranks: a compound-het pair at the better
+    of its two variants, and among items that share their best variant (a variant in two
+    pairs, or an X-linked variant that also pairs), by their next one, a single variant
+    first. Paged by item, as the unranked search pages: a pair is one item. ``capped`` says
+    the candidate window overflowed: the ranking covers only the window, and a search that
+    pairs (``pairing``) also missed any pair or carrier gene beyond it.
+    """
+    position = {variant_id: index for index, variant_id in enumerate(priorities)}
+    ranked_items = sorted(
+        items,
+        key=lambda item: tuple(sorted(position[record.variant_id] for record in _item_members(item))),
+    )
+    skip = max(page - 1, 0) * page_size if page_size else 0
+    page_items = ranked_items[skip : skip + page_size] if page_size else ranked_items[skip:]
+    variants, groups = await _small_item_outs(
+        session, context=context, items=page_items, priorities=priorities
+    )
+    unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
+    return VariantPage(
+        total=min(total, _SMALL_COUNT_LIMIT),
+        total_is_estimated=total_is_estimated,
+        unfiltered_total=unfiltered_total,
+        unfiltered_total_is_estimated=False,
+        count_limit=_SMALL_COUNT_LIMIT - 1,
+        ranking_truncated=capped,
+        candidates_capped=capped and pairing,
+        candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
+        ranking_cached=ranking_cached,
+        ranking_computed_at=ranking_computed_at,
+        variants=variants,
+        variant_groups=groups,
+        small_variant_summary=small_variant_summary,
+    )
+
+
+async def _prioritized_small_variants_page(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    page: int,
+    page_size: int,
+    panel_constraints: PanelFilterConstraints,
+    review_variant_ids: set[str] | None,
+    excluded_review_variant_ids: set[str],
+    include_review_filter_active: bool,
+    include_regions: list[Region],
+    exclude_regions: Sequence[Region],
+    exclude_gene_regions: Sequence[Region],
+    exclude_gene_terms: Sequence[str],
+    small_variant_summary: SmallVariantSummaryOut | None,
+) -> VariantPage:
+    """The search ranked by phenotype priority: the variants and compound-het pairs the
+    same search keeps unranked, ordered by the ranking.
+
+    *Phenotype prioritization* changes the order of a search, never what it keeps (CLIN-44).
+    The variants are fetched with the search's filters, as the unranked search fetches them,
+    and kept by the same record filter. A search that keeps a variant for what else it
+    finds (``_small_search_keeps_by_pairing``) then applies the rules the unranked search
+    applies (``_small_variants_candidate_page``): the couple's gene rule of expanded carrier
+    screening (``_filter_expanded_carrier_screening``), and the inheritance mode's pairs and
+    single variants (``_inheritance_result_items``). Before, the ranking applied neither, so
+    a compound-het, recessive or carrier-screening search listed every candidate the SQL
+    prefilter let through. Only the variants kept are ranked, with the segregation modes
+    they have among themselves, and a pair is listed as a group of its two variants, placed
+    at its better-ranked one (``_prioritized_items_page``).
+
+    Such a search reads one window of candidates, ``_PRIORITIZE_CANDIDATE_LIMIT`` (the
+    largest the unranked search reads). When it overflows, the page flags the ranking
+    truncated and the candidates capped, and counts what it found within the window, a
+    lower bound.
+    """
+    if filters.gene:
+        include_regions = [
+            *include_regions,
+            *await _fetch_gene_regions(
+                session, gene_query=filters.gene, assembly_id=context.assembly_id
+            ),
+        ]
+    scope = _SmallVariantScope(
+        panel_constraints=panel_constraints,
+        review_variant_ids=review_variant_ids,
+        excluded_review_variant_ids=excluded_review_variant_ids,
+        include_review_filter_active=include_review_filter_active,
+        include_regions=list(include_regions),
+        exclude_regions=list(exclude_regions),
+        exclude_gene_regions=list(exclude_gene_regions),
+        exclude_gene_terms=list(exclude_gene_terms),
+    )
+    pairing = _small_search_keeps_by_pairing(filters)
+
+    # The phenotype-prioritised ranking is expensive (~10s); serve a cached ranking
+    # when its inputs are unchanged — filters, HPO, pedigree, panel, reference releases and
+    # the family's variant data (the storage-level data version, see #509) — and the genes
+    # and regions this query applies, read here from the panel and the gene reference. The
+    # filters include the inheritance mode and expanded carrier screening, and the pedigree
+    # the couple and each member's sex: every input of what the search keeps.
+    patient_terms, term_labels = await _affected_present_hpo(session, context)
+    variant_data_version = await _family_small_variant_data_version(context)
+    panel_members = panel_members_digest(panel_constraints) if filters.panel_id else None
+    inputs_hash, base_hash = await compute_ranking_hashes(
+        session,
+        context=context,
+        filters=filters,
+        patient_terms=patient_terms,
+        variant_data_version=variant_data_version,
+        review_variant_ids=review_variant_ids if include_review_filter_active else None,
+        excluded_review_variant_ids=excluded_review_variant_ids,
+        include_review_filter_active=include_review_filter_active,
+        panel_members=panel_members,
+        include_regions=scope.include_regions,
+        exclude_regions=scope.exclude_regions,
+        exclude_gene_regions=scope.exclude_gene_regions,
+        exclude_gene_terms=scope.exclude_gene_terms,
+    )
+    provenance = {
+        "hpo_count": len(patient_terms),
+        "panel_id": filters.panel_id,
+        # What the panel held when this ranking was computed: it serves another panel only
+        # while its panel still holds exactly this (_serve_subpanel_from_superset).
+        "panel_members": panel_members,
+        "filters": canonical_filters(filters),
+    }
+    cached = await get_cached_ranking(
+        session, family_uuid=context.family_uuid, inputs_hash=inputs_hash
+    )
+    # A search that keeps each variant for its own record is served from the cached order
+    # alone, the page's variants fetched by id. A search that pairs works its pairs out from
+    # its candidates first (below): the cached order holds variants, not pairs.
+    if cached is not None and not pairing:
+        served = await _serve_ranking_from_cache(
+            session,
+            context=context,
+            cached=cached,
+            page=page,
+            page_size=page_size,
+            small_variant_summary=small_variant_summary,
+        )
+        if served is not None:
+            return served
+
+    records = await _fetch_small_variant_rows(
+        context,
+        filters,
+        # Fetch one extra to detect overflow without dropping a genuine candidate when
+        # the set is exactly at the limit.
+        limit=_PRIORITIZE_CANDIDATE_LIMIT + 1,
+        **scope.row_filters(),
+    )
+    capped = len(records) > _PRIORITIZE_CANDIDATE_LIMIT
+    if capped:
+        records = records[:_PRIORITIZE_CANDIDATE_LIMIT]
+
+    # What the unranked search keeps of these candidates: the record filter, the couple's
+    # gene rule, and an inheritance mode's pairs and single variants.
+    kept = _kept_small_candidates(records, filters, scope, context)
+    items: list[_SmallResultItem] = (
+        _small_inheritance_items(context, filters.inheritance, kept)
+        if pairing and filters.inheritance
+        else [("variant", record) for record in kept]
+    )
+    ranked_records = _item_records(items)
+    # Compound-het pairs count within the variants the search keeps only: a pair whose
+    # partner the filters leave out is no pair here.
+    modes_by_variant = _segregation_modes_by_variant(ranked_records, context=context)
+
+    if cached is not None and pairing:
+        # The cached ranking of this search (the same inputs): its order, numbered among the
+        # variants kept, which it holds with the same segregation modes. A search that pairs
+        # counts its items as the unranked search does: what it found within the window, a
+        # lower bound when the window overflowed.
+        priorities = _priorities_from_ranking(cached.get("ranking"), ranked_records, modes_by_variant)
+        if priorities is not None:
+            return await _prioritized_items_page(
+                session,
+                context=context,
+                items=items,
+                priorities=priorities,
+                page=page,
+                page_size=page_size,
+                total=len(items),
+                total_is_estimated=capped or len(items) >= _SMALL_COUNT_LIMIT,
+                capped=capped,
+                pairing=pairing,
+                ranking_cached=True,
+                ranking_computed_at=cached.get("computed_at"),
+                small_variant_summary=small_variant_summary,
+            )
+
+    # No exact hit: a narrower panel can be served from a broader cached ranking with the
+    # same panel-agnostic inputs, when that ranking holds every variant kept here and
+    # ranks them as this computation would (_serve_subpanel_from_superset). Fetching them
+    # first is what shows it, and the phenotype scoring after this is the costly part. A
+    # window that overflowed ranks a truncated set, which no complete ranking reproduces.
+    if not capped:
+        served = await _serve_subpanel_from_superset(
+            session,
+            context=context,
+            base_hash=base_hash,
+            panel_constraints=panel_constraints,
+            records=ranked_records,
+            segregation_modes=modes_by_variant,
+            items=items,
+            pairing=pairing,
+            page=page,
+            page_size=page_size,
+            small_variant_summary=small_variant_summary,
+        )
+        if served is not None:
+            return served
+
+    if not items:
+        await store_ranking(
+            session,
+            family_uuid=context.family_uuid,
+            inputs_hash=inputs_hash,
+            base_hash=base_hash,
+            panel_id=filters.panel_id,
+            total=0,
+            total_is_estimated=capped,
+            ranking_truncated=capped,
+            ranking=[],
+            provenance=provenance,
+        )
+        # Nothing in the window survived the filters, but when the window overflowed a
+        # match may lie beyond it: the empty ranking is as incomplete as a full one.
+        return VariantPage(
+            total=0,
+            total_is_estimated=capped,
+            count_limit=_SMALL_COUNT_LIMIT - 1,
+            ranking_truncated=capped,
+            candidates_capped=capped and pairing,
+            candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
+            variants=[],
+            small_variant_summary=small_variant_summary,
+        )
+
+    priorities = await _rank_small_variants(
+        session,
+        context=context,
+        records=ranked_records,
+        segregation_modes=modes_by_variant,
+        patient_terms=patient_terms,
+        term_labels=term_labels,
+    )
+
     # When the candidate set overflowed the ranking window, the ranking only covers the
     # window — report the true filtered count (not the window size) and flag the
-    # truncation so the UI can prompt the user to narrow filters.
-    if capped:
-        true_total, true_estimated = await _count_small_variant_rows_bounded(
-            context,
-            filters,
-            panel_constraints=panel_constraints,
-            include_variant_ids=review_variant_ids if include_review_filter_active else None,
-            exclude_variant_ids=excluded_review_variant_ids,
-            include_regions=include_regions,
-            exclude_regions=exclude_regions,
-            exclude_gene_regions=exclude_gene_regions,
-            exclude_gene_terms=exclude_gene_terms,
+    # truncation so the UI can prompt the user to narrow filters. No SQL count counts a
+    # search that pairs (it would count the candidates before pairing): its count is what
+    # it found within the window.
+    if capped and not pairing:
+        true_total, _true_estimated = await _count_small_variant_rows_bounded(
+            context, filters, **scope.row_filters()
         )
-        total = max(true_total, ranked_total)
+        total = max(true_total, len(items))
         total_is_estimated = True
     else:
-        total = ranked_total
-        total_is_estimated = ranked_total >= _SMALL_COUNT_LIMIT
-
-    reported_total = min(total, _SMALL_COUNT_LIMIT)
+        total = len(items)
+        total_is_estimated = capped or total >= _SMALL_COUNT_LIMIT
 
     # Cache the full ranked order (variant id + score breakdown) so the next open of an
     # unchanged view is served without re-scoring. The page records + review state are
@@ -2321,35 +2469,29 @@ async def _prioritized_small_variants_page(
         inputs_hash=inputs_hash,
         base_hash=base_hash,
         panel_id=filters.panel_id,
-        total=reported_total,
+        total=min(total, _SMALL_COUNT_LIMIT),
         total_is_estimated=total_is_estimated,
         ranking_truncated=capped,
         ranking=[
-            {
-                "variant_id": str(variant.id),
-                "priority": variant.priority.model_dump(mode="json") if variant.priority else None,
-            }
-            for variant in variants
+            {"variant_id": variant_id, "priority": priority.model_dump(mode="json")}
+            for variant_id, priority in priorities.items()
         ],
         provenance=provenance,
     )
 
-    skip = max(page - 1, 0) * page_size if page_size else 0
-    page_variants = variants[skip : skip + page_size] if page_size else variants[skip:]
-    await _hydrate_small_variant_outs(session, context=context, variants=page_variants)
-
-    unfiltered_total = small_variant_summary.total_variants if small_variant_summary else None
-    return VariantPage(
-        total=reported_total,
+    return await _prioritized_items_page(
+        session,
+        context=context,
+        items=items,
+        priorities=priorities,
+        page=page,
+        page_size=page_size,
+        total=total,
         total_is_estimated=total_is_estimated,
-        unfiltered_total=unfiltered_total,
-        unfiltered_total_is_estimated=False,
-        count_limit=_SMALL_COUNT_LIMIT - 1,
-        ranking_truncated=capped,
-        candidate_limit=_PRIORITIZE_CANDIDATE_LIMIT if capped else None,
+        capped=capped,
+        pairing=pairing,
         ranking_cached=False,
         ranking_computed_at=datetime.now(timezone.utc),
-        variants=page_variants,
         small_variant_summary=small_variant_summary,
     )
 
@@ -2453,6 +2595,133 @@ class _SmallVariantScope:
             "exclude_gene_regions": self.exclude_gene_regions,
             "exclude_gene_terms": self.exclude_gene_terms,
         }
+
+
+# One result of a small-variant search, as _inheritance_result_items gives it: ("group", a
+# compound-het pair), served as a group of its two variants, or ("variant", a variant).
+_SmallResultItem = tuple[str, SmallVariantCompoundHetPair | SmallVariantRecord]
+
+
+def _item_members(item: _SmallResultItem) -> tuple[SmallVariantRecord, ...]:
+    """The variants of a result item: a pair's two, or the single variant."""
+    _item_type, value = item
+    if isinstance(value, SmallVariantCompoundHetPair):
+        return (value.left, value.right)
+    return (value,)
+
+
+def _item_records(items: Sequence[_SmallResultItem]) -> list[SmallVariantRecord]:
+    """Every variant of the items, once each, in the items' order."""
+    records: dict[str, SmallVariantRecord] = {}
+    for item in items:
+        for record in _item_members(item):
+            records.setdefault(record.variant_id, record)
+    return list(records.values())
+
+
+def _kept_small_candidates(
+    records: Sequence[SmallVariantRecord],
+    filters: SmallVariantQueryFilters,
+    scope: _SmallVariantScope,
+    context: FamilyMetadataContext,
+) -> list[SmallVariantRecord]:
+    """The fetched candidates a search keeps before an inheritance mode applies: those its
+    review selections and record filter keep and, with expanded carrier screening, the
+    couple's at-risk findings among them (REQ-CARR-002). The unranked and the ranked search
+    both keep these (CLIN-44)."""
+    kept = [
+        record
+        for record in records
+        if record.variant_id not in scope.excluded_review_variant_ids
+        and (
+            (not scope.include_review_filter_active)
+            or record.variant_id in (scope.review_variant_ids or set())
+        )
+        and _small_record_matches(
+            record,
+            filters,
+            scope.include_regions,
+            scope.exclude_regions,
+            scope.exclude_gene_regions,
+            panel_constraints=scope.panel_constraints,
+        )
+    ]
+    if filters.expanded_carrier_screening:
+        kept = _filter_expanded_carrier_screening(
+            kept,
+            context.sample_rows,
+            context.relationship_rows,
+            assembly_name=context.assembly_name,
+        )
+    return kept
+
+
+def _small_inheritance_items(
+    context: FamilyMetadataContext,
+    inheritance: str,
+    records: Sequence[SmallVariantRecord],
+) -> list[_SmallResultItem]:
+    """What an inheritance mode keeps of ``records``, with the family's pedigree: its
+    compound-het pairs and single variants (``_inheritance_result_items``)."""
+    affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
+    return _inheritance_result_items(
+        inheritance=inheritance,
+        records=records,
+        affected_samples=affected_sample_names,
+        unaffected_samples=unaffected_sample_names,
+        sample_rows=context.sample_rows,
+        assembly_name=context.assembly_name,
+        pedigree=_family_pedigree(context),
+    )
+
+
+async def _small_item_outs(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    items: Sequence[_SmallResultItem],
+    priorities: Mapping[str, VariantPriorityOut] | None = None,
+) -> tuple[list[VariantOut], list[SmallVariantGroupOut]]:
+    """A page's items as the response carries them: the single variants, and each
+    compound-het pair as a group of its two variants with its phase and pair review. In a
+    ranked search each variant carries its priority. Hydrated like every page."""
+
+    def variant_out(record: SmallVariantRecord) -> VariantOut:
+        variant = _small_variant_out(record, assembly_name=context.assembly_name)
+        priority = priorities.get(record.variant_id) if priorities is not None else None
+        if priority is not None:
+            variant.priority = priority.model_copy(deep=True)
+        return variant
+
+    groups: list[SmallVariantGroupOut] = []
+    group_variants: list[VariantOut] = []
+    singles: list[VariantOut] = []
+    for _item_type, value in items:
+        if isinstance(value, SmallVariantCompoundHetPair):
+            left_variant = variant_out(value.left)
+            right_variant = variant_out(value.right)
+            group_variants.extend([left_variant, right_variant])
+            groups.append(
+                SmallVariantGroupOut(
+                    group_key=value.pair_key,
+                    gene=value.gene,
+                    gene_id=value.gene_id,
+                    variants=[left_variant, right_variant],
+                    phase=value.phase,
+                    phase_evidence=value.phase_evidence,
+                )
+            )
+        else:
+            singles.append(variant_out(value))
+    await _hydrate_small_variant_outs(
+        session,
+        context=context,
+        variants=[*group_variants, *singles],
+    )
+    for group in groups:
+        if len(group.variants) >= 2:
+            group.review = _group_review_for_pair(group.variants[0], group.variants[1])
+    return singles, groups
 
 
 async def _resolve_small_variant_scope(
@@ -2643,7 +2912,8 @@ async def _small_variants_candidate_page(
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage:
     """The Python-side path: fetch the candidates ClickHouse can narrow, then apply what it
-    cannot — gene symbols, inheritance pairing, carrier screening, a track's sampling."""
+    cannot — gene symbols, inheritance pairing, carrier screening, a track's sampling. The
+    ranked search keeps the same (``_kept_small_candidates``, ``_small_inheritance_items``)."""
     if filters.gene:
         gene_regions = await _fetch_gene_regions(
             session,
@@ -2670,30 +2940,7 @@ async def _small_variants_candidate_page(
     )
     if inheritance_candidates_capped:
         records = records[: inheritance_candidate_limit - 1]
-    filtered = [
-        record
-        for record in records
-        if record.variant_id not in scope.excluded_review_variant_ids
-        and (
-            (not scope.include_review_filter_active)
-            or record.variant_id in (scope.review_variant_ids or set())
-        )
-        and _small_record_matches(
-            record,
-            filters,
-            scope.include_regions,
-            scope.exclude_regions,
-            scope.exclude_gene_regions,
-            panel_constraints=scope.panel_constraints,
-        )
-    ]
-    if filters.expanded_carrier_screening:
-        filtered = _filter_expanded_carrier_screening(
-            filtered,
-            context.sample_rows,
-            context.relationship_rows,
-            assembly_name=context.assembly_name,
-        )
+    filtered = _kept_small_candidates(records, filters, scope, context)
     if track_mode:
         unfiltered_total = None
     else:
@@ -2755,50 +3002,15 @@ async def _small_variants_inheritance_page(
 ) -> VariantPage:
     """The candidates that fit the inheritance mode, paged by item: a compound-het pair is
     one item, served as a group of its two variants."""
-    affected_sample_names, unaffected_sample_names = _family_affected_unaffected_sample_names(context)
-    inheritance_items = _inheritance_result_items(
-        inheritance=inheritance,
-        records=filtered,
-        affected_samples=affected_sample_names,
-        unaffected_samples=unaffected_sample_names,
-        sample_rows=context.sample_rows,
-        assembly_name=context.assembly_name,
-        pedigree=_family_pedigree(context),
-    )
+    inheritance_items = _small_inheritance_items(context, inheritance, filtered)
     total = len(inheritance_items)
     reported_total = min(total, _SMALL_COUNT_LIMIT)
     total_is_estimated = candidates_capped or total >= _SMALL_COUNT_LIMIT
     skip = max(page - 1, 0) * page_size if page_size else 0
     page_items = inheritance_items[skip: skip + page_size] if page_size else inheritance_items[skip:]
-    page_variant_groups: list[SmallVariantGroupOut] = []
-    page_single_variants: list[VariantOut] = []
-    group_variant_outs: list[VariantOut] = []
-    for item_type, item_value in page_items:
-        if item_type == "group":
-            pair = item_value
-            left_variant = _small_variant_out(pair.left, assembly_name=context.assembly_name)
-            right_variant = _small_variant_out(pair.right, assembly_name=context.assembly_name)
-            group_variant_outs.extend([left_variant, right_variant])
-            page_variant_groups.append(
-                SmallVariantGroupOut(
-                    group_key=pair.pair_key,
-                    gene=pair.gene,
-                    gene_id=pair.gene_id,
-                    variants=[left_variant, right_variant],
-                    phase=pair.phase,
-                    phase_evidence=pair.phase_evidence,
-                )
-            )
-        else:
-            page_single_variants.append(_small_variant_out(item_value, assembly_name=context.assembly_name))
-    await _hydrate_small_variant_outs(
-        session,
-        context=context,
-        variants=[*group_variant_outs, *page_single_variants],
+    page_single_variants, page_variant_groups = await _small_item_outs(
+        session, context=context, items=page_items
     )
-    for group in page_variant_groups:
-        if len(group.variants) >= 2:
-            group.review = _group_review_for_pair(group.variants[0], group.variants[1])
     return VariantPage(
         total=0 if track_mode else reported_total,
         total_is_estimated=total_is_estimated,

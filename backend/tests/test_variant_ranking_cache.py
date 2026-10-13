@@ -299,6 +299,55 @@ def test_both_keys_cover_the_regions_and_genes_the_query_applied(monkeypatch) ->
         assert other[0] != applied[0] and other[1] != applied[1]
 
 
+def test_both_keys_cover_the_inheritance_mode_and_carrier_screening(monkeypatch) -> None:
+    # CLIN-44: what a ranked search keeps depends on its inheritance mode (pairing) and on
+    # expanded carrier screening (the couple's genes), so no ranking of one search serves
+    # another, exactly or narrowed to a sub-panel.
+    searches = [
+        {},
+        {"inheritance": "compound_het"},
+        {"inheritance": "recessive"},
+        {"inheritance": "recessive_homozygous"},
+        {"inheritance": "de_novo_dominant"},
+        {"inheritance": "x_linked"},
+        {"expanded_carrier_screening": True},
+        {"expanded_carrier_screening": True, "inheritance": "compound_het"},
+    ]
+    keys = [_hashes(monkeypatch, filters=_default_filters(**search)) for search in searches]
+    assert len({inputs_hash for inputs_hash, _base in keys}) == len(searches)
+    assert len({base_hash for _inputs, base_hash in keys}) == len(searches)
+
+
+class _NoStructureVersionSession:
+    """A family without a recorded structure version: the pedigree is read from the context."""
+
+    async def execute(self, statement, params=None):
+        assert "family_structure_versions" in str(statement), str(statement)
+        return types.SimpleNamespace(scalar=lambda: None)
+
+
+def test_the_pedigree_read_from_the_context_covers_each_members_sex() -> None:
+    # The structure hash covers each member's sex; the fallback did not. The X-linked rules
+    # read it: the segregation of a son's hemizygous call, and which chrX variants a carrier
+    # screen keeps (a female partner's on their own, REQ-CARR-002).
+    def context(sex: str):
+        return types.SimpleNamespace(
+            family_uuid="u1",
+            affected_sample_names=[],
+            sample_rows=[
+                {"sample_id": "PARTNER1", "role": "mother", "sex": sex},
+                {"sample_id": "PARTNER2", "role": "father", "sex": "male"},
+            ],
+            relationship_rows=[],
+        )
+
+    session = _NoStructureVersionSession()
+    female = asyncio.run(vrc._pedigree_signature(session, context("female")))
+    unknown = asyncio.run(vrc._pedigree_signature(session, context("")))
+    assert female != unknown
+    assert asyncio.run(vrc._pedigree_signature(session, context("female"))) == female
+
+
 class _RecordingSession:
     def __init__(self) -> None:
         self.statements: list[str] = []
