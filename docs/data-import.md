@@ -609,7 +609,7 @@ The `snv` dataset takes three optional settings:
 | Dataset | Stored as |
 | --- | --- |
 | `snv` | small variants (ClickHouse), with the VEP table if given; a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format: clair3`) as the primary callset, source `clair3` ([below](#per-sample-callsets-of-a-long-read-couple)) |
-| `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample; a breakend with its mate, the position its ALT names in brackets, read as a structural-variant upload reads it ([below](#6-single-file-uploads)) |
+| `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample; a breakend with its mate, the position its ALT names in brackets, read as a structural-variant upload reads it ([below](#6-single-file-uploads)); each SV under the id its coordinates give it, never the record's ID, which its annotation keeps (below this table) |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
 | `coverage` | the `coverage` track (a BED per sample, `bed:`), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
@@ -631,6 +631,28 @@ they are, one row per variant with every sample's call, so the mtDNA analysis ca
 mother's calls beside the children's. A file without chrM variants removes that sample's calls.
 The chrM SV files follow the same rule: one deletion called in the mother and the child is one
 SV with both calls, and a sample's new SV file replaces only that sample's calls.
+
+A NeedlR SV is named by its coordinates and type, a breakend's with its mate
+(`1-7000-12000-DEL---`, `1-20000-20001-BND-5-3000000-3000000`), as a structural-variant upload
+names its call, and never by the record's ID. A caller numbers its calls per run
+(`Sniffles2.DEL.1S0`), so two samples' files, or two runs in one family VCF, give one ID to
+different calls; named by it, they were one SV at the first call's position, the other call
+attached to it and its own deletion lost. The record's ID is kept in the SV's annotation.
+
+- One event (the same chromosome, start, end, type, mate, REF, ALT and SVLEN), called in two
+  samples' files or repeated in the family VCF, is one SV with every call. A sample keeps a
+  genotype over a no-call (`./.`, which a line without `Maternal_GT` or `Paternal_GT` gives a
+  parent), then its own call (its line's query call) over the genotype another sample's line
+  gives it as a parent, whichever file comes first.
+- Two calls on one position, type and mate with other alleles, or a symbolic allele (`<INS>`)
+  of another length, are two SVs: the first keeps the id, the other gets its length as a
+  suffix (`1-20000-20007-INS----7`).
+- The same event uploaded from Sniffles or Spectre has the same id, and so one review, as
+  two uploads' calls of one event have; each caller's call stays a row of its own
+  ([database.md](database.md#row-identity)). A NeedlR record without END ends at POS + SVLEN,
+  or at POS + 1 without one, where an upload ends an insertion, a breakend or a record without
+  SVLEN at POS + the length of REF − 1 (VCF 4.4): such a call has one id from NeedlR and
+  another from the upload.
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
 lists them, with the transform each coverage track's record names, `coverage_normalizations`).
@@ -762,7 +784,8 @@ left out is never read as germline calls.
 **The NeedlR files** go under `sv_needlr.per_sample`. NeedlR has no sample column; each record
 names its query in `Query_ID`, after the caller's input (`<sample>_sv_phased`). A file whose query
 names another sample is refused before anything is written; a query naming no known sample is
-the entry's. One SV called in both partners with the same alleles is one SV with both calls.
+the entry's. One event called in both partners is one SV with both calls, whatever IDs their
+files give it ([above](#where-each-dataset-lands)).
 
 ### Validation
 
@@ -930,8 +953,8 @@ calls are checked and replaced:
   *Remote chr* and *Remote start ≥* filters find the breakend by it. The import of a package's
   NeedlR file reads the mate the same way, for a record of type BND (in any capitals) or with
   an ALT in breakend notation, whatever its SVTYPE says; before, it stored every breakend
-  without its mate. A NeedlR SV's id is still the record's ID, or its coordinates and type
-  when it has none, without the mate.
+  without its mate. A NeedlR breakend's id holds its mate, as an uploaded breakend's does
+  ([above](#where-each-dataset-lands)).
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another

@@ -35,6 +35,8 @@ _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-
 _DEL_7010 = "1-7010-11990-DEL---"
 _DEL_30000 = "1-30000-31000-DEL---"
 _DUP_50000 = "1-50000-50500-DUP---"
+# The golden trio's NeedlR deletion (SVDEL1), by the id its coordinates give it (CLIN-43).
+_NEEDLR_DEL = "1-7000-12000-DEL---"
 
 _SNIFFLES_HEADER = (
     "##fileformat=VCFv4.2\n"
@@ -193,7 +195,7 @@ async def _upload(sample: str, file: UploadFile, *, overwrite: bool, format_hint
 async def test_first_upload_is_judged_and_merged_against_its_own_source_only(store) -> None:
     fake = store(
         [
-            _record("SVDEL1", "needlr", {"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"}),
+            _record(_NEEDLR_DEL, "needlr", {"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"}),
             _record(_DEL_30000, "sniffles", {"MOTHER": "0/1"}),
         ]
     )
@@ -212,7 +214,7 @@ async def test_first_upload_is_judged_and_merged_against_its_own_source_only(sto
 async def test_overwrite_rewrites_only_the_uploaded_sources_records(store) -> None:
     fake = store(
         [
-            _record("SVDEL1", "needlr", {"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"}),
+            _record(_NEEDLR_DEL, "needlr", {"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"}),
             _record(_DEL_30000, "sniffles", {"PROBAND": "0/1", "MOTHER": "0/1"}),
             _record(_DEL_7010, "sniffles", {"PROBAND": "0/1"}),
         ]
@@ -221,7 +223,7 @@ async def test_overwrite_rewrites_only_the_uploaded_sources_records(store) -> No
     await _upload("PROBAND", _sniffles(_DEL_30000_HOM, _DUP_50000_HET), overwrite=True)
 
     # The rewrite deletes the Sniffles rows only, so it must be handed Sniffles rows only.
-    # When the upload read every source, SVDEL1 (NeedlR, without PROBAND's call) was in this
+    # When the upload read every source, the NeedlR deletion (without PROBAND's call) was in this
     # set and was stored a second time beside the original.
     assert fake.replaces[0]["source"] == "sniffles"
     assert fake.written() == {
@@ -272,7 +274,7 @@ async def test_unknown_source_format_is_refused_before_any_rows_are_read(
     # Only the upload's own labels may scope its read and delete. Before the fix the value
     # went through unchecked: the existing rows were read under it (a NeedlR 409 here) and
     # the parser failed afterwards with a 500.
-    fake = store([_record("SVDEL1", "needlr", {"PROBAND": "0/1"})])
+    fake = store([_record(_NEEDLR_DEL, "needlr", {"PROBAND": "0/1"})])
 
     with pytest.raises(HTTPException) as exc:
         await _upload("PROBAND", _sniffles(_DEL_30000_HET), overwrite=False, format_hint=format_hint)
@@ -320,7 +322,7 @@ async def test_admin_sample_delete_reads_every_source_and_replaces_family_wide(m
     # they cannot drift apart.
     fake = _Store(
         [
-            _record("SVDEL1", "needlr", {"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"}),
+            _record(_NEEDLR_DEL, "needlr", {"PROBAND": "0/1", "MOTHER": "0/0", "FATHER": "0/1"}),
             _record(_DEL_30000, "sniffles", {"MOTHER": "0/1"}),
             _record(_DUP_50000, "sniffles", {"PROBAND": "0/1", "MOTHER": "0/1"}),
         ]
@@ -360,6 +362,6 @@ async def test_admin_sample_delete_reads_every_source_and_replaces_family_wide(m
     assert fake.fetches == [{"source": None}]
     assert fake.replaces[0]["source"] is None
     assert fake.written() == {
-        "SVDEL1": ("needlr", {"FATHER": "0/1", "PROBAND": "0/1"}),
+        _NEEDLR_DEL: ("needlr", {"FATHER": "0/1", "PROBAND": "0/1"}),
         _DUP_50000: ("sniffles", {"PROBAND": "0/1"}),
     }

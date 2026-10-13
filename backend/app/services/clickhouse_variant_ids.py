@@ -63,12 +63,14 @@ def build_structural_variant_id(
 ) -> str:
     """Stable id for a structural variant within a family.
 
+    Without the suffixes it names an uploaded SV and a package's NeedlR call alike
+    (CLIN-43): one event called by either has one id, so the reviews and the SV gene index,
+    which attach by the id, cover every caller's call of it. The storage key names the
+    source whatever the id holds (:func:`structural_variant_key`), so two callers' rows
+    never collide in storage.
+
     ``source`` and ``discriminator`` are optional suffixes that keep distinct calls
-    apart when coordinates and type alone are not unique. Both default to absent so
-    every id built before they existed (the whole NeedlR callset) is byte-identical --
-    reviews and the SV gene index attach by the id, so changing it for existing sources
-    would orphan them. The storage key names the source whatever the id holds
-    (:func:`structural_variant_key`), so two callers' rows never collide in storage.
+    apart when coordinates and type alone are not unique:
 
     * ``source`` separates callers that legitimately call the same event: a depth-based
       CNV DEL and an alignment-based SV DEL at the same coordinates are two independent
@@ -111,9 +113,10 @@ def structural_variant_key(
 
     It hashes the source because the variant id need not name the caller: a per-sample
     upload's id is ``chrom-start-end-type---``, so a Sniffles and a Spectre call at the same
-    coordinates share it. Keyed on the id alone, the two calls shared one ``entries`` row
-    identity, one ``variants/details`` row and one ``key_lookup`` row, and a part merge kept
-    only one of them. The id stays as it is: reviews and the SV gene index attach by it.
+    coordinates share it, as a package's NeedlR call of the same event does. Keyed on the
+    id alone, the two calls shared one ``entries`` row identity, one ``variants/details``
+    row and one ``key_lookup`` row, and a part merge kept only one of them. The id stays as
+    it is: reviews and the SV gene index attach by it.
     """
     return _stable_uint64("structural", assembly_name, family_uuid, variant_id, source)
 

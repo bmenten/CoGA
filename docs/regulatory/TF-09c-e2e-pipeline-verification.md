@@ -46,7 +46,7 @@ hand-derivable and auditable. The planted records and their expected outcomes:
 | De novo SNV | proband het, both parents hom-ref | flagged de novo |
 | Compound het (SNV+SNV) | two variants in one gene, trans across parents | paired as a compound-het group: `phase=trans`, `phase_evidence=segregation` |
 | Compound het (SNV+SV) | maternal SNV + paternal DEL over the same gene | SV second-hit: `phase=trans`, `phase_evidence=segregation`, `deletion_unmasked=true` |
-| Structural variants | a DEL and a BND | ingested with type/length/gene overlap; the BND with the mate its ALT names, found by a search on the mate's position |
+| Structural variants | a DEL and a BND | ingested with type/length/gene overlap; the BND with the mate its ALT names, found by a search on the mate's position; each stored under the id its coordinates and type give it, the BND's with its mate (`1-7000-12000-DEL---`, `1-20000-20001-BND-5-3000000-3000000`), not under its record ID (`SVDEL1`, `SVBND1`), which its annotation keeps |
 | Repeat expansion | HTT (HD_HTT), 40-CAG allele | classified **pathogenic** |
 | Coverage | per-sample BED tracks | interval-track rows registered |
 | Paraphase | one segmental-duplication result | persisted |
@@ -73,6 +73,7 @@ Each suite drives the real stack and asserts against `EXPECTED.yaml`. Skipped un
 | Prioritised-ranking cache invalidated by a variant-data change on a non-import path | [test_e2e_ranking_cache.py](../../backend/tests/e2e/test_e2e_ranking_cache.py) |
 | A narrower panel served from a broader cached ranking only while that ranking's panel holds the genes it was computed on: not after an edit adds a gene, nor from a row without that record or whose panel was deleted (CLIN-27); and only as the panel computed for itself ranks it: numbered within the panel, not when it splits a compound-het pair or reaches a variant by position that a ranking matched on gene symbols alone lacks (CLIN-34, CLIN-35) | [test_e2e_ranking_cache_sub_panel.py](../../backend/tests/e2e/test_e2e_ranking_cache_sub_panel.py) |
 | SV second-hit index rebuilt after SV writes on non-import paths (admin delete, per-sample upload) | [test_e2e_sv_second_hit_index.py](../../backend/tests/e2e/test_e2e_sv_second_hit_index.py) |
+| A trio's per-sample NeedlR files whose record IDs repeat across the files: each call an SV of its own position with its own sample's call, one event in two samples' files one SV with both calls (the mother's own, not the no-call the proband's line gives her), the record IDs kept in the annotations (CLIN-43) | [test_e2e_needlr_coordinate_ids.py](../../backend/tests/e2e/test_e2e_needlr_coordinate_ids.py) |
 | A HiFiCNV depth file without a usable autosomal median is stored as read, and its track's record says so (`normalization: none`) where it said `log2_ratio_to_autosomal_median`; the track availability serves each coverage track's recorded transform, which the viewers read before drawing a track on their log2-ratio axis (TRACE-7) | [test_e2e_depth_track_transform.py](../../backend/tests/e2e/test_e2e_depth_track_transform.py) |
 
 A consolidated catalogue of these is in [docs/testing.md](../testing.md) ("End-to-end (golden pipeline)").

@@ -90,6 +90,14 @@ def test_structural_variants_ingested(facts, expected) -> None:
     assert facts["n_structural_variants"] == expected["structural_variants"]["count"]
 
 
+def test_structural_variants_are_named_by_their_coordinates(facts, expected) -> None:
+    # CLIN-43: each NeedlR SV is stored under the id its coordinates and type give it, the
+    # breakend's with its mate, not under its record ID, which its annotation keeps.
+    assert facts["structural_variant_record_ids"] == {
+        variant_id: [record_id] for variant_id, record_id in expected["structural_variants"]["ids"].items()
+    }
+
+
 def test_snv_sv_compound_het_second_hit(facts, expected) -> None:
     hits = facts["brca2_sv_second_hits"]
     assert hits, "expected an SV second-hit overlay on the BRCA2 SNV"

@@ -47,7 +47,7 @@ def _vcf(*records: str) -> bytes:
     return (_VCF_HEADER + "".join(f"{record}\n" for record in records)).encode()
 
 
-# First PROBAND upload: one deletion near NeedlR's SVDEL1 (a different call, different
+# First PROBAND upload: one deletion near NeedlR's (a different call, with other
 # breakpoints, so a different id) and one elsewhere.
 _PROBAND_V1 = _vcf(
     "1\t7010\tSniffles2.DEL.1\tN\t<DEL>\t55\tPASS\tSVTYPE=DEL;SVLEN=-4980;END=11990;SUPPORT=14\tGT\t0/1",
@@ -65,6 +65,10 @@ _MOTHER = _vcf(
 
 _DEL_30000 = "1-30000-31000-DEL---"
 _DUP_50000 = "1-50000-50500-DUP---"
+# The golden trio's NeedlR SVs (SVDEL1, SVBND1), by the ids their coordinates give them
+# (CLIN-43): the breakend's holds its mate.
+_NEEDLR_DEL = "1-7000-12000-DEL---"
+_NEEDLR_BND = "1-20000-20001-BND-5-3000000-3000000"
 
 
 def _cap(resp) -> dict:
@@ -193,8 +197,8 @@ def _duplicate_keys(rows: list[dict]) -> list[int]:
 
 def test_golden_trio_starts_with_needlr_calls_for_every_member(run) -> None:
     needlr = _rows(run["rows_before"], "needlr")
-    assert set(needlr) == {"SVDEL1", "SVBND1"}
-    assert needlr["SVDEL1"] == {"FATHER": "0/1", "MOTHER": "0/0", "PROBAND": "0/1"}
+    assert set(needlr) == {_NEEDLR_DEL, _NEEDLR_BND}
+    assert needlr[_NEEDLR_DEL] == {"FATHER": "0/1", "MOTHER": "0/0", "PROBAND": "0/1"}
     assert {row["source"] for row in run["rows_before"]} == {"needlr"}
 
 
@@ -246,8 +250,8 @@ def test_family_page_shows_each_source_with_its_own_calls(run) -> None:
     page = run["family_page"]
     assert page["status"] == 200, page["text"]
     by_id = {variant["_id"]: variant for variant in page["json"]["variants"]}
-    assert {by_id[vid]["source"] for vid in ("SVDEL1", "SVBND1")} == {"needlr"}
-    assert {g["sample"]: g["gt"] for g in by_id["SVDEL1"]["genotypes"]} == {
+    assert {by_id[vid]["source"] for vid in (_NEEDLR_DEL, _NEEDLR_BND)} == {"needlr"}
+    assert {g["sample"]: g["gt"] for g in by_id[_NEEDLR_DEL]["genotypes"]} == {
         "FATHER": "0/1",
         "MOTHER": "0/0",
         "PROBAND": "0/1",
@@ -264,8 +268,8 @@ def test_admin_sample_delete_removes_that_sample_from_every_source(run) -> None:
     rows = run["rows_after_admin_delete"]
     assert _duplicate_keys(rows) == []
     assert _rows(rows, "needlr") == {
-        "SVDEL1": {"FATHER": "0/1", "PROBAND": "0/1"},
-        "SVBND1": {"FATHER": "0/0", "PROBAND": "0/1"},
+        _NEEDLR_DEL: {"FATHER": "0/1", "PROBAND": "0/1"},
+        _NEEDLR_BND: {"FATHER": "0/0", "PROBAND": "0/1"},
     }
     assert _rows(rows, "sniffles") == {
         _DEL_30000: {"PROBAND": "1/1"},

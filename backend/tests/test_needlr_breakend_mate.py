@@ -13,8 +13,10 @@ breakend notation (``is_breakend_alt``), and a breakend's mate is read from its 
 reads it, with ``remote_end`` equal to ``remote_start``: through the family VCF reader and the
 per-sample reader, in the four bracket forms, with SVTYPE BND, ``bnd`` or TRA, and without one
 (#831 types such a record BND). A single breakend (``G.``) names no mate, and a record that is no
-breakend keeps none. Records that merge by id keep their mate. The variant ids do not change: a
-record's ID, else the id its coordinates and type give it, without the mate.
+breakend keeps none. Records that merge by id keep their mate. Since CLIN-43 a NeedlR SV's id is
+its coordinates and type, never the record's ID (test_needlr_coordinate_ids.py): a breakend's id
+holds its mate, as an uploaded breakend's does, so two breakends on one position with other
+mates have their own ids.
 
 ``e2e/test_e2e_api_contract.py`` imports the golden trio's NeedlR breakend into Postgres and
 ClickHouse, reads its mate back and finds it by a search on the mate's position.
@@ -183,8 +185,9 @@ def test_a_record_that_names_no_mate_keeps_none(
     ref: str, alt: str, info: str, sv_type: str, end: int, sv_len: int | None
 ) -> None:
     (record,) = _family_vcf(_line(alt, info, ref=ref))
+    # The id its coordinates and type give it (CLIN-43): with no mate, none in it.
     assert (record.variant_id, record.chr, record.start, record.end, record.sv_type, record.sv_len) == (
-        "SV1",
+        f"1-20000-{end}-{sv_type}---",
         "1",
         20000,
         end,
@@ -195,16 +198,17 @@ def test_a_record_that_names_no_mate_keeps_none(
 
 
 @pytest.mark.parametrize("reader", sorted(_READERS))
-def test_the_variant_ids_do_not_change(reader: str) -> None:
-    # The same ids as before the reader read the mate.
+def test_a_breakend_s_id_holds_its_mate_as_an_uploaded_breakend_s_does(reader: str) -> None:
+    # Before CLIN-43: the record's ID (SVBND1), else its coordinates and type without the mate.
     with_id, without_id = _READERS[reader](
         _line("N]chr5:3000000]", record_id="SVBND1"),
         _line("N[chr7:4000000[", record_id=".", pos=30000),
     )
-    assert with_id.variant_id == "SVBND1"
-    # The id its coordinates and type give it: no mate in it (an upload's id has one).
-    assert without_id.variant_id == "1-30000-30001-BND---"
-    assert without_id.variant_id == build_structural_variant_id("chr1", 30000, 30001, "BND")
+    assert with_id.variant_id == "1-20000-20001-BND-5-3000000-3000000"
+    assert without_id.variant_id == "1-30000-30001-BND-7-4000000-4000000"
+    assert without_id.variant_id == build_structural_variant_id(
+        "chr1", 30000, 30001, "BND", remote_chr="chr7", remote_start=4_000_000, remote_end=4_000_000
+    )
 
 
 def test_two_breakends_on_one_position_keep_their_own_mates() -> None:
@@ -212,9 +216,14 @@ def test_two_breakends_on_one_position_keep_their_own_mates() -> None:
         _line("N]chr5:3000000]", record_id="."),
         _line("N]chr7:4000000]", record_id="."),
     )
-    # The second gets the discriminator a clash always got: the length of its ALT.
-    assert (first.variant_id, *_mate(first)) == ("1-20000-20001-BND---", *_MATE)
-    assert (second.variant_id, *_mate(second)) == ("1-20000-20001-BND----15", "7", 4_000_000, 4_000_000)
+    # Their mates tell them apart: no discriminator (the length of its ALT, before CLIN-43).
+    assert (first.variant_id, *_mate(first)) == ("1-20000-20001-BND-5-3000000-3000000", *_MATE)
+    assert (second.variant_id, *_mate(second)) == (
+        "1-20000-20001-BND-7-4000000-4000000",
+        "7",
+        4_000_000,
+        4_000_000,
+    )
 
 
 @pytest.mark.parametrize("record_id", ["SV1", "."])

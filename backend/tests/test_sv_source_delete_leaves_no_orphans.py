@@ -44,7 +44,8 @@ _PROJECT = "project-1"
 # A per-sample upload's ids: they do not name the caller.
 _DEL = "1-30000-31000-DEL---"
 _DUP = "1-50000-50500-DUP---"
-_NEEDLR = "SVDEL1"
+# A NeedlR call's id: its coordinates and type too (CLIN-43).
+_NEEDLR = "1-20000-25000-DEL---"
 
 _SV_TABLES = ("SV/entries", "SV/variants/details", "SV/key_lookup")
 # The columns the storage module's statements write, per table.

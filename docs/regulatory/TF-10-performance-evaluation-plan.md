@@ -196,7 +196,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   cap; SV length filters that measure a call's SVLEN (END − POS without one), an insertion
   written with END at POS included, and let a translocation pass any minimum but no exact
   length; SV records written without END or SVTYPE read as VCF 4.4 defines them, a deletion
-  over its SVLEN and a breakend as a BND; the clinical CNV knowledge base (ClinGen curation
+  over its SVLEN and a breakend as a BND; NeedlR calls stored one SV per event, named by its
+  coordinates as an uploaded call is, two calls under one record ID never one SV, and each
+  sample keeping its own call where one event's lines merge; the clinical CNV knowledge base (ClinGen curation
   and recurrent regions, ClinVar support, GRCh37 and GRCh38 builds); repeat-expansion
   status, including contraction loci,
   unclassifiable alleles and an FMR1 premutation told from the grey zone; CNV caller ingestion (HiFiCNV, WisecondorX, QDNAseq) and their

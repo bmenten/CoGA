@@ -18,6 +18,7 @@ from .data_scope import normalize_chromosome
 from .family_metadata_context import (
     SampleMetadataContext,
 )
+from .genotypes import NO_CALL, classify_genotype
 
 from .variant_annotation_parser import (
     AnnotationHeaderState,
@@ -65,6 +66,20 @@ def _needlr_call(
     )
 
 
+def _needlr_call_rank(call: StructuralVariantCall, *, own: bool) -> tuple[bool, bool]:
+    """How a line's call of a sample ranks against another line's call of that sample, when
+    the lines of one event merge: a call with a genotype over one without (``./.``, a
+    parent's call from a line without its ``Maternal_GT`` or ``Paternal_GT``), then the
+    sample's own call, ``own`` -- its line's query call -- over one that another sample's
+    line gives it as a parent. Of two calls that rank alike the later line's is kept, as
+    every later call was before.
+
+    One event in two samples' per-sample files is one SV (CLIN-43): a mother's own call,
+    from her file, must not give way to the ``./.`` her child's line gives her.
+    """
+    return (classify_genotype(call.gt) != NO_CALL, own)
+
+
 def _needlr_parent_sample_ids(ped: ParsedPed, sample_id: str) -> tuple[str | None, str | None]:
     member = next((item for item in ped.members if item.iid == sample_id), None)
     if member is None:
@@ -87,6 +102,41 @@ def _needlr_breakend_mate(sv_type: str, alt: str) -> tuple[str | None, int | Non
     if sv_type.strip().upper() == "BND" or is_breakend_alt(alt):
         return parse_bnd_alt(alt)
     return None, None
+
+
+def _needlr_variant_id(
+    chrom: str,
+    start: int,
+    end: int,
+    sv_type: str,
+    *,
+    remote_chr: str | None,
+    remote_start: int | None,
+    discriminator: str | None = None,
+) -> str:
+    """A NeedlR SV's id: its coordinates and type, and a breakend's mate, as an uploaded
+    SV's call of the same event is named (``chrom-start-end-type-mate``), never the
+    record's ID (CLIN-43).
+
+    A caller numbers its calls per run (``Sniffles2.DEL.1S0``), so two samples' files, or
+    two runs in one family VCF, give one ID to different calls. Named by the ID, they were
+    one SV at the first call's position: the other call was attached to it, and its own
+    SV was lost. The chrM reader names its SVs by their coordinates for the same reason.
+    The same event called by NeedlR and by an upload has one id, and so one review, as two
+    uploads' calls of one event have; the storage key names the source
+    (``structural_variant_key``), so their rows stay apart. ``discriminator`` keeps apart
+    two events of one position and type (``_needlr_records``).
+    """
+    return build_structural_variant_id(
+        chrom,
+        start,
+        end,
+        sv_type,
+        remote_chr=remote_chr,
+        remote_start=remote_start,
+        remote_end=remote_start,
+        discriminator=discriminator,
+    )
 
 
 def needlr_query_ids(text_value: str) -> set[str]:
@@ -123,8 +173,9 @@ def _iter_needlr_per_sample_records(
 ) -> list[StructuralVariantRecord]:
     """The records of one NeedlR VCF per sample, ``(sample id, text)``, as one callset: each
     file's query calls belong to its sample (the importer checked that its ``Query_ID``
-    names no other), and one SV called in two samples with the same alleles is one record
-    holding both calls."""
+    names no other), and one event called in two samples -- the same coordinates, type,
+    mate, alleles and length -- is one record holding both calls. Calls of two events stay
+    two records, whatever their IDs."""
     return _needlr_records(
         [(text_value, sample_id) for sample_id, text_value in files],
         ped=ped,
@@ -139,10 +190,17 @@ def _needlr_records(
     sample_contexts: dict[str, SampleMetadataContext],
 ) -> list[StructuralVariantRecord]:
     """The records of the NeedlR ``texts``, each with the sample its query calls are bound
-    to, or None to read it from the record's ``Query_ID``."""
+    to, or None to read it from the record's ``Query_ID``.
+
+    Lines merge by their SV id, which their coordinates, type and mate give them
+    (``_needlr_variant_id``), with a discriminator for another event on that position: a
+    line repeated in the family VCF, or one event called in two samples' files, is one
+    record with every call; two events are two records, whatever their IDs. A sample's
+    calls from two lines of one event are ranked by ``_needlr_call_rank``."""
     sample_ids = set(sample_contexts)
     merged: dict[str, StructuralVariantRecord] = {}
-    allele_by_variant_id: dict[str, tuple[str, str]] = {}
+    event_by_variant_id: dict[str, tuple[str, str, int | None]] = {}
+    call_ranks: dict[str, dict[str, tuple[bool, bool]]] = {}
     lines = (
         (line, bound_sample)
         for text_value, bound_sample in texts
@@ -208,43 +266,48 @@ def _needlr_records(
         if not calls:
             continue
 
-        # The id holds no mate, as before the reader read one (CLIN-40): a record without
-        # an ID keeps the id its coordinates and type give it, so the reviews attached to
-        # it stay attached. (An uploaded SV's id holds its mate.)
-        variant_id = (
-            record_id
-            if record_id and record_id != "."
-            else build_structural_variant_id(chrom, start, end, sv_type)
+        # The id is the call's coordinates, type and mate, never the record's ID, which a
+        # caller repeats across samples and runs (CLIN-43).
+        variant_id = _needlr_variant_id(
+            chrom, start, end, sv_type, remote_chr=remote_chr, remote_start=remote_start
         )
-        # Co-located same-type calls (insertions in particular share a breakpoint and
-        # differ only in inserted sequence) would otherwise collapse onto one id and
-        # the last record would win. Only a genuine clash gets a discriminator, so
-        # every non-colliding id stays byte-identical to what earlier imports stored.
-        alleles = (ref, alt)
+        # Two calls of one position, type and mate are two events when their alleles
+        # differ (insertions in particular share a breakpoint and differ only in inserted
+        # sequence), or their length does: a symbolic allele (<INS>) does not hold it. They
+        # would otherwise collapse onto one id, one call attached to the other's SV. The
+        # first keeps the id; another gets a discriminator, its length.
+        event = (ref, alt, None if sv_len is None else abs(sv_len))
         attempt = 0
         while True:
-            previous_alleles = allele_by_variant_id.get(variant_id)
-            if previous_alleles is None or previous_alleles == alleles:
+            previous_event = event_by_variant_id.get(variant_id)
+            if previous_event is None or previous_event == event:
                 break
             attempt += 1
             suffix = str(abs(sv_len) if sv_len is not None else len(alt))
-            variant_id = build_structural_variant_id(
+            variant_id = _needlr_variant_id(
                 chrom,
                 start,
                 end,
                 sv_type,
+                remote_chr=remote_chr,
+                remote_start=remote_start,
                 discriminator=suffix if attempt == 1 else f"{suffix}.{attempt}",
             )
-        allele_by_variant_id.setdefault(variant_id, alleles)
-        annotation = {
-            "source": "needlr",
-            "ref": ref,
-            "alt": alt,
-            "info": info,
-        }
+        event_by_variant_id.setdefault(variant_id, event)
+        annotation: dict[str, Any] = {"source": "needlr"}
+        if not _missing_scalar(record_id):
+            # The caller's own ID, as written: the SV's id does not hold it, and it traces
+            # the SV to the caller's record. A record without one keeps the annotation it
+            # had, so the evidence a classification froze on it does not drift.
+            annotation["id"] = record_id
+        annotation.update({"ref": ref, "alt": alt, "info": info})
         gene_symbols = _split_gene_symbols(info.get("Genes"))
+        ranks = call_ranks.setdefault(variant_id, {})
         existing = merged.get(variant_id)
         if existing is None:
+            ranks.update(
+                (call.sample, _needlr_call_rank(call, own=call.sample == query_sample)) for call in calls
+            )
             merged[variant_id] = StructuralVariantRecord(
                 variant_key=None,
                 variant_id=variant_id,
@@ -265,7 +328,10 @@ def _needlr_records(
             continue
         call_by_sample = {call.sample: call for call in existing.calls}
         for call in calls:
-            call_by_sample[call.sample] = call
+            rank = _needlr_call_rank(call, own=call.sample == query_sample)
+            if call.sample not in ranks or rank >= ranks[call.sample]:
+                call_by_sample[call.sample] = call
+                ranks[call.sample] = rank
         # Every line under one id has the same ALT (a clash got a discriminator above),
         # so the record keeps the mate its first line gave it.
         merged[variant_id] = StructuralVariantRecord(
