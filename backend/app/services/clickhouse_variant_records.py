@@ -8,6 +8,8 @@ from typing import Any, Sequence
 from .variant_annotation_parser import _spliceai_delta
 from .family_variant_filters import (
     SmallVariantQueryFilters,
+    in_silico_prediction_matches,
+    in_silico_prediction_pattern,
 )
 
 
@@ -238,7 +240,8 @@ def mane_only_condition(column_prefix: str) -> str:
 
 
 def _status_terms(value: Any) -> set[str]:
-    """Normalised status terms of a ClinVar / SIFT / PolyPhen value.
+    """Normalised status terms of a ClinVar value. (SIFT and PolyPhen are read by
+    ``in_silico_prediction_matches``.)
 
     Multiple values are separated by ``,`` ``;`` ``&`` ``|`` or ``/``. The ``/`` is
     ClinVar's own aggregate form (``Pathogenic/Likely_pathogenic``,
@@ -523,15 +526,14 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
     if clinvar_terms and not _flexible_status_match(_annotation_clinvar(annotation), clinvar_terms):
         return False
 
-    in_silico_requested = any(
-        value is not None and value != ""
-        for value in (
-            filters.min_cadd,
-            filters.min_revel,
-            filters.min_spliceai,
-            filters.sift,
-            filters.polyphen,
-        )
+    # A SIFT or PolyPhen value that names no prediction (blank, or a score alone) asks
+    # nothing, as the SQL condition adds none for it.
+    in_silico_requested = (
+        filters.min_cadd is not None
+        or filters.min_revel is not None
+        or filters.min_spliceai is not None
+        or in_silico_prediction_pattern(filters.sift) is not None
+        or in_silico_prediction_pattern(filters.polyphen) is not None
     )
     if in_silico_requested:
         cadd_match = filters.min_cadd is not None and (
@@ -543,11 +545,10 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
         splice_match = filters.min_spliceai is not None and (
             (_annotation_spliceai_max(annotation) or -1.0) >= filters.min_spliceai
         )
-        sift_match = bool(filters.sift) and _flexible_status_match(_annotation_sift(annotation), [filters.sift])
-        polyphen_match = bool(filters.polyphen) and _flexible_status_match(
-            _annotation_polyphen(annotation),
-            [filters.polyphen],
-        )
+        # The value names the prediction asked for, whatever its score: the SQL condition's
+        # own test (CLIN-45). A whole-term match missed "deleterious(0.01)".
+        sift_match = in_silico_prediction_matches(_annotation_sift(annotation), filters.sift)
+        polyphen_match = in_silico_prediction_matches(_annotation_polyphen(annotation), filters.polyphen)
         if not (cadd_match or revel_match or splice_match or sift_match or polyphen_match):
             return False
     return True

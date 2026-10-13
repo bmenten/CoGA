@@ -127,6 +127,16 @@ def test_hash_changes_when_an_ontology_without_a_release_is_imported_again(monke
     assert _hash(monkeypatch) != first
 
 
+def test_a_ranking_cached_before_the_sift_and_polyphen_rule_is_not_a_hit(monkeypatch) -> None:
+    # CLIN-45: a SIFT or PolyPhen filter now keeps "deleterious(0.01)" where the ranked view
+    # kept nothing, so a ranking cached before under the same filters and data (an empty one
+    # is cached too) must miss: the scoring version moved past it.
+    filters = _default_filters(sift="deleterious")
+    current = _hash(monkeypatch, filters=filters)
+    monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "2")
+    assert _hash(monkeypatch, filters=filters) != current
+
+
 def test_a_ranking_cached_under_the_earlier_key_is_not_a_hit(monkeypatch) -> None:
     # The key gained the ontology's import time. A ranking cached under the earlier payload,
     # even with the same HPO release string, may have been computed on another ontology, so

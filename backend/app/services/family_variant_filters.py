@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import functools
 import math
 import re
 from typing import List
@@ -140,6 +141,72 @@ def structural_variant_length_filters_match(
     if length is not None and measured != length:
         return False
     return min_length is None or measured >= min_length
+
+
+# SIFT and PolyPhen name a prediction, where the other in-silico predictors give a score.
+# VEP writes the prediction with its score, ``deleterious(0.01)`` or
+# ``probably_damaging(0.998)``, or alone when it is run to write no score; the import stores
+# the value as written, trimmed and case-folded (the ``sift`` and ``polyphen`` columns of the
+# ``annotations`` table). A SIFT or PolyPhen filter keeps a transcript whose value names the
+# prediction the filter names, whatever its score: ``deleterious`` keeps
+# ``deleterious(0.01)`` and ``deleterious``, never ``deleterious_low_confidence(0.03)``, which
+# the filter form offers as a choice of its own. The SQL condition used to find the filter's
+# text anywhere in the value, so ``deleterious`` also kept ``deleterious_low_confidence`` and
+# ``tolerated`` kept ``tolerated_low_confidence``; the Python matcher, which runs after the
+# SQL in the ranked view, the pair-based inheritance modes and carrier screening, needed the
+# whole value, so ``deleterious(0.01)`` was not ``deleterious`` and a SIFT- or PolyPhen-only
+# filter kept nothing there (CLIN-45). Both now apply in_silico_prediction_pattern.
+_IN_SILICO_PREDICTION_SCORE = re.compile(r"\([^()]*\)\s*$")
+# What separates two predictions in one value, as it separates two terms of a ClinVar value.
+_IN_SILICO_PREDICTION_SEPARATOR = "[,;&|/]"
+
+
+def in_silico_prediction(value: object) -> str:
+    """The prediction a SIFT or PolyPhen filter value names: in lower case, without the
+    score in parentheses that may follow it, its words joined by one ``_`` whether spaces or
+    underscores separate them (``Deleterious low confidence (0.03)`` names
+    ``deleterious_low_confidence``). Empty when it names none: a blank value, or a score
+    alone."""
+    text = _IN_SILICO_PREDICTION_SCORE.sub("", str(value or "").casefold())
+    return "_".join(text.replace("_", " ").split())
+
+
+@functools.lru_cache(maxsize=64)
+def in_silico_prediction_pattern(prediction: str | None) -> str | None:
+    """The regular expression a stored SIFT or PolyPhen value matches when it names the
+    prediction the filter value ``prediction`` names (:func:`in_silico_prediction`), or None
+    when that value names none: the filter then asks nothing, in SQL and in Python alike.
+
+    It is the filter's one test. The ClickHouse condition applies it with ``match`` to the
+    stored value, and the Python matcher (:func:`in_silico_prediction_matches`) to the same
+    text. It holds literal text, ``[...]`` classes, the ``*``, ``+`` and ``?`` quantifiers,
+    non-capturing groups and the ``^`` and ``$`` anchors only, which RE2 and Python read
+    alike. A value matches when it names the prediction, its words joined by spaces or
+    underscores, with or without a score in parentheses after it; a value that lists several
+    predictions (separated by ``,`` ``;`` ``&`` ``|`` or ``/``) matches when one of them
+    does.
+    """
+    term = in_silico_prediction(prediction)
+    if not term:
+        return None
+    words = "[ _]+".join(re.escape(word) for word in term.split("_"))
+    separator = _IN_SILICO_PREDICTION_SEPARATOR
+    return f"(?:^|{separator})[ _]*{words}[ _]*(?:[(][^()]*[)][ _]*)?(?:{separator}|$)"
+
+
+@functools.lru_cache(maxsize=64)
+def _in_silico_prediction_regex(prediction: str | None) -> re.Pattern[str] | None:
+    pattern = in_silico_prediction_pattern(prediction)
+    return re.compile(pattern) if pattern is not None else None
+
+
+def in_silico_prediction_matches(value: object, prediction: str | None) -> bool:
+    """Whether a SIFT or PolyPhen value names the prediction the filter value ``prediction``
+    names: :func:`in_silico_prediction_pattern`, applied as the ClickHouse condition applies
+    it, to the value as the import stores it (trimmed and case-folded). False when
+    ``prediction`` names none."""
+    regex = _in_silico_prediction_regex(prediction)
+    return regex is not None and regex.search(str(value or "").strip().casefold()) is not None
 
 
 @dataclass(slots=True)
