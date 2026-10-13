@@ -699,6 +699,94 @@ describe('GlobalSmallVariantExplorerPage', () => {
       expect(screen.getByRole('button', { name: 'Download CSV' })).toBeEnabled();
     });
 
+    // The export stopped at its row cap, and searched only part of a large tag filter,
+    // without a word (DATA-2): the server now says so in its headers, and the page names the
+    // file and tells the user, as the family pages do.
+    const exportReply = (headers: Record<string, string>): Reply =>
+      Promise.resolve({ data: 'Chromosome,Position\n13,32316461\n', headers });
+
+    const downloadOnce = async (user: ReturnType<typeof userEvent.setup>) => {
+      Object.assign(window.URL, {
+        createObjectURL: vi.fn(() => 'blob:variant-explorer'),
+        revokeObjectURL: vi.fn(),
+      });
+      const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+      await user.click(screen.getByRole('button', { name: 'Download CSV' }));
+      await waitFor(() => expect(click).toHaveBeenCalledTimes(1));
+      const link = click.mock.contexts[0] as HTMLAnchorElement;
+      click.mockRestore();
+      return link.download;
+    };
+
+    it('saves an export cut at its row cap as TRUNCATED and says the file is incomplete', async () => {
+      const user = userEvent.setup();
+      mockApi({
+        exportCsv: () =>
+          exportReply({
+            'x-coga-export-truncated': 'true',
+            'x-coga-export-truncated-reason': 'row-limit',
+            'x-coga-export-rows': '50000',
+            'x-coga-export-limit': '50000',
+          }),
+      });
+      renderPage();
+      await findResults();
+
+      expect(await downloadOnce(user)).toBe('variant-explorer-asm-38-TRUNCATED-first-50000.csv');
+      const notice = await screen.findByText(/The export was capped at 50,000 rows/);
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(notice).toHaveTextContent(
+        'The export was capped at 50,000 rows — the filtered result is larger, so the file is incomplete. Narrow the filters to export everything.',
+      );
+    });
+
+    it('says when the tag or classification filter matched more variants than one search takes', async () => {
+      const user = userEvent.setup();
+      mockApi({
+        exportCsv: () =>
+          exportReply({
+            'x-coga-export-truncated': 'true',
+            'x-coga-export-truncated-reason': 'review-filter-limit',
+            'x-coga-export-rows': '12',
+            'x-coga-export-limit': '50000',
+          }),
+      });
+      renderPage();
+      await findResults();
+
+      expect(await downloadOnce(user)).toBe('variant-explorer-asm-38-TRUNCATED-partial-search.csv');
+      const notice = await screen.findByText(/tag or classification filter matched more variants/);
+      expect(notice).toHaveAttribute('role', 'alert');
+      expect(notice).toHaveTextContent(
+        'matching variants may be missing from the file (12 rows) — it is incomplete. Filter on fewer tags or classifications to export everything.',
+      );
+    });
+
+    it('saves a complete export under its plain name, and clears an earlier notice', async () => {
+      const user = userEvent.setup();
+      let truncated = true;
+      mockApi({
+        exportCsv: () =>
+          exportReply({
+            'x-coga-export-truncated': String(truncated),
+            'x-coga-export-truncated-reason': truncated ? 'row-limit' : '',
+            'x-coga-export-rows': truncated ? '50000' : '2',
+            'x-coga-export-limit': '50000',
+          }),
+      });
+      renderPage();
+      await findResults();
+      await downloadOnce(user);
+      expect(await screen.findByText(/The export was capped at 50,000 rows/)).toBeInTheDocument();
+
+      truncated = false;
+      expect(await downloadOnce(user)).toBe('variant-explorer-asm-38.csv');
+      await waitFor(() =>
+        expect(screen.queryByText(/The export was capped/)).not.toBeInTheDocument(),
+      );
+      expect(screen.queryByText(/incomplete/)).not.toBeInTheDocument();
+    });
+
     it('shows that the export is being prepared, and says so when it fails', async () => {
       const user = userEvent.setup();
       const exportReply = deferred();

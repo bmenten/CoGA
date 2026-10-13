@@ -50,6 +50,32 @@ describe('describeCsvExport (#512)', () => {
     expect(message).not.toMatch(/capped at 50,000/);
   });
 
+  it('names and describes an export through a capped tag or classification filter as a partial search', () => {
+    // The Variant Explorer searches at most a fixed number of the variants its tag or
+    // classification filter matched: matches can be missing however few rows the file holds,
+    // and a narrower region or panel does not help (DATA-2).
+    const info = describeCsvExport(
+      {
+        headers: {
+          'x-coga-export-truncated': 'true',
+          'x-coga-export-truncated-reason': 'review-filter-limit',
+          'x-coga-export-rows': '12',
+          'x-coga-export-limit': '50000',
+        },
+      },
+      'variant-explorer-asm-38',
+    );
+    expect(info.filename).toBe('variant-explorer-asm-38-TRUNCATED-partial-search.csv');
+    expect(info.truncated).toBe(true);
+    expect(info.reason).toBe('review-filter-limit');
+    const message = truncatedExportMessage(info);
+    expect(message).toMatch(
+      /tag or classification filter matched more variants than one search can take, so matching variants may be missing from the file \(12 rows\) — it is incomplete/,
+    );
+    expect(message).toMatch(/Filter on fewer tags or classifications to export everything/);
+    expect(message).not.toMatch(/capped at 50,000|a region, a gene panel/);
+  });
+
   it('reads a truncation without a reason (older backend) as the row cap', () => {
     const info = describeCsvExport(
       { headers: { 'x-coga-export-truncated': 'true', 'x-coga-export-limit': '50000' } },
@@ -57,6 +83,13 @@ describe('describeCsvExport (#512)', () => {
     );
     expect(info.reason).toBe('row-limit');
     expect(info.filename).toBe('x-TRUNCATED-first-50000.csv');
+    // So is a reason this page does not know: the file is still named and announced as cut.
+    const unknown = describeCsvExport(
+      { headers: { 'x-coga-export-truncated': 'true', 'x-coga-export-truncated-reason': 'later-reason' } },
+      'x',
+    );
+    expect(unknown.reason).toBe('row-limit');
+    expect(unknown.truncated).toBe(true);
   });
 
   it('treats a response without the headers as complete (older backend)', () => {
