@@ -303,7 +303,7 @@ calls apart:
   versions.
 - Uploads from two callers that report an SV with the same type and breakpoints each keep their own
   call: the SV list shows the SV once per caller, with that caller's genotypes, and both rows share
-  the SV's review, tags and note.
+  the SV's review, tags and note. A package's NeedlR call of that SV is one more such row.
 
 A Sniffles or Spectre VCF, and a repeat-expansion (TRGT) file, are read for the sample you upload them
 for: CoGA takes the column named after that sample (TRGT writes `<sample>_sort`), wherever it is in the
@@ -326,6 +326,12 @@ A breakend keeps its mate, the position its ALT names in brackets (5:3000000 her
 list has it in its **Remote chr** and **Remote start** columns, and the filters of those names find the
 breakend by it. A package's NeedlR file is read the same way: a record with its mate in brackets keeps it,
 whatever its SVTYPE says.
+
+A package's NeedlR SVs are named by their breakpoints and type, and a breakend's mate, as an upload's
+are, not by the caller's record ID, which repeats from one run to the next (`Sniffles2.DEL.1S0`). Two
+samples' calls that share an ID but lie apart stay two SVs, each with its own sample's genotype; one SV
+in two samples' files, or repeated in the family file, is one SV with every sample's genotype, each
+sample keeping its own call. The record ID is kept with the SV's annotations.
 
 Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls

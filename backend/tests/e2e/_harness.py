@@ -396,7 +396,28 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
     facts["n_structural_variants"] = await count_family_structural_variants(
         ASSEMBLY, family_uuid, project_ids=[project_id]
     )
+    facts["structural_variant_record_ids"] = await structural_variant_record_ids(family_uuid)
     return facts
+
+
+async def structural_variant_record_ids(family_uuid: str, source: str = "needlr") -> dict[str, list[Any]]:
+    """Each of the family's ``source`` SVs by its stored id, with the record ID each of its
+    annotations keeps (the caller's ID: CLIN-43), read from the details as stored."""
+    from backend.app.core.clickhouse import execute_clickhouse
+    from backend.app.services.clickhouse_variant_ids import _structural_table_name
+    from backend.app.services.clickhouse_variant_queries import _collect_annotations, _decode_json_payload
+
+    rows = await execute_clickhouse(
+        f"SELECT variantId, annotationsJson FROM {_structural_table_name(ASSEMBLY, 'variants/details')} FINAL "
+        "WHERE family_guid = %(family_guid)s AND source = %(source)s ORDER BY variantId",
+        {"family_guid": family_uuid, "source": source},
+    )
+    return {
+        str(variant_id): [
+            annotation.get("id") for annotation in _collect_annotations(_decode_json_payload(payload))
+        ]
+        for variant_id, payload in rows
+    }
 
 
 def import_golden_trio_sync(root: Path) -> dict[str, Any]:

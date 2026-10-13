@@ -75,7 +75,8 @@ from backend.app.services.family_variant_write_lock import (
 _FAMILY = "family-uuid"
 _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-father"}
 _DEL = "1-30000-31000-DEL---"
-_NEEDLR = "SVDEL1"
+# The golden trio's NeedlR deletion, by the id its coordinates give it (CLIN-43).
+_NEEDLR = "1-7000-12000-DEL---"
 
 
 def _key(variant_type: str, family_uuid: str = _FAMILY) -> str:

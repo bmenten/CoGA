@@ -362,8 +362,10 @@ these tables ends with the callset (`source`):
   `annotations`, `annotation_index`, `gene_index`) serve them all. A clair3 call and a GLIMPSE2
   imputation of one variant are two `entries` rows with one key.
 - An SV's `key` is a hash of the assembly, the family, the variant id and the source. A
-  per-sample upload names an SV `chrom-start-end-type---`, without its caller, so a Sniffles and
-  a Spectre call at the same breakpoints have one id but two keys. Each has its own `entries`,
+  per-sample upload names an SV `chrom-start-end-type---`, a breakend's with its mate
+  (`…-BND-5-3000000-3000000`), without its caller, and a package's NeedlR import names its calls
+  the same way, never by the record's ID, which its annotation keeps. So a Sniffles, a Spectre and
+  a NeedlR call at the same breakpoints have one id but three keys. Each has its own `entries`,
   `variants/details` and `key_lookup` row.
 - The variant id does not depend on the callset, with two exceptions whose id names their
   source: a HiFiCNV call without an id of its own, and every mtDNA SV

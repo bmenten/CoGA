@@ -232,7 +232,16 @@ def _write_expected(root: Path) -> None:
             "indel_gene": "GENE_INDEL",
             "mnv_gene": "GENE_MNV",
         },
-        "structural_variants": {"count": 2, "del_gene": "BRCA2"},
+        "structural_variants": {
+            "count": 2,
+            "del_gene": "BRCA2",
+            # Each NeedlR SV by the id its coordinates and type give it, the breakend's with
+            # its mate, and the record ID its annotation keeps (CLIN-43).
+            "ids": {
+                "1-7000-12000-DEL---": "SVDEL1",
+                "1-20000-20001-BND-5-3000000-3000000": "SVBND1",
+            },
+        },
         "sv_second_hit": {
             "gene": "BRCA2",
             "phase": "trans",

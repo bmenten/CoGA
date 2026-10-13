@@ -228,13 +228,18 @@ def test_structural_variants_page_contract(api, expected):
     assert "BND" in by_type, by_type
     assert (by_type["BND"]["remote_chr"], by_type["BND"]["remote_start"]) == ("5", 3_000_000), by_type["BND"]
     assert (by_type["DEL"]["remote_chr"], by_type["DEL"]["remote_start"]) == (None, None), by_type["DEL"]
+    # CLIN-43: each is named by its coordinates and type (the BND's with its mate), not by
+    # its record ID (SVDEL1, SVBND1), as an uploaded call of the same event is.
+    assert {v["_id"] for v in body["variants"]} == set(expected["structural_variants"]["ids"])
 
 
 def test_structural_variants_found_by_their_mate(api):
     # CLIN-40: a search by the mate's position never found a Needlr breakend.
     resp = _resp(api, "sv_by_mate")
     assert resp["status"] == 200, resp["text"]
-    assert [(v["_id"], v["type"], v["start"]) for v in resp["json"]["variants"]] == [("SVBND1", "BND", 20000)]
+    assert [(v["_id"], v["type"], v["start"]) for v in resp["json"]["variants"]] == [
+        ("1-20000-20001-BND-5-3000000-3000000", "BND", 20000)
+    ]
     assert resp["json"]["total"] == 1
     other = _resp(api, "sv_by_other_mate")
     assert other["status"] == 200, other["text"]

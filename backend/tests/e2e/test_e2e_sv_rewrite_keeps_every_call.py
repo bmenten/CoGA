@@ -68,6 +68,10 @@ _MOTHER = _vcf(
 _DEL_30000 = "1-30000-31000-DEL---"
 _DEL_80000 = "1-80000-80800-DEL---"
 _BND_60000 = "1-60000-60000-BND-5-3000000-3000000"
+# The golden trio's NeedlR SVs (SVDEL1, SVBND1), by the ids their coordinates give them
+# (CLIN-43): the breakend's holds its mate.
+_NEEDLR_DEL = "1-7000-12000-DEL---"
+_NEEDLR_BND = "1-20000-20001-BND-5-3000000-3000000"
 
 
 def _cap(resp) -> dict:
@@ -300,8 +304,8 @@ def test_admin_delete_removes_only_that_sample_and_keeps_every_other_call(run) -
     rows = run["rows_after_admin_delete"]
     # Before: FATHER (inactive) lost every call, in both sources, along with the phase sets.
     assert _rows(rows, "needlr") == {
-        "SVDEL1": {"FATHER": ("0/1", None), "PROBAND": ("0/1", None)},
-        "SVBND1": {"FATHER": ("0/0", None), "PROBAND": ("0/1", None)},
+        _NEEDLR_DEL: {"FATHER": ("0/1", None), "PROBAND": ("0/1", None)},
+        _NEEDLR_BND: {"FATHER": ("0/0", None), "PROBAND": ("0/1", None)},
     }
     assert _rows(rows, "sniffles") == {
         _DEL_30000: {"FATHER": ("1|0", 9001), "PROBAND": ("0|1", 7001)},

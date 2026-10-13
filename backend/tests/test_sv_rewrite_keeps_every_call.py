@@ -38,6 +38,8 @@ _ACTIVE = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother"}
 _DEL_30000 = "1-30000-31000-DEL---"
 _DEL_80000 = "1-80000-80800-DEL---"
 _BND_60000 = "1-60000-60000-BND-5-3000000-3000000"
+# The golden trio's NeedlR deletion, by the id its coordinates give it (CLIN-43).
+_NEEDLR_DEL = "1-7000-12000-DEL---"
 
 _HEADER = (
     "##fileformat=VCFv4.2\n"
@@ -367,7 +369,7 @@ async def test_upload_writes_back_every_other_call_and_field_as_stored(storage) 
             _row(_record(_DEL_30000, [_call("PROBAND", "0|1", 7001), _call("FATHER", "1|0", 9001)])),
             _row(_record(_BND_60000, [_call("PROBAND", "0/1")], remote_end=3000000)),
             _row(_record(_DEL_80000, [_call("FATHER", "0/1")])),
-            _row(_record("SVDEL1-0-1-DEL", [_call("PROBAND", "0/1")], source="needlr")),
+            _row(_record(_NEEDLR_DEL, [_call("PROBAND", "0/1")], source="needlr")),
         ]
     )
 
@@ -469,7 +471,7 @@ async def test_admin_delete_writes_back_every_other_call_and_field(monkeypatch) 
         [
             _row(
                 _record(
-                    "SVDEL1-0-1-DEL",
+                    _NEEDLR_DEL,
                     [_call("FATHER", "0/1"), _call("MOTHER", "0/0"), _call("PROBAND", "0/1")],
                     source="needlr",
                 )
@@ -521,7 +523,7 @@ async def test_admin_delete_writes_back_every_other_call_and_field(monkeypatch) 
     written = fake.written()
     # MOTHER's calls go under either stored id; FATHER's (not in the view) and every phase
     # set, remote end and project stay.
-    assert _calls(written[("project-uuid", "SVDEL1-0-1-DEL")]) == {
+    assert _calls(written[("project-uuid", _NEEDLR_DEL)]) == {
         "FATHER": ("0/1", None),
         "PROBAND": ("0/1", None),
     }
