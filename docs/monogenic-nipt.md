@@ -121,7 +121,12 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
 - **Target coverage** — `summarize_target_coverage` (weak: mean < 300× or uncovered bases; 1000×
   advisory). The NIPT page's card counts the genes with a weak target; the coverage page lists every
   gene in scope (`include_passing`) and reads one gene's targets on demand
-  (`get_family_nipt_gene_targets`).
+  (`get_family_nipt_gene_targets`). Without the plasma's table, `nipt_coverage.py` takes the median
+  depth over the genes or the family ROI from the plasma's one coverage track of read depth
+  (`_load_coverage_intervals`, `coverage_read_depth.py`): its coverage BED, otherwise HiFiCNV's
+  depth stored as read. A log2-ratio track (WisecondorX's or QDNAseq's bins, HiFiCNV's normalised
+  depth) is never read as depth: merged with the BED it pulled the median down, and its rows
+  covered the BED's gaps. Without a depth track every region reads `no_coverage`.
 
 ## Two paths
 
@@ -184,6 +189,7 @@ These are described for lab users in the in-app reference.
   `nipt_triage.py` (de novo triage, recessive risk, pure), `nipt_target_coverage.py` (coverage tables,
   pure), `nipt_service.py` (wiring to family data, the views), `family_package_nipt.py` (the pair
   import), `vcf_call_metrics.py`, `nipt_artifact_pg.py`, `nipt_coverage.py` (the ROI fallback),
+  `coverage_read_depth.py` (the coverage track the fallback reads as depth),
   `routers/families_nipt.py`, `schemas/nipt.py`.
 - Frontend: `frontend/src/pages/families/FamilyNiptPage.tsx`, `FamilyNiptReportPage.tsx`,
   `FamilyNiptCoveragePage.tsx` (the coverage page, `/families/{id}/nipt/coverage`),

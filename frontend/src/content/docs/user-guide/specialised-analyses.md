@@ -56,6 +56,13 @@ this page classifies every call again, against the catalogue as it is now.
 
 ### mtDNA
 
+Each sample's card on the **mtDNA analysis** page gives its mean chrM depth and the share of chrM
+covered, and a QC status judged against the lab's limits (**Sequencing QC Thresholds**). The depth
+comes from one coverage track that holds read depth: the sample's coverage BED, otherwise HiFiCNV's
+depth where the import stored it as read. WisecondorX's and QDNAseq's bins and HiFiCNV's normalised
+depth hold log2 ratios, not depths, and never count. A sample without a track of read depth shows the
+depth of its chrM calls.
+
 **ACMG classify** on a variant from the **mtDNA analysis** page uses the mitochondrial rule set.
 
 [ACMG classification reference (including the CNV classifier)](/docs/reference/acmg-classification "further-reading")

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from typing import Any, Iterable, Literal, Protocol, Sequence
@@ -27,6 +28,7 @@ from .clickhouse_variant_records import (
 )
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .clickhouse_variant_queries import _parent_child_links
+from .coverage_read_depth import COVERAGE_TRACK_TYPE, read_depth_sources_by_sample
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
@@ -35,6 +37,8 @@ from .small_variant_review_pg import get_small_variant_review_map
 
 
 MT_GENOME_LENGTH = 16_569
+# chrM's names in the interval tracks (a file writes chrM or chrMT): a coverage read asks for each.
+MT_CHROMOSOMES = ("MT", "M", "chrMT", "chrM")
 HETEROPLASMY_THRESHOLD = 0.02
 HOMOPLASMY_THRESHOLD = 0.95
 MITOMAP_ALLELE_SEARCH_URL = "https://www.mitomap.org/cgi-bin/search_allele"
@@ -478,11 +482,12 @@ def _maternal_transmission(
     mother.
 
     "Not seen in mother" needs a mother who was looked at: one the pedigree links to the
-    proband, with mtDNA data (``mtdna_samples``: members with coverage or call depth; None
-    trusts every member) and not a no-call at this site. Without one -- a singleton, a
-    father-child duo, a mother whose mtDNA was not sequenced -- the proband's variant is
-    ``mother_not_assessed``; it used to read as not seen in her. Without a proband (a couple
-    in carrier screening) there is no maternal line to read: ``no_proband``.
+    proband, with mtDNA data (``mtdna_samples``: members with a chrM coverage track of read
+    depth or call depth; None trusts every member) and not a no-call at this site. Without
+    one -- a singleton, a father-child duo, a mother whose mtDNA was not sequenced -- the
+    proband's variant is ``mother_not_assessed``; it used to read as not seen in her. Without
+    a proband (a couple in carrier screening) there is no maternal line to read:
+    ``no_proband``.
     """
     proband = next((sample.sample_id for sample in samples if sample.role == "proband"), None)
     mothers = {parent for child, parent, role in parent_links if child == proband and role == "mother"}
@@ -646,44 +651,71 @@ def _coverage_from_rows(rows: Sequence[dict[str, Any]]) -> MitoDNACoverageOut:
     )
 
 
-async def _has_mt_coverage(context: FamilyMetadataContext) -> bool:
-    """Cheap presence check: is any MT/chrM coverage interval recorded?
+async def _mt_depth_sources(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, str]:
+    """Sample name → its chrM coverage track whose values are read depth (CLIN-46).
 
-    Used by the count-only path so the family dashboard can decide whether to show
-    the mtDNA workspace without streaming the full coverage track (up to tens of
-    thousands of interval rows). `LIMIT 1` lets ClickHouse stop at the first hit.
+    A sample's coverage can come from several callers, and only some hold read depth
+    (``coverage_read_depth``): the coverage BED, and a HiFiCNV depth track stored as read.
+    WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth are log2 ratios, and
+    merged with depths they gave a mean chrM depth that was neither. A sample without a
+    depth track is left out, and its coverage is its calls' depth, as without any track.
     """
     if not context.assembly_name or not context.sample_uuid_to_name:
-        return False
-    rows = await fetch_interval_track_rows(
-        context.assembly_name,
-        family_uuid=context.family_uuid,
-        sample_uuids=list(context.sample_uuid_to_name),
-        track_type="coverage",
-        chromosomes=["MT", "M", "chrMT", "chrM"],
-        limit=1,
-    )
-    return bool(rows)
-
-
-async def _coverage_by_sample(context: FamilyMetadataContext) -> dict[str, MitoDNACoverageOut]:
-    if not context.assembly_name or not context.sample_uuid_to_name:
         return {}
-    rows = await fetch_interval_track_rows(
-        context.assembly_name,
+    return await read_depth_sources_by_sample(
+        session,
+        assembly_name=context.assembly_name,
         family_uuid=context.family_uuid,
-        sample_uuids=list(context.sample_uuid_to_name),
-        track_type="coverage",
-        chromosomes=["MT", "M", "chrMT", "chrM"],
-        limit=50_000,
+        sample_uuid_to_name=context.sample_uuid_to_name,
+        chromosomes=MT_CHROMOSOMES,
     )
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        sample_name = context.sample_uuid_to_name.get(str(row.get("sample_uuid")))
-        if not sample_name:
-            continue
-        grouped.setdefault(sample_name, []).append(row)
-    return {sample_name: _coverage_from_rows(sample_rows) for sample_name, sample_rows in grouped.items()}
+
+
+async def _has_mt_coverage(session: AsyncSession, context: FamilyMetadataContext) -> bool:
+    """Cheap presence check: does a sample have a chrM coverage track of read depth?
+
+    Used by the count-only path so the family dashboard can decide whether to show the
+    mtDNA workspace without streaming the coverage track (up to tens of thousands of
+    interval rows): one query for the sources with chrM rows, and one for their records.
+    It counts the tracks the full response reads (``_coverage_by_sample``), so the two
+    agree on whether a family has coverage.
+    """
+    return bool(await _mt_depth_sources(session, context))
+
+
+async def _coverage_by_sample(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> dict[str, MitoDNACoverageOut]:
+    """Each sample's chrM coverage from its one coverage track of read depth
+    (``_mt_depth_sources``); a sample without one is left out."""
+    depth_sources = await _mt_depth_sources(session, context)
+    if not depth_sources or not context.assembly_name:
+        return {}
+    assembly_name = context.assembly_name
+    samples = [
+        (sample_name, context.sample_name_to_uuid[sample_name], source)
+        for sample_name, source in depth_sources.items()
+        if sample_name in context.sample_name_to_uuid
+    ]
+    fetched = await asyncio.gather(
+        *(
+            fetch_interval_track_rows(
+                assembly_name,
+                family_uuid=context.family_uuid,
+                sample_uuid=sample_uuid,
+                track_type=COVERAGE_TRACK_TYPE,
+                chromosomes=MT_CHROMOSOMES,
+                source=source,
+                limit=50_000,
+            )
+            for _sample_name, sample_uuid, source in samples
+        )
+    )
+    return {
+        sample_name: _coverage_from_rows(rows)
+        for (sample_name, _sample_uuid, _source), rows in zip(samples, fetched)
+        if rows
+    }
 
 
 def _sample_variant_depth_coverage(records: Sequence[SmallVariantRecord]) -> dict[str, MitoDNACoverageOut]:
@@ -891,7 +923,11 @@ def _family_qc_notes(samples: Sequence[MitoDNASampleOut], variants: Sequence[Mit
     if not any(sample.haplogroup for sample in samples):
         notes.append("No per-sample mtDNA haplogroup metadata is available.")
     if not any(sample.coverage.mean_depth is not None for sample in samples):
-        notes.append("No MT coverage track was found; variant-call depth is used when available.")
+        # A track of log2 ratios (WisecondorX or QDNAseq bins, HiFiCNV's normalised depth)
+        # is not read as depth (_mt_depth_sources), so "no track" would not be true of it.
+        notes.append(
+            "No MT coverage track with read depth was found; variant-call depth is used when available."
+        )
     if any(sample.qc.status in {"warn", "fail"} for sample in samples):
         notes.append("One or more samples have mtDNA QC warnings.")
     return notes
@@ -932,9 +968,11 @@ async def get_family_mitochondrial_analysis_response(
     if count_only:
         # Presence check only: don't stream the full coverage track or build the
         # per-sample / per-variant payloads. Coverage is "present" when a sample
-        # carries variant-call depth or any MT coverage interval exists — the same
-        # two sources `_sample_outs` merges, but probed with a cheap `LIMIT 1`.
-        has_coverage = bool(_sample_variant_depth_coverage(records)) or await _has_mt_coverage(context)
+        # carries variant-call depth or a chrM coverage track of read depth — the same
+        # two sources `_sample_outs` merges, but probed without reading the track.
+        has_coverage = bool(_sample_variant_depth_coverage(records)) or await _has_mt_coverage(
+            session, context
+        )
         return FamilyMitoDNAAnalysisOut(
             variant_count=len(records),
             has_coverage=has_coverage,
@@ -942,7 +980,7 @@ async def get_family_mitochondrial_analysis_response(
             homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
         )
     member_by_sample = _member_meta(context)
-    coverage_map = await _coverage_by_sample(context)
+    coverage_map = await _coverage_by_sample(session, context)
     # Resolved once per request, not per sample: every member of a family shares its
     # threshold profile.
     resolved_thresholds = await resolve_family_qc_thresholds(
@@ -961,7 +999,8 @@ async def get_family_mitochondrial_analysis_response(
         for sample in samples
     )
     parent_links = _parent_child_links(context)
-    # Members with any mtDNA data: a coverage track or call depth on some MT record.
+    # Members with any mtDNA data: a coverage track of read depth or call depth on some MT
+    # record. A track of log2 ratios alone does not count (_mt_depth_sources).
     mtdna_samples = {
         sample.sample_id
         for sample in samples
