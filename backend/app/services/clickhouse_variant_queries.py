@@ -1005,10 +1005,10 @@ def _small_record_matches(
             return False
     if filters.gene and not _small_record_hits_gene_terms(record, _split_gene_terms(filters.gene)):
         return False
-    if filters.rsid and not (
-        _contains_casefold(record.rsid, filters.rsid)
-        or any(_contains_casefold(_annotation_text(annotation, "rsid"), filters.rsid) for annotation in record.annotations)
-    ):
+    # The variant's rsID as stored, which the SQL searches: the VCF's ID, else the existing
+    # variants VEP lists on its first transcript. Python also searched every transcript's
+    # list, so it kept a variant the SQL leaves out (another id VEP lists, ENG-1).
+    if filters.rsid and not _contains_casefold(record.rsid, filters.rsid):
         return False
     if filters.exclude_clinvar and any(
         _flexible_status_match(_annotation_clinvar(annotation), filters.exclude_clinvar)

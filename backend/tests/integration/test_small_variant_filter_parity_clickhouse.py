@@ -423,6 +423,8 @@ CASES: dict[str, _Case] = {
     "rsID in capitals": _case({WITH_RSID}, rsid="RS1001"),
     "rsID with spaces around it": _case({WITH_RSID}, rsid=" rs1001 "),
     "rsID left blank": _case(ALL, rsid="  "),
+    # The variant's rsID is the VCF's ID (else the first transcript's existing variants).
+    "another id VEP lists": _case(set(), rsid="COSV55"),
     # --- impact, consequence and the transcript flags (one transcript must meet them all) ---
     "impact": _case({HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION}, impact=["HIGH"]),
     "impact in lower case": _case({HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION}, impact=["high"]),

@@ -221,3 +221,15 @@ def test_a_blank_callset_or_rsid_asks_nothing_in_either_path() -> None:
     assert (blank_clauses, blank_params) == (clauses, params)
     assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in blank_clauses
     assert _keeps(_record("11-100-C-T"), source="  ", rsid=" ")
+
+
+def test_the_rsid_filter_searches_the_variants_stored_rsid() -> None:
+    # The stored rsID is the VCF's ID, else the existing variants VEP lists on the first
+    # transcript (the writer's _annotation_rsid); the SQL searches it alone. Python also
+    # searched every transcript's list, so it kept a variant for another id VEP lists.
+    annotations = [{"gene": "GENE1", "rsid": "rs1001&COSV55"}]
+    with_vcf_id = _record("11-100-C-T", rsid="rs1001", annotations=annotations)
+    assert _keeps(with_vcf_id, rsid="rs1001")
+    assert not _keeps(with_vcf_id, rsid="COSV55")
+    without_vcf_id = _record("11-100-C-T", rsid="rs1001&COSV55", annotations=annotations)
+    assert _keeps(without_vcf_id, rsid="COSV55")
