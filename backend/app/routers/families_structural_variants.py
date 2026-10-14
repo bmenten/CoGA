@@ -138,7 +138,7 @@ async def get_family_structural_variants(
         count_only=count_only,
     )
     if track_mode:
-        # The genome SV track reads only chr/start/end/type/source + per-sample
+        # The genome SV track reads only chr/start/end/type/source/copy_change + per-sample
         # genotype. VariantOut has 59 fields, ~46 of them null for an SV; dropping the
         # nulls (exclude_none) shrinks the per-member payload ~3x more on top of the
         # annotation slim (182 MB -> ~9 MB for this family). Return raw JSON so the

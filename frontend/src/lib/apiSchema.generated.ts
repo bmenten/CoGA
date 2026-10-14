@@ -1973,6 +1973,7 @@ export interface NiptVariantOut {
   filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
+  copy_change: "loss" | "gain" | null;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;
@@ -3302,6 +3303,7 @@ export interface VariantOut {
   filter_transcript: SmallVariantFilterTranscriptOut | null;
   genotypes: GenotypeOut[];
   hemizygous_in_males: boolean;
+  copy_change: "loss" | "gain" | null;
   review: SmallVariantReviewOut | null;
   internal_cohort: VariantInternalCohortOut | null;
   priority: VariantPriorityOut | null;

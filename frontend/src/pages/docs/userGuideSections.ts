@@ -106,7 +106,7 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
     id: 'visualization',
     title: 'Genome visualisation',
     summary:
-      'From a candidate to its context: the genome and chromosome views, Circos and IGV, and how the small-variant track is drawn.',
+      'From a candidate to its context: the genome and chromosome views, Circos and IGV, and how the small-variant and structural-variant tracks are drawn.',
   },
   {
     id: 'haplotype-segregation',

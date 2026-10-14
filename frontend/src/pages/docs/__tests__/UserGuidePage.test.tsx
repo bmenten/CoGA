@@ -59,6 +59,6 @@ describe('UserGuidePage', () => {
     expect(container.querySelectorAll('.user-guide-callout')).toHaveLength(14);
     expect(container.querySelectorAll('.user-guide-mini-grid > .user-guide-mini-card')).toHaveLength(6);
     expect(container.querySelector('.user-guide-section-prose pre')).toBeNull();
-    expect(container.querySelectorAll('.user-guide-section-prose .content-table-wrap > table')).toHaveLength(1);
+    expect(container.querySelectorAll('.user-guide-section-prose .content-table-wrap > table')).toHaveLength(2);
   });
 });

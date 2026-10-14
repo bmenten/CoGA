@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({
@@ -107,9 +107,8 @@ test('names the drawn SVs by type (#529)', () => {
         sv('DEL', 32_310_000),
         sv('DUP', 32_320_000, '1/1'),
         sv('del', 32_330_000),
-        // Not carried by S1, or not a type the track draws: not counted.
+        // Not carried by S1: not counted.
         sv('DEL', 32_340_000, '0/0'),
-        sv('CNV', 32_350_000),
       ],
     },
     isLoading: false,
@@ -208,4 +207,70 @@ test('a failed pan draws nothing from the previous window (#586)', () => {
   useQueryMock.mockReturnValue({ data: undefined, isLoading: false, isError: true, refetch: vi.fn() });
   rerender(brca2Track(32_350_000));
   expect(container.querySelectorAll('[data-variant-type]')).toHaveLength(0);
+});
+
+// CLIN-54: the track drew DEL, DUP, INV, INS and BND by their exact names only, so a DEL:ME, a
+// DUP:TANDEM, an INS:ME, a CNV or a TRA was not drawn, though the SV list showed it.
+test('draws every SV the list shows: by its type without subtypes, a CNV by its copy change, a TRA as a BND, any other type in the Other row (CLIN-54)', () => {
+  useQueryMock.mockReturnValue({
+    data: {
+      // As the track payload serves them: the copy change is left out when there is none.
+      variants: [
+        { ...sv('DEL:ME', 32_310_000), copy_change: 'loss' },
+        { ...sv('DUP:TANDEM', 32_320_000), copy_change: 'gain' },
+        sv('INS:ME', 32_330_000),
+        { ...sv('CNV', 32_340_000), copy_change: 'loss' },
+        { ...sv('CNV', 32_350_000), copy_change: 'gain' },
+        // A CNV that keeps the sample's copies, and a type no row names: the Other row.
+        sv('CNV', 32_360_000),
+        sv('TRA', 32_370_000),
+        sv('CPX', 32_380_000),
+      ],
+    },
+    isLoading: false,
+  });
+  const { container } = render(brca2Track());
+
+  expect(
+    screen.getByRole('img', {
+      name: 'Structural variants of S1 on chr13:32,300,000–32,400,000: 8 (2 DEL, 2 DUP, 1 INS, 1 BND, 2 other)',
+    }),
+  ).toBeInTheDocument();
+  const marks = [...container.querySelectorAll('[data-variant-type]')];
+  expect(marks.map((mark) => mark.getAttribute('data-variant-type'))).toEqual([
+    'DEL',
+    'DUP',
+    'INS',
+    'DEL',
+    'DUP',
+    'OTHER',
+    'BND',
+    'OTHER',
+  ]);
+  // An insertion is a line, a breakend a triangle; the Other row is the sixth and last.
+  expect(marks[2].tagName).toBe('line');
+  expect(marks[6].tagName).toBe('path');
+  expect(screen.getByText('Other')).toBeInTheDocument();
+  expect(Number(marks[7].getAttribute('y'))).toBeGreaterThan((80 * 5) / 6);
+});
+
+test('names an SV of another type, and a CNV with its copy change and copy number, in its tooltip (CLIN-54)', () => {
+  useQueryMock.mockReturnValue({
+    data: {
+      variants: [
+        { ...sv('CPX', 32_310_000), source: 'caller' },
+        { ...sv('CNV', 32_320_000), genotypes: [{ sample: 'S1', gt: '0/1', cn: 3 }], copy_change: 'gain' },
+      ],
+    },
+    isLoading: false,
+  });
+  const { container } = render(brca2Track());
+  const [other, cnv] = [...container.querySelectorAll('[data-variant-type]')];
+
+  fireEvent.mouseMove(other, { clientX: 10, clientY: 70 });
+  expect(screen.getByText('13:32310000-32315000 CPX [caller]')).toBeInTheDocument();
+
+  fireEvent.mouseMove(cnv, { clientX: 20, clientY: 20 });
+  expect(screen.getByText('13:32320000-32325000 CNV (copy-number gain)')).toBeInTheDocument();
+  expect(screen.getByText('S1: Het CN:3')).toBeInTheDocument();
 });

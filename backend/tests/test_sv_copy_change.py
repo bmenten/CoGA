@@ -5,17 +5,21 @@ a CNV whose copy number shows a loss did not score as a deletion, nor take the
 haploinsufficiency floor in a LoF-intolerant gene, and a ``DUP:TANDEM`` or a CNV gain did not
 score as a duplication, while the SNV + SV second-hit badge counted a ``DEL:ME`` and a CNV loss
 as copy losses (#840). Both now read ``sv_copy_change.copy_change``: these tests pin the rule,
-and run the SV ranking and the badge on the same SVs.
+and run the SV ranking and the badge on the same SVs. The SV list serves each SV's change by
+the same rule, which the genome, chromosome and Circos views draw an SV by (CLIN-54).
 """
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 import pytest
 
-from backend.app.services.clickhouse_family_variants import _prioritized_structural_variants_page
-from backend.app.services.clickhouse_variant_queries import _family_pedigree
+from backend.app.services.clickhouse_family_variants import (
+    _prioritized_structural_variants_page,
+    get_family_structural_variants_page,
+)
+from backend.app.services.clickhouse_variant_queries import _family_pedigree, _structural_variant_out
 from backend.app.services.clickhouse_variant_records import (
     StructuralVariantCall,
     StructuralVariantRecord,
@@ -254,3 +258,85 @@ def test_the_second_hit_badge_counts_the_same_svs_as_copy_losses(
     summary = summarize_second_hit([sv], ["SON"], pedigree=_family_pedigree(_context()))
     assert summary["svs"][0]["copy_loss"] is (change == "loss")
     assert summary["has_deletion"] is (change == "loss")
+
+
+# --- what the SV views draw by (CLIN-54) -------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("variant_id", "sv_type", "calls", "locus", "change"),
+    [case[:5] for case in CASES],
+    ids=[case[0] for case in CASES],
+)
+def test_the_sv_list_serves_each_svs_copy_change_by_the_same_rule(
+    variant_id: str,
+    sv_type: str,
+    calls: list[tuple[str, str, int | None]],
+    locus: tuple[str, int, int],
+    change: str | None,
+) -> None:
+    # The genome, chromosome and Circos views drew only five exact type names; they now draw a
+    # DEL:ME as a deletion and a CNV by this change, which the list serves with each SV.
+    served = _structural_variant_out(
+        _record(variant_id, sv_type, calls, locus), [], pedigree=_family_pedigree(_context())
+    )
+    assert served.copy_change == change
+
+
+@pytest.mark.parametrize("sv_type", ["INS", "INS:ME", "INV", "BND", "TRA", "CPX"])
+def test_an_sv_that_changes_no_copy_number_is_served_with_none(sv_type: str) -> None:
+    served = _structural_variant_out(
+        _record("sv", sv_type, [("SON", "0/1", None)], AUTOSOME), [], pedigree=_family_pedigree(_context())
+    )
+    assert served.copy_change is None
+
+
+@pytest.mark.asyncio
+async def test_a_track_reads_the_copy_change_of_its_own_samples_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # One CNV with one copy in the mother and three in her son, and the son's CNV keeping his
+    # one copy of chrX: the family's list reads the first as a loss, as the ranking does, and
+    # each member's track reads the member's own call.
+    records = [
+        _record("cnv-mixed", "CNV", [("SON", "0/1", 3), ("MOTHER", "0/1", 1)], AUTOSOME),
+        _record("cnv-son-x", "CNV", [("SON", "1", 1)], X_OUTSIDE_PARS),
+    ]
+    module = "backend.app.services.clickhouse_family_variants."
+
+    async def _fetch(
+        *_args: Any, call_sample_names: Sequence[str] = (), **_kwargs: Any
+    ) -> list[StructuralVariantRecord]:
+        # A track's read keeps the SVs its sample has a call of, as the SQL does.
+        return [
+            record
+            for record in records
+            if not call_sample_names or any(call.sample in call_sample_names for call in record.calls)
+        ]
+
+    async def _nothing(*_args: Any, **_kwargs: Any) -> dict:
+        return {}
+
+    async def _no_ids(*_args: Any, **_kwargs: Any) -> set:
+        return set()
+
+    monkeypatch.setattr(module + "_fetch_structural_variant_rows", _fetch)
+    monkeypatch.setattr(module + "_structural_record_matches", lambda *a, **k: True)
+    monkeypatch.setattr(module + "list_matching_structural_variant_review_ids", _no_ids)
+    monkeypatch.setattr(module + "get_structural_variant_review_map", _nothing)
+    monkeypatch.setattr(module + "_fetch_structural_cytoband_map", _nothing)
+
+    async def served(samples: list[str], *, track_mode: bool) -> dict[str, str | None]:
+        page = await get_family_structural_variants_page(
+            None,  # type: ignore[arg-type]
+            context=_context(),
+            page=1,
+            page_size=0,
+            samples=samples,
+            track_mode=track_mode,
+        )
+        return {str(variant.id): variant.copy_change for variant in page.variants}
+
+    assert await served([], track_mode=False) == {"cnv-mixed": "loss", "cnv-son-x": None}
+    assert await served(["SON"], track_mode=True) == {"cnv-mixed": "gain", "cnv-son-x": None}
+    assert await served(["MOTHER"], track_mode=True) == {"cnv-mixed": "loss"}

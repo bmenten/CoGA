@@ -7,11 +7,21 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 import type { GenomeLayout } from './genomeBinLayout';
-import { SV_TYPE_ORDER, describeSvTypes, svTypeColors, type SvTypeKey } from './svTypes';
+import {
+  SV_TYPE_ORDER,
+  describeSvType,
+  describeSvTypes,
+  svTypeColors,
+  svTypeKey,
+  svTypeLabel,
+  type SvCopyChange,
+  type SvTypeKey,
+} from './svTypes';
 
 interface Genotype {
   sample: string;
   gt: string;
+  cn?: number | null;
 }
 
 interface Variant {
@@ -20,6 +30,8 @@ interface Variant {
   end: number;
   type: string;
   source?: string;
+  // Left out of the track payload when the SV changes no copy number.
+  copy_change?: SvCopyChange;
   genotypes?: Genotype[];
 }
 
@@ -41,6 +53,11 @@ interface PositionedVariant extends Variant {
   y2: number;
   typeKey: VariantType;
 }
+
+// The width an SV is drawn at, and hovered over: its span, at least a pixel, and a breakend's
+// marker at least three. Most SVs span less than a pixel of the genome-wide track.
+const drawnWidth = (item: { x1: number; x2: number; typeKey: VariantType }) =>
+  Math.max(item.x2 - item.x1, item.typeKey === 'BND' ? 3 : 1);
 
 const SvTrack: React.FC<Props> = ({
   url,
@@ -81,11 +98,11 @@ const SvTrack: React.FC<Props> = ({
   const tooManyVariants = Boolean(data?.capped);
   const variants = useMemo(
     () =>
+      // Every type is drawn, in its row or in the OTHER row (CLIN-54).
       (tooManyVariants ? [] : data?.variants ?? [])
-        .filter((v) => Object.prototype.hasOwnProperty.call(typeColors, v.type))
         .map((v) => ({ ...v, genotypes: v.genotypes?.filter((g) => g.sample === sampleId) }))
         .filter((v) => v.genotypes && v.genotypes.length > 0 && hasAltAllele(v.genotypes[0].gt)),
-    [data?.variants, tooManyVariants, typeColors, sampleId],
+    [data?.variants, tooManyVariants, sampleId],
   );
   const loading = isLoading && canRequest;
 
@@ -95,9 +112,8 @@ const SvTrack: React.FC<Props> = ({
     if (!layout) return [];
     return variants
       .map((v) => {
-        const typeKey = v.type?.toUpperCase() as VariantType;
+        const typeKey = svTypeKey(v.type, v.copy_change);
         const row = SV_TYPE_ORDER.indexOf(typeKey);
-        if (row < 0) return null;
         const chr =
           layout.offsets[v.chr] !== undefined ? v.chr : v.chr.replace(/^chr/i, '');
         const offset = layout.offsets[chr];
@@ -149,13 +165,13 @@ const SvTrack: React.FC<Props> = ({
       ctx.fillStyle = mutedColor;
       ctx.font = '10px var(--font-sans, sans-serif)';
       ctx.textBaseline = 'top';
-      ctx.fillText(typeKey, 4, rowTop + 3);
+      ctx.fillText(svTypeLabel(typeKey), 4, rowTop + 3);
     });
 
     items.forEach((v) => {
       const color = typeColors[v.typeKey] || defaultColor;
       const itemHeight = Math.max(v.y2 - v.y1, 2);
-      const itemWidth = Math.max(v.x2 - v.x1, 1);
+      const itemWidth = drawnWidth(v);
       const isInv = v.typeKey === 'INV';
       if (v.typeKey === 'INS') {
         ctx.beginPath();
@@ -166,11 +182,10 @@ const SvTrack: React.FC<Props> = ({
         ctx.stroke();
       } else if (v.typeKey === 'BND') {
         ctx.fillStyle = color;
-        const markerWidth = Math.max(itemWidth, 3);
         ctx.beginPath();
         ctx.moveTo(v.x1, v.y1 + itemHeight / 2);
-        ctx.lineTo(v.x1 + markerWidth, v.y1);
-        ctx.lineTo(v.x1 + markerWidth, v.y2);
+        ctx.lineTo(v.x1 + itemWidth, v.y1);
+        ctx.lineTo(v.x1 + itemWidth, v.y2);
         ctx.closePath();
         ctx.fill();
       } else {
@@ -204,7 +219,7 @@ const SvTrack: React.FC<Props> = ({
       if (item.typeKey === 'INS') {
         return Math.abs(x - item.x1) <= 3;
       }
-      return x >= item.x1 && x <= item.x2;
+      return x >= item.x1 && x <= item.x1 + drawnWidth(item);
     });
     if (!hovered) {
       setTooltip(undefined);
@@ -235,11 +250,12 @@ const SvTrack: React.FC<Props> = ({
       )}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
-          <div>{`${tooltip.variant.chr}:${tooltip.variant.start}-${tooltip.variant.end} ${tooltip.variant.type}${
-            tooltip.variant.source ? ` [${tooltip.variant.source}]` : ''
-          }`}</div>
+          <div>{`${tooltip.variant.chr}:${tooltip.variant.start}-${tooltip.variant.end} ${describeSvType(
+            tooltip.variant.type,
+            tooltip.variant.copy_change,
+          )}${tooltip.variant.source ? ` [${tooltip.variant.source}]` : ''}`}</div>
           {tooltip.variant.genotypes?.map((g) => (
-            <div key={g.sample}>{`${g.sample}: ${formatGt(g.gt)}`}</div>
+            <div key={g.sample}>{`${g.sample}: ${formatGt(g.gt)}${g.cn != null ? ` CN:${g.cn}` : ''}`}</div>
           ))}
         </VizTooltip>
       )}
