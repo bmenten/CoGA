@@ -265,6 +265,11 @@ which are log2 ratios.
   are set per assay under **Admin → Sequencing QC Thresholds**; none ship by default, and a metric
   without a cut-off reads as *not assessed*, not as a pass. A sample with no cut-off for any of its
   metrics, or with no verdict from the server, reads *Not run* in grey, and the tooltip says which.
+  A sample with no mean depth or N50, such as an embryo that appears only in the PGT pipeline's
+  family tables, shows the value of the metric that decided its verdict instead: its allele
+  drop-out or drop-in (*Fail ADO 14.2%*) or its Mendelian concordance, in %; one that was not
+  assessed reads *Not run* alone. The cell shows **-** only when the sample has no sequencing QC to
+  show.
 - **Analysis pipeline settings** — the pipeline's configuration (genome build, which caller produced
   what, VEP cache, repeat catalogue, stages run) is recorded at import. It shows in a panel on the family
   page and in the same section of the clinical report. Tool versions are in the report's provenance
