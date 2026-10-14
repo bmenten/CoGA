@@ -36,14 +36,15 @@ const VERDICT_CHIP_CLASS: Record<QcStatus, string> = {
 };
 
 /**
- * The verdict word shown beside the depth, in the app-wide QC vocabulary
+ * The verdict word shown beside the number, in the app-wide QC vocabulary
  * (`QC_STATUS_LABEL`, as on the sample-integrity QC page) rather than a second spelling.
  *
- * A passing chip shows the number alone and stays narrow, so a word beside the depth
+ * A passing chip shows the number alone and stays narrow, so a word beside the number
  * always means "look at this": a warning, a fail, or QC that was not assessed ("Not
- * run"), which must never read as a pass (REQ-QC-004). Colour is never the only carrier
- * of the state — this is a regulated device and a colour-vision-deficient reviewer must
- * still be able to read the outcome.
+ * run"), which must never read as a pass (REQ-QC-004). A passing chip with no number to
+ * show says "Pass", so a served verdict never leaves the chip empty or "-". Colour is never
+ * the only carrier of the state — this is a regulated device and a colour-vision-deficient
+ * reviewer must still be able to read the outcome.
  */
 const VERDICT_LABEL: Record<QcStatus, string> = {
   pass: '',
@@ -96,36 +97,88 @@ const decimalsOf = (value: number): number => {
   return Math.min(20, Math.max(0, decimals));
 };
 
+/** The limit a breaching metric crossed: its error limit for a fail, its warning limit otherwise. */
+const crossedLimit = (metric: ApiSampleSequencingQcMetric): number | null | undefined =>
+  metric.verdict === 'fail' ? metric.error_value : metric.warn_value;
+
+const isBreach = (metric: ApiSampleSequencingQcMetric): boolean =>
+  metric.verdict === 'warn' || metric.verdict === 'fail';
+
 /**
- * A breaching metric in the tooltip: "Mean depth 18.6x below 20x". The value is rounded as
- * the chip rounds it, unless that would put it on or past the limit it crossed (19.96
- * against 20 is not "20.0x below 20x"): then it gets the decimals it needs to stay on the
- * failing side. The limit is written exactly as configured.
+ * A metric's value as the chip and the breach sentence write it, in its unit. It is rounded
+ * as the metric list rounds it, unless the metric breached and that rounding would put it
+ * on or past the limit it crossed (19.96 against 20 is not "20.0x below 20x"): then it gets
+ * the decimals it needs to stay on the failing side.
  */
-const describeBreach = (metric: ApiSampleSequencingQcMetric): string => {
+const formatMetricValue = (metric: ApiSampleSequencingQcMetric): string => {
   const format = unitFormat(metric.unit);
-  const bound = metric.verdict === 'fail' ? metric.error_value : metric.warn_value;
-  const lowerIsWorse = metric.direction === 'lower_is_worse';
   const exact = decimalsOf(metric.value);
   let digits = format.digits ?? exact;
-  if (typeof bound !== 'number') return `${metric.label} ${format.write(metric.value, digits)}`;
-  while (digits < exact) {
-    const shown = Number(metric.value.toFixed(digits));
-    if (lowerIsWorse ? shown < bound : shown > bound) break;
-    digits += 1;
+  const bound = crossedLimit(metric);
+  if (isBreach(metric) && typeof bound === 'number') {
+    const lowerIsWorse = metric.direction === 'lower_is_worse';
+    while (digits < exact) {
+      const shown = Number(metric.value.toFixed(digits));
+      if (lowerIsWorse ? shown < bound : shown > bound) break;
+      digits += 1;
+    }
   }
-  const value = format.write(metric.value, digits);
-  const limit = format.write(bound, decimalsOf(bound));
-  return `${metric.label} ${value} ${lowerIsWorse ? 'below' : 'above'} ${limit}`;
+  return format.write(metric.value, digits);
+};
+
+/**
+ * A breaching metric in the tooltip: "Mean depth 18.6x below 20x". The value is written as
+ * the chip writes it (`formatMetricValue`); the limit exactly as configured.
+ */
+const describeBreach = (metric: ApiSampleSequencingQcMetric): string => {
+  const bound = crossedLimit(metric);
+  const value = formatMetricValue(metric);
+  if (typeof bound !== 'number') return `${metric.label} ${value}`;
+  const limit = unitFormat(metric.unit).write(bound, decimalsOf(bound));
+  return `${metric.label} ${value} ${metric.direction === 'lower_is_worse' ? 'below' : 'above'} ${limit}`;
+};
+
+/**
+ * The short name a metric goes by on the chip, before its value ("ADO 32.1%"), where the
+ * chip shows the metric that decided the verdict rather than a depth. The breach sentence
+ * names it in full ("Allele drop-out (ADO) 32.1% above 30%"). A metric not listed goes by
+ * the label the server serves with it.
+ */
+const CHIP_METRIC_NAME: Record<string, string> = {
+  'pgt.allele_dropout_rate': 'ADO',
+  'pgt.allele_dropin_rate': 'ADI',
+  'pgt.mendelian_concordance': 'Concordance',
+  'pgt.mendelian_concordance_imputed': 'Imputed concordance',
+};
+
+/**
+ * The metric that decided a served verdict: the first metric, in the order the server
+ * lists them (its catalogue's), whose own verdict is the sample's. That is the first
+ * failing metric of a fail, the first warning of a warning, and the first metric judged
+ * within its limits of a pass. A sample that was not assessed has none: no limit judged
+ * any of its numbers.
+ */
+const decidingMetric = (
+  evaluation: ApiSampleSequencingQcEvaluation | null | undefined,
+): ApiSampleSequencingQcMetric | null => {
+  if (!evaluation || evaluation.verdict === 'skip') return null;
+  return evaluation.metrics.find((metric) => metric.verdict === evaluation.verdict) ?? null;
+};
+
+/** The deciding metric as the chip writes it: "ADO 32.1%", or null when there is none. */
+const formatDecidingMetric = (evaluation: ApiSampleSequencingQcEvaluation | null | undefined): string | null => {
+  const metric = decidingMetric(evaluation);
+  if (!metric) return null;
+  return `${CHIP_METRIC_NAME[metric.metric_key] ?? metric.label} ${formatMetricValue(metric)}`;
 };
 
 /** Sentence describing which metrics breached, for the tooltip. */
 const breachSentence = (qc: ApiSampleSequencingQcEvaluation): string | null => {
   if (qc.verdict !== 'warn' && qc.verdict !== 'fail') return null;
-  const breached = qc.metrics.filter((metric) => metric.verdict === 'warn' || metric.verdict === 'fail');
-  if (!breached.length) return null;
+  const breaches = qc.metrics.filter(isBreach);
+  if (!breaches.length) return null;
   const gate = qc.verdict === 'fail' ? 'Failed' : 'Warning';
-  return `${gate}: ${breached.map(describeBreach).join('; ')}`;
+  return `${gate}: ${breaches.map(describeBreach).join('; ')}`;
 };
 
 /** The tooltip's first sentence: why the sample was not assessed, or what breached. */
@@ -138,9 +191,12 @@ const leadSentence = (evaluation: ApiSampleSequencingQcEvaluation | null | undef
 /**
  * Sequencing QC for one family member — a compact pill beside the Status chip.
  *
- * It shows the QC verdict and mean depth; every recorded metric, the cut-offs it was
- * judged against and which of them breached are on hover or keyboard focus. Clicking
- * opens the pipeline's rendered QC report.
+ * It shows the QC verdict and one number: the mean depth (or the read-length N50), or,
+ * for a sample that has neither, the value of the metric that decided the verdict, such as
+ * an embryo's allele drop-out when the PGT pipeline's family tables are all its QC holds
+ * ("Fail ADO 32.1%"). Every recorded metric, the cut-offs it was judged against and which
+ * of them breached are on hover or keyboard focus. Clicking opens the pipeline's rendered
+ * QC report.
  *
  * The report opens through a short-lived link rather than a direct href: the API is
  * bearer-authenticated, so a plain navigation would 401, and the report is untrusted
@@ -155,7 +211,9 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
   const summary = formatSequencingQcSummary(qc);
   const detail = formatSequencingQcDetail(qc);
 
-  if (!qc || (!summary && !qc.report)) {
+  // "-" means no sequencing QC to show. A served verdict always shows, and so does recorded
+  // QC the server did not judge (it reads "Not run" below): neither is an empty cell.
+  if (!evaluation && !summary && !detail && !qc?.report) {
     return <span className="dashboard-link-note">-</span>;
   }
 
@@ -186,15 +244,20 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
   const verdict = evaluation?.verdict ?? 'skip';
   const verdictWord = VERDICT_LABEL[verdict];
   const toneClass = VERDICT_CHIP_CLASS[verdict];
-  // Verdict first, then the headline number: "Warning 18.6x", "Not run 18.6x". The
-  // verdict covers the case where a metric other than depth is the one that breached.
-  const label = [verdictWord, summary].filter(Boolean).join(' ') || 'QC report';
+  // Verdict first, then the number: "Warning 18.6x", "Not run 18.6x". The depth stays the
+  // number where the sample has one, and the verdict covers the case where another metric
+  // is the one that breached; without a depth or N50 the number is the value of the metric
+  // that decided the verdict ("Fail ADO 32.1%"). A sample that was not assessed has no such
+  // metric and reads "Not run" alone, and a pass with no number reads "Pass".
+  const number = summary ?? formatDecidingMetric(evaluation);
+  const label = [verdictWord, number].filter(Boolean).join(' ') || QC_STATUS_LABEL[verdict];
+  const report = qc?.report;
 
   const tooltip = [
     leadSentence(evaluation),
     detail,
     evaluation?.profile_label ? `Thresholds: ${evaluation.profile_label} profile` : null,
-    qc.report ? 'Click to open the pipeline QC report in a new tab' : null,
+    report ? 'Click to open the pipeline QC report in a new tab' : null,
   ]
     .filter(Boolean)
     .join(' — ');
@@ -204,7 +267,7 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
       {/* InfoTip rather than a `title`: the native tooltip only appears after a
           browser-controlled delay of a second or more, which reads as broken on a
           chip whose whole point is the number behind it. */}
-      {qc.report ? (
+      {report ? (
         <InfoTip label={tooltip} interactiveChild>
           <button
             type="button"

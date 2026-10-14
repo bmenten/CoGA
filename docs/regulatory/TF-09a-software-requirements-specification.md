@@ -29,7 +29,7 @@
 
 ## 2. Scope & assumptions
 
-- Scope is the CoGA device per [TF-02](TF-02-device-description.md): from validated annotated VCF/tracks to the signed report.
+- Scope is the CoGA device per [TF-02](TF-02-device-description.md): from validated annotated VCF/tracks to the closed, frozen analysis the analyst signs out. The clinical report is drafted and medically signed in the EPD, outside the device, and refers 1:1 to that analysis ([TF-02 §3](TF-02-device-description.md)).
 - **Assumption:** inputs are produced by separately-validated upstream workflows; CoGA does not validate primary calling/annotation (TF-01 §4).
 - Functional requirements are grouped by clinical application and cross-cutting module.
 
@@ -74,10 +74,10 @@
 | REQ-PGT-002 | Segment haplotype blocks recombination-aware, committing a lane switch only past length/width thresholds (suppress isolated phasing noise). | C | H5 |
 | REQ-PGT-003 | Provide a raw phased-marker overlay (no binning/smoothing) for the index couple's children. | C | H5 |
 | REQ-PGT-004 | Report per-child **Mendel-error rate** and **informative-site count** as QC. | C | H4 |
-| REQ-PGT-005 | Derive each embryo's ROI classification (affected/at-risk · carrier · unaffected · uninformative) per inheritance model, defaulting to **uninformative** when the model is unresolved or when the embryo's own haplotype does not cover the ROI on a parental side the call needs. Where an X-linked recessive call depends on an embryo sex that is not recorded, assume neither sex (**affected/at-risk** if either call is, else **uninformative**) and show both calls. Read a male as having one X only outside the pseudo-autosomal regions of the family's assembly, and as two copies where these are not known. | C | H5 |
+| REQ-PGT-005 | Derive each embryo's ROI classification (affected/at-risk · carrier · unaffected · uninformative) per inheritance model, defaulting to **uninformative** when the model is unresolved or when the embryo's own haplotype does not cover the ROI on a parental side the call needs. Where an X-linked recessive call depends on an embryo sex that is not recorded, assume neither sex (**affected/at-risk** if either call is, else **uninformative**) and show both calls. Under X-linked recessive inheritance, take an unaffected father's X as not at risk, so a female embryo's call rests on her maternal X: the owner's confirmed rule for a fully penetrant X-linked recessive disorder (2026-10-14, CLIN-6). Read a male as having one X only outside the pseudo-autosomal regions of the family's assembly, and as two copies where these are not known. | C | H5 |
 | REQ-PGT-006 | Support single-parent/donor pedigrees: colour the known-parent lane, grey the donor lane; return **uninformative** for recessive donor cases. | C | H5 |
 | REQ-PGT-007 | Detect and present structural variants, filterable by length/type, supporting the large (>10 Mb) SV claim. | C | H7 |
-| REQ-PGT-008 | Detect embryo aneuploidy from segment/copy-number data. | C | H7 |
+| REQ-PGT-008 | Show each embryo's segment, copy-number and APCAD tracks, on which the analyst judges aneuploidy and large (>10 Mb) structural variants. CoGA has no automatic aneuploidy detector. | C | H7 |
 | REQ-PGT-009 | Provide direct mutation detection (genotype at the ROI/locus). | C | H1 |
 | REQ-PGT-010 | Serve the genome-overview lineage from a staleness-guarded precompute; never serve stale colours after a pedigree/affected-set change. | B | H5, H8 |
 | REQ-PGT-011 | Undo a switch in a parent's phasing: where all of three, or all but one of four or more, of the couple's informative children switch the homolog inherited from that parent within 2 Mb, and fewer than 0.05 such clusters are expected by chance from their other switches, swap that parent's haplotypes from there in the blocks and wherever the parents' phase is read (lineage colouring, phased markers); keep the corrections on the family and mark them on the parent's track; flag every embryo when one lies within the ROI flank. Leave the genotypes as called. | C | H5 |
@@ -207,7 +207,7 @@ small-variant/SV (REQ-DIAG-001/003), classification (REQ-CLASS-*) and Sample QC 
 
 | ID | Requirement | Criticality | Risk |
 | --- | --- | --- | --- |
-| REQ-RPT-001 | Assemble the family clinical report from report-tagged variants with gene/HPO context and the reference label/version. | C | H9 |
+| REQ-RPT-001 | Assemble the family report (the analysis the analyst signs out; the clinical report itself is drafted in the EPD) from report-tagged variants with gene/HPO context and the reference label/version. | C | H9 |
 | REQ-RPT-002 | The NIPT report presents FF, the quality checks (fetal sex, paternity, the maternal-plasma sample), the coverage of the targets in scope, candidates grouped by inheritance, and a confirmatory-testing disclaimer. | C | H6, H4 |
 
 ## 5. Maintenance

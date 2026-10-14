@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import gzip
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -23,10 +24,11 @@ import pytest
 import yaml
 
 from backend.app.core.config import settings
-from backend.app.schemas import FamilyImportDatasetSummary, FamilyPackageManifestBuildRequest
+from backend.app.schemas import FamilyImportDatasetSummary, FamilyMemberOut, FamilyOut, FamilyPackageManifestBuildRequest
 from backend.app.services import family_package_datasets, family_package_discovery, family_package_registration
 from backend.app.services import family_package_pgt, family_package_source
 from backend.app.services import family_package_tracks, family_package_validation
+from backend.app.services import metadata_service, qc_threshold_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.family_package_common import FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed
 from backend.app.services.family_package_datasets import DatasetImportJob
@@ -1233,6 +1235,85 @@ async def test_qc_import_records_each_samples_qc_and_the_familys_kinship(
         (INDEX, MOTHER),
         (FATHER, "EMB1"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_an_embryo_only_in_the_family_tables_gets_a_verdict_on_its_pgt_metrics(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    # CLIN-30: an embryo the pipeline wrote no per-sample QC for appears only in the family
+    # tables, so its recorded QC is its `pgt` entry alone: no depth, N50 or report. The family
+    # read still serves its verdict, judged on those four metrics, in the catalogue's order
+    # and in %, so the members table's chip can show the metric that decided it.
+    recorded: dict[str, dict[str, Any]] = {}
+
+    async def record_sample(_session: Any, *, sample_context: SampleMetadataContext, metrics: dict[str, Any]) -> None:
+        recorded[sample_context.sample_id] = metrics
+
+    async def record_family(_session: Any, *, family_uuid: str, pipeline_qc: dict[str, Any]) -> None:
+        return None
+
+    monkeypatch.setattr(family_package_datasets, "_record_sample_qc_metadata", record_sample)
+    monkeypatch.setattr(family_package_datasets, "_record_family_pipeline_qc", record_family)
+    root = _write_copgtm_package(tmp_path / FAMILY)
+    for per_sample in ("mean/EMB1_coverage.csv", "ngsbits/EMB1.tsv", "qualimap/EMB1/genome_results.txt"):
+        (root / per_sample).unlink()
+    (root / "qualimap/EMB1/qualimapReport.html").unlink()
+
+    result = await family_package_datasets._import_qc_dataset(_job(root, "qc"))
+
+    assert result.status == "imported"
+    assert recorded["EMB1"] == {
+        "pgt": {
+            "allele_dropout_rate": 15.5,
+            "allele_dropin_rate": 3.25,
+            "mendelian_concordance": 33.5,
+            "mendelian_concordance_imputed": 98.5,
+        }
+    }
+
+    async def resolve(_session: Any, *, family_uuid: str) -> dict[str, Any]:
+        return {
+            "profile_key": "pgt",
+            "profile_label": "PGT",
+            "thresholds": {
+                "pgt.allele_dropout_rate": {"warn_value": 10.0, "error_value": 15.0},
+                "pgt.mendelian_concordance_imputed": {"warn_value": 95.0, "error_value": 90.0},
+            },
+        }
+
+    monkeypatch.setattr(qc_threshold_service, "resolve_family_qc_thresholds", resolve)
+    family = FamilyOut(
+        id="family-uuid",
+        family_id=FAMILY,
+        created_at=datetime(2026, 1, 1, tzinfo=timezone.utc),
+        members=[
+            FamilyMemberOut(
+                sample_id="EMB1",
+                role="embryo",
+                affected=False,
+                sample_metadata={"sequencing_qc": recorded["EMB1"]},
+            )
+        ],
+    )
+
+    await metadata_service._attach_sequencing_qc_verdicts(
+        object(),  # type: ignore[arg-type]
+        family_uuid="family-uuid",
+        family=family,
+    )
+
+    served = family.members[0].sequencing_qc
+    assert served is not None
+    assert served.verdict == "fail"
+    assert [(metric.metric_key, metric.unit, metric.value, metric.verdict) for metric in served.metrics] == [
+        ("pgt.allele_dropout_rate", "%", 15.5, "fail"),
+        ("pgt.allele_dropin_rate", "%", 3.25, "skip"),
+        ("pgt.mendelian_concordance", "%", 33.5, "skip"),
+        ("pgt.mendelian_concordance_imputed", "%", 98.5, "pass"),
+    ]
+    assert served.breached == ["pgt.allele_dropout_rate"]
+    assert served.profile_label == "PGT"
 
 
 @pytest.mark.asyncio

@@ -5,6 +5,7 @@ import math
 import re
 from typing import Any, Dict, Iterable, Iterator, Literal, Optional
 
+from .clickhouse_column_bounds import UINT32, column_int
 from .data_scope import normalize_chromosome
 
 StructuralVariantRecordFormat = Literal["manual", "sniffles", "spectre"]
@@ -107,7 +108,7 @@ def parse_svlen(value: str | None) -> int | None:
     except ValueError:
         try:
             return int(float(value))
-        except ValueError:
+        except (ValueError, OverflowError):
             return None
 
 
@@ -207,8 +208,14 @@ def _coerce_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         try:
             return int(float(str(value).strip()))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
+
+
+def _position(value: Any) -> int | None:
+    """A record's POS or END: a whole number the SV tables' UInt32 position columns hold,
+    else None, and the record is skipped as unpositionable (SAFE-30)."""
+    return column_int(_coerce_int(value), UINT32)
 
 
 def _coerce_qual(value: Any) -> float | None:
@@ -230,8 +237,8 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
         if len(parts) < 8:
             continue
         variant_id, chrom, start_s, end_s, ref, alt, svtype, gt = parts[:8]
-        start = _coerce_int(start_s)
-        end = _coerce_int(end_s)
+        start = _position(start_s)
+        end = _position(end_s)
         if start is None or end is None:
             # Unpositionable record — skip rather than raise mid-ingest.
             continue
@@ -280,12 +287,12 @@ def _iter_sniffles_records(
         remote_start: int | None = None
         remote_end: int | None = None
 
-        start = _coerce_int(pos)
+        start = _position(pos)
         if start is None:
             continue
         end_value = info_value(info, "END")
-        end = (
-            _coerce_int(end_value)
+        end = _position(
+            end_value
             if end_value is not None
             else structural_variant_end(pos=start, ref=ref, alt=alt, sv_len=svlen)
         )
@@ -344,6 +351,8 @@ def _iter_spectre_records(
                 end = structural_variant_end(pos=start, ref=ref, alt=alt, sv_len=svlen)
         except (TypeError, ValueError):
             # Unpositionable record — skip rather than raise mid-ingest.
+            continue
+        if _position(start) is None or _position(end) is None:
             continue
 
         yield ParsedStructuralVariant(

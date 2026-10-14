@@ -25,7 +25,9 @@ whole:
 > - **Validated scope only.** A family marked *Not validated for clinical use* is outside the validated
 >   assembly (GRCh38) and cannot be signed out.
 > - **Check Sample QC** before sign-out: it confirms that the samples are who the pedigree says.
-> - **Only authorised signatories sign out.** CoGA does not check who may sign.
+> - **Sign-out closes the analysis.** It is the analyst's sign-off, not the medical one: the clinical
+>   report is drafted and medically signed in the EPD and refers to the signed version. Only people
+>   the laboratory authorises sign out; CoGA does not check who may.
 
 ### Reviewing a case
 
@@ -35,8 +37,9 @@ whole:
 3. Check **Sample QC** before you interpret.
 4. Build a shortlist in the variant list before you open the viewers.
 5. Record your interpretation as you go: classification, tags and notes.
-6. Tag the variants to report with **Report**, check the drafted report, and have an authorised
-   signatory sign it out.
+6. Tag the variants to report with **Report**, check the drafted report, and have someone the
+   laboratory authorises sign out the analysis. The clinical report is then drafted and medically
+   signed in the EPD, referring to that signed version.
 
 To set up a new case, see [Case setup and data import](#case-setup).
 

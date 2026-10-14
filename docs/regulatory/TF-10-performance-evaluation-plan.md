@@ -34,7 +34,7 @@
 | --- | --- | --- |
 | **Scientific validity** | The association of the variants/results CoGA surfaces with the clinical conditions is established by the scientific community (ACMG/AMP 2015, ClinGen, gnomAD, ClinVar, GenCC, established inheritance genetics) — CoGA applies, not invents, these associations. | Literature & database references; this is **not** re-established empirically. |
 | **Analytical performance** | Does CoGA correctly *process and present* its inputs and correctly *derive* its outputs? Concordance of CoGA's variant lists, classifications, and derived calls against the validated comparator; reproducibility/repeatability. | This plan §3–§4; TF-09 software V&V. |
-| **Clinical performance** | Does CoGA's *final, signed-out clinical conclusion* agree with the validated assay's clinical conclusion on real cases? | This plan §3 concordance studies (the validation cases). |
+| **Clinical performance** | Does the conclusion of the analysis the analyst signs out in CoGA (the closed, frozen analysis the clinical report in the EPD refers to, [TF-02 §3](TF-02-device-description.md)) agree with the validated assay's clinical conclusion on real cases? | This plan §3 concordance studies (the validation cases). |
 
 Because the upstream wet-lab and bioinformatics workflows are separately validated and
 accredited, this evaluation isolates **CoGA's contribution**: given the same validated
@@ -91,13 +91,13 @@ effect on agreement estimates noted.
 - **Edge cases:** technically difficult genes/regions on long-read; pseudogene/Paraphase-relevant loci; CNV/SV-mediated carrier findings.
 
 ### 3.2 PGT (100 embryos)
-- **Units of analysis:** per-embryo **ROI segregation call** (affected/at-risk · carrier · unaffected · uninformative); **direct mutation** genotype; **aneuploidy** status; **large (>10 Mb) SV** status.
+- **Units of analysis:** per-embryo **ROI segregation call** (affected/at-risk · carrier · unaffected · uninformative); **direct mutation** genotype; the **aneuploidy** status and the **large (>10 Mb) SV** status as the analyst reads them on CoGA's segment, copy-number and APCAD tracks (CoGA makes no automatic aneuploidy call, REQ-PGT-008).
 - **Inputs:** shallow-WGS per-embryo and family VCFs, phased/imputed markers, segment/CN/APCAD tracks, pedigree (incl. single-parent/donor).
 - **Metrics:**
   - Haplotype segregation: concordance of per-embryo call vs comparator (and vs born-child/confirmatory outcome where available); rate and handling of **uninformative** calls.
   - Direct mutation detection: PPA/NPA vs comparator genotype.
-  - Aneuploidy: per-chromosome PPA/NPA/OPA vs comparator, at the claimed limit of **> 35 % mosaicism** (TF-01 §3.3).
-  - Large SV: detection concordance at the claimed **> 10 Mb** threshold; characterize the size/type detection limit.
+  - Aneuploidy, as the analyst reads it on CoGA's tracks: per-chromosome PPA/NPA/OPA vs comparator, at the claimed limit of that review, **> 35 % mosaicism** (TF-01 §3.3).
+  - Large SV, as the analyst reads it on CoGA's tracks and SV calls: concordance at the claimed **> 10 Mb** threshold; characterize the size/type limit of that review.
 - **Proposed acceptance (confirm):** 100% concordance on **informative** embryo segregation calls; no **false "unaffected"** on truly at-risk embryos (the safety-critical error); aneuploidy and >10 Mb SV concordance ≥‹threshold›.
 - **Edge cases:** recombination near the ROI, sparse informative markers, donor/single-parent families (expected "uninformative" for recessive — verify safe behavior), mosaic embryos, sex chromosomes; embryo data missing at the ROI (expected "uninformative"); X-linked embryos of unrecorded sex (never "carrier" or "unaffected" where a son and a daughter would differ); male embryos at a pseudo-autosomal locus (read on both copies).
 
@@ -161,9 +161,9 @@ CoGA's qualitative/interpretive outputs map onto the form's performance vocabula
 | Trueness / precision (quantitative) | NIPT FF bias (Bland–Altman) + repeatability; mtDNA heteroplasmy agreement (§3.5). |
 | Herhaalbaarheid / reproduceerbaarheid | Content-hash reproducibility + inter-operator subset (§4). |
 | Vergelijking met een 2e onafhankelijke methode; controlemateriaal; **3/n regel**; EKE/interlab | The comparator assay is the independent method; reference material (the GIAB baseline, §2); estimate sens/spec with the **3/n rule** when control counts are small; EKE/interlab where available. |
-| Robuustheid, detectielimiet | Degraded-input fail-safe (REQ-PERF-003); >10 Mb SV / aneuploidy / heteroplasmy detection limits (§3.2, §3.5). |
+| Robuustheid, detectielimiet | Degraded-input fail-safe (REQ-PERF-003); the limits of the analyst's >10 Mb SV and aneuploidy review on CoGA's tracks (§3.2); heteroplasmy detection limit (§3.5). |
 | Risico op staalverwisseling; subjectiviteit | Sample QC (sample-swap, TF-06 H4); inter-operator/blind re-read on a subset (§4). |
-| **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The signed-out clinical conclusion vs the established diagnosis (§3); for new applications, accumulate via PMPF (§6). |
+| **Clinical performance** — diagnostische sens/spec, PPV/NPV, likelihood ratio, verwachte waarden | The conclusion of the signed-out analysis vs the established diagnosis (§3); for new applications, accumulate via PMPF (§6). |
 | Risicoanalyse — veiligheidseisen IVDR (§19) | [TF-06](TF-06-risk-management-plan.md) (shared with the bio-IT validation). |
 | Gevolgen voor kwaliteitsdocumentatie (§21) | Update the analysis protocol (H10.1-Pxx), IFU ([TF-15](TF-15-instructions-for-use.md)), and CMGGMC. |
 

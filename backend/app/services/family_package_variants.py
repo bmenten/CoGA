@@ -8,6 +8,7 @@ from typing import Any, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .clickhouse_column_bounds import UINT32, column_int
 from .clickhouse_variant_records import (
     StoredStructuralVariantRow,
     StructuralVariantCall,
@@ -28,6 +29,13 @@ from .variant_annotation_parser import (
 
 from .structural_variant_ingest import is_breakend_alt, parse_bnd_alt, record_sv_len, sv_type_from_alt
 from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
+
+
+def _unpositionable(start: int, end: int) -> bool:
+    """Whether the SV tables' UInt32 position columns cannot hold a record's span (a
+    negative POS, an END beyond 4,294,967,295): the record is skipped as one without a POS
+    is (SAFE-30)."""
+    return column_int(start, UINT32) is None or column_int(end, UINT32) is None
 
 
 def _needlr_query_sample_id(info: dict[str, str], sample_ids: set[str]) -> str | None:
@@ -223,6 +231,8 @@ def _needlr_records(
         end = _coerce_int(_first_info_value(info, "END", "End_Pos", "END_POS", "End"))
         if end is None:
             end = start + abs(sv_len or 1)
+        if _unpositionable(start, end):
+            continue
         qual = _coerce_finite_float(qual_raw)
         filt = None if filt_raw in {"", "."} else filt_raw
         query_sample = (
@@ -400,6 +410,8 @@ def _iter_cnv_structural_records(
         end = _coerce_int(_first_info_value(info, "END", "End_Pos"))
         if end is None:
             end = start + abs(sv_len or 1)
+        if _unpositionable(start, end):
+            continue
         qual = _coerce_finite_float(qual_raw)
         filt = None if filt_raw in {"", "."} else filt_raw
         copy_number: int | None = None
@@ -645,6 +657,8 @@ def _iter_mito_sv_records(
         end = _coerce_int(_first_info_value(info, "END"))
         if end is None:
             end = start + abs(sv_len or 0)
+        if _unpositionable(start, end):
+            continue
         fmt_vals = (
             _parse_format(parts[8], parts[9 + sample_column]) if len(parts) > 9 + sample_column else {}
         )

@@ -44,7 +44,7 @@ from typing import Any, Awaitable, Callable, Iterator, Sequence
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .annotation_table_parser import _coerce_int
+from .clickhouse_column_bounds import UINT32, column_int
 from .clickhouse_variant_ids import build_small_variant_id
 from .clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
 from .clickhouse_variant_storage import (
@@ -226,7 +226,9 @@ class _PerSampleVcfReader:
                 continue
             self.records_read += 1
             fields = line.rstrip("\r\n").split("\t")
-            position = _coerce_int(fields[1]) if len(fields) > 1 else None
+            # A POS that is no whole number the UInt32 position column holds is malformed
+            # as an unreadable one is (SAFE-30).
+            position = column_int(fields[1], UINT32) if len(fields) > 1 else None
             if len(fields) <= sample_column or position is None:
                 self.skipped_malformed += 1
                 continue
