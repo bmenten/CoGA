@@ -26,8 +26,10 @@ and refers to exactly one signed version: the one it rests on.
 - The **Analysis pipeline settings** recorded at import.
 - An **Import incomplete** warning at the top when a data import left the family partly loaded, or
   has not finished: it is still running, or it stopped part-way (for example the server restarted).
-  It names the datasets that failed, or that the import had not finished, and the import job. The
-  same warning shows on every family page until an import has imported those datasets again.
+  It names the datasets that failed, or that the import had not finished, and the import job. A
+  single upload that has not finished, or that failed and could not put back what it deleted, is
+  named the same way, as a single-file upload. The same warning shows on every family page until an
+  import, or an upload, has brought those datasets again.
 
 ### Signing out
 
@@ -48,7 +50,8 @@ into a numbered version with a unique fingerprint. It stops for five things:
    update skips data that is already there, partly written data too. After a failed overwrite that
    could not put the family's data back, import the whole family again with **overwrite**, every
    dataset the warning names and not only those that failed, and upload again with **overwrite**
-   what an upload brought.
+   what an upload brought. After a single upload that did not finish, upload again with
+   **overwrite** what the warning names.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten, and a clinical

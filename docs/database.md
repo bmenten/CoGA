@@ -127,7 +127,7 @@ JSON keys that package import writes into the `metadata` columns:
 | `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context (the inheritance model, the obligate and proven carriers, the affected parents and the indexes) and analysis type |
 | `families.metadata` | `unresolved_roi` | the manifest's `roi` when the import could not resolve it in the family's assembly (`query`, and `source: manifest`); the family's region of interest is then left as it was |
 | `families.metadata` | `import_incomplete` | set by an import that failed for some datasets and kept the others: the datasets that failed and those that imported, when, and the import job (after a failed overwrite whose restore failed too, other than by refusing without its whole backup, every dataset of that import as failed and none as imported); for each failed dataset the job that holds its error (`failed_jobs`, as a later failure keeps an earlier one's) and its scope (`scopes`). A completed import removes each failed dataset it imported again for that scope, and the flag with the last |
-| `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write (and again once it holds the family's variant-write locks) and removes it when it ends, so an entry that stays names one whose process stopped part-way. It records each dataset's scope (`scopes`: the small variants' callset, as `imported_scopes` records it; a per-sample dataset's samples), and only an `overwrite` that imports again what it had not finished, for that scope, removes it. Once a failed overwrite's restore begins, its entry names every dataset of the family (`imported_scopes`) and of the import, none finished, and lists each with its scope, one sample at a time, under `whole_family`; a restore that puts the family back or refuses to start removes it, one that fails part-way (or whose process stops in it) leaves it, and each `overwrite` that completes, and each single-file upload with `overwrite`, removes from it what it brought again, the entry going with the last |
+| `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write (and again once it holds the family's variant-write locks) and removes it when it ends, so an entry that stays names one whose process stopped part-way. It records each dataset's scope (`scopes`: the small variants' callset, as `imported_scopes` records it; a per-sample dataset's samples), and only an `overwrite` that imports again what it had not finished, for that scope, removes it. Once a failed overwrite's restore begins, its entry names every dataset of the family (`imported_scopes`) and of the import, none finished, and lists each with its scope, one sample at a time, under `whole_family`; a restore that puts the family back or refuses to start removes it, one that fails part-way (or whose process stops in it) leaves it, and each `overwrite` that completes, and each single-file upload with `overwrite`, removes from it what it brought again, the entry going with the last. A single-file upload that writes ClickHouse (small variants, structural variants, interval tracks) writes an entry of its own before its first write there, keyed `upload-` and an id, with no job, committed apart from the upload: in the same `whole_family` shape it lists what the upload may leave partly written or missing (its callset; its caller's calls of every sample its rewrite deletes; the sample's track), and the upload's commit removes it; a failure removes it once nothing is missing, else it stays and gates sign-out until each item has been brought again with `overwrite`. An admin's delete of a sample's structural variants whose rewrite could not put the family's calls back leaves one keyed `deletion-` and an id, listing the family's structural-variant datasets but the deleted sample's ([data-import.md](data-import.md#the-mark-of-an-upload-that-did-not-finish)) |
 | `families.metadata` | `imported_scopes` | what the family's imports imported and its single-file uploads brought, by dataset: each scope (`source`, the callset the small variants were stored as: the `source_format` an SNV dataset declares, or with `auto` the one its file holds, read before the import's first write; `auto` itself names no callset and nothing completes it, [data-import.md](data-import.md#the-small-variant-callset-an-import-records); `samples`, one sample at a time for a per-sample dataset, null for a family-level file). An import adds what it imported when it ends, with its flag or its clear, and what an import that stopped had finished once that one's entry goes; an upload adds what it brought in the transaction that commits it, as the package dataset that brings the same data records it, or under a name of its own (`sv_<caller>`, `bed_<type>`; [data-import.md](data-import.md#what-an-upload-records)). What a failed overwrite's restore may remove besides its own datasets: its entry in `import_unfinished` names all of it |
 
 A family's `metadata` also holds `derived_data_status` (which analyses an edit made stale, and
@@ -326,6 +326,14 @@ tables, these two are not shared between families. An SV's key hashes the family
 stored key (a per-sample upload, the admin sample delete, a snapshot restore) writes it back to
 the family it read it from. No other family's entry can reach them, so the delete reads only the
 family's own entries. After a family delete no entry is left and all of the family's rows go.
+
+A rewrite of the family's SV rows (`rewrite_family_structural_variants`: a per-sample upload,
+the admin deletes of a sample's SVs or of a sample, a package's chrM SVs) deletes its scope and
+writes the rows again, and is handed the rows it deletes, as read under the family's lock. A
+write that fails after the delete deletes the scope again, with what it had stored, and writes
+those rows back; one that cannot put them back raises `StructuralVariantsNotRestored`, and the
+caller marks the family for what may be missing
+([data-import.md](data-import.md#the-mark-of-an-upload-that-did-not-finish)).
 After a source-scoped delete the source's rows go, but a row whose key another source's entry
 still has is kept: two callers' calls at one position shared a key before the key named the
 source, and `variants/details` keeps one row per key, so deleting it would strip the other
@@ -376,6 +384,12 @@ the locks while the import runs.
 
 An upload or a package import checks, once it holds the lock, that its family and samples are
 still stored: when the write before it deleted them, it writes nothing and answers 404.
+
+A single-file upload writes its mark in `families.metadata.import_unfinished` before its first
+write to ClickHouse on a connection of its own, committed while the upload's transaction holds
+its locks: an UPDATE of the family row, which waits for no advisory lock. The upload writes it
+before its own transaction locks that row (its record of what it brings), which the mark's
+write would wait for.
 
 ### Row identity
 

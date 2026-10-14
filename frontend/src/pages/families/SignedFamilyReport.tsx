@@ -15,6 +15,8 @@ import { joinWithAnd } from '../../lib/format';
 import {
   failuresByJob,
   pendingDatasets,
+  unfinishedWriter,
+  WRITER_LABELS,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import {
@@ -57,9 +59,18 @@ const acknowledgementLine = (acknowledgement: SignedAcknowledgement) =>
     ? `Signed out over it, with the reason: ${acknowledgement.reason || 'no reason recorded'}.`
     : null;
 
-/** An import that had begun writing the family and not finished when the version was signed. */
+/**
+ * An import that had begun writing the family and not finished when the version was signed;
+ * a single-file upload or a deletion that had not finished, named by its frozen key.
+ */
 const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
   const pending = pendingDatasets(entry);
+  const writer = unfinishedWriter(entry.key);
+  if (writer !== 'import') {
+    return `${WRITER_LABELS[writer]}${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''} had not finished${
+      pending.length ? `: ${joinWithAnd(pending)} may have been partly written or missing` : ''
+    }.`;
+  }
   return `An import${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''}${
     entry.jobId ? `, import job ${entry.jobId},` : ''
   } had begun writing the family’s data and had not finished${

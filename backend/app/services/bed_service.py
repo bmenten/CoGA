@@ -28,7 +28,12 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from .family_package_registration import interval_track_upload_scope, record_family_upload
+from .family_package_registration import (
+    end_family_write_mark,
+    interval_track_upload_scope,
+    mark_family_upload,
+    record_family_upload,
+)
 from .haplotype_lineage_service import annotate_lineage, parent_or_child_links, relative_link_matches, relative_links
 from .haplotype_phase_correction import corrected_genotype_rows
 from .sex_chromosomes import hemizygous_interval
@@ -231,7 +236,14 @@ async def upload_bed_data(
     locks in this transaction before it calls this (``routers/bed.py``), as a package import
     holds them for the datasets that call it: what the upload brought is recorded for the
     family, and with ``overwrite`` struck off a whole-family entry, in the transaction that
-    commits its track (``record_family_upload``)."""
+    commits its track (``record_family_upload``).
+
+    ClickHouse has no transactions: the track this replaces is gone once deleted, and rows
+    written before a failure stay. So a single-file upload marks the family before its first
+    ClickHouse write, for the sample's track it brings (``mark_family_upload``, SAFE-28): a
+    process that stops after that write, or a failure after it, leaves the family marked,
+    which gates its sign-out until the track has been uploaded again with ``overwrite``. The
+    upload's commit removes the mark, and so does a failure before that write."""
     validate_bed_type(bed_type)
     if not sample_context.assembly_name:
         raise HTTPException(
@@ -255,17 +267,35 @@ async def upload_bed_data(
     if not rows:
         raise HTTPException(status_code=400, detail="No valid BED records found")
     if record_upload:
-        # What the upload brings, recorded for the family (SAFE-19) before its first write,
-        # in the transaction that commits its track: an upload that fails takes the record
-        # with it, and a record that cannot be written stops the upload first.
         dataset, scope = interval_track_upload_scope(bed_type, sample_context.sample_id)
-        await record_family_upload(
-            session,
-            family_uuid=sample_context.family_uuid,
-            dataset=dataset,
-            scope=scope,
-            overwrite=overwrite,
+        # Before the first ClickHouse write, committed whatever becomes of this transaction
+        # (SAFE-28); before the record below too, which locks the family row this write
+        # needs. An upload that cannot mark the family writes nothing.
+        upload_mark = await mark_family_upload(
+            family_uuid=sample_context.family_uuid, items=[(dataset, scope)]
         )
+        try:
+            # What the upload brings, recorded for the family (SAFE-19) before its first
+            # write, in the transaction that commits its track: an upload that fails takes
+            # the record with it, and a record that cannot be written stops the upload first.
+            await record_family_upload(
+                session,
+                family_uuid=sample_context.family_uuid,
+                dataset=dataset,
+                scope=scope,
+                overwrite=overwrite,
+                mark=upload_mark,
+            )
+        except Exception:
+            # Nothing of the track was deleted or written: the family is as it was. From the
+            # first write on, a failure keeps the mark.
+            await end_family_write_mark(
+                session,
+                family_uuid=sample_context.family_uuid,
+                family_id=sample_context.family_id,
+                mark=upload_mark,
+            )
+            raise
     if overwrite:
         await delete_interval_tracks(
             sample_context.assembly_name,

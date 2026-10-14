@@ -32,7 +32,7 @@ from fastapi import HTTPException, UploadFile
 import pytest
 
 from app.routers import families_small_variants as snv_router
-from app.services import annotation_manifest_service, variant_upload_service
+from app.services import annotation_manifest_service, family_package_registration, variant_upload_service
 from app.services.family_metadata_context import FamilyMetadataContext
 
 _SAMPLE_ROWS = [
@@ -152,6 +152,11 @@ class _Postgres:
             }
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         assert sql.startswith("UPDATE families"), sql
+        if set(params) == {"family_uuid", "import_key"}:  # an entry removed alone: a mark
+            unfinished = dict(self.working["unfinished"] or {})
+            unfinished.pop(params["import_key"], None)
+            self.working["unfinished"] = unfinished or None
+            return SimpleNamespace(rowcount=1)
         recorded = json.loads(params.get("imported_scopes", "null"))
         if recorded is not None:  # a JSON null leaves it as it is
             self.working["imported"] = recorded
@@ -167,6 +172,34 @@ class _Postgres:
 
     async def rollback(self) -> None:
         self.working = copy.deepcopy(self.committed)
+
+
+class _MarkConnection:
+    """The connection the upload writes its mark on before its first ClickHouse write
+    (``family_package_registration.mark_family_upload``, SAFE-28): committed at once, so
+    the upload's transaction sees it, and its rollback keeps it."""
+
+    def __init__(self, database: _Postgres) -> None:
+        self.database = database
+
+    async def __aenter__(self) -> "_MarkConnection":
+        return self
+
+    async def __aexit__(self, *_exc) -> bool:
+        return False
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        assert sql.startswith("UPDATE families"), sql
+        for state in (self.database.committed, self.database.working):
+            state["unfinished"] = {
+                **(state["unfinished"] or {}),
+                params["import_key"]: json.loads(params["entry"]),
+            }
+        return SimpleNamespace(rowcount=1)
+
+    async def commit(self) -> None:
+        return None
 
 
 @pytest.fixture
@@ -237,16 +270,21 @@ async def _upload(
     overwrite: bool = True,
     name: str = "family.vcf",
 ):
-    """The single-file upload of ``body`` through its route."""
+    """The single-file upload of ``body`` through its route; its mark is written on a
+    connection of its own (``_MarkConnection``)."""
     data = body.encode() if isinstance(body, str) else body
-    return await snv_router.upload_family_small_variants(
-        family_id="F1",
-        file=UploadFile(file=BytesIO(data), filename=name),
-        overwrite=overwrite,
-        source_format=callset,  # type: ignore[arg-type]
-        session=database,  # type: ignore[arg-type]
-        user=SimpleNamespace(id="admin", username="admin"),
-    )
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(
+            family_package_registration, "get_postgres_sessionmaker", lambda: lambda: _MarkConnection(database)
+        )
+        return await snv_router.upload_family_small_variants(
+            family_id="F1",
+            file=UploadFile(file=BytesIO(data), filename=name),
+            overwrite=overwrite,
+            source_format=callset,  # type: ignore[arg-type]
+            session=database,  # type: ignore[arg-type]
+            user=SimpleNamespace(id="admin", username="admin"),
+        )
 
 
 def _as_stored_before(clickhouse: _ClickHouse, database: _Postgres) -> None:
@@ -545,7 +583,10 @@ async def test_a_failed_write_with_nothing_replaced_leaves_no_flag(stores) -> No
         await _upload(database, _HEADER + _calls(3), overwrite=False)
 
     assert stores.rows["clair3"] == []
-    assert database.committed["flag"] is None and database.commits == 0
+    # The upload's one commit removes the mark it wrote before its first insert (SAFE-28):
+    # nothing is missing or partly written.
+    assert database.committed["flag"] is None and database.commits == 1
+    assert database.committed["unfinished"] is None
 
 
 @pytest.mark.asyncio
@@ -595,3 +636,9 @@ async def test_a_flag_that_cannot_be_written_leaves_the_uploads_own_error(stores
         await _upload(database, _HEADER + _calls(3))
 
     assert database.committed["flag"] is None and database.commits == 0
+    # The mark the upload wrote before its delete stays, and still marks the family for the
+    # callset (SAFE-28).
+    [(key, mark)] = database.committed["unfinished"].items()
+    assert key.startswith("upload-")
+    assert mark["datasets"] == ["snv"]
+    assert mark["whole_family"] == [{"dataset": "snv", "scope": {"source": "clair3", "samples": None}}]
