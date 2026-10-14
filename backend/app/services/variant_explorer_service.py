@@ -52,11 +52,12 @@ from ..schemas import (
 from .clickhouse_family_variants import _fetch_panel_constraints
 from .clickhouse_variant_ids import _small_table_name
 from .clickhouse_variant_queries import (
+    _SMALL_REGION_WINDOW_MATCH,
     IMPUTED_SMALL_VARIANT_SOURCES,
-    _clickhouse_chromosome_match_expr,
     _small_annotation_filter_condition,
     _small_panel_filter_condition,
-    _small_region_bounds,
+    _small_region_window_rows,
+    _small_variant_windows,
 )
 from .clickhouse_variant_records import PanelFilterConstraints, Region
 from .family_variant_filters import SmallVariantQueryFilters
@@ -718,10 +719,6 @@ def _panel_keeps_nothing(panel_constraints: PanelFilterConstraints | None) -> bo
     )
 
 
-# The window of the panel-region join (_region_key_condition), in bases.
-_REGION_WINDOW = 1 << 16
-
-
 def _region_key_condition(
     assembly_name: str, regions: Sequence[Region], *, prefix: str, params: dict[str, Any]
 ) -> str | None:
@@ -729,49 +726,23 @@ def _region_key_condition(
     page's rule (``_small_region_filter_condition``), each variant at its position in the
     annotation index; None without a region.
 
-    The family page tests each of its rows against every region. Across every family of the
-    cohort that took minutes for a panel of a thousand genes. Here each region is listed
-    under every 64-kb window it touches and each variant under every window its REF
-    touches, and a pair that shares a window is kept when the two overlap as on the family
-    page: on the same chromosome (by match key), with the REF's first base at or before the
-    region's end and its last base at or after the region's start. Two that overlap share
-    the window of a base they share, so none is missed. The regions are read as the family
-    page reads them (``_small_region_bounds``).
-
-    The windows of a REF are counted in signed numbers: a row without a REF at position 0
-    (no VCF record has one) falls in window 0 instead of wrapping to every window.
+    Testing each row against every region took minutes across every family of the cohort
+    for a panel of a thousand genes. Here the annotation index is joined to the regions on
+    64-kb windows (``_small_region_window_rows``), the join the family page makes over a
+    family's own rows (``_small_family_region_condition``): each region is listed under
+    every window it touches and each variant under every window its REF touches, and a pair
+    that shares a window is kept when the two overlap by that rule. The regions are read as
+    the family page reads them (``_small_region_bounds``).
     """
-    chromosomes, starts, ends = _small_region_bounds(regions)
-    if not chromosomes:
+    region_rows = _small_region_window_rows(regions, prefix=prefix, params=params)
+    if region_rows is None:
         return None
-    chromosomes_param, starts_param, ends_param = (
-        f"{prefix}_chromosomes",
-        f"{prefix}_starts",
-        f"{prefix}_ends",
-    )
-    params[chromosomes_param] = chromosomes
-    params[starts_param] = starts
-    params[ends_param] = ends
+    columns, windows = _small_variant_windows("ai")
     annotation_index = _small_table_name(assembly_name, "variants/annotation_index")
-    chromosome = _clickhouse_chromosome_match_expr("ai.chrom")
-    ref_first = "toInt64(ai.pos)"
-    ref_last = "toInt64(ai.pos) + length(ai.ref) - 1"
     return (
-        "key IN (SELECT v.key FROM ("
-        f"SELECT ai.key AS key, {chromosome} AS chrom_key, ai.pos AS pos,"
-        " ai.pos + length(ai.ref) - 1 AS ref_end, variant_window"
-        f" FROM {annotation_index} AS ai"
-        f" ARRAY JOIN range(intDiv(least({ref_first}, {ref_last}), {_REGION_WINDOW}),"
-        f" intDiv(greatest({ref_first}, {ref_last}), {_REGION_WINDOW}) + 1) AS variant_window"
-        ") AS v INNER JOIN ("
-        "SELECT region.1 AS region_chrom, region.2 AS region_start, region.3 AS region_end,"
-        " region_window"
-        f" FROM (SELECT arrayJoin(arrayZip(%({chromosomes_param})s, %({starts_param})s,"
-        f" %({ends_param})s)) AS region)"
-        f" ARRAY JOIN range(intDiv(toInt64(region.2), {_REGION_WINDOW}),"
-        f" intDiv(toInt64(region.3), {_REGION_WINDOW}) + 1) AS region_window"
-        ") AS r ON v.chrom_key = r.region_chrom AND v.variant_window = r.region_window"
-        " WHERE v.pos <= r.region_end AND v.ref_end >= r.region_start)"
+        f"key IN (SELECT v.key FROM (SELECT ai.key AS key, {columns}"
+        f" FROM {annotation_index} AS ai {windows})"
+        f" AS v INNER JOIN ({region_rows}) AS r {_SMALL_REGION_WINDOW_MATCH})"
     )
 
 
