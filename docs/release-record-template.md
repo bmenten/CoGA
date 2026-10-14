@@ -4,9 +4,10 @@
 > ([TF-18 §7](regulatory/TF-18-change-configuration-management.md)). Produced by the
 > procedure in [`RELEASING.md`](../RELEASING.md).
 >
-> This record is what ties a signed clinical report back to a specific build. If a result is
-> ever questioned, this is the document that says which code, which dependencies and which
-> infrastructure produced it — so prefer "unknown" over a plausible guess in any field.
+> This record is what ties a signed-out analysis, and so the clinical report in the EPD that
+> refers to it, back to a specific build. If a result is ever questioned, this is the document
+> that says which code, which dependencies and which infrastructure produced it — so prefer
+> "unknown" over a plausible guess in any field.
 
 ## 1. Identification
 
@@ -42,6 +43,7 @@ identify the deployed artefact, because the tag is mutable.*
 | Item | Value |
 | --- | --- |
 | All twelve required checks green | ☐ — CI run: `<url>` |
+| QA's four-eyes review of the pull requests since the last reviewed tag, signed before the tag ([TF-18 §6](regulatory/TF-18-change-configuration-management.md)) | ☐ — record: `<reference, date>` |
 | Backend tests | `<n passed / n skipped>` |
 | Frontend tests | `<n passed>` |
 | `sbom/backend.cdx.json` SHA-256 | `<…>` |

@@ -367,7 +367,9 @@ production `npm audit`; `secret-scan`: gitleaks over the full history; `codeql` 
 JavaScript/TypeScript). All of these but the SBOM and the image build, and GitHub's `CodeQL`
 code-scanning result, are the twelve required status checks on `main` (S-6, the ruleset
 `CoGA_branch_protect`); a branch need not be up to date with `main` before it merges.
-The list is in [docs/testing.md](testing.md); the policy and its open gaps are in
+No approving review is required: pull requests need no approval, and the four-eyes review is
+QA's, per release, signed before the tag. The list is in [docs/testing.md](testing.md); the
+policy, QA's review and the open gaps are in
 [TF-18 §6](regulatory/TF-18-change-configuration-management.md).
 `build.yml` checks the Terraform (`fmt`, `validate`) on pull requests and deploys from `main`.
 Every suppressed advisory is recorded in

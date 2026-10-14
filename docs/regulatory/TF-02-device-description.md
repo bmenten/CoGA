@@ -32,30 +32,46 @@ nuclear mitochondrial-disease testing from ONT long-read adaptive sampling).
 
 ## 3. Device boundary
 
-CoGA's regulated boundary **begins at validated digital inputs and ends at the signed-out
-clinical report**. Everything upstream is out of scope for this device and is covered by
-separate validation/accreditation.
+CoGA's regulated boundary **begins at validated digital inputs and ends at the closed, frozen
+analysis in CoGA**: *annotated VCF → closed, frozen analysis in CoGA; the clinical report is
+drafted and medically signed in the EPD and refers 1:1 to that analysis* (owner decision,
+2026-10-14). The analyst's sign-out is the analytical sign-off: it closes the analysis and
+freezes it into a signed version (§6, §8). The medical sign-off is not given in CoGA: the
+clinical report is drafted and medically signed in the hospital's electronic patient record
+(EPD), and each report refers to exactly one signed version (1:1). Everything upstream is out
+of scope for this device and is covered by separate validation/accreditation; the EPD,
+downstream, is outside the device too.
 
 ```
-  ┌────────────────────── OUT OF SCOPE (separately validated & accredited) ──────────────────────┐
-  │  Specimen → wet-lab assay → sequencing → alignment/variant-calling → annotation (Nextflow)    │
-  └───────────────────────────────────────────────┬───────────────────────────────────────────────┘
+  ┌─────────────────────── OUT OF SCOPE (separately validated & accredited) ────────────────────────┐
+  │  Specimen → wet-lab assay → sequencing → alignment/variant-calling → annotation (Nextflow)      │
+  └────────────────────────────────────────────────┬────────────────────────────────────────────────┘
                                                    │  annotated VCF, coverage/segment/CNV/APCAD tracks,
                                                    │  repeat/Paraphase/mtDNA results, pedigree metadata
-  ┌────────────────────────────────────────────────▼──────────────────────────── CoGA (THIS DEVICE) ┐
-  │  Ingestion → storage (Postgres metadata + ClickHouse variants) → filtering/aggregation →         │
-  │  pedigree-aware analysis (trio, NIPT, PGT haplotyping, SV/CNV, repeats, mtDNA, Paraphase) →       │
-  │  visualization → semi-automatic ACMG/AMP classification (overridable) → review/curation →         │
-  │  version-pinned, content-hashed, signed-out clinical report                                       │
-  └───────────────────────────────────────────────────────────────────────────────────────────────┘
+  ┌────────────────────────────────────────────────▼─────────────────────────── CoGA (THIS DEVICE) ─┐
+  │  Ingestion → storage (Postgres metadata + ClickHouse variants) → filtering/aggregation →        │
+  │  pedigree-aware analysis (trio, NIPT, PGT haplotyping, SV/CNV, repeats, mtDNA, Paraphase) →     │
+  │  visualization → semi-automatic ACMG/AMP classification (overridable) → review/curation →       │
+  │  the analyst's sign-out: a closed, version-pinned, content-hashed, frozen analysis              │
+  └────────────────────────────────────────────────┬────────────────────────────────────────────────┘
+                                                   │  the clinical report refers 1:1 to one signed version
+                                                   │  of the frozen analysis
+  ┌────────────────────────────────── OUT OF SCOPE (the hospital's electronic patient record, EPD) ─┐
+  │  Clinical report drafted and medically signed by an authorised signatory                        │
+  └─────────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 **Explicitly upstream / not part of CoGA:** base-calling, demultiplexing, alignment,
 variant calling, annotation, per-target coverage computation (for monogenic NIPT, CoGA
 estimates the fetal fraction itself from the calls and takes no externally supplied value),
 imputation/phasing computation (CoGA consumes phased/imputed markers). The provenance and
-versions of these upstream modules are captured per family and frozen into the report
-([clinical-traceability.md](../clinical-traceability.md)).
+versions of these upstream modules are captured per family and frozen into the signed-out
+analysis ([clinical-traceability.md](../clinical-traceability.md)).
+
+**Explicitly downstream / not part of CoGA:** drafting the clinical report, its medical
+sign-off and its storage, all in the EPD. CoGA does not see the EPD report: it does not check
+that the report refers to a signed version, nor that the report says what that version holds.
+The reference is written into the report by the person who drafts it.
 
 ## 4. Inputs
 
@@ -85,17 +101,17 @@ versions of these upstream modules are captured per family and frozen into the r
 | Semi-automatic ACMG/AMP classifier | Pre-position ACMG criteria, server-recompute points/class on save; overridable | In-app reference ([source](../../frontend/src/content/docs/acmg-classification.md)); [acmg-classification.md](../acmg-classification.md) |
 | Monogenic-NIPT analysis | Fetal-fraction estimation, cfDNA quality filter, 8-category VAF zygosity classification with fetal-inheritance probabilities, de novo triage, inheritance views with the per-gene recessive fetal risk, quality checks (paternity, fetal sex, maternal-plasma sample, target coverage), coverage/QC funnels | [monogenic-nipt.md](../monogenic-nipt.md) |
 | PGT haplotype segregation | Pedigree-IBD founder colouring, disease-haplotype inference, derived embryo classification + QC | [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md) |
-| Structural / CNV / aneuploidy review | SV second-hit, large-SV and aneuploidy interval tracks | [snv-sv-compound-het.md](../snv-sv-compound-het.md) |
+| Structural / CNV / aneuploidy review | SV second-hit; each sample's segment, copy-number and APCAD tracks, on which the analyst judges an embryo's aneuploidy and large SVs (CoGA makes no automatic aneuploidy call, REQ-PGT-008) | [snv-sv-compound-het.md](../snv-sv-compound-het.md) |
 | Repeat / Paraphase / mtDNA | Specialized per-data-type views | README |
 | Visualization | Whole-genome, per-chromosome, Circos, embedded IGV | README |
-| Review & reporting | Per-variant ACMG/tags/notes, phenotype & carrier axes, version-pinned signed-out report | [report-template.md](../report-template.md), [clinical-traceability.md](../clinical-traceability.md) |
+| Review & reporting | Per-variant ACMG/tags/notes, phenotype & carrier axes; the family report, which the analyst signs out as a version-pinned, frozen analysis (§3) | [report-template.md](../report-template.md), [clinical-traceability.md](../clinical-traceability.md) |
 
 ## 6. Outputs
 
 - Filtered/prioritized candidate-variant lists with annotations and internal/external frequencies.
 - Semi-automatic ACMG/AMP classification (5-class + VUS sub-tier), fully overridable, server-recomputed.
-- Application-specific derived calls: NIPT fetal-fraction + per-variant category and fetal-inheritance probabilities, triaged de novo candidates, per-gene recessive fetal risk and quality checks; PGT per-embryo ROI classification with QC; aneuploidy/large-SV review.
-- A **signed-out clinical report** (the family report) with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9).
+- Application-specific derived calls: NIPT fetal-fraction + per-variant category and fetal-inheritance probabilities, triaged de novo candidates, per-gene recessive fetal risk and quality checks; PGT per-embryo ROI classification with QC. For the analyst's aneuploidy and large-SV review, each embryo's segment, copy-number and APCAD tracks (no automatic aneuploidy call).
+- A **signed-out analysis** (the family report, signed out by the analyst: the analytical sign-off) with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9). The clinical report is not a CoGA output: it is drafted and medically signed in the EPD and refers 1:1 to a signed version (§3).
 
 **Which outputs are signed.** Only the family report is signed out. Its signed record holds the
 reported small variants, structural variants and CNVs (each with its classification, criteria,
@@ -108,12 +124,16 @@ The NIPT results are part of no signed record either: the NIPT report has no sig
 sign-out of a NIPT family's family report freezes none of the fetal-fraction estimate, the
 per-variant categories and fetal-inheritance probabilities, the de novo candidates or the
 per-gene recessive fetal risk; of the NIPT analysis it freezes only the Sample QC checks
-(paternity, the fetal sex read from the father's X alleles, the category QC). **🔲 OWNER:**
-decide per application what the signed record is to hold; until then the PGT embryo calls and
-the NIPT results are not signed (TF-06 H5, H6, H9; [open-issues.md](../open-issues.md) REG-2).
+(paternity, the fetal sex read from the father's X alleles, the category QC). A clinical report
+in the EPD that states an embryo call or a NIPT result therefore refers to a signed version that
+does not hold it (§3). **🔲 OWNER:** decide per application what the signed record is to hold;
+until then the PGT embryo calls and the NIPT results are not signed (TF-06 H5, H6, H9;
+[open-issues.md](../open-issues.md) REG-2).
 
-> No output is an autonomous diagnosis. All outputs are reviewed and signed out by a
-> qualified professional (TF-01 §4); CoGA records a sign-out for the family report only.
+> No output is an autonomous diagnosis. All outputs are reviewed by a qualified professional
+> (TF-01 §4). The analyst signs out the analysis in CoGA (the analytical sign-off), and the
+> clinical report is medically signed in the EPD (TF-01 §1); CoGA records a sign-out for the
+> family report only.
 
 ## 7. Architecture & technology
 
@@ -133,7 +153,7 @@ These are both product features and risk controls / GSPR evidence:
 - **Per-family annotation/version manifest** and report **provenance footer**.
 - **Per-classification evidence snapshot** frozen at classification time; **evidence-drift detection** flags when underlying data changed.
 - **Immutable, append-only clinical audit trail** (who classified/tagged/edited/signed, with field-level deltas).
-- **Frozen, versioned, SHA-256 content-hashed case sign-out**; amendments create new versions and signed snapshots are never changed. Sign-out is **refused** for a family on an assembly outside the validated set (no override), and **blocked** by unacknowledged evidence drift or by a failed or unverifiable Sample QC until the analyst records a reason.
+- **Frozen, versioned, SHA-256 content-hashed case sign-out**, the analyst's analytical sign-off that closes the analysis; the clinical report in the EPD refers 1:1 to a signed version (§3). Amendments create new versions and signed snapshots are never changed. Sign-out is **refused** for a family on an assembly outside the validated set (no override), and **blocked** by unacknowledged evidence drift or by a failed or unverifiable Sample QC until the analyst records a reason.
 - A signed version is **rendered and printed from its frozen record** alone, and says what that record does not hold (REQ-TRACE-007). The live report is labelled as not the signed version and is **checked against the latest signed version**: it says when the two differ. The signed version can be downloaded.
 - **Server-side recomputation** of ACMG scores so stored classifications never depend on the browser.
 

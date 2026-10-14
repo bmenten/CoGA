@@ -2,7 +2,7 @@
 
 Deze handleiding legt de codebase van CoGA (*Comprehensive Genomic Analysis*) uit, hoofdstuk per hoofdstuk, in het Nederlands. Ze is geschreven voor het **review board en auditoren** en bewust leesbaar gehouden voor wie weinig ervaring heeft met Python of TypeScript: elk vakbegrip wordt kort uitgelegd, en bij elk onderwerp staat **waar in de code** het zit.
 
-CoGA draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG (ISO 15189). Het gereguleerde deel loopt van het *geannoteerde VCF-bestand* tot het *ondertekende klinische rapport*. Daarom loopt door de hele handleiding één rode draad: **uitlegbaarheid, traceerbaarheid en veiligheid**, telkens met de plaats in de code waar een controle, een logregel of een toegangsbeperking wordt afgedwongen.
+CoGA draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG (ISO 15189). Het gereguleerde deel loopt van het *geannoteerde VCF-bestand* tot de *afgesloten, bevroren analyse in CoGA*. Het klinische verslag wordt opgesteld en medisch ondertekend in het EPD (het elektronisch patiëntendossier van het ziekenhuis), buiten het hulpmiddel, en verwijst 1-op-1 naar die analyse. Daarom loopt door de hele handleiding één rode draad: **uitlegbaarheid, traceerbaarheid en veiligheid**, telkens met de plaats in de code waar een controle, een logregel of een toegangsbeperking wordt afgedwongen.
 
 > De data in het systeem is **synthetisch**; er zijn geen echte patiëntgegevens.
 

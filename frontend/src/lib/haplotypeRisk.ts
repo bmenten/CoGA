@@ -554,7 +554,8 @@ export const assessSampleHaplotypeRisk = ({
     }
     const matchingOrigins = new Set(matchingSignatures.map((signature) => signature.origin));
     if (matchingOrigins.size >= 2) return call('affected_or_at_risk');
-    // Assumed (owner to confirm): a side without a resolved risk haplotype (an unaffected father's X) is not at risk.
+    // A side without a resolved risk haplotype (an unaffected father's X) is not at risk: the owner's
+    // confirmed rule for a fully penetrant X-linked recessive disorder (2026-10-14; TF-09a REQ-PGT-005).
     const clearSides = riskSides.filter((side) => !matchingOrigins.has(side));
     return clearOn(clearSides, matchingOrigins.size === 1 ? 'carrier' : 'unaffected_non_carrier');
   }
