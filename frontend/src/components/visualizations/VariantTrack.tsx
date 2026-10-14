@@ -11,7 +11,16 @@ import VizLoadingOverlay from './VizLoadingOverlay';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
-import { SV_TYPE_ORDER, describeSvTypes, type SvTypeKey } from './svTypes';
+import {
+  SV_TYPE_ORDER,
+  describeSvType,
+  describeSvTypes,
+  svTypeColors,
+  svTypeKey,
+  svTypeLabel,
+  type SvCopyChange,
+  type SvTypeKey,
+} from './svTypes';
 
 interface Genotype {
   sample: string;
@@ -19,6 +28,7 @@ interface Genotype {
   read_support?: number;
   qual?: number;
   filter?: string;
+  cn?: number | null;
 }
 
 interface Variant {
@@ -31,6 +41,8 @@ interface Variant {
   read_support?: number;
   qual?: number;
   filter?: string;
+  // Left out of the track payload when the SV changes no copy number.
+  copy_change?: SvCopyChange;
   genotypes?: Genotype[];
 }
 
@@ -55,9 +67,6 @@ interface PositionedVariant extends Variant {
   typeKey: VariantType;
 }
 
-const isSupportedVariantType = (value: string): value is VariantType =>
-  SV_TYPE_ORDER.includes(value as VariantType);
-
 const VariantTrack: React.FC<Props> = ({
   familyId,
   sampleId,
@@ -68,16 +77,7 @@ const VariantTrack: React.FC<Props> = ({
   height,
   filters,
 }) => {
-  const typeColors = React.useMemo<Record<string, string>>(
-    () => ({
-      DEL: cssVar('--color-variant-del'),
-      DUP: cssVar('--color-variant-dup'),
-      INS: cssVar('--color-variant-ins'),
-      INV: cssVar('--color-variant-inv'),
-      BND: cssVar('--color-variant-bnd'),
-    }),
-    [],
-  );
+  const typeColors = React.useMemo(() => svTypeColors(), []);
   // Fallback palette resolved once: cssVar() runs getComputedStyle, so it should
   // not be called per item inside the render map below.
   const fallbackColors = React.useMemo(
@@ -130,15 +130,12 @@ const VariantTrack: React.FC<Props> = ({
   const tooManyVariants = Boolean(
     data && (data.total_is_estimated || data.total > (data.variants?.length ?? 0)),
   );
+  // Every type is drawn, in its row or in the OTHER row (CLIN-54).
   const variants = React.useMemo(
     () =>
-      (tooManyVariants ? [] : data?.variants || []).filter((v) => {
-        const typeKey = v.type?.toUpperCase() ?? '';
-        return (
-          isSupportedVariantType(typeKey) &&
-          v.genotypes?.some((g) => g.sample === sampleId && hasAltAllele(g.gt))
-        );
-      }),
+      (tooManyVariants ? [] : data?.variants || []).filter((v) =>
+        v.genotypes?.some((g) => g.sample === sampleId && hasAltAllele(g.gt)),
+      ),
     [data?.variants, sampleId, tooManyVariants],
   );
   const span = regionEnd - regionStart || 1;
@@ -146,7 +143,7 @@ const VariantTrack: React.FC<Props> = ({
   const items = React.useMemo<PositionedVariant[]>(() => {
     return variants
       .map((v) => {
-        const typeKey = v.type.toUpperCase() as VariantType;
+        const typeKey = svTypeKey(v.type, v.copy_change);
         const row = SV_TYPE_ORDER.indexOf(typeKey);
         const x1 = ((v.start - regionStart) / span) * width;
         const x2 = ((v.end - regionStart) / span) * width;
@@ -215,7 +212,7 @@ const VariantTrack: React.FC<Props> = ({
                 fontSize={10}
                 dominantBaseline="hanging"
               >
-                {typeKey}
+                {svTypeLabel(typeKey)}
               </text>
             </g>
           );
@@ -292,12 +289,15 @@ const VariantTrack: React.FC<Props> = ({
       {isError && <VizErrorOverlay what="structural variants" onRetry={() => void refetch()} />}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
-          <div>{`${tooltip.v.chr}:${tooltip.v.start}-${tooltip.v.end} ${tooltip.v.type}${
+          <div>{`${tooltip.v.chr}:${tooltip.v.start}-${tooltip.v.end} ${describeSvType(
+            tooltip.v.type,
+            tooltip.v.copy_change,
+          )}${
             tooltip.v.length !== undefined ? ` (len=${tooltip.v.length})` : ""
           }${tooltip.v.source ? ` [${tooltip.v.source}]` : ""}`}</div>
           {tooltip.v.genotypes?.map((g) => (
             <div key={g.sample}>{
-              `${g.sample}: ${formatGt(g.gt)}${
+              `${g.sample}: ${formatGt(g.gt)}${g.cn != null ? ` CN:${g.cn}` : ""}${
                 g.read_support !== undefined ? ` RS:${g.read_support}` : ""
               }${g.qual !== undefined ? ` Q:${g.qual}` : ""}${
                 g.filter ? ` F:${g.filter}` : ""

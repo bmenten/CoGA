@@ -12,7 +12,7 @@ Enkele begrippen:
 
 De ontologie staat in vier Postgres-tabellen: `hpo_term` (één rij per term, met de release), `hpo_synonym` (synoniemen, om op vrije tekst te zoeken), `hpo_edge` (de ouder-kindrelaties) en `hpo_closure` (voor elke term al zijn voorouders met hun afstand, zodat "heeft de patiënt deze term of een specifieker subtype?" één snelle vraag is). De tabel `individual_hpo` koppelt fenotypes aan een familielid, met de status `present`, `absent` of `unknown`; alleen `present` telt mee voor de prioritering.
 
-**Laden en versies.** Bij een lege databank laadt de backend de ontologie uit het bestand dat in de repository vastligt (`data/ref-data/hpo/hp.obo`). Alleen als dat ontbreekt, downloadt hij het, optioneel gecontroleerd tegen een vaste SHA-256 (`HPO_ONTOLOGY_SHA256`). De release wordt uit het bestand zelf gelezen en bij elke term bewaard, zodat een analyse later terug te voeren is op de ontologieversie die gold.
+**Laden en versies.** Bij een lege databank laadt de backend de ontologie uit het bestand dat in de repository vastligt (`data/ref-data/hpo/hp.obo`). Alleen als dat ontbreekt, downloadt hij dezelfde release van een vaste URL en gebruikt hij die alleen als de SHA-256 overeenkomt met die van het vastgezette bestand (`HPO_ONTOLOGY_SHA256`); een ander bestand wordt geweigerd. De release wordt uit het bestand zelf gelezen en bij elke term bewaard, zodat een analyse later terug te voeren is op de ontologieversie die gold.
 
 **Zoeken en beheer.** Analisten zoeken termen via `GET /api/hpo/search` (exacte match eerst, dan begin van het label, dan label en synoniem). De beheerpagina (`HpoTerminologyAdminPage.tsx`) toont het aantal termen en de geladen release, en laat een nieuwe versie eerst *voorbekijken* (hoeveel termen nieuw, gewijzigd of verdwenen zijn) en pas daarna toepassen. Die volgorde dwingt alleen de pagina af: de pagina laat pas toepassen na een geslaagde voorvertoning van precies hetzelfde bestand. Het endpoint `POST /api/admin/hpo/sync` zelf aanvaardt ook meteen een toepassing (`preview_only: false`).
 
@@ -108,7 +108,7 @@ Het paneel `MonarchPhenotypeMatchPanel.tsx` roept Monarch pas aan na een klik op
 | `backend/app/services/monarch_ingest.py` | Monarch downloaden en vervangen, status, zoeken |
 | `backend/app/services/monarch_semsim.py` · `monarch_phenotype_score.py` | Gelijkenis: live via Monarch; lokaal voor de prioritering |
 | `backend/app/services/variant_prioritization.py` | De scoring |
-| `backend/app/services/sv_copy_change.py` | Of een SV een kopie verwijdert of toevoegt: voor de SV-scoring en de tweede hit |
+| `backend/app/services/sv_copy_change.py` | Of een SV een kopie verwijdert of toevoegt: voor de SV-scoring, de tweede hit en het tekenen van SV's (hoofdstuk 9) |
 | `backend/app/services/variant_ranking_cache.py` | De ranking-cache |
 | `backend/app/routers/hpo.py` · `backend/app/routers/admin.py` | HPO-endpoints; beheer van HPO en Monarch |
 | `backend/db/schema/postgres/02_reference.sql` · `03_assay.sql` | HPO- en Monarch-tabellen; `individual_hpo` en de cache |

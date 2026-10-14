@@ -6,7 +6,8 @@ copy loss in trans with a heterozygous SNV leaves the SNV the only copy) and the
 LoF-intolerant gene, and a copy gain as a duplication). The ranking matched exact type
 names, so a ``DEL:ME``, a ``DUP:TANDEM`` and a CNV, whatever its copy number, scored as
 neither, while the second-hit badge counted a ``DEL:ME`` and a CNV loss as copy losses
-(CLIN-47).
+(CLIN-47). The SV list serves each SV with its change (``VariantOut.copy_change``), which the
+genome, chromosome and Circos views draw it by (CLIN-54).
 
 * A deletion, ``DEL`` with any subtype (``DEL:ME``), is a loss, and a duplication, ``DUP``
   with any subtype (``DUP:TANDEM``), a gain, whatever copy numbers they store. So are

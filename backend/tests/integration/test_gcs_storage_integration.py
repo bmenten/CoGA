@@ -399,12 +399,14 @@ def test_provenance_of_a_package_imported_from_fake_gcs(gcs_backend, monkeypatch
     _on_postgres_with_a_fresh_family(body)
 
 
-def test_verify_checks_a_bucket_file_against_the_stores_record(gcs_backend, gcs_endpoint):
+def test_verify_checks_a_bucket_file_against_the_stores_record(gcs_backend, gcs_endpoint, monkeypatch):
     """Verify on a file kept in the bucket compares the object with the store's record of
     it taken at import (real generations): the same object verifies; a replaced one --
-    same size, new generation -- is a mismatch; a deleted one is missing."""
+    same size, new generation -- is a mismatch; a deleted one is missing. The object lies
+    below FAMILY_IMPORT_ROOTS, where Verify asks the store about a recorded object (SEC-29)."""
     from app.services import raw_import_files_pg as rif
 
+    monkeypatch.setattr(s.settings, "family_import_roots", [f"gs://{_BUCKET}/imports"])
     admin = storage.Client(
         project="coga",
         credentials=AnonymousCredentials(),

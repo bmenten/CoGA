@@ -1,5 +1,5 @@
 """The SV ranking scores an SV by the copy-number change it makes, read back from ClickHouse
-(E2E, CLIN-47).
+(E2E, CLIN-47), and the genome tracks draw it by that change (CLIN-54).
 
 The SV ranking matched exact type names: a ``DEL:ME``, a ``DUP:TANDEM`` and every CNV,
 whatever its copy number, scored as an unknown event, while the SNV + SV second-hit badge
@@ -16,6 +16,12 @@ and the son's sex from the PED, and scores:
 * a CNV with three copies and a ``DUP:TANDEM`` as duplications (0.5), and a ``DUP`` as before;
 * the son's CNV with one copy of chrX outside the PARs as neither (0.4): he has one copy
   there; his mother's, one of her two copies, as a deletion (0.9).
+
+The list serves each SV with that change (``copy_change``), and so does each member's genome
+track (``track_mode=true`` with ``sample``, as the genome overview asks), from the member's own
+call; the track leaves it out where there is none. The genome, chromosome and Circos views draw
+an SV by it: they drew only the exact types DEL, DUP, INV, INS and BND, so none of these CNVs,
+nor the ``DEL:ME`` or the ``DUP:TANDEM``, was drawn (CLIN-54).
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why).
@@ -46,25 +52,27 @@ _HEADER = (
     "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n"
 )
 
-# Each member's calls: (chromosome, start, type, genotype, copy number), and the pathogenicity
-# the ranking gives each. chrX 50-60 Mb lies outside the PARs on GRCh38.
-_SON_CALLS = [
-    ("chr1", 1_000_000, "DEL:ME", "0/1", 1, 0.9),
-    ("chr1", 2_000_000, "CNV", "0/1", 1, 0.9),
-    ("chr1", 3_000_000, "CNV", "0/1", 3, 0.5),
-    ("chr1", 4_000_000, "DUP:TANDEM", "0/1", 3, 0.5),
-    ("chr1", 5_000_000, "DUP", "0/1", 3, 0.5),
-    ("chrX", 50_000_000, "CNV", "1", 1, 0.4),
+# Each member's calls: (chromosome, start, type, genotype, copy number), the pathogenicity
+# the ranking gives each, and the copy change served with it (None: neither). chrX 50-60 Mb
+# lies outside the PARs on GRCh38.
+_Call = tuple[str, int, str, str, int, float, str | None]
+_SON_CALLS: list[_Call] = [
+    ("chr1", 1_000_000, "DEL:ME", "0/1", 1, 0.9, "loss"),
+    ("chr1", 2_000_000, "CNV", "0/1", 1, 0.9, "loss"),
+    ("chr1", 3_000_000, "CNV", "0/1", 3, 0.5, "gain"),
+    ("chr1", 4_000_000, "DUP:TANDEM", "0/1", 3, 0.5, "gain"),
+    ("chr1", 5_000_000, "DUP", "0/1", 3, 0.5, "gain"),
+    ("chrX", 50_000_000, "CNV", "1", 1, 0.4, None),
 ]
-_MOTHER_CALLS = [
-    ("chrX", 60_000_000, "CNV", "0/1", 1, 0.9),
+_MOTHER_CALLS: list[_Call] = [
+    ("chrX", 60_000_000, "CNV", "0/1", 1, 0.9, "loss"),
 ]
 _LENGTH = 100_000
 
 
-def _cnv_vcf(calls: list[tuple[str, int, str, str, int, float]]) -> str:
+def _cnv_vcf(calls: list[_Call]) -> str:
     lines = []
-    for index, (chrom, start, sv_type, genotype, copies, _score) in enumerate(calls, start=1):
+    for index, (chrom, start, sv_type, genotype, copies, _score, _change) in enumerate(calls, start=1):
         end = start + _LENGTH
         lines.append(
             f"{chrom}\t{start}\t.\tN\t<{sv_type}>\t50\tPASS\t"
@@ -153,6 +161,15 @@ async def _exercise(base: Path, family_id: str) -> dict:
         out["ranked"] = {"status": response.status_code, "text": response.text}
         if response.status_code == 200:
             out["ranked"]["json"] = response.json()
+        # Each member's genome track, as the genome overview asks for it.
+        for role in ("SON", "MOTHER"):
+            response = await ac.get(
+                f"/api/families/{family_id}/structural-variants",
+                params={"page_size": 0, "track_mode": "true", "sample": f"{role}_{family_id}"},
+            )
+            out[f"track_{role}"] = {"status": response.status_code, "text": response.text}
+            if response.status_code == 200:
+                out[f"track_{role}"]["json"] = response.json()
     return out
 
 
@@ -186,6 +203,32 @@ def test_the_sv_ranking_scores_each_sv_by_its_copy_number_change(run) -> None:
     }
     expected = {
         (chrom.removeprefix("chr"), start, sv_type): score
-        for chrom, start, sv_type, _genotype, _copies, score in [*_SON_CALLS, *_MOTHER_CALLS]
+        for chrom, start, sv_type, _genotype, _copies, score, _change in [*_SON_CALLS, *_MOTHER_CALLS]
     }
     assert scores == expected
+
+
+def _served_changes(calls: list[_Call]) -> dict[tuple[str, int, str], str | None]:
+    return {(chrom.removeprefix("chr"), start, sv_type): change for chrom, start, sv_type, *_rest, change in calls}
+
+
+def test_the_sv_list_serves_each_sv_with_the_copy_change_the_ranking_scores_on(run) -> None:
+    assert run["ranked"]["status"] == 200, run["ranked"]["text"]
+    served = {
+        (variant["chr"].removeprefix("chr"), variant["start"], variant["type"]): variant["copy_change"]
+        for variant in run["ranked"]["json"]["variants"]
+    }
+    assert served == _served_changes([*_SON_CALLS, *_MOTHER_CALLS])
+
+
+@pytest.mark.parametrize(("role", "calls"), [("SON", _SON_CALLS), ("MOTHER", _MOTHER_CALLS)])
+def test_each_members_genome_track_serves_the_copy_change_of_the_members_own_calls(
+    run, role: str, calls: list[_Call]
+) -> None:
+    track = run[f"track_{role}"]
+    assert track["status"] == 200, track["text"]
+    served = {
+        (variant["chr"].removeprefix("chr"), variant["start"], variant["type"]): variant.get("copy_change")
+        for variant in track["json"]["variants"]
+    }
+    assert served == _served_changes(calls)

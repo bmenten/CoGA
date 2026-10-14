@@ -8,6 +8,7 @@ import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import VizErrorOverlay from '../../components/visualizations/VizErrorOverlay';
+import { svTypeKey } from '../../components/visualizations/svTypes';
 import { compareChromosomes, formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
@@ -125,9 +126,9 @@ const CircosPlotPage: FC = () => {
       const res = await api.get(
         apiPath`/families/${familyId}/structural-variants?${raw(queryParams.toString())}`
       );
-      const all = res.data.variants as Variant[];
       return {
-        variants: all.filter((v) => v.type),
+        // Every SV is drawn, whatever its type (CLIN-54).
+        variants: res.data.variants as Variant[],
         // Past the backend's candidate cap the list stops part-way through the genome, so
         // the last chromosomes would be drawn without their links (#589).
         capped: Boolean(res.data.total_is_estimated),
@@ -255,7 +256,8 @@ const CircosPlotPage: FC = () => {
     navigate(`/families/${familyId}/chromosome/${chr}${resolvedSearch ? `?${resolvedSearch}` : ''}`);
 
   const handleVariantClick = (v: Variant) => {
-    if (v.type?.toUpperCase() !== 'BND') return;
+    // A breakend, or a TRA, drawn as one: its two chromosomes open in the genome view.
+    if (svTypeKey(v.type, v.copy_change) !== 'BND') return;
     const chr1 = v.chr.replace(/^chr/i, '');
     const chr2 = (v.remote_chr || v.chr).replace(/^chr/i, '');
     const params = new URLSearchParams(location.search);
