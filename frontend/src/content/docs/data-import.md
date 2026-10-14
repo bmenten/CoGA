@@ -62,11 +62,12 @@ CNV regions cannot be loaded fails: the Reference catalogue says why, and the cl
 they were.
 
 **Gene reference refresh.** From the Reference catalogue an administrator can refresh the cached gene
-information for all human genes. The refresh reads a local dbNSFP gene file and the downloads of HGNC,
-ClinGen, GenCC and ClinVar for every gene, and asks NCBI Gene for a summary of the genes that dbNSFP does
-not cover. It adds identifiers, names and aliases, disease
-context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway terms, expression and constraint
-metrics.
+information for all human genes. The refresh reads a local dbNSFP gene file, the ACMG secondary-findings
+list that ships with CoGA (ACMG SF v3.3) and the downloads of HGNC, ClinGen, GenCC and ClinVar for every
+gene, and asks NCBI Gene for a summary of the genes that dbNSFP does not cover. It adds identifiers, names
+and aliases, disease context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway terms, expression and
+constraint metrics, and whether the gene is on the ACMG secondary-findings list. A gene refreshed before
+CoGA had the list reads *Not checked* on the gene page until the next full refresh.
 
 ---
 

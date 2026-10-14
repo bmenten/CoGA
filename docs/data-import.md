@@ -131,6 +131,7 @@ Every source below is consulted for every gene:
 | ClinGen gene validity and dosage | gene-disease validity, haploinsufficiency and triplosensitivity |
 | GenCC | submitted gene-disease assertions and their classifications |
 | ClinVar `gene_condition_source_id` | gene-disease relationships and OMIM disease links |
+| ACMG SF list (`data/ref-data/acmg-sf/`, shipped with CoGA) | whether the gene is on the ACMG secondary-findings list, with the phenotype, category, inheritance, variants to report and footnotes the list gives it |
 | NCBI Gene (one lookup per gene) | a gene summary for genes that are not in dbNSFP |
 
 Each gene stores a status per source: `success` (the source had a record), `missing` (it was
@@ -154,6 +155,21 @@ reordering gene columns is safe; a renamed or removed column silently empties th
 Until the file is in place, dbNSFP reports `missing` for every gene and the other sources
 still answer. Its checksum is taken over the file as it sits on disk, so `sha256sum` on the
 deployed file reproduces it.
+
+**The ACMG SF list** is **ACMG SF v3.3** (*Genet Med* 2025), vendored as
+`data/ref-data/acmg-sf/acmg-sf-genes.json`; its
+[README](../data/ref-data/acmg-sf/README.md) names the publication, how the list was
+transcribed and checked, and how to update it. There is no setting: the backend reads
+`data/ref-data/acmg-sf/` (`/data/ref-data/acmg-sf/` in the containers, so a Cloud Run
+deployment needs it in its reference-data bucket). Every sync reads the whole list. A gene on
+it gets `success` and its entry, any other gene `missing`, both with the release `v3.3` and
+the file's checksum; a gene is found by its HGNC ID, so one HGNC renamed since the list was
+published still matches. A list file that is missing, unreadable or not whole (no version, a
+gene without its symbol, HGNC ID, phenotype or category, a gene listed twice, or a gene count
+other than the one it states) is refused: every gene gets `error`, and the gene page says the
+list could not be read, never that a gene is not on it. A gene synced before CoGA had the
+list has no status for it, and the gene page says it was not checked; a full sync fills it
+in. The list is shown on the gene page only: no filter, ranking or report reads it.
 
 ## 3. Package import
 

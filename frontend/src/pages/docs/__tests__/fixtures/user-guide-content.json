@@ -2639,7 +2639,7 @@
     "/cnv-explorer"
    ]
   ],
-  "text": "Threeexplorersanswerquestionsbeyondasinglecase.Openthemfromthemenuunderthearrowattherightofthetopbar,orfromthedashboard.GeneExplorerAprofilepergene:thetranscripts,badgedMANESelect,MANEPlusClinical,RefSeqSelectandEnsemblCanonical;constraintmetrics(pLI,LOEUF,missenseconstraint);diseaseassociationswithClinGenandGenCCevidenceandOMIMlinks;theMonarchgene–diseaseassociations(seePhenotypes,panelsandphenotypematching);andlinkstothemainexternalresources.VariantExplorerEverysmallvariantacrosstheprojectsyoucanaccess,onerowpervariant:gene,variant,classification,consequenceandtags,withthenumberofcarriers(hetandhom)andoffamilies.Filterasonthefamilypage(gene,consequence,ClinVar,frequency,in-silicoscores),plustagsandclassification—forexampleeveryvarianttaggedReport.Theannotationfiltersworkasonthefamilypage:theymustallholdononetranscriptofthevariant,oneofthein-silicopredictorsyousetisenough,andMANEonlykeepsnothingonGRCh37orT2T(seeSmall-variantprioritisation).Agenepanelworksasonthefamilypagetoo:itkeepsthevariantsofitsgenesandthevariantsinitsregions(PanelApp'sregionsfortheassembly,andeachgene'spositioninthegenereference),soavariantwhoseannotationnamesitsgenedifferentlyiskept.Apanelofmorethan1,000regions,suchastheMendeliome,ismatchedongenesymbolsalone.Clickahet,homorfamilycounttoseethecarriersperfamily,withlinkstotheirfamilypages.ImputedcallsareleftoutunlessyoutickIncludeimputedvariants(GLIMPSE2/SHAPEIT).DownloadCSVexportsthefilteredvariantswiththeirannotation,upto50,000rows.AfilethatmissesmatcheshasTRUNCATEDinitsname,andthepagesayswhy:morevariantsmatchedthanthe50,000rows(narrowthefilters),orthetagorclassificationfiltermatchedmorethanthe200,000variantsonesearchtakes(filteronfewertagsorclassifications).ClinicalCNVexplorerThecatalogueofknownclinicalCNVs(syndromesandrecurrentregions)foranassembly.Searchbyname,chromosomeortype;eachrowshowstheCNV,cytoband,location,sizeandClinVarP/LP.ClinVarP/LP,forexample12loss·3gain,countsthepathogenicorlikelypathogenicClinVarcopy-numbervariantsthatoverlaptheregionbyatleast30%bothways,ascountedwhentheknowledgebasewasbuilt.\"—\"meansthattheknowledgebasewasbuiltwithoutClinVar:notrecorded,notzero.ClickaCNVforitsdetailpage,withitsdescription,thesupportingClinVarrecordsandlinkstoOMIMandDECIPHER.ThesamepageopenswhenyouclickaclinicalCNVintheviewers.Countsfollowyouraccess.TheVariantExplorercountsonlytheprojectsyoucansee,soitscohortcountsreflectyouraccessiblecohort.",
+  "text": "Threeexplorersanswerquestionsbeyondasinglecase.Openthemfromthemenuunderthearrowattherightofthetopbar,orfromthedashboard.GeneExplorerAprofilepergene:thetranscripts,badgedMANESelect,MANEPlusClinical,RefSeqSelectandEnsemblCanonical;constraintmetrics(pLI,LOEUF,missenseconstraint);diseaseassociationswithClinGenandGenCCevidenceandOMIMlinks;theMonarchgene–diseaseassociations(seePhenotypes,panelsandphenotypematching);andlinkstothemainexternalresources.ACMGsecondaryfindingsayswhetherthegeneisontheACMGsecondary-findingslistthatCoGAships:OnACMGSFv3.3,withthephenotype,category,inheritanceandvariantstoreportthelistgivesthegeneanditsfootnotesforit,orNotonACMGSFv3.3.Notcheckedmeansthelistwasnotreadforthisgene:itsgeneinformationwasrefreshedbeforeCoGAhadthelist,orthelistcouldnotberead.ClinGendosagecurationgivesClinGen'shaploinsufficiencyandtriplosensitivitycurationsofthegene,thedateofthecurationandalinktoClinGen'sreport.TheitemwithanHIscoreisClinGen'shaploinsufficiencyscoreasdbNSFPcarriesit.VariantExplorerEverysmallvariantacrosstheprojectsyoucanaccess,onerowpervariant:gene,variant,classification,consequenceandtags,withthenumberofcarriers(hetandhom)andoffamilies.Filterasonthefamilypage(gene,consequence,ClinVar,frequency,in-silicoscores),plustagsandclassification—forexampleeveryvarianttaggedReport.Theannotationfiltersworkasonthefamilypage:theymustallholdononetranscriptofthevariant,oneofthein-silicopredictorsyousetisenough,andMANEonlykeepsnothingonGRCh37orT2T(seeSmall-variantprioritisation).Agenepanelworksasonthefamilypagetoo:itkeepsthevariantsofitsgenesandthevariantsinitsregions(PanelApp'sregionsfortheassembly,andeachgene'spositioninthegenereference),soavariantwhoseannotationnamesitsgenedifferentlyiskept.Apanelofmorethan1,000regions,suchastheMendeliome,ismatchedongenesymbolsalone.Clickahet,homorfamilycounttoseethecarriersperfamily,withlinkstotheirfamilypages.ImputedcallsareleftoutunlessyoutickIncludeimputedvariants(GLIMPSE2/SHAPEIT).DownloadCSVexportsthefilteredvariantswiththeirannotation,upto50,000rows.AfilethatmissesmatcheshasTRUNCATEDinitsname,andthepagesayswhy:morevariantsmatchedthanthe50,000rows(narrowthefilters),orthetagorclassificationfiltermatchedmorethanthe200,000variantsonesearchtakes(filteronfewertagsorclassifications).ClinicalCNVexplorerThecatalogueofknownclinicalCNVs(syndromesandrecurrentregions)foranassembly.Searchbyname,chromosomeortype;eachrowshowstheCNV,cytoband,location,sizeandClinVarP/LP.ClinVarP/LP,forexample12loss·3gain,countsthepathogenicorlikelypathogenicClinVarcopy-numbervariantsthatoverlaptheregionbyatleast30%bothways,ascountedwhentheknowledgebasewasbuilt.\"—\"meansthattheknowledgebasewasbuiltwithoutClinVar:notrecorded,notzero.ClickaCNVforitsdetailpage,withitsdescription,thesupportingClinVarrecordsandlinkstoOMIMandDECIPHER.ThesamepageopenswhenyouclickaclinicalCNVintheviewers.Countsfollowyouraccess.TheVariantExplorercountsonlytheprojectsyoucansee,soitscohortcountsreflectyouraccessiblecohort.",
   "paragraphs": [
    "Three explorers answer questions beyond a single case. Open them from the menu under the arrow at the right of the top bar, or from the dashboard.",
    "A profile per gene: the transcripts, badged MANE Select, MANE Plus Clinical, RefSeq Select and Ensembl Canonical; constraint metrics (pLI, LOEUF, missense constraint); disease associations with ClinGen and GenCC evidence and OMIM links; the Monarch gene–disease associations (see Phenotypes, panels and phenotype matching); and links to the main external resources.",
@@ -2650,6 +2650,14 @@
    [
     "h3",
     "Gene Explorer"
+   ],
+   [
+    "li",
+    "ACMG secondary finding says whether the gene is on the ACMG secondary-findings list that CoGA ships: On ACMG SF v3.3, with the phenotype, category, inheritance and variants to report the list gives the gene and its footnotes for it, or Not on ACMG SF v3.3. Not checked means the list was not read for this gene: its gene information was refreshed before CoGA had the list, or the list could not be read."
+   ],
+   [
+    "li",
+    "ClinGen dosage curation gives ClinGen's haploinsufficiency and triplosensitivity curations of the gene, the date of the curation and a link to ClinGen's report. The item with an HI score is ClinGen's haploinsufficiency score as dbNSFP carries it."
    ],
    [
     "h3",
@@ -2725,6 +2733,30 @@
     "a",
     "Phenotypes, panels and phenotype matching",
     "#phenotype-matching"
+   ],
+   [
+    "strong",
+    "ACMG secondary finding"
+   ],
+   [
+    "em",
+    "On ACMG SF v3.3"
+   ],
+   [
+    "em",
+    "Not on ACMG SF v3.3"
+   ],
+   [
+    "em",
+    "Not checked"
+   ],
+   [
+    "strong",
+    "ClinGen dosage curation"
+   ],
+   [
+    "em",
+    "HI score"
    ],
    [
     "em",

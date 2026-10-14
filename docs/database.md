@@ -29,7 +29,7 @@ migrated ([development.md](development.md#stop-and-reset)).
 | Table | Holds |
 | --- | --- |
 | `genes` | gene loci per assembly, one row per transcript (GENCODE for GRCh38) |
-| `gene_info` | the cached gene reference per human gene: identifiers, disease links, dosage, constraint, and a status and release per source |
+| `gene_info` | the cached gene reference per human gene: identifiers, disease links, dosage, constraint, the gene's entry on the ACMG secondary-findings list (`extra.acmg_secondary_finding`), and a status and release per source |
 | `gene_info_refresh_jobs` | queued and running gene-reference syncs |
 | `blacklist` | problem regions per assembly |
 | `clinical_cnvs` | known CNV syndromes per assembly, with their ClinVar support (below) |
