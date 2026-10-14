@@ -1,6 +1,6 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { render, screen, waitFor } from '@testing-library/react';
-import { MemoryRouter, Route, Routes } from 'react-router';
+import { act, render, screen, waitFor } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import CircosPlotPage from '../CircosPlotPage';
 import api from '../../../lib/api';
@@ -303,5 +303,29 @@ describe('CircosPlotPage', () => {
     const props = circosSpy.mock.calls.at(-1)?.[0];
     expect(props.variants).toBeUndefined();
     expect(props.tooManyVariants).toBe(true);
+  });
+
+  // CLIN-54: an SV is drawn whatever its type, and a TRA as the breakend it is.
+  it('hands the plot every SV, and opens a TRA, drawn as a breakend, on its two chromosomes', async () => {
+    const tra = { chr: '1', start: 70, end: 71, type: 'TRA', remote_chr: '2', remote_start: 30 };
+    const typeless = { chr: '2', start: 10, end: 20, type: '' };
+    serve('GRCh38', {
+      '/families/F1/structural-variants?project_id=p1&page_size=0': ok({ variants: [tra, typeless] }),
+    });
+    const GenomeView = () => <div data-testid="genome-view">{useLocation().search}</div>;
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/circos']}>
+          <Routes>
+            <Route path="/families/:familyId/circos" element={<CircosPlotPage />} />
+            <Route path="/families/:familyId/genome" element={<GenomeView />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(circosSpy.mock.calls.at(-1)?.[0].variants).toEqual([tra, typeless]));
+    act(() => circosSpy.mock.calls.at(-1)?.[0].onVariantClick(tra));
+    expect(await screen.findByTestId('genome-view')).toHaveTextContent('?chrom=1&chrom=2&project_id=p1');
   });
 });

@@ -41,3 +41,23 @@ depth gives no baseline to take that ratio against, so its depths are kept as re
 drawn, its place says why, and IGV shows the depth file.
 
 The PGT haplotype track is explained under [Haplotype segregation](#haplotype-segregation).
+
+### The structural-variant tracks
+
+The genome and chromosome views draw every SV that the structural-variant list shows, in one of six
+rows:
+
+| Row | SVs drawn there |
+| --- | --- |
+| DEL | Deletions of any subtype (`DEL:ME`), and CNVs that remove a copy |
+| DUP | Duplications of any subtype (`DUP:TANDEM`), and CNVs that add a copy |
+| INV | Inversions |
+| INS | Insertions of any subtype (`INS:ME`) |
+| BND | Breakends and translocations (`TRA`) |
+| Other | Any other type, and CNVs that change no copy number, in grey |
+
+A CNV is placed by the copy number stored for the sample's call, as the SV ranking scores it: a male
+has one copy of chrX and chrY outside the pseudo-autosomal regions, and a CNV without a stored copy
+number counts as a loss. Hover an SV for its type as the caller wrote it, a CNV's copy-number change,
+and the call's copy number (`CN`). The Circos plot draws each SV the same way, from the calls of the
+whole family.

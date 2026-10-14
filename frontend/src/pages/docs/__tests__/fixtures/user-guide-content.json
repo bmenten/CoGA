@@ -1902,9 +1902,9 @@
  },
  "visualization": {
   "title": "Genome visualisation",
-  "summary": "From a candidate to its context: the genome and chromosome views, Circos and IGV, and how the small-variant track is drawn.",
+  "summary": "From a candidate to its context: the genome and chromosome views, Circos and IGV, and how the small-variant and structural-variant tracks are drawn.",
   "quickLinks": [],
-  "text": "Tablesareforfindingcandidates;viewersareforcheckingthemintheirgenomiccontext.Fromthefamilypage:Genomeview—thewholegenomewithitsvariantsandtracks.Chromosomeview—onechromosomewithcoverage,segments,APCAD,haplotypesandvarianttracks.ClickingtheROIonthefamilypageopensitherewith1Mboneachside.Circosplot—genome-widestructuralrelationshipsataglance,drawnonchromosomes1–22,XandYofthefamily'sassembly.Foranassemblyitcannotdraw,thepagesayswhyanddrawsnothing.IGVviewer—thereadsatalocus.TheIGVandViewlinksonavariantroworcard,andtheGenomeandCircosbuttonsabovethestructural-varianttable,openinanewbrowsertab,soyourfilteredliststaysasitwas.Thesmall-varianttrackInthechromosomevieweachsmallvariantisdrawnbyitsclass,withalegendonthetrack:MarkMeaningReddiamondClinVarpathogenicorlikelypathogenicOrangetriangleHIGHimpactGreendotMODERATEimpactGreydotLOWimpactorotherHollowbluesquareClinVarbenignorlikelybenignAvariantwithaconflictingoruncertainClinVarrecordisdrawnbyitsimpact.Areviewtagdrawsaringinthetag'scolouraroundthemark;themarkitselfdoesnotchange.Hoveramarkforitsimpact,ClinVarstatusandparentalorigin.Whenthesampleshownhasaparentinthefamily,thetrackhasthreerows:variantsinheritedfromthefather(top),fromthemother(bottom),andofunknownorigin(middle:homozygous,denovoorambiguous).Theorigincomesfromtheparents'genotypeswhenbotharethere,otherwisefromthephasedgenotype.Withoutaparentinthefamilythereisonerow.Viewersshowonlywhatwasimported.Acoverage,segment,APCADorhaplotypetrackappearswhenthatdatawasloadedforthesample,soanemptytrackusuallymeansthelayerismissing,notthattheviewerfailed.Whenaviewholdstoomanyvariantstodraw,thetracksaysso:zoominorfilter.Coverageisdrawnasalog2ratio,onetrackperCNVcaller.AHiFiCNVdepthfilewithoutautosomaldepthgivesnobaselinetotakethatratioagainst,soitsdepthsarekeptasread:thetrackisnotdrawn,itsplacesayswhy,andIGVshowsthedepthfile.ThePGThaplotypetrackisexplainedunderHaplotypesegregation.",
+  "text": "Tablesareforfindingcandidates;viewersareforcheckingthemintheirgenomiccontext.Fromthefamilypage:Genomeview—thewholegenomewithitsvariantsandtracks.Chromosomeview—onechromosomewithcoverage,segments,APCAD,haplotypesandvarianttracks.ClickingtheROIonthefamilypageopensitherewith1Mboneachside.Circosplot—genome-widestructuralrelationshipsataglance,drawnonchromosomes1–22,XandYofthefamily'sassembly.Foranassemblyitcannotdraw,thepagesayswhyanddrawsnothing.IGVviewer—thereadsatalocus.TheIGVandViewlinksonavariantroworcard,andtheGenomeandCircosbuttonsabovethestructural-varianttable,openinanewbrowsertab,soyourfilteredliststaysasitwas.Thesmall-varianttrackInthechromosomevieweachsmallvariantisdrawnbyitsclass,withalegendonthetrack:MarkMeaningReddiamondClinVarpathogenicorlikelypathogenicOrangetriangleHIGHimpactGreendotMODERATEimpactGreydotLOWimpactorotherHollowbluesquareClinVarbenignorlikelybenignAvariantwithaconflictingoruncertainClinVarrecordisdrawnbyitsimpact.Areviewtagdrawsaringinthetag'scolouraroundthemark;themarkitselfdoesnotchange.Hoveramarkforitsimpact,ClinVarstatusandparentalorigin.Whenthesampleshownhasaparentinthefamily,thetrackhasthreerows:variantsinheritedfromthefather(top),fromthemother(bottom),andofunknownorigin(middle:homozygous,denovoorambiguous).Theorigincomesfromtheparents'genotypeswhenbotharethere,otherwisefromthephasedgenotype.Withoutaparentinthefamilythereisonerow.Viewersshowonlywhatwasimported.Acoverage,segment,APCADorhaplotypetrackappearswhenthatdatawasloadedforthesample,soanemptytrackusuallymeansthelayerismissing,notthattheviewerfailed.Whenaviewholdstoomanyvariantstodraw,thetracksaysso:zoominorfilter.Coverageisdrawnasalog2ratio,onetrackperCNVcaller.AHiFiCNVdepthfilewithoutautosomaldepthgivesnobaselinetotakethatratioagainst,soitsdepthsarekeptasread:thetrackisnotdrawn,itsplacesayswhy,andIGVshowsthedepthfile.ThePGThaplotypetrackisexplainedunderHaplotypesegregation.Thestructural-varianttracksThegenomeandchromosomeviewsdraweverySVthatthestructural-variantlistshows,inoneofsixrows:RowSVsdrawnthereDELDeletionsofanysubtype(DEL:ME),andCNVsthatremoveacopyDUPDuplicationsofanysubtype(DUP:TANDEM),andCNVsthataddacopyINVInversionsINSInsertionsofanysubtype(INS:ME)BNDBreakendsandtranslocations(TRA)OtherAnyothertype,andCNVsthatchangenocopynumber,ingreyACNVisplacedbythecopynumberstoredforthesample'scall,astheSVrankingscoresit:amalehasonecopyofchrXandchrYoutsidethepseudo-autosomalregions,andaCNVwithoutastoredcopynumbercountsasaloss.HoveranSVforitstypeasthecallerwroteit,aCNV'scopy-numberchange,andthecall'scopynumber(CN).TheCircosplotdrawseachSVthesameway,fromthecallsofthewholefamily.",
   "paragraphs": [
    "Tables are for finding candidates; viewers are for checking them in their genomic context. From the family page:",
    "The IGV and View links on a variant row or card, and the Genome and Circos buttons above the structural-variant table, open in a new browser tab, so your filtered list stays as it was.",
@@ -1912,7 +1912,9 @@
    "A variant with a conflicting or uncertain ClinVar record is drawn by its impact. A review tag draws a ring in the tag's colour around the mark; the mark itself does not change. Hover a mark for its impact, ClinVar status and parental origin.",
    "When the sample shown has a parent in the family, the track has three rows: variants inherited from the father (top), from the mother (bottom), and of unknown origin (middle: homozygous, de novo or ambiguous). The origin comes from the parents' genotypes when both are there, otherwise from the phased genotype. Without a parent in the family there is one row.",
    "Coverage is drawn as a log2 ratio, one track per CNV caller. A HiFiCNV depth file without autosomal depth gives no baseline to take that ratio against, so its depths are kept as read: the track is not drawn, its place says why, and IGV shows the depth file.",
-   "The PGT haplotype track is explained under Haplotype segregation."
+   "The PGT haplotype track is explained under Haplotype segregation.",
+   "The genome and chromosome views draw every SV that the structural-variant list shows, in one of six rows:",
+   "A CNV is placed by the copy number stored for the sample's call, as the SV ranking scores it: a male has one copy of chrX and chrY outside the pseudo-autosomal regions, and a CNV without a stored copy number counts as a loss. Hover an SV for its type as the caller wrote it, a CNV's copy-number change, and the call's copy number (CN). The Circos plot draws each SV the same way, from the calls of the whole family."
   ],
   "blocks": [
    [
@@ -1986,6 +1988,66 @@
    [
     "callout",
     "Viewers show only what was imported. A coverage, segment, APCAD or haplotype track appears when that data was loaded for the sample, so an empty track usually means the layer is missing, not that the viewer failed. When a view holds too many variants to draw, the track says so: zoom in or filter."
+   ],
+   [
+    "h3",
+    "The structural-variant tracks"
+   ],
+   [
+    "th",
+    "Row"
+   ],
+   [
+    "th",
+    "SVs drawn there"
+   ],
+   [
+    "td",
+    "DEL"
+   ],
+   [
+    "td",
+    "Deletions of any subtype (DEL:ME), and CNVs that remove a copy"
+   ],
+   [
+    "td",
+    "DUP"
+   ],
+   [
+    "td",
+    "Duplications of any subtype (DUP:TANDEM), and CNVs that add a copy"
+   ],
+   [
+    "td",
+    "INV"
+   ],
+   [
+    "td",
+    "Inversions"
+   ],
+   [
+    "td",
+    "INS"
+   ],
+   [
+    "td",
+    "Insertions of any subtype (INS:ME)"
+   ],
+   [
+    "td",
+    "BND"
+   ],
+   [
+    "td",
+    "Breakends and translocations (TRA)"
+   ],
+   [
+    "td",
+    "Other"
+   ],
+   [
+    "td",
+    "Any other type, and CNVs that change no copy number, in grey"
    ]
   ],
   "inline": [
@@ -2029,10 +2091,30 @@
     "a",
     "Haplotype segregation",
     "#haplotype-segregation"
+   ],
+   [
+    "code",
+    "DEL:ME"
+   ],
+   [
+    "code",
+    "DUP:TANDEM"
+   ],
+   [
+    "code",
+    "INS:ME"
+   ],
+   [
+    "code",
+    "TRA"
+   ],
+   [
+    "code",
+    "CN"
    ]
   ],
   "furtherReading": [],
-  "tables": 1,
+  "tables": 2,
   "cardGrids": 0
  },
  "haplotype-segregation": {

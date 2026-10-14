@@ -110,6 +110,8 @@ Het endpoint is `GET /api/families/{family_id}/structural-variants`; de SV's van
 | Review | `small_variant_review_pg.py` | `structural_variant_review_pg.py` |
 | Track-modus | Ja | Ja, zonder review en cytoband |
 
+Elke SV komt met `copy_change`: `loss` als hij een kopie verwijdert van wat hij overspant, `gain` als hij er een toevoegt, en anders niets, volgens de regel van de SV-rangschikking (`sv_copy_change.py`), uit de calls die de rij toont. Een track vraagt één sample en krijgt dus de verandering van diens call; de lijst van de familie die van alle dragers, zoals de rangschikking. De SV-tracks en de Circos-plot tekenen een SV ermee (hoofdstuk 9).
+
 **Waar in de code:** `backend/app/routers/families_structural_variants.py`; `get_family_structural_variants_page` in `clickhouse_family_variants.py`; de lengteregel in `structural_variant_length_filters_match` (`backend/app/services/family_variant_filters.py`).
 
 ## Veiligheid en traceerbaarheid in deel A

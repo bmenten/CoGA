@@ -108,7 +108,7 @@ Het paneel `MonarchPhenotypeMatchPanel.tsx` roept Monarch pas aan na een klik op
 | `backend/app/services/monarch_ingest.py` | Monarch downloaden en vervangen, status, zoeken |
 | `backend/app/services/monarch_semsim.py` · `monarch_phenotype_score.py` | Gelijkenis: live via Monarch; lokaal voor de prioritering |
 | `backend/app/services/variant_prioritization.py` | De scoring |
-| `backend/app/services/sv_copy_change.py` | Of een SV een kopie verwijdert of toevoegt: voor de SV-scoring en de tweede hit |
+| `backend/app/services/sv_copy_change.py` | Of een SV een kopie verwijdert of toevoegt: voor de SV-scoring, de tweede hit en het tekenen van SV's (hoofdstuk 9) |
 | `backend/app/services/variant_ranking_cache.py` | De ranking-cache |
 | `backend/app/routers/hpo.py` · `backend/app/routers/admin.py` | HPO-endpoints; beheer van HPO en Monarch |
 | `backend/db/schema/postgres/02_reference.sql` · `03_assay.sql` | HPO- en Monarch-tabellen; `individual_hpo` en de cache |

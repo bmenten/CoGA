@@ -230,6 +230,14 @@ class VariantOut(ApiDocumentModel):
     # assembly, where a male carries one copy (#545, #621). False elsewhere, and on an
     # assembly whose PARs are not known.
     hemizygous_in_males: bool = False
+    # Structural variants: whether the SV removes a copy of what it spans ("loss"), adds one
+    # ("gain") or neither (None), by the rule of the SV ranking and the SNV + SV second hit
+    # (`sv_copy_change.copy_change`): a DEL or DUP of any subtype by its type, a CNV by the
+    # copy numbers of the carriers in `genotypes`, a male's single copy of chrX and chrY
+    # outside the PARs counted. A track asks for one sample, so its rows read that sample's
+    # call. The genome, chromosome and Circos views draw an SV by it (CLIN-54). None for a
+    # small variant.
+    copy_change: Optional[Literal["loss", "gain"]] = None
     review: Optional[SmallVariantReviewOut] = None
     internal_cohort: Optional[VariantInternalCohortOut] = None
     priority: Optional[VariantPriorityOut] = None

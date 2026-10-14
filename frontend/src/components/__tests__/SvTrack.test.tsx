@@ -1,7 +1,7 @@
 // Genome-wide SV track: the accessible name of its canvas summarises what it draws now —
 // the sample's SVs on the displayed chromosomes, by type — and names a load or a failure
 // as such, never as zero SVs (#510, #529).
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -65,12 +65,11 @@ describe('SvTrack accessible name (#529)', () => {
         sv('DEL', '1', 100_000),
         sv('DUP', 'chr2', 200_000, 'S1', '1/1'),
         sv('DEL', '2', 400_000),
-        // Not drawn, so not counted: off the displayed chromosomes, not the sample's,
-        // not carried, or not a type the track draws.
+        // Not drawn, so not counted: off the displayed chromosomes, not the sample's, or
+        // not carried.
         sv('DEL', '3', 100_000),
         sv('INV', '1', 300_000, 'S2'),
         sv('INS', '1', 500_000, 'S1', '0/0'),
-        sv('CNV', '1', 600_000),
       ]),
     });
     render(track());
@@ -171,5 +170,85 @@ describe('SvTrack request (#585)', () => {
 
     fetchTrackJsonMock.mockResolvedValueOnce({ variants: [], total: 0 });
     await expect(queryFn({ signal })).resolves.toEqual({ variants: [], capped: false });
+  });
+});
+
+// CLIN-54: the track drew DEL, DUP, INV, INS and BND by their exact names only, so a DEL:ME, a
+// DUP:TANDEM, an INS:ME, a CNV or a TRA was not drawn, though the SV list showed it.
+describe('SvTrack draws every SV the list shows (CLIN-54)', () => {
+  beforeEach(() => {
+    useQueryMock.mockReset();
+  });
+
+  // As the track payload serves them: the copy change is left out when there is none.
+  const drawn = [
+    { ...sv('DEL:ME', '1', 100_000), copy_change: 'loss' },
+    { ...sv('DUP:TANDEM', '1', 200_000), copy_change: 'gain' },
+    sv('INS:ME', '1', 300_000),
+    { ...sv('CNV', '1', 400_000), copy_change: 'loss' },
+    { ...sv('CNV', '2', 100_000), copy_change: 'gain' },
+    // A CNV that keeps the sample's copies, and a type no row names: the Other row.
+    sv('CNV', '2', 200_000),
+    sv('TRA', '2', 300_000),
+    sv('CPX', '2', 400_000),
+  ];
+
+  it('draws an SV by its type without subtypes, a CNV by its copy change, a TRA as a BND and any other type as other', () => {
+    serve({ data: page(drawn) });
+    render(track());
+
+    expect(
+      screen.getByRole('img', {
+        name: 'Structural variants of S1 in view: 8 (2 DEL, 2 DUP, 1 INS, 1 BND, 2 other)',
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it('labels the six rows, the Other row last', () => {
+    const labels: string[] = [];
+    const context = HTMLCanvasElement.prototype.getContext.call(document.createElement('canvas'), '2d');
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(
+        () =>
+          ({
+            ...context,
+            fillText: (text: string) => labels.push(text),
+          }) as unknown as CanvasRenderingContext2D,
+      );
+    serve({ data: page(drawn) });
+    render(track({ height: 80 }));
+
+    // The row labels of the last draw.
+    expect(labels.slice(-6)).toEqual(['DEL', 'DUP', 'INV', 'INS', 'BND', 'Other']);
+    getContext.mockRestore();
+  });
+
+  it('names an SV of another type, and a CNV with its copy change and copy number, in its tooltip', () => {
+    serve({
+      data: page([
+        // Far less than a pixel wide on this track: hovered over the pixel it is drawn on.
+        { chr: '2', start: 400_000, end: 400_100, type: 'CPX', source: 'caller', genotypes: [{ sample: 'S1', gt: '0/1' }] },
+        {
+          chr: '1',
+          start: 400_000,
+          end: 400_100,
+          type: 'CNV',
+          copy_change: 'loss',
+          genotypes: [{ sample: 'S1', gt: '0/1', cn: 1 }],
+        },
+      ]),
+    });
+    render(track({ height: 80 }));
+    const canvas = screen.getByRole('img');
+
+    // 200 px over 2 Mb: chr2:400,000 is at x 140. Six rows of 80/6 px: the Other row is the
+    // last, the DEL row the first.
+    fireEvent.mouseMove(canvas, { clientX: 140.5, clientY: 72 });
+    expect(screen.getByText('2:400000-400100 CPX [caller]')).toBeInTheDocument();
+
+    fireEvent.mouseMove(canvas, { clientX: 40.5, clientY: 8 });
+    expect(screen.getByText('1:400000-400100 CNV (copy-number loss)')).toBeInTheDocument();
+    expect(screen.getByText('S1: Het CN:1')).toBeInTheDocument();
   });
 });

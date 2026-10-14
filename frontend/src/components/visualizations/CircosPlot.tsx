@@ -10,7 +10,15 @@ import { getStainColor } from '../../lib/stainColors';
 import { escapeHtml } from '../../lib/escapeHtml';
 import { countOf } from '../../lib/countOf';
 import { NUCLEAR_CHROMOSOMES } from '../../lib/chromosomes';
-import { svTypeColors } from './svTypes';
+import {
+  describeSvType,
+  svTypeColors,
+  svTypeCountLabel,
+  svTypeKey,
+  svTypeLabel,
+  type SvCopyChange,
+  type SvTypeKey,
+} from './svTypes';
 
 interface IdeogramBand {
   name: string;
@@ -32,6 +40,7 @@ export interface Variant {
   type?: string;
   remote_chr?: string;
   remote_start?: number;
+  copy_change?: SvCopyChange;
 }
 
 export const CHROMS = NUCLEAR_CHROMOSOMES;
@@ -52,13 +61,14 @@ export const TELOMERE_CORNER_RADIUS = 5.5;
 const CHROMOSOME_GAP = 0.04; // radians of whitespace between adjacent chromosomes
 const TELOMERE_END_WHITESPACE = 0.0007;
 
-// The types the legend names (typeColors below), in its order.
-const LEGEND_TYPES = ['DEL', 'DUP', 'INS', 'INV', 'BND'];
+// The rows the legend names (typeColors below), in its order: an SV is drawn as one of them
+// (svTypeKey), an SV of a type none of the others names as OTHER, in the neutral colour.
+const LEGEND_TYPES: SvTypeKey[] = ['DEL', 'DUP', 'INS', 'INV', 'BND', 'OTHER'];
 
 /**
  * The plot's accessible name: what is drawn now. A variant is counted only when both of
- * its ends sit on a drawn chromosome and it has a type, as in the link layout below.
- * `variants` is undefined until they have loaded (or when they could not), which is
+ * its ends sit on a drawn chromosome, as in the link layout below, by the type it is drawn
+ * as. `variants` is undefined until they have loaded (or when they could not), which is
  * never reported as "no structural variants".
  */
 const describeCircos = (
@@ -74,21 +84,19 @@ const describeCircos = (
   if (variants === undefined) return `Circos plot of ${across}; structural variants not loaded`;
 
   const isShown = (chr?: string) => !!chr && (shown.has(chr) || shown.has(chr.replace(/^chr/i, '')));
-  const byType = new Map<string, number>();
+  const byType = new Map<SvTypeKey, number>();
   variants.forEach((v) => {
-    const type = v.type?.toUpperCase();
-    if (!type || !isShown(v.chr) || !isShown(v.remote_chr || v.chr)) return;
+    if (!isShown(v.chr) || !isShown(v.remote_chr || v.chr)) return;
+    const type = svTypeKey(v.type, v.copy_change);
     byType.set(type, (byType.get(type) ?? 0) + 1);
   });
   const drawn = [...byType.values()].reduce((sum, count) => sum + count, 0);
   if (drawn === 0) {
     return `Circos plot of ${across}: no structural variants${variants.length ? ' in this selection' : ''}`;
   }
-  const other = drawn - LEGEND_TYPES.reduce((sum, type) => sum + (byType.get(type) ?? 0), 0);
-  const breakdown = [
-    ...LEGEND_TYPES.filter((type) => byType.has(type)).map((type) => `${byType.get(type)} ${type}`),
-    ...(other ? [`${other} other`] : []),
-  ];
+  const breakdown = LEGEND_TYPES.filter((type) => byType.has(type)).map(
+    (type) => `${byType.get(type)} ${svTypeCountLabel(type)}`,
+  );
   return `Circos plot of ${countOf(drawn, 'structural variant')} across ${across}: ${breakdown.join(', ')}`;
 };
 
@@ -323,7 +331,8 @@ interface VariantRender {
   d: string | null;
   stroke: string;
   strokeWidth: number;
-  type: string;
+  // The type as the tooltip states it.
+  label: string;
   clickable: boolean;
   variant: Variant;
 }
@@ -675,8 +684,10 @@ const CircosPlot: FC<CircosPlotProps> = ({
         const targetScale = getScale(v.remote_chr || v.chr);
         const sourcePos = v.start;
         const targetPos = v.remote_start ?? v.end ?? v.start;
-        const type = v.type?.toUpperCase();
-        if (!sourceScale || !targetScale || !type) return null;
+        if (!sourceScale || !targetScale) return null;
+        // Drawn by the type it is drawn as in the tracks: a DEL:ME or a CNV loss as a DEL, a
+        // TRA as a BND, an SV of any other type in the neutral colour (CLIN-54).
+        const type = svTypeKey(v.type, v.copy_change);
 
         const sourceAngle = sourceScale(sourcePos);
         let targetAngle = targetScale(targetPos);
@@ -738,7 +749,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
           d,
           stroke: typeColors[type] || cssVar('--color-variant-default'),
           strokeWidth,
-          type,
+          label: describeSvType(v.type?.toUpperCase(), v.copy_change),
           clickable: type === 'BND',
           variant: v,
         };
@@ -769,7 +780,7 @@ const CircosPlot: FC<CircosPlotProps> = ({
               .style('opacity', 1)
               .style('left', `${event.pageX + 8}px`)
               .style('top', `${event.pageY + 8}px`)
-              .html(`<strong>${escapeHtml(render.type)}</strong><br/>${escapeHtml(coords)}`);
+              .html(`<strong>${escapeHtml(render.label)}</strong><br/>${escapeHtml(coords)}`);
             d3.select(event.currentTarget)
               .attr('stroke-width', render.strokeWidth + 2)
               .raise();
@@ -799,17 +810,17 @@ const CircosPlot: FC<CircosPlotProps> = ({
     <div className="flex flex-col items-center">
       <svg ref={svgRef} className="mx-auto block text-text" role="img" aria-label={chartLabel}></svg>
       <div className="mt-4 flex flex-wrap justify-center gap-4 text-xs">
-        {Object.entries(typeColors).map(([type, color]) => (
+        {LEGEND_TYPES.map((type) => (
           <div key={type} className="flex items-center gap-1">
             <span
               className="viz-swatch"
               style={
                 type === 'INV'
-                  ? { backgroundColor: cssVar('--color-white'), border: `2px solid ${color}` }
-                  : { backgroundColor: color }
+                  ? { backgroundColor: cssVar('--color-white'), border: `2px solid ${typeColors[type]}` }
+                  : { backgroundColor: typeColors[type] }
               }
             ></span>
-            <span>{type}</span>
+            <span>{svTypeLabel(type)}</span>
           </div>
         ))}
       </div>

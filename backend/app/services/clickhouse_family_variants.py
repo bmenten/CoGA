@@ -3741,6 +3741,7 @@ async def _prioritized_structural_variants_page(
             selected_samples,
             review_map.get(record.variant_id),
             cytoband_map.get(record.variant_id),
+            pedigree=pedigree,
         )
         variant.priority = priority
         variants.append(variant)
@@ -3846,6 +3847,9 @@ async def get_family_structural_variants_page(
             page_size=page_size,
             selected_samples=selected_samples,
         )
+    # The males, who keep one copy of chrX and chrY outside the PARs, for each row's copy
+    # change (``_structural_variant_out``).
+    pedigree = _family_pedigree(context)
     if _can_use_structural_native_page(filters, track_mode=track_mode):
         total, summary = await _fetch_structural_variant_summary(context, filters)
         if total == 0:
@@ -3872,6 +3876,7 @@ async def get_family_structural_variants_page(
                 selected_samples,
                 review_map.get(record.variant_id),
                 cytoband_map.get(record.variant_id),
+                pedigree=pedigree,
             )
             for record in page_records
         ]
@@ -3984,6 +3989,7 @@ async def get_family_structural_variants_page(
             review_map.get(record.variant_id),
             cytoband_map.get(record.variant_id),
             track_mode=track_mode,
+            pedigree=pedigree,
         )
         for record in page_records
     ]
