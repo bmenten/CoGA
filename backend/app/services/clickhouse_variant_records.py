@@ -466,6 +466,16 @@ def _nullable_lte(value: float | int | None, maximum: float | int | None) -> boo
     return value <= maximum
 
 
+def _score_meets(value: float | None, minimum: float | None) -> bool:
+    """Whether an in-silico score meets the minimum a filter sets, as the SQL reads it
+    (``ifNull(score, -1) >= minimum``): a missing score reads as -1, and a score of 0 is a
+    score. ``value or -1.0`` read a score of 0 as missing, so a SpliceAI score of 0.00, most
+    variants' own, missed a minimum of 0 that the SQL kept it for (ENG-1)."""
+    if minimum is None:
+        return False
+    return (-1.0 if value is None else value) >= minimum
+
+
 def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariantQueryFilters) -> bool:
     if filters.transcript and not _contains_casefold(
         _annotation_text(annotation, "transcript_id", "transcriptId"),
@@ -519,10 +529,7 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
     if any_impact_effect:
         impact_match = bool(impact_terms) and _casefold(_annotation_text(annotation, "impact")) in impact_terms
         effect_match = bool(effect_terms) and bool(effect_terms.intersection(_annotation_terms(_annotation_effect(annotation))))
-        splice_match = (
-            filters.min_spliceai is not None
-            and (_annotation_spliceai_max(annotation) or -1.0) >= filters.min_spliceai
-        )
+        splice_match = _score_meets(_annotation_spliceai_max(annotation), filters.min_spliceai)
         if not (impact_match or effect_match or splice_match):
             return False
 
@@ -540,15 +547,9 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
         or in_silico_prediction_pattern(filters.polyphen) is not None
     )
     if in_silico_requested:
-        cadd_match = filters.min_cadd is not None and (
-            (_annotation_float(annotation, "cadd_phred", "caddPhred") or -1.0) >= filters.min_cadd
-        )
-        revel_match = filters.min_revel is not None and (
-            (_annotation_float(annotation, "revel") or -1.0) >= filters.min_revel
-        )
-        splice_match = filters.min_spliceai is not None and (
-            (_annotation_spliceai_max(annotation) or -1.0) >= filters.min_spliceai
-        )
+        cadd_match = _score_meets(_annotation_float(annotation, "cadd_phred", "caddPhred"), filters.min_cadd)
+        revel_match = _score_meets(_annotation_float(annotation, "revel"), filters.min_revel)
+        splice_match = _score_meets(_annotation_spliceai_max(annotation), filters.min_spliceai)
         # The value names the prediction asked for, whatever its score: the SQL condition's
         # own test (CLIN-45). A whole-term match missed "deleterious(0.01)".
         sift_match = in_silico_prediction_matches(_annotation_sift(annotation), filters.sift)

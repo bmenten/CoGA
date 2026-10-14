@@ -464,6 +464,7 @@ CASES: dict[str, _Case] = {
     # --- in silico (one predictor is enough; SpliceAI also passes impact and consequence) ---
     "CADD or REVEL": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS}, min_cadd=30, min_revel=0.5),
     "SpliceAI": _case({HOMOZYGOUS}, min_spliceai=0.2),
+    "SpliceAI from 0": _case({DE_NOVO_MISSENSE, HOMOZYGOUS}, min_spliceai=0.0),
     "SIFT": _case({DE_NOVO_MISSENSE}, sift="deleterious"),
     "PolyPhen": _case({HOMOZYGOUS}, polyphen="benign"),
     # --- the panel ---

@@ -252,3 +252,26 @@ def test_a_consequence_value_joining_two_terms_is_read_as_the_sql_reads_it() -> 
     assert _keeps(missense, effect=["missense_variant&splice_region_variant"])
     assert _keeps(missense, effect=["splice_region_variant/missense_variant"])
     assert not _keeps(missense, effect=["splice_region_variant&intron_variant"])
+
+
+# --- in-silico scores -------------------------------------------------------------------
+
+
+def test_a_score_of_zero_meets_a_minimum_of_zero() -> None:
+    # The SQL reads ifNull(score, -1) >= minimum; Python read `score or -1`, so a score of 0
+    # (a SpliceAI 0.00, most variants' own) missed a minimum of 0.
+    scored = _record(
+        "11-100-C-T",
+        annotations=[{"gene": "GENE1", "impact": "LOW", "spliceai_max": 0.0, "cadd_phred": 0.0, "revel": 0.0}],
+    )
+    assert _keeps(scored, min_spliceai=0.0)
+    assert _keeps(scored, min_cadd=0.0)
+    assert _keeps(scored, min_revel=0.0)
+    assert not _keeps(scored, min_spliceai=0.01)
+
+
+def test_a_missing_score_reads_as_minus_one_in_either_path() -> None:
+    unscored = _record("11-100-C-T", annotations=[{"gene": "GENE1", "impact": "LOW"}])
+    assert not _keeps(unscored, min_cadd=0.0)
+    # A minimum below the scores' range keeps it, as ifNull(score, -1) does.
+    assert _keeps(unscored, min_cadd=-1.0)
