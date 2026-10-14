@@ -17,6 +17,11 @@ regexes = [
   # selector in panelapp_service.py (PanelApp is a public, key-less API) that the
   # default generic-api-key rule flags on its assignment shape. Not a credential.
   '''grch3[78]_coordinates''',
+  # False positive: the keys of an upload's or a deletion's mark on a family
+  # (`import_unfinished` entries, SAFE-28): `upload-` or `deletion-` and 32 hex digits, a
+  # random identifier, not a credential. Tests write fixed ones (`DELETION_KEY = …`), which
+  # the default generic-api-key rule flags on the `KEY =` assignment shape.
+  '''(?:upload|deletion)-[0-9a-f]{32}''',
 ]
 paths = [
   # .env.example ships placeholder values (e.g. change-me) by design; it is the
