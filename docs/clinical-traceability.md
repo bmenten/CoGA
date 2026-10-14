@@ -1,11 +1,20 @@
 # Clinical traceability, sign-out and audit
 
-A signed report must be reproducible and defensible: it has to say exactly what produced it,
-and show who decided what and when. This page describes what CoGA records for that, how
-sign-out works, how tampering is detected, and what is not covered. It is written for
+A signed-out analysis must be reproducible and defensible: it has to say exactly what
+produced it, and show who decided what and when. This page describes what CoGA records for
+that, how sign-out works, how tampering is detected, and what is not covered. It is written for
 developers and auditors. Lab users find the same in plain words in the in-app reference
 ([clinical-traceability](../frontend/src/content/docs/clinical-traceability.md), shown at
 `/docs/reference/clinical-traceability`).
+
+**What sign-out is.** CoGA's sign-out is the analyst's analytical sign-off: it closes the
+analysis and freezes it into a signed version. It is not the medical sign-off. The clinical
+report is drafted and medically signed in the hospital's electronic patient record (EPD),
+outside the device, and refers 1:1 to the signed version it rests on: the device boundary is
+*annotated VCF → closed, frozen analysis in CoGA; the clinical report is drafted and medically
+signed in the EPD and refers 1:1 to that analysis*
+([TF-02 §3](regulatory/TF-02-device-description.md)). The UI keeps the names *Sign out
+report*, *signed version* and *signed report* for that frozen analysis.
 
 Code comments refer to four parts by number: Phase 0 (the annotation manifest), Phase 1
 (evidence snapshots and drift), Phase 2 (the clinical audit trail) and Phase 3 (sign-out).
@@ -346,6 +355,9 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   reference import records the release its source states in `reference_dataset_imports`,
   but the manifest does not read it; the clinical-CNV knowledgebase states none.
 - Any user who can open the family can sign out; sign-out is not limited to a role.
+- CoGA does not see the clinical report in the EPD. Nothing in CoGA checks that the report
+  refers to a signed version, which one, or that it says what that version holds; the
+  reference is written into the report by the person who drafts it.
 - Sign-out exists for the family report only; the monogenic NIPT report page has none. The PGT
   embryo calls and the NIPT results (the fetal fraction, each variant's category and
   fetal-inheritance probabilities, the de novo candidates, the recessive fetal risk) are

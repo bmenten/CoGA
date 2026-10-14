@@ -2,11 +2,14 @@
 
 # CoGA
 
-CoGA (Comprehensive Genomic Analysis) is a web application for interpreting a family's
-genome data and writing the clinical report. A lab user opens a family, sees its pedigree,
-phenotypes and sample QC, filters and classifies the variants, and signs out the report.
-CoGA starts from variant files that an upstream pipeline has already called and annotated;
-it does not call variants itself.
+CoGA (Comprehensive Genomic Analysis) is a web application for filtering, visualising and
+interpreting a family's genome data, and for tracing the result back to what produced it. A
+lab user opens a family, sees its pedigree, phenotypes and sample QC, filters and classifies
+the variants, and signs out the analysis: the analyst's sign-off, which closes the analysis
+and freezes it. The clinical report is drafted and medically signed in the hospital's
+electronic patient record (EPD), not in CoGA, and refers to that frozen analysis. CoGA starts
+from variant files that an upstream pipeline has already called and annotated; it does not
+call variants itself.
 
 It serves five clinical applications: rare-disorder diagnostics, expanded carrier screening,
 preimplantation genetic testing (PGT), monogenic non-invasive prenatal testing (NIPT), and
@@ -16,10 +19,13 @@ combined mitochondrial and nuclear testing for mitochondrial disease.
 
 CoGA is operated as an **in-house IVD under IVDR Article 5(5)** by the Center for Medical
 Genetics Ghent (CMGG), under its ISO 15189 accreditation. The device boundary is _annotated
-VCF → signed clinical report_. CoGA is **not CE-marked**: its validation covers CMGG's own
-laboratory and workflow and does not travel with the source code. Anyone who deploys it for
-diagnostic use elsewhere is responsible for their own conformity assessment (see
-[NOTICE](NOTICE)).
+VCF → closed, frozen analysis in CoGA; the clinical report is drafted and medically signed in
+the EPD and refers 1:1 to that analysis_. The EPD is outside the device: CoGA's sign-out is
+the analyst's analytical sign-off, and the medical sign-off is given in the EPD
+([TF-02 §3](docs/regulatory/TF-02-device-description.md)). CoGA is **not CE-marked**: its
+validation covers CMGG's own laboratory and workflow and does not travel with the source
+code. Anyone who deploys it for diagnostic use elsewhere is responsible for their own
+conformity assessment (see [NOTICE](NOTICE)).
 
 Every change goes through CMGG's change control
 ([TF-18](docs/regulatory/TF-18-change-configuration-management.md)), so a pull request is
@@ -40,13 +46,14 @@ is Google Cloud, deployed with Terraform.
   classification, also for families with one known parent and a donor.
 - **Genome views** — whole-genome and chromosome views, a Circos plot and an embedded IGV
   browser.
-- **Sign-out** — a versioned record of the report, bound to the software version and the
-  annotation and reference versions. Sign-out is refused for a family on an assembly outside
-  the validated scope or while its data is being written, and needs an acknowledgement with a
-  reason when the evidence behind a classification has changed, sample QC flags a possible
-  sample swap, or an import left the family's data incomplete. Sign-outs and changes to the
-  classifications, tags and notes of small variants, structural variants and CNVs are kept in
-  an append-only, hash-chained audit trail.
+- **Sign-out** — the analyst's analytical sign-off: it closes the analysis and freezes it
+  into a versioned record, bound to the software version and the annotation and reference
+  versions, to which the clinical report in the EPD refers. Sign-out is refused for a family
+  on an assembly outside the validated scope or while its data is being written, and needs an
+  acknowledgement with a reason when the evidence behind a classification has changed,
+  sample QC flags a possible sample swap, or an import left the family's data incomplete.
+  Sign-outs and changes to the classifications, tags and notes of small variants, structural
+  variants and CNVs are kept in an append-only, hash-chained audit trail.
 - **Explorers** — genes (with MANE and RefSeq transcript badges), small variants across every
   project you can access, clinical CNVs, HPO terms and gene panels.
 - **Administration** — users and projects, family-package import, reference data, ClickHouse

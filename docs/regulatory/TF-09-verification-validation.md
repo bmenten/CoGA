@@ -45,10 +45,11 @@
 
 **CI enforcement:** the gates run on every PR and on push to `main`. Which of them are required
 status checks, and the limits of that enforcement (an administrator can bypass them, and no
-approving review is required), are set out in
-[TF-18 §6](TF-18-change-configuration-management.md). The claim these gates support is *"CI
-gates are blocking"*, **not** *"every merge was independently reviewed"*. What each job runs:
-[docs/testing.md](../testing.md).
+approving review is required: pull requests need no approval, and the four-eyes review is
+QA's, per release), are set out in [TF-18 §6](TF-18-change-configuration-management.md). The
+claim these gates support is *"CI gates are blocking"*, **not** *"every merge was
+independently reviewed"*; a change counts as independently reviewed only when QA's signed
+review of its release includes it. What each job runs: [docs/testing.md](../testing.md).
 
 **Test level ↔ version level (H11.1-OP5 §4.4.6).** The depth of testing required for a change
 is tied to its semantic-version level ([TF-18](TF-18-change-configuration-management.md)):
@@ -60,7 +61,7 @@ thorough testing across all levels plus clinical opvolgvalidatie.
 
 - **Clinical/analytical validation:** concordance against validated comparator assays per application, on the validation sets of [TF-10 §2](TF-10-performance-evaluation-plan.md); results in [TF-11](TF-11-performance-evaluation-report.md).
 - **Usability validation:** summative evaluation that intended users can use CoGA without unacceptable use error ([TF-12](TF-12-usability.md)).
-- **Reproducibility validation:** same validated input → identical content-hashed signed record (IVDR Annex I §16.1 repeatability); the frozen sign-out's content hash is the mechanism.
+- **Reproducibility validation:** same validated input → identical content-hashed signed record (IVDR Annex I §16.1 repeatability); the frozen sign-out's content hash is the mechanism. The record is the device's output, the closed, frozen analysis; the clinical report drafted from it in the EPD is outside the device ([TF-02 §3](TF-02-device-description.md)).
 
 ## 3. Software Requirements Specification (SRS)
 
@@ -96,6 +97,7 @@ The mechanics of executing a release — tagging, building, capturing evidence a
 
 - [ ] All required CI gates green on the release commit ([TF-18 §6](TF-18-change-configuration-management.md)).
 - [ ] Design and code review recorded for the release candidate: reviewers, scope, findings and their resolution ([TF-18 §3a](TF-18-change-configuration-management.md)).
+- [ ] QA's four-eyes review of the release's changes signed before the tag: every change to the clinical-critical modules and a sample of the rest ([TF-18 §6](TF-18-change-configuration-management.md)).
 - [ ] RTM updated; no requirement without a passing verifying test.
 - [ ] Risk file (TF-06) reviewed for new/affected hazards; controls verified.
 - [ ] SOUP register / SBOM (TF-08/TF-13) reconciled; no unaddressed high-severity vuln.

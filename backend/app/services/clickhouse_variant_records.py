@@ -281,12 +281,13 @@ def _flexible_status_match(value: Any, candidates: Sequence[str]) -> bool:
 def _coerce_int(value: Any) -> int | None:
     if value in (None, "", "."):
         return None
+    # OverflowError: an infinite value ("inf", float("inf")) is no whole number either.
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         try:
             return int(float(value))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
 
 
