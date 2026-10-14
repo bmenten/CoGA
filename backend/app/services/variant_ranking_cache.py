@@ -58,7 +58,10 @@ from .hpo_service import get_loaded_hpo_release
 #    the same filters and data, lacks those variants (an empty ranking is cached too).
 # 4: a ranked compound-het, recessive or carrier-screening search ranks only the variants
 #    and pairs the search keeps unranked (CLIN-44); it ranked every prefiltered candidate.
-_ALGORITHM_VERSION = "4"
+# 5: the ranked search's Python record filter reads every filter as the SQL does (ENG-1):
+#    a ranking cached before lacks the variants it dropped that the plain page keeps (chrM
+#    named MT or M, an interval in lower case).
+_ALGORITHM_VERSION = "5"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

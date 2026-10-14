@@ -511,10 +511,22 @@ def _parse_interval_regions(raw_value: str | None, *, label: str = "Interval") -
     return regions
 
 
+def _chromosome_filter_matches(chromosome: str, filter_chromosome: str) -> bool:
+    """Whether a variant's chromosome is the one a chromosome filter names, as the SQL reads
+    it (``e.chrom IN`` the filter's ``_chromosome_options``): the name with or without
+    ``chr``, and chrM by any of its names (M, MT)."""
+    options = {normalize_chromosome(option) for option in _chromosome_options(filter_chromosome)}
+    return normalize_chromosome(chromosome) in options
+
+
 def _variant_overlaps_regions(chr_value: str, start: int, end: int, regions: Sequence[Region]) -> bool:
-    normalized_chr = normalize_chromosome(chr_value)
+    """Whether a variant overlaps one of the regions. The chromosomes are compared by
+    ``_chromosome_match_key``, as the SQL region conditions compare them: in any capitals,
+    with or without ``chr``, and chrM by any of its names. Compared as written, an interval
+    typed as ``x:…`` or a region on chrMT missed a variant the SQL kept (ENG-1)."""
+    chromosome = _chromosome_match_key(chr_value)
     return any(
-        normalized_chr == normalize_chromosome(region.chr)
+        chromosome == _chromosome_match_key(region.chr)
         and start <= region.end
         and end >= region.start
         for region in regions
@@ -956,7 +968,7 @@ def _small_record_matches(
     exclude_gene_regions: Sequence[Region],
     panel_constraints: PanelFilterConstraints | None = None,
 ) -> bool:
-    if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
+    if filters.chromosome and not _chromosome_filter_matches(record.chr, filters.chromosome):
         return False
     if filters.overlap:
         if filters.start is not None and record.end < filters.start:

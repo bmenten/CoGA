@@ -362,6 +362,7 @@ CASES: dict[str, _Case] = {
     "chromosome": _case(CHR11, chromosome="11"),
     "chromosome with chr": _case(CHR11, chromosome="chr11"),
     "chromosome X": _case(X, chromosome="X"),
+    "chromosome MT, stored as M": _case({MITO}, chromosome="MT"),
     "chromosome chrM": _case({MITO}, chromosome="chrM"),
     "end": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS}, chromosome="11", end=95_100_120),
     "start and end, overlapping": _case(
@@ -370,11 +371,14 @@ CASES: dict[str, _Case] = {
     ),
     # --- interval lists ---
     "interval": _case({PATERNAL_DELETION, MATERNAL_MNV}, intervals="11:95100141-95100150"),
+    "interval in lower case": _case({X_MATERNAL}, intervals="x:72000000-72000105"),
+    "interval on chrMT, stored as M": _case({MITO}, intervals="chrMT:12000-13000"),
     "two intervals": _case({DE_NOVO_MISSENSE, X_DE_NOVO}, intervals="11:95100100\nX:72000110"),
     "excluded interval": _case(
         ALL - (CHR11 - {LOW_QUALITY, FRACTION_FROM_DEPTHS, LONG_DELETION}),
         exclude_intervals="11:95100100-95100199",
     ),
+    "excluded interval in lower case": _case(ALL - X, exclude_intervals="x:72000000-72001000"),
     # --- variant type and callset ---
     "SNV": _case(
         ALL - {MATERNAL_INSERTION, PATERNAL_DELETION, MATERNAL_MNV, LONG_DELETION}, variant_type="SNV"
@@ -448,6 +452,7 @@ CASES: dict[str, _Case] = {
     "PolyPhen": _case({HOMOZYGOUS}, polyphen="benign"),
     # --- the panel ---
     "panel": _case({MATERNAL_MNV, PATERNAL_SYNONYMOUS, UNANNOTATED}, panel_id=SMALL_PANEL),
+    "panel region on chrMT, stored as M": _case({MITO}, panel_id=MITO_PANEL),
     # --- excluded genes: by name, and by the gene reference's loci ---
     "excluded gene reaching a variant by its span": _case(ALL - {LONG_DELETION}, exclude_gene="SYNG"),
     "excluded gene reaching a variant by position only": _case(ALL - {UNANNOTATED}, exclude_gene="SYNQ"),

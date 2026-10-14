@@ -137,6 +137,16 @@ def test_a_ranking_cached_before_the_sift_and_polyphen_rule_is_not_a_hit(monkeyp
     assert _hash(monkeypatch, filters=filters) != current
 
 
+def test_a_ranking_cached_before_the_record_filter_read_filters_as_sql_is_not_a_hit(monkeypatch) -> None:
+    # ENG-1: the ranked search's Python record filter dropped variants the plain page keeps
+    # (chrM named MT, an interval in lower case, ...). A ranking cached before under the same
+    # filters and data lacks them, so it must miss: the scoring version moved past it.
+    filters = _default_filters(chromosome="MT")
+    current = _hash(monkeypatch, filters=filters)
+    monkeypatch.setattr(vrc, "_ALGORITHM_VERSION", "4")
+    assert _hash(monkeypatch, filters=filters) != current
+
+
 def test_a_ranking_cached_under_the_earlier_key_is_not_a_hit(monkeypatch) -> None:
     # The key gained the ontology's import time. A ranking cached under the earlier payload,
     # even with the same HPO release string, may have been computed on another ontology, so
