@@ -271,11 +271,13 @@ which are log2 ratios.
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import has imported each dataset that failed again, or an
-  upload has brought it again (an **update** will do; a dataset, or a sample, it skips because its data
-  is there is not imported again, and stays named), and its report can be signed out only with an
-  acknowledgement
-  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
-  without them leaves the warning, and says so in its log.
+  upload has brought it again, for each callset and each set of samples it failed for (an **update**
+  will do; a dataset, or a sample, it skips because its data is there is not imported again, and stays
+  named), and its report can be signed out only with an acknowledgement
+  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). A dataset imported with
+  warnings counts, as does one the package carries nothing for that CoGA imports (phenotypes without
+  an HPO term, say), which the import only registers. An import that completes without them leaves
+  the warning, and says so in its log.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
   too, part of the family's data may be gone, whichever import or upload it came from: the warning
   then names every dataset of that import as failed, the ones that imported too, and every dataset

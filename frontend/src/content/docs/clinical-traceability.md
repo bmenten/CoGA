@@ -154,7 +154,8 @@ the datasets that failed again to complete the family: the warning goes once eac
 again, and an import without them leaves it. A family small-variant upload that fails after it has
 deleted the calls it replaced marks the family the same way, for those calls and with no import job;
 uploading them again, or importing them, removes the warning. If a later import fails too, the warning names both,
-each with its import job. A failed overwrite is put back as it was before the import; if that fails
+each with its import job; a dataset that fails again for another callset or other samples stays named until
+each has been imported again. A failed overwrite is put back as it was before the import; if that fails
 too, any dataset of the family may have lost data, whichever import or upload it came from, so the
 warning names every dataset of that import as failed, the ones that imported too, and every dataset
 the family holds as possibly partly written or missing. It stays until the whole family has been
