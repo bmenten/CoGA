@@ -500,6 +500,13 @@ CASES: dict[str, _Case] = {
         {HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION},
         gene="SYNB", require_sv_second_hit=True, sv_hit_genes=["SYNB", "SYNX"],
     ),
+    "also hit by an SV": _case(
+        {HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION}, require_sv_second_hit=True, sv_hit_genes=["SYNB"]
+    ),
+    "also hit by an SV, in lower case": _case(
+        {HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION}, require_sv_second_hit=True, sv_hit_genes=["synb"]
+    ),
+    "also hit by an SV, no gene is": _case(set(), require_sv_second_hit=True, sv_hit_genes=[]),
     # --- the per-sample filter: genotype class, GQ, DP, AF, AD alt ---
     "proband het": _case(
         {

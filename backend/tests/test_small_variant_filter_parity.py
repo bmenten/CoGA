@@ -162,6 +162,17 @@ def test_an_excluded_gene_leaves_out_every_variant_annotated_with_it() -> None:
         assert [record.variant_id for record in kept] == [other.variant_id], terms
 
 
+def test_also_hit_by_an_sv_keeps_a_variant_of_a_gene_an_sv_hits() -> None:
+    # The SQL keeps a variant whose genes (the entry's) hold one the family's SVs hit, and
+    # nothing when none is resolved; Python kept every variant.
+    in_hit_gene = _record("11-100-C-T", gene_symbols=["SYNB"])
+    other = _record("11-200-C-T", gene_symbols=["OTHER"])
+    assert _keeps(in_hit_gene, require_sv_second_hit=True, sv_hit_genes=["synb"])
+    assert not _keeps(other, require_sv_second_hit=True, sv_hit_genes=["SYNB"])
+    assert not _keeps(in_hit_gene, require_sv_second_hit=True, sv_hit_genes=[])
+    assert _keeps(other, require_sv_second_hit=False, sv_hit_genes=["SYNB"])
+
+
 def test_a_panel_region_on_chrmt_keeps_a_variant_stored_on_m() -> None:
     panel = PanelFilterConstraints(regions=(Region("chrMT", 12_000, 13_000),))
     assert _keeps(_record("M-12345-A-G"), panel_constraints=panel)

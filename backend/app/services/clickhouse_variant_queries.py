@@ -1015,6 +1015,13 @@ def _small_record_matches(
             return False
     if filters.gene and not _small_record_hits_gene_terms(record, _split_gene_terms(filters.gene)):
         return False
+    # Also hit by an SV: one of the variant's genes (the entry's) is a gene the family's SVs
+    # hit, as the SQL reads it; with none resolved, nothing qualifies. Python used to keep
+    # every variant (ENG-1).
+    if filters.require_sv_second_hit:
+        sv_hit_terms = {_casefold(gene) for gene in filters.sv_hit_genes if str(gene).strip()}
+        if sv_hit_terms.isdisjoint(_casefold(symbol) for symbol in record.gene_symbols):
+            return False
     # The variant's rsID as stored, which the SQL searches: the VCF's ID, else the existing
     # variants VEP lists on its first transcript. Python also searched every transcript's
     # list, so it kept a variant the SQL leaves out (another id VEP lists, ENG-1).
