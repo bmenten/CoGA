@@ -195,3 +195,29 @@ def test_a_variant_type_that_names_none_asks_nothing_in_either_path() -> None:
     # "INDEL", and dropped every variant whose type did not hold it.
     assert all(_keeps(_record(variant_id), variant_type="ins") for variant_id in (_SNV, _INSERTION, _MNV))
     assert _where(variant_type="ins")[0] == _where()[0]
+
+
+# --- the callset and the rsID: the text as typed, but for the spaces around it ---------
+
+
+def test_the_sql_reads_a_callset_and_an_rsid_without_the_spaces_around_them() -> None:
+    clauses, params = _where(source=" clair3 ", rsid=" rs1001 ")
+    assert (params["source"], params["rsid"]) == ("clair3", "rs1001")
+    assert "positionCaseInsensitive(e.source, %(source)s) > 0" in clauses
+    # Python already read them so.
+    record = _record("11-100-C-T", rsid="rs1001")
+    assert _keeps(record, source=" clair3 ")
+    assert _keeps(record, rsid=" rs1001 ")
+
+
+def test_a_blank_callset_or_rsid_asks_nothing_in_either_path() -> None:
+    blank_clauses, blank_params = _small_variant_where_clauses(
+        _context(), SmallVariantQueryFilters(page=1, page_size=100, source="  ", rsid=" "), exclude_imputed=True
+    )
+    clauses, params = _small_variant_where_clauses(
+        _context(), SmallVariantQueryFilters(page=1, page_size=100), exclude_imputed=True
+    )
+    # No condition on the text, and the imputed callsets stay hidden.
+    assert (blank_clauses, blank_params) == (clauses, params)
+    assert "lowerUTF8(e.source) NOT IN %(imputed_sources)s" in blank_clauses
+    assert _keeps(_record("11-100-C-T"), source="  ", rsid=" ")

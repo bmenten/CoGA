@@ -398,6 +398,8 @@ CASES: dict[str, _Case] = {
     "source": _case(ALL, source="clair3"),
     "source, part of it in capitals": _case(ALL, source="CLAIR"),
     "source, an imputed callset": _case({IMPUTED}, source="glimpse2"),
+    "source with spaces around it": _case(ALL, source=" clair3 "),
+    "source left blank": _case(ALL, source="  "),
     "phase set": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE}, phase_set=4321),
     # --- the gene, the transcript and HGVS ---
     "gene": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE}, gene="SYNA"),
@@ -419,6 +421,8 @@ CASES: dict[str, _Case] = {
     "HGVSp": _case({HIGH_OFF_MANE}, hgvsp="p.Trp17Ter"),
     "rsID": _case({WITH_RSID}, rsid="rs1001"),
     "rsID in capitals": _case({WITH_RSID}, rsid="RS1001"),
+    "rsID with spaces around it": _case({WITH_RSID}, rsid=" rs1001 "),
+    "rsID left blank": _case(ALL, rsid="  "),
     # --- impact, consequence and the transcript flags (one transcript must meet them all) ---
     "impact": _case({HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION}, impact=["HIGH"]),
     "impact in lower case": _case({HIGH_OFF_MANE, MATERNAL_INSERTION, LONG_DELETION}, impact=["high"]),

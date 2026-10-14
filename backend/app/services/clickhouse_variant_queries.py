@@ -2255,8 +2255,14 @@ def _small_variant_where_clauses(
             where_clauses.append("length(e.ref) = length(e.alt) AND length(e.ref) > 1")
         elif variant_type == "INDEL":
             where_clauses.append("NOT (length(e.ref) = 1 AND length(e.alt) = 1)")
-    if filters.source:
-        params["source"] = filters.source
+    # The callset and the rsID are found in the stored text, as typed but for the spaces
+    # around them; a blank value asks nothing, as in the Python record filter. Untrimmed, a
+    # value with a space around it found nothing, and a blank callset kept nothing and
+    # skipped the imputed-callset default (ENG-1).
+    source = (filters.source or "").strip()
+    rsid = (filters.rsid or "").strip()
+    if source:
+        params["source"] = source
         where_clauses.append("positionCaseInsensitive(e.source, %(source)s) > 0")
     elif exclude_imputed:
         # Diagnostic list/count: hide imputed callsets (glimpse2/shapeit) by default,
@@ -2265,8 +2271,8 @@ def _small_variant_where_clauses(
         # exclude_imputed=False so they continue to see every callset.
         params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         where_clauses.append("lowerUTF8(e.source) NOT IN %(imputed_sources)s")
-    if filters.rsid:
-        params["rsid"] = filters.rsid
+    if rsid:
+        params["rsid"] = rsid
         annotation_rsid_condition = _small_annotation_key_membership_condition(
             context,
             filters,
