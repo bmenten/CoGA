@@ -84,7 +84,7 @@ Each layer is optional and switches on part of CoGA.
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
 
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
-recorded for the [clinical report](/docs/reference/clinical-traceability).
+recorded for the [report](/docs/reference/clinical-traceability).
 
 ---
 
@@ -265,9 +265,14 @@ which are log2 ratios.
   are set per assay under **Admin → Sequencing QC Thresholds**; none ship by default, and a metric
   without a cut-off reads as *not assessed*, not as a pass. A sample with no cut-off for any of its
   metrics, or with no verdict from the server, reads *Not run* in grey, and the tooltip says which.
+  A sample with no mean depth or N50, such as an embryo that appears only in the PGT pipeline's
+  family tables, shows the value of the metric that decided its verdict instead: its allele
+  drop-out or drop-in (*Fail ADO 14.2%*) or its Mendelian concordance, in %; one that was not
+  assessed reads *Not run* alone. The cell shows **-** only when the sample has no sequencing QC to
+  show.
 - **Analysis pipeline settings** — the pipeline's configuration (genome build, which caller produced
   what, VEP cache, repeat catalogue, stages run) is recorded at import. It shows in a panel on the family
-  page and in the same section of the clinical report. Tool versions are in the report's provenance
+  page and in the same section of the family report. Tool versions are in the report's provenance
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import has imported each dataset that failed again, or an
@@ -318,6 +323,14 @@ missing, and the report can be signed out only with an acknowledgement. Upload a
 **overwrite** what it names: each sample's file for a structural-variant caller (the upload rewrites
 every sample's calls from that caller), the callset, or the sample's track; each goes from the warning
 as it is uploaded, or imported, again. An upload without **overwrite** removes nothing from it.
+
+A value the variant store cannot hold, or that is no number, never fails an upload or an import: it is
+stored as missing. A genotype quality written as `inf` or above 65,535, a negative phase set, or a
+QUAL beyond the store's largest decimal reads as absent, so a sample filter with a minimum genotype
+quality leaves such a call out, as it does a call without one. A read depth is kept as the file has it,
+up to 4,294,967,295 reads, so a deep mitochondrial or amplicon call keeps its depth. A record whose
+position the store cannot hold (a negative POS, an END beyond 4,294,967,295) is skipped and counted
+with the malformed records, and a track line with a negative start or end is left out.
 
 A structural-variant file holds one sample's calls from one caller: **Sniffles VCF**, **Spectre VCF** or
 **Manual TSV**, or **Auto detect**, which works the caller out from the file. CoGA keeps each caller's

@@ -739,12 +739,13 @@ def _missing_scalar(value: Any) -> bool:
 def _coerce_int(value: Any) -> int | None:
     if _missing_scalar(value):
         return None
+    # OverflowError: an infinite value ("inf", float("inf")) is no whole number either.
     try:
         return int(value)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         try:
             return int(float(str(value)))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
 
 

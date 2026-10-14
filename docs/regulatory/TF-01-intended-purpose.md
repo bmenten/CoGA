@@ -25,11 +25,20 @@ from validated next-generation-sequencing (NGS) workflows, in order to support t
 identification and clinical classification of genetic variants relevant to inherited
 disorders, carrier status, fetal single-gene risk, and embryo genetic status.**
 
-CoGA is a **decision-support tool**. It does not generate primary sequence, call
-variants, or issue an autonomous diagnostic result. Every interpretive output is
-**reviewed, confirmed, and signed out by a qualified clinical laboratory professional**,
-who remains responsible for the final clinical conclusion. (See the in-app reference
-*Semi-automatic ACMG classification*
+CoGA is a **decision-support tool** for filtering, visualising and interpreting results, and
+for their traceability. It does not generate primary sequence, call variants, or issue an
+autonomous diagnostic result. Every interpretive output is **reviewed and confirmed by a
+qualified clinical laboratory professional**, and two sign-offs follow, in two places:
+
+- **The analytical sign-off, in CoGA.** The analyst signs out the analysis (*Sign out*): this
+  closes the analysis and freezes it into a signed version, the device's output.
+- **The medical sign-off, in the EPD.** The clinical report is drafted and medically signed
+  in the hospital's electronic patient record (EPD) by a signatory the laboratory has
+  authorised, who remains responsible for the final clinical conclusion. The report refers
+  1:1 to the frozen CoGA analysis it rests on. The EPD is outside the device
+  ([TF-02 §3](TF-02-device-description.md)).
+
+(See the in-app reference *Semi-automatic ACMG classification*
 ([source](../../frontend/src/content/docs/acmg-classification.md)): *"decision support, not an
 autoclassifier"* — every criterion is overridable.)
 
@@ -40,7 +49,7 @@ autoclassifier"* — every criterion is overridable.)
 | Element | Specification |
 | --- | --- |
 | **What is detected/measured** | CoGA does not measure an analyte. It **processes, filters, aggregates, visualizes and supports interpretation of** variant calls (SNV/indel, structural variants, repeat expansions, mtDNA, Paraphase), genotype allele fractions, segment/copy-number/coverage tracks, and imputation-based haplotype/segregation data **already produced by validated upstream pipelines**. |
-| **Function** | Qualitative decision support: candidate-variant filtering and prioritization; pedigree/trio-aware inheritance analysis; semi-automatic ACMG/AMP variant classification (overridable); genome/locus visualization; PGT haplotype-segregation reading; monogenic-NIPT fetal-fraction and zygosity classification; embryo aneuploidy and large structural-variant review; reproducible, version-pinned, signed-out clinical reporting. |
+| **Function** | Qualitative decision support: candidate-variant filtering and prioritization; pedigree/trio-aware inheritance analysis; semi-automatic ACMG/AMP variant classification (overridable); genome/locus visualization; PGT haplotype-segregation reading; monogenic-NIPT fetal-fraction and zygosity classification; the embryo segment, copy-number and APCAD tracks on which the analyst reviews aneuploidy and large structural variants; a reproducible, version-pinned analysis that the analyst signs out (closes and freezes), to which the clinical report in the EPD refers. |
 | **Specimen / input type** | **Not a primary specimen.** Inputs are digital files from validated upstream workflows: annotated VCF(s), coverage/segment/CNV/APCAD interval tracks, per-target coverage tables, repeat-expansion and Paraphase results, and pedigree metadata. The biological specimens (e.g. genomic DNA, maternal plasma cfDNA, embryo biopsy WGS) are processed by separately-validated wet-lab and bioinformatics workflows **upstream of CoGA**. |
 | **Test type** | Qualitative, interpretive (not quantitative measurement). |
 | **Intended user** | Trained clinical laboratory professionals — clinical laboratory geneticists, molecular biologists, and clinical/medical scientists — operating within CMGG. **Not for use by patients or untrained users.** |
@@ -72,25 +81,25 @@ evaluated separately in the Performance Evaluation (TF-10/TF-11).
 - **Nature of result:** Carrier-status decision support; reportable carrier findings are confirmed and signed out by the laboratory.
 
 ### 3.3 Preimplantation genetic testing (PGT)
-- **Purpose:** Support PGT analysis on embryos from **shallow whole-genome sequencing**, combining (a) imputation-based **haplotype segregation** to read which embryos inherited a disease haplotype, (b) **direct mutation detection**, (c) simultaneous **aneuploidy detection**, and (d) detection of **large (>10 Mb) structural variants**.
+- **Purpose:** Support PGT analysis on embryos from **shallow whole-genome sequencing**, combining (a) imputation-based **haplotype segregation** to read which embryos inherited a disease haplotype, (b) **direct mutation detection**, (c) a simultaneous **aneuploidy review**, and (d) a review for **large (>10 Mb) structural variants**. The analyst performs (c) and (d) on the segment, copy-number and APCAD tracks CoGA shows for each embryo (and, for (d), on the structural-variant calls it lists); CoGA has no automatic aneuploidy detector (REQ-PGT-008).
 - **Input:** Per-embryo and family annotated VCFs, phased/imputed marker data, segment/copy-number/APCAD tracks, pedigree (including single-parent/donor configurations), ROI, inheritance model. References: [haplotype-segregation-analysis.md](../haplotype-segregation-analysis.md).
-- **Output:** Per-embryo derived classification at the ROI (affected/at-risk · carrier · unaffected · uninformative) for dominant/recessive/X-linked models, with recombination- and informativeness-aware QC warnings; aneuploidy and large-SV review tracks; direct-mutation genotype.
+- **Output:** Per-embryo derived classification at the ROI (affected/at-risk · carrier · unaffected · uninformative) for dominant/recessive/X-linked models, with recombination- and informativeness-aware QC warnings; each embryo's segment, copy-number and APCAD tracks for the analyst's aneuploidy and large-SV review; direct-mutation genotype.
 - **Population:** Couples / single-parent-plus-donor families undergoing PGT for a known segregating disorder and/or aneuploidy/structural risk.
 - **Sub-scopes claimed:** comprehensive PGT — **PGT-M** (monogenic), **PGT-SR** (structural rearrangement), **PGT-AS** (aneuploidy screening) and **PGT-mitoDNA**. PGT-mitoDNA is a **sub-scope of this application**, not a separate application.
-- **Detection claims:** aneuploidy down to **> 35% mosaicism**; structural variants **> 10 Mb**. Both will be established by the [TF-10](TF-10-performance-evaluation-plan.md) study against the current GENType / HOPLA method; below these limits no claim is made.
+- **Claims of the analyst's review:** aneuploidy down to **> 35% mosaicism**; structural variants **> 10 Mb**. They are limits of the review the analyst performs on CoGA's tracks, not of an automatic detector. Both will be established by the [TF-10](TF-10-performance-evaluation-plan.md) study against the current GENType / HOPLA method; below these limits no claim is made.
 - **Nature of result:** Embryo-selection decision support; the embryo call is *derived* from phased genotypes and pedigree and is explicitly gated by QC (Mendel-error rate, informative-marker count, recombination proximity).
 
 ### 3.4 Comprehensive rare-disorder diagnostics (long-read sequencing)
 - **Purpose:** Support **diagnostic** interpretation of rare inherited disorders from comprehensive long-read genome sequencing, across SNV/indel, structural variants, repeat expansions (TRGT), Paraphase, and mtDNA.
 - **Input:** Annotated VCFs and all associated tracks from the validated long-read genome workflow; HPO terms; pedigree.
-- **Output:** Pedigree-aware candidate filtering and prioritization, semi-automatic ACMG/AMP classification, multi-data-type variant review, gene/HPO/panel context, reproducible signed-out clinical report.
+- **Output:** Pedigree-aware candidate filtering and prioritization, semi-automatic ACMG/AMP classification, multi-data-type variant review, gene/HPO/panel context, a reproducible analysis the analyst signs out (closed and frozen), to which the clinical report in the EPD refers.
 - **Population:** Patients (and families) with suspected rare Mendelian disease referred to CMGG. **Both proband-only and family (trio) analysis are in scope.**
 - **Nature of result:** Diagnostic decision support; final classification and reporting by the clinical laboratory.
 
 ### 3.5 Combined mitochondrial-disease testing (ONT long-read adaptive sampling)
 - **Purpose:** Support **diagnostic** interpretation of mitochondrial disease by examining, in a single assay, the **complete mitochondrial genome (mtDNA)** together with the **nuclear genes implicated in mitochondrial pathologies**. An Oxford Nanopore (ONT) long-read **adaptive-sampling** run targets the entire mtDNA *and* the nuclear mito-gene panel simultaneously, so both genomes are examined in one go.
 - **Input:** Annotated VCF(s) and associated tracks from the validated ONT adaptive-sampling workflow, covering the full mtDNA and the nuclear mitochondrial-disease gene panel; HPO terms; pedigree. (The adaptive sampling itself is an upstream, separately-validated wet-lab/bioinformatics process; CoGA consumes its output — see §4.1.)
-- **Output:** Combined review in one family workspace — mtDNA analysis with **heteroplasmy** quantification and maternal-transmission logic (and each sample's haplogroup), plus nuclear small-variant/SV interpretation over the mito-gene panel, with semi-automatic ACMG/AMP classification and a reproducible signed-out report.
+- **Output:** Combined review in one family workspace — mtDNA analysis with **heteroplasmy** quantification and maternal-transmission logic (and each sample's haplogroup), plus nuclear small-variant/SV interpretation over the mito-gene panel, with semi-automatic ACMG/AMP classification and a reproducible analysis the analyst signs out (closed and frozen), to which the clinical report in the EPD refers.
 - **Data integrity / sample swaps (explicit):** mtDNA follows the maternal lineage and the nuclear and mtDNA results are read together, so the **Sample QC must be reviewed before sign-out**, and the samples' mtDNA haplogroups compared for maternal-lineage consistency. See §4 condition 7 and [TF-06](TF-06-risk-management-plan.md) hazard H4.
 - **Population:** Patients with suspected mitochondrial disease. **Proband-only** analysis is the primary mode; **maternal / trio** analysis is also supported where the mother or family is available.
 - **Panel scope:** the nuclear mito-gene panel is a **controlled document in the CMGG kwaliteitshandboek (KHB)**; the applicable document ID and version must be recorded per study and per release. This application is additionally governed by the CMGG-specific mitochondrial validation dossier.
@@ -104,13 +113,14 @@ evaluated separately in the Performance Evaluation (TF-10/TF-11).
 CoGA must **only** be used under the following conditions (these become labelling/IFU
 statements and risk controls):
 
-1. **Validated upstream pipeline required.** CoGA operates on the output of upstream wet-lab and bioinformatics workflows that are **separately validated and ISO 15189-accredited**. CoGA does not validate, and cannot detect all errors in, its input. The provenance/version of the upstream modules is captured per family and frozen into the signed report (see [clinical-traceability.md](../clinical-traceability.md)).
-2. **Decision support only.** Outputs are candidates and pre-evaluations. A qualified clinical laboratory professional must review and confirm every interpretation; CoGA does not issue autonomous results.
+1. **Validated upstream pipeline required.** CoGA operates on the output of upstream wet-lab and bioinformatics workflows that are **separately validated and ISO 15189-accredited**. CoGA does not validate, and cannot detect all errors in, its input. The provenance/version of the upstream modules is captured per family and frozen into the signed-out analysis (see [clinical-traceability.md](../clinical-traceability.md)).
+2. **Decision support only.** Outputs are candidates and pre-evaluations. A qualified clinical laboratory professional must review and confirm every interpretation; CoGA does not issue autonomous results. The analyst's sign-out in CoGA closes the analysis; it is not the medical sign-off, which is given on the clinical report in the EPD (§1, condition 8).
 3. **Screening vs diagnosis.** The NIPT (3.1) and carrier (3.2) applications are **screening**; at-risk findings require confirmatory diagnostic testing.
 4. **Inferred genotypes.** In NIPT (3.1) the fetal genotype and in PGT haplotyping (3.3) the embryo haplotype are **inferred**, not directly observed; CoGA exposes the QC signals (fetal fraction, informative-marker counts, Mendel-error rate, recombination proximity) that bound the reliability of those inferences, and these **must** be checked before trusting a call.
 5. **Defined assays/panels only.** Each application is valid only for the gene panels, assays, and assemblies for which it has been verified (TF-09/TF-11). Use outside the verified scope is off-label.
 6. **Reference assembly.** The validated scope is **GRCh38 only**. T2T-CHM13 is a planned future extension and is **out of scope until separately validated**. The software enforces this: the list of validated assemblies is configuration (default GRCh38, changed only under change control per TF-18), a report on any other assembly cannot be signed out, and the family and report pages label such a family *not validated for clinical use* (REQ-TRACE-009; TF-06 H12).
-7. **Sample identity & data integrity (Sample QC).** Before any result is signed out, the family's **Sample QC** page **must be reviewed to confirm sample identity and to detect sample swaps, contamination or data-integrity problems**. Depending on the application, it checks each sample's sex against the recorded sex, the relatedness of each pair against the pedigree and Mendelian consistency; for NIPT, paternity, fetal and parent sex and the cfDNA category pattern. The review is mandatory for the family/trio- and lineage-based applications (3.1, 3.3, 3.4) and especially for combined mtDNA/nuclear testing (3.5). There the analyst also compares the samples' mtDNA haplogroups, since a maternal-lineage mismatch is a further swap signal; CoGA shows each sample's haplogroup but does not compare them. **Sign-out is blocked** when a Sample QC check fails, or cannot confirm a declared relationship or a sample's identity, unless the analyst records a reason (REQ-TRACE-012). See [TF-06](TF-06-risk-management-plan.md) hazard H4.
+7. **Sample identity & data integrity (Sample QC).** Before the analysis is signed out, and so before any clinical report refers to it, the family's **Sample QC** page **must be reviewed to confirm sample identity and to detect sample swaps, contamination or data-integrity problems**. Depending on the application, it checks each sample's sex against the recorded sex, the relatedness of each pair against the pedigree and Mendelian consistency; for NIPT, paternity, fetal and parent sex and the cfDNA category pattern. The review is mandatory for the family/trio- and lineage-based applications (3.1, 3.3, 3.4) and especially for combined mtDNA/nuclear testing (3.5). There the analyst also compares the samples' mtDNA haplogroups, since a maternal-lineage mismatch is a further swap signal; CoGA shows each sample's haplogroup but does not compare them. **Sign-out is blocked** when a Sample QC check fails, or cannot confirm a declared relationship or a sample's identity, unless the analyst records a reason (REQ-TRACE-012). For a NIPT family the gate acts on the sign-out of the family report: the NIPT report has no sign-out of its own ([TF-02 §6](TF-02-device-description.md)). See [TF-06](TF-06-risk-management-plan.md) hazard H4.
+8. **The clinical report is signed in the EPD, outside the device.** CoGA's sign-out is the analyst's analytical sign-off: it closes the analysis and freezes it into a signed version. The clinical report is drafted and medically signed in the hospital's electronic patient record (EPD) and refers 1:1 to the signed version it rests on. CoGA does not see the EPD report and does not check it against that version ([TF-02 §3](TF-02-device-description.md)).
 
 **Not intended for:**
 - Primary base-calling, alignment, or variant calling (these are upstream).

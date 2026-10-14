@@ -265,6 +265,7 @@ out:
 
 | Table | Column | Why it exists |
 | --- | --- | --- |
+| `…/SNV_INDEL/entries` | `calls.dp`, `calls.ad` | The call's read depth and its allele depths, `UInt32` (up to 4,294,967,295 reads). A mitochondrial or amplicon call reads far more than the 65,535 the `UInt16` they had held, and one such depth failed the insert of a whole upload or import (SAFE-30). A table created with the narrower type is altered to `UInt32` the first time the backend ensures the assembly's tables (`_widen_small_variant_call_columns`): it reads the two columns' types from `system.columns` first, so it alters a table once, and every stored value is kept. `calls.gq`, a phred score, stays `UInt16`. |
 | `…/SNV_INDEL/entries` | `calls.ps` | Phase set, for read-based cis/trans against a phased SV |
 | `…/SNV_INDEL/entries` | `calls.af` | Per-allele fraction; on chrM this *is* the heteroplasmy level the mtDNA workspace reads |
 | `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair, and of a primary callset read one file per sample, does: its record's FILTER then describes that one call (a DeepVariant `RefCall` kept as a partner's call says the caller read that partner as reference there). A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
@@ -272,6 +273,21 @@ out:
 | `…/SV/entries` | `calls.ps` | Phase set for a structural call |
 | `…/SV/entries` | `calls.cn` | Copy number from a depth-based CNV caller (HiFiCNV `FORMAT/CN`). `GT=1/1` on a duplication cannot distinguish CN=3 from CN=6, and the ClinGen CNV dosage scoring needs the actual number. Null for callers that report none. |
 | `…/INTERVAL/entries` | `value`, `record_id`, `metadata_json` | On a `target_coverage` row (source `coverage_table`), one capture target of a per-target coverage table, at the table's BED coordinates: its mean depth, its gene (the first field of the table's `attribute`), and the table's `attribute`, `median`, `min`, `max`, `proportion_covered` (the percentage of its bases with any coverage) and `zero_coverage_bases`. The NIPT coverage check, the plasma's sex profile and the plasma's depth where it has no call read them ([nipt_target_coverage.py](../backend/app/services/nipt_target_coverage.py)); the track viewers do not draw this track. |
+
+Every value a loader writes is bound to its column first
+([clickhouse_column_bounds.py](../backend/app/services/clickhouse_column_bounds.py), applied by
+`clickhouse_variant_rows.py` and `clickhouse_interval_tracks.py`). The ClickHouse client refuses
+a whole insert when one value falls outside its column, so a value its column cannot hold, or
+one that is no finite number, is stored as missing: a GQ above 65,535 or written `inf`, a depth
+above 4,294,967,295, a negative phase set, a QUAL, allele fraction, caller metric or annotation
+score beyond the largest `Float32` (about 3.4 × 10³⁸), an SVLEN outside `Int32`, a copy number
+above 65,535, a gnomAD count outside `UInt32`. An allele fraction so missing is left out of the
+call's list and an allele depth stored as 0, as a missing or unreadable one already is, so the
+other alleles keep their places. A record whose position (a POS or END, a track row's start or
+end) no column holds cannot be placed: its loader skips it as malformed, as it skips a POS that
+is no number, and counts it where it counts those (the small-variant upload's
+`skipped_malformed`, a track's `skipped`). A contig named by a negative or an enormous number is
+ranked with the other contigs in `xpos`.
 
 The `source` column on both `entries` tables scopes deletes and re-imports, so one family can
 hold several callsets side by side. Small variants: `clair3` (the primary callset, whatever
@@ -419,8 +435,9 @@ key, merges may already have dropped calls, and only a re-import brings them bac
 An `SNV_INDEL/entries` table without the per-call columns `calls.filters` and `calls.metrics`
 (created before they existed) is refused the same way, at the same two points: the message
 ("Refusing to use ClickHouse variant tables created by an earlier version") names the table and
-the columns it lacks. The backend adds no column to a stored table (there is no `ALTER`), and a
-re-import is what fills the columns, so the recovery is the same.
+the columns it lacks. The backend adds no column to a stored table, and a re-import is what
+fills the columns, so the recovery is the same. The one change it makes to a stored table is to
+widen the depth columns `calls.dp` and `calls.ad` to `UInt32` ([above](#clickhouse-tables)).
 
 To recover, for each assembly the message names:
 
@@ -461,6 +478,7 @@ With the restricted runtime role a separate migration step (`backend/app/db_migr
 does this instead, as the table owner. In ClickHouse, startup creates the database and refuses
 to go on when an assembly's tables have a different row identity, or its `SNV_INDEL/entries`
 table lacks the per-call columns ([Row identity](#row-identity)); each assembly's tables are
-created on first use. The full startup order is in
+created on first use, and an `SNV_INDEL/entries` table created with the narrower depth columns
+is widened then ([ClickHouse Tables](#clickhouse-tables)). The full startup order is in
 [application-scheme.md](application-scheme.md), "Startup and background work"; the reference
 data it loads is listed in [data-import.md](data-import.md), section 1.

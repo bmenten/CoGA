@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
-import math
+import logging
 from typing import Any, Iterable, Sequence
 
+from .clickhouse_column_bounds import INT32, UINT16, UINT32, UINT64, column_float32, column_int
 from .data_scope import normalize_chromosome
 from .clickhouse_variant_ids import (
     build_small_variant_id,
@@ -35,6 +36,13 @@ from .clickhouse_variant_records import (
 
 
 _DEFAULT_SMALL_ANNOTATION_VERSION = "current"
+
+logger = logging.getLogger(__name__)
+
+# Every value below is bound to its column before the write (SAFE-30): a value the column
+# cannot hold, or that is no finite number, is stored as missing (clickhouse_column_bounds).
+# A record whose position no column holds is left out: its loader already skipped it as
+# malformed, and counted it, so this only guards a loader that did not.
 
 
 def _json_payload(annotations: Any) -> str:
@@ -134,8 +142,17 @@ def _population_float(annotation: dict[str, Any], *keys: str) -> float | None:
     for key in keys:
         values.append(population_frequencies.get(key))
     # Highest frequency across the direct annotation value and all population
-    # fallbacks (conservative for rare-variant filtering); _max_or_none ignores Nones.
-    return _max_or_none(values)
+    # fallbacks (conservative for rare-variant filtering); _max_or_none ignores Nones,
+    # among them a value no Float32 column holds.
+    return _max_or_none(column_float32(value) for value in values)
+
+
+def _annotation_float32(annotation: dict[str, Any], *keys: str) -> float | None:
+    return column_float32(_annotation_float(annotation, *keys))
+
+
+def _annotation_count(annotation: dict[str, Any], *keys: str) -> int | None:
+    return column_int(_annotation_int(annotation, *keys), UINT32)
 
 
 def _clean_text(value: Any) -> str:
@@ -178,12 +195,12 @@ def _small_annotation_row(
         _population_float(annotation, "gnomad_genomes_af", "gnomadGenomesAf"),
         _population_float(annotation, "gnomad_popmax_af", "gnomadPopmaxAf"),
         _population_float(annotation, "topmed_af", "topmedAf"),
-        _annotation_int(annotation, "gnomad_ac"),
-        _annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount"),
-        _annotation_int(annotation, "gnomad_hemi_count"),
-        _annotation_float(annotation, "cadd_phred", "caddPhred"),
-        _annotation_float(annotation, "revel"),
-        _annotation_spliceai_max(annotation),
+        _annotation_count(annotation, "gnomad_ac"),
+        _annotation_count(annotation, "gnomad_hom_count", "gnomadHomCount"),
+        _annotation_count(annotation, "gnomad_hemi_count"),
+        _annotation_float32(annotation, "cadd_phred", "caddPhred"),
+        _annotation_float32(annotation, "revel"),
+        column_float32(_annotation_spliceai_max(annotation)),
         _casefold(_annotation_text(annotation, "sift", "siftPrediction")),
         _casefold(_annotation_text(annotation, "polyphen", "polyphenPrediction")),
     )
@@ -266,12 +283,12 @@ def _small_annotation_index_row(
         _max_or_none(_population_float(annotation, "gnomad_genomes_af", "gnomadGenomesAf") for annotation in annotation_list),
         _max_or_none(_population_float(annotation, "gnomad_popmax_af", "gnomadPopmaxAf") for annotation in annotation_list),
         _max_or_none(_population_float(annotation, "topmed_af", "topmedAf") for annotation in annotation_list),
-        _max_or_none(_annotation_int(annotation, "gnomad_ac") for annotation in annotation_list),
-        _max_or_none(_annotation_int(annotation, "gnomad_hom_count", "gnomadHomCount") for annotation in annotation_list),
-        _max_or_none(_annotation_int(annotation, "gnomad_hemi_count") for annotation in annotation_list),
-        _max_or_none(_annotation_float(annotation, "cadd_phred", "caddPhred") for annotation in annotation_list),
-        _max_or_none(_annotation_float(annotation, "revel") for annotation in annotation_list),
-        _max_or_none(_annotation_spliceai_max(annotation) for annotation in annotation_list),
+        _max_or_none(_annotation_count(annotation, "gnomad_ac") for annotation in annotation_list),
+        _max_or_none(_annotation_count(annotation, "gnomad_hom_count", "gnomadHomCount") for annotation in annotation_list),
+        _max_or_none(_annotation_count(annotation, "gnomad_hemi_count") for annotation in annotation_list),
+        _max_or_none(_annotation_float32(annotation, "cadd_phred", "caddPhred") for annotation in annotation_list),
+        _max_or_none(_annotation_float32(annotation, "revel") for annotation in annotation_list),
+        _max_or_none(column_float32(_annotation_spliceai_max(annotation)) for annotation in annotation_list),
         sift_terms,
         polyphen_terms,
     )
@@ -317,47 +334,71 @@ def _normalized_project_ids(project_ids: Sequence[str]) -> list[str]:
     return deduped or ["unassigned"]
 
 
-def _small_call_ab(call: SmallVariantCall) -> float | None:
-    if call.af:
-        return float(call.af[0])
-    if len(call.ad) > 1:
-        total_depth = sum(call.ad)
+def _small_call_af(call: SmallVariantCall) -> list[float]:
+    """The call's allele fractions as stored. One that is no finite number is left out as
+    the VCF reader leaves it out (``_parse_float_list``), and so is one beyond Float32."""
+    return [number for number in (column_float32(value) for value in call.af) if number is not None]
+
+
+def _small_call_ad(call: SmallVariantCall) -> list[int]:
+    """The call's allele depths as stored, ``UInt32``. A depth the column cannot hold is
+    stored as 0, as the VCF reader stores a missing or unreadable one (``_parse_int_list``),
+    so the other alleles' depths keep their places."""
+    return [column_int(depth, UINT32) or 0 for depth in call.ad]
+
+
+def _small_call_ab(af: Sequence[float], ad: Sequence[int]) -> float | None:
+    """The call's allele balance from its stored allele fractions, else its allele depths."""
+    if af:
+        return af[0]
+    if len(ad) > 1:
+        total_depth = sum(ad)
         if total_depth > 0:
-            return float(call.ad[1]) / float(total_depth)
+            return column_float32(float(ad[1]) / float(total_depth))
     return None
 
 
 def _small_call_gq(call: SmallVariantCall) -> int | None:
-    return None if call.gq is None else int(call.gq)
+    return column_int(call.gq, UINT16)
 
 
 def _small_call_dp(call: SmallVariantCall) -> int | None:
-    return None if call.dp is None else int(call.dp)
+    return column_int(call.dp, UINT32)
 
 
 def _small_call_ps(call: SmallVariantCall) -> int | None:
-    return None if call.ps is None else int(call.ps)
+    return column_int(call.ps, UINT64)
 
 
 def _small_call_metrics(call: SmallVariantCall) -> dict[str, float]:
-    """The call's caller metrics as stored: finite numbers under their names."""
+    """The call's caller metrics as stored: finite numbers a Float32 holds, under their
+    names."""
     metrics: dict[str, float] = {}
     for name, value in (call.metrics or {}).items():
-        try:
-            number = float(value)
-        except (TypeError, ValueError):
-            continue
-        if math.isfinite(number) and str(name).strip():
+        number = column_float32(value)
+        if number is not None and str(name).strip():
             metrics[str(name).strip()] = number
     return metrics
 
 
 def _structural_call_qual(call: StructuralVariantCall) -> float | None:
-    return None if call.qual is None else float(call.qual)
+    return column_float32(call.qual)
 
 
 def _structural_call_read_support(call: StructuralVariantCall) -> int | None:
-    return None if call.read_support is None else int(call.read_support)
+    return column_int(call.read_support, UINT32)
+
+
+def _storable_position(value: Any) -> bool:
+    """Whether a ``UInt32`` position column holds ``value``."""
+    return column_int(value, UINT32) is not None
+
+
+def _log_unstorable(count: int, kind: str) -> None:
+    if count:
+        logger.warning(
+            "Left out %d %s record(s) whose position no ClickHouse column holds", count, kind
+        )
 
 
 def _small_variant_entry_rows(
@@ -381,7 +422,11 @@ def _small_variant_entry_rows(
     annotation_gene_index_rows: list[tuple[Any, ...]] = []
     normalized_project_ids = _normalized_project_ids(project_ids)
     active_annotation_version = _small_annotation_version(annotation_version)
+    unstorable = 0
     for record in records:
+        if not _storable_position(record.start):
+            unstorable += 1
+            continue
         variant_id = record.variant_id or build_small_variant_id(
             record.chr,
             record.start,
@@ -446,9 +491,9 @@ def _small_variant_entry_rows(
         sample_gts = [call.gt for call in record.calls]
         sample_gqs = [_small_call_gq(call) for call in record.calls]
         sample_dps = [_small_call_dp(call) for call in record.calls]
-        sample_abs = [_small_call_ab(call) for call in record.calls]
-        sample_afs = [call.af for call in record.calls]
-        sample_ads = [call.ad for call in record.calls]
+        sample_afs = [_small_call_af(call) for call in record.calls]
+        sample_ads = [_small_call_ad(call) for call in record.calls]
+        sample_abs = [_small_call_ab(af, ad) for af, ad in zip(sample_afs, sample_ads)]
         sample_pss = [_small_call_ps(call) for call in record.calls]
         sample_filters = [_string_list(call.filters) for call in record.calls]
         sample_metrics = [_small_call_metrics(call) for call in record.calls]
@@ -473,7 +518,7 @@ def _small_variant_entry_rows(
                     bool(gene_symbols),
                     gene_symbols,
                     filters,
-                    record.qual,
+                    column_float32(record.qual),
                     sample_ids,
                     sample_gts,
                     sample_gqs,
@@ -487,6 +532,7 @@ def _small_variant_entry_rows(
                     1,
                 )
             )
+    _log_unstorable(unstorable, "small-variant")
     return detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows
 
 
@@ -500,7 +546,11 @@ def _structural_variant_entry_rows(
     lookup_rows: list[tuple[Any, ...]] = []
     entry_rows: list[tuple[Any, ...]] = []
     normalized_project_ids = _normalized_project_ids(project_ids)
+    unstorable = 0
     for record in records:
+        if not (_storable_position(record.start) and _storable_position(record.end)):
+            unstorable += 1
+            continue
         variant_id = record.variant_id or build_structural_variant_id(
             record.chr,
             record.start,
@@ -532,9 +582,9 @@ def _structural_variant_entry_rows(
                 record.sv_type,
                 source,
                 normalize_chromosome(record.remote_chr) if record.remote_chr else None,
-                None if record.remote_start is None else int(record.remote_start),
-                None if record.remote_end is None else int(record.remote_end),
-                None if record.sv_len is None else int(record.sv_len),
+                column_int(record.remote_start, UINT32),
+                column_int(record.remote_end, UINT32),
+                column_int(record.sv_len, INT32),
                 filters,
                 _json_payload(record.annotations),
             )
@@ -545,12 +595,8 @@ def _structural_variant_entry_rows(
         sample_quals = [_structural_call_qual(call) for call in record.calls]
         sample_read_supports = [_structural_call_read_support(call) for call in record.calls]
         sample_filters = [call.filter for call in record.calls]
-        sample_phase_sets = [
-            None if call.phase_set is None else int(call.phase_set) for call in record.calls
-        ]
-        sample_copy_numbers = [
-            None if call.copy_number is None else int(call.copy_number) for call in record.calls
-        ]
+        sample_phase_sets = [column_int(call.phase_set, UINT64) for call in record.calls]
+        sample_copy_numbers = [column_int(call.copy_number, UINT16) for call in record.calls]
         for project_id in normalized_project_ids:
             entry_rows.append(
                 (
@@ -575,4 +621,5 @@ def _structural_variant_entry_rows(
                     1,
                 )
             )
+    _log_unstorable(unstorable, "structural-variant")
     return detail_rows, lookup_rows, entry_rows

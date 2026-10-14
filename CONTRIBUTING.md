@@ -16,8 +16,9 @@ Practically:
   learned from**. Reuse is permitted by the licence, but see [NOTICE](NOTICE): the validation
   does not travel with the code.
 - **External pull requests are welcome but cannot be merged on technical merit alone.** Every
-  change carries a regulatory classification and an approval step (below). A perfectly good
-  patch may still need a validation activity before it can land.
+  change carries a regulatory classification, and the release that ships it waits for QA's
+  review (below). A perfectly good patch may still need a validation activity before it can
+  land.
 - If you are unsure whether something is worth your time, **open an issue first**. That costs
   you nothing and may save you a rewrite.
 
@@ -137,14 +138,18 @@ is not a problem; not thinking about it is.
 
 ## Review and approval
 
-Every change needs **4-eye review** — a second (bio-)IT team member for patch level, and
-progressively broader sign-off for minor and major (TF-18 §4). Please request a review rather
-than self-merging.
+A pull request needs **no approving review**: it merges once the required checks pass. CoGA
+has one developer, so no second (bio-)IT team member can approve each change, and the owner
+decided on 2026-10-14 that the four-eyes principle is met per release instead. Before a release
+is tagged, **QA reviews** every change to the clinical-critical modules (those listed under
+`[tool.mypy]` in `pyproject.toml`) and a sample of the rest, and signs that review
+([TF-18 §6](docs/regulatory/TF-18-change-configuration-management.md)). It is a compensating
+measure for the missing per-change approval. Minor and major changes keep their broader
+sign-off (TF-18 §4).
 
-> **Enforcement:** branch protection requires the status checks but does **not** require an
-> approving review, so the 4-eye rule is today a process commitment rather than an enforced
-> control. Treat it as binding regardless. Enforcement is scheduled to be turned on with the
-> **first beta release**.
+QA reviews from what the pull request holds: its description (what changed and why, the change
+level and what you verified, and how), the summary of its diff, its tests and the verification
+records it updated. Write the description with that reader in mind.
 
 ## Releasing
 

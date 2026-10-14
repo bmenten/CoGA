@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import HaplotypeResponse
 from .upload_safety import decode_upload_text
+from .clickhouse_column_bounds import UINT64, column_int
 from .clickhouse_interval_tracks import (
     count_interval_track_rows,
     delete_interval_track_sources,
@@ -84,6 +85,13 @@ def _upload_metadata(track_type: str, file: UploadFile, *, source: str) -> str:
     )
 
 
+def _storable_coordinates(start: int, end: int) -> bool:
+    """Whether the interval table's UInt64 columns hold a line's start and end. A line with
+    a negative coordinate, or one beyond them, is not a record and is left out (SAFE-30):
+    it failed the insert of the whole file after the stored track was deleted."""
+    return column_int(start, UINT64) is not None and column_int(end, UINT64) is not None
+
+
 def _build_apcad_row(
     sample_context: SampleMetadataContext,
     parts: list[str],
@@ -100,6 +108,8 @@ def _build_apcad_row(
         end = int(end_str)
         value = float(value_str)
     except ValueError:
+        return None
+    if not _storable_coordinates(start, end):
         return None
     origin = {
         "paternal": "paternal",
@@ -139,6 +149,8 @@ def _build_numeric_row(
         start = int(start_str)
         end = int(end_str)
     except ValueError:
+        return None
+    if not _storable_coordinates(start, end):
         return None
 
     value = None
