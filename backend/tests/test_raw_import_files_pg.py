@@ -1,6 +1,14 @@
 import pytest
 
+from backend.app.core.config import settings
 from backend.app.services import raw_import_files_pg as rifp
+
+
+@pytest.fixture(autouse=True)
+def _files_under_an_import_root(monkeypatch, tmp_path) -> None:
+    """The files verified here lie in ``tmp_path``, made an import root: Verify reads a
+    recorded path only inside the folders CoGA reads source files from (SEC-29)."""
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
 
 
 @pytest.mark.asyncio

@@ -724,7 +724,9 @@ Every file a dataset names, per sample or for the whole family, is recorded in
 `raw_import_files` with its size and SHA-256 ([database.md](database.md)), whichever of its
 names the entry uses: a NIPT pair's coverage table under `target_table`, a PCF table under
 `maternal_file` as under `maternal`. The admin page lists these files with the family's data,
-and **Verify** checks them later.
+and **Verify** checks them later. It reads a recorded file only where an import puts one: below
+`FAMILY_IMPORT_ROOTS`, in a bucket package's staging folder or in the upload folder
+([database.md](database.md)).
 
 ### Monogenic NIPT pairs
 

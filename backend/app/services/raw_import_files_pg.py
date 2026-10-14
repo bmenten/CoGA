@@ -15,6 +15,15 @@ Two kinds of records exist:
   For a package imported from a bucket, that location is the object's gs:// or s3://
   URI: such a file is verified against the store's record of the object
   (``metadata.store_object``) rather than re-hashed, and is not downloaded here.
+
+The recorded ``storage_path`` is read back as data: an edited row can name any path. So a
+file is read (downloaded, verified, or checked for in the list) only where the import may
+have put it: below a local FAMILY_IMPORT_ROOTS folder, in the staging folder of a package
+downloaded from a bucket, or in the managed upload folder (``data/raw_imports``), its real
+path, symlinks resolved, inside one of them; an object only below a remote
+FAMILY_IMPORT_ROOTS entry. A family or sample delete unlinks a managed copy only inside the
+upload folder. A package folder need not be named after its family, nor a managed folder
+after the family's present ID, so neither rule looks at the family (SEC-29).
 """
 
 from __future__ import annotations
@@ -23,6 +32,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import re
 import uuid
 from pathlib import Path
@@ -33,8 +43,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.coga_logging import scrub_log
-from ..core.object_storage import is_remote_uri, remote_object_identity
+from ..core.object_storage import is_remote_uri, parse_remote_uri, remote_object_identity
 from ..core.sql import canonical_uuid
+# The import's folder rules, read through their module (a test that moves them moves them here).
+from . import family_package_source
 
 # Repo-level data directory (matches routers/cram.py DATA_DIR resolution).
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -92,6 +104,125 @@ def _safe_name(file_name: str) -> str:
 
 def _managed_dir(family_id: str) -> Path:
     return DATA_DIR / MANAGED_SUBDIR / _safe_name(family_id)
+
+
+# --- Where a recorded file may be read or deleted (SEC-29) ------------------------------
+
+# The answers to a download or Verify of a file whose recorded location CoGA does not read.
+OUTSIDE_FOLDERS_DETAIL = (
+    "The file's recorded storage path lies outside the folders CoGA reads source files from "
+    "(FAMILY_IMPORT_ROOTS and its upload folder), so the file is not read."
+)
+OUTSIDE_IMPORT_ROOTS_DETAIL = (
+    "The file's recorded storage path names no object below FAMILY_IMPORT_ROOTS, so the "
+    "object store is not asked about it."
+)
+
+
+def _managed_root() -> str:
+    """The real path of the managed upload folder, ``data/raw_imports``."""
+    return os.path.realpath(DATA_DIR / MANAGED_SUBDIR)
+
+
+def _inside(path: str, folder: str) -> bool:
+    """Whether the real path ``path`` lies inside the real path ``folder``, told from the
+    strings (as the import's folder guard tells it, so a root of ``/`` holds every path)."""
+    return Path(folder) in Path(path).parents
+
+
+def readable_folders() -> tuple[str, ...]:
+    """The real paths of the local folders a recorded file is read from: the managed upload
+    folder, the staging folder a bucket package is downloaded to, and each local
+    FAMILY_IMPORT_ROOTS folder.
+
+    With FAMILY_IMPORT_ROOTS empty -- the development mode in which the import takes a
+    package folder anywhere -- they are the upload and staging folders alone: a recorded
+    path is data, and nothing else would bound it. A folder that cannot be found (the
+    staging folder cannot be made, a root runs through a symlink loop) admits nothing.
+    Blocking (file-system look-ups).
+    """
+    folders = [_managed_root()]
+    try:
+        folders.append(str(family_package_source._staging_root()))
+    except OSError:
+        pass
+    try:
+        folders.extend(str(root) for root in family_package_source._authorized_local_roots())
+    except (OSError, RuntimeError, ValueError):
+        pass
+    return tuple(folders)
+
+
+def readable_local_path(storage_path: str, folders: Iterable[str] | None = None) -> str | None:
+    """The real path of the local file ``storage_path`` names, when it may be read there;
+    ``None`` otherwise.
+
+    The recorded path must be absolute, and its real path, symlinks resolved, must lie inside
+    one of ``folders`` (``readable_folders()`` unless given), so a symlink that leads out of
+    them is not followed. The file is read by the real path returned, never by the recorded
+    one. Blocking.
+    """
+    if not storage_path or not os.path.isabs(storage_path):
+        return None
+    try:
+        real = os.path.realpath(storage_path)
+    except (OSError, ValueError):
+        # A NUL in the recorded path (ValueError).
+        return None
+    allowed = readable_folders() if folders is None else tuple(folders)
+    return real if any(_inside(real, folder) for folder in allowed) else None
+
+
+def readable_remote_uri(uri: str) -> bool:
+    """Whether the object store may be asked about the object ``uri`` names: one below a
+    remote FAMILY_IMPORT_ROOTS entry, the only folders a package's files are read from,
+    written as nothing but scheme, bucket and key, with no empty, ``.`` or ``..`` segment in
+    its key (the rules the CRAM endpoint signs a recorded location by, without its
+    configured bucket: a package may come from any bucket the roots name)."""
+    try:
+        location = parse_remote_uri(uri)
+    except ValueError:
+        return False
+    if location.uri != uri or any(segment in {"", ".", ".."} for segment in location.key.split("/")):
+        return False
+    return family_package_source.within_remote_import_roots(uri)
+
+
+def _refuse_outside_folders(record: dict[str, Any], detail: str) -> HTTPException:
+    """The 403 for a read of a file whose recorded location CoGA does not read, logged with
+    the record and the path it names, so an edited row leaves a trace."""
+    logger.warning(
+        "Raw file %s was not read: its recorded storage path %s is outside FAMILY_IMPORT_ROOTS "
+        "and the upload folder",
+        scrub_log(record.get("id")),
+        scrub_log(record.get("storage_path")),
+    )
+    return HTTPException(status_code=403, detail=detail)
+
+
+def local_file_to_download(record: dict[str, Any]) -> str:
+    """The real path of the file to serve for a download of ``record``.
+
+    409 for a file kept in an object store (it is not downloaded through CoGA), 403 for a
+    recorded path outside the folders a file is read from (``readable_local_path``), 410
+    when the file is no longer there. Blocking.
+    """
+    storage_path = record.get("storage_path") or ""
+    if is_remote_uri(storage_path):
+        # Not gone: it is in the bucket the package was imported from.
+        raise HTTPException(
+            status_code=409,
+            detail="The file is kept in an object store at its gs:// or s3:// URI; it is not downloaded through CoGA.",
+        )
+    path = readable_local_path(storage_path) if storage_path else None
+    if storage_path and path is None:
+        raise _refuse_outside_folders(record, OUTSIDE_FOLDERS_DETAIL)
+    if path is None or not os.path.isfile(path):
+        raise HTTPException(
+            status_code=410,
+            detail="The source file is no longer available at its storage path.",
+        )
+    return path
 
 
 def _hash_and_size(path: Path) -> tuple[str | None, int | None]:
@@ -309,14 +440,21 @@ async def record_upload_file_obj(
     )
 
 
-def _row_to_dict(row: Any) -> dict[str, Any]:
+def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, Any]:
+    """A row as the API serves it, with whether its file is there to download. ``folders``:
+    ``readable_folders()``, when the caller already has them."""
     record = dict(row)
     storage_path = record.get("storage_path") or ""
     # A file kept in an object store is not a local path: it is not checked when the
     # list is built (that would cost a store request per row) -- Verify asks the store
     # -- and it is not downloaded through CoGA.
     in_object_store = is_remote_uri(storage_path)
-    exists = None if in_object_store else bool(storage_path) and Path(storage_path).is_file()
+    exists: bool | None = None
+    if not in_object_store:
+        # A recorded path outside the folders a file is read from is shown unavailable,
+        # whether or not a file lies there: it is not looked up.
+        path = readable_local_path(storage_path, folders) if storage_path else None
+        exists = path is not None and os.path.isfile(path)
     record["in_object_store"] = in_object_store
     record["exists"] = exists
     record["download_available"] = bool(exists)
@@ -356,7 +494,8 @@ async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list
         ),
         {"family_uuid": family_uuid},
     )
-    return [_row_to_dict(row) for row in result.mappings().all()]
+    folders = readable_folders()
+    return [_row_to_dict(row, folders) for row in result.mappings().all()]
 
 
 async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, Any] | None:
@@ -401,13 +540,22 @@ _VERIFY_TIMEOUT_SECONDS = 30
 
 async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
     """Recompute the SHA-256 of the stored file and compare to the recorded value; for a
-    file kept in an object store, compare the object with the store's record of it."""
+    file kept in an object store, compare the object with the store's record of it.
+
+    A recorded location CoGA does not read from is refused (403) before anything is read or
+    the store is asked: a local path outside the folders a file is read from
+    (``readable_local_path``), an object not below a remote FAMILY_IMPORT_ROOTS entry
+    (``readable_remote_uri``)."""
     storage_path = record.get("storage_path") or ""
     if is_remote_uri(storage_path):
+        if not readable_remote_uri(storage_path):
+            raise _refuse_outside_folders(record, OUTSIDE_IMPORT_ROOTS_DETAIL)
         return await asyncio.to_thread(_verify_object_in_store, record)
     expected = record.get("sha256")
-    path = Path(storage_path)
-    if not storage_path or not await asyncio.to_thread(path.is_file):
+    real = await asyncio.to_thread(readable_local_path, storage_path) if storage_path else None
+    if storage_path and real is None:
+        raise _refuse_outside_folders(record, OUTSIDE_FOLDERS_DETAIL)
+    if real is None or not await asyncio.to_thread(os.path.isfile, real):
         return {
             "file_id": record["id"],
             "status": "missing",
@@ -415,6 +563,8 @@ async def verify_raw_import_file(record: dict[str, Any]) -> dict[str, Any]:
             "computed_sha256": None,
             "message": "The source file is no longer present at its storage path.",
         }
+    # Read by its real path: the path checked is the path hashed.
+    path = Path(real)
     try:
         file_size: int | None = (await asyncio.to_thread(path.stat)).st_size
     except OSError:
@@ -537,14 +687,48 @@ def _verify_object_in_store(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _unlink_files(paths: Iterable[str]) -> int:
-    """Unlink each of ``paths`` that is a file; returns the number unlinked."""
+def _managed_file_to_unlink(storage_path: str, managed_root: str) -> str | None:
+    """The file a managed row names, as it is unlinked: the recorded path, normalised, with
+    its folder's symlinks resolved; ``None`` unless it lies inside the upload folder
+    ``managed_root`` (a real path), and its real path too.
+
+    Every managed copy is written there (``store_managed_file``), so a row naming any other
+    place -- a package file, an absolute path elsewhere, ``..`` that climbs out, a symlink
+    that leads out -- names no managed copy, and nothing is unlinked for it. A symlink inside
+    the folder that stays inside it is unlinked itself, never its target.
+    """
+    if not storage_path or not os.path.isabs(storage_path):
+        return None
+    try:
+        path = os.path.normpath(storage_path)
+        entry = os.path.join(os.path.realpath(os.path.dirname(path)), os.path.basename(path))
+        real = os.path.realpath(entry)
+    except (OSError, ValueError):
+        return None
+    if _inside(entry, managed_root) and _inside(real, managed_root):
+        return entry
+    return None
+
+
+def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
+    """Unlink the managed copy each ``(storage_path, record id)`` names, where it is a file
+    inside the upload folder; returns the number unlinked. A row naming any other place is
+    skipped with a log line, and its path is never unlinked. Blocking."""
+    managed_root = _managed_root()
     removed = 0
-    for raw in paths:
+    for storage_path, record_id in rows:
+        target = _managed_file_to_unlink(storage_path or "", managed_root)
+        if target is None:
+            logger.warning(
+                "The file of raw-file record %s was not deleted: its recorded storage path %s "
+                "is outside the upload folder",
+                scrub_log(record_id),
+                scrub_log(storage_path),
+            )
+            continue
         try:
-            candidate = Path(raw)
-            if candidate.is_file():
-                candidate.unlink()
+            if os.path.isfile(target):
+                os.unlink(target)
                 removed += 1
         except OSError:
             continue
@@ -552,12 +736,13 @@ def _unlink_files(paths: Iterable[str]) -> int:
 
 
 async def purge_family_managed_files(session: AsyncSession, family_uuid: str) -> int:
-    """Delete managed file copies owned by a family from disk. Database rows cascade
-    away when the family is removed. Returns the number of files unlinked."""
+    """Delete managed file copies owned by a family from disk, each only inside the upload
+    folder (``_managed_file_to_unlink``). Database rows cascade away when the family is
+    removed. Returns the number of files unlinked."""
     result = await session.execute(
         text(
             """
-            SELECT storage_path
+            SELECT storage_path, id::text AS id
             FROM raw_import_files
             WHERE family_id = CAST(:family_uuid AS uuid)
               AND managed = TRUE
@@ -565,16 +750,17 @@ async def purge_family_managed_files(session: AsyncSession, family_uuid: str) ->
         ),
         {"family_uuid": family_uuid},
     )
-    return await asyncio.to_thread(_unlink_files, [row[0] for row in result.fetchall()])
+    return await asyncio.to_thread(_unlink_managed_files, [(row[0], row[1]) for row in result.fetchall()])
 
 
 async def purge_sample_managed_files(session: AsyncSession, sample_uuid: str) -> int:
-    """Delete managed file copies owned by a single sample from disk. Database rows
-    cascade away when the sample is removed. Returns the number of files unlinked."""
+    """Delete managed file copies owned by a single sample from disk, each only inside the
+    upload folder (``_managed_file_to_unlink``). Database rows cascade away when the sample
+    is removed. Returns the number of files unlinked."""
     result = await session.execute(
         text(
             """
-            SELECT storage_path
+            SELECT storage_path, id::text AS id
             FROM raw_import_files
             WHERE sample_id = CAST(:sample_uuid AS uuid)
               AND managed = TRUE
@@ -582,4 +768,4 @@ async def purge_sample_managed_files(session: AsyncSession, sample_uuid: str) ->
         ),
         {"sample_uuid": sample_uuid},
     )
-    return await asyncio.to_thread(_unlink_files, [row[0] for row in result.fetchall()])
+    return await asyncio.to_thread(_unlink_managed_files, [(row[0], row[1]) for row in result.fetchall()])
