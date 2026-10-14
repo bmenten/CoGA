@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Sequence
 
+from .clickhouse_column_bounds import UINT64, column_int
 from .data_scope import normalize_chromosome
 from .nipt_analysis import _quantile
 
@@ -119,7 +120,7 @@ def parse_target_coverage_table(lines: Iterable[str]) -> list[TargetCoverageRow]
     """Parse a per-target coverage table (tab-separated, header first).
 
     Raises ``TargetCoverageFormatError`` when the header lacks a needed column. A row whose
-    coordinates do not parse is skipped.
+    coordinates do not parse, or are negative, is skipped.
     """
     header: list[str] | None = None
     rows: list[TargetCoverageRow] = []
@@ -141,6 +142,10 @@ def parse_target_coverage_table(lines: Iterable[str]) -> list[TargetCoverageRow]
             start = int(str(record["start"]).strip())
             end = int(str(record["end"]).strip())
         except (KeyError, ValueError):
+            continue
+        if column_int(start, UINT64) is None or column_int(end, UINT64) is None:
+            # A coordinate the interval table's UInt64 columns cannot hold (a negative
+            # one) is no target either (SAFE-30): it failed the insert of the table.
             continue
         attribute = str(record.get("attribute") or "").strip().strip('"')
         zero_bases = parse_number(record.get("zero_coverage_bases"))
