@@ -44,8 +44,9 @@ wiring, visualisation render). It is deliberately thin; its limits are in §10.
 | CI job | `e2e` (**required**) | `e2e-playwright` (**required**, §7) |
 | Summative usability? | No | **No** — that remains [TF-12](TF-12-usability.md) |
 
-The device boundary under test is the one defined in [TF-02](TF-02-device-description.md):
-**annotated VCF (+ tracks) → signed clinical report**, here observed through the operator's screen.
+The device boundary under test is the one defined in [TF-02 §3](TF-02-device-description.md):
+**annotated VCF (+ tracks) → closed, frozen (signed-out) analysis**, here observed through the
+operator's screen. The clinical report, drafted and medically signed in the EPD, is outside it.
 
 ## 2. Controlled dataset & test identity
 

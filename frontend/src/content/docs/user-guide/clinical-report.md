@@ -1,7 +1,12 @@
-Tag a variant with **Report** and it joins the family's clinical report (the **Report** button on the
-family page). The live report drafts readable text per reported variant — description, ACMG reasoning,
-gene context and phenotype overlap — and is where the case is signed out. Once a case is signed out, the
+Tag a variant with **Report** and it joins the family report (the **Report** button on the family
+page). The live report drafts readable text per reported variant — description, ACMG reasoning, gene
+context and phenotype overlap — and is where the analysis is signed out. Once it is signed out, the
 **Report** button opens its signed version.
+
+**Sign-out closes the analysis; the medical sign-off is in the EPD.** **Sign out report** is the
+analyst's analytical sign-off: it closes the analysis and freezes it into a signed version. The clinical
+report is drafted and medically signed in the hospital's electronic patient record (EPD), not in CoGA,
+and refers to exactly one signed version: the one it rests on.
 
 ### What the live report shows
 
@@ -26,8 +31,8 @@ gene context and phenotype overlap — and is where the case is signed out. Once
 
 ### Signing out
 
-**Sign out report** freezes the reported result into a numbered version with a unique fingerprint. It
-stops for five things:
+**Sign out report** is your analytical sign-off: it closes the analysis and freezes the reported result
+into a numbered version with a unique fingerprint. It stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
@@ -46,11 +51,13 @@ stops for five things:
    what an upload brought.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
-creates a new version (**Amend sign-out**); earlier versions are never overwritten. After signing out,
-the page shows the version you signed.
+creates a new version (**Amend sign-out**); earlier versions are never overwritten, and a clinical
+report that rests on the amended analysis refers to the new version. After signing out, the page shows
+the version you signed.
 
-> **Only authorised signatories sign out.** CoGA lets any project member press **Sign out report** and
-> does not check signing authority. The laboratory decides who may sign; CoGA records who did.
+> **Only people the laboratory authorises sign out.** CoGA lets any project member press **Sign out
+> report** and does not check that authority. The laboratory decides who may sign out an analysis;
+> CoGA records who did. The medical sign-off is given in the EPD.
 
 ### Is this the signed report?
 

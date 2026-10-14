@@ -33,8 +33,10 @@
 
 ## 3. Change-control workflow
 Change request → impact analysis → significance assessment → implementation on a branch → CI
-gates and review (TF-09) → risk review (TF-06) → re-verification / re-validation if triggered →
-release approval (lab director) → release record → deployment → docs, RTM and SBOM updated.
+gates (TF-09) → merge, with no approval on the pull request (§6) → risk review (TF-06) →
+re-verification / re-validation if triggered → QA's four-eyes review of the release's changes,
+signed before the tag (§6) → release approval (lab director) → release record → deployment →
+docs, RTM and SBOM updated.
 
 ## 3a. Lifecycle phases — when change control applies
 
@@ -56,7 +58,7 @@ CMGG impact-based model, applied to CoGA.
 
 | Level | Impact | Example triggers | Required actions | Approval |
 | --- | --- | --- | --- | --- |
-| **Patch `x.y.Z`** | Backward-compatible technical; **no functional/clinical impact** on output. | Dependency patch bump; bugfix with no output change; refactor/logging; security update; Nextflow/nf-core bump without behaviour change. | System test (+ unit test for the fix); note in **CHANGELOG.md**. **No follow-up validation report.** | 4-eye: a 2nd (bio-)IT team member. |
+| **Patch `x.y.Z`** | Backward-compatible technical; **no functional/clinical impact** on output. | Dependency patch bump; bugfix with no output change; refactor/logging; security update; Nextflow/nf-core bump without behaviour change. | System test (+ unit test for the fix); note in **CHANGELOG.md**. **No follow-up validation report.** | 4-eye: QA's review of the release's changes (§6), in place of a second (bio-)IT team member's approval per change, which CoGA's one-developer team cannot give. |
 | **Minor `x.Y.z`** | New backward-compatible functionality; **no change to clinical meaning / intended use**. | New/extended feature; bugfix with limited output change; performance change; parameter change within validated bounds. | Patch steps **+ technical opvolgvalidatie** (template **H11.1-F13**, `VAL-Sxxxx-OPVx`): compare to the previous validated version on a small fixed dataset (e.g. **GIAB**), document output diffs; **review the risk analysis** ([TF-06](TF-06-risk-management-plan.md)). No clinical follow-up, but **explicit confirmation that clinical interpretation is unchanged**. | Projectverantwoordelijke + IT coördinator. |
 | **Major `X.y.z`** | Backward-incompatible / **potential impact on clinical output, interpretation or intended use**. | Mapper/variant-caller/cut-off change; **other annotation or reference versions (e.g. VEP, genome build)**; pipeline-logic (filters/decision-rules/parameters) or **intended-use** change; new application/panel/assay/assembly. | Minor steps **+ clinical opvolgvalidatie per affected method** (template **H11.1-F2**) with the business contactpersoon ([TF-10](TF-10-performance-evaluation-plan.md)); update CMGGMC ICT; for intended-purpose/scope changes also update [TF-01](TF-01-intended-purpose.md)/[TF-02](TF-02-device-description.md), re-assess [TF-03 GSPR](TF-03-gspr-checklist.md), and the **Declaration ([TF-04](TF-04-declaration-of-conformity.md))** + **equivalence ([TF-05](TF-05-equivalence-justification.md))**. | Projectverantwoordelijke + IT coördinator + business contactpersoon. |
 
@@ -103,28 +105,53 @@ after each merge checks the combined result (strict enforcement had serialised e
 behind a fresh run). What each gate verifies: [TF-09 §1](TF-09-verification-validation.md) and
 [docs/testing.md](../testing.md).
 
-Two gaps in that enforcement remain open, and bound what the gates evidence:
+Two limits bound what the gates evidence: one open gap, and one arrangement the owner chose.
 
 - **🔲 An administrator can change the ruleset** — it lists no bypass actors, so its checks
   apply to administrators too, but an administrator can edit or disable it, and that is not
   prevented. On 2026-10-13 the required checks were removed for some minutes, and #820 merged
   with its `smoke` check failing (#823 corrected the test).
-- **🔲 No approving review is mechanically required** (the ruleset carries no
-  pull-request review rule, and there is no `CODEOWNERS`). The **4-eye approval of §4 is
-  therefore a process commitment, not an enforced control**; enforcement is scheduled with the
-  first beta release, as stated in [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Until then, this
-  document must not be read as evidence that every merge was independently approved.
+- **🔲 No approving review is required on a pull request, by decision.** The ruleset carries no
+  pull-request review rule and there is no `CODEOWNERS`, and that is now the arrangement, not
+  a gap: the owner decided on 2026-10-14 (REG-8) that pull requests need no approval, because
+  CoGA has one developer and no second (bio-)IT team member can approve each change. The
+  four-eyes principle is met per release instead, by QA's review below. That review has not
+  run yet, and it covers a sample: this document is evidence of an independent review only for
+  the pull requests included in a review QA has signed.
+
+**Four-eyes review per release (QA).** Before a release is tagged (§2: a beta, a release
+candidate or a release), QA, the quality role of [TF-07 §3](TF-07-software-lifecycle-plan.md),
+reviews the pull requests merged since the last tag it reviewed, and signs off. It is a
+compensating measure for the missing per-change approval: it comes after the merge, so a
+defect it finds is fixed by a new change before the tag, not kept from merging.
+
+- **What QA reviews:** at least every pull request that changed a clinical-critical module,
+  one listed under `[tool.mypy]` in `pyproject.toml`, and a sample of the other pull requests,
+  which QA chooses and records how it chose.
+- **What QA looks at, per pull request:** its description (what changed and why, the change
+  level and what was verified, and how); the summary of its diff (the files it changed and how
+  much); its tests (those it added or changed, and the required checks it passed); and its
+  verification records (the TF-09b rows, the TF-09c and TF-09d evidence and the documents it
+  updated).
+- **How it is recorded:** one review record per release, filed per the CMGG QMS (§7). It lists
+  the pull requests reviewed (number, title, merge commit) and how the sample was chosen, QA's
+  findings and how each was resolved, or accepted with a reason, and QA's conclusion. QA signs
+  and dates it before the tag is made; the release record cites it
+  ([release record](../release-record-template.md), [`RELEASING.md`](../../RELEASING.md)).
+  No tag is made while a finding that blocks the release is open.
 
 ## 6a. Release procedure
 The abstract flow above is executed by the concrete, step-by-step procedure in
 [`RELEASING.md`](../../RELEASING.md), which produces a filled
 [release record](../release-record-template.md) per release — version, tag, commit SHA, both
-image digests, SBOM hashes, CI run URLs, deviations and approval. That record is the artefact
-that ties a signed clinical report back to a specific build.
+image digests, SBOM hashes, CI run URLs, QA's four-eyes review (§6), deviations and approval.
+That record is the artefact that ties a signed-out analysis back to a specific build, and,
+through the clinical report's 1:1 reference to that analysis, the report in the EPD too.
 
 ## 7. Records
-Change requests, impact/significance assessments, review and CI evidence, re-validation
-results, release records, and configuration baselines are retained per the CMGG QMS and
+Change requests, impact/significance assessments, QA's four-eyes review records (§6), CI
+evidence, re-validation results, release records, and configuration baselines are retained
+per the CMGG QMS and
 available to FAMHP on request (Art. 5(5)(e),(h)).
 
 ## 8. Change record log

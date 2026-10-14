@@ -1018,7 +1018,8 @@ An interval-track upload loads one sample's track of `bed_type` from a BED, unde
 
 - The file is read and checked whole first. One that is not text, or holds no record of the
   track type, is refused (400) before anything is replaced: the stored tracks and their records
-  stay as they were.
+  stay as they were. A line whose start or end is negative is no record: it is left out, as a
+  package's track readers leave it out.
 - The upload is refused (409) only when rows a BED brought of that track type are stored for the
   sample: a BED upload's, or a package's coverage BED's, which share the source. It reads the
   rows, not Postgres's record of the track, which a failed overwrite's restore can leave behind
@@ -1048,9 +1049,17 @@ A family small-variant upload is one family VCF from one callset:
   and their records as they were. Only then are they deleted and the file read again and
   written: it streams through both reads, and is never held in memory. With nothing stored to
   replace, the file is read once.
+- A value its ClickHouse column cannot hold, or that is no number, is stored as missing and
+  never fails the upload: a GQ above 65,535 or written `inf`, a negative phase set, a QUAL
+  beyond the largest Float32. A read depth is kept as the file has it up to 4,294,967,295
+  reads, so a mitochondrial or amplicon call keeps its depth; before, a depth above 65,535
+  failed the upload with a 500. A record whose POS is negative or beyond 4,294,967,295 has no
+  position: it is skipped and counted with the malformed records (`skipped_malformed`), and a
+  file of such records alone holds no record the upload can store (400). The rule for every
+  column is in [database.md](database.md#clickhouse-tables).
 - ClickHouse has no transactions, so a write that still fails after that delete (ClickHouse
-  failing part-way, or a value its columns cannot hold) answers 500 with the callset gone: the
-  rows the write had stored are removed again. The family is then flagged import-incomplete
+  failing part-way) answers 500 with the callset gone: the rows the write had stored are
+  removed again. The family is then flagged import-incomplete
   for what the upload was to bring ([What an upload records](#what-an-upload-records)): every
   family page shows *Import incomplete*, and its report is signed out only with an
   acknowledgement, until the callset has been uploaded or imported again. After such a failed
@@ -1099,6 +1108,11 @@ calls are checked and replaced:
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another
   caller's upload), stay as they are.
+- A record whose POS or END is negative or beyond 4,294,967,295 cannot be placed and is
+  skipped, as one whose POS is no number is; an SVLEN, a read support, a phase set or a QUAL
+  its column cannot hold is stored as missing, as it is when a package's NeedlR, HiFiCNV or
+  chrM Sniffles2 file holds one ([database.md](database.md#clickhouse-tables)). Before, such a
+  value failed the upload with a 500.
 - The caller the VCF header names is recorded in the family's annotation manifest
   ([annotation-provenance.md](annotation-provenance.md)).
 
