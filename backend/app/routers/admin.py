@@ -1,6 +1,5 @@
 import asyncio
 import logging
-from pathlib import Path
 from typing import Dict, List
 
 import httpx
@@ -8,7 +7,6 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.object_storage import is_remote_uri
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user
 from ..schemas import (
@@ -92,6 +90,7 @@ from ..services.admin_service import (
     rebuild_clickhouse_small_variant_gene_index_status,
     verify_raw_import_file_by_id,
 )
+from ..services.raw_import_files_pg import local_file_to_download
 from ..services.family_status_service import (
     create_family_status,
     delete_family_status,
@@ -463,20 +462,11 @@ async def download_raw_import_file(
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FileResponse:
     record = await get_raw_import_file_record(session, file_id=file_id)
-    storage_path = record.get("storage_path") or ""
-    if is_remote_uri(storage_path):
-        # Not gone: it is in the bucket the package was imported from.
-        raise HTTPException(
-            status_code=409,
-            detail="The file is kept in an object store at its gs:// or s3:// URI; it is not downloaded through CoGA.",
-        )
-    if not storage_path or not await asyncio.to_thread(Path(storage_path).is_file):
-        raise HTTPException(
-            status_code=410,
-            detail="The source file is no longer available at its storage path.",
-        )
+    # The recorded path is data: only a file inside the folders CoGA reads source files from
+    # is served, by its real path (409 object store, 403 elsewhere, 410 gone; SEC-29).
+    path = await asyncio.to_thread(local_file_to_download, record)
     return FileResponse(
-        path=storage_path,
+        path=path,
         filename=record["file_name"],
         media_type="application/octet-stream",
     )

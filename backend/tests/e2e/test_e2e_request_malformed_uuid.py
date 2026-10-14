@@ -232,6 +232,7 @@ async def _collect(run: str) -> dict[str, Any]:
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
     from backend.app.dependencies import get_password_hash
     from backend.app.main import app
+    from backend.app.services import raw_import_files_pg
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
@@ -240,7 +241,10 @@ async def _collect(run: str) -> dict[str, Any]:
     not_a_uuid = f"NOT-A-UUID-{run}"
     viewer_email, viewer_password = f"e2e-uuid-viewer-{run}@example.com", f"viewer-password-{run}"
     storage = Path(tempfile.mkdtemp(prefix="e2e-uuid-"))
-    (storage / "raw.txt").write_text("synthetic raw import file\n")
+    # The raw file lies in the upload folder of a data directory of the test's own, where the
+    # admin page reads a recorded file (SEC-29).
+    (storage / "raw_imports").mkdir()
+    (storage / "raw_imports" / "raw.txt").write_text("synthetic raw import file\n")
 
     await init_postgres_schema()
     # The family's variant pages run against the assembly's ClickHouse tables.
@@ -288,6 +292,8 @@ async def _collect(run: str) -> dict[str, Any]:
     # A request the app fails on is answered 500, as a server answers it, so that every step
     # below is taken and asserted on its own.
     transport = ASGITransport(app=app, raise_app_exceptions=False)
+    saved_data_dir = raw_import_files_pg.DATA_DIR
+    raw_import_files_pg.DATA_DIR = storage
     try:
         async with AsyncClient(transport=transport, base_url="http://e2e") as ac, AsyncClient(
             transport=transport, base_url="http://e2e"
@@ -350,7 +356,7 @@ async def _collect(run: str) -> dict[str, Any]:
                         VALUES (CAST(:family AS uuid), 'family', 'raw.txt', :path)
                         RETURNING id::text
                         """,
-                        {"family": family_a_uuid, "path": str(storage / "raw.txt")},
+                        {"family": family_a_uuid, "path": str(storage / "raw_imports" / "raw.txt")},
                     ),
                     "job": (
                         """
@@ -460,6 +466,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 session, method="GET", path=f"/api/admin/data/files/{not_a_uuid}/download"
             )
     finally:
+        raw_import_files_pg.DATA_DIR = saved_data_dir
         async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
             # What the test did not delete, should it have stopped early.

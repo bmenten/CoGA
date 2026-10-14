@@ -94,7 +94,15 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   linked folder leading into another family's folder or out of the data directory) is neither
   listed in a manifest nor served (404), and nothing outside the layouts is tried. A QC report
   must also lie, symlinks resolved, inside the folder it is found in, below
-  `FAMILY_IMPORT_ROOTS`.
+  `FAMILY_IMPORT_ROOTS`. The admin page's raw-file download and **Verify** read the path
+  recorded in `raw_import_files` only when its real path, symlinks resolved, lies inside a
+  local `FAMILY_IMPORT_ROOTS` folder, the staging folder of a bucket package or the upload
+  folder `data/raw_imports` (`services/raw_import_files_pg.py`); any other path answers 403
+  and is logged, and the file list shows it unavailable without looking it up. Verify asks
+  the object store only about an object below a remote `FAMILY_IMPORT_ROOTS` entry. A family
+  or sample delete unlinks a managed copy only inside the upload folder, and skips any other
+  path a managed row names with a log line. An edited row could download any file the
+  backend can read, and make a delete remove any file it may write (SEC-29).
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or
