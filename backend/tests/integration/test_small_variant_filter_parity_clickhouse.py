@@ -364,10 +364,15 @@ CASES: dict[str, _Case] = {
     "chromosome X": _case(X, chromosome="X"),
     "chromosome MT, stored as M": _case({MITO}, chromosome="MT"),
     "chromosome chrM": _case({MITO}, chromosome="chrM"),
+    "start and end": _case(CHR11, chromosome="11", start=95_100_100, end=95_100_250),
     "end": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS}, chromosome="11", end=95_100_120),
     "start and end, overlapping": _case(
         {PATERNAL_DELETION, MATERNAL_MNV, PATERNAL_SYNONYMOUS, COMMON_PATHOGENIC},
         chromosome="11", start=95_100_141, end=95_100_170, overlap=True,
+    ),
+    "start, overlapping": _case(
+        CHR11 - {DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS, MATERNAL_INSERTION},
+        chromosome="11", start=95_100_141, overlap=True,
     ),
     # --- interval lists ---
     "interval": _case({PATERNAL_DELETION, MATERNAL_MNV}, intervals="11:95100141-95100150"),

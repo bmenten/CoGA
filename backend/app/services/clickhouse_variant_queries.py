@@ -970,16 +970,13 @@ def _small_record_matches(
 ) -> bool:
     if filters.chromosome and not _chromosome_filter_matches(record.chr, filters.chromosome):
         return False
-    if filters.overlap:
-        if filters.start is not None and record.end < filters.start:
-            return False
-        if filters.end is not None and record.start > filters.end:
-            return False
-    else:
-        if filters.start is not None and record.start < filters.start:
-            return False
-        if filters.end is not None and record.end > filters.end:
-            return False
+    # A location keeps a variant that starts in it, as the SQL (and the Variant Explorer)
+    # reads one, or, with ``overlap``, any variant that overlaps it: a deletion that starts
+    # before the end and ends after it is in either way (ENG-1).
+    if filters.start is not None and (record.end if filters.overlap else record.start) < filters.start:
+        return False
+    if filters.end is not None and record.start > filters.end:
+        return False
     if filters.variant_type and not _contains_casefold(_small_type(record.ref, record.alt), filters.variant_type):
         return False
     if filters.source and not _contains_casefold(record.source, filters.source):
@@ -2280,19 +2277,18 @@ def _small_variant_where_clauses(
     if filters.chromosome:
         where_clauses.append("e.chrom IN %(chromosomes)s")
         params["chromosomes"] = _chromosome_options(filters.chromosome)
+    # A location keeps a variant that starts in it or, with ``overlap``, one that overlaps
+    # it: from a start alone too, which used to read the variant's start (ENG-1).
     if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            where_clauses.append("(e.pos <= %(end)s AND (e.pos + length(e.ref) - 1) >= %(start)s)")
-            params["start"] = filters.start
-            params["end"] = filters.end
-        else:
-            where_clauses.append("e.pos >= %(start)s")
-            params["start"] = filters.start
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        where_clauses.append(
+            "(e.pos + length(e.ref) - 1) >= %(start)s" if filters.overlap else "e.pos >= %(start)s"
+        )
+        params["start"] = filters.start
+    if filters.end is not None:
         where_clauses.append("e.pos <= %(end)s")
         params["end"] = filters.end
     if filters.chromosome:
-        xpos_start = 0 if filters.overlap and filters.end is not None else (filters.start or 0)
+        xpos_start = 0 if filters.overlap else (filters.start or 0)
         xpos_end = filters.end if filters.end is not None else 999_999_999
         where_clauses.append("e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
         params["xpos_start"] = _xpos(filters.chromosome, xpos_start)
@@ -2617,14 +2613,14 @@ def _small_annotation_scope_clauses(
     clauses: list[str] = []
     if filters.chromosome and "chromosomes" in params:
         clauses.append(f"{alias}.chrom IN %(chromosomes)s")
+    # The location as _small_variant_where_clauses reads it.
     if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            clauses.append(
-                f"({alias}.pos <= %(end)s AND ({alias}.pos + length({alias}.ref) - 1) >= %(start)s)"
-            )
-        else:
-            clauses.append(f"{alias}.pos >= %(start)s")
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        clauses.append(
+            f"({alias}.pos + length({alias}.ref) - 1) >= %(start)s"
+            if filters.overlap
+            else f"{alias}.pos >= %(start)s"
+        )
+    if filters.end is not None:
         clauses.append(f"{alias}.pos <= %(end)s")
     return clauses
 

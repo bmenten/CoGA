@@ -14,8 +14,11 @@ from __future__ import annotations
 from typing import Any
 
 from backend.app.services.clickhouse_variant_queries import (
+    _small_annotation_scope_clauses,
     _small_record_matches,
+    _small_variant_where_clauses,
     _variant_overlaps_regions,
+    _xpos,
 )
 from backend.app.services.clickhouse_variant_records import (
     PanelFilterConstraints,
@@ -23,6 +26,7 @@ from backend.app.services.clickhouse_variant_records import (
     SmallVariantCall,
     SmallVariantRecord,
 )
+from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_variant_filters import SmallVariantQueryFilters
 
 
@@ -46,6 +50,25 @@ def _record(variant_id: str, *, annotations: list[dict[str, Any]] | None = None,
     }
     values.update(fields)
     return SmallVariantRecord(**values)
+
+
+def _context() -> FamilyMetadataContext:
+    return FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM_ENG1",
+        project_ids=["project-uuid"],
+        sample_rows=[{"sample_id": "PROBAND", "sex": "female", "clinical_status": "affected"}],
+        sample_uuid_to_name={"sample-proband": "PROBAND"},
+        sample_name_to_uuid={"PROBAND": "sample-proband"},
+        affected_sample_names=["PROBAND"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+
+def _where(**filters: Any) -> tuple[list[str], dict[str, Any]]:
+    """The family search's WHERE clauses and their parameters for ``filters``."""
+    return _small_variant_where_clauses(_context(), SmallVariantQueryFilters(page=1, page_size=100, **filters))
 
 
 def _keeps(record: SmallVariantRecord, **kwargs: Any) -> bool:
@@ -95,3 +118,42 @@ def test_a_panel_region_on_chrmt_keeps_a_variant_stored_on_m() -> None:
     panel = PanelFilterConstraints(regions=(Region("chrMT", 12_000, 13_000),))
     assert _keeps(_record("M-12345-A-G"), panel_constraints=panel)
     assert not _keeps(_record("11-12345-A-G"), panel_constraints=panel)
+
+
+# --- the location -----------------------------------------------------------------------
+
+
+def test_a_location_keeps_a_variant_that_starts_in_it() -> None:
+    # The SQL and the Variant Explorer read a variant's position: a deletion that starts
+    # before the end and ends after it is in. Python needed the whole variant inside.
+    deletion = _record("11-95100248-GACGTA-G")  # 248 to 253
+    assert _keeps(deletion, chromosome="11", start=95_100_100, end=95_100_250)
+    assert not _keeps(deletion, chromosome="11", start=95_100_100, end=95_100_247)
+    # Without overlap a variant that starts before the start is out, whatever it reaches.
+    assert not _keeps(deletion, chromosome="11", start=95_100_250, end=95_100_300)
+    assert _keeps(deletion, chromosome="11", start=95_100_250, end=95_100_300, overlap=True)
+
+
+def test_an_overlapping_location_from_a_start_keeps_a_variant_that_reaches_it() -> None:
+    # With overlap and a start alone, the SQL read the variant's start (and the xpos range
+    # from the start), so a deletion from 140 to 142 was out from 141. Python kept it.
+    deletion = _record("11-95100140-CTT-C")
+    assert _keeps(deletion, chromosome="11", start=95_100_141, overlap=True)
+    clauses, params = _where(chromosome="11", start=95_100_141, overlap=True)
+    assert "(e.pos + length(e.ref) - 1) >= %(start)s" in clauses
+    assert "e.pos >= %(start)s" not in clauses
+    assert params["xpos_start"] == _xpos("11", 0)
+    scope = _small_annotation_scope_clauses(
+        SmallVariantQueryFilters(page=1, page_size=100, chromosome="11", start=95_100_141, overlap=True),
+        params=params,
+    )
+    assert "(ai.pos + length(ai.ref) - 1) >= %(start)s" in scope
+
+
+def test_the_location_reads_alike_with_and_without_overlap_otherwise() -> None:
+    clauses, params = _where(chromosome="11", start=100, end=200)
+    assert {"e.pos >= %(start)s", "e.pos <= %(end)s"} <= set(clauses)
+    assert (params["xpos_start"], params["xpos_end"]) == (_xpos("11", 100), _xpos("11", 200))
+    clauses, params = _where(chromosome="11", start=100, end=200, overlap=True)
+    assert {"(e.pos + length(e.ref) - 1) >= %(start)s", "e.pos <= %(end)s"} <= set(clauses)
+    assert (params["xpos_start"], params["xpos_end"]) == (_xpos("11", 0), _xpos("11", 200))
