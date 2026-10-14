@@ -84,6 +84,7 @@ from .clickhouse_variant_queries import (
     vaf_genotype,
     _PANEL_REGION_INLINE_LIMIT,
     _SMALL_COUNT_LIMIT,
+    _SmallPanelMatch,
     _append_limit_offset,
     _append_unique,
     _band_name_for_position,
@@ -2804,7 +2805,8 @@ def _kept_small_candidates(
     """The fetched candidates a search keeps before an inheritance mode applies: those its
     review selections and record filter keep and, with expanded carrier screening, the
     couple's at-risk findings among them (REQ-CARR-002). The unranked and the ranked search
-    both keep these (CLIN-44)."""
+    both keep these (CLIN-44). The panel is prepared once for all of them (ENG-15)."""
+    panel = _SmallPanelMatch(scope.panel_constraints)
     kept = [
         record
         for record in records
@@ -2819,7 +2821,7 @@ def _kept_small_candidates(
             scope.include_regions,
             scope.exclude_regions,
             scope.exclude_gene_regions,
-            panel_constraints=scope.panel_constraints,
+            panel_constraints=panel,
         )
     ]
     if filters.expanded_carrier_screening:

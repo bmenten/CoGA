@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import json
 import re
+from bisect import bisect_right
+from dataclasses import dataclass
 from typing import Any, Collection, Iterable, Protocol, Sequence
 
 from fastapi import HTTPException
@@ -529,17 +531,101 @@ def _variant_hits_gene_symbols(gene_symbols: Sequence[str], query: str | None) -
     return bool({_casefold(symbol) for symbol in gene_symbols}.intersection(terms))
 
 
-def _small_record_hits_gene_terms(record: SmallVariantRecord, terms: Sequence[str]) -> bool:
-    normalized_terms = {_casefold(term) for term in terms if str(term).strip()}
-    if not normalized_terms:
-        return True
+def _gene_term_set(terms: Iterable[Any]) -> frozenset[str]:
+    """Gene names as the record filter compares them: casefolded, the blank ones left out."""
+    return frozenset(_casefold(term) for term in terms if str(term).strip())
+
+
+def _small_record_gene_terms(record: SmallVariantRecord) -> set[str]:
+    """A record's gene names as the record filter reads them, casefolded: its entry's gene
+    symbols, and the gene and gene id of each of its annotations."""
     record_terms = {_casefold(symbol) for symbol in record.gene_symbols}
     for annotation in record.annotations:
         for key in ("gene", "gene_id", "geneSymbol", "geneId", "hgnc_symbol", "hgncSymbol"):
             value = _annotation_text(annotation, key)
             if value:
                 record_terms.add(_casefold(value))
-    return bool(record_terms.intersection(normalized_terms))
+    return record_terms
+
+
+def _small_record_hits_gene_terms(record: SmallVariantRecord, terms: Sequence[str]) -> bool:
+    normalized_terms = _gene_term_set(terms)
+    if not normalized_terms:
+        return True
+    return not normalized_terms.isdisjoint(_small_record_gene_terms(record))
+
+
+@dataclass(frozen=True, slots=True)
+class _RegionLookup:
+    """Regions prepared to answer ``_variant_overlaps_regions`` by bisection: per chromosome
+    (by ``normalize_chromosome``, as that function compares them), the regions' starts in
+    ascending order and, at each, the furthest end of the regions up to it.
+
+    The regions that start at or before a variant's end are the first ones in that order,
+    and one of them ends at or after the variant's start exactly when the furthest end among
+    them does: the answer of testing every region, without testing every region."""
+
+    starts: dict[str, list[int]]
+    furthest_ends: dict[str, list[int]]
+
+    @classmethod
+    def of(cls, regions: Iterable[Region]) -> _RegionLookup:
+        bounds: dict[str, list[tuple[int, int]]] = {}
+        for region in regions:
+            bounds.setdefault(normalize_chromosome(region.chr), []).append((region.start, region.end))
+        starts: dict[str, list[int]] = {}
+        furthest_ends: dict[str, list[int]] = {}
+        for chromosome, chromosome_bounds in bounds.items():
+            chromosome_bounds.sort()
+            starts[chromosome] = [start for start, _end in chromosome_bounds]
+            furthest: list[int] = []
+            for _start, end in chromosome_bounds:
+                furthest.append(end if not furthest or end > furthest[-1] else furthest[-1])
+            furthest_ends[chromosome] = furthest
+        return cls(starts=starts, furthest_ends=furthest_ends)
+
+    def overlaps(self, chr_value: str, start: int, end: int) -> bool:
+        """``_variant_overlaps_regions(chr_value, start, end, regions)``."""
+        chromosome = normalize_chromosome(chr_value)
+        starts = self.starts.get(chromosome)
+        if not starts:
+            return False
+        reached = bisect_right(starts, end)
+        return reached > 0 and self.furthest_ends[chromosome][reached - 1] >= start
+
+
+class _SmallPanelMatch:
+    """A gene panel as the record filter applies it (``_small_record_matches``), prepared
+    once per search: a record annotated with one of the panel's genes, or in one of its
+    regions, is kept; a panel with neither keeps every record.
+
+    The panel's gene names are casefolded once, not for every record, and its regions are
+    read only for a record none of its genes names, through a lookup built on first use
+    (``_RegionLookup``). Casefolding them again for every record, and testing every region
+    after a gene had matched, cost a fresh ranking on the Mendeliome (5,300 genes, and a locus
+    for each) 1.5 to 4.4 s, which a compound-het, recessive or carrier-screening search paid
+    on an exact cache hit too (ENG-15). The records kept are the same."""
+
+    __slots__ = ("constraints", "gene_terms", "_regions")
+
+    def __init__(self, constraints: PanelFilterConstraints) -> None:
+        self.constraints = constraints
+        self.gene_terms = _gene_term_set(constraints.genes)
+        self._regions: _RegionLookup | None = None
+
+    def keeps(self, record: SmallVariantRecord) -> bool:
+        constraints = self.constraints
+        # A panel whose genes are all blank names every record, as _small_record_hits_gene_terms
+        # reads such a list.
+        if constraints.genes and (
+            not self.gene_terms or not self.gene_terms.isdisjoint(_small_record_gene_terms(record))
+        ):
+            return True
+        if constraints.regions:
+            if self._regions is None:
+                self._regions = _RegionLookup.of(constraints.regions)
+            return self._regions.overlaps(record.chr, record.start, record.end)
+        return not constraints.genes
 
 
 _STRUCTURAL_REGION_FLAG_KEYS = (
@@ -955,8 +1041,13 @@ def _small_record_matches(
     include_regions: Sequence[Region],
     exclude_regions: Sequence[Region],
     exclude_gene_regions: Sequence[Region],
-    panel_constraints: PanelFilterConstraints | None = None,
+    panel_constraints: PanelFilterConstraints | _SmallPanelMatch | None = None,
 ) -> bool:
+    """Whether the search's ``filters``, its regions and its gene panel keep ``record``.
+
+    A search that filters many records passes its panel prepared once (``_SmallPanelMatch``),
+    as ``_kept_small_candidates`` does; a panel's constraints alone are prepared here, for
+    this record."""
     if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
         return False
     if filters.overlap:
@@ -981,18 +1072,13 @@ def _small_record_matches(
         return False
     if exclude_gene_regions and _variant_overlaps_regions(record.chr, record.start, record.end, exclude_gene_regions):
         return False
-    if panel_constraints and (panel_constraints.genes or panel_constraints.regions):
-        panel_gene_match = bool(panel_constraints.genes) and _small_record_hits_gene_terms(
-            record,
-            panel_constraints.genes,
+    if panel_constraints is not None:
+        panel = (
+            panel_constraints
+            if isinstance(panel_constraints, _SmallPanelMatch)
+            else _SmallPanelMatch(panel_constraints)
         )
-        panel_region_match = bool(panel_constraints.regions) and _variant_overlaps_regions(
-            record.chr,
-            record.start,
-            record.end,
-            panel_constraints.regions,
-        )
-        if not (panel_gene_match or panel_region_match):
+        if not panel.keeps(record):
             return False
     if filters.gene and not _small_record_hits_gene_terms(record, _split_gene_terms(filters.gene)):
         return False
@@ -2367,6 +2453,14 @@ def _small_region_filter_condition(
     prefix: str,
     params: dict[str, Any],
 ) -> str | None:
+    """The entry row (alias ``e``) overlaps one of ``regions``, tested against each region:
+    on the same chromosome (by match key), with the REF's first base at or before the
+    region's end and its last base (``pos + length(ref) - 1``) at or after its start. None
+    without a region.
+
+    This is the overlap rule of every small-variant region filter. The intervals and the
+    excluded genes and intervals are tested this way; a gene panel's regions, which can be a
+    thousand, are found by a join that keeps the same rows (``_small_region_window_rows``)."""
     region_chromosomes, region_starts, region_ends = _small_region_bounds(regions)
     if not region_chromosomes:
         return None
@@ -2387,13 +2481,86 @@ def _small_region_filter_condition(
     )
 
 
-# Above this many panel regions, inlining the (chrom, start, end) arrays and running a
-# per-variant arrayExists over them is both slow and big enough to risk the ClickHouse
-# query-size limit. Large panels are gene panels (e.g. the ~5,300-gene Mendeliome), so the
-# compact gene-symbol + gene-index matching below covers them — skip the region expansion.
-# Such a panel then misses a variant a smaller panel reaches by position only (its symbol
-# differs between the gene reference and the annotation), so a smaller panel is served from
-# its cached ranking only when that ranking holds every variant the smaller panel reaches
+# The window of the region joins (_small_region_window_rows), in bases.
+_REGION_WINDOW = 1 << 16
+
+
+def _small_region_window_rows(
+    regions: Sequence[Region], *, prefix: str, params: dict[str, Any]
+) -> str | None:
+    """The regions, read as ``_small_region_bounds`` reads them, as the rows a join on
+    64-kb windows reads: ``region_chrom``, ``region_start``, ``region_end`` and
+    ``region_window``, one row for each window a region touches. None without a region.
+
+    Testing each variant against every region (``_small_region_filter_condition``) costs
+    the number of variants times the number of regions. A join lists each region under the
+    windows it touches and each variant under the windows its REF touches
+    (``_small_variant_windows``), and keeps a pair that shares a window when the two overlap
+    by that rule (``_SMALL_REGION_WINDOW_MATCH``). A variant and a region that overlap share
+    the window of a base they share, so no pair is missed, and the rule decides each pair,
+    so none is added. The Variant Explorer joins its annotation index this way
+    (``variant_explorer_service._region_key_condition``, CLIN-48), and the family page its
+    family's own rows (``_small_family_region_condition``, ENG-15)."""
+    chromosomes, starts, ends = _small_region_bounds(regions)
+    if not chromosomes:
+        return None
+    chromosomes_param, starts_param, ends_param = (
+        f"{prefix}_chromosomes",
+        f"{prefix}_starts",
+        f"{prefix}_ends",
+    )
+    params[chromosomes_param] = chromosomes
+    params[starts_param] = starts
+    params[ends_param] = ends
+    return (
+        "SELECT region.1 AS region_chrom, region.2 AS region_start, region.3 AS region_end,"
+        " region_window"
+        f" FROM (SELECT arrayJoin(arrayZip(%({chromosomes_param})s, %({starts_param})s,"
+        f" %({ends_param})s)) AS region)"
+        f" ARRAY JOIN range(intDiv(toInt64(region.2), {_REGION_WINDOW}),"
+        f" intDiv(toInt64(region.3), {_REGION_WINDOW}) + 1) AS region_window"
+    )
+
+
+def _small_variant_windows(alias: str) -> tuple[str, str]:
+    """What a region join reads of the variant rows ``alias``: the columns (``chrom_key``,
+    the chromosome's match key; ``pos``; ``ref_end``, the REF's last base as the overlap
+    rule counts it; ``variant_window``), and the ARRAY JOIN that lists each row under each
+    window its REF touches.
+
+    The windows of a REF are counted in signed numbers: a row without a REF at position 0
+    (no VCF record has one) falls in window 0 instead of wrapping to every window."""
+    chromosome = _clickhouse_chromosome_match_expr(f"{alias}.chrom")
+    ref_first = f"toInt64({alias}.pos)"
+    ref_last = f"toInt64({alias}.pos) + length({alias}.ref) - 1"
+    columns = (
+        f"{chromosome} AS chrom_key, {alias}.pos AS pos,"
+        f" {alias}.pos + length({alias}.ref) - 1 AS ref_end, variant_window"
+    )
+    windows = (
+        f"ARRAY JOIN range(intDiv(least({ref_first}, {ref_last}), {_REGION_WINDOW}),"
+        f" intDiv(greatest({ref_first}, {ref_last}), {_REGION_WINDOW}) + 1) AS variant_window"
+    )
+    return columns, windows
+
+
+# The join of the variant rows (v, _small_variant_windows) and the region rows (r,
+# _small_region_window_rows) that share a window, keeping a pair that overlaps by the rule
+# of _small_region_filter_condition.
+_SMALL_REGION_WINDOW_MATCH = (
+    "ON v.chrom_key = r.region_chrom AND v.variant_window = r.region_window"
+    " WHERE v.pos <= r.region_end AND v.ref_end >= r.region_start"
+)
+
+
+# Above this many panel regions, inlining the (chrom, start, end) arrays is big enough to
+# risk the ClickHouse query-size limit, and testing every row against every region was slow
+# too (the family page joins them on windows since ENG-15: _small_family_region_condition).
+# Large panels are gene panels (e.g. the ~5,300-gene Mendeliome), so the compact gene-symbol
+# + gene-index matching below covers them — skip the region expansion. Such a panel then
+# misses a variant a smaller panel reaches by position only (its symbol differs between the
+# gene reference and the annotation), so a smaller panel is served from its cached ranking
+# only when that ranking holds every variant the smaller panel reaches
 # (clickhouse_family_variants._serve_subpanel_from_superset, CLIN-34).
 _PANEL_REGION_INLINE_LIMIT = 1000
 
@@ -2417,6 +2584,56 @@ class _SmallRegionCondition(Protocol):
     ) -> str | None: ...
 
 
+def _small_family_region_condition(
+    context: FamilyMetadataContext, filters: SmallVariantQueryFilters
+) -> _SmallRegionCondition:
+    """The family page's condition for a gene panel's regions, on the search's entry rows
+    (alias ``e``): the rows that overlap a region by the rule of
+    ``_small_region_filter_condition``, found by a join on 64-kb windows over the family's
+    own rows (``_small_region_window_rows``).
+
+    Tested against every region for each row (``arrayExists`` over the regions), the rule cost
+    1.3 s at 500 regions and 2.1 s at 1,000 for a family of about 190,000 rows, and longer for
+    a whole genome (ENG-15); the region arrays, repeated for every row ClickHouse reads, could
+    also run it out of memory. The join costs about one more read of the family's rows.
+
+    A row is kept when its chromosome, position and REF length, all that the rule reads of
+    it, are those of a row the join keeps. It is then kept exactly when it overlaps a region
+    itself, provided the join reads every row the search reads: it reads the family's rows
+    (``sign = 1``) in the family's projects and within the search's locus, each a clause the
+    search's own WHERE holds (``_small_variant_where_clauses``, mirrored as the annotation
+    subqueries mirror it: ``_small_annotation_scope_clauses``). A clause left out would make
+    the join read more rows, never keep another row."""
+
+    def in_regions(regions: Sequence[Region], *, prefix: str, params: dict[str, Any]) -> str | None:
+        if not context.assembly_name:
+            # No entries table to join without an assembly: the rule, tested per row.
+            return _small_region_filter_condition(regions, prefix=prefix, params=params)
+        region_rows = _small_region_window_rows(regions, prefix=prefix, params=params)
+        if region_rows is None:
+            return None
+        family_param = f"{prefix}_family_guid"
+        params[family_param] = context.family_uuid
+        rows_where = [f"fe.family_guid = %({family_param})s", "fe.sign = 1"]
+        if context.project_ids:
+            projects_param = f"{prefix}_project_ids"
+            params[projects_param] = tuple(context.project_ids)
+            rows_where.append(f"fe.project_guid IN %({projects_param})s")
+        rows_where.extend(_small_annotation_scope_clauses(filters, params=params, alias="fe"))
+        if filters.chromosome and "xpos_start" in params and "xpos_end" in params:
+            rows_where.append("fe.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
+        columns, windows = _small_variant_windows("fe")
+        entries_table = _small_table_name(context.assembly_name, "entries")
+        return (
+            "(e.chrom, e.pos, length(e.ref)) IN (SELECT v.chrom, v.pos, v.ref_length FROM ("
+            f"SELECT fe.chrom AS chrom, length(fe.ref) AS ref_length, {columns}"
+            f" FROM {entries_table} AS fe {windows} WHERE {' AND '.join(rows_where)})"
+            f" AS v INNER JOIN ({region_rows}) AS r {_SMALL_REGION_WINDOW_MATCH})"
+        )
+
+    return in_regions
+
+
 def _small_panel_filter_condition(
     context: _SearchAssembly,
     filters: SmallVariantQueryFilters,
@@ -2428,9 +2645,11 @@ def _small_panel_filter_condition(
     """A variant in one of the panel's regions (``_panel_regions_apply``), or annotated
     with one of its genes: in the entry row's own gene symbols or in the gene index.
 
-    ``region_condition`` builds the regions' condition. The Variant Explorer passes one
-    that applies the same regions by the same overlap rule to every family's variants at
-    once (``variant_explorer_service._region_key_condition``, CLIN-48)."""
+    ``region_condition`` builds the regions' condition; by default, the overlap rule tested
+    against each region (``_small_region_filter_condition``). The family page passes a join
+    over the family's own rows that keeps the same rows (``_small_family_region_condition``,
+    ENG-15), and the Variant Explorer one over the annotation index, for every family's
+    variants at once (``variant_explorer_service._region_key_condition``, CLIN-48)."""
     conditions: list[str] = []
     if _panel_regions_apply(panel_constraints):
         in_regions = region_condition(panel_constraints.regions, prefix="panel_region", params=params)
@@ -2983,7 +3202,13 @@ def _small_query_filter_parts(
         )
 
     panel_constraints = panel_constraints or PanelFilterConstraints()
-    panel_condition = _small_panel_filter_condition(context, filters, panel_constraints, params=params)
+    panel_condition = _small_panel_filter_condition(
+        context,
+        filters,
+        panel_constraints,
+        params=params,
+        region_condition=_small_family_region_condition(context, filters),
+    )
     if panel_condition:
         where_clauses.append(panel_condition)
 
