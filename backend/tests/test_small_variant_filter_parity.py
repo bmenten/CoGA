@@ -28,7 +28,11 @@ from backend.app.services.clickhouse_variant_records import (
     SmallVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters, small_variant_type_matches
+from backend.app.services.family_variant_filters import (
+    SmallVariantQueryFilters,
+    small_variant_type_matches,
+    stored_precision,
+)
 
 
 def _record(variant_id: str, *, annotations: list[dict[str, Any]] | None = None, **fields: Any) -> SmallVariantRecord:
@@ -275,3 +279,73 @@ def test_a_missing_score_reads_as_minus_one_in_either_path() -> None:
     assert not _keeps(unscored, min_cadd=0.0)
     # A minimum below the scores' range keeps it, as ifNull(score, -1) does.
     assert _keeps(unscored, min_cadd=-1.0)
+
+
+# --- thresholds at the precision a value is stored at -----------------------------------
+
+
+def test_stored_precision_is_the_nearest_32_bit_value() -> None:
+    # ClickHouse stores frequencies, scores and allele fractions as Float32. These round
+    # past the threshold of the same value at 64 bits.
+    assert stored_precision(0.45) < 0.45
+    assert stored_precision(25.3) < 25.3
+    assert stored_precision(0.001) > 0.001
+    assert stored_precision(0.5) == 0.5
+    assert stored_precision(stored_precision(0.7)) == stored_precision(0.7)
+    assert stored_precision(1e300) == float("inf")
+    assert stored_precision(-1e300) == float("-inf")
+
+
+def test_the_sql_compares_each_stored_float_with_its_threshold_at_32_bits() -> None:
+    params: dict[str, Any] = {}
+    condition = _small_annotation_filter_condition(
+        SmallVariantQueryFilters(
+            page=1,
+            page_size=100,
+            max_gnomad_af=0.001,
+            max_gnomad_exomes_af=0.001,
+            max_gnomad_genomes_af=0.001,
+            max_gnomad_popmax_af=0.001,
+            max_topmed_af=0.001,
+            max_gnomad_hom_count=1,
+            min_cadd=25.3,
+            min_revel=0.7,
+            min_spliceai=0.35,
+        ),
+        params=params,
+    )
+    assert condition is not None
+    for column in ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af", "gnomad_popmax_af", "topmed_af"):
+        assert f"ifNull(a.{column}, 0) <= toFloat32(%(detail_max_{column})s)" in condition
+    # A count is stored as an integer, and compared as one.
+    assert "ifNull(a.gnomad_hom_count, 0) <= %(detail_max_gnomad_hom_count)s" in condition
+    assert "ifNull(a.cadd_phred, -1) >= toFloat32(%(detail_min_cadd)s)" in condition
+    assert "ifNull(a.revel, -1) >= toFloat32(%(detail_min_revel)s)" in condition
+    assert condition.count("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)") == 2
+    clauses, _params = _where(sample_filters=["PROBAND::::0.45"])
+    assert any(
+        "arrayMax(af) >= toFloat32(%(sample_filter_0_min_af)s)" in clause
+        and "ab >= toFloat32(%(sample_filter_0_min_af)s)" in clause
+        for clause in clauses
+    )
+
+
+def test_python_compares_a_frequency_and_a_score_at_32_bits() -> None:
+    # A value that equals the threshold at 32 bits is the threshold's, in SQL and Python.
+    just_above = 0.001 + 1e-12
+    assert stored_precision(just_above) == stored_precision(0.001)
+    frequent = _record("11-100-C-T", annotations=[{"gene": "GENE1", "gnomad_af": just_above}])
+    assert _keeps(frequent, max_gnomad_af=0.001)
+    assert not _keeps(frequent, max_gnomad_af=0.0009)
+    scored = _record("11-100-C-T", annotations=[{"gene": "GENE1", "cadd_phred": 25.3 - 1e-12}])
+    assert _keeps(scored, min_cadd=25.3)
+
+
+def test_python_compares_a_calls_allele_fraction_at_32_bits() -> None:
+    # The call's fraction as the search reads it back: 0.45 stored, a little below 0.45.
+    call = SmallVariantCall(
+        sample="PROBAND", gt="0/1", gq=40.0, dp=20, af=[stored_precision(0.45)], ad=[11, 9], ps=None
+    )
+    record = _record("11-100-C-T", calls=[call])
+    assert _keeps(record, sample_filters=["PROBAND::::0.45"])
+    assert not _keeps(record, sample_filters=["PROBAND::::0.46"])

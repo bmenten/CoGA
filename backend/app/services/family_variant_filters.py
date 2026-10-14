@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 import functools
 import math
 import re
+import struct
 from typing import List
 
 from .genotypes import HET, HOM_ALT, HOM_REF, GenotypeClass, classify_genotype
@@ -207,6 +208,25 @@ def in_silico_prediction_matches(value: object, prediction: str | None) -> bool:
     ``prediction`` names none."""
     regex = _in_silico_prediction_regex(prediction)
     return regex is not None and regex.search(str(value or "").strip().casefold()) is not None
+
+
+def stored_precision(value: float) -> float:
+    """``value`` at the precision ClickHouse stores a population frequency, an in-silico
+    score and a call's allele fraction in (Float32): the nearest 32-bit value, an infinity
+    beyond their range.
+
+    A filter compares such a value with its threshold at this precision, in SQL
+    (``toFloat32`` of the threshold) and in Python alike. Compared with the threshold at
+    64 bits, a value stored exactly at it could round past it: a CADD score of 25.3, a
+    REVEL score of 0.7 or an allele fraction of 0.45 is stored a little below and failed
+    a minimum of the same value, and a gnomAD frequency of 0.001 a little above and failed
+    a maximum of 0.001; the Python matcher, which reads the annotation's own value, kept
+    the variant (ENG-1).
+    """
+    try:
+        return float(struct.unpack("f", struct.pack("f", value))[0])
+    except OverflowError:
+        return math.copysign(math.inf, value)
 
 
 def small_variant_type_matches(ref: str, alt: str, variant_type: str | None) -> bool:

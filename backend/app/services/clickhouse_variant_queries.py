@@ -58,6 +58,7 @@ from .family_variant_filters import (
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
     small_variant_type_matches,
+    stored_precision,
     structural_variant_length,
     structural_variant_length_filters_match,
 )
@@ -844,7 +845,10 @@ def _small_record_matches_sample_filters(
             if call.dp is None or call.dp < sample_filter.minimum_depth:
                 return False
         if sample_filter.minimum_allele_frequency is not None:
-            if not call.af or max(call.af) < sample_filter.minimum_allele_frequency:
+            # At the precision the fraction is stored at, as the SQL compares it.
+            if not call.af or stored_precision(max(call.af)) < stored_precision(
+                sample_filter.minimum_allele_frequency
+            ):
                 return False
         if sample_filter.minimum_alt_depth is not None:
             alt_depth = call.ad[1] if len(call.ad) > 1 else None
@@ -2502,9 +2506,13 @@ def _small_annotation_filter_condition(
     if effect_terms:
         params["detail_effect_terms"] = list(effect_terms)
         impact_effect_conditions.append("hasAny(a.effects, %(detail_effect_terms)s)")
+    # A frequency or a score is stored as Float32, and compared with the threshold at that
+    # precision (toFloat32), as the Python matcher compares it (stored_precision): at 64 bits
+    # a value stored exactly at the threshold could round past it, and a CADD score of 25.3
+    # failed a minimum of 25.3, a gnomAD frequency of 0.001 a maximum of 0.001 (ENG-1).
     if filters.min_spliceai is not None:
         params["detail_min_spliceai"] = filters.min_spliceai
-        impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= %(detail_min_spliceai)s")
+        impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
     if impact_effect_conditions:
         conditions.append(f"({' OR '.join(impact_effect_conditions)})")
 
@@ -2537,7 +2545,7 @@ def _small_annotation_filter_condition(
         if maximum is None:
             continue
         params[param] = maximum
-        frequency_conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
+        frequency_conditions.append(f"ifNull(a.{column}, 0) <= toFloat32(%({param})s)")
 
     max_int_filters = [
         ("detail_max_gnomad_ac", filters.max_gnomad_ac, "gnomad_ac"),
@@ -2568,10 +2576,10 @@ def _small_annotation_filter_condition(
     in_silico_conditions: list[str] = []
     if filters.min_cadd is not None:
         params["detail_min_cadd"] = filters.min_cadd
-        in_silico_conditions.append("ifNull(a.cadd_phred, -1) >= %(detail_min_cadd)s")
+        in_silico_conditions.append("ifNull(a.cadd_phred, -1) >= toFloat32(%(detail_min_cadd)s)")
     if filters.min_revel is not None:
         params["detail_min_revel"] = filters.min_revel
-        in_silico_conditions.append("ifNull(a.revel, -1) >= %(detail_min_revel)s")
+        in_silico_conditions.append("ifNull(a.revel, -1) >= toFloat32(%(detail_min_revel)s)")
     # The stored SIFT or PolyPhen value names the prediction asked for, whatever its score:
     # the Python matcher's own test (in_silico_prediction_pattern, CLIN-45). This condition
     # used to find the filter's text anywhere in the value, so "deleterious" also kept
@@ -2582,7 +2590,7 @@ def _small_annotation_filter_condition(
             params[f"detail_{column}_pattern"] = pattern
             in_silico_conditions.append(f"match(a.{column}, %(detail_{column}_pattern)s)")
     if filters.min_spliceai is not None:
-        in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= %(detail_min_spliceai)s")
+        in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
     if in_silico_conditions:
         conditions.append(f"({' OR '.join(in_silico_conditions)})")
 
@@ -2738,11 +2746,13 @@ def _small_native_sample_filter_clauses(
             conditions.append(f"dp >= %({dp_param})s")
             params[dp_param] = parsed.minimum_depth
         if parsed.minimum_allele_frequency is not None:
+            # At the precision the fraction is stored at (Float32), as in Python: 0.45 is
+            # stored a little below 0.45 and failed a minimum of 0.45 (ENG-1).
             af_param = f"sample_filter_{index}_min_af"
             conditions.append(
                 "("
-                f"(length(af) > 0 AND arrayMax(af) >= %({af_param})s) "
-                f"OR (length(af) = 0 AND ab >= %({af_param})s)"
+                f"(length(af) > 0 AND arrayMax(af) >= toFloat32(%({af_param})s)) "
+                f"OR (length(af) = 0 AND ab >= toFloat32(%({af_param})s))"
                 ")"
             )
             params[af_param] = parsed.minimum_allele_frequency

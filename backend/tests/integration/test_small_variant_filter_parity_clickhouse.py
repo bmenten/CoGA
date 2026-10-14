@@ -454,17 +454,36 @@ CASES: dict[str, _Case] = {
     ),
     # --- frequencies (a variant without one passes) ---
     "gnomAD AF": _case(ALL - {MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_af=0.01),
+    "gnomAD AF at the value": _case(
+        ALL - {HOMOZYGOUS, MATERNAL_MNV, PATERNAL_SYNONYMOUS, COMMON_PATHOGENIC}, max_gnomad_af=0.001
+    ),
     "gnomAD AF with the ClinVar rescue": _case(
         ALL - {MATERNAL_MNV}, max_gnomad_af=0.01, clinvar_overrides_frequency=True
     ),
+    "gnomAD exomes AF at the value": _case(
+        ALL - {HOMOZYGOUS, MATERNAL_MNV, PATERNAL_SYNONYMOUS, COMMON_PATHOGENIC}, max_gnomad_exomes_af=0.001
+    ),
+    "gnomAD genomes AF at the value": _case(
+        ALL - {HOMOZYGOUS, MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_genomes_af=0.0005
+    ),
+    "gnomAD popmax AF at the value": _case(
+        ALL - {HOMOZYGOUS, PATERNAL_DELETION, MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_popmax_af=0.002
+    ),
     "TOPMed AF": _case(ALL - {MATERNAL_MNV, COMMON_PATHOGENIC}, max_topmed_af=0.01),
+    "TOPMed AF at the value": _case(
+        ALL - {HOMOZYGOUS, PATERNAL_DELETION, MATERNAL_MNV, COMMON_PATHOGENIC}, max_topmed_af=0.0005
+    ),
     "gnomAD AC at the value": _case(ALL - {HOMOZYGOUS, MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_ac=12),
     "gnomAD homozygotes": _case(ALL - {HOMOZYGOUS, MATERNAL_MNV, COMMON_PATHOGENIC}, max_gnomad_hom_count=0),
     "gnomAD hemizygotes": _case(ALL - {X_MATERNAL}, max_gnomad_hemi_count=0),
     # --- in silico (one predictor is enough; SpliceAI also passes impact and consequence) ---
+    "CADD at the value": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE}, min_cadd=25.3),
+    "REVEL at the value": _case({DE_NOVO_MISSENSE}, min_revel=0.7),
     "CADD or REVEL": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS}, min_cadd=30, min_revel=0.5),
     "SpliceAI": _case({HOMOZYGOUS}, min_spliceai=0.2),
+    "SpliceAI at the value": _case({HOMOZYGOUS}, min_spliceai=0.35),
     "SpliceAI from 0": _case({DE_NOVO_MISSENSE, HOMOZYGOUS}, min_spliceai=0.0),
+    "SpliceAI or HIGH": _case({HOMOZYGOUS}, min_spliceai=0.35, impact=["HIGH"]),
     "SIFT": _case({DE_NOVO_MISSENSE}, sift="deleterious"),
     "PolyPhen": _case({HOMOZYGOUS}, polyphen="benign"),
     # --- the panel ---
@@ -505,6 +524,9 @@ CASES: dict[str, _Case] = {
     ),
     "proband GQ": _case(ALL - {LOW_QUALITY}, sample_filters=[f"{_PROBAND}::20"]),
     "proband DP": _case(ALL - {LOW_QUALITY, FRACTION_FROM_DEPTHS}, sample_filters=[f"{_PROBAND}:::25"]),
+    "proband AF at the value": _case(
+        ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS}, sample_filters=[f"{_PROBAND}::::0.45"]
+    ),
     "proband AD alt": _case(
         ALL - {MATERNAL_MNV, PATERNAL_SYNONYMOUS, LOW_QUALITY}, sample_filters=[f"{_PROBAND}:::::10"]
     ),

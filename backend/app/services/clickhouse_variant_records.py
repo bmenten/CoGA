@@ -10,6 +10,7 @@ from .family_variant_filters import (
     SmallVariantQueryFilters,
     in_silico_prediction_matches,
     in_silico_prediction_pattern,
+    stored_precision,
 )
 
 
@@ -468,12 +469,23 @@ def _nullable_lte(value: float | int | None, maximum: float | int | None) -> boo
 
 def _score_meets(value: float | None, minimum: float | None) -> bool:
     """Whether an in-silico score meets the minimum a filter sets, as the SQL reads it
-    (``ifNull(score, -1) >= minimum``): a missing score reads as -1, and a score of 0 is a
-    score. ``value or -1.0`` read a score of 0 as missing, so a SpliceAI score of 0.00, most
-    variants' own, missed a minimum of 0 that the SQL kept it for (ENG-1)."""
+    (``ifNull(score, -1) >= toFloat32(minimum)``): a missing score reads as -1, a score of 0
+    is a score, and both are compared at the precision the score is stored at
+    (``stored_precision``). ``value or -1.0`` read a score of 0 as missing, so a SpliceAI
+    score of 0.00, most variants' own, missed a minimum of 0 that the SQL kept it for
+    (ENG-1)."""
     if minimum is None:
         return False
-    return (-1.0 if value is None else value) >= minimum
+    return stored_precision(-1.0 if value is None else value) >= stored_precision(minimum)
+
+
+def _frequency_within(value: float | None, maximum: float | None) -> bool:
+    """Whether a population frequency is within the maximum a filter sets, as the SQL reads
+    it (``ifNull(frequency, 0) <= toFloat32(maximum)``): a missing frequency passes, and both
+    are compared at the precision the frequency is stored at (``stored_precision``)."""
+    if maximum is None or value is None:
+        return True
+    return stored_precision(value) <= stored_precision(maximum)
 
 
 def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariantQueryFilters) -> bool:
@@ -501,16 +513,16 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
         _annotation_clinvar(annotation), CLINVAR_FREQUENCY_RESCUE_TERMS
     )
     if not clinvar_rescue:
-        if not _nullable_lte(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
+        if not _frequency_within(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
             return False
         population_frequencies = _annotation_population_frequencies(annotation)
-        if not _nullable_lte(population_frequencies.get("gnomad_exomes_af"), filters.max_gnomad_exomes_af):
+        if not _frequency_within(population_frequencies.get("gnomad_exomes_af"), filters.max_gnomad_exomes_af):
             return False
-        if not _nullable_lte(population_frequencies.get("gnomad_genomes_af"), filters.max_gnomad_genomes_af):
+        if not _frequency_within(population_frequencies.get("gnomad_genomes_af"), filters.max_gnomad_genomes_af):
             return False
-        if not _nullable_lte(population_frequencies.get("gnomad_popmax_af"), filters.max_gnomad_popmax_af):
+        if not _frequency_within(population_frequencies.get("gnomad_popmax_af"), filters.max_gnomad_popmax_af):
             return False
-        if not _nullable_lte(population_frequencies.get("topmed_af"), filters.max_topmed_af):
+        if not _frequency_within(population_frequencies.get("topmed_af"), filters.max_topmed_af):
             return False
         if not _nullable_lte(_annotation_int(annotation, "gnomad_ac"), filters.max_gnomad_ac):
             return False
