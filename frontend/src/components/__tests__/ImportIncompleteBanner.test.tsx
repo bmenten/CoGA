@@ -10,6 +10,7 @@ import ImportIncompleteBanner, {
   importIncompleteFromMetadata,
   importUnfinishedFromMetadata,
   pendingDatasets,
+  unfinishedWriter,
   wholeFamilyImportKeys,
 } from '../ImportIncompleteBanner';
 
@@ -61,7 +62,75 @@ const WHOLE_FAMILY = {
   },
 };
 
+// As family_package_registration.FamilyWriteMark records them (SAFE-28): a structural-variant
+// upload's mark, written before its rewrite, naming each sample whose Sniffles calls the
+// rewrite deletes; and a deletion's, left when its rewrite could not put the SVs back.
+const UPLOAD_KEY = 'upload-0a1b2c3d4e5f60718293a4b5c6d7e8f9';
+const UPLOAD_MARK = {
+  [UPLOAD_KEY]: {
+    job_id: null,
+    at: '2026-10-14T08:30:00+00:00',
+    datasets: ['sv_sniffles'],
+    finished_datasets: [],
+    whole_family: [
+      { dataset: 'sv_sniffles', scope: { source: null, samples: ['S1'] } },
+      { dataset: 'sv_sniffles', scope: { source: null, samples: ['S2'] } },
+    ],
+  },
+};
+const DELETION_KEY = 'deletion-9f8e7d6c5b4a39281706f5e4d3c2b1a0';
+const DELETION_MARK = {
+  [DELETION_KEY]: {
+    job_id: null,
+    at: '2026-10-14T09:00:00+00:00',
+    datasets: ['cnv', 'sv_needlr'],
+    finished_datasets: [],
+    whole_family: [
+      { dataset: 'cnv', scope: { source: null, samples: ['S1'] } },
+      { dataset: 'sv_needlr', scope: { source: null, samples: null } },
+    ],
+  },
+};
+
 describe('ImportIncompleteBanner', () => {
+  it('names a single-file upload that has not finished, and what it may have left missing', () => {
+    render(<ImportIncompleteBanner metadata={{ import_unfinished: UPLOAD_MARK }} />);
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(/^Import incomplete\./);
+    expect(banner).toHaveTextContent(
+      'A single-file upload (2026-10-14 08:30 UTC) began rewriting this family’s data and has not finished: it is still running, or it stopped or failed part-way. sv_sniffles may be partly written or missing.',
+    );
+    // Not an import, nor a restore of one: no import job, and no whole family to import again.
+    expect(banner).not.toHaveTextContent(/family-package import/);
+    expect(banner).not.toHaveTextContent(/import job/);
+    expect(banner).not.toHaveTextContent(/Import this family again in full/);
+    expect(banner).toHaveTextContent(
+      'Upload or import again, with overwrite, what a single-file upload or a deletion did not finish: one without overwrite keeps the data already there.',
+    );
+    expect(banner).toHaveTextContent(/Sign-out needs this acknowledged with a reason/);
+  });
+
+  it('names a deletion that could not put the family’s structural variants back', () => {
+    render(<ImportIncompleteBanner metadata={{ import_unfinished: DELETION_MARK }} />);
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(
+      'A deletion of a sample’s data (2026-10-14 09:00 UTC) failed, and putting this family’s structural variants back as they were did not finish. cnv and sv_needlr may be partly written or missing.',
+    );
+    expect(banner).not.toHaveTextContent(/still running/);
+    expect(banner).toHaveTextContent(/Upload or import again, with overwrite, what a single-file upload or a deletion did not finish/);
+  });
+
+  it('names an upload that has not finished beside a failed import', () => {
+    render(<ImportIncompleteBanner metadata={{ import_incomplete: FLAG, import_unfinished: UPLOAD_MARK }} />);
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(/A family-package import \(2026-09-12 10:14 UTC\) failed for snv and sv/);
+    expect(banner).toHaveTextContent(/A single-file upload \(2026-10-14 08:30 UTC\) began rewriting/);
+    expect(banner).toHaveTextContent(/Import what failed again to complete it\. Upload or import again, with overwrite/);
+  });
+
   it('names what the import left out, and when', () => {
     render(<ImportIncompleteBanner metadata={{ import_incomplete: FLAG }} />);
 
@@ -250,11 +319,25 @@ describe('importUnfinishedFromMetadata', () => {
   });
 });
 
+describe('unfinishedWriter', () => {
+  it('reads what wrote an entry from its key, as the server does', () => {
+    expect(unfinishedWriter(UPLOAD_KEY)).toBe('upload');
+    expect(unfinishedWriter(DELETION_KEY)).toBe('deletion');
+    expect(unfinishedWriter(STOPPED_JOB)).toBe('import');
+    expect(unfinishedWriter('run-5f2c')).toBe('import');
+    expect(unfinishedWriter('unreadable')).toBe('import');
+  });
+});
+
 describe('wholeFamilyImportKeys', () => {
   it('reads which entries a restore that did not finish left', () => {
     expect(wholeFamilyImportKeys({ import_unfinished: { ...UNFINISHED, ...WHOLE_FAMILY } })).toEqual(
       new Set([RESTORE_JOB]),
     );
+    // An upload's or a deletion's mark lists its items the same way, but is no restore.
+    expect(
+      wholeFamilyImportKeys({ import_unfinished: { ...WHOLE_FAMILY, ...UPLOAD_MARK, ...DELETION_MARK } }),
+    ).toEqual(new Set([RESTORE_JOB]));
     expect(wholeFamilyImportKeys({ import_unfinished: UNFINISHED })).toEqual(new Set());
     expect(wholeFamilyImportKeys({ import_unfinished: 'garbage' })).toEqual(new Set());
     expect(wholeFamilyImportKeys({ import_unfinished: { k: 'not an entry' } })).toEqual(new Set());

@@ -420,6 +420,17 @@ class VcfSampleColumnError(ValueError):
     """A per-sample VCF has no column for its sample, or its column names another sample."""
 
 
+class DatasetLeftMissing(RuntimeError):
+    """A dataset failed after its write had deleted rows of samples beyond those it names,
+    which it could not put back (SAFE-28): ``samples`` (sample ids) are those whose data of
+    the dataset may now be missing too. The import flags the dataset for them as well as for
+    its own samples (``family_package_registration.scope_with_samples``)."""
+
+    def __init__(self, message: str, *, samples: Iterable[str]) -> None:
+        super().__init__(message)
+        self.samples = sorted({str(sample) for sample in samples if sample})
+
+
 async def known_vcf_sample_ids(
     session: AsyncSession,
     *,

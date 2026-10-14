@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from typing import Any, Collection, Iterable, Sequence
 
@@ -29,6 +30,8 @@ from .clickhouse_variant_rows import (
     _structural_variant_entry_rows,
 )
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, clickhouse_genotype_condition
+
+logger = logging.getLogger(__name__)
 
 _SMALL_VARIANT_DETAIL_INSERT_ROWS = 1_000
 _SMALL_VARIANT_ENTRY_INSERT_ROWS = 2_000
@@ -1365,24 +1368,76 @@ async def fetch_family_structural_variant_rows(
     return stored
 
 
-async def rewrite_family_structural_variants(
+class StructuralVariantsNotRestored(RuntimeError):
+    """A rewrite of the family's structural variants failed after its delete, and the rows
+    it deleted could not be written back either (``rewrite_family_structural_variants``):
+    the family's SV rows of ``source`` (of every source when None) may be partly written
+    or missing. Raised from the rewrite's own error; the caller marks the family for what
+    may be missing."""
+
+    def __init__(self, *, source: str | None) -> None:
+        super().__init__(
+            "A failed write of the family's structural variants could not put back the rows "
+            "it had deleted: they may be partly written or missing"
+        )
+        self.source = source
+
+
+async def _write_family_structural_variant_rows(
     assembly_name: str,
     family_uuid: str,
     rows: Sequence[StoredStructuralVariantRow],
     *,
-    source: str | None = None,
+    source: str | None,
 ) -> None:
-    """Replace the family's SV rows (exactly ``source``'s, or all) with ``rows``.
-
-    The write side of :func:`fetch_family_structural_variant_rows`: it deletes what that
-    read covers, then writes each row under its own project.
-    """
+    """Delete the family's SV rows (exactly ``source``'s, or all), then write ``rows``, each
+    under its own project."""
     await delete_family_structural_variants(assembly_name, family_uuid, source=source)
     records_by_project: dict[str, list[StructuralVariantRecord]] = {}
     for row in rows:
         records_by_project.setdefault(row.project_id, []).append(row.record)
     for project_id, records in records_by_project.items():
         await insert_structural_variant_records(assembly_name, family_uuid, [project_id], records)
+
+
+async def rewrite_family_structural_variants(
+    assembly_name: str,
+    family_uuid: str,
+    rows: Sequence[StoredStructuralVariantRow],
+    *,
+    source: str | None = None,
+    stored: Sequence[StoredStructuralVariantRow],
+) -> None:
+    """Replace the family's SV rows (exactly ``source``'s, or all) with ``rows``.
+
+    The write side of :func:`fetch_family_structural_variant_rows`: it deletes what that
+    read covers, then writes each row under its own project. ``stored`` is that read, the
+    rows the delete removes, as the caller read them under the family's variant-write lock.
+
+    ClickHouse has no transactions, so a write that fails after the delete (an insert
+    error, a value a column cannot hold, ClickHouse failing part-way) puts them back
+    (SAFE-28): the scope is deleted again, with whatever the failed write had stored, and
+    ``stored`` is written, and the write's error is raised with the family's rows as they
+    were. When they cannot be put back either, ``StructuralVariantsNotRestored`` is raised
+    from the write's error: the scope may then be partly written or missing, and the
+    caller marks the family for it. A write that fails in its delete is put back the same
+    way, as how far the delete got is not known.
+    """
+    try:
+        await _write_family_structural_variant_rows(assembly_name, family_uuid, rows, source=source)
+    except Exception as write_error:
+        try:
+            await _write_family_structural_variant_rows(
+                assembly_name, family_uuid, stored, source=source
+            )
+        except Exception:
+            logger.warning(
+                "A failed rewrite of a family's structural variants could not put back the "
+                "rows it deleted",
+                exc_info=True,
+            )
+            raise StructuralVariantsNotRestored(source=source) from write_error
+        raise
 
 
 async def count_family_small_variants(

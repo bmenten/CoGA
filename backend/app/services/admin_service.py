@@ -30,6 +30,7 @@ from .clickhouse_interval_tracks import (
     interval_counts_by_sample,
 )
 from .clickhouse_variant_storage import (
+    StructuralVariantsNotRestored,
     count_family_small_variants,
     count_family_small_variants_by_family,
     count_family_structural_variants,
@@ -51,6 +52,7 @@ from .clickhouse_variant_storage import (
 )
 from .clickhouse_variant_records import StoredStructuralVariantRow
 from .family_metadata_context import FamilyMetadataContext
+from .family_package_registration import mark_family_deletion_not_restored
 from .family_variant_write_lock import (
     SMALL_VARIANTS,
     STRUCTURAL_VARIANTS,
@@ -382,29 +384,64 @@ async def _small_variant_entries_without_sample(
 async def _structural_variant_rows_without_sample(
     contexts: list[FamilyMetadataContext],
     sample_row: dict[str, Any],
-) -> list[tuple[FamilyMetadataContext, list[StoredStructuralVariantRow]]]:
-    """Every stored SV row of each family context, minus the sample's calls.
+) -> list[
+    tuple[FamilyMetadataContext, list[StoredStructuralVariantRow], list[StoredStructuralVariantRow]]
+]:
+    """Every stored SV row of each family context as read, and the rows without the
+    sample's calls.
 
     Read from storage, not the family view, so that everything else is written back as it
     was stored: every project's rows, every other call (inactive members' included), their
     phase sets, and the breakend remote ends. A stored call names its sample by id or by
     uuid; a row left with no call is dropped. Deliberately not scoped to a source: the
     callers rewrite the whole family (``rewrite_family_structural_variants`` without a
-    ``source``), which deletes every source's rows, so every source's rows are read.
+    ``source``), which deletes every source's rows, so every source's rows are read, and
+    put back from that read when the rewrite fails after its delete.
     """
     sample_ids = {str(sample_row[key]) for key in ("sample_id", "sample_uuid") if sample_row.get(key)}
-    replacements: list[tuple[FamilyMetadataContext, list[StoredStructuralVariantRow]]] = []
+    replacements: list[
+        tuple[FamilyMetadataContext, list[StoredStructuralVariantRow], list[StoredStructuralVariantRow]]
+    ] = []
     for context in contexts:
         if not context.assembly_name:
-            replacements.append((context, []))
+            replacements.append((context, [], []))
             continue
+        stored = await fetch_family_structural_variant_rows(context.assembly_name, context.family_uuid)
         kept: list[StoredStructuralVariantRow] = []
-        for row in await fetch_family_structural_variant_rows(context.assembly_name, context.family_uuid):
+        for row in stored:
             remaining_calls = [call for call in row.record.calls if call.sample not in sample_ids]
             if remaining_calls:
                 kept.append(replace(row, record=replace(row.record, calls=remaining_calls)))
-        replacements.append((context, kept))
+        replacements.append((context, stored, kept))
     return replacements
+
+
+async def _rewrite_without_sample(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    *,
+    assembly_name: str,
+    stored: list[StoredStructuralVariantRow],
+    kept: list[StoredStructuralVariantRow],
+    sample_row: dict[str, Any],
+) -> None:
+    """Rewrite the family's structural variants without the sample's calls. A rewrite that
+    fails after its delete puts ``stored`` back and raises (SAFE-28); one that could not put
+    them back leaves the family marked for the structural-variant datasets it holds, the
+    sample's own excepted, before the error is raised: they may be partly written or
+    missing (``mark_family_deletion_not_restored``)."""
+    try:
+        await rewrite_family_structural_variants(
+            assembly_name, context.family_uuid, kept, stored=stored
+        )
+    except StructuralVariantsNotRestored:
+        await mark_family_deletion_not_restored(
+            session,
+            family_uuid=context.family_uuid,
+            family_id=context.family_id,
+            removed_samples=[str(sample_row["sample_id"])],
+        )
+        raise
 
 
 def _build_family_inventory_summary(
@@ -839,7 +876,7 @@ async def delete_sample_data_by_type(
         await lock_family_variant_writes(session, sample_row["family_uuid"], [STRUCTURAL_VARIANTS])
         replacements = await _structural_variant_rows_without_sample(contexts, sample_row)
         before = 0
-        for context, rows in replacements:
+        for context, stored, rows in replacements:
             if not context.assembly_name:
                 continue
             before += await count_family_structural_variants(
@@ -847,9 +884,16 @@ async def delete_sample_data_by_type(
                 context.family_uuid,
                 project_ids=context.project_ids,
             )
-            await rewrite_family_structural_variants(context.assembly_name, context.family_uuid, rows)
+            await _rewrite_without_sample(
+                session,
+                context,
+                assembly_name=context.assembly_name,
+                stored=stored,
+                kept=rows,
+                sample_row=sample_row,
+            )
         after = 0
-        for context, _records in replacements:
+        for context, _stored, _records in replacements:
             if not context.assembly_name:
                 continue
             after += await count_family_structural_variants(
@@ -952,7 +996,7 @@ async def delete_sample_with_data(
             project_ids=context.project_ids,
         )
         await rewrite_family_small_variant_entries(context.assembly_name, context.family_uuid, entries)
-    for context, structural_rows in structural_replacements:
+    for context, structural_stored, structural_rows in structural_replacements:
         if not context.assembly_name:
             continue
         structural_before += await count_family_structural_variants(
@@ -960,8 +1004,13 @@ async def delete_sample_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
-        await rewrite_family_structural_variants(
-            context.assembly_name, context.family_uuid, structural_rows
+        await _rewrite_without_sample(
+            session,
+            context,
+            assembly_name=context.assembly_name,
+            stored=structural_stored,
+            kept=structural_rows,
+            sample_row=sample_row,
         )
     small_after = 0
     structural_after = 0

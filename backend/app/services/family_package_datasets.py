@@ -26,6 +26,7 @@ from .clickhouse_interval_tracks import (
     upsert_interval_track_source,
 )
 from .clickhouse_variant_storage import (
+    StructuralVariantsNotRestored,
     count_family_small_variants,
     count_family_structural_variants,
     delete_family_small_variants,
@@ -57,7 +58,7 @@ from .variant_upload_service import (
 )
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetLeftMissing, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_nipt import (
     nipt_import_order,
@@ -2181,17 +2182,35 @@ async def _import_mito_structural_variants(
         for value in (sample_id, sample_contexts[sample_id].sample_uuid)
         if value
     }
-    await rewrite_family_structural_variants(
-        family_context.assembly_name,
-        family_context.family_uuid,
-        _mito_sv_rows_after_import(
-            stored_rows,
-            merged,
-            replaced_samples=replaced_samples,
-            project_ids=list(family_context.project_ids),
-        ),
-        source=MITO_SV_SOURCE,
+    rows = _mito_sv_rows_after_import(
+        stored_rows,
+        merged,
+        replaced_samples=replaced_samples,
+        project_ids=list(family_context.project_ids),
     )
+    try:
+        # The rewrite deletes every sample's chrM SVs before it writes them back, and puts
+        # the stored rows back when it fails after that delete (SAFE-28): an update takes no
+        # snapshot of the family.
+        await rewrite_family_structural_variants(
+            family_context.assembly_name,
+            family_context.family_uuid,
+            rows,
+            source=MITO_SV_SOURCE,
+            stored=stored_rows,
+        )
+    except StructuralVariantsNotRestored as exc:
+        # The chrM SVs of the samples this dataset does not name may be missing too: the
+        # dataset is flagged for them as well.
+        raise DatasetLeftMissing(
+            "The chrM structural variants could not be written, nor put back as they were: "
+            "those of every sample may be partly written or missing",
+            samples={
+                family_context.sample_uuid_to_name.get(call.sample, call.sample)
+                for row in (*stored_rows, *rows)
+                for call in row.record.calls
+            },
+        ) from exc
     await _update_sv_file_metadata(
         session,
         sample_contexts={sample_id: sample_contexts[sample_id] for sample_id in per_sample},

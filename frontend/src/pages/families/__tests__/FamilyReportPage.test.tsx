@@ -1984,6 +1984,84 @@ describe('FamilyReportPage', () => {
       expect(checks).not.toHaveTextContent('imported completely');
     });
 
+    // A single-file upload marks the family before its first ClickHouse write, and a deletion
+    // leaves a mark when it could not put the family's SVs back (SAFE-28): entries of their
+    // own in `import_unfinished`, with no job, named by their key.
+    const UPLOAD_KEY = 'upload-0a1b2c3d4e5f60718293a4b5c6d7e8f9';
+    const DELETION_KEY = 'deletion-9f8e7d6c5b4a39281706f5e4d3c2b1a0';
+    const WRITE_MARKS = {
+      [UPLOAD_KEY]: {
+        job_id: null,
+        at: '2026-10-14T08:30:00+00:00',
+        datasets: ['sv_sniffles'],
+        finished_datasets: [],
+      },
+      [DELETION_KEY]: {
+        job_id: null,
+        at: '2026-10-14T09:00:00+00:00',
+        datasets: ['cnv', 'sv_needlr'],
+        finished_datasets: [],
+      },
+    };
+
+    it('lists an upload and a deletion that did not finish in the acknowledgement dialog', async () => {
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'import_incomplete',
+                message:
+                  "This family's data is incomplete: a single-file upload (2026-10-14T08:30:00+00:00) did not finish, so sv_sniffles may be partly written or missing.",
+                import_incomplete: null,
+                import_unfinished: WRITE_MARKS,
+              },
+            },
+          },
+        }),
+      );
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(
+        within(dialog).getByText('Not finished (single-file upload): sv_sniffles may be partly written or missing'),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(
+          'Not finished (deletion of a sample’s data): cnv, sv_needlr may be partly written or missing',
+        ),
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByText(/import job/)).not.toBeInTheDocument();
+    });
+
+    it('shows on the signed record an upload and a deletion that had not finished', async () => {
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_unfinished: WRITE_MARKS,
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        'A single-file upload (begun 2026-10-14 08:30 UTC) had not finished: sv_sniffles may have been partly written or missing.',
+      );
+      expect(checks).toHaveTextContent(
+        'A deletion of a sample’s data (begun 2026-10-14 09:00 UTC) had not finished: cnv and sv_needlr may have been partly written or missing.',
+      );
+      expect(checks).not.toHaveTextContent(/An import \(begun 2026-10-14/);
+    });
+
     it('names a change in unfinished imports since sign-out', async () => {
       mockSignedCase({ check: () => checkResult({ matches: false, changed_sections: ['import_unfinished'] }) });
       renderPage(undefined, '/families/F1/report?view=live');
