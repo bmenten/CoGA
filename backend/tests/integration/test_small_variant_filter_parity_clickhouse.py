@@ -434,6 +434,10 @@ CASES: dict[str, _Case] = {
         effect=["missense_variant"],
     ),
     "consequence, the second of a transcript's": _case({HOMOZYGOUS}, effect=["splice_region_variant"]),
+    "consequence as VEP joins two": _case(
+        ALL - {HIGH_OFF_MANE, MATERNAL_INSERTION, PATERNAL_DELETION, UNANNOTATED, WITH_RSID, LONG_DELETION},
+        effect=["missense_variant&splice_region_variant"],
+    ),
     "canonical only and HIGH": _case({LONG_DELETION}, canonical_only=True, impact=["HIGH"]),
     "MANE only (Select or Plus Clinical)": _case(
         {DE_NOVO_MISSENSE, HIGH_OFF_MANE, HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION, COMMON_PATHOGENIC},

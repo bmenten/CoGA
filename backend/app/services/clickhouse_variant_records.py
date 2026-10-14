@@ -512,7 +512,9 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
             return False
 
     impact_terms = {_casefold(value) for value in filters.impact if str(value).strip()}
-    effect_terms = {_casefold(value) for value in filters.effect if str(value).strip()}
+    # A consequence value is read as the SQL reads it: terms VEP joins with & (or , ; | /)
+    # are each a term of their own (ENG-1).
+    effect_terms = {term for value in filters.effect for term in _annotation_terms(value)}
     any_impact_effect = bool(impact_terms or effect_terms or filters.min_spliceai is not None)
     if any_impact_effect:
         impact_match = bool(impact_terms) and _casefold(_annotation_text(annotation, "impact")) in impact_terms

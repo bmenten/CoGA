@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Any
 
 from backend.app.services.clickhouse_variant_queries import (
+    _small_annotation_filter_condition,
     _small_annotation_scope_clauses,
     _small_record_matches,
     _small_variant_where_clauses,
@@ -233,3 +234,21 @@ def test_the_rsid_filter_searches_the_variants_stored_rsid() -> None:
     assert not _keeps(with_vcf_id, rsid="COSV55")
     without_vcf_id = _record("11-100-C-T", rsid="rs1001&COSV55", annotations=annotations)
     assert _keeps(without_vcf_id, rsid="COSV55")
+
+
+# --- the consequence --------------------------------------------------------------------
+
+
+def test_a_consequence_value_joining_two_terms_is_read_as_the_sql_reads_it() -> None:
+    # The SQL splits a value as VEP joins terms (&, and , ; | /) and keeps a transcript
+    # with any of them; Python looked for the joined text as one term and kept nothing.
+    params: dict[str, Any] = {}
+    _small_annotation_filter_condition(
+        SmallVariantQueryFilters(page=1, page_size=100, effect=["missense_variant&splice_region_variant"]),
+        params=params,
+    )
+    assert sorted(params["detail_effect_terms"]) == ["missense_variant", "splice_region_variant"]
+    missense = _record("11-100-C-T", annotations=[{"gene": "GENE1", "effect": "missense_variant"}])
+    assert _keeps(missense, effect=["missense_variant&splice_region_variant"])
+    assert _keeps(missense, effect=["splice_region_variant/missense_variant"])
+    assert not _keeps(missense, effect=["splice_region_variant&intron_variant"])
