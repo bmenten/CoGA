@@ -23,6 +23,7 @@ from ..services.clickhouse_family_variants import (
 )
 from ..services.family_metadata_context import build_family_metadata_context
 from ..services.access_control import CurrentUser
+from ..services.panel_use_audit import record_family_panel_use
 from ..services.structural_variant_review_pg import (
     delete_structural_variant_filter_preset as delete_structural_variant_filter_preset_record,
     get_structural_variant_review_summary,
@@ -100,6 +101,10 @@ async def get_family_structural_variants(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+    )
+    # A panel the search applies goes on the family's clinical audit trail first (REQ-CARR-003).
+    await record_family_panel_use(
+        session, context=context, panel_id=panel_id, user=user, search="structural_variants"
     )
     result = await get_family_structural_variants_clickhouse(
         session,
@@ -238,6 +243,9 @@ async def export_family_structural_variants_csv(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+    )
+    await record_family_panel_use(
+        session, context=context, panel_id=panel_id, user=user, search="structural_variants_export"
     )
     export = await export_family_structural_variants(
         session,

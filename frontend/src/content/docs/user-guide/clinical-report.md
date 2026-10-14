@@ -32,7 +32,10 @@ and refers to exactly one signed version: the one it rests on.
 ### Signing out
 
 **Sign out report** is your analytical sign-off: it closes the analysis and freezes the reported result
-into a numbered version with a unique fingerprint. It stops for five things:
+into a numbered version with a unique fingerprint, with what the analysis looked at: each reported
+variant's description as you reviewed it, the gene panels the family's searches applied, the
+reference-data releases, and the repeat-expansion and Paraphase results. The EPD refers to the signed
+version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
@@ -53,7 +56,9 @@ into a numbered version with a unique fingerprint. It stops for five things:
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten, and a clinical
 report that rests on the amended analysis refers to the new version. After signing out, the page shows
-the version you signed.
+the version you signed and its report code: quote that code in the EPD report. A mistyped code is
+refused as a typo, never taken for another record's. **Report codes** in the main menu finds the
+signed version a code names.
 
 > **Only people the laboratory authorises sign out.** CoGA lets any project member press **Sign out
 > report** and does not check that authority. The laboratory decides who may sign out an analysis;
@@ -62,11 +67,13 @@ the version you signed.
 ### Is this the signed report?
 
 Only the signed version is. A signed case opens on its **latest signed version**, drawn from the frozen
-record: *Signed version N — signed out by … on …*, with its fingerprint. It shows what was signed: each
-reported variant's classification, criteria, evidence and note, and the checks at sign-out. It says what
-the record does not hold — the variant description, the gene and phenotype context, the audit trail —
-and never fills that in from current data. **Print signed version N** prints it, and **Download signed
-version N (JSON)** returns the record itself. *Signed versions* lists the earlier ones.
+record: *Signed version N — signed out by … on …*, with its report code and fingerprint. It shows what
+was signed: each reported variant's description, classification, criteria, evidence and note, the gene
+panels applied, the repeat expansions and Paraphase results, the reference-data releases, and the checks
+at sign-out. It says what the record does not hold — the population frequencies and predictions, the
+gene and phenotype context, the audit trail — and never fills that in from current data. **Print
+signed version N** prints it, and **Download signed version N (JSON)** returns the record itself.
+*Signed versions* lists the earlier ones.
 
 **Open the live report** shows the current data. It says *This is the live report, not signed version
 N*, and whether it still matches: amber when something changed since (it names what), grey when the

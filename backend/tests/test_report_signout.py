@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import types
 from datetime import datetime
@@ -11,6 +12,9 @@ from fastapi import HTTPException
 from backend.app.schemas import ReportSignoutDetail
 from backend.app.services import annotation_manifest_service as ams
 from backend.app.services import report_signout_service as rss
+from backend.app.services.access_control import RecordNotVisible
+from backend.app.services.report_code import parse_report_code, report_code
+from backend.app.services.signed_record_sections import RECORD_SECTIONS
 from backend.app.services.sample_integrity_qc import (
     MendelianCheck,
     NiptCategoryQc,
@@ -19,6 +23,39 @@ from backend.app.services.sample_integrity_qc import (
     SampleIntegrityReport,
     SexCheck,
 )
+
+
+# What the analysis looked at (signed_record_sections): the variant descriptions, the gene
+# panels applied, the reference-data releases, the repeat expansions and the Paraphase
+# results. They read ClickHouse and the audit trail, which the stub sessions here do not
+# serve, so every test gets these; the tests of the sections themselves are in
+# test_signed_record_sections.py, and the tests below that need others patch their own.
+_RECORD_SECTIONS = {
+    "variant_descriptions": {"small": [], "structural": []},
+    "gene_panels": {"applied": []},
+    "reference_data": {
+        "gene_reference": {"genes": [], "sources": [], "not_in_reference": []},
+        "clinical_cnvs": None,
+    },
+    "repeat_expansions": {"catalogue": {"loci": 0, "sources": [], "digest": "0" * 64}, "loci": []},
+    "paraphase": {"catalogue": {"regions": 0, "digest": "0" * 64}, "genes": []},
+}
+
+
+# The real reader, kept before the fixture below stands a stub in for it.
+_REPORT_CODE_TAKEN = rss._report_code_taken
+
+
+@pytest.fixture(autouse=True)
+def _record_sections(monkeypatch):
+    async def _sections(session, *, context, reported, reported_structural):
+        return copy.deepcopy(_RECORD_SECTIONS)
+
+    async def _code_free(session, code):
+        return False  # no other record has the new record's report code
+
+    monkeypatch.setattr(rss, "build_record_sections", _sections)
+    monkeypatch.setattr(rss, "_report_code_taken", _code_free)
 
 
 def test_canonical_hash_is_stable_and_order_independent() -> None:
@@ -323,7 +360,10 @@ def test_sign_out_keeps_writers_out_from_before_its_snapshot_until_it_commits(mo
     class _OrderedSession(_Session):
         async def execute(self, *args, **kwargs):
             sql = str(args[0])
-            if "pg_advisory_xact_lock" in sql:
+            params = args[1] if len(args) > 1 else {}
+            if "pg_advisory_xact_lock" in sql and params.get("k") == "report-code":
+                order.append("report codes locked")
+            elif "pg_advisory_xact_lock" in sql:
                 order.append("sign-out chain locked")
             elif "INSERT INTO report_signouts" in sql:
                 order.append("signed")
@@ -346,6 +386,8 @@ def test_sign_out_keeps_writers_out_from_before_its_snapshot_until_it_commits(mo
         "snapshot read",
         "import jobs checked",
         "sign-out chain locked",
+        # Held to the commit, so no other sign-out takes the same report code meanwhile.
+        "report codes locked",
         "signed",
         "commit",
     ]
@@ -2423,7 +2465,16 @@ def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypat
     assert out["matches"] is False, out
     assert out["changed_sections"] == ["reported_structural_variants"]
     # Nor does it hold the unfinished imports, a section added after it too.
-    assert out["not_compared"] == ["structural_drift", "import_unfinished"]
+    assert out["not_compared"] == [
+        "structural_drift",
+        "import_unfinished",
+        # Nor what the analysis looked at, which records hold since 2026-10-14.
+        "variant_descriptions",
+        "gene_panels",
+        "reference_data",
+        "repeat_expansions",
+        "paraphase",
+    ]
     assert out["not_captured"] == []
 
 
@@ -2438,3 +2489,352 @@ def test_signout_check_flags_sv_evidence_that_drifted_after_sign_out(monkeypatch
     out = asyncio.run(rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()))
     assert out["matches"] is False
     assert out["changed_sections"] == ["structural_drift"]
+
+
+# ---------------------------------------------------------------------------
+# The signed analysis record (owner decisions of 2026-10-14)
+# ---------------------------------------------------------------------------
+#
+# A sign-out is the analytical sign-off: it freezes what the analysis looked at (the reported
+# variants' descriptions, the gene panels its searches applied, the reference-data releases,
+# the repeat expansions and the Paraphase results), says what it is, and carries a report
+# code the EPD report quotes.
+
+_PANEL = {
+    "panel_id": "33333333-3333-3333-3333-333333333333",
+    "name": "Epilepsy",
+    "version": 2,
+    "source": "panelapp",
+    "gene_count": 120,
+    "external_id": "402",
+    "external_version": "3.1",
+    "external_version_created": "2026-08-01",
+    "confidence_levels": ["3"],
+    "source_updated_at": "2026-09-01T08:00:00+00:00",
+    "first_applied_at": "2026-10-10T09:00:00+00:00",
+    "first_applied_by": "analyst",
+    "first_search": "small_variants",
+}
+
+
+def _with_sections(monkeypatch, **overrides) -> None:
+    async def _sections(session, *, context, reported, reported_structural):
+        return {**copy.deepcopy(_RECORD_SECTIONS), **copy.deepcopy(overrides)}
+
+    monkeypatch.setattr(rss, "build_record_sections", _sections)
+
+
+def test_the_snapshot_freezes_what_the_analysis_looked_at_and_what_the_record_is(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, gene_panels={"applied": [_PANEL]})
+    snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+
+    for section in RECORD_SECTIONS:
+        assert section.key in snapshot, section.key
+        # Each is report content: the sign-out check compares it.
+        assert section.key in rss.REPORT_CONTENT_SECTIONS
+    assert snapshot["gene_panels"] == {"applied": [_PANEL]}
+    assert snapshot["record_statement"] == (
+        "This record is the analytical sign-off in CoGA, which closes and freezes the analysis; "
+        "the medical sign-off of the patient report happens in the EPD, which refers to this "
+        "record by its report code."
+    )
+    # What the record is, not what it reports.
+    assert "record_statement" not in rss.REPORT_CONTENT_SECTIONS
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"gene_panels": {"applied": [{**_PANEL, "version": 3}]}},
+        {
+            "variant_descriptions": {
+                "small": [{"variant_id": "1-1-A-G", "genotypes": [{"sample": "P", "gt": "1/1"}]}],
+                "structural": [],
+            }
+        },
+        {"repeat_expansions": {"catalogue": {"loci": 1, "sources": [], "digest": "1" * 64}, "loci": []}},
+        {"paraphase": {"catalogue": {"regions": 1, "digest": "1" * 64}, "genes": []}},
+        {
+            "reference_data": {
+                "gene_reference": {"genes": [], "sources": [], "not_in_reference": []},
+                "clinical_cnvs": {"loaded_at": "2026-10-13"},
+            }
+        },
+    ],
+)
+def test_each_new_section_is_bound_into_the_content_hash_and_compared(monkeypatch, change) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _with_sections(monkeypatch, **change)
+    current = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert rss._canonical_hash(current) != rss._canonical_hash(signed)
+
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == list(change)
+
+
+def test_a_sign_out_carries_its_report_code(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    code = report_code("FAM1", 1, out["content_hash"])
+    assert code is not None and out["report_code"] == code
+    assert parse_report_code(code).version == 1
+    # On the clinical audit trail with the sign-out, in its summary and its record.
+    assert captured["after"]["report_code"] == code
+    assert f"report code {code}" in captured["summary"]
+    # As a detail read serves it.
+    assert ReportSignoutDetail.model_validate(out).report_code == code
+
+
+def test_a_report_code_another_record_has_is_never_given_again(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    asked: list[str] = []
+
+    async def _first_taken(session, code):
+        asked.append(code)
+        return len(asked) == 1  # the first code this sign-out makes is another record's
+
+    monkeypatch.setattr(rss, "_report_code_taken", _first_taken)
+    session = _Session()
+    out = asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+
+    assert len(asked) == 2 and asked[0] != asked[1]
+    assert out["report_code"] == asked[1]
+    # Signed a microsecond later: its own time, its own content hash, its own code.
+    [insert] = [args for args, _ in session.executed if "INSERT INTO report_signouts" in str(args[0])]
+    stored = json.loads(insert[1]["snapshot"])
+    assert stored["generated_at"] == out["signed_out_at"].isoformat()
+    assert rss._canonical_hash(stored) == out["content_hash"] == insert[1]["content_hash"]
+    assert report_code("FAM1", 1, out["content_hash"]) == asked[1]
+    # The lock every sign-out takes while it makes its code unique.
+    locks = [args[1].get("k") for args, _ in session.executed if "pg_advisory_xact_lock" in str(args[0])]
+    assert "report-code" in locks
+
+
+def test_a_listed_version_names_its_report_code() -> None:
+    row = {
+        "version": 2,
+        "signed_out_by": "lab-signer",
+        "signed_out_at": datetime(2026, 10, 14, 9, 0),
+        "content_hash": "ab" * 32,
+        "family_identifier": "FAM1",
+    }
+    assert rss._serialize_signout(row)["report_code"] == report_code("FAM1", 2, "ab" * 32)
+    # A row whose fields cannot make one names none, rather than a wrong one.
+    assert rss._serialize_signout({**row, "family_identifier": None})["report_code"] is None
+
+
+def test_a_record_signed_before_these_sections_still_verifies_and_reads(monkeypatch) -> None:
+    row = _pre_gate_row()
+    assert not {section.key for section in RECORD_SECTIONS} & set(row["snapshot"])
+    assert "record_statement" not in row["snapshot"]
+    chain = asyncio.run(rss.verify_report_signout_chain(_RowsSession([row]), "FAM1"))
+    assert chain.verified, chain
+
+    detail = _detail_of(monkeypatch, row)
+    assert detail["verified"] is True
+    # It has a report code: made from fields every record holds.
+    assert detail["report_code"] == report_code("FAM1", 1, _PRE_GATE_CONTENT_HASH)
+    # The sections it predates are not "not captured": the view says the record does not
+    # hold them, and the check does not compare them.
+    keys = {section.key for section in RECORD_SECTIONS}
+    assert not [gap for gap in detail["not_captured"] if gap["section"] in keys]
+
+
+# --- Finding a record by its report code -------------------------------------------------
+
+
+class _CodeSession:
+    """Answers the report-code candidates read with fixed rows."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+        self.params: list = []
+
+    async def execute(self, statement, params=None):
+        self.params.append(params)
+        rows = self.rows
+        return types.SimpleNamespace(
+            mappings=lambda: types.SimpleNamespace(
+                all=lambda: list(rows), first=lambda: rows[0] if rows else None
+            )
+        )
+
+
+_FAMILY_UUID = "44444444-4444-4444-4444-444444444444"
+_CONTENT_HASH = "5f" * 32
+
+
+def _code_row(**overrides) -> dict:
+    return {
+        "family_uuid": _FAMILY_UUID,
+        "family_identifier": "FAM1",
+        "version": 2,
+        "content_hash": _CONTENT_HASH,
+        "signed_out_at": datetime(2026, 10, 14, 9, 0),
+        "signed_out_by": "lab-signer",
+        **overrides,
+    }
+
+
+def _visible_family(monkeypatch, *, family_uuid: str = _FAMILY_UUID, raises: Exception | None = None) -> list:
+    asked: list = []
+
+    async def _ctx(session, *, family_identifier, user, project_id=None):
+        asked.append(family_identifier)
+        if raises is not None:
+            raise raises
+        return types.SimpleNamespace(family_uuid=family_uuid, family_id=family_identifier)
+
+    monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
+    return asked
+
+
+def test_a_report_code_finds_its_record(monkeypatch) -> None:
+    asked = _visible_family(monkeypatch)
+    code = report_code("FAM1", 2, _CONTENT_HASH)
+    assert code is not None
+    session = _CodeSession([_code_row(), _code_row(family_identifier="FAM9")])
+    # Typed back in lower case, with spaces.
+    out = asyncio.run(
+        rss.find_report_signout_by_code(session, code=code.lower().replace("-", " "), user=_user())
+    )
+    assert out == {
+        "report_code": code,
+        "family_id": "FAM1",
+        "version": 2,
+        "signed_out_at": datetime(2026, 10, 14, 9, 0),
+        "signed_out_by": "lab-signer",
+        "content_hash": _CONTENT_HASH,
+    }
+    # Opened through its family, as the user may open it.
+    assert asked == ["FAM1"]
+    # Read by its version and the content-hash prefix its code spells, never spliced in.
+    assert session.params == [{"version": 2, "prefix": _CONTENT_HASH[:3]}]
+
+
+def test_a_string_that_is_not_a_report_code_is_refused_as_a_typo(monkeypatch) -> None:
+    _visible_family(monkeypatch)
+    code = report_code("FAM1", 2, _CONTENT_HASH)
+    assert code is not None
+    position = next(index for index in range(len(code) - 1) if code[index] != code[index + 1] and "-" not in code[index:index + 2])
+    swapped = code[:position] + code[position + 1] + code[position] + code[position + 2:]
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.find_report_signout_by_code(_CodeSession([_code_row()]), code=swapped, user=_user()))
+    assert excinfo.value.status_code == 422
+    assert excinfo.value.detail["code"] == "report_code_invalid"
+    assert "mistyped" in excinfo.value.detail["message"]
+
+
+def test_an_unknown_and_an_inaccessible_report_code_answer_the_same_404(monkeypatch) -> None:
+    code = report_code("FAM1", 2, _CONTENT_HASH)
+    assert code is not None
+
+    _visible_family(monkeypatch)
+    with pytest.raises(HTTPException) as unknown:
+        asyncio.run(rss.find_report_signout_by_code(_CodeSession([]), code=code, user=_user()))
+
+    # The record exists, but its family is outside the caller's projects.
+    _visible_family(monkeypatch, raises=RecordNotVisible("family", "Family not found"))
+    with pytest.raises(HTTPException) as hidden:
+        asyncio.run(rss.find_report_signout_by_code(_CodeSession([_code_row()]), code=code, user=_user()))
+
+    assert unknown.value.status_code == hidden.value.status_code == 404
+    assert unknown.value.detail == hidden.value.detail == "No signed record has this report code."
+    # Only the audit tells them apart (REQ-SEC-001).
+    assert isinstance(hidden.value, RecordNotVisible) and hidden.value.kind == "family"
+    assert not isinstance(unknown.value, RecordNotVisible)
+
+
+def test_the_record_of_a_deleted_family_is_not_opened_by_its_code(monkeypatch) -> None:
+    code = report_code("FAM1", 2, _CONTENT_HASH)
+    assert code is not None
+    asked = _visible_family(monkeypatch)
+    with pytest.raises(HTTPException) as deleted:
+        asyncio.run(
+            rss.find_report_signout_by_code(_CodeSession([_code_row(family_uuid=None)]), code=code, user=_user())
+        )
+    assert (deleted.value.status_code, deleted.value.detail) == (404, "No signed record has this report code.")
+    assert asked == []
+
+    # Nor by a family made since under its identifier.
+    _visible_family(monkeypatch, family_uuid="55555555-5555-5555-5555-555555555555")
+    with pytest.raises(HTTPException) as recreated:
+        asyncio.run(rss.find_report_signout_by_code(_CodeSession([_code_row()]), code=code, user=_user()))
+    assert (recreated.value.status_code, recreated.value.detail) == (404, "No signed record has this report code.")
+
+
+def test_a_report_code_is_taken_only_by_the_record_it_names() -> None:
+    code = report_code("FAM1", 2, _CONTENT_HASH)
+    assert code is not None
+    # The autouse stub stands in for it elsewhere; here the real reader runs on fixed rows.
+    taken = _REPORT_CODE_TAKEN
+    assert asyncio.run(taken(_CodeSession([_code_row()]), code)) is True
+    # Same version and hash prefix, another family: another code.
+    assert asyncio.run(taken(_CodeSession([_code_row(family_identifier="FAM2")]), code)) is False
+    assert asyncio.run(taken(_CodeSession([]), code)) is False
+
+
+def test_a_family_that_is_gone_answers_like_an_unknown_code_and_other_errors_pass_through(monkeypatch) -> None:
+    code = report_code("FAM1", 2, _CONTENT_HASH)
+    assert code is not None
+    _visible_family(monkeypatch, raises=HTTPException(status_code=404, detail="Family not found"))
+    with pytest.raises(HTTPException) as gone:
+        asyncio.run(rss.find_report_signout_by_code(_CodeSession([_code_row()]), code=code, user=_user()))
+    assert (gone.value.status_code, gone.value.detail) == (404, "No signed record has this report code.")
+    assert not isinstance(gone.value, RecordNotVisible)
+
+    _visible_family(monkeypatch, raises=HTTPException(status_code=400, detail="Bad project"))
+    with pytest.raises(HTTPException) as other:
+        asyncio.run(rss.find_report_signout_by_code(_CodeSession([_code_row()]), code=code, user=_user()))
+    assert (other.value.status_code, other.value.detail) == (400, "Bad project")
+
+
+def test_the_list_of_signed_versions_names_each_ones_report_code(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    rows = [
+        {
+            "version": version,
+            "signed_out_by": "lab-signer",
+            "signed_out_at": datetime(2026, 10, 14, 9, version),
+            "content_hash": content_hash,
+            "family_identifier": "FAM1",
+        }
+        for version, content_hash in ((2, "ab" * 32), (1, "cd" * 32))
+    ]
+    out = asyncio.run(rss.list_report_signouts(_RowsSession(rows), family_id="FAM1", user=_user()))
+    assert [entry["report_code"] for entry in out["signouts"]] == [
+        report_code("FAM1", 2, "ab" * 32),
+        report_code("FAM1", 1, "cd" * 32),
+    ]
+    assert out["latest"]["report_code"] == report_code("FAM1", 2, "ab" * 32)
+
+
+def test_the_report_code_endpoint_serves_the_lookup(monkeypatch) -> None:
+    from backend.app.routers import report_codes
+
+    seen: dict = {}
+
+    async def _find(session, *, code, user):
+        seen["code"] = code
+        return {
+            "report_code": "7KQM2X-2-4PHT",
+            "family_id": "FAM1",
+            "version": 2,
+            "signed_out_at": datetime(2026, 10, 14, 9, 0),
+            "signed_out_by": "lab-signer",
+            "content_hash": _CONTENT_HASH,
+        }
+
+    monkeypatch.setattr(report_codes, "find_report_signout_by_code", _find)
+    out = asyncio.run(
+        report_codes.find_signed_record_by_report_code("7kqm2x-2-4pht", session=object(), user=_user())
+    )
+    assert seen == {"code": "7kqm2x-2-4pht"}
+    assert (out.family_id, out.version, out.report_code) == ("FAM1", 2, "7KQM2X-2-4PHT")
