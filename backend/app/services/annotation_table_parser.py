@@ -25,7 +25,8 @@ from .vcf_header_provenance import extract_vep_tab_provenance
 
 
 def _coerce_int(value: Any) -> int | None:
-    """Parse an integer, tolerating float-like text; None when unparseable/missing."""
+    """Parse an integer, tolerating float-like text; None when unparseable/missing, or
+    infinite (``inf``: OverflowError)."""
     if value is None or str(value).strip() in {"", "."}:
         return None
     try:
@@ -33,7 +34,7 @@ def _coerce_int(value: Any) -> int | None:
     except (TypeError, ValueError):
         try:
             return int(float(str(value).strip()))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return None
 
 

@@ -314,6 +314,14 @@ stored ones were deleted (the variant store failing part-way), the upload report
 family page shows *Import incomplete* for those calls, so the report can be signed out only with an
 acknowledgement, until they have been uploaded or imported again.
 
+A value the variant store cannot hold, or that is no number, never fails an upload or an import: it is
+stored as missing. A genotype quality written as `inf` or above 65,535, a negative phase set, or a
+QUAL beyond the store's largest decimal reads as absent, so a sample filter with a minimum genotype
+quality leaves such a call out, as it does a call without one. A read depth is kept as the file has it,
+up to 4,294,967,295 reads, so a deep mitochondrial or amplicon call keeps its depth. A record whose
+position the store cannot hold (a negative POS, an END beyond 4,294,967,295) is skipped and counted
+with the malformed records, and a track line with a negative start or end is left out.
+
 A structural-variant file holds one sample's calls from one caller: **Sniffles VCF**, **Spectre VCF** or
 **Manual TSV**, or **Auto detect**, which works the caller out from the file. CoGA keeps each caller's
 calls apart:

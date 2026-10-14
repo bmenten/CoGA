@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from datetime import datetime, timezone
 from typing import Any, Sequence
 
@@ -11,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
 from ..core.sql import uuid_list_bindparam, uuid_values
+from .clickhouse_column_bounds import UINT64, column_int
 from .clickhouse_variant_ids import _require_clickhouse_identifier
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
@@ -20,6 +22,8 @@ from .family_metadata_context import SampleMetadataContext
 # clickhouse_variant_storage._ensured_variant_table_assemblies).
 _ensured_interval_table_assemblies: set[str] = set()
 _ensure_interval_table_lock = asyncio.Lock()
+
+logger = logging.getLogger(__name__)
 
 
 def _interval_table_name(assembly_name: str) -> str:
@@ -90,7 +94,14 @@ def _metadata_filename(row: dict[str, Any]) -> str:
     return str(metadata.get("filename") or "")
 
 
-def _interval_row_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
+def _interval_row_tuple(row: dict[str, Any]) -> tuple[Any, ...] | None:
+    """The row as the table stores it, or None when the ``UInt64`` columns cannot hold its
+    start or end. Its other values are bound to their columns (SAFE-30): a phase set no
+    ``UInt64`` holds is stored as missing."""
+    start = column_int(row["start"], UINT64)
+    end = column_int(row["end"], UINT64)
+    if start is None or end is None:
+        return None
     return (
         str(row["family_id"]),
         str(row["sample_id"]),
@@ -98,21 +109,30 @@ def _interval_row_tuple(row: dict[str, Any]) -> tuple[Any, ...]:
         str(row.get("source") or "web"),
         _metadata_filename(row),
         normalize_chromosome(str(row["chr"])),
-        int(row["start"]),
-        int(row["end"]),
+        start,
+        end,
         None if row.get("record_id") in (None, "") else str(row.get("record_id")),
         None if row.get("value") is None else float(row["value"]),
         None if row.get("origin") in (None, "") else str(row.get("origin")),
         None if row.get("hap1") in (None, "") else str(row.get("hap1")),
         None if row.get("hap2") in (None, "") else str(row.get("hap2")),
-        None if row.get("ps") is None else int(row["ps"]),
+        column_int(row.get("ps"), UINT64),
         str(row.get("metadata_json") or "{}"),
     )
 
 
 async def insert_interval_track_rows(assembly_name: str, rows: Sequence[dict[str, Any]]) -> None:
+    """Write the track rows. A row whose start or end no column holds is left out: the
+    loaders that read files leave such a row out as malformed, and count it, before they
+    get here, so this only guards one that did not."""
     if not rows:
         return
+    stored = [row for row in map(_interval_row_tuple, rows) if row is not None]
+    if len(stored) < len(rows):
+        logger.warning(
+            "Left out %d interval-track row(s) whose start or end no ClickHouse column holds",
+            len(rows) - len(stored),
+        )
     await ensure_clickhouse_interval_table(assembly_name)
     await _execute(
         f"""
@@ -134,7 +154,7 @@ async def insert_interval_track_rows(assembly_name: str, rows: Sequence[dict[str
             metadata_json
         ) VALUES
         """,
-        data=[_interval_row_tuple(row) for row in rows],
+        data=stored,
     )
 
 
