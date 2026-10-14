@@ -525,3 +525,329 @@ describe('SampleQcCell sequencing-QC verdict', () => {
     },
   );
 });
+
+/**
+ * An embryo that appears only in the PGT pipeline's family tables: the QC import records its
+ * `pgt` entry alone (allele drop-out and drop-in, Mendelian concordance before and after
+ * imputation, as percentages), so it has no depth, N50 or report to show.
+ */
+const EMBRYO_PGT = {
+  allele_dropout_rate: 14.2,
+  allele_dropin_rate: 2.1,
+  mendelian_concordance: 41.3,
+  mendelian_concordance_imputed: 96.5,
+};
+
+/** The embryo metrics as the server serves them: in its catalogue's order, in %. */
+const ADO = {
+  metric_key: 'pgt.allele_dropout_rate',
+  label: 'Allele drop-out (ADO)',
+  unit: '%',
+  direction: 'higher_is_worse',
+  value: EMBRYO_PGT.allele_dropout_rate,
+} as const;
+const ADI = {
+  metric_key: 'pgt.allele_dropin_rate',
+  label: 'Allele drop-in (ADI)',
+  unit: '%',
+  direction: 'higher_is_worse',
+  value: EMBRYO_PGT.allele_dropin_rate,
+} as const;
+const CONCORDANCE = {
+  metric_key: 'pgt.mendelian_concordance',
+  label: 'Mendelian concordance before imputation',
+  unit: '%',
+  direction: 'lower_is_worse',
+  value: EMBRYO_PGT.mendelian_concordance,
+} as const;
+const IMPUTED_CONCORDANCE = {
+  metric_key: 'pgt.mendelian_concordance_imputed',
+  label: 'Mendelian concordance after imputation',
+  unit: '%',
+  direction: 'lower_is_worse',
+  value: EMBRYO_PGT.mendelian_concordance_imputed,
+} as const;
+
+type Limits = Pick<ApiSampleSequencingQcMetric, 'warn_value' | 'error_value' | 'verdict'>;
+const NO_LIMIT: Limits = { warn_value: null, error_value: null, verdict: 'skip' };
+const ADI_PASS: Limits = { warn_value: 5, error_value: 10, verdict: 'pass' };
+const IMPUTED_PASS: Limits = { warn_value: 95, error_value: 90, verdict: 'pass' };
+
+/** The four embryo metrics, each with its limits and its own verdict. */
+const embryoMetrics = (
+  ado: Limits,
+  adi: Limits = NO_LIMIT,
+  concordance: Limits = NO_LIMIT,
+  imputed: Limits = NO_LIMIT,
+): ApiSampleSequencingQcMetric[] => [
+  metric({ ...ADO, ...ado }),
+  metric({ ...ADI, ...adi }),
+  metric({ ...CONCORDANCE, ...concordance }),
+  metric({ ...IMPUTED_CONCORDANCE, ...imputed }),
+];
+
+const embryo = (
+  verdict: ApiSampleSequencingQcEvaluation | null,
+  pgt: Record<string, number> = EMBRYO_PGT,
+  extra: Record<string, unknown> = {},
+): ApiFamilyRecord['members'][number] => ({
+  ...judged(verdict, { sequencing_qc: { ...extra, pgt } }),
+  sample_id: 'EMB1',
+  role: 'embryo',
+});
+
+// CLIN-30: a sample whose recorded QC has no depth, N50 or report showed "-" even when the
+// server served a verdict, a fail included (REQ-QC-005). The chip now shows the verdict
+// with the value of the metric that decided it; where no metric decided it, the verdict
+// alone; the reason is in the tooltip, as on a chip with a depth.
+describe('SampleQcCell with a verdict but no depth, N50 or report', () => {
+  beforeEach(() => {
+    mockedGet.mockReset();
+    vi.spyOn(window, 'open').mockImplementation(() => null);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it.each([
+    {
+      state: 'fail',
+      verdict: evaluation(
+        'fail',
+        embryoMetrics({ warn_value: 8, error_value: 12, verdict: 'fail' }, ADI_PASS, NO_LIMIT, IMPUTED_PASS),
+      ),
+      text: 'Fail ADO 14.2%',
+      tone: 'table-chip--critical',
+      lead: 'Failed: Allele drop-out (ADO) 14.2% above 12%',
+    },
+    {
+      state: 'warn',
+      verdict: evaluation(
+        'warn',
+        embryoMetrics({ warn_value: 12, error_value: 20, verdict: 'warn' }, ADI_PASS, NO_LIMIT, IMPUTED_PASS),
+      ),
+      text: 'Warning ADO 14.2%',
+      tone: 'table-chip--warning',
+      lead: 'Warning: Allele drop-out (ADO) 14.2% above 12%',
+    },
+    {
+      state: 'pass',
+      verdict: evaluation(
+        'pass',
+        embryoMetrics({ warn_value: 20, error_value: 30, verdict: 'pass' }, ADI_PASS, NO_LIMIT, IMPUTED_PASS),
+      ),
+      text: 'ADO 14.2%',
+      tone: 'family-qc-chip--neutral',
+      lead: null,
+    },
+    {
+      state: 'not run (no limit configured)',
+      verdict: evaluation('skip', embryoMetrics(NO_LIMIT)),
+      text: 'Not run',
+      tone: 'table-chip--neutral',
+      lead: NOT_RUN_NO_LIMIT,
+    },
+    {
+      state: 'not run (no verdict served)',
+      verdict: null,
+      text: 'Not run',
+      tone: 'table-chip--neutral',
+      lead: NOT_RUN_NO_VERDICT,
+    },
+  ])('$state: an embryo with only its PGT metrics reads "$text"', async ({ verdict, text, tone, lead }) => {
+    render(<SampleQcCell familyId="PGT01" member={embryo(verdict)} />);
+
+    expect(screen.queryByText('-')).not.toBeInTheDocument();
+    const chip = screen.getByText(text);
+    // Nothing to open, so a static chip, in the tone of its verdict.
+    expect(chip).toHaveClass('table-chip', 'family-qc-chip-static', tone);
+    for (const other of TONES.filter((candidate) => candidate !== tone)) {
+      expect(chip).not.toHaveClass(other);
+    }
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+
+    await userEvent.hover(chip);
+    const tooltip = await screen.findByRole('tooltip');
+    if (lead) {
+      expect(breachSentence(tooltip)).toBe(lead);
+    } else {
+      expect(tooltip).not.toHaveTextContent(/Warning:|Failed:|Not run|not assessed/);
+    }
+    // Every embryo metric is listed, in its unit.
+    expect(tooltip).toHaveTextContent(
+      'ADO 14.2% · ADI 2.1% · Mendelian concordance 41.3% before, 96.5% after imputation',
+    );
+  });
+
+  it("shows the metric whose verdict is the sample's, not an earlier one with a milder verdict", async () => {
+    const verdict = evaluation(
+      'fail',
+      embryoMetrics(
+        { warn_value: 12, error_value: 20, verdict: 'warn' },
+        ADI_PASS,
+        NO_LIMIT,
+        { warn_value: 98, error_value: 97, verdict: 'fail' },
+      ),
+    );
+    render(<SampleQcCell familyId="PGT01" member={embryo(verdict)} />);
+
+    const chip = screen.getByText('Fail Imputed concordance 96.5%');
+    await userEvent.hover(chip);
+    // The tooltip names every breach, the warning included.
+    expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
+      'Failed: Allele drop-out (ADO) 14.2% above 12%; Mendelian concordance after imputation 96.5% below 97%',
+    );
+  });
+
+  it.each([
+    {
+      state: 'of two failing metrics, the first in the order the server lists them',
+      verdict: evaluation(
+        'fail',
+        embryoMetrics(
+          { warn_value: 8, error_value: 12, verdict: 'fail' },
+          { warn_value: 1, error_value: 2, verdict: 'fail' },
+        ),
+      ),
+      text: 'Fail ADO 14.2%',
+    },
+    {
+      state: 'a pass judged on a later metric only: that metric',
+      verdict: evaluation('pass', embryoMetrics(NO_LIMIT, NO_LIMIT, NO_LIMIT, IMPUTED_PASS)),
+      text: 'Imputed concordance 96.5%',
+    },
+    {
+      state: 'a warning on the concordance before imputation',
+      verdict: evaluation(
+        'warn',
+        embryoMetrics(NO_LIMIT, NO_LIMIT, { warn_value: 50, error_value: 20, verdict: 'warn' }),
+      ),
+      text: 'Warning Concordance 41.3%',
+    },
+    {
+      state: 'a fail on the allele drop-in',
+      verdict: evaluation('fail', embryoMetrics(NO_LIMIT, { warn_value: 1, error_value: 2, verdict: 'fail' })),
+      text: 'Fail ADI 2.1%',
+    },
+  ])('$state: "$text"', ({ verdict, text }) => {
+    render(<SampleQcCell familyId="PGT01" member={embryo(verdict)} />);
+
+    expect(screen.getByText(text)).toBeInTheDocument();
+  });
+
+  it('keeps the decimals that show the breach on the chip, as in the tooltip', async () => {
+    const pgt = { ...EMBRYO_PGT, allele_dropout_rate: 12.04 };
+    const verdict = evaluation('fail', [
+      metric({ ...ADO, value: 12.04, warn_value: 8, error_value: 12, verdict: 'fail' }),
+    ]);
+    render(<SampleQcCell familyId="PGT01" member={embryo(verdict, pgt)} />);
+
+    // Rounded to one decimal it would read 12.0%, on the limit it crossed.
+    const chip = screen.getByText('Fail ADO 12.04%');
+    await userEvent.hover(chip);
+    expect(breachSentence(await screen.findByRole('tooltip'))).toBe(
+      'Failed: Allele drop-out (ADO) 12.04% above 12%',
+    );
+  });
+
+  it('rounds a passing value as the metric list does: no limit was crossed to stay past', () => {
+    const pgt = { ...EMBRYO_PGT, allele_dropout_rate: 4.123 };
+    const verdict = evaluation('pass', [
+      metric({ ...ADO, value: 4.123, warn_value: 20, error_value: 30, verdict: 'pass' }),
+    ]);
+    render(<SampleQcCell familyId="PGT01" member={embryo(verdict, pgt)} />);
+
+    expect(screen.getByText('ADO 4.1%')).toBeInTheDocument();
+  });
+
+  it('names a metric the chip has no short name for by the label the server serves', () => {
+    const verdict = evaluation('fail', [
+      metric({ ...DUPLICATES, value: 25, warn_value: 12, error_value: 20, verdict: 'fail' }),
+    ]);
+    render(
+      <SampleQcCell
+        familyId="pacbio"
+        member={judged(verdict, { sequencing_qc: { alignment: { duplicated_reads_percent: 25 } } })}
+      />,
+    );
+
+    expect(screen.getByText('Fail Duplicate reads 25.0%')).toBeInTheDocument();
+  });
+
+  it('opens the report from such a chip when the sample has one', async () => {
+    mockedGet.mockResolvedValue({ data: { url: '/families/PGT01/qc-report/EMB1?token=abc' } });
+    const user = userEvent.setup();
+    const verdict = evaluation('fail', embryoMetrics({ warn_value: 8, error_value: 12, verdict: 'fail' }, ADI_PASS));
+    render(
+      <SampleQcCell
+        familyId="PGT01"
+        member={embryo(verdict, EMBRYO_PGT, { report: 'qualimap/EMB1/qualimapReport.html' })}
+      />,
+    );
+
+    const chip = screen.getByRole('button', { name: 'Fail ADO 14.2%' });
+    expect(chip).toHaveClass('table-chip', 'family-qc-chip', 'table-chip--critical');
+    await user.click(chip);
+    await waitFor(() => expect(mockedGet).toHaveBeenCalledWith('/families/PGT01/qc-report/EMB1/link'));
+    await waitFor(() =>
+      expect(window.open).toHaveBeenCalledWith(
+        '/api/families/PGT01/qc-report/EMB1?token=abc',
+        '_blank',
+        'noopener,noreferrer',
+      ),
+    );
+  });
+
+  it('names the breach when the chip takes keyboard focus', async () => {
+    const user = userEvent.setup();
+    const verdict = evaluation('fail', embryoMetrics({ warn_value: 8, error_value: 12, verdict: 'fail' }));
+    render(<SampleQcCell familyId="PGT01" member={embryo(verdict)} />);
+
+    await user.tab();
+    const chip = screen.getByText('Fail ADO 14.2%');
+    expect(chip).toHaveFocus();
+    const tooltip = await screen.findByRole('tooltip');
+    expect(breachSentence(tooltip)).toBe('Failed: Allele drop-out (ADO) 14.2% above 12%');
+    expect(chip).toHaveAccessibleDescription(tooltip.textContent ?? '');
+  });
+
+  it.each([
+    { state: 'pass', text: 'Pass', tone: 'family-qc-chip--neutral' },
+    { state: 'warn', text: 'Warning', tone: 'table-chip--warning' },
+    { state: 'fail', text: 'Fail', tone: 'table-chip--critical' },
+  ] as const)('$state with no metric to show: the verdict alone, "$text", never "-"', ({ state, text, tone }) => {
+    // The member came with no recorded QC, and the verdict names no metric.
+    render(<SampleQcCell familyId="PGT01" member={judged(evaluation(state, []), {})} />);
+
+    expect(screen.queryByText('-')).not.toBeInTheDocument();
+    expect(screen.getByText(text)).toHaveClass('table-chip', 'family-qc-chip-static', tone);
+  });
+
+  it('reads Not run for recorded QC the server judged nothing of, and "-" only for none', async () => {
+    const { unmount } = render(
+      <SampleQcCell
+        familyId="PGT01"
+        member={judged(null, {
+          sequencing_qc: { sex_check: { method: 'ngs-bits SampleGender', inferred_sex: 'female' } },
+        })}
+      />,
+    );
+
+    const chip = screen.getByText('Not run');
+    await userEvent.hover(chip);
+    const tooltip = await screen.findByRole('tooltip');
+    expect(breachSentence(tooltip)).toBe(NOT_RUN_NO_VERDICT);
+    expect(tooltip).toHaveTextContent('sex read as female (ngs-bits SampleGender)');
+    unmount();
+
+    // Nothing the chip can show: no verdict, and no number, recorded metric or report.
+    render(
+      <SampleQcCell
+        familyId="PGT01"
+        member={judged(null, { sequencing_qc: { reads: { quality_cutoffs: { q20: { reads: 1 } } } } })}
+      />,
+    );
+    expect(screen.getByText('-')).toBeInTheDocument();
+  });
+});

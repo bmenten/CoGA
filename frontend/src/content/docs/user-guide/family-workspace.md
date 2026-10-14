@@ -25,8 +25,10 @@ One row per person: role, parents, partner, **Related to**, status, HPO terms an
 with the sequencing QC verdict and mean depth (hover or focus it for the metrics). A passing chip shows
 the number alone; any other state is a word on the chip: *Warning* or *Fail* when a metric crossed its
 limit, which the tooltip names, and *Not run* when the sample's QC was not assessed (no limit set for
-any of its metrics, or no verdict returned), which is never a pass. In a PGT family each embryo also
-shows its derived call (see [Haplotype segregation](#haplotype-segregation)).
+any of its metrics, or no verdict returned), which is never a pass. An embryo whose QC holds only the
+PGT pipeline's embryo metrics has no depth to show: its chip gives the value of the metric that decided
+the verdict (*Fail ADO 14.2%*), or *Not run* alone. In a PGT family each embryo also shows its derived
+call (see [Haplotype segregation](#haplotype-segregation)).
 
 **Related to** names the member through whom a person is related by an unknown degree, such as a PGT
 index known to be on the mother's side, or both parents. The pedigree draws the link as a dotted arc
