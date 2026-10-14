@@ -576,8 +576,9 @@ gcloud storage cp -r data/ref-data/* "gs://${REFDATA}/"
 gcloud storage cp dbNSFP5.4_gene.gz "gs://${REFDATA}/"
 ```
 
-If the HPO ontology is missing there, the startup bootstrap downloads it to a temporary
-directory.
+If the HPO ontology is missing there, the startup bootstrap downloads the same pinned
+release to a temporary directory, and imports it only if its SHA-256 is the vendored
+file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
 
 ---
 

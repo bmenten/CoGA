@@ -705,6 +705,7 @@ def test_ensure_authorized_hpo_ontology_path_rejects_traversal_escape() -> None:
 def test_the_bootstrap_download_falls_back_to_a_writable_directory(monkeypatch, tmp_path) -> None:
     # Cloud Run mounts /data/ref-data read-only (#520); the ontology is only needed until
     # it is imported, so the download lands in a temporary directory instead.
+    import hashlib
     import io
     import tempfile
 
@@ -729,6 +730,7 @@ def test_the_bootstrap_download_falls_back_to_a_writable_directory(monkeypatch, 
         written = svc._download_hpo_ontology_file(
             "https://purl.obolibrary.org/obo/hp.obo",
             [read_only / "hpo" / "hp.obo", writable],
+            expected_sha256=hashlib.sha256(payload).hexdigest(),
         )
     finally:
         read_only.chmod(0o700)

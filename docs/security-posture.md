@@ -132,11 +132,14 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   any throttling or hashing. The device owner confirmed this policy (#626).
 - ✅ **Reference routers need a signed-in user**, the species list included. Reference data
   (genes, assemblies, the CNV catalogue) is not project-scoped: it is public and not PHI.
-- ✅ **Outbound downloads.** The HPO bootstrap downloads over HTTPS only, capped in size,
-  checked to be an OBO file, optionally pinned by `HPO_ONTOLOGY_SHA256` (the digest is logged
-  either way) and written atomically. The clinical-CNV knowledgebase script runs with an
-  allowlisted environment: no database passwords, signing keys or cloud credentials;
-  `OMIM_API_KEY` is its one credential.
+- ✅ **Outbound downloads.** The HPO bootstrap downloads only when it finds no ontology file:
+  over HTTPS only, capped in size and checked to be an OBO file. It fetches the vendored
+  file's release from its versioned URL and uses the file only if its SHA-256 is the vendored
+  file's (`HPO_ONTOLOGY_SHA256`, whose blank value is that pin); another file is refused and
+  logged before anything is written. An accepted file is written atomically
+  ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
+  The clinical-CNV knowledgebase script runs with an allowlisted environment: no database
+  passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential.
 - 🟡 **QC-report links** carry a 5-minute token, scoped to the family and sample, in the query
   string, because a browser navigation cannot send a bearer token. The report is served with
   `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and a sandbox CSP; the token is
