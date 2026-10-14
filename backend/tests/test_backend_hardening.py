@@ -56,7 +56,6 @@ def _serve(monkeypatch, payload: bytes) -> None:
 def test_the_hpo_ontology_is_only_fetched_over_https(tmp_path) -> None:
     with pytest.raises(RuntimeError, match="non-HTTPS"):
         hpo_service._download_hpo_ontology_file("http://purl.obolibrary.org/obo/hp.obo", [tmp_path / "hp.obo"])
-    assert hpo_service.DEFAULT_HPO_ONTOLOGY_URL.startswith("https://")
     assert settings.hpo_ontology_url.startswith("https://")
 
 

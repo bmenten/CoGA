@@ -9,7 +9,18 @@ import asyncio
 import hashlib
 from pathlib import Path
 
+import pytest
+
+from app.core.config import settings
 from app.services import raw_import_files_pg as rif
+
+
+@pytest.fixture(autouse=True)
+def _files_under_an_import_root(monkeypatch, tmp_path) -> None:
+    """The local files verified here lie in ``tmp_path``, made an import root: Verify and
+    the list read a recorded path only inside the folders CoGA reads source files from
+    (SEC-29). A test of a file in an object store sets the bucket's root instead."""
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
 
 
 def _sha256_of(path: Path) -> str:
@@ -78,7 +89,6 @@ def test_verify_reports_unverifiable_without_a_recorded_checksum(tmp_path):
 # missing. Verify asks the store instead, and compares the object with what was
 # recorded at import -- without re-hashing, since an alignment is tens of GB.
 
-import pytest  # noqa: E402
 from fastapi import HTTPException  # noqa: E402
 
 from app.routers import admin  # noqa: E402

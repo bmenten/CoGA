@@ -135,7 +135,7 @@ change a prior classification ([clinical-traceability.md](../clinical-traceabili
 | SpliceAI | Splice prediction | manifest | Model version |
 | GenCC | Gene-disease validity | reference import | Release |
 | PanelApp | Gene panels | reference import | Release |
-| HPO | Phenotype ontology | reference import | Release |
+| HPO | Phenotype ontology | reference import | Release pinned: the vendored `hp.obo`; a startup download must match its SHA-256 ([README](../../data/ref-data/hpo/README.md)) |
 | Monarch | Gene-disease/phenotype | `monarch_gene_disease.release_version` | Release |
 | ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date |
 | AlphaMissense | Missense pathogenicity prediction | VEP plugin, per-family manifest | Model version |

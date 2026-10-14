@@ -51,6 +51,7 @@ from .sex_chromosomes import (
     hemizygous_chromosome,
     pseudoautosomal_regions,
 )
+from .sv_copy_change import copy_change
 from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
@@ -1871,7 +1872,16 @@ def _structural_variant_out(
     cytoband: str | None = None,
     *,
     track_mode: bool = False,
+    pedigree: FamilyPedigree | None = None,
 ) -> VariantOut:
+    """One SV row as the API serves it, with the calls of ``selected_samples`` (every call
+    when it is empty).
+
+    ``copy_change`` reads the calls the row lists, so a track, which asks for one sample,
+    gets that sample's change: a CNV with one copy in the mother and three in her son is a
+    loss on her track and a gain on his. ``pedigree`` names the males, who carry one copy
+    of chrX and chrY outside the PARs; without it every sample is read as having two copies.
+    """
     allowed_samples = set(selected_samples)
     calls = [call for call in record.calls if not allowed_samples or call.sample in allowed_samples]
     length = structural_variant_length(sv_len=record.sv_len, start=record.start, end=record.end)
@@ -1911,6 +1921,16 @@ def _structural_variant_out(
             )
             for call in calls
         ],
+        # Drawn by the genome, chromosome and Circos views, which matched exact type names
+        # and so drew no DEL:ME, DUP:TANDEM or CNV (CLIN-54).
+        copy_change=copy_change(
+            record.sv_type,
+            [(call.sample, call.gt, call.copy_number) for call in calls],
+            chrom=record.chr,
+            start=record.start,
+            end=record.end,
+            pedigree=pedigree,
+        ),
     )
 
 

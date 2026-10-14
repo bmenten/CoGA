@@ -58,8 +58,16 @@ export const cnvGeneCountHint = (type?: string | null): string =>
     ? 'Count every protein-coding gene wholly or partially within the event.'
     : 'Count only genes disrupted by a breakpoint — fully contained genes keep their copy number for inversions, translocations and insertions.';
 
-export const evaluateCnv = (input: CnvVariantInput): CnvSuggestion[] => {
-  const kind = cnvKindForType(input.type);
+/**
+ * The criteria to pre-select for the SV scored as `kind`, by default the kind of its type.
+ * The dialog asks for each kind on its own: the two kinds tier section 3 differently and only
+ * a loss takes 2H from the pLI, and seeding both from the type's kind carried a loss's 3B
+ * (+0.45 at 25–34 genes) and its 2H note into a switch to gain (CLIN-55).
+ */
+export const evaluateCnv = (
+  input: CnvVariantInput,
+  kind: CnvKind = cnvKindForType(input.type),
+): CnvSuggestion[] => {
   const map = cnvCriterionMap(kind);
   const out: CnvSuggestion[] = [];
   const hasGene = Boolean(input.gene && input.gene.trim());

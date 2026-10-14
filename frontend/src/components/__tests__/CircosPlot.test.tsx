@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import CircosPlot, {
   TELOMERE_CORNER_RADIUS,
   type Chromosome,
@@ -133,5 +133,75 @@ describe('CircosPlot', () => {
     expect(
       screen.getByRole('img', { name: 'Circos plot of 2 chromosomes; too many structural variants to draw' }),
     ).toBeInTheDocument();
+  });
+
+  // CLIN-54: the plot drew a DEL:ME, a DUP:TANDEM or a CNV as a type it did not know, thin and
+  // grey, and a TRA as a plain link, not as the breakend it is.
+  describe('draws an SV as the SV tracks do (CLIN-54)', () => {
+    const colours = {
+      '--color-variant-del': 'rgb(141, 63, 68)',
+      '--color-variant-dup': 'rgb(85, 111, 135)',
+      '--color-variant-bnd': 'rgb(68, 98, 94)',
+      '--color-variant-default': 'rgb(128, 128, 128)',
+    };
+    afterEach(() => {
+      Object.keys(colours).forEach((name) => document.documentElement.style.removeProperty(name));
+    });
+
+    it('a DEL:ME and a CNV loss as deletions, a DUP:TANDEM as a duplication, a TRA as a breakend and any other type as other', () => {
+      Object.entries(colours).forEach(([name, value]) => document.documentElement.style.setProperty(name, value));
+      const variants: Variant[] = [
+        { chr: '1', start: 10, end: 20, type: 'DEL:ME', copy_change: 'loss' },
+        { chr: '1', start: 30, end: 40, type: 'CNV', copy_change: 'loss' },
+        { chr: '1', start: 50, end: 60, type: 'DUP:TANDEM', copy_change: 'gain' },
+        { chr: '1', start: 70, type: 'TRA', remote_chr: '2', remote_start: 30 },
+        // A CNV that keeps its carriers' copies, and a type no row names.
+        { chr: '2', start: 10, end: 20, type: 'CNV' },
+        { chr: '2', start: 40, end: 50, type: 'CPX' },
+      ];
+      const onVariantClick = vi.fn();
+      const { container } = render(
+        <CircosPlot
+          chromData={twoChroms}
+          selected={{ '1': true, '2': true }}
+          variants={variants}
+          onVariantClick={onVariantClick}
+        />,
+      );
+
+      expect(
+        screen.getByRole('img', {
+          name: 'Circos plot of 6 structural variants across 2 chromosomes: 2 DEL, 1 DUP, 1 BND, 2 other',
+        }),
+      ).toBeInTheDocument();
+      const links = [...container.querySelectorAll<SVGPathElement>('path.circos-variant')];
+      expect(links.map((link) => [link.getAttribute('stroke'), link.getAttribute('stroke-width')])).toEqual([
+        [colours['--color-variant-del'], '15'],
+        [colours['--color-variant-del'], '15'],
+        [colours['--color-variant-dup'], '15'],
+        [colours['--color-variant-bnd'], '1'],
+        [colours['--color-variant-default'], '1'],
+        [colours['--color-variant-default'], '1'],
+      ]);
+      // A breakend opens its two chromosomes; the TRA is one.
+      fireEvent.click(links[3]);
+      expect(onVariantClick).toHaveBeenCalledWith(variants[3]);
+      fireEvent.click(links[5]);
+      expect(onVariantClick).toHaveBeenCalledTimes(1);
+      // The legend names the neutral colour too.
+      expect(screen.getByText('Other')).toBeInTheDocument();
+    });
+
+    it('names a CNV in its tooltip with the copy change it is drawn by', () => {
+      const { container } = render(
+        <CircosPlot
+          chromData={twoChroms}
+          selected={{ '1': true, '2': true }}
+          variants={[{ chr: '1', start: 30, end: 40, type: 'cnv', copy_change: 'gain' }]}
+        />,
+      );
+      fireEvent.mouseOver(container.querySelector('path.circos-variant') as Element);
+      expect(document.querySelector('.circos-tooltip strong')?.textContent).toBe('CNV (copy-number gain)');
+    });
   });
 });
