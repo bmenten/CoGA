@@ -178,7 +178,8 @@ def test_a_breakend_has_its_mate_whatever_its_svtype_says(info: str, sv_type: st
         pytest.param("N", "<DUP:TANDEM>", "SVTYPE=DUP;SVLEN=500;End_Pos=20500;", "DUP", 20500, 500, id="DUP:TANDEM"),
         pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", "INS", 20300, 300, id="INS"),
         pytest.param("N", "<INV>", "", "INV", 20001, None, id="INV-without-SVTYPE"),
-        pytest.param("A" + "C" * 60, "A", "End_Pos=20060;", "DEL", 20060, None, id="sequence-deletion"),
+        # Without SVLEN, a sequence allele is stored with the length its alleles state (CLIN-41).
+        pytest.param("A" + "C" * 60, "A", "End_Pos=20060;", "DEL", 20060, -60, id="sequence-deletion"),
     ],
 )
 def test_a_record_that_names_no_mate_keeps_none(

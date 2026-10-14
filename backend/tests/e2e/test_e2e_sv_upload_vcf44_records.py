@@ -1,11 +1,15 @@
-"""An uploaded SV record without END or SVTYPE is read as VCF 4.4 defines it (E2E, CLIN-33, CLIN-37).
+"""An uploaded SV record without END, SVTYPE or SVLEN is read as VCF 4.4 defines it (E2E,
+CLIN-33, CLIN-37, CLIN-41).
 
-VCF 4.4 lets a structural-variant record leave END and SVTYPE out. The Sniffles and Spectre
-uploads read a record without END as ending at its POS, and took a record without SVTYPE to
-be of the type its ALT spells: a deletion written with SVLEN alone lay on one base, so a
-search for a gene it deletes downstream of its POS, or for a region inside it, missed it; a
-breakend was stored as of type ``N]5:3000000]``, which the type filter and the
-translocation rule of the length filters do not know.
+VCF 4.4 lets a structural-variant record leave END and SVTYPE out, and writes SVLEN ``.`` for
+a sequence allele. The Sniffles and Spectre uploads read a record without END as ending at its
+POS, and took a record without SVTYPE to be of the type its ALT spells: a deletion written
+with SVLEN alone lay on one base, so a search for a gene it deletes downstream of its POS, or
+for a region inside it, missed it; a breakend was stored as of type ``N]5:3000000]``, which
+the type filter and the translocation rule of the length filters do not know. And a call
+without SVLEN was measured by END − POS: an insertion written as its sequence, its END at its
+POS, was 0 bp, so a minimum length dropped it (CLIN-41; the owner's decision, 2026-10-14: such
+a call is measured by its alleles).
 
 The family here is its own, created through the PED upload under a new id each run, so the
 golden trio is never touched; a gene row, E2E_SPANNED on 1:30500-30800, is seeded for the
@@ -21,7 +25,9 @@ the family SV search (``GET /families/{family_id}/structural-variants``) reads i
 * a 5 kb insertion at 1:80000 (``<INS>``, SVLEN 5000) stays on its POS: it spans no
   reference base;
 * a sequence-resolved 100 bp deletion at 1:90000 (REF 101 bases, ALT its first) is a DEL
-  on 1:90000-90100.
+  on 1:90000-90100, listed as -100 bp and found by an exact length of 100;
+* a sequence-resolved 350 bp insertion at 1:95000 (ALT its REF and 350 bases, SVLEN ``.``)
+  is an INS on its POS, listed as 350 bp, kept by a 50 bp minimum and found by an exact 350.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for the
 API (see test_e2e_api_contract.py for why); app exceptions come back as a 500 response rather
@@ -41,12 +47,14 @@ pytestmark = pytest.mark.integration
 _GENE = "E2E_SPANNED"
 _SEEDED_GENE_ID = "E2E_SV_UPLOAD_VCF44"
 _SEQUENCE_DELETION_REF = "A" + "C" * 100
+_SEQUENCE_INSERTION_ALT = "A" + "T" * 350
 
 # Each SV of the child's upload as stored: (type, start, end).
 _DEL = ("DEL", 30000, 31000)
 _BND = ("BND", 60000, 60000)
 _INS = ("INS", 80000, 80000)
 _SEQUENCE_DEL = ("DEL", 90000, 90100)
+_SEQUENCE_INS = ("INS", 95000, 95000)
 
 _SEARCHES: dict[str, dict[str, object]] = {
     "all": {},
@@ -56,6 +64,9 @@ _SEARCHES: dict[str, dict[str, object]] = {
     "bnd": {"type": "BND"},
     "del": {"type": "DEL"},
     "min_10mb": {"min_length": 10_000_000},
+    "min_50": {"min_length": 50},
+    "exact_350": {"length": 350},
+    "exact_100": {"length": 100},
 }
 
 
@@ -71,6 +82,7 @@ def _vcf(child: str) -> bytes:
         "1\t60000\tSniffles2.BND.2\tN\tN]5:3000000]\t50\tPASS\tSUPPORT=8\tGT\t0/1\n"
         "1\t80000\tSniffles2.INS.3\tN\t<INS>\t45\tPASS\tSVLEN=5000;SUPPORT=9\tGT\t0/1\n"
         f"1\t90000\tSniffles2.DEL.4\t{_SEQUENCE_DELETION_REF}\tA\t40\tPASS\tSUPPORT=7\tGT\t0/1\n"
+        f"1\t95000\tSniffles2.INS.5\tA\t{_SEQUENCE_INSERTION_ALT}\t40\tPASS\tSVLEN=.;SUPPORT=6\tGT\t0/1\n"
     ).encode()
 
 
@@ -189,13 +201,13 @@ def test_the_family_is_created_and_the_childs_vcf_uploaded(run) -> None:
     assert run["ped"]["status"] == 200, run["ped"]["text"]
     upload = run["upload"]
     assert upload["status"] == 200, upload["text"]
-    assert (upload["json"]["processed"], upload["json"]["created"]) == (4, 4)
+    assert (upload["json"]["processed"], upload["json"]["created"]) == (5, 5)
 
 
 def test_each_record_is_stored_where_vcf_4_4_puts_it(run) -> None:
     # Before: every record on its POS alone, the breakend of type "N]5:3000000]" and the
     # sequence-resolved deletion of type "ACCC…" (its REF's bases).
-    assert _found(run, "all") == {_DEL, _BND, _INS, _SEQUENCE_DEL}
+    assert _found(run, "all") == {_DEL, _BND, _INS, _SEQUENCE_DEL, _SEQUENCE_INS}
 
 
 def test_the_deletion_is_listed_with_the_gene_it_spans(run) -> None:
@@ -226,3 +238,26 @@ def test_a_type_search_finds_both_deletions(run) -> None:
 
 def test_the_breakend_as_a_translocation_passes_any_minimum_length(run) -> None:
     assert _found(run, "min_10mb") == {_BND}
+
+
+def _lengths(run: dict, name: str) -> dict[tuple[str, int, int], int]:
+    return {(variant["type"], variant["start"], variant["end"]): variant["length"] for variant in _variants(run, name)}
+
+
+def test_a_call_without_svlen_is_listed_with_the_length_its_alleles_state(run) -> None:
+    # Before: the sequence insertion 0 bp and the sequence deletion 100, their END − POS.
+    lengths = _lengths(run, "all")
+    assert (lengths[_SEQUENCE_INS], lengths[_SEQUENCE_DEL]) == (350, -100)
+    # A call that writes SVLEN shows it as written.
+    assert (lengths[_DEL], lengths[_INS]) == (1000, 5000)
+
+
+def test_a_minimum_length_keeps_the_sequence_insertion(run) -> None:
+    # Before: the sequence insertion, 0 bp, was dropped.
+    assert _found(run, "min_50") == {_DEL, _BND, _INS, _SEQUENCE_DEL, _SEQUENCE_INS}
+
+
+@pytest.mark.parametrize(("name", "expected"), [("exact_350", _SEQUENCE_INS), ("exact_100", _SEQUENCE_DEL)])
+def test_an_exact_length_finds_a_sequence_allele_by_its_alleles(run, name, expected) -> None:
+    # Before: the insertion was 0 bp; the deletion, 100 bp by its END − POS, was found.
+    assert _found(run, name) == {expected}

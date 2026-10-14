@@ -14,10 +14,11 @@ the affected members as carriers. Its filters are **Phenotype**, **Inheritance a
 the same phenotype score as small variants. **Clear all filters** removes the default.
 
 **Min length** and **Exact length**, under **Class and Breakpoints**, measure an SV by the **Length**
-the list shows, without the minus sign of a deletion: the caller's SVLEN, or the end minus the start
-when the caller gives no SVLEN. An insertion is as long as the sequence it inserts, although most callers
-write its end at its start. A translocation (BND, TRA) has no length: every minimum keeps it, and no
-exact length finds it.
+the list shows, without the minus sign of a deletion: the caller's SVLEN; for a call written as its
+sequence without an SVLEN (as VCF 4.4 writes one), the bases it inserts or deletes; otherwise the end
+minus the start. An insertion is as long as the sequence it inserts, although most callers write its end
+at its start. A translocation (BND, TRA) has no length: every minimum keeps it, and no exact length
+finds it.
 
 A filtered search reads at most 50,000 SVs of the callset before it applies the filters, and with
 **Phenotype prioritization** on (the default) it ranks at most 5,000 of the SVs that match. When a

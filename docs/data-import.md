@@ -1039,8 +1039,9 @@ calls are checked and replaced:
   with no column for the sample (another member's, or a joint VCF without it) or with two, and
   a VCF without exactly one `#CHROM` line before its records, is refused (400) before anything
   is read or replaced. A manual TSV has no sample column: each of its rows is the sample's
-  call. Nor has it an SVLEN, so the SV length filters measure a TSV call by its END minus
-  POS: an insertion with its END at its POS is 0 bp to them.
+  call. Nor has it an SVLEN, so the SV length filters measure a TSV call by its alleles when
+  its REF and ALT are sequences (below), and otherwise by its END minus POS: an insertion
+  written `N`, `<INS>` with its END at its POS is 0 bp to them.
 - A Sniffles or Spectre record without END, or with END `.`, ends where VCF 4.4 puts it: at
   POS + SVLEN (its sign dropped) for a `<DEL>`, `<DUP>`, `<INV>` or `<CNV>` allele, subtypes
   included, and at POS + the length of REF − 1 for any other allele (an `<INS>`, a
@@ -1052,6 +1053,20 @@ calls are checked and replaced:
   `DUP:TANDEM`), BND for breakend notation (`N]5:3000000]`, or a single breakend such as
   `G.`), INS or DEL for a sequence longer or shorter than REF, and `SV` when the ALT states
   none. A package's NeedlR, HiFiCNV and chrM Sniffles2 files take a missing type the same way.
+- A record without SVLEN, or with SVLEN `.` (VCF 4.4 writes SVLEN for a symbolic allele
+  only), that is written as a sequence allele, REF and ALT bases of other lengths, is stored
+  with the length its alleles state: len(ALT) − len(REF), the bases an insertion inserts, or
+  those a deletion deletes as a negative number, as Sniffles2 and pbsv write a deletion's
+  SVLEN (CLIN-41; the owner's decision, 2026-10-14). The SV list, its CSV export and the
+  report sentence show that length, and the length filters measure it. Measured by END −
+  POS, an insertion written so was 0 bp and a minimum length dropped it. A written SVLEN is
+  kept as written; a symbolic allele, a breakend, or alleles as long as each other without
+  one are still measured by END − POS; the record's END and its SV id do not change. A
+  package's NeedlR, HiFiCNV and chrM Sniffles2 files are stored by the same rule, so a
+  sequence deletion written without END or SVLEN is as long there as its alleles, where it
+  was one base (NeedlR, HiFiCNV) or of no length (the mtDNA page); their END rule is
+  unchanged. An SV stored before this rule keeps the length it was stored with until its
+  file is uploaded or imported again.
 - A breakend (a record of type BND) keeps its mate, the position its ALT names in brackets:
   `N]5:3000000]` has its mate on 5:3000000. The SV list has it in its *Remote chr* and
   *Remote start* columns, and so does its CSV export, beside the locus (empty for an SV

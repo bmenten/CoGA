@@ -244,7 +244,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
-| `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`, null without one; the SV length filters measure it), the full annotation |
+| `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`; the SV length filters measure it), the full annotation. A call written as a sequence allele without SVLEN (VCF 4.4 writes it `.`) is stored with the length its alleles state, len(ALT) − len(REF), negative for a deletion (CLIN-41); any other call without SVLEN is stored with none and measured by END − POS. A call stored before that rule keeps its stored value until its file is imported again |
 | `SV/key_lookup` | maps a family's variant ids, per source, to their internal keys |
 | `SV/entries` | the structural-variant calls per family and sample |
 | `SV/family_data_version` | one token per change to a family's structural variants (below) |
