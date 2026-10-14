@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.coga_logging import scrub_log
 from .annotation_table_parser import VepAnnotationLookup, _coerce_int, _parse_vep_tsv_annotation_lines
 from .bed_service import get_track_presence_by_sample
+from .clickhouse_column_bounds import UINT32, column_float32, column_int
 from .upload_safety import decode_upload_text
 from .clickhouse_variant_records import (
     SmallVariantCall,
@@ -264,13 +265,12 @@ def _parse_int_list(value: str | None) -> list[int]:
 
 
 def _parse_qual(value: str | None) -> float | None:
-    """Parse the site-level VCF QUAL column (a float, or '.'/'' when missing)."""
+    """Parse the site-level VCF QUAL column (a float, or '.'/'' when missing); None, as
+    missing, for a QUAL that is no finite number (``inf``, ``nan``), as the other loaders
+    read one, or that no Float32 column holds (SAFE-30)."""
     if value in (None, ".", ""):
         return None
-    try:
-        return float(value)
-    except ValueError:
-        return None
+    return column_float32(value)
 
 
 def _format_has_phased_gt(format_keys: list[str], sample_fields: list[str]) -> bool:
@@ -360,26 +360,32 @@ def _detect_structural_variant_format(
 
 
 def _first_present_int(mapping: dict[str, str], *keys: str) -> int | None:
+    """The first of ``keys`` whose value is a number, as an int; a value that is not one
+    (``abc``, ``inf``, ``nan``) is passed over as a missing one is."""
     for key in keys:
         value = mapping.get(key)
         if value in (None, "", "."):
             continue
         try:
             return int(float(value))
-        except ValueError:
+        except (ValueError, OverflowError):
             continue
     return None
 
 
 def _first_present_float(mapping: dict[str, str], *keys: str) -> float | None:
+    """The first of ``keys`` whose value is a finite number; a value that is not one
+    (``abc``, ``inf``, ``nan``) is passed over as a missing one is."""
     for key in keys:
         value = mapping.get(key)
         if value in (None, "", "."):
             continue
         try:
-            return float(value)
+            number = float(value)
         except ValueError:
             continue
+        if math.isfinite(number):
+            return number
     return None
 
 
@@ -954,8 +960,10 @@ async def upload_family_small_variant_file(
                 # A malformed POS can't position the variant. Skip the row (counted +
                 # reported below) rather than aborting the whole ingest with a 500 and
                 # leaving partially-flushed rows behind (mirrors the package-import path,
-                # which coerces + skips unparseable records).
-                start = _coerce_int(pos)
+                # which coerces + skips unparseable records). So is a POS that is no whole
+                # number the UInt32 position column holds (SAFE-30): negative, beyond
+                # 4,294,967,295, infinite.
+                start = column_int(pos, UINT32)
                 if start is None:
                     read.skipped_malformed += 1
                     continue
@@ -1151,8 +1159,8 @@ async def upload_family_small_variant_file(
         await session.commit()
         if read.skipped_malformed:
             logger.warning(
-                "Skipped %d malformed small-variant row(s) (unparseable POS) during "
-                "upload for family %s",
+                "Skipped %d malformed small-variant row(s) (unparseable or out-of-range POS) "
+                "during upload for family %s",
                 read.skipped_malformed,
                 context.family_id,
             )

@@ -35,7 +35,9 @@ level, and a row in the change-record log of
 
 ## [Unreleased] — towards 0.1.0
 
-First release candidate. The device boundary is _annotated VCF → signed clinical report_.
+First release candidate. The device boundary is _annotated VCF → closed, frozen analysis in
+CoGA; the clinical report is drafted and medically signed in the EPD and refers 1:1 to that
+analysis_.
 This section summarises the pre-release development up to 2026-09-30 (about 590 merged pull
 requests); it names only a representative pull request where one helps.
 

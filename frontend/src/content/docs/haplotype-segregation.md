@@ -163,6 +163,12 @@ needed are those a disease haplotype was found on. So the donor side of a single
 needed, and outside the pseudo-autosomal regions a male on chrX is called on his one X, from his
 mother.
 
+**X-linked recessive, a daughter.** An unaffected father's X is taken as not at risk: an unaffected
+man does not carry a fully penetrant X-linked recessive disorder, so a daughter inherits a healthy X
+from him. Her call rests on her maternal X: *Carrier* with the mother's risk haplotype, *Unaffected*
+with the mother's other X seen across the ROI. This is the owner's confirmed rule for a fully
+penetrant X-linked recessive disorder (2026-10-14).
+
 **Males in the pseudo-autosomal regions.** In PAR1 and PAR2 a male has two copies: his mother's, and
 his father's from the father's X or Y. There he is called like any other embryo, on both lanes, so a
 paternal risk haplotype at a PAR locus (for example SHOX in PAR1) is seen. CoGA takes the PAR bounds

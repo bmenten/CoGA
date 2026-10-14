@@ -31,8 +31,10 @@ errors (on Google Cloud through Cloud Logging, [deployment-gcp.md §12.6](../dep
 `terraform/monitoring.tf` but not yet applied ([TF-13 §3](TF-13-cybersecurity.md)), and it must
 be live before go-live. A hard requirement:
 **every analysed sample is linked to the software version (`Sxxxx` `x.y.z`) used for it**, so
-any signal can be scoped to the exact version. CoGA meets it through the signed report
-([TF-18 §2](TF-18-change-configuration-management.md)).
+any signal can be scoped to the exact version. CoGA meets it through the signed-out analysis,
+which freezes the version ([TF-18 §2](TF-18-change-configuration-management.md)); a clinical
+report in the EPD reaches the version through its 1:1 reference to that analysis
+([TF-02 §3](TF-02-device-description.md)).
 
 ## 2. Data sources (proactive & reactive)
 | Source | What it tells us | Mechanism |
