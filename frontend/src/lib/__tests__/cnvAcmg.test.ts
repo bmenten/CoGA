@@ -3,12 +3,15 @@ import { describe, expect, it } from 'vitest';
 import {
   buildInitialCnvSelections,
   classKeyForPoints,
+  cnvCriterionMap,
   cnvGeneCountMode,
   cnvGeneCountTier,
   cnvKindForType,
   computeCnvClassification,
   evaluateCnv,
   formatCnvPoints,
+  type CnvKind,
+  type CnvVariantInput,
 } from '../cnvAcmg';
 
 describe('cnvAcmg score', () => {
@@ -123,6 +126,53 @@ describe('cnvAcmg evaluate', () => {
   it('suggests 2H for a constrained-gene loss', () => {
     const suggestions = evaluateCnv({ type: 'DEL', gene: 'TCF4', genePli: 0.99 });
     expect(suggestions.some((s) => s.code === '2H')).toBe(true);
+  });
+
+  it('suggests for the kind it is asked for, not the kind of the type (CLIN-55)', () => {
+    // A 30-gene deletion in a constrained gene. As a loss, 25–34 genes are 3B and the pLI
+    // suggests 2H; as a gain, 30 genes are 3A and 2H is not suggested (a gain's 2H is an HI
+    // gene inside the gain). The dialog seeded both kinds from the loss's suggestions, so on
+    // gain 3B was an accepted +0.45 and 2H carried the constrained-gene note.
+    const deletion: CnvVariantInput = { type: 'DEL', gene: 'GENEX', genePli: 0.99, geneCount: 30 };
+    const asLoss = evaluateCnv(deletion, 'loss');
+    expect(asLoss.find((s) => s.code.startsWith('3'))).toMatchObject({ code: '3B', points: 0.45 });
+    expect(asLoss.map((s) => s.code)).toContain('2H');
+    const asGain = evaluateCnv(deletion, 'gain');
+    expect(asGain.find((s) => s.code.startsWith('3'))).toMatchObject({ code: '3A', points: 0 });
+    expect(asGain.map((s) => s.code)).not.toContain('2H');
+    // Asked for no kind, it suggests for the kind of the type.
+    expect(evaluateCnv(deletion)).toEqual(asLoss);
+
+    // The other way: a 40-gene duplication is 3B as a gain, and 3C with 2H as a loss.
+    const duplication: CnvVariantInput = { type: 'DUP', gene: 'GENEX', genePli: 0.99, geneCount: 40 };
+    expect(evaluateCnv(duplication).find((s) => s.code.startsWith('3'))?.code).toBe('3B');
+    const dupAsLoss = evaluateCnv(duplication, 'loss');
+    expect(dupAsLoss.find((s) => s.code.startsWith('3'))).toMatchObject({ code: '3C', points: 0.9 });
+    expect(dupAsLoss.map((s) => s.code)).toContain('2H');
+  });
+
+  it("suggests only the kind's own criteria, each within its range, so the server keeps them", () => {
+    // The server keeps a point value within its criterion's range (cnv_acmg_points.clamp_points):
+    // a suggestion outside it was shown and sent at one value and scored at another.
+    const inputs: CnvVariantInput[] = [
+      { type: 'DEL', gene: 'GENEX', genePli: 0.99, geneCount: 30, inheritance: 'de novo' },
+      { type: 'DUP:TANDEM', gene: 'GENEX', genePli: 0.95, geneCount: 60, inheritance: 'maternal' },
+      { type: 'CNV', gene: null, geneCount: 0 },
+      { type: 'INV', gene: 'GENEX', genePli: 0.99, geneCount: 12 },
+      { type: 'INS:ME', gene: 'GENEX', geneCount: 3 },
+    ];
+    const kinds: CnvKind[] = ['loss', 'gain'];
+    const outside = kinds.flatMap((kind) =>
+      inputs.flatMap((input) =>
+        evaluateCnv(input, kind)
+          .filter((suggestion) => {
+            const def = cnvCriterionMap(kind)[suggestion.code];
+            return !def || suggestion.points < def.minPoints || suggestion.points > def.maxPoints;
+          })
+          .map((suggestion) => `${input.type} as ${kind}: ${suggestion.code} ${suggestion.points}`),
+      ),
+    );
+    expect(outside).toEqual([]);
   });
 
   it('builds a full selection list with saved precedence', () => {

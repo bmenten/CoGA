@@ -3,10 +3,11 @@
 // (loss/gain) drives the applicable criteria, the classification recomputes from
 // the selections, and Save emits a payload reflecting them.
 
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
+import { CNV_GAIN_CRITERIA, CNV_LOSS_CRITERIA, type CnvCriterionDef } from '../../../lib/cnvAcmg';
 import CnvAcmgClassificationModal from '../CnvAcmgClassificationModal';
 import type { StructuralVariant, StructuralVariantReviewSavePayload } from '../structuralVariantSearch';
 
@@ -23,6 +24,38 @@ const variant: StructuralVariant = {
 };
 
 const noop = vi.fn(async () => undefined);
+
+// A 30-gene deletion in a constrained gene. As a loss, 25–34 genes are 3B (+0.45) and the
+// pLI suggests 2H (+0.15); as a gain, 30 genes are 3A (0) and 2H is not suggested.
+const constrainedDeletion: StructuralVariant = { ...variant, gene_count: 30, gene_pli: 0.99 };
+
+const criterionBox = (code: string) => screen.getByRole('checkbox', { name: new RegExp(`^${code}:`) });
+const criterionRow = (code: string) => criterionBox(code).closest('.cnv-criterion-row') as HTMLElement;
+
+type SavedCnvScoring = NonNullable<StructuralVariantReviewSavePayload['cnv_acmg']>;
+
+// What the server makes of a saved scoring (cnv_acmg_points, whose catalogues
+// test_acmg_frontend_parity.py holds equal to the dialog's): each criterion of the kind once,
+// its points kept within the criterion's range, the accepted ones summed to two decimals.
+const serverRescoring = (scoring: SavedCnvScoring, catalogue: CnvCriterionDef[]) => {
+  const byCode = new Map(catalogue.map((def) => [def.code, def]));
+  const total = scoring.criteria
+    .filter((criterion) => criterion.accepted)
+    .reduce((sum, criterion) => {
+      const def = byCode.get(criterion.code);
+      return def ? sum + Math.max(def.minPoints, Math.min(def.maxPoints, criterion.points)) : sum;
+    }, 0);
+  return {
+    codes: scoring.criteria.map((criterion) => criterion.code),
+    outOfRange: scoring.criteria
+      .filter((criterion) => {
+        const def = byCode.get(criterion.code);
+        return !def || criterion.points < def.minPoints || criterion.points > def.maxPoints;
+      })
+      .map((criterion) => `${criterion.code} ${criterion.points}`),
+    pointTotal: Math.round(total * 100) / 100,
+  };
+};
 
 describe('CnvAcmgClassificationModal', () => {
   it('renders the ClinGen decision-support header and confirm-before-use disclaimer', () => {
@@ -56,6 +89,153 @@ describe('CnvAcmgClassificationModal', () => {
     // starts unticked and carries no constrained-gene note.
     expect(screen.getByRole('checkbox', { name: /^2H:/ })).not.toBeChecked();
     expect(screen.queryByDisplayValue(/supports haploinsufficiency/)).not.toBeInTheDocument();
+  });
+
+  it("scores a deletion switched to gain with the gain's own suggestions (CLIN-55)", async () => {
+    let saved: StructuralVariantReviewSavePayload | undefined;
+    render(
+      <CnvAcmgClassificationModal
+        variant={constrainedDeletion}
+        onClose={vi.fn()}
+        onSave={async (payload) => {
+          saved = payload;
+        }}
+      />,
+    );
+    // As a loss: 3B and 2H, with the constrained-gene note.
+    expect(criterionBox('3B')).toBeChecked();
+    expect(criterionBox('2H')).toBeChecked();
+    expect(within(criterionRow('2H')).getByPlaceholderText('Note')).toHaveValue(
+      'Constrained gene (pLI 0.990) supports haploinsufficiency.',
+    );
+    expect(screen.getByText('+0.60 pts')).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'gain');
+
+    // As a gain: the 30 genes are 3A, and neither the loss's 3B nor its 2H and note come along.
+    expect(criterionBox('3A')).toBeChecked();
+    expect(within(criterionRow('3A')).getByPlaceholderText('Note')).toHaveValue(
+      '30 overlapped protein-coding genes.',
+    );
+    expect(criterionBox('3B')).not.toBeChecked();
+    expect(criterionBox('2H')).not.toBeChecked();
+    expect(screen.queryByDisplayValue(/supports haploinsufficiency/)).not.toBeInTheDocument();
+    expect(screen.getByText('0.00 pts')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
+
+    const scoring = saved?.cnv_acmg as SavedCnvScoring;
+    expect(scoring.kind).toBe('gain');
+    const sent = Object.fromEntries(scoring.criteria.map((criterion) => [criterion.code, criterion]));
+    expect(sent['3A']).toEqual({
+      code: '3A',
+      points: 0,
+      accepted: true,
+      evidence: '30 overlapped protein-coding genes.',
+      auto_suggested: true,
+    });
+    expect(sent['3B']).toEqual({ code: '3B', points: 0.45, accepted: false, evidence: undefined, auto_suggested: false });
+    expect(sent['2H']).toEqual({ code: '2H', points: 0, accepted: false, evidence: undefined, auto_suggested: false });
+    expect(scoring.point_total).toBe(0);
+    expect(scoring.classification).toBe('VUS - class 3');
+    expect(saved?.classification).toBe('VUS - class 3');
+    // The server keeps every value sent and recomputes the same total.
+    expect(serverRescoring(scoring, CNV_GAIN_CRITERIA)).toEqual({
+      codes: CNV_GAIN_CRITERIA.map((def) => def.code),
+      outOfRange: [],
+      pointTotal: 0,
+    });
+  });
+
+  it("scores a duplication switched to loss with the loss's own suggestions (CLIN-55)", async () => {
+    let saved: StructuralVariantReviewSavePayload | undefined;
+    render(
+      <CnvAcmgClassificationModal
+        variant={{ ...constrainedDeletion, _id: 'DUP-1', type: 'DUP', gene_count: 40 }}
+        onClose={vi.fn()}
+        onSave={async (payload) => {
+          saved = payload;
+        }}
+      />,
+    );
+    // As a gain, 40 genes are 3B (35–49).
+    expect(criterionBox('3B')).toBeChecked();
+    expect(screen.getByText('+0.45 pts')).toBeInTheDocument();
+
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'loss');
+
+    // As a loss, 40 genes are 3C (35 or more), and the constrained gene suggests 2H.
+    expect(criterionBox('3C')).toBeChecked();
+    expect(criterionBox('3B')).not.toBeChecked();
+    expect(criterionBox('2H')).toBeChecked();
+    expect(screen.getByText('+1.05 pts')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
+
+    const scoring = saved?.cnv_acmg as SavedCnvScoring;
+    expect(scoring.kind).toBe('loss');
+    expect(scoring.criteria.filter((criterion) => criterion.accepted).map((criterion) => criterion.code)).toEqual([
+      '1A',
+      '2H',
+      '3C',
+    ]);
+    expect(scoring.point_total).toBe(1.05);
+    expect(scoring.classification).toBe('Pathogenic - class 5');
+    expect(serverRescoring(scoring, CNV_LOSS_CRITERIA)).toEqual({
+      codes: CNV_LOSS_CRITERIA.map((def) => def.code),
+      outOfRange: [],
+      pointTotal: 1.05,
+    });
+  });
+
+  it('keeps what was changed by hand in the kind it was changed in (CLIN-55)', async () => {
+    let saved: StructuralVariantReviewSavePayload | undefined;
+    render(
+      <CnvAcmgClassificationModal
+        variant={constrainedDeletion}
+        onClose={vi.fn()}
+        onSave={async (payload) => {
+          saved = payload;
+        }}
+      />,
+    );
+    // On loss: reject the suggested 2H, and score 4A with a note.
+    await userEvent.click(criterionBox('2H'));
+    await userEvent.click(criterionBox('4A'));
+    fireEvent.change(within(criterionRow('4A')).getByRole('spinbutton'), { target: { value: '0.45' } });
+    fireEvent.change(within(criterionRow('4A')).getByPlaceholderText('Note'), {
+      target: { value: 'Reported de novo case.' },
+    });
+
+    // On gain, none of it: 4A unticked at 0 without the note, and the gain's own 2H unticked.
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'gain');
+    expect(criterionBox('4A')).not.toBeChecked();
+    expect(within(criterionRow('4A')).getByRole('spinbutton')).toHaveValue(0);
+    expect(within(criterionRow('4A')).getByPlaceholderText('Note')).toHaveValue('');
+    expect(criterionBox('2H')).not.toBeChecked();
+    // A change on gain stays on gain.
+    await userEvent.click(criterionBox('5A'));
+
+    // Back on loss, the loss's changes are as they were left, and the gain's 5A is not there.
+    await userEvent.selectOptions(screen.getByRole('combobox'), 'loss');
+    expect(criterionBox('2H')).not.toBeChecked();
+    expect(criterionBox('4A')).toBeChecked();
+    expect(within(criterionRow('4A')).getByRole('spinbutton')).toHaveValue(0.45);
+    expect(within(criterionRow('4A')).getByPlaceholderText('Note')).toHaveValue('Reported de novo case.');
+    expect(criterionBox('5A')).not.toBeChecked();
+
+    await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
+
+    const scoring = saved?.cnv_acmg as SavedCnvScoring;
+    expect(scoring.kind).toBe('loss');
+    const sent = Object.fromEntries(scoring.criteria.map((criterion) => [criterion.code, criterion]));
+    expect(sent['2H']).toMatchObject({ accepted: false, auto_suggested: true });
+    expect(sent['4A']).toMatchObject({ accepted: true, points: 0.45, evidence: 'Reported de novo case.' });
+    expect(sent['5A']).toMatchObject({ accepted: false });
+    // 1A (0) + 3B (+0.45) + 4A (+0.45).
+    expect(scoring.point_total).toBe(0.9);
+    expect(scoring.classification).toBe('Likely Pathogenic - class 4');
+    expect(serverRescoring(scoring, CNV_LOSS_CRITERIA).pointTotal).toBe(0.9);
   });
 
   it('lets a criterion be overridden and reflects it in the saved payload', async () => {
