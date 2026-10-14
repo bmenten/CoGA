@@ -999,11 +999,17 @@ def _small_record_matches(
             record,
             panel_constraints.genes,
         )
-        panel_region_match = bool(panel_constraints.regions) and _variant_overlaps_regions(
-            record.chr,
-            record.start,
-            record.end,
-            panel_constraints.regions,
+        # A panel of genes with more regions than the SQL inlines is matched on its genes
+        # alone, in SQL and here (_panel_regions_apply, ENG-1).
+        panel_region_match = (
+            bool(panel_constraints.regions)
+            and _panel_regions_apply(panel_constraints)
+            and _variant_overlaps_regions(
+                record.chr,
+                record.start,
+                record.end,
+                panel_constraints.regions,
+            )
         )
         if not (panel_gene_match or panel_region_match):
             return False

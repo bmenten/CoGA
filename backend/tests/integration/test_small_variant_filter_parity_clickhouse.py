@@ -488,6 +488,7 @@ CASES: dict[str, _Case] = {
     "PolyPhen": _case({HOMOZYGOUS}, polyphen="benign"),
     # --- the panel ---
     "panel": _case({MATERNAL_MNV, PATERNAL_SYNONYMOUS, UNANNOTATED}, panel_id=SMALL_PANEL),
+    "panel of more regions than are inlined": _case({MATERNAL_MNV, PATERNAL_SYNONYMOUS}, panel_id=LARGE_PANEL),
     "panel region on chrMT, stored as M": _case({MITO}, panel_id=MITO_PANEL),
     # --- excluded genes: by name, and by the gene reference's loci ---
     "excluded gene reaching a variant by its span": _case(ALL - {LONG_DELETION}, exclude_gene="SYNG"),

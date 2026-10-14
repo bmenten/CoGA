@@ -119,6 +119,20 @@ def test_an_interval_in_lower_case_keeps_and_leaves_out_as_the_sql_does() -> Non
     assert not _keeps(on_x, exclude_gene_regions=[Region("x", 72_000_000, 72_001_000)])
 
 
+def test_a_gene_panel_of_more_regions_than_the_sql_inlines_is_matched_on_its_genes() -> None:
+    # The SQL skips the regions of such a panel (the Mendeliome): the variant must carry one
+    # of its genes. Python also kept a variant in one of its regions.
+    fillers = tuple(Region("21", 30_000_000 + 1_000 * index, 30_000_500 + 1_000 * index) for index in range(1_000))
+    over_the_variant = Region("11", 50, 150)
+    in_a_region_only = _record("11-100-C-T", annotations=[{"gene": "OTHER"}])
+    large = PanelFilterConstraints(genes=("GENE1",), regions=(*fillers, over_the_variant))
+    assert not _keeps(in_a_region_only, panel_constraints=large)
+    assert _keeps(_record("11-100-C-T"), panel_constraints=large)
+    # A smaller panel keeps a variant in one of its regions.
+    small = PanelFilterConstraints(genes=("GENE1",), regions=(over_the_variant,))
+    assert _keeps(in_a_region_only, panel_constraints=small)
+
+
 def test_a_panel_region_on_chrmt_keeps_a_variant_stored_on_m() -> None:
     panel = PanelFilterConstraints(regions=(Region("chrMT", 12_000, 13_000),))
     assert _keeps(_record("M-12345-A-G"), panel_constraints=panel)
