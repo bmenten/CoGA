@@ -491,6 +491,8 @@ CASES: dict[str, _Case] = {
     "panel of more regions than are inlined": _case({MATERNAL_MNV, PATERNAL_SYNONYMOUS}, panel_id=LARGE_PANEL),
     "panel region on chrMT, stored as M": _case({MITO}, panel_id=MITO_PANEL),
     # --- excluded genes: by name, and by the gene reference's loci ---
+    "excluded gene the reference lacks": _case(ALL - {COMMON_PATHOGENIC}, exclude_gene="SYND"),
+    "excluded gene, a variant outside its loci": _case(ALL - {DE_NOVO_MISSENSE, HIGH_OFF_MANE}, exclude_gene="SYNA"),
     "excluded gene reaching a variant by its span": _case(ALL - {LONG_DELETION}, exclude_gene="SYNG"),
     "excluded gene reaching a variant by position only": _case(ALL - {UNANNOTATED}, exclude_gene="SYNQ"),
     # --- the second hit (sv_hit_genes resolved from the family's SVs) ---

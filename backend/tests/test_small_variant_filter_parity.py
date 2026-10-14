@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from backend.app.services.clickhouse_family_variants import _kept_small_candidates, _SmallVariantScope
 from backend.app.services.clickhouse_variant_queries import (
     _small_annotation_filter_condition,
     _small_annotation_scope_clauses,
@@ -131,6 +132,34 @@ def test_a_gene_panel_of_more_regions_than_the_sql_inlines_is_matched_on_its_gen
     # A smaller panel keeps a variant in one of its regions.
     small = PanelFilterConstraints(genes=("GENE1",), regions=(over_the_variant,))
     assert _keeps(in_a_region_only, panel_constraints=small)
+
+
+def _scope(**fields: Any) -> _SmallVariantScope:
+    """A search's scope: no panel, review selection, region or excluded gene but those given."""
+    values: dict[str, Any] = {
+        "panel_constraints": PanelFilterConstraints(),
+        "review_variant_ids": None,
+        "excluded_review_variant_ids": set(),
+        "include_review_filter_active": False,
+        "include_regions": [],
+        "exclude_regions": [],
+        "exclude_gene_regions": [],
+        "exclude_gene_terms": [],
+    }
+    values.update(fields)
+    return _SmallVariantScope(**values)
+
+
+def test_an_excluded_gene_leaves_out_every_variant_annotated_with_it() -> None:
+    # The SQL leaves out a variant annotated with an excluded gene (in the entry's genes or
+    # the gene index: symbol or Ensembl id, any capitals), besides those in its loci; Python
+    # left out those in its loci alone.
+    in_gene = _record("11-100-C-T", annotations=[{"gene": "SYNC", "gene_id": "ENSG_SYNC"}])
+    other = _record("11-200-C-T", annotations=[{"gene": "OTHER"}])
+    filters = SmallVariantQueryFilters(page=1, page_size=100, exclude_gene="SYNC")
+    for terms in (["SYNC"], ["sync"], ["ENSG_SYNC"]):
+        kept = _kept_small_candidates([in_gene, other], filters, _scope(exclude_gene_terms=terms), _context())
+        assert [record.variant_id for record in kept] == [other.variant_id], terms
 
 
 def test_a_panel_region_on_chrmt_keeps_a_variant_stored_on_m() -> None:

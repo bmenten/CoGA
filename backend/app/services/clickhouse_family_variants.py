@@ -116,6 +116,7 @@ from .clickhouse_variant_queries import (
     _small_hemizygous_position_condition,
     _small_pair_inheritance_candidate_limit,
     _small_query_filter_parts,
+    _small_record_hits_gene_terms,
     _small_record_matches,
     _small_search_keeps_by_pairing,
     _small_summary_table_name,
@@ -2812,6 +2813,12 @@ def _kept_small_candidates(
         and (
             (not scope.include_review_filter_active)
             or record.variant_id in (scope.review_variant_ids or set())
+        )
+        # An excluded gene leaves out every variant annotated with it, as the SQL leaves
+        # them out (by name, besides the gene's loci, ENG-1).
+        and not (
+            scope.exclude_gene_terms
+            and _small_record_hits_gene_terms(record, scope.exclude_gene_terms)
         )
         and _small_record_matches(
             record,
