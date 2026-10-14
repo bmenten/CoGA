@@ -17,8 +17,9 @@
 > query/API → clinical review/audit → signed report — against live Postgres and ClickHouse (the
 > versions of [TF-08 §A.3](TF-08-soup-register.md)).
 >
-> It exercises the device boundary from [TF-02](TF-02-device-description.md) — **annotated
-> VCF (+ tracks) → signed clinical report** — as one deterministic, repeatable run, complementing
+> It exercises the device boundary from [TF-02 §3](TF-02-device-description.md) — **annotated
+> VCF (+ tracks) → closed, frozen (signed-out) analysis**; the clinical report drafted from it
+> in the EPD is outside the device — as one deterministic, repeatable run, complementing
 > the unit suite (mocked datastores) and the `smoke` integration tests. The dataset is fixed and
 > its expected outputs are pinned, so a regression anywhere along the chain fails CI. It runs on
 > synthetic data, so it does not replace the acceptance testing on real data that H11.1-OP5

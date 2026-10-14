@@ -21,7 +21,15 @@ from .family_metadata_context import (
 )
 
 from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info
+from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
+
+
+def _coordinate(value: Any) -> int | None:
+    """A track row's start, end or position: a whole number the interval table's UInt64
+    columns hold, else None, and the row is left out as malformed (SAFE-30): a negative
+    coordinate failed the insert of the whole batch."""
+    return column_int(_coerce_int(value), UINT64)
 
 
 async def _delete_sample_interval_source(
@@ -211,8 +219,8 @@ def _parse_copy_number_interval_row(
             None,
         )
 
-    start = _coerce_int(start_raw)
-    end = _coerce_int(end_raw)
+    start = _coordinate(start_raw)
+    end = _coordinate(end_raw)
     value = _coerce_finite_float(value_raw)
     if chrom is None or start is None or end is None or value is None:
         return None
@@ -275,8 +283,8 @@ def _parse_wisecondorx_interval_row(
             else (parts[4] if len(parts) > 4 else None)
         )
 
-    start = _coerce_int(start_raw)
-    end = _coerce_int(end_raw)
+    start = _coordinate(start_raw)
+    end = _coordinate(end_raw)
     value = _coerce_finite_float(value_raw)
     if chrom is None or start is None or end is None or value is None:
         return None
@@ -792,9 +800,9 @@ def _parse_apcad_interval_row(
             return None
     if chrom is None:
         return None
-    pos = _coerce_int(pos_raw)
-    start = _coerce_int(start_raw)
-    end = _coerce_int(end_raw)
+    pos = _coordinate(pos_raw)
+    start = _coordinate(start_raw)
+    end = _coordinate(end_raw)
     if pos is not None and (start is None or end is None):
         start = max(0, pos - 1)
         end = pos
@@ -915,7 +923,7 @@ async def _import_apcad_vcf_file(
             if len(fields) < 8:
                 continue
             chrom, pos_raw, record_id, ref, alt, qual, filt, info_raw = fields[:8]
-            pos = _coerce_int(pos_raw)
+            pos = _coordinate(pos_raw)
             if pos is None:
                 continue
             info = _parse_vcf_info(info_raw)
@@ -1083,8 +1091,8 @@ def _parse_pcf_segment_row(
     origin: str,
 ) -> dict[str, Any] | None:
     chrom = _pcf_value(row, "CHROM", "chr", "chromosome")
-    start = _coerce_int(_pcf_value(row, "start.pos", "start", "start_pos"))
-    end = _coerce_int(_pcf_value(row, "end.pos", "end", "end_pos", "stop"))
+    start = _coordinate(_pcf_value(row, "start.pos", "start", "start_pos"))
+    end = _coordinate(_pcf_value(row, "end.pos", "end", "end_pos", "stop"))
     value = _coerce_finite_float(_pcf_value(row, "mean", "value", "seg.mean", "segment_mean"))
     if chrom is None or start is None or end is None or value is None:
         return None
