@@ -1,14 +1,16 @@
 # Family Report Template
 
-CoGA drafts a clinical report for the variants an analyst selects in a family's workspace.
+CoGA drafts a family report for the variants an analyst selects in a family's workspace.
 The report turns the curated variant data, the ACMG/AMP criteria, the gene context and the
 family's phenotype into readable prose that follows common guidelines for reporting
 (candidate causal) variants.
 
 > **Decision support.** The report is assembled from data already in CoGA. A qualified
-> clinical scientist must review and confirm it before any clinical use. The report can be
-> signed out into a frozen, content-hashed record; see
-> [clinical-traceability.md](clinical-traceability.md).
+> clinical scientist must review and confirm it before any clinical use. The analyst signs it
+> out into a frozen, content-hashed record, the closed analysis (the analytical sign-off; see
+> [clinical-traceability.md](clinical-traceability.md)). The clinical report itself is drafted
+> and medically signed in the hospital's electronic patient record (EPD), outside CoGA, and
+> refers 1:1 to that record ([TF-02 §3](regulatory/TF-02-device-description.md)).
 
 ## Selecting variants for the report
 

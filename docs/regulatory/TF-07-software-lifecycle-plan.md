@@ -70,7 +70,7 @@ Per H11.1-OP5 (CMGG roles):
 | **CMGG IT coördinator** | ‹named in the KHB› | Project prioritization/planning; co-approves minor/major releases into production. |
 | **Projectverantwoordelijke** (project lead) | ‹named in the KHB› | Owns design quality, implementation, the bio-IT ingangsvalidatie (incl. risk analysis), and release. |
 | **Developer(s)** | The project lead | Implementation, unit/integration tests, SOUP monitoring; works via the project lead for cross-team input. |
-| **Independent reviewer** | The IT coördinator (CMGG bio-IT) | Code review / 4-eye approval before merge — a second (bio-)IT team member, and necessarily **not** the author of the change. |
+| **Independent reviewer** (four-eyes) | QA: the Kwaliteitscel / labokwaliteitsverantwoordelijke below; necessarily **not** the author of the changes | Per release, before the tag: reviews every change to the clinical-critical modules and a sample of the rest, and signs the review ([TF-18 §6](TF-18-change-configuration-management.md)). Pull requests need no approval (owner decision, 2026-10-14): CoGA has one developer. Until then the IT coördinator held this role, as an approval per change before merge. |
 | **Business contactpersoon** ("Klinisch coördinator") | ‹per application — see KHB› | Clinical requirements and coordinates the **clinical validation per method** ([TF-10](TF-10-performance-evaluation-plan.md)); co-approves major releases. |
 | **Kwaliteitscel / labokwaliteitsverantwoordelijke** | The CMGG's QC-verantwoordelijke (kwaliteitsbeheerder), ‹named in the KHB› | QMS compliance, document control (KHB), and sign-off on in-production-taking. |
 | **UZ Gent DPO** | ‹to be named at DPO consultation› | Consulted when personal data is processed ([TF-14](TF-14-dpia.md)). |
@@ -89,9 +89,12 @@ on it.
 > **Segregation of duties — recorded, not resolved.** The **developer, project lead and lab
 > director are the same person**, so implementation and release authorization are not
 > independent. Two controls compensate and must therefore hold:
-> 1. **Independent review is performed by the IT coördinator**, who is not the author.
->    This is the 4-eye control of [TF-18 §4](TF-18-change-configuration-management.md); its
->    enforcement status is tracked in [TF-18 §6](TF-18-change-configuration-management.md).
+> 1. **Independent review is performed by QA, per release** (owner decision, 2026-10-14):
+>    before each tag, QA reviews every change to the clinical-critical modules and a sample of
+>    the rest, and signs the review. This is the four-eyes control of
+>    [TF-18 §4](TF-18-change-configuration-management.md), set out in
+>    [TF-18 §6](TF-18-change-configuration-management.md): a compensating measure for the
+>    missing per-change approval, since pull requests need no approval.
 > 2. **The H11.1-F12.2 validation report carries three distinct signatures** —
 >    eindverantwoordelijke (the lab director), IT-team coördinator and kwaliteitsbeheerder, three
 >    different people, so no single person both produces and approves the validation.
@@ -104,7 +107,7 @@ on it.
 - **Environment separation (H11.1-OP5):** development never happens directly on a production system — it uses a dedicated dev environment, or the test environment where none exists.
 - **Registration & identifier:** CoGA is to be registered in the CMGGMC **ICT module** with a software number **`Sxxxx`** (**🔲** not yet assigned); semantic versioning `x.y.z` (see [TF-18 §2](TF-18-change-configuration-management.md)); only **major** versions are recorded in the CMGGMC ICT "Software" section.
 - Languages/runtimes: Python (backend), Node.js / TypeScript (frontend); the versions are in [TF-08](TF-08-soup-register.md).
-- Source control: Git/GitHub; feature branches; pull requests, reviewed as set out in [`CONTRIBUTING.md`](../../CONTRIBUTING.md). Branch protection, its required checks and its limits (no approving review is required yet): [TF-18 §6](TF-18-change-configuration-management.md).
+- Source control: Git/GitHub; feature branches; pull requests, which need no approval: the four-eyes review is QA's, per release ([`CONTRIBUTING.md`](../../CONTRIBUTING.md)). Branch protection, its required checks, its limits and QA's review: [TF-18 §6](TF-18-change-configuration-management.md).
 - Build/packaging: Docker / Docker Compose; pinned `backend/requirements.txt`, `frontend/package-lock.json`.
 - CI: GitHub Actions (`.github/workflows/ci.yml`, `security.yml`, `build.yml`); the verification gates are described in [TF-09 §1](TF-09-verification-validation.md).
 - Tool validation: development tools (linters, test runners, CI) are not part of the device; their adequacy is evidenced by the gates they enforce. Compilers/build tools are configuration-controlled via pinned versions.

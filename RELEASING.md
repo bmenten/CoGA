@@ -16,6 +16,9 @@ this page assumes the decision to release has already been made and recorded.
 ## Before you start
 
 - [ ] The change level (patch / minor / major) is decided and its TF-18 evidence exists.
+- [ ] QA has signed its four-eyes review of the pull requests merged since the last tag it
+      reviewed ([TF-18 §6](docs/regulatory/TF-18-change-configuration-management.md)). Do not
+      tag before it.
 - [ ] `main` is green and you are releasing the commit you think you are.
 - [ ] You can reach the GCP project, or you accept that `deploy` will skip (see
       [Known limitations](#known-limitations)).
@@ -116,8 +119,9 @@ curl -s https://<host>/api/version
 
 Copy [`docs/release-record-template.md`](docs/release-record-template.md), fill it, and file
 it per the CMGG QMS ([TF-18 §7](docs/regulatory/TF-18-change-configuration-management.md)).
-It is the artefact that ties a signed clinical report back to a specific build, so the image
-digests and SBOM hashes matter more than they look.
+It is the artefact that ties a signed-out analysis back to a specific build, and through it the
+clinical report in the EPD that refers to that analysis, so the image digests and SBOM hashes
+matter more than they look.
 
 ---
 

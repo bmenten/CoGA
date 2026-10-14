@@ -121,6 +121,10 @@ def structural_variant_key(
     return _stable_uint64("structural", assembly_name, family_uuid, variant_id, source)
 
 
+# The highest chromosome rank whose xpos a UInt64 column holds for every UInt32 position.
+_MAX_XPOS_RANK = (2**64 - 1 - (2**32 - 1)) // 1_000_000_000
+
+
 def _xpos(chrom: str, pos: int) -> int:
     normalized = normalize_chromosome(chrom).upper()
     rank_map = {
@@ -133,4 +137,9 @@ def _xpos(chrom: str, pos: int) -> int:
         rank = int(normalized)
     except ValueError:
         rank = rank_map.get(normalized, 99)
+    if not 0 <= rank <= _MAX_XPOS_RANK:
+        # A contig named by a negative or an enormous number ranks with the other
+        # contigs (SAFE-30): its xpos would not fit the UInt64 column, and the insert of
+        # every record of the batch would fail.
+        rank = 99
     return (rank * 1_000_000_000) + int(pos)

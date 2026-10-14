@@ -23,7 +23,7 @@
 | --- | --- |
 | Intended user profile | Trained clinical laboratory geneticists / molecular biologists / clinical scientists; domain experts in variant interpretation; not patients. |
 | Use environment | ISO 15189-accredited clinical genetics laboratory; desktop workstation; professional, non-time-critical (no emergency-use) context. |
-| Operating principle | Filter/visualize/interpret validated genomic data; pre-evaluations are reviewed and confirmed; results are signed out. |
+| Operating principle | Filter/visualize/interpret validated genomic data; pre-evaluations are reviewed and confirmed; the analyst signs out the analysis (the analytical sign-off, which closes and freezes it); the clinical report is drafted and medically signed in the EPD, outside the device. |
 | Frequency/training | Routine professional use; users trained and competency-assessed under the ISO 15189 QMS. |
 
 ## 2. User interface characteristics & primary operating functions
