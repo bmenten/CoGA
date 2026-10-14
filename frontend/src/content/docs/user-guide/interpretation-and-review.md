@@ -12,7 +12,7 @@ classify**.
   renamed custom tag stays on every review that holds it. A deleted one stays too, marked *(deleted)*:
   untick it to remove it from a review; it can no longer be added.
 - **Notes** keep your reasoning with the variant.
-- **Report** puts the variant in the family's clinical report.
+- **Report** puts the variant in the family report.
 
 ### ACMG classify
 

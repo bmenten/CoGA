@@ -84,7 +84,7 @@ Each layer is optional and switches on part of CoGA.
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
 
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
-recorded for the [clinical report](/docs/reference/clinical-traceability).
+recorded for the [report](/docs/reference/clinical-traceability).
 
 ---
 
@@ -267,7 +267,7 @@ which are log2 ratios.
   metrics, or with no verdict from the server, reads *Not run* in grey, and the tooltip says which.
 - **Analysis pipeline settings** — the pipeline's configuration (genome build, which caller produced
   what, VEP cache, repeat catalogue, stages run) is recorded at import. It shows in a panel on the family
-  page and in the same section of the clinical report. Tool versions are in the report's provenance
+  page and in the same section of the family report. Tool versions are in the report's provenance
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import has imported each dataset that failed again, or an
