@@ -108,8 +108,10 @@ def is_translocation_sv_type(sv_type: str | None) -> bool:
 
 
 def structural_variant_length(*, sv_len: int | None, start: int, end: int) -> int:
-    """An SV's length as the SV list shows it: the call's SVLEN, negative for a deletion as
-    VCF writes it, or END − POS when the call has no SVLEN."""
+    """An SV's length as the SV list shows it: the call's SVLEN as stored, negative for a
+    deletion as VCF writes it, or END − POS when the call has no SVLEN. A call written as a
+    sequence allele without SVLEN is stored with the length its alleles state, len(ALT) −
+    len(REF) (``structural_variant_ingest.record_sv_len``, CLIN-41)."""
     return sv_len if sv_len is not None else end - start
 
 
@@ -129,10 +131,13 @@ def structural_variant_length_filters_match(
     positive number: the call's SVLEN, and END − POS only when it has none. Most callers
     write an insertion with END at its POS and its length in SVLEN; measuring END − POS read
     such an insertion as 0 bp, so a minimum dropped it and an exact length never found it
-    (CLIN-25). A translocation (:func:`is_translocation_sv_type`) has no length and is never
-    a small event: it passes any minimum and matches no exact length, whatever SVLEN or END
-    its caller wrote (the owner's decision, 2026-10-13). Another SV without SVLEN whose END
-    is its POS measures 0 bp, as the list shows it: any minimum above 0 drops it.
+    (CLIN-25). A call written as a sequence allele without SVLEN, as VCF 4.4 writes one, is
+    stored with the length its alleles state, so an insertion is as long as the bases it
+    inserts (the owner's decision, 2026-10-14, CLIN-41). A translocation
+    (:func:`is_translocation_sv_type`) has no length and is never a small event: it passes
+    any minimum and matches no exact length, whatever SVLEN or END its caller wrote (the
+    owner's decision, 2026-10-13). Another SV without SVLEN whose END is its POS measures
+    0 bp, as the list shows it: any minimum above 0 drops it.
     """
     if length is None and min_length is None:
         return True
