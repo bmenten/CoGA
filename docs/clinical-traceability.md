@@ -214,8 +214,11 @@ Five gates run first, in this order:
    which may be partly written or missing), and the one acknowledgement covers both. Every
    family page shows *Import incomplete* while either is set. The flag clears only once an
    import has imported each failed dataset again, or an upload has brought it again (in any
-   mode, for the same samples and small-variant source; a later failure keeps an earlier one's failed datasets, each with its
-   job, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
+   mode, for the same samples and small-variant source, an import counting a dataset it imports
+   with warnings, or registers when its package carries nothing CoGA imports for it; a later
+   failure keeps an earlier one's failed datasets, and every callset or set of samples a
+   dataset failed for, each with its job, `failed_scopes`; the gate names each dataset with the
+   job of its latest failure, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
    to start without its whole backup, may have lost rows of any dataset of the family,
    whichever import or upload wrote them: its flag names every dataset of the import as
    failed, those it imported too, and its `import_unfinished` entry stays, naming every dataset
