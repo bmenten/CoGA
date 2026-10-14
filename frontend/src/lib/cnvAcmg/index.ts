@@ -35,7 +35,9 @@ interface SavedCnvCriterion {
 /**
  * Build the modal's working selection list for every criterion of the given kind.
  * Saved selections take precedence over fresh auto-suggestions; criteria with
- * neither are present but unaccepted at their default points.
+ * neither are present but unaccepted at their default points. The suggestions are
+ * those for this kind (`evaluateCnv(input, kind)`): another kind's would bring its
+ * section-3 tier, its 2H and their notes (CLIN-55).
  */
 export const buildInitialCnvSelections = (
   kind: CnvKind,
