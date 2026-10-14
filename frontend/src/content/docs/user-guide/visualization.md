@@ -40,6 +40,9 @@ Coverage is drawn as a log2 ratio, one track per CNV caller. A HiFiCNV depth fil
 depth gives no baseline to take that ratio against, so its depths are kept as read: the track is not
 drawn, its place says why, and IGV shows the depth file.
 
+In a PGT family, judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its
+segment, copy-number (coverage) and APCAD tracks. CoGA shows the tracks but makes no aneuploidy call.
+
 The PGT haplotype track is explained under [Haplotype segregation](#haplotype-segregation).
 
 ### The structural-variant tracks

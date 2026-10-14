@@ -7,7 +7,7 @@ The open work, in one list. Items that need an owner or QA decision are tracked 
 
 - **Performance evaluation**: run the TF-10 studies and write the TF-11 report. For each application, the comparator, acceptance criteria and sample size are still to be confirmed.
 - **First release**: no version has been tagged or released; [RELEASING.md](../RELEASING.md) is the procedure.
-- **Independent review**: `main` requires no approving review and has no CODEOWNERS, and an administrator can bypass the required checks ([TF-18 §6](regulatory/TF-18-change-configuration-management.md)).
+- **Independent review**: pull requests need no approval; QA reviews the changes per release and signs off before the tag (owner decision, 2026-10-14). That review has not run yet, and an administrator can bypass the required checks ([TF-18 §6](regulatory/TF-18-change-configuration-management.md)).
 - **Technical file**: every document is a draft awaiting approval; the usability summative evaluation (TF-12) and the signed Declaration (TF-04) are still to come.
 - **Google Cloud go-live**: the switches that restrict access to institutional networks, run the API as the restricted database role and lock down ClickHouse egress ([#364](https://github.com/bmenten/CoGA/issues/364), [deployment-gcp.md](deployment-gcp.md)); and a restore drill, since the backups configured in Terraform have never been restored.
 

@@ -6,9 +6,11 @@
   Postgres for metadata and state, and ClickHouse for variants, run with Docker Compose. The
   architecture is in `docs/application-scheme.md`.
 - It is operated as an **in-house IVD under IVDR Article 5(5)** at CMGG (ISO 15189); the
-  device boundary is _annotated VCF → signed clinical report_ (see `README.md`). The technical
-  file is in `docs/regulatory/`. Weigh every change for its clinical-safety, traceability and
-  security consequences, not engineering merit alone.
+  device boundary is _annotated VCF → closed, frozen analysis in CoGA_ (see `README.md`). The
+  clinical report is drafted and medically signed in the hospital's EPD, outside the device, and
+  refers 1:1 to that analysis; CoGA's sign-out is the analyst's analytical sign-off, never the
+  medical one. The technical file is in `docs/regulatory/`. Weigh every change for its
+  clinical-safety, traceability and security consequences, not engineering merit alone.
 - The **data is synthetic** — there is no production PHI and no legacy code or data to
   preserve. Build cleanly; ignore old datasets.
 - **All actions in the interface are auditable** — queries and significant UI events flow

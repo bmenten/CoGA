@@ -15,6 +15,8 @@
   pseudo-autosomal regions, only the mother (X) or the father (Y) passes that chromosome on.
 - **Embryo call** — CoGA's derived PGT result for an embryo at the ROI: affected / at risk, carrier,
   unaffected or uninformative.
+- **EPD** — the hospital's electronic patient record. The clinical report is drafted and medically
+  signed there, not in CoGA, and refers to one signed version of the analysis.
 - **Fetal fraction (FF)** — the share of the cfDNA that comes from the fetus.
 - **gnomAD / TOPMed** — population allele-frequency references.
 - **Haplotype, homolog** — a homolog is one of a person's two copies of a chromosome; a haplotype is the
@@ -53,6 +55,9 @@
 - **Recombination** — a crossover between the two homologs at meiosis; the haplotype an embryo carries
   changes at that point.
 - **ROI** — region of interest: the gene or locus a family is about.
+- **Sign-out** — the analyst's analytical sign-off in CoGA: it closes the analysis and freezes it into a
+  signed version that can never change. The medical sign-off is given on the clinical report, in the
+  EPD.
 - **Trans / cis** — two variants on opposite homologs (trans) or on the same homolog (cis).
 - **TRGT** — tandem-repeat genotyping, used for repeat-expansion calls.
 - **VAF** — variant allele fraction: the share of reads that carry the alternate allele.
