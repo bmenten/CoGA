@@ -24,6 +24,7 @@ import {
 } from './reportSignoutQueries';
 import {
   describeBreachedMetric,
+  describeFrozenEvidenceValues,
   describeModuleVersions,
   describeReportSections,
   describeSignedDrift,
@@ -151,6 +152,9 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant }> = ({ variant }
               classify.
             </p>
           )}
+          {variant.evidence && describeFrozenEvidenceValues(variant.evidence) ? (
+            <p className="report-paragraph">{describeFrozenEvidenceValues(variant.evidence)}</p>
+          ) : null}
         </div>
         {variant.note ? (
           <div className="report-section">

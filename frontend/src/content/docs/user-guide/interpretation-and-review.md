@@ -26,8 +26,9 @@ the family genotypes, and scores them on the ClinGen points scale.
 - The header links to gnomAD, ClinVar, DECIPHER and a PubMed search on the gene and the patient's HPO
   terms.
 - **Save classification** stores the class as the variant's classification and review tag, together
-  with every criterion and your note; the server recomputes the class. It also freezes the evidence, so
-  the report can later tell whether it changed.
+  with every criterion and your note; the server recomputes the class. It also freezes the evidence —
+  the ClinVar significance, the population frequencies and the in-silico scores the dialog read — so
+  the report can later tell whether it changed, and what.
 - Opening a classified variant again shows the criteria as you saved them.
 
 > **Decision support, not an autoclassifier.** The dialog pre-positions the criteria; you confirm them,

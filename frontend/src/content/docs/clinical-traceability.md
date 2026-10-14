@@ -42,8 +42,11 @@ by*, the build that drew the page from its record. After a CoGA update the two c
 
 When you save a classification, CoGA freezes the evidence it rests on:
 
-- **ACMG classify** (a small variant): a fingerprint of the variant's annotation and its ClinVar
-  significance at that moment;
+- **ACMG classify** (a small variant): a fingerprint of the variant's annotation, its ClinVar
+  significance, and the population frequencies and in-silico scores the dialog read — the gnomAD
+  frequencies (overall, exomes, genomes, popmax), the TOPMed frequency, the gnomAD allele,
+  homozygote and hemizygote counts, CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense —
+  taken from the variant's primary transcript, as the dialog shows them;
 - **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
   event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
   position, a fingerprint of its annotation, and the annotation versions its genes came from. The
@@ -56,8 +59,13 @@ When you open the report, each frozen classification is compared with the curren
 banner lists every classification whose evidence changed:
 
 - the ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*);
+- a frozen frequency or in-silico score changed, or a value missing then is there now: each is
+  named with its value then and now (for example *REVEL 0.412 → 0.951* or *gnomAD AF 3.10e-5 →
+  0.012*), and so is a change of the primary transcript they are read from;
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
-  (*annotation set changed*);
+  (*annotation set changed*). A classification saved before CoGA froze the frequencies and
+  in-silico scores is compared on its fingerprint and ClinVar significance alone, so its banner
+  line does not say which value moved;
 - for a structural variant, what moved in the row of the caller its evidence was frozen from: for
   example *genes TCF4, TXNL1 → TCF4* or *pLI 0.990 → 0.410*, and likewise its inheritance, type or
   position. It says *annotation changed* when only its other annotation changed, and *its frozen
@@ -196,7 +204,9 @@ It shows what the record holds:
 
 - each reported small variant, named by its variant ID, with its classification and points, the
   accepted ACMG criteria and their evidence, the evidence frozen when it was classified (the ClinVar
-  significance and the annotation version), its tags and its note;
+  significance and the annotation version and, for a classification saved since CoGA froze them, the
+  population frequencies and in-silico scores as they were then, read from its primary transcript),
+  its tags and its note;
 - each reported structural variant or CNV, with its classification and ClinGen CNV criteria;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
