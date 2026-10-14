@@ -57,6 +57,7 @@ from .family_variant_filters import (
     in_silico_prediction_pattern,
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
+    small_variant_type_matches,
     structural_variant_length,
     structural_variant_length_filters_match,
 )
@@ -977,7 +978,7 @@ def _small_record_matches(
         return False
     if filters.end is not None and record.start > filters.end:
         return False
-    if filters.variant_type and not _contains_casefold(_small_type(record.ref, record.alt), filters.variant_type):
+    if not small_variant_type_matches(record.ref, record.alt, filters.variant_type):
         return False
     if filters.source and not _contains_casefold(record.source, filters.source):
         return False
@@ -2246,6 +2247,7 @@ def _small_variant_where_clauses(
         where_clauses.append("has(e.calls.ps, %(phase_set)s)")
         params["phase_set"] = filters.phase_set
     if filters.variant_type:
+        # The rule of small_variant_type_matches, which the Python record filter applies.
         variant_type = _casefold(filters.variant_type).upper()
         if variant_type == "SNV":
             where_clauses.append("length(e.ref) = 1 AND length(e.alt) = 1")

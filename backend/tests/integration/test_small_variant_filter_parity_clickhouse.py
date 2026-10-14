@@ -394,6 +394,7 @@ CASES: dict[str, _Case] = {
     "INDEL (an MNV is no SNV)": _case(
         {MATERNAL_INSERTION, PATERNAL_DELETION, MATERNAL_MNV, LONG_DELETION}, variant_type="INDEL"
     ),
+    "MNV": _case({MATERNAL_MNV}, variant_type="MNV"),
     "source": _case(ALL, source="clair3"),
     "source, part of it in capitals": _case(ALL, source="CLAIR"),
     "source, an imputed callset": _case({IMPUTED}, source="glimpse2"),

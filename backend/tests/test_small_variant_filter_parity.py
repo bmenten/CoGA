@@ -27,7 +27,7 @@ from backend.app.services.clickhouse_variant_records import (
     SmallVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
-from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+from backend.app.services.family_variant_filters import SmallVariantQueryFilters, small_variant_type_matches
 
 
 def _record(variant_id: str, *, annotations: list[dict[str, Any]] | None = None, **fields: Any) -> SmallVariantRecord:
@@ -157,3 +157,41 @@ def test_the_location_reads_alike_with_and_without_overlap_otherwise() -> None:
     clauses, params = _where(chromosome="11", start=100, end=200, overlap=True)
     assert {"(e.pos + length(e.ref) - 1) >= %(start)s", "e.pos <= %(end)s"} <= set(clauses)
     assert (params["xpos_start"], params["xpos_end"]) == (_xpos("11", 0), _xpos("11", 200))
+
+
+# --- the variant type -------------------------------------------------------------------
+
+_SNV, _INSERTION, _DELETION, _MNV = "11-100-C-T", "11-200-C-CA", "11-300-CTT-C", "11-400-AT-GC"
+
+
+def test_the_variant_type_filter_reads_snv_indel_and_mnv_as_the_sql_does() -> None:
+    # INDEL is every variant that is no SNV, an MNV included, as the SQL has always read it.
+    kept = {
+        "SNV": {_SNV},
+        "snv": {_SNV},
+        "INDEL": {_INSERTION, _DELETION, _MNV},
+        "MNV": {_MNV},
+        " mnv ": {_MNV},
+    }
+    for variant_type, expected in kept.items():
+        found = {
+            variant_id
+            for variant_id in (_SNV, _INSERTION, _DELETION, _MNV)
+            if _keeps(_record(variant_id), variant_type=variant_type)
+        }
+        assert found == expected, variant_type
+    assert small_variant_type_matches("AT", "GC", "MNV")
+    assert not small_variant_type_matches("A", "G", "MNV")
+
+
+def test_the_sql_condition_of_each_variant_type() -> None:
+    assert "length(e.ref) = 1 AND length(e.alt) = 1" in _where(variant_type="SNV")[0]
+    assert "NOT (length(e.ref) = 1 AND length(e.alt) = 1)" in _where(variant_type="INDEL")[0]
+    assert "length(e.ref) = length(e.alt) AND length(e.ref) > 1" in _where(variant_type="MNV")[0]
+
+
+def test_a_variant_type_that_names_none_asks_nothing_in_either_path() -> None:
+    # The SQL adds no condition for it; Python used to look for its text in "SNV" or
+    # "INDEL", and dropped every variant whose type did not hold it.
+    assert all(_keeps(_record(variant_id), variant_type="ins") for variant_id in (_SNV, _INSERTION, _MNV))
+    assert _where(variant_type="ins")[0] == _where()[0]

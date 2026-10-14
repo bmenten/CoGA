@@ -209,6 +209,28 @@ def in_silico_prediction_matches(value: object, prediction: str | None) -> bool:
     return regex is not None and regex.search(str(value or "").strip().casefold()) is not None
 
 
+def small_variant_type_matches(ref: str, alt: str, variant_type: str | None) -> bool:
+    """Whether a small variant is of the type a variant-type filter names, in any capitals:
+    ``SNV`` one base for one, ``MNV`` REF and ALT of one length longer than one base, and
+    ``INDEL`` every variant that is no SNV, an MNV included. A value that names none of them
+    asks nothing.
+
+    It is the rule of the search's SQL condition (``_small_variant_where_clauses``). The
+    Python record filter, which the ranked view, the pair-based inheritance modes and
+    carrier screening apply after the SQL, read the variant as SNV or INDEL alone, so an
+    MNV filter kept nothing there and an unrecognised value dropped every variant (ENG-1).
+    """
+    wanted = (variant_type or "").strip().upper()
+    single_base = len(ref) == 1 and len(alt) == 1
+    if wanted == "SNV":
+        return single_base
+    if wanted == "INDEL":
+        return not single_base
+    if wanted == "MNV":
+        return len(ref) == len(alt) and len(ref) > 1
+    return True
+
+
 @dataclass(slots=True)
 class SmallVariantQueryFilters:
     page: int
