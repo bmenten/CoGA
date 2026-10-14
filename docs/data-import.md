@@ -40,7 +40,7 @@ for the assembly is left alone.
 | T2T-CHM13v2.0 (off by default) | UCSC `hs1` RefSeq GTF | `REFERENCE_BOOTSTRAP_T2T`, `REFERENCE_T2T_GTF_URL` |
 | Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/` | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` |
 | Clinical CNV syndromes | Only if the file exists; it is not shipped | `REFERENCE_CLINICAL_CNVS_PATH` |
-| HPO ontology | `data/ref-data/hpo/hp.obo`, else downloaded over HTTPS | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_ONTOLOGY_URL`, `HPO_ONTOLOGY_SHA256` |
+| HPO ontology | `data/ref-data/hpo/hp.obo`. If no ontology file is found, the same release is downloaded over HTTPS from its versioned URL and imported only if its SHA-256 is the vendored file's; another file is refused and logged ([the pin](../data/ref-data/hpo/README.md#the-download-fallback)) | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_DOWNLOAD_IF_MISSING`, `HPO_ONTOLOGY_URL`, `HPO_ONTOLOGY_SHA256` |
 | TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and `data/ref-data/STRchive-loci.json`, both refreshed on every start. A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
@@ -106,7 +106,9 @@ backend container with `scripts/import_dgv.py`, which inserts in batches (see
 To move to a newer HPO release, put the new `hp.obo` in `/data/ref-data/hpo/` and run the sync
 on **Admin → HPO Terminology** (`POST /admin/hpo/sync`). The page starts from the file the
 backend is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the changes first.
-It only reads files inside the configured ontology folders.
+It only reads files inside the configured ontology folders. The startup download stays
+pinned to the vendored release; moving the pin and the vendored file is a code change
+([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#updating-controlled-change)).
 
 ## 2. Gene reference sync
 

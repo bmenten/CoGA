@@ -298,3 +298,9 @@ CoGA pre-selects only what the structural-variant record shows. Everything else 
 | 5F (0) | The SV annotation says inherited. |
 
 The pre-selected criteria start accepted. Untick any that do not fit.
+
+Each kind has its own pre-selection, made for that kind. Switching from loss to gain pre-selects the
+gain's own section-3 tier and leaves 2H unticked: none of the loss's criteria, points or notes come
+along, and the same holds the other way round. What you change in one kind stays with that kind: switch
+back and it is as you left it, and it never appears in the other kind. Only the kind shown when you save
+is saved.

@@ -21,7 +21,7 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
+from ..core.config import HPO_PINNED_ONTOLOGY_SHA256, HPO_PINNED_ONTOLOGY_URL, settings
 from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid
 
 HPO_ID_PATTERN = re.compile(r"^HP:[0-9]{7}$", re.IGNORECASE)
@@ -35,10 +35,10 @@ UNKNOWN_STATUS_VALUES = {"unknown", "uncertain", "na", "n/a", "not_applicable"}
 ANNOTATION_STATUSES = {"present", "absent", "unknown"}
 HPO_ADMIN_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge")
 HPO_IMPORT_TABLES = ("hpo_term", "hpo_synonym", "hpo_edge", "hpo_closure")
-DEFAULT_HPO_ONTOLOGY_URL = "https://purl.obolibrary.org/obo/hp.obo"
 # hp.obo is ~10 MB; the ceiling only stops a runaway response exhausting the disk (#522).
 MAX_HPO_ONTOLOGY_BYTES = 256 * 1024 * 1024
 _HPO_DOWNLOAD_CHUNK = 1 << 20
+_SHA256_HEX_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 logger = logging.getLogger(__name__)
 
@@ -578,22 +578,35 @@ def _read_bounded(response: Any, max_bytes: int) -> bytes:
         chunks.append(chunk)
 
 
+class HpoOntologyChecksumMismatch(RuntimeError):
+    """The downloaded ontology is not the pinned file, so it was refused (OPS-6)."""
+
+
 def _download_hpo_ontology_file(
     url: str,
     candidate_paths: list[Path],
     *,
-    expected_sha256: str = "",
+    expected_sha256: str = HPO_PINNED_ONTOLOGY_SHA256,
     max_bytes: int = MAX_HPO_ONTOLOGY_BYTES,
 ) -> Path:
-    """Download the HPO ontology over HTTPS, bounded, checked, and written atomically.
+    """Download the pinned HPO ontology over HTTPS, bounded, checked, and written atomically.
 
     The bootstrap trusts this file as the phenotype ontology, so it is fetched over TLS
     only, capped in size, must look like an OBO file (an HTML error page would otherwise
-    be imported as an empty ontology), is verified against ``expected_sha256`` when one is
-    pinned, and never leaves a partial file behind (#522).
+    be imported as an empty ontology), and never leaves a partial file behind (#522). It
+    must be the pinned file: its SHA-256 must be ``expected_sha256`` (the vendored file's
+    unless HPO_ONTOLOGY_SHA256 says otherwise), checked before anything is written. Another
+    file, such as a later release, is refused and no file on disk is touched (OPS-6). There
+    is no unchecked download: without a SHA-256 to check against, nothing is requested.
     """
     if urlparse(url).scheme.lower() != "https":
         raise RuntimeError(f"Refusing to download the HPO ontology over a non-HTTPS URL: {url}")
+    pinned = expected_sha256.strip().lower()
+    if not _SHA256_HEX_PATTERN.fullmatch(pinned):
+        raise RuntimeError(
+            "Refusing to download the HPO ontology without a pinned SHA-256 to check it against "
+            "(HPO_ONTOLOGY_SHA256 must be 64 hexadecimal characters)"
+        )
     request = Request(url, headers={"User-Agent": "CoGA-HPO-bootstrap/1.0"})
     try:
         with urlopen(request, timeout=60) as response:
@@ -603,12 +616,17 @@ def _download_hpo_ontology_file(
     if not payload.lstrip().startswith(b"format-version:"):
         raise RuntimeError(f"The download from {url} is not an OBO ontology file")
     digest = hashlib.sha256(payload).hexdigest()
-    pinned = expected_sha256.strip().lower()
-    if pinned and digest != pinned:
-        raise RuntimeError(
-            f"HPO ontology from {url} has SHA-256 {digest}, expected {pinned} (HPO_ONTOLOGY_SHA256)"
+    if digest != pinned:
+        raise HpoOntologyChecksumMismatch(
+            f"Refused the HPO ontology downloaded from {url}: its SHA-256 is {digest}, not the "
+            f"pinned {pinned} (HPO_ONTOLOGY_SHA256). Nothing was written."
         )
-    logger.info("Downloaded the HPO ontology from %s (%d bytes, sha256 %s)", url, len(payload), digest)
+    logger.info(
+        "Downloaded the HPO ontology from %s (%d bytes, sha256 %s, the pinned digest)",
+        url,
+        len(payload),
+        digest,
+    )
 
     errors: list[str] = []
     for target in candidate_paths:
@@ -635,7 +653,7 @@ async def ensure_hpo_ontology_on_startup(
     session: AsyncSession,
     *,
     ontology_path: str | Path | None = None,
-    ontology_url: str = DEFAULT_HPO_ONTOLOGY_URL,
+    ontology_url: str = HPO_PINNED_ONTOLOGY_URL,
     download_if_missing: bool = True,
     enabled: bool = True,
 ) -> dict[str, Any] | None:
@@ -661,8 +679,12 @@ async def ensure_hpo_ontology_on_startup(
                 expected_sha256=settings.hpo_ontology_sha256,
             )
             logger.info("Downloaded HPO ontology to %s", resolved_path)
-        except Exception:
-            logger.exception("Failed to download HPO ontology from %s", ontology_url)
+        except Exception as exc:
+            if isinstance(exc, HpoOntologyChecksumMismatch):
+                # Not the pinned file (OPS-6): an expected refusal, logged without a traceback.
+                logger.error("%s The HPO ontology was not imported.", exc)
+            else:
+                logger.exception("Failed to download HPO ontology from %s", ontology_url)
             try:
                 await session.rollback()
             except Exception:  # pragma: no cover

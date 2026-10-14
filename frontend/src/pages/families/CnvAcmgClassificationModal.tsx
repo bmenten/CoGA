@@ -12,6 +12,7 @@ import {
   formatCnvPoints,
   type CnvKind,
   type CnvSelection,
+  type CnvVariantInput,
 } from '../../lib/cnvAcmg';
 import CnvScaleBar from './CnvScaleBar';
 import type {
@@ -27,6 +28,16 @@ type CnvAcmgClassificationModalProps = {
   errorMessage?: string | null;
 };
 
+// What the suggestions read from the SV row the dialog was opened on.
+const suggestionInput = (variant: StructuralVariant): CnvVariantInput => ({
+  type: variant.type,
+  gene: variant.gene,
+  genePli: variant.gene_pli ?? variant.annotation_extra?.pli ?? null,
+  inheritance: variant.annotation_extra?.inheritance ?? null,
+  geneCount:
+    typeof variant.gene_count === 'number' ? variant.gene_count : variant.gene_symbols?.length ?? null,
+});
+
 export default function CnvAcmgClassificationModal({
   variant,
   onClose,
@@ -37,28 +48,15 @@ export default function CnvAcmgClassificationModal({
   const savedKind = variant.review?.cnv_acmg?.kind;
   const [kind, setKind] = useState<CnvKind>(savedKind ?? cnvKindForType(variant.type));
 
-  const geneCount =
-    typeof variant.gene_count === 'number'
-      ? variant.gene_count
-      : variant.gene_symbols?.length ?? null;
-  const suggestions = useMemo(
-    () =>
-      evaluateCnv({
-        type: variant.type,
-        gene: variant.gene,
-        genePli: variant.gene_pli ?? variant.annotation_extra?.pli ?? null,
-        inheritance: variant.annotation_extra?.inheritance ?? null,
-        geneCount,
-      }),
-    [variant, geneCount],
-  );
-
-  // Re-seed selections whenever the kind changes; saved selections apply only when
-  // their kind matches what is being shown.
+  // One set of selections per kind, each seeded from the suggestions for that kind (CLIN-55)
+  // and from the saved criteria when the saved classification is of that kind. Switching kind
+  // shows the other kind's set: what was changed by hand stays with the kind it was changed in,
+  // and only the set shown is saved.
   const [selectionsByKind, setSelectionsByKind] = useState<Record<CnvKind, CnvSelection[]>>(() => {
+    const input = suggestionInput(variant);
     const saved = variant.review?.cnv_acmg?.criteria;
     const seed = (k: CnvKind) =>
-      buildInitialCnvSelections(k, suggestions, savedKind === k ? saved : undefined);
+      buildInitialCnvSelections(k, evaluateCnv(input, k), savedKind === k ? saved : undefined);
     return { loss: seed('loss'), gain: seed('gain') };
   });
 

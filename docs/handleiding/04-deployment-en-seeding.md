@@ -83,9 +83,9 @@ Zonder soort en assembly is er geen coördinatenstelsel voor varianten. Bij het 
 
 ### De HPO-ontologie
 
-Staan er nog geen HPO-termen in de databank, dan importeert de backend de ontologie uit het bestand dat in de repository is vastgezet (`data/ref-data/hpo/hp.obo`). Alleen als dat ontbreekt, downloadt hij het (`HPO_DOWNLOAD_IF_MISSING`), optioneel gecontroleerd tegen een vaste SHA-256 (`HPO_ONTOLOGY_SHA256`). De release en de datum van de ontologie worden mee opgeslagen, zodat later te zien is welke versie een analyse gebruikte (hoofdstuk 12).
+Staan er nog geen HPO-termen in de databank, dan importeert de backend de ontologie uit het bestand dat in de repository is vastgezet (`data/ref-data/hpo/hp.obo`). Alleen als dat ontbreekt, downloadt hij dezelfde release van een vaste URL die niet meeschuift met nieuwe releases (`HPO_DOWNLOAD_IF_MISSING`), en importeert hij het bestand alleen als de SHA-256 overeenkomt met die van het vastgezette bestand (`HPO_ONTOLOGY_SHA256`). Een ander bestand, bijvoorbeeld een latere release, wordt geweigerd voordat er iets wordt weggeschreven: de backend logt een fout en importeert niets. De release en de datum van de ontologie worden mee opgeslagen, zodat later te zien is welke versie een analyse gebruikte (hoofdstuk 12).
 
-**Waar in de code:** `ensure_hpo_ontology_on_startup` in `backend/app/services/hpo_service.py`.
+**Waar in de code:** `ensure_hpo_ontology_on_startup` in `backend/app/services/hpo_service.py`; de vastgezette release en SHA-256 (`HPO_PINNED_RELEASE`, `HPO_PINNED_ONTOLOGY_SHA256`) in `backend/app/core/config.py`.
 
 ### De gen-referentie (dbNSFP)
 
