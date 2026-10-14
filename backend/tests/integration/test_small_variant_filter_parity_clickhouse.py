@@ -25,9 +25,11 @@ the pairing over its rows must find what the pairing over every variant finds.
 The scope is built by the search's own ``_resolve_small_variant_scope``, with its Postgres
 lookups (the panel, the excluded genes' loci, the review selections) answered by stubs. A
 second test opens the family page itself, plain and ranked: *Phenotype prioritization*
-orders a search and keeps what it keeps (CLIN-44). The ranking's Postgres inputs (the
-cache, the phenotypes, the hydration) are stubbed there: they order and decorate the rows,
-and keep or drop none.
+orders a search and keeps what it keeps (CLIN-44). Its cases are the gene filter's, alone
+and with each kind of mode, whose gene loci the ranked and paired views used to read from
+the gene reference, and the default view. The ranking's Postgres inputs (the cache, the
+phenotypes, the hydration) are stubbed there: they order and decorate the rows, and keep
+or drop none.
 
 The variants sit on chromosome 11 at 95.1 Mb, chromosome X at 72 Mb and chrM 12,345, where
 no other test writes: the annotation tables are keyed by variant, not by project or family.
@@ -591,8 +593,22 @@ CASES: dict[str, _Case] = {
     ),
 }
 
-# The family page opened plain and ranked.
+# The family page opened plain and ranked. A gene filter keeps the variants annotated with
+# the gene in every view, as the plain page keeps them: HIGH_OFF_MANE lies just past SYNA's
+# loci in the gene reference (``_gene_loci``), and the ranked and paired views kept the
+# variants inside the loci alone (ENG-1).
 PAGE_CASES: dict[str, _Case] = {
+    "gene": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE}, gene="SYNA"),
+    "gene, de novo / dominant": _case(
+        {DE_NOVO_MISSENSE, HIGH_OFF_MANE}, gene="SYNA", inheritance="de_novo_dominant"
+    ),
+    "gene, compound het": _case({DE_NOVO_MISSENSE, HIGH_OFF_MANE}, gene="SYNA", inheritance="compound_het"),
+    "gene, recessive": _case(
+        {HOMOZYGOUS, MATERNAL_INSERTION, PATERNAL_DELETION}, gene="SYNB", inheritance="recessive"
+    ),
+    "gene, expanded carrier screening": _case(
+        {MATERNAL_MNV, PATERNAL_SYNONYMOUS}, gene="SYNC", expanded_carrier_screening=True
+    ),
     "the default view": _case(CASES["the default view"].expected, **_DEFAULT_VIEW),
 }
 

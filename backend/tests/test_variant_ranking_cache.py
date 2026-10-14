@@ -275,16 +275,17 @@ def test_the_exact_key_covers_the_panel_members_and_the_base_key_leaves_them_out
 
 
 def test_both_keys_cover_the_regions_and_genes_the_query_applied(monkeypatch) -> None:
-    # A gene filter's loci are read from the gene reference when the query runs: a reload
-    # that moves the gene changes them, and the filter's text stays as it was.
-    gene_filter = _default_filters(gene="GENE1")
-    before = _hashes(monkeypatch, filters=gene_filter, include_regions=[Region(chr="1", start=1000, end=2000)])
-    moved = _hashes(monkeypatch, filters=gene_filter, include_regions=[Region(chr="1", start=1000, end=3000)])
+    # The regions the query keeps to are in both keys as the query applied them: the same
+    # filters over other regions are another key. (A gene filter adds no regions: it keeps
+    # the variants annotated with the gene, ENG-1.)
+    kept_to = _default_filters(intervals="1:1000-2000")
+    before = _hashes(monkeypatch, filters=kept_to, include_regions=[Region(chr="1", start=1000, end=2000)])
+    moved = _hashes(monkeypatch, filters=kept_to, include_regions=[Region(chr="1", start=1000, end=3000)])
     assert before[0] != moved[0] and before[1] != moved[1]
     # The same regions read in another order are the same keys.
     two = [Region(chr="1", start=1000, end=2000), Region(chr="1", start=5000, end=6000)]
-    assert _hashes(monkeypatch, filters=gene_filter, include_regions=two) == _hashes(
-        monkeypatch, filters=gene_filter, include_regions=list(reversed(two))
+    assert _hashes(monkeypatch, filters=kept_to, include_regions=two) == _hashes(
+        monkeypatch, filters=kept_to, include_regions=list(reversed(two))
     )
 
     # What the query left out counts too: a ranking computed without the excluded gene's

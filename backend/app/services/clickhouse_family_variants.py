@@ -2444,13 +2444,10 @@ async def _prioritized_small_variants_page(
     truncated and the candidates capped, and counts what it found within the window, a
     lower bound.
     """
-    if filters.gene:
-        include_regions = [
-            *include_regions,
-            *await _fetch_gene_regions(
-                session, gene_query=filters.gene, assembly_id=context.assembly_id
-            ),
-        ]
+    # The gene filter keeps the variants annotated with the gene, as the unranked search
+    # keeps them: it adds none of the gene's loci to the regions. The ranked search kept
+    # only those inside the loci the gene reference gives, and lost a variant VEP assigns to
+    # the gene outside them, an upstream or downstream one (ENG-1).
     scope = _SmallVariantScope(
         panel_constraints=panel_constraints,
         review_variant_ids=review_variant_ids,
@@ -3104,15 +3101,10 @@ async def _small_variants_candidate_page(
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage:
     """The Python-side path: fetch the candidates ClickHouse can narrow, then apply what it
-    cannot — gene symbols, inheritance pairing, carrier screening, a track's sampling. The
-    ranked search keeps the same (``_kept_small_candidates``, ``_small_inheritance_items``)."""
-    if filters.gene:
-        gene_regions = await _fetch_gene_regions(
-            session,
-            gene_query=filters.gene,
-            assembly_id=context.assembly_id,
-        )
-        scope.include_regions.extend(gene_regions)
+    cannot — inheritance pairing, carrier screening, a track's sampling. The ranked search
+    keeps the same (``_kept_small_candidates``, ``_small_inheritance_items``). A gene filter
+    keeps the variants annotated with the gene, as the native page keeps them; this path
+    also kept them to the gene's loci in the gene reference (ENG-1)."""
     inheritance_candidate_limit = _small_pair_inheritance_candidate_limit(filters)
     records = await _fetch_small_variant_rows(
         context,

@@ -75,7 +75,7 @@ Elke cacherij hangt aan een SHA-256 over **alles wat de rangschikking kan verand
 | De filters (zonder paginering), ook het overervingsmodel en de dragerscreening | de analist een filter wijzigt |
 | Het genpanel en zijn versie | het panel wordt bijgewerkt |
 | De genen en regio's die de panelfilter toepaste (een digest; de regio's bevatten de loci van elk gen uit de genreferentie) | het panel andere genen of regio's krijgt, of een herladen genreferentie een van zijn genen verplaatst |
-| De regio's waartoe de zoekopdracht zich beperkte of die ze uitsloot (de intervallen, de loci van de genen in het genfilter en van de uitgesloten genen), en de uitgesloten genen | de analist die filters wijzigt, of een herladen genreferentie een van die genen verplaatst |
+| De regio's waartoe de zoekopdracht zich beperkte of die ze uitsloot (de intervallen en de loci van de uitgesloten genen), en de uitgesloten genen | de analist die filters wijzigt, of een herladen genreferentie een van die genen verplaatst |
 | De HPO-termen van de aangedane leden | een fenotype wordt toegevoegd of verwijderd |
 | De stamboom, de aangedane status en het geslacht van elk lid (ook het koppel van een dragerscreening) | de familiestructuur verandert |
 | De versie van de variantdata van de familie | er iets aan de varianten verandert: import, upload, verwijdering door een beheerder of herstel |
