@@ -61,6 +61,16 @@ _STRUCTURAL_VARIANT_KEY_LOOKUP_SORT_KEY: tuple[str, ...] = ("family_guid", "vari
 # (see ``SmallVariantCall``). Such a table is refused like one with an older row identity
 # (``_storage_column_gaps``); there is no older schema to upgrade in place.
 _SMALL_VARIANT_REQUIRED_CALL_COLUMNS: tuple[str, ...] = ("calls.filters", "calls.metrics")
+# The per-call depth columns of ``SNV_INDEL/entries``, ``(the type a table created by an
+# earlier version has, the type this version stores)``. A mitochondrial or amplicon call
+# reads far more than the 65,535 reads a UInt16 holds, and the insert of a whole upload or
+# import failed on one such depth (SAFE-30). A table with the narrower type is altered to the
+# wider one when this version first ensures it (``_widen_small_variant_call_columns``): no
+# stored value changes, and a table already altered is left as it is.
+_SMALL_VARIANT_WIDENED_CALL_COLUMNS: dict[str, tuple[str, str]] = {
+    "calls.dp": ("Array(Nullable(UInt16))", "Array(Nullable(UInt32))"),
+    "calls.ad": ("Array(Array(Nullable(UInt16)))", "Array(Array(Nullable(UInt32)))"),
+}
 _CALLSET_SORT_KEYS: dict[str, tuple[str, ...]] = {
     "SNV_INDEL/entries": _SMALL_VARIANT_ENTRY_SORT_KEY,
     "SV/entries": _STRUCTURAL_VARIANT_ENTRY_SORT_KEY,
@@ -279,10 +289,10 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             `calls.sampleId` Array(String),
             `calls.gt` Array(LowCardinality(String)),
             `calls.gq` Array(Nullable(UInt16)),
-            `calls.dp` Array(Nullable(UInt16)),
+            `calls.dp` Array(Nullable(UInt32)),
             `calls.ab` Array(Nullable(Float32)),
             `calls.af` Array(Array(Nullable(Float32))),
-            `calls.ad` Array(Array(Nullable(UInt16))),
+            `calls.ad` Array(Array(Nullable(UInt32))),
             `calls.ps` Array(Nullable(UInt64)),
             `calls.filters` Array(Array(LowCardinality(String))),
             `calls.metrics` Array(Map(LowCardinality(String), Float32)),
@@ -431,7 +441,40 @@ async def ensure_clickhouse_variant_tables(assembly_name: str) -> None:
             raise _storage_column_error(gaps)
         for statement in statements:
             await _execute(statement)
+        await _widen_small_variant_call_columns(dataset)
         _ensured_variant_table_assemblies.add(dataset)
+
+
+async def _widen_small_variant_call_columns(dataset: str) -> None:
+    """Alter the assembly's ``SNV_INDEL/entries`` depth columns that still have the type an
+    earlier version created them with to the wider type this version stores
+    (``_SMALL_VARIANT_WIDENED_CALL_COLUMNS``). One bound query over ``system.columns`` reads
+    their types first, so a table created with the wider types, or altered before, is not
+    altered again. Widening an unsigned integer keeps every stored value."""
+    rows = await _execute(
+        """
+        SELECT name, type
+        FROM system.columns
+        WHERE database = %(database)s AND table = %(table)s AND name IN %(names)s
+        """,
+        {
+            "database": settings.clickhouse_database,
+            "table": f"{dataset}/SNV_INDEL/entries",
+            "names": tuple(_SMALL_VARIANT_WIDENED_CALL_COLUMNS),
+        },
+    )
+    narrow = sorted(
+        str(name)
+        for name, column_type in rows or []
+        if str(name) in _SMALL_VARIANT_WIDENED_CALL_COLUMNS
+        and str(column_type) == _SMALL_VARIANT_WIDENED_CALL_COLUMNS[str(name)][0]
+    )
+    if not narrow:
+        return
+    changes = ", ".join(
+        f"MODIFY COLUMN `{name}` {_SMALL_VARIANT_WIDENED_CALL_COLUMNS[name][1]}" for name in narrow
+    )
+    await _execute(f"ALTER TABLE {_small_table_name(dataset, 'entries')} {changes}")
 
 
 class ClickHouseStorageIdentityError(RuntimeError):

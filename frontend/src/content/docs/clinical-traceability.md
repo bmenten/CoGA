@@ -1,9 +1,14 @@
-# Clinical report traceability & sign-out — reference
+# Report traceability & sign-out — reference
 
-The **clinical report** (the **Report** button on the family page) is also where a case is traced and
-signed out. It ties the reported result to what produced it — the annotation and reference versions,
-the reported variants, each classification and its evidence — and freezes that into a signed record
-that can never change.
+The **report** (the **Report** button on the family page) is where a case is traced and signed out. It
+ties the reported result to what produced it — the annotation and reference versions, the reported
+variants, each classification and its evidence — and sign-out freezes that into a signed record that
+can never change.
+
+**Sign-out is the analyst's analytical sign-off, not the medical one.** It closes the analysis and
+freezes it. The clinical report is drafted and medically signed in the hospital's electronic patient
+record (EPD), outside CoGA, and refers to exactly one signed version of the analysis. CoGA does not see
+the EPD report and does not check that reference.
 
 How to prepare and sign out a report is in the [user guide](/docs), section *Clinical report and
 sign-out*. This page holds the rules.
@@ -101,8 +106,9 @@ top of every page.
 
 ## 4. Case sign-out — freeze the result
 
-**Sign out report** freezes the reported result into a numbered version with a unique fingerprint (a
-SHA-256 content hash):
+**Sign out report** is the analyst's sign-off of the analysis. It closes the analysis and freezes the
+reported result into a numbered version with a unique fingerprint (a SHA-256 content hash), the version
+the clinical report in the EPD refers to:
 
 - the provenance footer (the versions);
 - the reported small variants, each with its classification, ACMG criteria, tags, note and frozen
@@ -170,14 +176,16 @@ is already there, partly written data too, so only an overwrite removes the warn
 
 ### Who may sign out
 
-Only people the laboratory has authorised as signatories. CoGA lets any member of the project press
-**Sign out report** and does not check signing authority itself. It records who signed each version, in
-the signed record and in the audit trail.
+Only people the laboratory has authorised to sign out an analysis. CoGA lets any member of the project
+press **Sign out report** and does not check that authority itself. It records who signed each version,
+in the signed record and in the audit trail. The medical sign-off of the clinical report is given in
+the EPD, under its own signing rights.
 
 ### Amendments
 
 Signing out again creates a new version (v2, v3, …); earlier versions are never overwritten. Once a
-case is signed out, the button on the live report reads **Amend sign-out**.
+case is signed out, the button on the live report reads **Amend sign-out**. A clinical report that rests
+on the amended analysis refers to the new version.
 
 ---
 

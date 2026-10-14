@@ -74,7 +74,7 @@ change-controlled deployment before clinical go-live
 
 ## 4. Secure development lifecycle (IEC 81001-5-1)
 - Security requirements captured in the SRS ([TF-09a §3.7](TF-09a-software-requirements-specification.md), REQ-SEC) and traced (RTM).
-- Secure coding & review: changes land through pull requests gated by the required status checks, and security-relevant dependencies are flagged (TF-08 §A). Independent review is not yet mechanically enforced ([TF-18 §6](TF-18-change-configuration-management.md)); this item must not be read as evidence that every PR was independently reviewed.
+- Secure coding & review: changes land through pull requests gated by the required status checks, and security-relevant dependencies are flagged (TF-08 §A). Pull requests need no approval: the four-eyes review is QA's, per release, signed before the tag ([TF-18 §6](TF-18-change-configuration-management.md)). Only the pull requests that QA's signed review of a release includes (every change to a clinical-critical module and a sample of the rest) count as independently reviewed, so this item must not be read as evidence that every PR was.
 - Verification: access-control tests (`test_access_control.py`), audit immutability tests, refuse-to-start tests; CI gates.
 - Threat modeling: **🔲 ACTION** — produce a lightweight threat model (data flow and trust boundaries: browser ↔ load balancer and Cloud Armor ↔ API ↔ Cloud SQL / ClickHouse VM ↔ GCS; auth boundary; admin vs viewer) and review it per significant change.
 

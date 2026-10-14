@@ -118,6 +118,13 @@ overlay is hidden.
   (`interpretSampleHaplotypeRisk` returns the call alone); `getHaplotypeLaneSignature`, which treats the
   backend's lineage tags as authoritative over the flat `role`. `frontend/src/lib/embryoSegregation.ts`
   holds the family-page classification and its warnings.
+- **X-linked recessive, a female embryo** — `assessSampleHaplotypeRisk` reads her only on the sides a
+  disease haplotype was found on. With an unaffected father none is found on his side, so his X is
+  taken as not at risk and her call rests on her maternal X: *Carrier* with the mother's risk
+  haplotype, *Unaffected* with the mother's other X seen across the ROI. This is the owner's confirmed
+  rule for a fully penetrant X-linked recessive disorder (2026-10-14; CLIN-6, TF-09a REQ-PGT-005).
+  `haplotypeRisk.test.ts` (*still calls a son from his maternal X alone, and a daughter carrier from
+  hers*) pins it.
 - **Phase switches in a parent** — `backend/app/services/haplotype_phase_correction.py`
   (`find_phase_switches`: the densest clusters of the couple's children switching on one parent's
   side, one switch per child; `expected_chance_clusters`: the chance gate; `corrected_genotype_rows`:

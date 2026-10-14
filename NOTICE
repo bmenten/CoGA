@@ -22,7 +22,10 @@ terms of the Apache License, Version 2.0, under which this software is licensed.
 
 CoGA is operated by the Center for Medical Genetics Ghent (CMGG, ISO 15189) as
 an IN-HOUSE IN VITRO DIAGNOSTIC under Article 5(5) of Regulation (EU) 2017/746
-(IVDR). Its device boundary is: annotated VCF in, signed clinical report out.
+(IVDR). Its device boundary is: annotated VCF in, a closed, frozen analysis in
+CoGA out. The clinical report is drafted and medically signed in the hospital's
+electronic patient record (EPD), outside the device, and refers one-to-one to
+that analysis.
 
 It is NOT a CE-marked in vitro diagnostic medical device, and it is not placed
 on the market. Its validation, risk management and performance evaluation cover

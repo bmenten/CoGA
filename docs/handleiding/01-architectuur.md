@@ -4,7 +4,7 @@ Dit hoofdstuk is de kaart voor de rest van de handleiding. Het beschrijft de dri
 
 ## CoGA in het kort
 
-CoGA (*Comprehensive Genomic Analysis*) is een platform voor variantinterpretatie, genoomvisualisatie en klinische review op familieniveau. Het draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG, een ISO 15189-geaccrediteerd labo. *IVD* staat voor in-vitrodiagnostiek; de *IVDR* is de Europese verordening daarvoor. Het gereguleerde deel (de "device boundary") loopt van het **geannoteerde VCF-bestand** tot het **ondertekende klinische rapport**. De data in het systeem is synthetisch.
+CoGA (*Comprehensive Genomic Analysis*) is een platform voor variantinterpretatie, genoomvisualisatie en klinische review op familieniveau. Het draait als **in-house IVD onder IVDR Artikel 5(5)** bij CMGG, een ISO 15189-geaccrediteerd labo. *IVD* staat voor in-vitrodiagnostiek; de *IVDR* is de Europese verordening daarvoor. Het gereguleerde deel (de "device boundary") loopt van het **geannoteerde VCF-bestand** tot de **afgesloten, bevroren analyse in CoGA**: de analist sluit de analyse af met *Sign out*, de analytische ondertekening, die haar bevriest. Het klinische verslag wordt opgesteld en medisch ondertekend in het EPD (het elektronisch patiëntendossier van het ziekenhuis) en verwijst 1-op-1 naar die analyse; het EPD valt buiten het hulpmiddel. De data in het systeem is synthetisch.
 
 ## De drie lagen
 

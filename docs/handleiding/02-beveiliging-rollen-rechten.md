@@ -10,7 +10,7 @@ CoGA kent precies drie rollen. De databank zelf laat geen andere waarde toe.
 
 | Rol | Betekenis | Wat mag deze rol |
 | --- | --- | --- |
-| `viewer` | Gewone (klinische) gebruiker | Alleen de families, samples en varianten van de **projecten waarvan hij lid is**; kan binnen die projecten taggen en reviewen. Kan ook een rapport ondertekenen: de software beperkt dat niet. Alleen door het labo gemachtigde ondertekenaars mogen dat doen; dat is een procedurele maatregel (`docs/regulatory/TF-06-risk-management-plan.md`, gevaar H15). |
+| `viewer` | Gewone (klinische) gebruiker | Alleen de families, samples en varianten van de **projecten waarvan hij lid is**; kan binnen die projecten taggen en reviewen. Kan ook een analyse afsluiten met *Sign out*, de analytische ondertekening: de software beperkt dat niet. Alleen wie het labo daartoe machtigt, mag dat; dat is een procedurele maatregel (`docs/regulatory/TF-06-risk-management-plan.md`, gevaar H15). De medische ondertekening van het klinische verslag gebeurt in het EPD, niet in CoGA. |
 | `admin` | Beheerder | Alles wat een viewer mag, over alle projecten heen, plus alle beheeracties (projecttoewijzing, verwijderen, referentiedata, auditlogs) |
 | `superuser` | Beheerder | Wordt overal als `admin` behandeld |
 
