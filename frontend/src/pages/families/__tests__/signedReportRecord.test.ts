@@ -4,15 +4,28 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ANALYTICAL_SIGN_OFF_STATEMENT,
   describeBreachedMetric,
+  describeCatalogue,
+  describeCnvKnowledgebase,
+  describeGenePanel,
+  describeGeneReferenceReleases,
+  describeGenotype,
   describeModuleVersions,
+  describeRepeatCall,
+  describeRepeatThresholds,
   describeSignedDrift,
   describeSignedStructuralDrift,
+  describeSmallVariantDescription,
+  describeSmallVariantLocus,
   describeStructuralEvidenceChange,
+  describeStructuralVariantDescription,
+  paraphaseStatusWords,
   parseSignedReport,
   parseSignedVersionParam,
   reportViewSearch,
 } from '../signedReportRecord';
+import { SIGNED_ANALYSIS } from '../../../test/signedAnalysisFixture';
 
 const SNAPSHOT = {
   family_id: 'F1',
@@ -371,5 +384,126 @@ describe('the report page’s views', () => {
     expect(reportViewSearch('?project_id=P1', { version: 3 })).toBe('?project_id=P1&version=3');
     expect(reportViewSearch('?project_id=P1&version=3', 'live')).toBe('?project_id=P1&view=live');
     expect(reportViewSearch('?view=live', { version: 1 })).toBe('?version=1');
+  });
+});
+
+// What the analysis looked at, frozen since 2026-10-14 (signed_record_sections.py).
+describe('what the analysis looked at', () => {
+  it('reads each section the record holds, and words it', () => {
+    const record = parseSignedReport({ ...SNAPSHOT, ...SIGNED_ANALYSIS })!;
+    expect(record.statement).toBe(ANALYTICAL_SIGN_OFF_STATEMENT);
+
+    expect(record.variantDescriptions.state).toBe('recorded');
+    if (record.variantDescriptions.state !== 'recorded') return;
+    // An entry that is not one is left out; the downloaded record keeps it as stored.
+    expect(record.variantDescriptions.value.small).toHaveLength(1);
+    const [small] = record.variantDescriptions.value.small;
+    expect(describeSmallVariantDescription(small)).toBe('GENE_PATH c.10A>G p.(Lys4Arg), missense variant (MODERATE)');
+    expect(describeSmallVariantLocus(small)).toBe(
+      '17:43,000,000 A → G · transcript ENST01 (MANE Select) · callset clair3',
+    );
+    expect(small.genotypes.map(describeGenotype)).toEqual([
+      'MOTHER 0/0 (depth 28, GQ 60)',
+      'PROBAND 0/1 (depth 30, AD 15,15, VAF 0.5)',
+    ]);
+    const [sv] = record.variantDescriptions.value.structural;
+    expect(describeStructuralVariantDescription(sv)).toBe(
+      'Deletion (copy loss), 2:1,000-50,000, 49,000 bp, genes GENE_DEL, 2p25.3, caller needlr',
+    );
+    expect(describeGenotype(sv.genotypes[0])).toBe('PROBAND 0/1 (copy number 1, 18 supporting reads)');
+
+    expect(record.genePanels.state).toBe('recorded');
+    if (record.genePanels.state === 'recorded') {
+      expect(describeGenePanel(record.genePanels.value[0])).toBe(
+        'Epilepsy, version 2, 120 genes; PanelApp panel 402, version 3.1 (confidence levels 3), imported 2026-09-01 08:00 UTC; first applied 2026-10-10 09:00 UTC by analyst',
+      );
+    }
+
+    expect(record.referenceData.state).toBe('recorded');
+    if (record.referenceData.state === 'recorded') {
+      const { geneReference, clinicalCnvs } = record.referenceData.value;
+      expect(geneReference.state).toBe('recorded');
+      if (geneReference.state === 'recorded') {
+        // A partial refresh left two ClinGen dosage releases: both are named.
+        expect(describeGeneReferenceReleases(geneReference.value)).toBe(
+          'ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01',
+        );
+        expect(geneReference.value.notInReference).toEqual(['NOT_LOADED']);
+      }
+      expect(clinicalCnvs.state).toBe('recorded');
+      if (clinicalCnvs.state === 'recorded') {
+        expect(describeCnvKnowledgebase(clinicalCnvs.value)).toBe(
+          'clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated)',
+        );
+      }
+    }
+
+    expect(record.repeatExpansions.state).toBe('recorded');
+    if (record.repeatExpansions.state === 'recorded') {
+      const [locus] = record.repeatExpansions.value.loci;
+      expect(describeRepeatThresholds(locus)).toBe('grey zone from 27, pathogenic from 36');
+      expect(describeRepeatCall(locus.calls[0])).toBe('PROBAND 0/1: 18, 40 repeats — Pathogenic');
+      expect(describeCatalogue(record.repeatExpansions.value.catalogue, 'loci')).toBe(
+        '96 loci (CoGA built-in, STRchive), digest abcdef012345',
+      );
+    }
+
+    expect(record.paraphase.state).toBe('recorded');
+    if (record.paraphase.state === 'recorded') {
+      const [smn, gba] = record.paraphase.value.genes;
+      expect(smn.statusRule).toBe('status by smn1_cn: pathogenic = 0, carrier = 1, normal ≥ 2');
+      expect(smn.results[0]).toEqual({
+        sample: 'PROBAND',
+        status: 'carrier',
+        copyNumberSignal: true,
+        copyNumber: [{ label: 'SMN1 CN', value: 1 }],
+      });
+      expect(gba.statusRule).toBeNull();
+    }
+  });
+
+  it('reads a record signed before these sections as not holding them', () => {
+    const record = parseSignedReport(SNAPSHOT)!;
+    expect(record.statement).toBeNull();
+    for (const section of [
+      record.variantDescriptions,
+      record.genePanels,
+      record.referenceData,
+      record.repeatExpansions,
+      record.paraphase,
+    ]) {
+      expect(section).toEqual({ state: 'absent' });
+    }
+  });
+
+  it('reads a section that could not be read at sign-out as not captured, with its reason', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      ...SIGNED_ANALYSIS,
+      paraphase: { unavailable: 'The Paraphase results could not be read.' },
+      gene_panels: 'not an object',
+      reference_data: {
+        gene_reference: { unavailable: "The gene reference's releases could not be read." },
+        clinical_cnvs: null,
+      },
+    })!;
+    expect(record.paraphase).toEqual({ state: 'unavailable', reason: 'The Paraphase results could not be read.' });
+    expect(record.genePanels.state).toBe('unavailable');
+    expect(record.referenceData.state).toBe('recorded');
+    if (record.referenceData.state === 'recorded') {
+      expect(record.referenceData.value.geneReference).toEqual({
+        state: 'unavailable',
+        reason: "The gene reference's releases could not be read.",
+      });
+      // None loaded is recorded, as none.
+      expect(record.referenceData.value.clinicalCnvs).toEqual({ state: 'recorded', value: null });
+      expect(describeCnvKnowledgebase(null)).toBe('none loaded');
+    }
+  });
+
+  it('names the statuses as the repeat and Paraphase pages do', () => {
+    expect(paraphaseStatusWords('no_call')).toBe('No-call');
+    expect(paraphaseStatusWords('none')).toBe('No change');
+    expect(paraphaseStatusWords(null)).toBe('Not assessed');
   });
 });

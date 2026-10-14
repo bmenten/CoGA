@@ -30,6 +30,7 @@ import {
   describeReportSections,
   describeStructuralEvidenceChange,
   formatReportTime,
+  LIVE_REPORT_SIGN_OFF_STATEMENT,
   parseSignedVersionParam,
   reportViewSearch,
 } from './signedReportRecord';
@@ -526,9 +527,13 @@ const LiveFamilyReport: React.FC = () => {
       setDriftReason('');
       setQcReason('');
       setImportReason('');
-      // Show the signer what was signed: the new version, rendered from its record.
+      // Show the signer what was signed: the new version, rendered from its record, with the
+      // report code the EPD report quotes (the signed view confirms it once).
       if (typeof signed?.version === 'number') {
-        navigate({ search: reportViewSearch(location.search, { version: signed.version }) });
+        navigate(
+          { search: reportViewSearch(location.search, { version: signed.version }) },
+          { state: { signedOut: { version: signed.version } } },
+        );
       }
     } catch (error) {
       const response = (
@@ -1069,8 +1074,9 @@ const LiveFamilyReport: React.FC = () => {
             This is the live report, not signed version {latestSignout.version}.
           </p>
           <p className="report-signout-status">
-            Signed version {latestSignout.version} was signed out by{' '}
-            <strong>{latestSignout.signed_out_by}</strong> on{' '}
+            Signed version {latestSignout.version}
+            {latestSignout.report_code ? ` (report code ${latestSignout.report_code})` : ''} was
+            signed out by <strong>{latestSignout.signed_out_by}</strong> on{' '}
             {formatReportTime(latestSignout.signed_out_at)}.{' '}
             {signedState === 'checking'
               ? `Checking this page against signed version ${latestSignout.version}…`
@@ -1128,6 +1134,7 @@ const LiveFamilyReport: React.FC = () => {
           ACMG/AMP classifications are decision support and must be confirmed by a qualified clinical
           scientist before clinical use.
         </p>
+        <p className="report-disclaimer">{LIVE_REPORT_SIGN_OFF_STATEMENT}</p>
       </section>
 
       {driftFailed ? (
