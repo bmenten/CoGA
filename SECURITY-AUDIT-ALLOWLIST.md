@@ -55,6 +55,7 @@ Allowlisted in [`.gitleaks.toml`](.gitleaks.toml) — all **non-secrets**:
 | --- | --- |
 | `ci-smoke-not-a-real-secret`, `ci-admin-not-a-real-secret` | Deliberate placeholder values used only by the CI smoke job (`.github/workflows/ci.yml`); not valid for any real environment. |
 | `grch3[78]_coordinates` | False positive: the `grch37_coordinates` / `grch38_coordinates` dict-field selector in `panelapp_service.py` (PanelApp is a public, key-less API); the default `generic-api-key` rule flags the surrounding assignment shape, not a credential. |
+| `(?:upload\|deletion)-[0-9a-f]{32}` | False positive: the key of an upload's or a deletion's mark on a family (`import_unfinished` entries, SAFE-28, #876), a random identifier; tests hold fixed ones (`DELETION_KEY = 'deletion-…'`), which the default `generic-api-key` rule flags on the `KEY =` assignment shape. Not a credential. |
 | `.env.example` (path) | The template operators copy and fill in; ships `change-me`-style placeholders by design. |
 | `sbom/*.cdx.json` (path) | Generated dependency inventories (names + hashes), not credentials. |
 
