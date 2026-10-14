@@ -5,7 +5,8 @@ time, so the platform bootstraps deterministically — including in offline /
 air-gapped deployments — as required for an IVDR in-house IVD. The runtime
 download (`HPO_DOWNLOAD_IF_MISSING`, in
 [`hpo_service.py`](../../../backend/app/services/hpo_service.py)) is a **fallback
-only**; this committed copy is the authoritative, pinned reference.
+only**, and it is pinned to this file: this committed copy is the authoritative,
+pinned reference.
 
 ## Pinned version
 
@@ -17,12 +18,12 @@ only**; this committed copy is the authoritative, pinned reference.
 | Terms | 19,944 |
 | Vendored into the repo | 2026-06-05 |
 | SHA-256 | `8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd` |
-| Canonical (floating) URL | <https://purl.obolibrary.org/obo/hp.obo> |
-| Pinned (reproducible) URL | <https://purl.obolibrary.org/obo/hp/releases/2026-02-16/hp.obo> |
+| Pinned release URL (the download fallback) | <https://purl.obolibrary.org/obo/hp/releases/2026-02-16/hp.obo> |
+| Floating URL (not used) | <https://purl.obolibrary.org/obo/hp.obo> |
 | License | HPO license — free for use, see <https://hpo.jax.org/app/license> |
 
-The **pinned URL** is the reproducible fetch: it always returns the exact
-`2026-02-16` release, whereas the canonical URL floats to the latest release.
+The **pinned release URL** is the reproducible fetch: it always returns the exact
+`2026-02-16` release, whereas the floating URL moves to the latest release.
 
 ## How the version is used
 
@@ -36,18 +37,44 @@ as the `hpo` reference module of the annotation manifest
 [TF-08 SOUP register](../../../docs/regulatory/TF-08-soup-register.md) lists HPO
 as reference data.
 
+## The download fallback
+
+The backend image holds no reference data. When the startup finds no ontology file
+(a reference-data bucket without `hpo/hp.obo`, for instance), it downloads this
+release from the pinned release URL and uses the file only if its SHA-256 is the
+one above. Any other file, such as a later release, is refused before anything is
+written, so no file on disk changes: the backend logs an error naming both digests
+and imports nothing. The HPO terminology then stays empty until this file is in
+place.
+
+The pin is kept in one place, `backend/app/core/config.py`: `HPO_PINNED_RELEASE`
+and `HPO_PINNED_ONTOLOGY_SHA256`, with the URL built from the release. They are the
+defaults of `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256`, and a blank value of either
+means the default, so the check cannot be switched off. A deployment that sets them
+replaces the pin: a mirror in `HPO_ONTOLOGY_URL` must serve this exact file.
+[`test_hpo_download_pin.py`](../../../backend/tests/test_hpo_download_pin.py) fails
+until this file, the pin and the table above agree.
+
 ## Updating (controlled change)
 
 Replacing this ontology is a **TF-18 controlled change**:
 
-1. Download the new release from its versioned PURL (HTTPS).
-2. Replace `hp.obo`, then update the **Release**, **Terms**, **Vendored**, and
-   **SHA-256** rows above (recompute with `shasum -a 256 hp.obo`).
-3. Existing databases keep their terms: the startup import only runs when none are
+1. Download the new release from its versioned PURL (HTTPS),
+   `https://purl.obolibrary.org/obo/hp/releases/<date>/hp.obo`, and keep the file
+   byte for byte as served.
+2. Replace `hp.obo`, then update the **Release**, **Terms**, **Vendored**,
+   **SHA-256** and **Pinned release URL** rows above (recompute with
+   `shasum -a 256 hp.obo`).
+3. Move the pin to the same release in `backend/app/core/config.py`: set
+   `HPO_PINNED_RELEASE` to the new `data-version` and `HPO_PINNED_ONTOLOGY_SHA256` to
+   the new digest. Run `backend/tests/test_hpo_download_pin.py`.
+4. Existing databases keep their terms: the startup import only runs when none are
    loaded. Apply the new file under Administration → HPO Terminology
    (`/admin/reference/hpo`): preview, then apply, with the path
-   `/data/ref-data/hpo/hp.obo`.
-4. Record it: before the first release candidate the pull request is the record (TF-10 §8
+   `/data/ref-data/hpo/hp.obo`. A deployment that reads its reference data from a
+   bucket needs the new file there too, and one that sets `HPO_ONTOLOGY_URL` or
+   `HPO_ONTOLOGY_SHA256` must change or remove them, or its download stays on the
+   old pin.
+5. Record it: before the first release candidate the pull request is the record (TF-10 §8
    already lists HPO releases in the validation scope); from the release candidate on, a
-   `CHANGELOG.md` entry and a TF-18 §8 change record. If you rely on the download fallback, set `HPO_ONTOLOGY_SHA256` to the new
-   file's digest so the download is checked against it.
+   `CHANGELOG.md` entry and a TF-18 §8 change record.
