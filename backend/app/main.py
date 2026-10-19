@@ -93,7 +93,6 @@ async def lifespan(app: FastAPI):
         await ensure_hpo_ontology_on_startup(
             session,
             ontology_path=settings.hpo_ontology_path,
-            ontology_url=settings.hpo_ontology_url,
             download_if_missing=settings.hpo_download_if_missing,
             enabled=settings.hpo_bootstrap_on_startup,
         )

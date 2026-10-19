@@ -13,7 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.core.coga_logging import RedactQueryTokenFilter, redact_query_tokens
-from backend.app.core.config import settings
+from backend.app.core.config import HPO_PINNED_ONTOLOGY_URL, settings
 from backend.app.services import hpo_service
 from backend.app.services import integrity_anchor_service as anchors
 from backend.app.services.clinical_cnv_kb_jobs import _build_script_env
@@ -56,7 +56,7 @@ def _serve(monkeypatch, payload: bytes) -> None:
 def test_the_hpo_ontology_is_only_fetched_over_https(tmp_path) -> None:
     with pytest.raises(RuntimeError, match="non-HTTPS"):
         hpo_service._download_hpo_ontology_file("http://purl.obolibrary.org/obo/hp.obo", [tmp_path / "hp.obo"])
-    assert settings.hpo_ontology_url.startswith("https://")
+    assert HPO_PINNED_ONTOLOGY_URL.startswith("https://")
 
 
 def test_the_hpo_download_is_bounded_checked_and_atomic(monkeypatch, tmp_path) -> None:
