@@ -43,7 +43,6 @@ from .hpo_service import (
     import_family_hpo_annotations,
 )
 from .repeat_expansion_pg import (
-    clear_sample_repeat_expansions,
     decode_repeat_upload_text,
     ingest_family_trgt_text,
     ingest_trgt_text,
@@ -867,7 +866,11 @@ async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, s
     after the caller's input file (``<sample>_sv_phased``). A file whose query names
     another sample of CoGA -- a family member's file under this entry, or another
     family's -- is refused, as a per-sample VCF column is (``per_sample_vcf_column``); a
-    query that names no known sample is the entry's."""
+    query that names no known sample is the entry's.
+
+    So is a file without a record the reader reads (SAFE-29): a sample's structural
+    variants called across its genome are never none, and such a file used to replace the
+    sample's NeedlR calls with none while the other samples' files imported."""
     bundle, family_context = job.bundle, job.family_context
     files: list[tuple[str, Path, str]] = []
     for sample_id, raw_entry in job.dataset.per_sample.items():
@@ -877,6 +880,13 @@ async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, s
         if path is None:
             continue
         text_value = _read_package_text(path)
+        if not _iter_needlr_per_sample_records(
+            [(sample_id, text_value)], ped=bundle.ped, sample_contexts=job.sample_contexts
+        ):
+            raise RuntimeError(
+                f"The NeedlR file of {sample_id} ({path.name}) holds no structural variant; "
+                "no NeedlR call was replaced"
+            )
         queries = sorted(needlr_query_ids(text_value))
         known = await known_vcf_sample_ids(
             job.session, family_uuid=family_context.family_uuid, header_samples=queries
@@ -1390,6 +1400,13 @@ async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             sample_results[sample_id] = skip
             continue
 
+        # Each of the sample's tables is read up to its first segment before its track is
+        # deleted: one without a segment fails the dataset with the track as it was
+        # (SAFE-29).
+        for origin, path in role_paths:
+            await _import_pcf_segment_file(
+                session, sample_context=sample_context, path=path, origin=origin, check_only=True
+            )
         await _delete_sample_interval_source(
             session,
             sample_context=sample_context,
@@ -1473,9 +1490,10 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
         vcf_path = _resolve_package_path(bundle.root, raw_entry.get("file") or raw_entry.get("vcf"))
         if vcf_path is None:
             continue
-        await clear_sample_repeat_expansions(session, sample_uuid=sample_context.sample_uuid)
         async with _local_upload(vcf_path) as upload:
             text_value = await decode_repeat_upload_text(upload)
+            # The sample's stored calls are deleted once its file has been read whole: a
+            # file with no record for it fails the dataset with them as they were (SAFE-29).
             sample_results[sample_id] = await ingest_trgt_text(
                 session,
                 sample_context=sample_context,
@@ -1486,6 +1504,7 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
                     "uploaded_from": "family_package",
                 },
                 declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
+                replace=True,
             )
     return summary.model_copy(
         update={
@@ -1523,6 +1542,12 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
             path=json_path,
             payload=payload,
         )
+        if not rows:
+            # Paraphase reports every region it analysed: a JSON without one is no result.
+            # It used to replace the sample's results with none (SAFE-29).
+            raise RuntimeError(
+                f"Paraphase JSON for {sample_id} holds no gene result; its results were not replaced"
+            )
         await _replace_sample_paraphase_rows(
             session,
             sample_context=sample_context,
@@ -1648,9 +1673,10 @@ async def _import_interval_track_unless_present(
     track_type: str,
     source: str,
     conflict_mode: str,
-    importer: Callable[[], Awaitable[dict[str, int]]],
+    importer: Callable[..., Awaitable[dict[str, int]]],
 ) -> dict[str, Any]:
-    """Run ``importer`` unless update mode must leave existing rows alone.
+    """Run ``importer`` unless update mode must leave existing rows alone. ``importer`` is
+    one of the track importers with its file bound, which takes ``check_only``.
 
     ``update`` means "add what is missing, touch nothing that is there"; the
     importers themselves always replace their (track_type, source, filename)
@@ -1669,12 +1695,18 @@ async def _import_interval_track_unless_present(
     bigWig, so a filename-scoped replace would leave the old copy-number rows
     behind to be averaged into the new depth values. It is cleared when Postgres
     records the track, which also removes a record whose rows are gone.
+
+    Before that, ``importer`` reads its file up to the first row it stores
+    (``check_only``): a file without one, or one it cannot read, is refused there
+    (``EmptyTrackFileError``), and the dataset fails with the track as it was (SAFE-29).
+    It used to clear the track and store none, the dataset reading as imported.
     """
 
     if conflict_mode == "update":
         stored = await _stored_track_rows(sample_context, track_type=track_type, source=source)
         if stored:
             return {"skipped": True, "existing": stored}
+    await importer(check_only=True)
     existing = await _interval_track_count(
         session,
         sample_context=sample_context,

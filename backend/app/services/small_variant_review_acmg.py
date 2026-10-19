@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from datetime import datetime
 from typing import Any
 
@@ -7,7 +8,44 @@ from fastapi import HTTPException
 
 from ..schemas import AcmgClassificationPayload
 from . import acmg_points
+from .clickhouse_variant_queries import _normalize_alpha_missense_class, _select_primary_annotation
+from .clickhouse_variant_records import (
+    _annotation_float,
+    _annotation_int,
+    _annotation_polyphen,
+    _annotation_population_frequencies,
+    _annotation_sift,
+    _annotation_spliceai_max,
+    _annotation_text,
+)
 from .review_pg_utils import _json_payload, _read_stored_classification
+
+# The population frequencies a small-variant classification rests on (CLIN-7), in the order
+# a reviewer reads them: the gnomAD allele frequency the frequency criteria read (PM2, BS1,
+# BA1), and the other frequencies and the gnomAD allele, homozygote and hemizygote counts
+# the filters read (BS2 reads the homozygote count). Each is frozen, also without a value,
+# so one that appears later reads as a change.
+EVIDENCE_FREQUENCY_FIELDS: tuple[str, ...] = (
+    "gnomad_af",
+    "gnomad_exomes_af",
+    "gnomad_genomes_af",
+    "gnomad_popmax_af",
+    "topmed_af",
+    "gnomad_ac",
+    "gnomad_hom_count",
+    "gnomad_hemi_count",
+)
+# The in-silico scores: REVEL, SpliceAI and the AlphaMissense class the computational
+# criteria read (PP3, BP4, BP7), and CADD, SIFT and PolyPhen beside them.
+EVIDENCE_IN_SILICO_FIELDS: tuple[str, ...] = (
+    "cadd_phred",
+    "revel",
+    "spliceai_max",
+    "sift",
+    "polyphen",
+    "alpha_missense_class",
+    "alpha_missense_pathogenicity",
+)
 
 
 def _normalize_acmg_payload(
@@ -75,12 +113,77 @@ def _json_or_none(value: Any) -> str | None:
     return None if value is None else _json_payload(value)
 
 
+def _finite(value: float | None) -> float | None:
+    """A value the snapshot can hold: JSONB has no NaN or infinity, and no -0.0."""
+    if value is None or not math.isfinite(value):
+        return None
+    return value + 0.0
+
+
+def _frozen_float(annotation: dict[str, Any], *keys: str) -> float | None:
+    return _finite(_annotation_float(annotation, *keys))
+
+
+def _frozen_int(annotation: dict[str, Any], *keys: str) -> int | None:
+    """A count the snapshot can hold; None for a value no integer reads (an infinity)."""
+    try:
+        return _annotation_int(annotation, *keys)
+    except OverflowError:
+        return None
+
+
+def small_variant_evidence(record: Any) -> dict[str, Any]:
+    """The population frequencies and in-silico scores a classification of ``record`` reads,
+    and the transcript they are read from (CLIN-7).
+
+    Read from the variant's primary transcript (MANE Select, then canonical, then the most
+    severe impact) with the helpers the variant's fields are served with
+    (``_small_variant_out``), so the frozen values are the ones the ACMG dialog was given.
+    Every field is present, None without a value.
+    """
+    annotation = _select_primary_annotation(list(getattr(record, "annotations", None) or []))
+    population = _annotation_population_frequencies(annotation)
+
+    def _population(key: str) -> float | None:
+        return _finite(population.get(key))
+
+    return {
+        "transcript_id": _annotation_text(annotation, "transcript_id", "transcriptId"),
+        "frequencies": {
+            "gnomad_af": _frozen_float(annotation, "gnomad_af", "gnomadAf"),
+            "gnomad_exomes_af": _population("gnomad_exomes_af"),
+            "gnomad_genomes_af": _population("gnomad_genomes_af"),
+            "gnomad_popmax_af": _population("gnomad_popmax_af"),
+            "topmed_af": _population("topmed_af"),
+            "gnomad_ac": _frozen_int(annotation, "gnomad_ac"),
+            "gnomad_hom_count": _frozen_int(annotation, "gnomad_hom_count", "gnomadHomCount"),
+            "gnomad_hemi_count": _frozen_int(annotation, "gnomad_hemi_count"),
+        },
+        "in_silico": {
+            "cadd_phred": _frozen_float(annotation, "cadd_phred", "caddPhred"),
+            "revel": _frozen_float(annotation, "revel"),
+            "spliceai_max": _finite(_annotation_spliceai_max(annotation)),
+            "sift": _annotation_sift(annotation),
+            "polyphen": _annotation_polyphen(annotation),
+            "alpha_missense_class": _normalize_alpha_missense_class(
+                _annotation_text(annotation, "alpha_missense_class", "alphaMissenseClass")
+            ),
+            "alpha_missense_pathogenicity": _frozen_float(
+                annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
+            ),
+        },
+    }
+
+
 def build_evidence_snapshot(record: Any, captured_at: datetime) -> dict[str, Any]:
     """Freeze the evidence a classification was based on (clinical traceability).
 
     The annotation-set identity (``annotation_set_hash``) is the cheap drift key —
     it changes whenever any annotation changes — alongside the ClinVar significance,
-    the most decision-relevant value, read from the per-transcript annotations.
+    the most decision-relevant value, read from the per-transcript annotations, and the
+    population frequencies and in-silico scores the classification reads, with the
+    transcript they are read from (``small_variant_evidence``). The drift check compares
+    each value the snapshot froze, so it names what moved.
     """
     clinvar = None
     for annotation in getattr(record, "annotations", None) or []:
@@ -93,6 +196,7 @@ def build_evidence_snapshot(record: Any, captured_at: datetime) -> dict[str, Any
         "annotation_version": getattr(record, "annotation_version", None),
         "annotation_set_hash": getattr(record, "annotation_set_hash", None),
         "clinvar": clinvar,
+        **small_variant_evidence(record),
         "captured_at": captured_at.isoformat(),
     }
 

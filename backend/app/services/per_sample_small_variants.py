@@ -365,10 +365,11 @@ async def upload_family_per_sample_small_variant_files(
     The callset replaces the family's stored primary callset (``overwrite``; else 409 when
     there is one). It must bring the file of every sample with calls in the stored one: a
     sample left out would lose its calls without a word, so that is refused (409) before
-    anything is deleted. ``exclude_filters`` names the FILTER values of records that carry
-    no variant (see the module docstring). Each file must hold one sample, checked by the
-    caller. ``progress`` is told, every ``SMALL_VARIANT_PROGRESS_INTERVAL`` records read,
-    the records read and stored and the bytes of the files read.
+    anything is deleted, as is a file with no record (SAFE-29). ``exclude_filters`` names
+    the FILTER values of records that carry no variant (see the module docstring). Each
+    file must hold one sample, checked by the caller. ``progress`` is told, every
+    ``SMALL_VARIANT_PROGRESS_INTERVAL`` records read, the records read and stored and the
+    bytes of the files read.
     """
     if not context.assembly_name:
         raise HTTPException(status_code=400, detail="Could not resolve a single assembly for this family")
@@ -396,6 +397,14 @@ async def upload_family_per_sample_small_variant_files(
             if not 0 <= file.column < len(reader.columns):
                 raise PerSampleMergeError(f"{reader.label} has no sample column {file.column}")
             order.add_header(reader.contigs, label=reader.label)
+        # And each file's first record, before anything is deleted: a file without one (a
+        # header alone, or records none of which can be read) is refused with the stored
+        # callset as it was (SAFE-29). It used to be imported beside the others, its sample
+        # left with no call in the callset.
+        for reader in readers:
+            reader.start(order)
+            if reader.next_key is None:
+                raise PerSampleMergeError(f"{reader.label} holds no record")
         # One write of the family's small variants at a time, from the read below until the
         # commit at the end.
         await lock_family_variant_writes(
@@ -424,8 +433,6 @@ async def upload_family_per_sample_small_variant_files(
                 )
             await delete_family_small_variants(assembly_name, context.family_uuid, source=source)
         mutation_started = True
-        for reader in readers:
-            reader.start(order)
 
         counts = _MergeCounts(per_sample_calls={sample_id: 0 for sample_id in file_samples})
         batch: list[SmallVariantRecord] = []
