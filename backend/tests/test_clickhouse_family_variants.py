@@ -913,7 +913,7 @@ async def test_get_family_structural_variants_page_uses_clickhouse_pagination(
         context=_family_context(),
         page=2,
         page_size=1,
-        chr="1",
+        filters=StructuralVariantQueryFilters(page=2, page_size=1, chromosome="1"),
     )
 
     assert page.total == 3
@@ -1014,6 +1014,8 @@ async def _run_non_native_structural_page(
     returned_rows: int,
     queries: list[tuple[str, dict[str, object]]] | None = None,
     runner=get_family_structural_variants_page,
+    variant_type: str | None = "DEL",  # any of these filters forces the non-native fetch-all path
+    selected_samples: list[str] | None = None,
     **page_kwargs,
 ):
     async def fake_execute_clickhouse(query: str, params: dict[str, object]):
@@ -1050,7 +1052,12 @@ async def _run_non_native_structural_page(
     kwargs: dict[str, object] = {
         "page": 1,
         "page_size": 10,
-        "type": "DEL",  # any of these filters forces the non-native fetch-all path
+        "filters": StructuralVariantQueryFilters(
+            page=1,
+            page_size=10,
+            variant_type=variant_type,
+            selected_samples=selected_samples or [],
+        ),
     }
     kwargs.update(page_kwargs)
     if runner is not get_family_structural_variants_page:
@@ -1101,7 +1108,7 @@ async def test_structural_track_reports_the_total_beyond_its_page(monkeypatch: p
     # 5 SVs in view for a track page of 2: the track must be able to tell it is
     # drawing part of the view (#585). It used to get total=0.
     page = await _run_non_native_structural_page(
-        monkeypatch, returned_rows=5, type=None, page_size=2, track_mode=True
+        monkeypatch, returned_rows=5, variant_type=None, page_size=2, track_mode=True
     )
     assert len(page.variants) == 2
     assert page.total == 5
@@ -1118,7 +1125,7 @@ async def test_structural_track_flags_the_candidate_cap(monkeypatch: pytest.Monk
     )
     # The genome track asks for every SV (page_size=0); past the cap it must be told.
     page = await _run_non_native_structural_page(
-        monkeypatch, returned_rows=3, type=None, page_size=0, track_mode=True
+        monkeypatch, returned_rows=3, variant_type=None, page_size=0, track_mode=True
     )
     assert len(page.variants) == 2
     assert page.total_is_estimated is True
@@ -1131,7 +1138,12 @@ async def test_structural_track_fetches_only_its_samples_svs(monkeypatch: pytest
 
     queries: list[tuple[str, dict[str, object]]] = []
     await _run_non_native_structural_page(
-        monkeypatch, returned_rows=1, queries=queries, type=None, track_mode=True, samples=["PROBAND"]
+        monkeypatch,
+        returned_rows=1,
+        queries=queries,
+        variant_type=None,
+        track_mode=True,
+        selected_samples=["PROBAND"],
     )
     (query, params), = queries
     # In SQL, so the candidate cap counts the sample's SVs, not the family's; by name
@@ -1143,13 +1155,13 @@ async def test_structural_track_fetches_only_its_samples_svs(monkeypatch: pytest
     # No sample named: the whole family, as before.
     queries.clear()
     await _run_non_native_structural_page(
-        monkeypatch, returned_rows=1, queries=queries, type=None, track_mode=True
+        monkeypatch, returned_rows=1, queries=queries, variant_type=None, track_mode=True
     )
     assert clause not in queries[0][0]
 
     # The SV table's query is unchanged.
     queries.clear()
-    await _run_non_native_structural_page(monkeypatch, returned_rows=1, queries=queries, samples=["PROBAND"])
+    await _run_non_native_structural_page(monkeypatch, returned_rows=1, queries=queries, selected_samples=["PROBAND"])
     assert clause not in queries[0][0]
 
 
@@ -2381,7 +2393,7 @@ async def test_a_reported_sv_beyond_the_candidate_cap_is_still_found(
         context=_family_context(),
         page=1,
         page_size=500,
-        review_tags=["report"],
+        filters=StructuralVariantQueryFilters(page=1, page_size=500, review_tags=["report"]),
         prioritize=prioritize,
     )
 
@@ -2420,7 +2432,7 @@ async def test_an_sv_search_without_a_review_selection_reads_the_whole_callset(
         context=_family_context(),
         page=1,
         page_size=50,
-        type="DEL",
+        filters=StructuralVariantQueryFilters(page=1, page_size=50, variant_type="DEL"),
     )
 
     assert [str(variant.id) for variant in page.variants] == ["sv-1"]

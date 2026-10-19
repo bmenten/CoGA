@@ -328,6 +328,7 @@ def test_a_family_export_past_its_cap_is_cut_at_the_cap_and_says_so(monkeypatch)
         insert_small_variant_records,
         insert_structural_variant_records,
     )
+    from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 
     async def _scenario() -> None:
         await init_postgres_schema()
@@ -359,12 +360,7 @@ def test_a_family_export_past_its_cap_is_cut_at_the_cap_and_says_so(monkeypatch)
             async with session_factory() as session:
                 svs = await sv_route.export_family_structural_variants_csv(
                     label,
-                    sample_filters=[],
-                    samples=[],
-                    region_flags=[],
-                    classifications=[],
-                    review_tags=[],
-                    exclude_review_tags=[],
+                    filters=StructuralVariantQueryFilters(page=1, page_size=0),
                     session=session,
                     user=None,
                 )

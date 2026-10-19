@@ -146,8 +146,8 @@ def test_a_reported_variant_is_described_as_the_variant_list_serves_it(monkeypat
             variants=[_small("1-2000-C-T", source="glimpse2"), _small("1-2000-C-T"), _small("9-9-A-G")],
         )
 
-    async def _sv_page(session, *, context, page, page_size, review_tags):
-        asked.append({"kind": "sv", "page_size": page_size, "review_tags": review_tags})
+    async def _sv_page(session, *, context, page, page_size, filters):
+        asked.append({"kind": "sv", "page_size": page_size, "review_tags": filters.review_tags})
         return VariantPage(total=1, variants=[_sv("1-7000-12000-DEL---")])
 
     monkeypatch.setattr(srs, "get_family_small_variants_page", _small_page)
