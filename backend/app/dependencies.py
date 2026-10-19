@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .core.azure import verify_azure_token
 from .core.config import settings
 from .core.postgres import get_postgres_session
-from .services.access_control import ADMIN_ROLES, CurrentUser
+from .services.access_control import ADMIN_ROLES, CurrentUser, request_changes_records
 from .services.family_identifiers import request_value_problem
 from .services.metadata_service import get_current_user_by_email
 
@@ -105,6 +105,11 @@ async def get_current_user(
             user.role,
         )
     request.state.current_user = user
+    # Whether this request changes something a reader may not change (SEC-1). The family,
+    # sample and project checkpoints read it, so every route that names a record is held to
+    # the user's access level there: a route can only be let off by being marked
+    # changes_only_own_data (access_control).
+    user.changes_records = request_changes_records(request.method, request.scope.get("endpoint"))
     # Every route that looks a request's path or query value up signs its caller in here
     # (the QC-report download checks its own signed link first), so this is where those
     # values are held to the control-character rule (family_identifiers): after the 401, so

@@ -14,12 +14,13 @@ detail (file formats, manifest fields, configuration) is kept by the bioinformat
 
 | Page | Who | What it does |
 | --- | --- | --- |
-| **Family Builder** | any user; PED upload for administrators | Build a new family by hand: add samples, set sex and roles, link parents and couples, set affected and carrier status. An administrator can also upload a PED file. Metadata only: no data files. |
+| **Family Builder** | the analysts of a project and administrators; PED upload for administrators | Build a new family by hand: add samples, set sex and roles, link parents and couples, set affected and carrier status. An administrator can also upload a PED file. Metadata only: no data files. |
 | **Package Import** | administrators | Point at a family folder on the CoGA server, generate its manifest, validate it, then import the family **and all its data** in one job. |
 
-**What needs an administrator.** Any user can build a new family by hand. Uploading a PED file,
-replacing an existing family, editing an existing family's members or structure, adding HPO terms,
-setting the region of interest, and loading or replacing data are for administrators.
+**What needs an administrator.** An analyst of a project can build a new family in it by hand, and
+add, change and remove a family's HPO terms; a reader of the project can do neither. Uploading a PED
+file, replacing an existing family, editing an existing family's members or structure, setting the
+region of interest, and loading or replacing data are for administrators.
 
 **Replacing a family** with a PED file or the Family Builder deletes its small variants and structural
 variants with it, once the family has been saved again: a replacement refused before then (a sample ID

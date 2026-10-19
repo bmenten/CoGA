@@ -26,6 +26,8 @@ type TestUser = {
   role: string;
   is_active: boolean;
   projects: string[];
+  // The projects among `projects` where the user only reads (SEC-1).
+  reader_projects?: string[];
 };
 
 const ANN: TestUser = {
@@ -54,6 +56,7 @@ const SURNAME_ONLY: TestUser = {
   role: 'viewer',
   is_active: true,
   projects: ['p3'],
+  reader_projects: ['p3'],
 };
 const USERS = [ANN, PENDING, SURNAME_ONLY];
 
@@ -152,6 +155,17 @@ describe('UserListPage', () => {
     expect(within(surnameOnly).getAllByRole('cell')[1].textContent).toBe('Peeters');
     expect(within(surnameOnly).getByText('—')).toBeInTheDocument();
     expect(within(surnameOnly).getByText('Oncology')).toBeInTheDocument();
+  });
+
+  it('names the level of each project access: analyst or reader (SEC-1)', async () => {
+    renderPage();
+    await screen.findByRole('table');
+
+    const chip = (email: string, project: string) =>
+      within(rowOf(email)).getByText(project).closest('.table-chip')?.textContent;
+    expect(chip('ann@example.com', 'Rare disease')).toBe('Rare disease · analyst');
+    expect(chip('ann@example.com', 'NIPT')).toBe('NIPT · analyst');
+    expect(chip('peeters@example.com', 'Oncology')).toBe('Oncology · reader');
   });
 
   it('ticks the activation checkbox of active accounts only', async () => {

@@ -24,6 +24,7 @@ import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
+import { READ_ONLY_HINT } from '../../lib/familyAccess';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import {
@@ -154,6 +155,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       return res.data as ApiFamilyRecord;
     },
   });
+  // A reader in the family's projects changes nothing here (SEC-1): the server refuses it, and
+  // the controls say so.
+  const readOnly = Boolean(data?.read_only);
 
   // Active status catalogue + assignable users power the status / assignment
   // pickers below. Both are small, app-wide lookups so they are cached by a
@@ -1006,7 +1010,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setStatusDraft(value);
                     saveMetadata({ status_key: value || null });
                   }}
-                  disabled={metadataBusy || statusesFailed}
+                  disabled={readOnly || metadataBusy || statusesFailed}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                 >
                   <option value="">No status</option>
                   {familyStatusOptions.map((option) => (
@@ -1034,7 +1039,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setAssignedToDraft(value);
                     saveMetadata({ assigned_to: value || null });
                   }}
-                  disabled={metadataBusy || usersFailed}
+                  disabled={readOnly || metadataBusy || usersFailed}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                 >
                   <option value="">Unassigned</option>
                   {assignableUsers.map((candidate) => (
@@ -1060,7 +1066,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setReviewedByDraft(value);
                     saveMetadata({ reviewed_by: value || null });
                   }}
-                  disabled={metadataBusy || usersFailed}
+                  disabled={readOnly || metadataBusy || usersFailed}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                 >
                   <option value="">Not reviewed</option>
                   {assignableUsers.map((candidate) => (
@@ -2038,6 +2045,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           memberId={selectedMemberId}
           orderedMembers={orderedMembers}
           userIsAdmin={userIsAdmin}
+          canEditPhenotypes={!readOnly}
           pendingDraft={pendingMemberUpdates[selectedMemberId]}
           onQueue={queueMemberUpdate}
           onRemoved={invalidatePedigreeDependentQueries}

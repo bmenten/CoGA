@@ -14,7 +14,13 @@ from .clickhouse_variant_storage import delete_family_small_variants, delete_fam
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .upload_safety import decode_upload_text
-from .access_control import CurrentUser, RecordNotVisible, is_admin_user, user_can_access_metadata_projects
+from .access_control import (
+    CurrentUser,
+    RecordNotVisible,
+    is_admin_user,
+    require_change_access,
+    user_can_access_metadata_projects,
+)
 
 INHERITANCE_MODELS = {"AD", "AR", "XLD", "XLR", "mitochondrial"}
 
@@ -267,6 +273,8 @@ async def _resolve_accessible_project_id(
     # A project outside the user's projects answers exactly like an unknown one (REQ-SEC-001).
     if not user_can_access_metadata_projects([found_project_id], user):
         raise RecordNotVisible("project", "Project not found")
+    # A family is added to a project only by an analyst of it or an admin (SEC-1).
+    require_change_access([found_project_id], user)
     return normalized_project_id
 
 

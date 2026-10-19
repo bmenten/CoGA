@@ -22,7 +22,7 @@ from ..services.clickhouse_family_variants import (
     get_family_structural_variants_page as get_family_structural_variants_clickhouse,
 )
 from ..services.family_metadata_context import build_family_metadata_context
-from ..services.access_control import CurrentUser
+from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.structural_variant_review_pg import (
     delete_structural_variant_filter_preset as delete_structural_variant_filter_preset_record,
     get_structural_variant_review_summary,
@@ -314,6 +314,8 @@ async def list_structural_variant_filter_presets(
     "/{family_id}/structural-variant-filter-presets",
     response_model=StructuralVariantFilterPresetOut,
 )
+# A preset is its owner's alone, the one for this family too: a reader may save theirs.
+@changes_only_own_data
 async def save_structural_variant_filter_preset(
     family_id: str,
     payload: StructuralVariantFilterPresetCreate,
@@ -334,6 +336,7 @@ async def save_structural_variant_filter_preset(
 
 
 @router.delete("/{family_id}/structural-variant-filter-presets/{preset_id}", status_code=204)
+@changes_only_own_data
 async def delete_structural_variant_filter_preset(
     family_id: str,
     preset_id: str,

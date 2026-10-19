@@ -27,6 +27,8 @@ const mockApiState = vi.hoisted(() => ({
   members: [{ sample_id: 'S1', role: 'proband', affected: true, sex: 'male' }] as unknown[],
   relationships: [] as unknown[],
   analysisType: null as string | null,
+  // The caller is a reader in the family's projects (SEC-1).
+  readOnly: false,
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -41,6 +43,7 @@ vi.mock('../../../lib/api', () => ({
             relationships: mockApiState.relationships,
             pedigree: null,
             projects: ['p1'],
+            read_only: mockApiState.readOnly,
             metadata: {
               pipeline: { genome: 'GRCh38', snv_caller: 'deepvariant' },
               ...(mockApiState.analysisType ? { analysis_type: mockApiState.analysisType } : {}),
@@ -231,6 +234,7 @@ describe('FamilyDetailPage', () => {
     ];
     mockApiState.relationships = [];
     mockApiState.analysisType = null;
+    mockApiState.readOnly = false;
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
@@ -1258,6 +1262,68 @@ describe('FamilyDetailPage', () => {
 
     await waitFor(() => expect(api.delete).toHaveBeenCalledWith('/families/F1/hpo/hpo1'));
     expect(await within(dialog).findByText('Phenotype annotation removed.')).toBeInTheDocument();
+  });
+
+  // SEC-1: an analyst of the family's project, no admin, adds and removes phenotypes; a reader
+  // sees them and the workflow fields but changes neither.
+  const openS1As = async (role: string) => {
+    localStorage.setItem('role', role);
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'S1' }));
+    const dialog = await screen.findByRole('dialog', { name: /family member details/i });
+    await within(dialog).findByLabelText(/identifier/i);
+    return dialog;
+  };
+  const seizure = {
+    id: 'hpo1',
+    sample_id: 'S1',
+    hpo_id: 'HP:0001250',
+    label: 'Seizure',
+    definition: null,
+    status: 'present',
+    onset: null,
+    evidence: null,
+    source: 'manual',
+    note: null,
+    created_at: '2026-01-01T00:00:00Z',
+    updated_at: '2026-01-01T00:00:00Z',
+  };
+
+  it('lets an analyst who is no administrator add and remove phenotypes', async () => {
+    mockApiState.hpoAnnotations = [seizure];
+    const dialog = await openS1As('viewer');
+
+    expect(await within(dialog).findByRole('button', { name: /^remove$/i })).toBeEnabled();
+    expect(within(dialog).getByRole('button', { name: /add phenotype/i })).toBeInTheDocument();
+    expect(within(dialog).getByLabelText('HPO term')).toBeInTheDocument();
+    // The member's own fields stay an administrator's.
+    expect(within(dialog).queryByRole('button', { name: /apply to pending/i })).not.toBeInTheDocument();
+  });
+
+  it('shows a reader the phenotypes and the workflow fields but no control to change them', async () => {
+    mockApiState.readOnly = true;
+    mockApiState.hpoAnnotations = [seizure];
+    const dialog = await openS1As('viewer');
+
+    expect(await within(dialog).findByText('Seizure')).toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /^remove$/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByRole('button', { name: /add phenotype/i })).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('HPO term')).not.toBeInTheDocument();
+    fireEvent.keyDown(document, { key: 'Escape' });
+
+    for (const name of ['Family status', 'Assigned to', 'Reviewed by']) {
+      expect(screen.getByRole('combobox', { name })).toBeDisabled();
+    }
+    expect(screen.getByText('Read-only access (reader)')).toBeInTheDocument();
   });
 
   it('does not offer to remove the family’s last member', async () => {

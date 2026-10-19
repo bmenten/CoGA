@@ -6,6 +6,7 @@ import { apiPath } from '../../lib/apiPath';
 import type { UserRead } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { userAccountsQuery } from '../../lib/users';
+import { memberAccessLevel } from '../../lib/familyAccess';
 import type { ProjectOption } from './dataManagementTypes';
 
 type User = UserRead;
@@ -99,7 +100,8 @@ const UserListPage: React.FC = () => {
             <h1 className="catalog-card-title">Users</h1>
             <p className="catalog-card-copy">
               Review activation state and current project access. Project access is managed from
-              the project settings view.
+              the project settings view, where each member is an analyst, who reads and changes the
+              project&rsquo;s records, or a reader, who only reads them.
             </p>
           </div>
         </div>
@@ -156,6 +158,7 @@ const UserListPage: React.FC = () => {
                         .map((project) => (
                           <span key={project.id} className="table-chip">
                             {project.name}
+                            <span> · {memberAccessLevel(u.reader_projects, project.id)}</span>
                           </span>
                         ))
                     ) : (

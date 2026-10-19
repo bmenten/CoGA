@@ -10,7 +10,9 @@ CoGA keeps the pedigree, the assay data and your interpretation together, so a c
 whole:
 
 - A **project** decides who sees the data and which reference assembly applies. You see only the
-  projects you belong to; administrators see everything and create the projects.
+  projects you belong to; administrators see everything and create the projects. In each of your
+  projects you are an **analyst**, who reads and changes its records, or a **reader**, who only reads
+  them; a family page says *Read-only access (reader)* where you are a reader.
 - A **family** is the case: related samples with their pedigree, roles and affected status.
 - A **sample** carries the assay data: variants, coverage, segments, repeats and more.
 - **Reference data** (genes, cytobands, ClinVar, gnomAD, clinical CNVs and more) belongs to an assembly
@@ -27,7 +29,8 @@ whole:
 > - **Check Sample QC** before sign-out: it confirms that the samples are who the pedigree says.
 > - **Sign-out closes the analysis.** It is the analyst's sign-off, not the medical one: the clinical
 >   report is drafted and medically signed in the EPD and refers to the signed version. Only people
->   the laboratory authorises sign out; CoGA does not check who may.
+>   the laboratory authorises sign out; CoGA refuses it to a reader, but does not check which
+>   analyst may.
 
 ### Reviewing a case
 

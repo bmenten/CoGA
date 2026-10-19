@@ -14,11 +14,15 @@ the [admin dashboard](/admin), grouped in six areas.
 
 ### User & Access Management
 
-- **Users** — accounts, roles and activation. Activate a new account here; deactivate one to revoke
-  access without deleting its history.
+- **Users** — accounts, roles and activation, and each user's projects with their level there
+  (*analyst* or *reader*). Activate a new account here; deactivate one to revoke access without
+  deleting its history.
 - **Projects & Access** — the projects (each tied to an assembly) and which families, samples and users
   belong to them. A user sees only the data of their projects, and the cohort counts in the explorers
-  follow the same scope.
+  follow the same scope. Tick a user to make them a member and choose their level next to their name:
+  an **analyst** reads and changes the project's records; a **reader** (a student, say) reads, searches,
+  exports and prints them and saves their own filter presets, but changes nothing and does not see the
+  audit trail. A member added starts as an analyst. Administrators have every right in every project.
 
 ### Data Management
 

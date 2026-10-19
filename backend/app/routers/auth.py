@@ -33,7 +33,7 @@ from ..services.metadata_service import (
     list_user_accounts,
     update_user_account,
 )
-from ..services.access_control import CurrentUser
+from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.auth_rate_limit_pg import (
     clear_login_failures,
     get_login_throttle_state,
@@ -230,6 +230,7 @@ async def read_me(user: CurrentUser = Depends(get_current_user)):
         is_active=user.is_active,
         role=user.role,
         projects=user.metadata_project_ids,
+        reader_projects=user.reader_project_ids,
         created_at=user.created_at,
     )
 
@@ -246,6 +247,7 @@ async def list_my_small_variant_filter_presets(
 
 
 @router.delete("/small-variant-filter-presets/{preset_id}", status_code=status.HTTP_204_NO_CONTENT)
+@changes_only_own_data
 async def delete_my_small_variant_filter_preset(
     preset_id: str,
     user: CurrentUser = Depends(get_current_user),

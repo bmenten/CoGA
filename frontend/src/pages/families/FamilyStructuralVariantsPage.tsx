@@ -448,6 +448,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         overallTotal={overallTotal}
         page={page}
         projectId={projectId}
+        readOnly={Boolean(familyData?.read_only)}
         reviewIsPending={reviewMutation.isPending}
         reviewError={
           reviewMutation.isError

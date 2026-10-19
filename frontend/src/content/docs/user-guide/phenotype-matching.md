@@ -3,9 +3,11 @@ search.
 
 ### Recording phenotypes
 
-HPO terms are kept per person. An administrator adds them: click the person's sample name on the family
-page, and under **HPO Phenotypes** search a term, choose *present*, *absent* or *unknown*, and press
-**Add phenotype**. Only *present* terms are used for matching.
+HPO terms are kept per person. An analyst of the family's project or an administrator adds them: click
+the person's sample name on the family page, and under **HPO Phenotypes** search a term, choose
+*present*, *absent* or *unknown*, and press **Add phenotype**; **Remove** takes one off. Only *present*
+terms are used for matching. Each term added, changed or removed is an entry on the family's
+**Classification audit trail**. A reader sees the terms but cannot change them.
 
 ### Gene panels
 

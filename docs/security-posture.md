@@ -17,7 +17,8 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   See `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`). Roles are
   `admin`, `superuser` and `viewer`; every admin check goes through `ADMIN_ROLES`
   (`services/access_control.py`), so a superuser is an admin everywhere, and
-  `test_admin_role_checks.py` fails on any comparison with the literal `"admin"`.
+  `test_admin_role_checks.py` fails on any comparison with the literal `"admin"`. A `viewer` is
+  an analyst or a reader in each of their projects (below).
 - ✅ **Access is scoped by project.** Every family, sample and variant endpoint resolves
   access through one checkpoint: `build_family_metadata_context`
   (`services/family_metadata_context.py`) → `get_accessible_family_mapping`
@@ -40,6 +41,33 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   family or sample ID in its path, on real Postgres, for a family of another project and for
   an unknown one, and requires the same status and body. Refusals because of the caller's
   role (`403 Admin access required`) are unchanged: they say nothing about the record.
+- ✅ **Read-only project access: analyst or reader (SEC-1).** Each project membership has an
+  access level (`project_users.access_level`): an **analyst** reads and changes the project's
+  records, a **reader** (a student, say) only reads them. An admin has every right in every
+  project, member or not. One person may be an analyst in one project and a reader in another,
+  and a record of several projects may be changed by an analyst of any one of them. An admin
+  sets each member's level on the *Projects & Access* page (`reader_user_ids` in the project
+  API); a membership made without one is an analyst's, and each membership made before the
+  levels became one. `get_current_user` records whether a request changes something: any
+  method but GET, HEAD and OPTIONS, unless its route is marked `changes_only_own_data`
+  (`services/access_control.py`: the caller's own filter presets and interface events). The
+  family, sample and project checkpoints (`get_accessible_family_mapping`,
+  `get_accessible_sample_mapping`, and the Family Builder's `_resolve_accessible_project_id`)
+  then refuse a reader's change with `403` and the reason (`require_change_access`), after the
+  visibility check, so a record outside the caller's projects still answers like an unknown
+  one: every route that names a record passes there, and none can leave the check out. A
+  reader is also refused a family's clinical audit trail (`403`). A reader may view and search
+  their projects' families, variants, tracks, reports and signed versions, export CSV, print
+  the report and a signed version, and save their own filter presets; a change to anything
+  clinical is refused: phenotypes, reviews, tags, ACMG and CNV classifications, sign-out, the
+  case's workflow fields, a new family, and every upload, import, edit and deletion an admin's
+  route guards. The family and project records the API serves say whether they are read-only
+  for the caller (`read_only`), so the screens hide or disable what a reader may not use; the
+  server's refusal is the guard. `test_project_access_levels.py` keeps the catalogue of every
+  route that changes something (an admin's, the caller's own data, or refused at a
+  checkpoint), and `e2e/test_e2e_project_reader_role.py` asks each of them as a reader on real
+  Postgres, then every route that reads a family or sample as a reader and as an analyst, and
+  requires the same answer but for the audit trail.
 - ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
   and Postgres cannot compare a NUL, so a request that looked up a family's path
   (`/api/families/FAM%00X`) or any other path or query value with one failed with a 500.
@@ -55,8 +83,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Admin-only changes.** Structure changes and deletions of families and data (member and
   structure edits, region of interest, project assignment, family and sample deletions),
   replacing a family's annotation manifest, reference data, imports and uploads require
-  `get_current_admin_user`. A user with access to a family can edit its phenotypes, reviews
-  and saved filters.
+  `get_current_admin_user`. An analyst of a family's project can edit its phenotypes (each
+  change an event on its clinical audit trail), its reviews and its workflow fields, and sign
+  its report out; a reader can do none of these. Every member saves their own filter presets.
 - ✅ **A UUID a request names a record by is read once.** asyncpg's uuid codec takes nothing
   but hex digits and hyphens, so a path or query value that was no UUID
   (`/api/admin/data/files/PROBEX/download`), or a UUID in braces or after `urn:uuid:` that a
@@ -160,7 +189,7 @@ through the checkpoint above. No unscoped PHI endpoint was found.
 **Residual: IDs that are taken.** Family and sample IDs are unique across all projects, so
 creating a family refuses an ID that another project already uses (`409 Family id already
 exists`, `409 Sample id already exists`). A user who may create families (the Family Builder
-is open to a viewer with a project) can learn from that that the ID exists, but nothing else
+is open to an analyst of a project) can learn from that that the ID exists, but nothing else
 about it. Closing that would take IDs scoped per project.
 
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
@@ -378,7 +407,8 @@ Every suppressed advisory is recorded in
 ## Summary
 
 The application layer applies project-scoped access consistently, with no cross-project IDOR
-found, keeps a durable append-only audit trail, needs a signed-in user for reference data,
+found, refuses every change to a reader (a member with read-only access to a project), keeps a
+durable append-only audit trail, needs a signed-in user for reference data,
 throttles sign-ups and logins, bounds input sizes, decompression and paths, refuses a control
 character in what a request looks up, and refuses to
 start on weak or shared secrets or with the request audit log switched off. S-5 (audit

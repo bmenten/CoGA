@@ -460,6 +460,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         page={page}
         projectId={projectId}
         requestQueryString={requestQueryString}
+        readOnly={Boolean(family?.read_only)}
         reviewIsPending={reviewMutation.isPending}
         reviewError={
           reviewMutation.isError
