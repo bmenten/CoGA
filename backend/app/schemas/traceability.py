@@ -46,11 +46,22 @@ class ClassificationDriftItem(BaseModel):
     acmg_class: Optional[str] = None
     classified_by: Optional[str] = None
     classified_at: Optional[datetime] = None
-    status: str  # "drifted" | "variant_missing"
+    status: str  # "drifted" | "unknown" | "variant_missing"
     annotation_version_from: Optional[str] = None
     annotation_version_to: Optional[str] = None
     clinvar_from: Optional[str] = None
     clinvar_to: Optional[str] = None
+    # What moved (CLIN-7): "clinvar"; "transcript_id" (the primary transcript the values
+    # are read from); a population frequency ("gnomad_af", "gnomad_exomes_af",
+    # "gnomad_genomes_af", "gnomad_popmax_af", "topmed_af", "gnomad_ac",
+    # "gnomad_hom_count", "gnomad_hemi_count"); an in-silico score ("cadd_phred", "revel",
+    # "spliceai_max", "sift", "polyphen", "alpha_missense_class",
+    # "alpha_missense_pathogenicity"); or "annotations", the annotation set.
+    changed: List[str] = Field(default_factory=list)
+    # The transcript, frequencies and in-silico scores as frozen (None when the snapshot
+    # froze none, being older) and as they are now (None when the variant is gone).
+    evidence_from: Optional[Dict[str, Any]] = None
+    evidence_to: Optional[Dict[str, Any]] = None
 
 
 class StructuralClassificationDriftItem(BaseModel):

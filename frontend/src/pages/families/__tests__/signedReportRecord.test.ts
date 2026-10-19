@@ -8,6 +8,7 @@ import {
   describeBreachedMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
+  describeFrozenEvidenceValues,
   describeGenePanel,
   describeGeneReferenceReleases,
   describeGenotype,
@@ -17,6 +18,7 @@ import {
   describeSignedDrift,
   describeSignedStructuralDrift,
   describeSmallVariantDescription,
+  describeSmallVariantEvidenceChange,
   describeSmallVariantLocus,
   describeStructuralEvidenceChange,
   describeStructuralVariantDescription,
@@ -26,6 +28,36 @@ import {
   reportViewSearch,
 } from '../signedReportRecord';
 import { SIGNED_ANALYSIS } from '../../../test/signedAnalysisFixture';
+
+// The evidence a small-variant classification froze since CLIN-7: the annotation identity,
+// ClinVar, and the primary transcript's frequencies and in-silico scores
+// (backend small_variant_review_acmg.build_evidence_snapshot).
+const FROZEN_EVIDENCE = {
+  annotation_version: 'v1',
+  annotation_set_hash: 'h1',
+  clinvar: null,
+  transcript_id: 'ENST00000000001',
+  frequencies: {
+    gnomad_af: 3.1e-5,
+    gnomad_exomes_af: 1.2e-5,
+    gnomad_genomes_af: 3.1e-5,
+    gnomad_popmax_af: 0.0002,
+    topmed_af: null,
+    gnomad_ac: 4,
+    gnomad_hom_count: 0,
+    gnomad_hemi_count: null,
+  },
+  in_silico: {
+    cadd_phred: 24.3,
+    revel: 0.412,
+    spliceai_max: 0.02,
+    sift: 'deleterious(0.01)',
+    polyphen: 'probably_damaging(0.981)',
+    alpha_missense_class: null,
+    alpha_missense_pathogenicity: 'high',
+  },
+  captured_at: '2026-06-20T08:30:00+00:00',
+};
 
 const SNAPSHOT = {
   family_id: 'F1',
@@ -143,7 +175,18 @@ describe('parseSignedReport', () => {
     expect(record.drift).toEqual({
       checked: 2,
       driftedCount: 1,
-      drifted: [{ variantId: '1-100-A-G', status: 'no_snapshot', clinvarFrom: null, clinvarTo: null, classifiedBy: null }],
+      drifted: [
+        {
+          variantId: '1-100-A-G',
+          status: 'no_snapshot',
+          clinvarFrom: null,
+          clinvarTo: null,
+          changed: [],
+          evidenceFrom: null,
+          evidenceTo: null,
+          classifiedBy: null,
+        },
+      ],
     });
     // The SV/CNV classifications' drift: a field of the wrong type is dropped, not guessed.
     expect(record.structuralDrift).toEqual({
@@ -198,10 +241,14 @@ describe('parseSignedReport', () => {
     expect(classified.criteria[0].name).not.toBe('PS3');
     // An entry that cannot be read is counted, not dropped.
     expect(classified.unreadableCriteria).toBe(1);
+    // Frozen before CoGA froze the frequencies and in-silico scores: the record holds none.
     expect(classified.evidence).toEqual({
       clinvar: 'Likely_pathogenic',
       annotationVersion: 'v1',
       capturedAt: '2026-06-20T08:30:00+00:00',
+      transcriptId: null,
+      frequencies: null,
+      inSilico: null,
     });
 
     // No ACMG criteria: the class its classification tag names; no evidence was frozen.
@@ -211,6 +258,81 @@ describe('parseSignedReport', () => {
     expect(tagged.evidence).toBeNull();
 
     expect(unreadable.variantId).toBeNull();
+  });
+
+  it('reads the frequencies and in-silico scores frozen with a classification (CLIN-7)', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '17-43000000-A-G',
+          acmg_class: 'acmg_class_4',
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: FROZEN_EVIDENCE,
+        },
+      ],
+    })!;
+    const [variant] = record.reportedVariants!;
+
+    expect(variant.evidence?.transcriptId).toBe('ENST00000000001');
+    // Every value the record holds, in the order a reviewer reads them, written as the report
+    // writes it; one without a value, or of the wrong type, reads as none.
+    expect(variant.evidence?.frequencies).toEqual([
+      { label: 'gnomAD AF', value: '3.10e-5' },
+      { label: 'gnomAD exomes AF', value: '1.20e-5' },
+      { label: 'gnomAD genomes AF', value: '3.10e-5' },
+      { label: 'gnomAD popmax AF', value: '0.0002' },
+      { label: 'TOPMed AF', value: null },
+      { label: 'gnomAD allele count', value: '4' },
+      { label: 'gnomAD homozygotes', value: '0' },
+      { label: 'gnomAD hemizygotes', value: null },
+    ]);
+    expect(variant.evidence?.inSilico).toEqual([
+      { label: 'CADD', value: '24.3' },
+      { label: 'REVEL', value: '0.412' },
+      { label: 'SpliceAI', value: '0.02' },
+      { label: 'SIFT', value: 'deleterious(0.01)' },
+      { label: 'PolyPhen', value: 'probably_damaging(0.981)' },
+      { label: 'AlphaMissense class', value: null },
+      { label: 'AlphaMissense score', value: null },
+    ]);
+    expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
+      'Read from its primary transcript ENST00000000001: population frequencies gnomAD AF 3.10e-5, ' +
+        'gnomAD exomes AF 1.20e-5, gnomAD genomes AF 3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, ' +
+        'gnomAD allele count 4, gnomAD homozygotes 0 and gnomAD hemizygotes not annotated; in silico scores ' +
+        'CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT deleterious(0.01), PolyPhen probably_damaging(0.981), ' +
+        'AlphaMissense class not annotated and AlphaMissense score not annotated.',
+    );
+    // A record frozen before them holds none, and says nothing of them.
+    const older = parseSignedReport(SNAPSHOT)!.reportedVariants![0].evidence!;
+    expect(describeFrozenEvidenceValues(older)).toBeNull();
+  });
+
+  it('reads what moved in a classification’s frozen values when the version was signed', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      drift: {
+        checked: 1,
+        drifted_count: 1,
+        drifted: [
+          {
+            variant_id: '17-43000000-A-G',
+            status: 'drifted',
+            clinvar_from: null,
+            clinvar_to: null,
+            changed: ['revel', 'annotations', 3],
+            evidence_from: { revel: 0.412 },
+            evidence_to: { revel: 0.951 },
+            classified_by: 'alice',
+          },
+        ],
+      },
+    })!;
+    const [item] = record.drift!.drifted;
+    expect(item.changed).toEqual(['revel', 'annotations']);
+    expect(describeSignedDrift(item)).toBe('REVEL 0.412 → 0.951');
   });
 
   it('reads a reported structural variant with its ClinGen CNV scoring', () => {
@@ -322,7 +444,15 @@ describe('the signed report’s wording', () => {
   });
 
   it('says why a classification counted as drift when the version was signed', () => {
-    const item = { variantId: 'v', clinvarFrom: null, clinvarTo: null, classifiedBy: null };
+    const item = {
+      variantId: 'v',
+      clinvarFrom: null,
+      clinvarTo: null,
+      changed: [],
+      evidenceFrom: null,
+      evidenceTo: null,
+      classifiedBy: null,
+    };
     expect(describeSignedDrift({ ...item, status: 'no_snapshot' })).toBe(
       'no frozen evidence (not saved through ACMG classify)',
     );
@@ -331,6 +461,41 @@ describe('the signed report’s wording', () => {
       'ClinVar VUS → Pathogenic',
     );
     expect(describeSignedDrift({ ...item, status: 'drifted' })).toBe('annotation set changed');
+    expect(describeSignedDrift({ ...item, status: 'drifted', changed: ['annotations'] })).toBe(
+      'annotation set changed',
+    );
+    // What moved in the frozen frequencies and in-silico scores, after the ClinVar significance.
+    expect(
+      describeSignedDrift({
+        ...item,
+        status: 'drifted',
+        clinvarFrom: 'VUS',
+        clinvarTo: 'Pathogenic',
+        changed: ['clinvar', 'gnomad_af', 'revel', 'annotations'],
+        evidenceFrom: { gnomad_af: 3.1e-5, revel: 0.412 },
+        evidenceTo: { gnomad_af: 0.012, revel: 0.951 },
+      }),
+    ).toBe('ClinVar VUS → Pathogenic; gnomAD AF 3.10e-5 → 0.012; REVEL 0.412 → 0.951');
+  });
+
+  it('names what moved in a small-variant classification’s frozen values', () => {
+    expect(
+      describeSmallVariantEvidenceChange(
+        ['transcript_id', 'revel', 'sift', 'gnomad_hom_count'],
+        { transcript_id: 'ENST00000000001', revel: null, sift: 'tolerated(0.2)', gnomad_hom_count: 0 },
+        { transcript_id: 'ENST00000000002', revel: 0.7, sift: 'deleterious(0.01)', gnomad_hom_count: 2 },
+      ),
+    ).toBe(
+      'primary transcript ENST00000000001 → ENST00000000002; gnomAD homozygotes 0 → 2; REVEL n/a → 0.700; ' +
+        'SIFT tolerated(0.2) → deleterious(0.01)',
+    );
+    // Two values that differ past the digits the report writes are written in full.
+    expect(describeSmallVariantEvidenceChange(['revel'], { revel: 0.4121 }, { revel: 0.4124 })).toBe(
+      'REVEL 0.4121 → 0.4124',
+    );
+    // Only the annotation set moved: nothing to name.
+    expect(describeSmallVariantEvidenceChange(['annotations'], {}, {})).toBeNull();
+    expect(describeSmallVariantEvidenceChange(['revel'], null, null)).toBe('REVEL n/a → n/a');
   });
 
   it('says why an SV/CNV classification counted as drift when the version was signed', () => {

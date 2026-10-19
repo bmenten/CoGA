@@ -135,14 +135,28 @@ change a prior classification ([clinical-traceability.md](../clinical-traceabili
 | SpliceAI | Splice prediction | manifest | Model version |
 | GenCC | Gene-disease validity | reference import | Release |
 | PanelApp | Gene panels | reference import | Release |
-| HPO | Phenotype ontology | reference import | Release pinned: the vendored `hp.obo`; a startup download must match its SHA-256 ([README](../../data/ref-data/hpo/README.md)) |
+| HPO | Phenotype ontology | reference import | Release pinned: the vendored `hp.obo`; a startup download must match its SHA-256. The release, URL and SHA-256 are fixed in the code, and no setting overrides them ([README](../../data/ref-data/hpo/README.md)) |
 | Monarch | Gene-disease/phenotype | `monarch_gene_disease.release_version` | Release |
-| ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date |
+| ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date; the bundled ClinGen recurrent-CNV file: release V2.1, checksum checked (note below) |
 | ACMG SF list (secondary findings) | Whether a gene is on the ACMG secondary-findings list, shown on the gene page only | vendored `data/ref-data/acmg-sf/`; gene reference sync (`acmg_sf` release and SHA-256 per gene) | Version pinned: ACMG SF v3.3 (*Genet Med* 2025), its SHA-256 in the [README](../../data/ref-data/acmg-sf/README.md) |
 | AlphaMissense | Missense pathogenicity prediction | VEP plugin, per-family manifest | Model version |
 | STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Catalogue build |
 | MITOMAP / Phylotree 17 (via mutserve) | mtDNA haplogroup + variant context | pipeline manifest; mutserve annotation TSV | Tool release |
 | Helix mtDB | mtDNA population frequency | mutserve annotation TSV | Bundled with the annotator |
+
+**The bundled ClinGen recurrent-CNV file (TRACE-3).**
+`data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`, which
+the startup loads as the GRCh38 segmental duplications/LCR track, is ClinGen's recurrent-CNV
+file for GRCh38, release **V2.1**, unchanged. Its SHA-256 is
+`e6a7428f58b055e51a956941da85cdc984d9519ea7839c365c9b557ccc76a763`. On 2026-10-14, with the
+owner's permission, it was compared with ClinGen's V2.1 GRCh38 file downloaded from
+ftp.clinicalgenome.org: byte-identical (the same SHA-256). The file's track line,
+`track name="ClinGen_recurrent_CNV_V2.0-hg38"`, is in ClinGen's own V2.1 file: the release is
+V2.1, as the file name says. CoGA never reads the track line; the import records the file name
+as its source. [`test_clingen_recurrent_cnv_bundle.py`](../../backend/tests/test_clingen_recurrent_cnv_bundle.py)
+pins the SHA-256, so a changed file fails the tests until it is checked against ClinGen again
+and recorded here and in the
+[note beside the file](../../data/ref-data/clinical_cnv_syndromes_hg38_bundle/COGA-PROVENANCE.md).
 
 ### B.1 Upstream analysis pipeline (produced outside CoGA)
 

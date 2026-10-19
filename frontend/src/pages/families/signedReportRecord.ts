@@ -17,8 +17,9 @@ import {
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
-import type { ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
+import type { ApiSmallVariantEvidence, ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
 import { joinWithAnd } from '../../lib/format';
+import { formatAlleleFrequency } from './reportNarrative';
 import { formatLocus } from './smallVariantResultUtils';
 import {
   getClassificationLabelFromTagKey,
@@ -53,11 +54,22 @@ export interface SignedAcmgCriterion {
   evidence: string | null;
 }
 
+/** A frozen frequency or in-silico score, written as the report writes it (null: no value). */
+export interface SignedEvidenceValue {
+  label: string;
+  value: string | null;
+}
+
 /** What `build_evidence_snapshot` froze when the variant was classified. */
 export interface SignedEvidence {
   clinvar: string | null;
   annotationVersion: string | null;
   capturedAt: string | null;
+  /** The primary transcript the frequencies and scores were read from. */
+  transcriptId: string | null;
+  /** Null when the record holds none (frozen before CoGA froze them). */
+  frequencies: SignedEvidenceValue[] | null;
+  inSilico: SignedEvidenceValue[] | null;
 }
 
 export interface SignedSmallVariant {
@@ -98,6 +110,10 @@ export interface SignedDriftItem {
   status: string;
   clinvarFrom: string | null;
   clinvarTo: string | null;
+  /** What moved: 'clinvar', 'transcript_id', a frequency or in-silico field, 'annotations'. */
+  changed: string[];
+  evidenceFrom: ApiSmallVariantEvidence | null;
+  evidenceTo: ApiSmallVariantEvidence | null;
   classifiedBy: string | null;
 }
 
@@ -408,6 +424,53 @@ const parseAcmgCriteria = (acmg: Json | null): { criteria: SignedAcmgCriterion[]
   return { criteria, unreadable };
 };
 
+// The frequencies and in-silico scores a small-variant classification's evidence freezes
+// (backend `small_variant_review_acmg.small_variant_evidence`), in the order a reviewer
+// reads them, each with how the report writes it: an allele frequency as the variant
+// description does, a count whole, a score to its digits, a prediction as annotated.
+interface EvidenceField {
+  key: string;
+  label: string;
+  format: 'frequency' | 'count' | 'text' | number;
+}
+
+const FREQUENCY_FIELDS: EvidenceField[] = [
+  { key: 'gnomad_af', label: 'gnomAD AF', format: 'frequency' },
+  { key: 'gnomad_exomes_af', label: 'gnomAD exomes AF', format: 'frequency' },
+  { key: 'gnomad_genomes_af', label: 'gnomAD genomes AF', format: 'frequency' },
+  { key: 'gnomad_popmax_af', label: 'gnomAD popmax AF', format: 'frequency' },
+  { key: 'topmed_af', label: 'TOPMed AF', format: 'frequency' },
+  { key: 'gnomad_ac', label: 'gnomAD allele count', format: 'count' },
+  { key: 'gnomad_hom_count', label: 'gnomAD homozygotes', format: 'count' },
+  { key: 'gnomad_hemi_count', label: 'gnomAD hemizygotes', format: 'count' },
+];
+
+const IN_SILICO_FIELDS: EvidenceField[] = [
+  { key: 'cadd_phred', label: 'CADD', format: 1 },
+  { key: 'revel', label: 'REVEL', format: 3 },
+  { key: 'spliceai_max', label: 'SpliceAI', format: 2 },
+  { key: 'sift', label: 'SIFT', format: 'text' },
+  { key: 'polyphen', label: 'PolyPhen', format: 'text' },
+  { key: 'alpha_missense_class', label: 'AlphaMissense class', format: 'text' },
+  { key: 'alpha_missense_pathogenicity', label: 'AlphaMissense score', format: 3 },
+];
+
+// A value of the wrong type for its field is not guessed: it reads as no value.
+const formatEvidenceValue = (field: EvidenceField, value: unknown): string | null => {
+  if (field.format === 'text') return text(value);
+  const numeric = number(value);
+  if (numeric === null) return null;
+  if (field.format === 'frequency') return formatAlleleFrequency(numeric);
+  return typeof field.format === 'number' ? numeric.toFixed(field.format) : String(numeric);
+};
+
+const parseEvidenceValues = (value: unknown, fields: EvidenceField[]): SignedEvidenceValue[] | null =>
+  isObject(value)
+    ? fields
+        .filter((field) => has(value, field.key))
+        .map((field) => ({ label: field.label, value: formatEvidenceValue(field, value[field.key]) }))
+    : null;
+
 const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
   if (!isObject(entry)) {
     return {
@@ -444,6 +507,9 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
           clinvar: text(evidence.clinvar),
           annotationVersion: text(evidence.annotation_version),
           capturedAt: text(evidence.captured_at),
+          transcriptId: text(evidence.transcript_id),
+          frequencies: parseEvidenceValues(evidence.frequencies, FREQUENCY_FIELDS),
+          inSilico: parseEvidenceValues(evidence.in_silico, IN_SILICO_FIELDS),
         }
       : null,
   };
@@ -510,9 +576,21 @@ const parseDrift = (value: unknown): SignedDrift | null => {
             status: text(item.status) ?? 'unknown',
             clinvarFrom: text(item.clinvar_from),
             clinvarTo: text(item.clinvar_to),
+            changed: strings(item.changed),
+            evidenceFrom: isObject(item.evidence_from) ? item.evidence_from : null,
+            evidenceTo: isObject(item.evidence_to) ? item.evidence_to : null,
             classifiedBy: text(item.classified_by),
           }
-        : { variantId: 'unnamed variant', status: 'unknown', clinvarFrom: null, clinvarTo: null, classifiedBy: null },
+        : {
+            variantId: 'unnamed variant',
+            status: 'unknown',
+            clinvarFrom: null,
+            clinvarTo: null,
+            changed: [],
+            evidenceFrom: null,
+            evidenceTo: null,
+            classifiedBy: null,
+          },
   );
   return {
     checked: number(value.checked),
@@ -1133,15 +1211,73 @@ export const describeReportSections = (sections: string[]): string =>
 export const qcStatusLabel = (status: string | null): string =>
   status ? (QC_STATUS_LABEL[status as QcStatus] ?? status) : 'not recorded';
 
+/**
+ * The frozen frequencies and in-silico scores of a classification, as the signed view writes
+ * them: "Read from its primary transcript ENST…: population frequencies gnomAD AF 3.10e-5, …;
+ * in silico scores CADD 24.3, …". Null when the record holds none (frozen before CoGA froze
+ * them).
+ */
+export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string | null => {
+  const list = (values: SignedEvidenceValue[]) =>
+    joinWithAnd(values.map((entry) => `${entry.label} ${entry.value ?? 'not annotated'}`));
+  const groups = [
+    evidence.frequencies?.length ? `population frequencies ${list(evidence.frequencies)}` : null,
+    evidence.inSilico?.length ? `in silico scores ${list(evidence.inSilico)}` : null,
+  ].filter((group): group is string => group !== null);
+  if (!groups.length) return null;
+  return `Read from its primary transcript${evidence.transcriptId ? ` ${evidence.transcriptId}` : ''}: ${groups.join('; ')}.`;
+};
+
+/**
+ * What moved in a small-variant classification's frozen frequencies and in-silico scores
+ * ("REVEL 0.412 → 0.951; gnomAD AF 3.10e-5 → 0.012"); null when none of them moved. The
+ * live report and the signed version both describe drift this way.
+ */
+export const describeSmallVariantEvidenceChange = (
+  changed: string[],
+  from: ApiSmallVariantEvidence | null,
+  to: ApiSmallVariantEvidence | null,
+): string | null => {
+  const parts: string[] = [];
+  if (changed.includes('transcript_id')) {
+    parts.push(`primary transcript ${text(from?.transcript_id) ?? 'n/a'} → ${text(to?.transcript_id) ?? 'n/a'}`);
+  }
+  [...FREQUENCY_FIELDS, ...IN_SILICO_FIELDS]
+    .filter((field) => changed.includes(field.key))
+    .forEach((field) => {
+      let before = formatEvidenceValue(field, from?.[field.key]);
+      let after = formatEvidenceValue(field, to?.[field.key]);
+      // Two values that differ past the digits the report writes are written in full.
+      if (before !== null && before === after) {
+        before = String(from?.[field.key]);
+        after = String(to?.[field.key]);
+      }
+      parts.push(`${field.label} ${before ?? 'n/a'} → ${after ?? 'n/a'}`);
+    });
+  return parts.length ? parts.join('; ') : null;
+};
+
+/** What moved in a small-variant classification's evidence: its ClinVar significance, then its values. */
+export const describeSmallVariantDrift = (item: {
+  clinvarFrom: string | null;
+  clinvarTo: string | null;
+  changed: string[];
+  evidenceFrom: ApiSmallVariantEvidence | null;
+  evidenceTo: ApiSmallVariantEvidence | null;
+}): string | null => {
+  const parts = [
+    item.clinvarFrom !== item.clinvarTo ? `ClinVar ${item.clinvarFrom || 'n/a'} → ${item.clinvarTo || 'n/a'}` : null,
+    describeSmallVariantEvidenceChange(item.changed, item.evidenceFrom, item.evidenceTo),
+  ].filter((part): part is string => part !== null);
+  return parts.length ? parts.join('; ') : null;
+};
+
 /** Why a classification counted as drift when the version was signed. */
 export const describeSignedDrift = (item: SignedDriftItem): string => {
   if (item.status === 'variant_missing') return 'no longer present in the data';
   if (item.status === 'no_snapshot') return 'no frozen evidence (not saved through ACMG classify)';
   if (item.status === 'unknown') return 'its evidence could not be compared';
-  if (item.clinvarFrom !== item.clinvarTo) {
-    return `ClinVar ${item.clinvarFrom || 'n/a'} → ${item.clinvarTo || 'n/a'}`;
-  }
-  return 'annotation set changed';
+  return describeSmallVariantDrift(item) ?? 'annotation set changed';
 };
 
 const genesOf = (evidence: ApiStructuralEvidence | null): string =>

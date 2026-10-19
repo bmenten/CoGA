@@ -143,8 +143,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Outbound downloads.** The HPO bootstrap downloads only when it finds no ontology file:
   over HTTPS only, capped in size and checked to be an OBO file. It fetches the vendored
   file's release from its versioned URL and uses the file only if its SHA-256 is the vendored
-  file's (`HPO_ONTOLOGY_SHA256`, whose blank value is that pin); another file is refused and
-  logged before anything is written. An accepted file is written atomically
+  file's; another file is refused and logged before anything is written. The URL and the
+  SHA-256 are fixed in the code, and no setting changes them: the removed `HPO_ONTOLOGY_URL`
+  and `HPO_ONTOLOGY_SHA256` are ignored if still set. An accepted file is written atomically
   ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
   The clinical-CNV knowledgebase script runs with an allowlisted environment: no database
   passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential.

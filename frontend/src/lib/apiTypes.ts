@@ -394,16 +394,26 @@ export interface ApiAnnotationManifest {
   modules: ApiAnnotationModule[];
 }
 
+// The primary transcript, population frequencies and in-silico scores a small-variant
+// classification rested on, as frozen and as they are now, by field (backend
+// services/small_variant_review_acmg.py::small_variant_evidence).
+export type ApiSmallVariantEvidence = Record<string, unknown>;
+
 export interface ApiClassificationDriftItem {
   variant_id: string;
   acmg_class: string | null;
   classified_by: string | null;
   classified_at: string | null;
-  status: string; // 'drifted' | 'variant_missing'
+  status: string; // 'drifted' | 'unknown' | 'variant_missing'
   annotation_version_from: string | null;
   annotation_version_to: string | null;
   clinvar_from: string | null;
   clinvar_to: string | null;
+  // What moved: 'clinvar', 'transcript_id', a frequency or in-silico field ('gnomad_af',
+  // 'revel', …) or 'annotations' (the annotation set).
+  changed: string[];
+  evidence_from: ApiSmallVariantEvidence | null;
+  evidence_to: ApiSmallVariantEvidence | null;
 }
 
 // The evidence a structural-variant / CNV classification rested on, as frozen and as it
