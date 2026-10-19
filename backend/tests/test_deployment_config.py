@@ -799,3 +799,129 @@ def test_the_repository_carries_one_version() -> None:
         ["bash", str(REPO / "scripts" / "check-release-version.sh")], capture_output=True, text=True
     )
     assert result.returncode == 0, result.stdout + result.stderr
+
+
+# ---- No password or private key in the Terraform state (OPS-10) -----------------------------
+#
+# Terraform writes every argument of a resource, and everything a data source reads, into its
+# state and its plan, in clear. A password or a private key therefore reaches a resource only
+# through a write-only argument (`*_wo`, never stored), from an ephemeral source (never stored
+# either). `terraform validate` refuses an ephemeral value anywhere else; these keep the
+# configuration from going back to a stored one.
+
+
+def _top_level_blocks(kind: str) -> dict[str, str]:
+    """Every ``kind`` block of the configuration ("resource", "data" or "ephemeral"), by its
+    address (``type.name``), as its body."""
+    blocks: dict[str, str] = {}
+    for path in sorted((REPO / "terraform").glob("*.tf")):
+        text = path.read_text()
+        for match in re.finditer(rf'^{kind} "(\w+)" "(\w+)" \{{', text, re.M):
+            address = f"{match[1]}.{match[2]}"
+            assert address not in blocks, f"{kind} {address} is defined twice"
+            blocks[address] = _block_body(text, match.end() - 1)
+    return blocks
+
+
+def _version(text: str) -> tuple[int, ...]:
+    return tuple(int(part) for part in text.split("."))
+
+
+# The arguments that keep a password or a private key in the state.
+_ARGUMENTS_KEPT_IN_THE_STATE = {"password", "root_password", "secret_data", "private_key_pem", "ca_private_key_pem"}
+
+
+def test_no_password_or_private_key_enters_the_terraform_state() -> None:
+    resources = _top_level_blocks("resource")
+    for address, body in resources.items():
+        stored = _ARGUMENTS_KEPT_IN_THE_STATE & set(_attributes(body))
+        if address == "google_secret_manager_secret_version.clickhouse_tls_cert":
+            stored.discard("secret_data")  # the server certificate, which is public
+        assert not stored, f"{address} keeps {sorted(stored)} in the state"
+    # Nothing generates a key or a password as a resource, which would keep it in the state.
+    generators = {"tls_private_key", "random_password", "random_string", "random_bytes"}
+    assert not [address for address in resources if address.split(".")[0] in generators]
+    assert {"tls_private_key.ca", "tls_private_key.clickhouse"} <= set(_top_level_blocks("ephemeral"))
+    # A data source that looks up a secret version reads which version it is, not its value.
+    for address, body in _top_level_blocks("data").items():
+        assert not address.startswith("google_secret_manager_secret_version_access."), address
+        if address.startswith("google_secret_manager_secret_version."):
+            assert _attributes(body).get("fetch_secret_data") == "false", f"data.{address} reads the value"
+
+
+def test_terraform_sets_the_owner_password_write_only_from_the_latest_secret_version() -> None:
+    # The value is read ephemerally, for the version the data source names. The state keeps that
+    # version's number, so a new version of coga-postgres-password changes the password on the
+    # next apply, as it did when the state kept the value (deployment-gcp.md 12.2).
+    user = _attributes(_top_level_blocks("resource")["google_sql_user.coga"])
+    assert user.get("password_wo") == "ephemeral.google_secret_manager_secret_version.postgres_password.secret_data"
+    assert (
+        user.get("password_wo_version")
+        == "tonumber(data.google_secret_manager_secret_version.postgres_password.version)"
+    )
+    value = _attributes(_top_level_blocks("ephemeral")["google_secret_manager_secret_version.postgres_password"])
+    latest = _attributes(_top_level_blocks("data")["google_secret_manager_secret_version.postgres_password"])
+    assert value["secret"] == latest["secret"] == 'google_secret_manager_secret.app["postgres_password"].id'
+    assert value.get("version") == "data.google_secret_manager_secret_version.postgres_password.version"
+
+
+def test_the_clickhouse_tls_keys_are_ephemeral_and_the_ca_is_issued_with_the_server_cert() -> None:
+    resources = _top_level_blocks("resource")
+    ca_pem = "ephemeral.tls_private_key.ca.private_key_pem"
+    server_pem = "ephemeral.tls_private_key.clickhouse.private_key_pem"
+    version = "local.clickhouse_tls_key_version"
+    ca = _attributes(resources["tls_self_signed_cert.ca"])
+    request = _attributes(resources["tls_cert_request.clickhouse"])
+    cert = _attributes(resources["tls_locally_signed_cert.clickhouse"])
+    stored_pem = _attributes(resources["google_secret_manager_secret_version.clickhouse_tls_key"])
+    assert (ca.get("private_key_pem_wo"), ca.get("private_key_pem_wo_version")) == (ca_pem, version)
+    assert (request.get("private_key_pem_wo"), request.get("private_key_pem_wo_version")) == (server_pem, version)
+    assert (cert.get("ca_private_key_pem_wo"), cert.get("ca_private_key_pem_wo_version")) == (ca_pem, version)
+    assert (stored_pem.get("secret_data_wo"), stored_pem.get("secret_data_wo_version")) == (
+        server_pem,
+        f"tostring({version})",
+    )
+    assert re.fullmatch(r"[1-9]\d*", _local("clickhouse_tls_key_version"))
+    # The CA's key is gone after the run that creates the CA, so a new certificate request (a
+    # new server key) re-issues the CA in the same run, and Secret Manager stores that key.
+    for address in ("tls_self_signed_cert.ca", "google_secret_manager_secret_version.clickhouse_tls_key"):
+        lifecycle = _blocks(resources[address], "lifecycle")
+        assert lifecycle, f"{address} has no lifecycle block"
+        assert _attributes(lifecycle[0][1]).get("replace_triggered_by") == "[tls_cert_request.clickhouse]", address
+    # Near expiry the CA, issued first, renews first and re-issues the server cert with it, as
+    # long as both last as long and renew as early.
+    for setting in ("validity_period_hours", "early_renewal_hours"):
+        assert ca[setting] == cert[setting], setting
+    assert "value = tls_self_signed_cert.ca.cert_pem" in _terraform("cloudrun.tf")
+
+
+def test_terraform_and_its_providers_support_write_only_arguments() -> None:
+    versions = _terraform("versions.tf")
+    terraform = re.search(r'required_version = ">= ([\d.]+)"', versions)
+    assert terraform and _version(terraform[1]) >= (1, 11, 0), "write-only arguments need Terraform 1.11"
+    # google 8.0: secret_data_wo_version is a string (and 7.6 brought the ephemeral secret
+    # version); tls 4.4: the certificates' write-only private keys.
+    google = re.search(r'google = \{[^}]*version = ">= ([\d.]+), < ([\d.]+)"', versions)
+    tls = re.search(r'tls = \{[^}]*version = "~> ([\d.]+)"', versions)
+    assert google and _version(google[1]) >= (8, 0, 0) and _version(google[2]) == (9, 0, 0)
+    assert tls and _version(tls[1]) >= (4, 4)
+    # The pull-request validation and the deploy run one pinned Terraform, new enough.
+    workflow = yaml.safe_load((REPO / ".github" / "workflows" / "build.yml").read_text())
+    setups = {
+        name: step
+        for name, job in workflow["jobs"].items()
+        for step in job.get("steps", [])
+        if "hashicorp/setup-terraform" in step.get("uses", "")
+    }
+    assert set(setups) == {"tf-validate", "deploy"}
+    pinned = {str(step.get("with", {}).get("terraform_version")) for step in setups.values()}
+    assert len(pinned) == 1, pinned
+    assert _version(pinned.pop()) >= _version(terraform[1])
+
+
+def test_the_rollback_to_the_owner_role_can_still_remove_the_migration_job() -> None:
+    # The google provider protects a Cloud Run job from deletion unless told otherwise (6.0+),
+    # and rolling back to db_runtime_role = "owner" removes this one (db-runtime-role-runbook.md).
+    job = _attributes(_top_level_blocks("resource")["google_cloud_run_v2_job.db_migrate"])
+    assert job["count"] == "local.restricted_db_role ? 1 : 0"
+    assert job.get("deletion_protection") == "false"

@@ -3,11 +3,11 @@ import { NavLink } from 'react-router';
 import { isAdmin } from '../lib/auth';
 
 /**
- * The main sections — the projects, the explorers, the gene panels, the guide and, for an
- * administrator, Admin — behind a small arrow at the right of the header. A disclosure, not
- * an ARIA menu: the arrow says whether the list is open, the entries are ordinary links,
- * and Escape or a click elsewhere closes it. The dashboard keeps its own buttons to the same
- * places.
+ * The main sections — the projects, the explorers, the gene panels, the report-code lookup,
+ * the guide and, for an administrator, Admin — behind a small arrow at the right of the
+ * header. A disclosure, not an ARIA menu: the arrow says whether the list is open, the
+ * entries are ordinary links, and Escape or a click elsewhere closes it. The dashboard keeps
+ * its own buttons to the same places.
  */
 const HeaderMenu: React.FC = () => {
   const [open, setOpen] = useState(false);
@@ -65,6 +65,9 @@ const HeaderMenu: React.FC = () => {
         </NavLink>
         <NavLink to="/panels" onClick={close}>
           Panels
+        </NavLink>
+        <NavLink to="/report-codes" onClick={close}>
+          Report codes
         </NavLink>
         {isAdmin() && (
           <NavLink to="/admin" onClick={close}>

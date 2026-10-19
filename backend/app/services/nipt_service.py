@@ -93,6 +93,7 @@ from .nipt_target_coverage import (
     summarize_target_coverage,
     target_row_from_track,
 )
+from .panel_use_audit import record_family_panel_use
 from .nipt_triage import (
     DeNovoAnnotation,
     DeNovoTriage,
@@ -1042,6 +1043,10 @@ async def get_family_nipt_variants(
 
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
+        # On the family's clinical audit trail before it is applied (REQ-CARR-003).
+        await record_family_panel_use(
+            session, context=context, panel_id=filters.panel_id, user=user, search="nipt_variants"
+        )
         panel_constraints = await _fetch_panel_constraints(
             session, filters.panel_id, assembly_id=context.assembly_id
         )
@@ -1282,6 +1287,10 @@ async def get_family_nipt_coverage(
 ) -> NiptCoverageResult:
     family, trio, context = await _resolve_family_trio_context(
         session, family_id=family_id, user=user, project_id=project_id
+    )
+    # A panel the coverage is read for goes on the family's clinical audit trail (REQ-CARR-003).
+    await record_family_panel_use(
+        session, context=context, panel_id=panel_id, user=user, search="nipt_coverage"
     )
     target_rows = await _load_target_rows(context, trio.cfdna_sample_id, with_metadata=True)
     if target_rows:

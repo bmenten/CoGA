@@ -53,7 +53,10 @@ criterion twice or gives it another strength.
 When you save, CoGA writes the class to the variant as its classification and as the matching review
 tag. It also stores every criterion with its strength and your note, for the audit trail (see the
 [traceability reference](/docs/reference/clinical-traceability)). If you accept no criterion, no class
-is saved.
+is saved. Saving also freezes the evidence the criteria read, as the dialog shows it: the ClinVar
+significance, the gnomAD and other population frequencies and counts, and the CADD, REVEL, SpliceAI,
+SIFT, PolyPhen and AlphaMissense values of the variant's primary transcript. When one of them changes
+later, the report names it before sign-out.
 
 ### VUS tiers: hot, warm, cold
 

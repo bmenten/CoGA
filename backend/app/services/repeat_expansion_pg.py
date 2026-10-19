@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -972,34 +973,56 @@ async def _update_sample_repeat_file(
     )
 
 
-async def ingest_trgt_text(
+# A TRGT VCF holds a record for every locus of the catalogue TRGT genotyped, a no-call
+# included, so one without a record for a sample is no result for it: a header alone, a
+# file cut short before its records, or nothing at all (SAFE-29).
+NO_TRGT_RECORDS = "No valid TRGT records found"
+
+
+@dataclass(frozen=True)
+class TrgtSampleCalls:
+    """One sample's TRGT calls as ``read_trgt_sample_calls`` read them from its file, each
+    built as it is stored, before anything is written."""
+
+    records: list[dict[str, Any]]
+    processed: int
+    header_lines: list[str]
+
+
+async def read_trgt_sample_calls(
     session: AsyncSession,
     *,
     sample_context: SampleMetadataContext,
     text_value: str,
     metadata: dict[str, Any],
     declared: str | None = None,
-) -> dict[str, int | str]:
-    """One sample's TRGT calls, read from that sample's column of ``text_value``.
+) -> TrgtSampleCalls:
+    """One sample's TRGT calls, read from that sample's column of ``text_value`` and built
+    as they are stored. Nothing is written: the caller deletes the calls they replace only
+    after this read, so a file it refuses leaves them as they were.
 
     The column is chosen by ``per_sample_vcf_column`` (``declared`` is a package entry's
-    ``vcf_sample``) before any row is written; a file with no column for the sample, or
-    whose column names another sample, is refused (400) and the stored calls stay.
+    ``vcf_sample``): a file with no column for the sample, or whose column names another
+    sample, is refused (400). So is a file with no record for the sample (SAFE-29): it used
+    to replace the sample's calls with none.
     """
     lines = text_value.splitlines()
     header_samples: list[str] = []
+    # The meta-information lines before the #CHROM line: the caller's version is in them.
+    header_lines: list[str] = []
+    in_header = True
     sample_column = 0
-    inserted = 0
     processed = 0
     locus_lookup = await _build_repeat_locus_lookup(session)
     insert_records: list[dict[str, Any]] = []
 
     for line in lines:
         if line.startswith("#CHROM"):
+            in_header = False
             header_samples = line.strip().split("\t")[9:]
             if header_samples:
                 # Decided before any row is written: a refused file leaves the stored
-                # calls as they were (the caller's delete is rolled back with it).
+                # calls as they were.
                 try:
                     sample_column = per_sample_vcf_column(
                         header_samples,
@@ -1017,7 +1040,10 @@ async def ingest_trgt_text(
                     raise HTTPException(status_code=400, detail=str(exc)) from exc
             continue
         if not line or line.startswith("#"):
+            if in_header and line.startswith("##"):
+                header_lines.append(line)
             continue
+        in_header = False
 
         fields = line.rstrip().split("\t")
         if len(fields) < 10:
@@ -1044,9 +1070,22 @@ async def ingest_trgt_text(
                 metadata=metadata,
             )
         )
-        inserted += 1
 
-    await _insert_repeat_expansion_batch(session, insert_records)
+    if not insert_records:
+        raise HTTPException(status_code=400, detail=NO_TRGT_RECORDS)
+    return TrgtSampleCalls(records=insert_records, processed=processed, header_lines=header_lines)
+
+
+async def store_trgt_sample_calls(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    calls: TrgtSampleCalls,
+    metadata: dict[str, Any],
+) -> dict[str, int | str]:
+    """Store the calls ``read_trgt_sample_calls`` read, record the file on the sample and
+    the caller's version in the family's annotation manifest, and commit."""
+    await _insert_repeat_expansion_batch(session, calls.records)
     await _update_sample_repeat_file(
         session,
         sample_uuid=sample_context.sample_uuid,
@@ -1062,15 +1101,42 @@ async def ingest_trgt_text(
         session,
         family_uuid=sample_context.family_uuid,
         assembly_id=getattr(sample_context, "assembly_id", None),
-        modules=extract_header_provenance(lines, modality="repeats").as_modules(),
+        modules=extract_header_provenance(calls.header_lines, modality="repeats").as_modules(),
         modality="repeats",
     )
     await session.commit()
     return {
-        "processed": processed,
-        "inserted": inserted,
+        "processed": calls.processed,
+        "inserted": len(calls.records),
         "source_format": "trgt",
     }
+
+
+async def ingest_trgt_text(
+    session: AsyncSession,
+    *,
+    sample_context: SampleMetadataContext,
+    text_value: str,
+    metadata: dict[str, Any],
+    declared: str | None = None,
+    replace: bool = False,
+) -> dict[str, int | str]:
+    """One sample's TRGT calls, read from that sample's column of ``text_value``
+    (``read_trgt_sample_calls``) and stored. With ``replace`` the sample's stored TRGT calls
+    are deleted once the file has been read: a file that is refused leaves them as they
+    were."""
+    calls = await read_trgt_sample_calls(
+        session,
+        sample_context=sample_context,
+        text_value=text_value,
+        metadata=metadata,
+        declared=declared,
+    )
+    if replace:
+        await clear_sample_repeat_expansions(session, sample_uuid=sample_context.sample_uuid)
+    return await store_trgt_sample_calls(
+        session, sample_context=sample_context, calls=calls, metadata=metadata
+    )
 
 
 async def ingest_family_trgt_text(
@@ -1080,6 +1146,11 @@ async def ingest_family_trgt_text(
     text_value: str,
     metadata: dict[str, Any],
 ) -> dict[str, int | str]:
+    """The TRGT calls of every family sample a column of the family VCF ``text_value``
+    names, each sample's in place of its stored TRGT calls. The whole file is read before
+    any of them is deleted: a file none of whose columns names a family sample, or with no
+    record for a sample it names (SAFE-29: it used to replace that sample's calls with none),
+    is refused (400) with the stored calls as they were."""
     lines = text_value.splitlines()
     header_samples: list[str] = []
     matched_samples: dict[str, SampleMetadataContext] = {}
@@ -1107,11 +1178,6 @@ async def ingest_family_trgt_text(
                         "TRGT VCF sample column(s) "
                         f"{header_samples} match no sample in this family"
                     ),
-                )
-            for sample_context in matched_samples.values():
-                await clear_sample_repeat_expansions(
-                    session,
-                    sample_uuid=sample_context.sample_uuid,
                 )
             continue
         if not line or line.startswith("#"):
@@ -1146,6 +1212,25 @@ async def ingest_family_trgt_text(
             )
             inserted += 1
 
+    with_records = {str(record["sample_id"]) for record in insert_records}
+    without_records = sorted(
+        {
+            sample_context.sample_id
+            for sample_context in matched_samples.values()
+            if sample_context.sample_uuid not in with_records
+        }
+    )
+    if not insert_records or without_records:
+        raise HTTPException(
+            status_code=400,
+            detail=NO_TRGT_RECORDS + (f" for {', '.join(without_records)}" if without_records else ""),
+        )
+    # Only now, the file read whole: a refused file leaves every sample's calls as stored.
+    for sample_context in matched_samples.values():
+        await clear_sample_repeat_expansions(
+            session,
+            sample_uuid=sample_context.sample_uuid,
+        )
     await _insert_repeat_expansion_batch(session, insert_records)
     filename = metadata.get("filename") or "family.trgt.vcf"
     for sample_context in matched_samples.values():
