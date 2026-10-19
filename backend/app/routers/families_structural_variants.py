@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import List
 
 from fastapi import APIRouter, Depends, Query, Response
@@ -21,6 +22,7 @@ from ..services.clickhouse_family_variants import (
     export_family_structural_variants,
     get_family_structural_variants_page as get_family_structural_variants_clickhouse,
 )
+from ..services.family_variant_filters import StructuralVariantQueryFilters
 from ..services.family_metadata_context import build_family_metadata_context
 from ..services.access_control import CurrentUser
 from ..services.structural_variant_review_pg import (
@@ -56,11 +58,7 @@ async def get_family_structural_variant_review_summary(
     )
 
 
-@router.get("/{family_id}/structural-variants", response_model=VariantPage)
-async def get_family_structural_variants(
-    family_id: str,
-    page: int = 1,
-    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
+async def _family_structural_variant_filters(
     chr: str | None = None,
     start: int | None = None,
     end: int | None = None,
@@ -87,34 +85,27 @@ async def get_family_structural_variants(
     review_tags: List[str] = Query(default_factory=list, alias="review_tag"),
     exclude_review_tags: List[str] = Query(default_factory=list, alias="exclude_review_tag"),
     has_notes: bool = False,
-    project_id: str | None = None,
-    overlap: bool = False,
-    prioritize: bool = False,
-    track_mode: bool = False,
-    count_only: bool = False,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> VariantPage:
-    context = await build_family_metadata_context(
-        session,
-        family_identifier=family_id,
-        user=user,
-        project_id=project_id,
-    )
-    result = await get_family_structural_variants_clickhouse(
-        session,
-        context=context,
-        page=page,
-        page_size=page_size,
-        chr=chr,
+) -> StructuralVariantQueryFilters:
+    """The SV filters of a request to the family SV list or its CSV export.
+
+    Both routes read their filters here, and only here, so the file holds the SVs the list
+    shows: a filter declared on one route alone would make the two differ (ENG-2). The page
+    is no filter: the search sets it (the list's page, the export's single page), so the
+    ``page`` and ``page_size`` given here only hold their places.
+    """
+
+    return StructuralVariantQueryFilters(
+        page=1,
+        page_size=0,
+        chromosome=chr,
         start=start,
         end=end,
         length=length,
         min_length=min_length,
-        type=type,
+        variant_type=type,
         source=source,
         sample_filters=sample_filters,
-        samples=samples,
+        selected_samples=samples,
         remote_chr=remote_chr,
         remote_start=remote_start,
         gene=gene,
@@ -132,7 +123,39 @@ async def get_family_structural_variants(
         review_tags=review_tags,
         exclude_review_tags=exclude_review_tags,
         has_notes=has_notes,
-        overlap=overlap,
+    )
+
+
+@router.get("/{family_id}/structural-variants", response_model=VariantPage)
+async def get_family_structural_variants(
+    family_id: str,
+    page: int = 1,
+    page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
+    project_id: str | None = None,
+    overlap: bool = False,
+    prioritize: bool = False,
+    track_mode: bool = False,
+    count_only: bool = False,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+    # After the user: the caller is signed in, and the request's values are held to the
+    # control-character rule, before a filter is read.
+    filters: StructuralVariantQueryFilters = Depends(_family_structural_variant_filters),
+) -> VariantPage:
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    result = await get_family_structural_variants_clickhouse(
+        session,
+        context=context,
+        page=page,
+        page_size=page_size,
+        # The genome track's region rule (an SV overlapping the window, not only one inside
+        # it): the list's alone, as the SV page never sends it and the export never took it.
+        filters=replace(filters, overlap=overlap),
         prioritize=prioritize,
         track_mode=track_mode,
         count_only=count_only,
@@ -196,34 +219,10 @@ async def export_family_structural_variants_csv(
     family_id: str,
     project_id: str | None = None,
     prioritize: bool = False,
-    chr: str | None = None,
-    start: int | None = None,
-    end: int | None = None,
-    length: int | None = None,
-    min_length: int | None = None,
-    type: str | None = None,
-    source: str | None = None,
-    sample_filters: List[str] = Query(default_factory=list, alias="sample_filter"),
-    samples: List[str] = Query(default_factory=list, alias="sample"),
-    remote_chr: str | None = None,
-    remote_start: int | None = None,
-    gene: str | None = None,
-    panel_id: str | None = None,
-    inheritance: str | None = None,
-    phenotype: str | None = None,
-    hpo: str | None = None,
-    moi: str | None = None,
-    gencc_support: str | None = None,
-    region_flags: List[str] = Query(default_factory=list, alias="region_flag"),
-    max_control_af: float | None = None,
-    max_population_af: float | None = None,
-    min_pli: float | None = None,
-    classifications: List[str] = Query(default_factory=list, alias="classification"),
-    review_tags: List[str] = Query(default_factory=list, alias="review_tag"),
-    exclude_review_tags: List[str] = Query(default_factory=list, alias="exclude_review_tag"),
-    has_notes: bool = False,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
+    # The list's filters, read by the same dependency (ENG-2), after the user as there.
+    filters: StructuralVariantQueryFilters = Depends(_family_structural_variant_filters),
 ) -> StreamingResponse:
     """Download the filtered structural variants for this family as a CSV file.
 
@@ -242,33 +241,8 @@ async def export_family_structural_variants_csv(
     export = await export_family_structural_variants(
         session,
         context=context,
+        filters=filters,
         prioritize=prioritize,
-        chr=chr,
-        start=start,
-        end=end,
-        length=length,
-        min_length=min_length,
-        type=type,
-        source=source,
-        sample_filters=sample_filters,
-        samples=samples,
-        remote_chr=remote_chr,
-        remote_start=remote_start,
-        gene=gene,
-        panel_id=panel_id,
-        inheritance=inheritance,
-        phenotype=phenotype,
-        hpo=hpo,
-        moi=moi,
-        gencc_support=gencc_support,
-        region_flags=region_flags,
-        max_control_af=max_control_af,
-        max_population_af=max_population_af,
-        min_pli=min_pli,
-        review_classifications=classifications,
-        review_tags=review_tags,
-        exclude_review_tags=exclude_review_tags,
-        has_notes=has_notes,
     )
 
     columns = (
