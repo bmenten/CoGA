@@ -34,7 +34,8 @@ score at its minimum also passes the impact and consequence filter. A SIFT or Po
 transcript whose prediction is exactly that one, whatever score VEP wrote after it: *deleterious* keeps
 `deleterious(0.01)` but not `deleterious_low_confidence(0.03)`, which is a choice of its own, and
 *tolerated* leaves out `tolerated_low_confidence`. The gene, the rsID and the excluded ClinVar statuses
-apply to the variant as a whole.
+apply to the variant as a whole: a gene keeps every variant annotated with it, one VEP places
+just outside the gene (upstream or downstream) too, ranked or not.
 
 A card, a table row and a CSV row describe one transcript of the variant: MANE Select, else the
 canonical one, else the most severe. The filters may have held on another: *deleterious* keeps a
@@ -92,7 +93,8 @@ compatible inheritance modes and the matched phenotypes.
 *⚡ Prioritised ranking served from cache* and when it was computed. It is recomputed automatically when
 anything it depends on changes: the phenotypes, the pedigree, the panel's genes and regions, the filters
 (including review-tag filters), the family's variant data, or the reference data (the Monarch release,
-each import of the HPO ontology, gene constraint, and the gene positions a panel or gene filter uses).
+each import of the HPO ontology, gene constraint, and the gene positions a panel or an excluded gene
+uses).
 Narrowing from the Mendeliome to a smaller panel is served from the broader ranking, ranked from 1
 within the smaller panel, as long as the Mendeliome's genes and regions are the same as when that
 ranking was computed. A smaller panel that reaches a variant the broader ranking lacks (one it

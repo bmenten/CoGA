@@ -33,7 +33,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The query filters, without the page, the inheritance mode and expanded carrier screening among them | the request |
 | The gene panel and its version | `gene_panels.version` and `external_version` |
 | The genes and regions the panel filter applied | the panel's genes and regions as the query read them for the family's assembly: `gene_panel_genes`, `gene_panel_regions` and each gene's loci in `genes` (a digest, `panel_members_digest`) |
-| The regions the query kept to or left out, and the genes it left out | the intervals, the loci (from `genes`) of the gene filter's genes and of the excluded genes, and the excluded genes' names, as the query resolved them |
+| The regions the query kept to or left out, and the genes it left out | the intervals, the loci (from `genes`) of the excluded genes, and the excluded genes' names, as the query resolved them |
 | The present HPO terms of the affected members | `individual_hpo` |
 | The pedigree, who is affected and each member's sex, which name a carrier screen's couple and decide its X-linked findings | the family's latest `family_structure_versions.structure_hash` (members with their sex, role and status, and the relationships); for a family without one, the same read from the loaded family |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
@@ -44,9 +44,11 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The assembly and the scoring version | the family, and `_ALGORITHM_VERSION` in `variant_ranking_cache.py` |
 
 The gene loci come from the gene reference when the query runs, not from a version: a
-reload of the gene reference that moves a gene changes the regions of every panel and gene
-filter that holds it, and so the key, while the panel's version and the filters stay as they
-were. The digest of the panel's genes and regions is also taken from what the query applied,
+reload of the gene reference that moves a gene changes the regions of every panel and every
+excluded gene that holds it, and so the key, while the panel's version and the filters stay
+as they were. A gene filter reads no loci: it keeps the variants annotated with the gene,
+ranked or not, so a reload changes neither what it keeps nor its key (ENG-1; the ranked and
+paired searches used to keep only the variants inside the gene's loci). The digest of the panel's genes and regions is also taken from what the query applied,
 so an edit of the panel committed while the query runs cannot pair the ranking with the
 panel's next version.
 
@@ -226,7 +228,7 @@ to the query as if it had kept to its intervals and exclusions.
 | HPO, member or structure edit | the key changes; the background task computes the new ranking |
 | Variants added, deleted or re-imported, by any route | the data version changes, so the key changes |
 | A gene panel's genes or regions changed: an edit, a Mendeliome rebuild or a PanelApp import that changes them | the panel's version and its genes and regions change, so the key changes, and the panel's earlier rankings serve no panel any more |
-| The gene reference reloaded, moving a gene | the regions of the panels and gene filters that hold the gene change, so their keys change |
+| The gene reference reloaded, moving a gene | the regions of the panels and excluded genes that hold the gene change, so their keys change |
 | Monarch, HPO or gene constraint refreshed | every ranking that reads it misses |
 | Review tags or exclusions changed | the review signature changes |
 | Scoring code changed, or which variants a filter keeps | bump `_ALGORITHM_VERSION`; every ranking misses |

@@ -323,16 +323,6 @@
     }
    ],
    [
-    "_fetch_gene_regions",
-    [
-     "<session>"
-    ],
-    {
-     "assembly_id": "assembly-uuid",
-     "gene_query": "GENE1"
-    }
-   ],
-   [
     "_fetch_small_variant_rows",
     [
      "<context>",
@@ -377,12 +367,6 @@
        "chr": "1",
        "end": 450,
        "start": 50
-      },
-      {
-       "__type": "Region",
-       "chr": "1",
-       "end": 210,
-       "start": 90
       }
      ],
      "include_variant_ids": [
@@ -2397,16 +2381,6 @@
     {}
    ],
    [
-    "_fetch_gene_regions",
-    [
-     "<session>"
-    ],
-    {
-     "assembly_id": "assembly-uuid",
-     "gene_query": "GENE1"
-    }
-   ],
-   [
     "_fetch_small_variant_rows",
     [
      "<context>",
@@ -2423,14 +2397,7 @@
      "exclude_gene_terms": [],
      "exclude_regions": [],
      "exclude_variant_ids": [],
-     "include_regions": [
-      {
-       "__type": "Region",
-       "chr": "1",
-       "end": 210,
-       "start": 90
-      }
-     ],
+     "include_regions": [],
      "include_variant_ids": null,
      "limit": 1001,
      "panel_constraints": {
