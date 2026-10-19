@@ -206,7 +206,8 @@ class RepeatExpansionSampleCallOut(BaseModel):
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
     status: RepeatStatus = "unknown"
     # Why the call needs a second look beyond its allele sizes (a male with two
-    # different chrX alleles), or None.
+    # different chrX alleles), or why no catalogue locus classifies it (its TRID names
+    # several STRchive loci and its region does not pick one, CLIN-31), or None.
     note: Optional[str] = None
 
 

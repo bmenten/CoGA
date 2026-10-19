@@ -140,7 +140,7 @@ change a prior classification ([clinical-traceability.md](../clinical-traceabili
 | ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date |
 | ACMG SF list (secondary findings) | Whether a gene is on the ACMG secondary-findings list, shown on the gene page only | vendored `data/ref-data/acmg-sf/`; gene reference sync (`acmg_sf` release and SHA-256 per gene) | Version pinned: ACMG SF v3.3 (*Genet Med* 2025), its SHA-256 in the [README](../../data/ref-data/acmg-sf/README.md) |
 | AlphaMissense | Missense pathogenicity prediction | VEP plugin, per-family manifest | Model version |
-| STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Catalogue build |
+| STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Release pinned: the shipped `data/ref-data/STRchive-loci.json` (75 loci), SHA-256 `a0295e1fe3e2…` (`STRCHIVE_PINNED_LOCI_SHA256` in `core/config.py`); a start on any other file, or none, is refused, and `repeat_loci` holds that release's loci only ([data-import.md](../data-import.md#the-strchive-release)). The file names no upstream release |
 | MITOMAP / Phylotree 17 (via mutserve) | mtDNA haplogroup + variant context | pipeline manifest; mutserve annotation TSV | Tool release |
 | Helix mtDB | mtDNA population frequency | mutserve annotation TSV | Bundled with the annotator |
 

@@ -48,6 +48,10 @@ each allele, and a status read against the locus's thresholds in the repeat cata
 - *Not assessed*: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus
   the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold.
   CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*.
+- A gene with several repeat tracts, each a locus of its own in STRchive (ARX, HOXA13), has
+  thresholds per tract. A call whose TRID is the gene's name is read against the tract its region
+  overlaps. If the region overlaps none of the tracts, or more than one, the call reads *Not
+  assessed*, and its note names the tracts and says why.
 - *Unknown*: no call.
 
 **Aberrant only** keeps every locus whose status is not *Normal* or *Unknown*, *Not assessed*

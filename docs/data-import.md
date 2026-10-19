@@ -41,7 +41,7 @@ for the assembly is left alone.
 | Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/` | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` |
 | Clinical CNV syndromes | Only if the file exists; it is not shipped | `REFERENCE_CLINICAL_CNVS_PATH` |
 | HPO ontology | `data/ref-data/hpo/hp.obo`. If no ontology file is found, the same release is downloaded over HTTPS from its versioned URL and imported only if its SHA-256 is the vendored file's; another file is refused and logged ([the pin](../data/ref-data/hpo/README.md#the-download-fallback)) | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_DOWNLOAD_IF_MISSING`, `HPO_ONTOLOGY_URL`, `HPO_ONTOLOGY_SHA256` |
-| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and `data/ref-data/STRchive-loci.json`, both refreshed on every start. A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
+| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start. The STRchive file must be that release byte for byte, or the backend does not start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. The name of a gene with several STRchive loci (ARX, HOXA13) picks the locus the call's region overlaps. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
 The segmental duplications and clinical CNVs are loaded into the assembly named by
@@ -109,6 +109,45 @@ backend is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the chang
 It only reads files inside the configured ontology folders. The startup download stays
 pinned to the vendored release; moving the pin and the vendored file is a code change
 ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#updating-controlled-change)).
+
+### The STRchive release
+
+The repeat catalogue is built from one STRchive release, the one shipped as
+`data/ref-data/STRchive-loci.json` and validated with the built-in loci, which carry its
+thresholds. The file states no release of its own, so its SHA-256 identifies it:
+`a0295e1fe3e2…` (75 loci), pinned in `backend/app/core/config.py` as
+`STRCHIVE_PINNED_LOCI_SHA256`, which holds it in full. No setting overrides the pin, and
+`.gitattributes` keeps git from changing the file's line endings in a checkout.
+
+Every start reads the file `TRGT_STRCHIVE_LOCI_PATH` names (`/data/ref-data/STRchive-loci.json`;
+on Cloud Run the reference-data bucket), or the repository's copy when that file does not
+exist. If the file it reads is not the shipped release byte for byte, or there is no file at
+all, the backend does not start. It writes nothing, and logs one error that names the file,
+both SHA-256 digests and the fix: copy the repository's `data/ref-data/STRchive-loci.json`
+there unchanged. An identical copy is accepted wherever it lies; a copy whose loci are the same
+but whose text is not (written out again by another tool) is not. A start also removes the
+STRchive rows of `repeat_loci` that the shipped release does not list, such as another
+release's loci an earlier start seeded, so no TRID can find their thresholds.
+
+A TRGT call's TRID chooses the catalogue row that classifies it: STRchive's locus ID
+(`PRTS_ARX`), another identifier STRchive records for the locus (STRipy's `ARX_2`), or the
+gene's name. A gene
+with several STRchive loci has a repeat tract per locus, each with its own thresholds: ARX
+(`EIEE1_ARX`, `PRTS_ARX`) and HOXA13 (`HFG_HOXA13-I`, `-II`, `-III`). Its name picks the locus
+whose STRchive coordinates on the family's assembly (GRCh38, GRCh37 or T2T-CHM13) overlap the
+call's region. A region that overlaps none of them, or more than one, or an assembly STRchive
+gives no coordinates on, leaves the call without thresholds: it reads *not assessed*, never
+another tract's status, and the call's note on the repeat page says why. Any other name that
+several STRchive loci share, such as a tag, is resolved the same way.
+
+Moving to another STRchive release is a reviewed change, made in one pull request: replace
+`data/ref-data/STRchive-loci.json` with the new release's file, byte for byte as published;
+set `STRCHIVE_PINNED_LOCI_SHA256` to its digest (`shasum -a 256`) and give the shortened digest
+here and in TF-08; give the built-in loci the new release's thresholds
+(`test_repeat_thresholds_follow_strchive.py` fails until they agree); and update the expected
+loci of the repeat tests. A deployment then needs the new file in its reference data before
+the new version starts, or the new version does not start. From the release candidate on, the
+change is also recorded in `CHANGELOG.md` and TF-18 §8.
 
 ## 2. Gene reference sync
 

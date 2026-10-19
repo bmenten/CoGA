@@ -184,7 +184,8 @@ async def _catalogue_after_a_start(monkeypatch) -> dict[str, dict]:
     session = _RecordingSession()
     await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
     rows: dict[str, dict] = {}
-    for _sql, params in session.statements:
+    # The upserts; the seed's last statement removes STRchive rows of another release (CLIN-31).
+    for _sql, params in (statement for statement in session.statements if "locus_id" in statement[1]):
         rows[params["locus_id"]] = {
             **{
                 column: params[column]

@@ -1,0 +1,4 @@
+# Files pinned by their SHA-256 must reach every checkout byte for byte: no line-ending
+# conversion. The STRchive release (STRCHIVE_PINNED_LOCI_SHA256, CLIN-31) is checked at every
+# start, and a copy with other line endings refuses it.
+data/ref-data/STRchive-loci.json -text
