@@ -143,8 +143,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Outbound downloads.** The HPO bootstrap downloads only when it finds no ontology file:
   over HTTPS only, capped in size and checked to be an OBO file. It fetches the vendored
   file's release from its versioned URL and uses the file only if its SHA-256 is the vendored
-  file's (`HPO_ONTOLOGY_SHA256`, whose blank value is that pin); another file is refused and
-  logged before anything is written. An accepted file is written atomically
+  file's; another file is refused and logged before anything is written. The URL and the
+  SHA-256 are fixed in the code, and no setting changes them: the removed `HPO_ONTOLOGY_URL`
+  and `HPO_ONTOLOGY_SHA256` are ignored if still set. An accepted file is written atomically
   ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
   The clinical-CNV knowledgebase script runs with an allowlisted environment: no database
   passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential.
@@ -300,7 +301,7 @@ project yet. Each item below is therefore written and reviewable, without deploy
 | --- | --- |
 | S-1 encryption at rest | 🟡 CMEK on the database, the disks and both buckets, in Terraform |
 | S-2 TLS to the datastores | 🟡 supported by the app; set in Terraform |
-| S-3 secrets | 🟡 seven application secrets in Secret Manager (the metrics token among them), their values added by hand, plus the ClickHouse TLS key and certificate that Terraform generates; Cloud Run reads them by reference; no rotation automation |
+| S-3 secrets | 🟡 seven application secrets in Secret Manager (the metrics token among them), their values added by hand, plus the ClickHouse TLS key and certificate that Terraform generates; Cloud Run reads them by reference; the Terraform state and plan hold no password or private key (the owner's password and the TLS keys pass through write-only arguments); no rotation automation |
 | S-4 byte-level download audit | ⛔ open: configured only in the central infra template, and PHI is not yet served from a bucket |
 | S-8 network | 🟡 private database and ClickHouse, no SSH, Cloud Run reachable only through the load balancer, Cloud Armor; the WAF enforcement, the institutional IP allowlist and the ClickHouse egress lockdown are go-live switches |
 

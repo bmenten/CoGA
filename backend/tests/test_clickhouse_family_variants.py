@@ -1314,7 +1314,10 @@ async def test_fetch_small_variant_rows_pushes_panel_and_review_filters_to_click
     assert "gi.gene_term IN %(panel_annotation_gene_terms)s" in query
     assert "panel_gene_terms" in params
     assert params["panel_annotation_gene_terms"] == ("gene2",)
-    assert "arrayExists((region_chrom, region_start, region_end) ->" in query
+    # The panel's regions are joined to the family's own rows on 64-kb windows (ENG-15),
+    # not tested against each row.
+    assert "(e.chrom, e.pos, length(e.ref)) IN (SELECT v.chrom, v.pos, v.ref_length" in query
+    assert "arrayExists((region_chrom, region_start, region_end) ->" not in query
     assert "panel_region_chromosomes" in params
     assert "panel_region_chromosomes_0" not in params
     assert params["include_variant_ids"] == ("v2",)
@@ -1352,7 +1355,7 @@ async def test_fetch_small_variant_rows_keeps_large_panel_region_query_compact(
     rendered_query, _ = bind_query(query, params)
     assert "panel_region_chromosomes_0" not in params
     assert len(params["panel_region_chromosomes"]) == 3000
-    assert "arrayExists((region_chrom, region_start, region_end) ->" in query
+    assert "AS v INNER JOIN (SELECT region.1 AS region_chrom" in query
     assert rendered_query.count(" OR ") == 0
     assert len(rendered_query) < 262_144
 

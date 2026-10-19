@@ -127,7 +127,10 @@ def _write_package(root: Path, mother: str, father: str) -> None:
             "##fileformat=VCFv4.2\n"
             f"##trgtCommand=trgt genotype --genome ref.fna --reads {sample}_sort.bam --repeats catalog.bed "
             f"--karyotype {karyotype} --threads 4 --output-prefix {sample}\n"
-            f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}_sort\n",
+            f"#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{sample}_sort\n"
+            # One normal HTT call: a TRGT file without a record is refused as a failed
+            # analysis (SAFE-29), as a real sample's never is.
+            "chr4\t3074876\t.\tA\t<STR>\t.\tPASS\tEND=3074933;TRID=HD_HTT;MOTIFS=CAG\tGT:MC\t0/1:17_18\n",
             encoding="utf-8",
         )
         needlr = root / "sv" / sample / "needlr" / f"{sample}_sv_phased.needLR.4.0.vcf.gz"

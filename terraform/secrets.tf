@@ -14,8 +14,8 @@
 #   printf '%s' "$APP_PG_PW"    | gcloud secrets versions add coga-postgres-app-password  --data-file=- --project <p>
 #
 # Versions MUST exist before the full `terraform apply` (docs/deployment-gcp.md §5.5).
-# Terraform reads coga-postgres-password itself, through the data source below, when it
-# plans or applies, and sets the Cloud SQL user's password from it. Cloud Run resolves
+# Terraform reads coga-postgres-password itself, through the ephemeral resource below, when
+# it plans or applies, and sets the Cloud SQL user's password from it. Cloud Run resolves
 # each `latest` env-var secret when an instance starts, not at apply: an instance cannot
 # start while a secret it reads has no version, and keeps the value it started with
 # (rotation: §12.2). The ClickHouse VM fetches its password when it boots. coga_app's
@@ -38,10 +38,18 @@ resource "google_secret_manager_secret" "app" {
 }
 
 # The Cloud SQL user password is read from Secret Manager so there is a single
-# source of truth shared with the backend's POSTGRES_PASSWORD env. (This value does
-# enter Terraform state for the SQL user — keep the state bucket private + CMEK.)
+# source of truth shared with the backend's POSTGRES_PASSWORD env. It never enters the
+# Terraform state or plan: this data source reads only which version is the latest, and
+# the ephemeral resource reads that version's value for the user's write-only password
+# (database.tf), keeping no copy.
 data "google_secret_manager_secret_version" "postgres_password" {
-  secret = google_secret_manager_secret.app["postgres_password"].id
+  secret            = google_secret_manager_secret.app["postgres_password"].id
+  fetch_secret_data = false
+}
+
+ephemeral "google_secret_manager_secret_version" "postgres_password" {
+  secret  = google_secret_manager_secret.app["postgres_password"].id
+  version = data.google_secret_manager_secret_version.postgres_password.version
 }
 
 # --- Access grants ----------------------------------------------------------
