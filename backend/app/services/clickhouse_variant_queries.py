@@ -58,6 +58,8 @@ from .family_variant_filters import (
     in_silico_prediction_pattern,
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
+    small_variant_type_matches,
+    stored_precision,
     structural_variant_length,
     structural_variant_length_filters_match,
 )
@@ -512,10 +514,22 @@ def _parse_interval_regions(raw_value: str | None, *, label: str = "Interval") -
     return regions
 
 
+def _chromosome_filter_matches(chromosome: str, filter_chromosome: str) -> bool:
+    """Whether a variant's chromosome is the one a chromosome filter names, as the SQL reads
+    it (``e.chrom IN`` the filter's ``_chromosome_options``): the name with or without
+    ``chr``, and chrM by any of its names (M, MT)."""
+    options = {normalize_chromosome(option) for option in _chromosome_options(filter_chromosome)}
+    return normalize_chromosome(chromosome) in options
+
+
 def _variant_overlaps_regions(chr_value: str, start: int, end: int, regions: Sequence[Region]) -> bool:
-    normalized_chr = normalize_chromosome(chr_value)
+    """Whether a variant overlaps one of the regions. The chromosomes are compared by
+    ``_chromosome_match_key``, as the SQL region conditions compare them: in any capitals,
+    with or without ``chr``, and chrM by any of its names. Compared as written, an interval
+    typed as ``x:…`` or a region on chrMT missed a variant the SQL kept (ENG-1)."""
+    chromosome = _chromosome_match_key(chr_value)
     return any(
-        normalized_chr == normalize_chromosome(region.chr)
+        chromosome == _chromosome_match_key(region.chr)
         and start <= region.end
         and end >= region.start
         for region in regions
@@ -832,7 +846,10 @@ def _small_record_matches_sample_filters(
             if call.dp is None or call.dp < sample_filter.minimum_depth:
                 return False
         if sample_filter.minimum_allele_frequency is not None:
-            if not call.af or max(call.af) < sample_filter.minimum_allele_frequency:
+            # At the precision the fraction is stored at, as the SQL compares it.
+            if not call.af or stored_precision(max(call.af)) < stored_precision(
+                sample_filter.minimum_allele_frequency
+            ):
                 return False
         if sample_filter.minimum_alt_depth is not None:
             alt_depth = call.ad[1] if len(call.ad) > 1 else None
@@ -957,19 +974,16 @@ def _small_record_matches(
     exclude_gene_regions: Sequence[Region],
     panel_constraints: PanelFilterConstraints | None = None,
 ) -> bool:
-    if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
+    if filters.chromosome and not _chromosome_filter_matches(record.chr, filters.chromosome):
         return False
-    if filters.overlap:
-        if filters.start is not None and record.end < filters.start:
-            return False
-        if filters.end is not None and record.start > filters.end:
-            return False
-    else:
-        if filters.start is not None and record.start < filters.start:
-            return False
-        if filters.end is not None and record.end > filters.end:
-            return False
-    if filters.variant_type and not _contains_casefold(_small_type(record.ref, record.alt), filters.variant_type):
+    # A location keeps a variant that starts in it, as the SQL (and the Variant Explorer)
+    # reads one, or, with ``overlap``, any variant that overlaps it: a deletion that starts
+    # before the end and ends after it is in either way (ENG-1).
+    if filters.start is not None and (record.end if filters.overlap else record.start) < filters.start:
+        return False
+    if filters.end is not None and record.start > filters.end:
+        return False
+    if not small_variant_type_matches(record.ref, record.alt, filters.variant_type):
         return False
     if filters.source and not _contains_casefold(record.source, filters.source):
         return False
@@ -986,20 +1000,33 @@ def _small_record_matches(
             record,
             panel_constraints.genes,
         )
-        panel_region_match = bool(panel_constraints.regions) and _variant_overlaps_regions(
-            record.chr,
-            record.start,
-            record.end,
-            panel_constraints.regions,
+        # A panel of genes with more regions than the SQL inlines is matched on its genes
+        # alone, in SQL and here (_panel_regions_apply, ENG-1).
+        panel_region_match = (
+            bool(panel_constraints.regions)
+            and _panel_regions_apply(panel_constraints)
+            and _variant_overlaps_regions(
+                record.chr,
+                record.start,
+                record.end,
+                panel_constraints.regions,
+            )
         )
         if not (panel_gene_match or panel_region_match):
             return False
     if filters.gene and not _small_record_hits_gene_terms(record, _split_gene_terms(filters.gene)):
         return False
-    if filters.rsid and not (
-        _contains_casefold(record.rsid, filters.rsid)
-        or any(_contains_casefold(_annotation_text(annotation, "rsid"), filters.rsid) for annotation in record.annotations)
-    ):
+    # Also hit by an SV: one of the variant's genes (the entry's) is a gene the family's SVs
+    # hit, as the SQL reads it; with none resolved, nothing qualifies. Python used to keep
+    # every variant (ENG-1).
+    if filters.require_sv_second_hit:
+        sv_hit_terms = {_casefold(gene) for gene in filters.sv_hit_genes if str(gene).strip()}
+        if sv_hit_terms.isdisjoint(_casefold(symbol) for symbol in record.gene_symbols):
+            return False
+    # The variant's rsID as stored, which the SQL searches: the VCF's ID, else the existing
+    # variants VEP lists on its first transcript. Python also searched every transcript's
+    # list, so it kept a variant the SQL leaves out (another id VEP lists, ENG-1).
+    if filters.rsid and not _contains_casefold(record.rsid, filters.rsid):
         return False
     if filters.exclude_clinvar and any(
         _flexible_status_match(_annotation_clinvar(annotation), filters.exclude_clinvar)
@@ -2257,6 +2284,7 @@ def _small_variant_where_clauses(
         where_clauses.append("has(e.calls.ps, %(phase_set)s)")
         params["phase_set"] = filters.phase_set
     if filters.variant_type:
+        # The rule of small_variant_type_matches, which the Python record filter applies.
         variant_type = _casefold(filters.variant_type).upper()
         if variant_type == "SNV":
             where_clauses.append("length(e.ref) = 1 AND length(e.alt) = 1")
@@ -2264,8 +2292,14 @@ def _small_variant_where_clauses(
             where_clauses.append("length(e.ref) = length(e.alt) AND length(e.ref) > 1")
         elif variant_type == "INDEL":
             where_clauses.append("NOT (length(e.ref) = 1 AND length(e.alt) = 1)")
-    if filters.source:
-        params["source"] = filters.source
+    # The callset and the rsID are found in the stored text, as typed but for the spaces
+    # around them; a blank value asks nothing, as in the Python record filter. Untrimmed, a
+    # value with a space around it found nothing, and a blank callset kept nothing and
+    # skipped the imputed-callset default (ENG-1).
+    source = (filters.source or "").strip()
+    rsid = (filters.rsid or "").strip()
+    if source:
+        params["source"] = source
         where_clauses.append("positionCaseInsensitive(e.source, %(source)s) > 0")
     elif exclude_imputed:
         # Diagnostic list/count: hide imputed callsets (glimpse2/shapeit) by default,
@@ -2274,8 +2308,8 @@ def _small_variant_where_clauses(
         # exclude_imputed=False so they continue to see every callset.
         params["imputed_sources"] = tuple(IMPUTED_SMALL_VARIANT_SOURCES)
         where_clauses.append("lowerUTF8(e.source) NOT IN %(imputed_sources)s")
-    if filters.rsid:
-        params["rsid"] = filters.rsid
+    if rsid:
+        params["rsid"] = rsid
         annotation_rsid_condition = _small_annotation_key_membership_condition(
             context,
             filters,
@@ -2288,19 +2322,18 @@ def _small_variant_where_clauses(
     if filters.chromosome:
         where_clauses.append("e.chrom IN %(chromosomes)s")
         params["chromosomes"] = _chromosome_options(filters.chromosome)
+    # A location keeps a variant that starts in it or, with ``overlap``, one that overlaps
+    # it: from a start alone too, which used to read the variant's start (ENG-1).
     if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            where_clauses.append("(e.pos <= %(end)s AND (e.pos + length(e.ref) - 1) >= %(start)s)")
-            params["start"] = filters.start
-            params["end"] = filters.end
-        else:
-            where_clauses.append("e.pos >= %(start)s")
-            params["start"] = filters.start
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        where_clauses.append(
+            "(e.pos + length(e.ref) - 1) >= %(start)s" if filters.overlap else "e.pos >= %(start)s"
+        )
+        params["start"] = filters.start
+    if filters.end is not None:
         where_clauses.append("e.pos <= %(end)s")
         params["end"] = filters.end
     if filters.chromosome:
-        xpos_start = 0 if filters.overlap and filters.end is not None else (filters.start or 0)
+        xpos_start = 0 if filters.overlap else (filters.start or 0)
         xpos_end = filters.end if filters.end is not None else 999_999_999
         where_clauses.append("e.xpos BETWEEN %(xpos_start)s AND %(xpos_end)s")
         params["xpos_start"] = _xpos(filters.chromosome, xpos_start)
@@ -2506,9 +2539,13 @@ def _small_annotation_filter_condition(
     if effect_terms:
         params["detail_effect_terms"] = list(effect_terms)
         impact_effect_conditions.append("hasAny(a.effects, %(detail_effect_terms)s)")
+    # A frequency or a score is stored as Float32, and compared with the threshold at that
+    # precision (toFloat32), as the Python matcher compares it (stored_precision): at 64 bits
+    # a value stored exactly at the threshold could round past it, and a CADD score of 25.3
+    # failed a minimum of 25.3, a gnomAD frequency of 0.001 a maximum of 0.001 (ENG-1).
     if filters.min_spliceai is not None:
         params["detail_min_spliceai"] = filters.min_spliceai
-        impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= %(detail_min_spliceai)s")
+        impact_effect_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
     if impact_effect_conditions:
         conditions.append(f"({' OR '.join(impact_effect_conditions)})")
 
@@ -2541,7 +2578,7 @@ def _small_annotation_filter_condition(
         if maximum is None:
             continue
         params[param] = maximum
-        frequency_conditions.append(f"ifNull(a.{column}, 0) <= %({param})s")
+        frequency_conditions.append(f"ifNull(a.{column}, 0) <= toFloat32(%({param})s)")
 
     max_int_filters = [
         ("detail_max_gnomad_ac", filters.max_gnomad_ac, "gnomad_ac"),
@@ -2572,10 +2609,10 @@ def _small_annotation_filter_condition(
     in_silico_conditions: list[str] = []
     if filters.min_cadd is not None:
         params["detail_min_cadd"] = filters.min_cadd
-        in_silico_conditions.append("ifNull(a.cadd_phred, -1) >= %(detail_min_cadd)s")
+        in_silico_conditions.append("ifNull(a.cadd_phred, -1) >= toFloat32(%(detail_min_cadd)s)")
     if filters.min_revel is not None:
         params["detail_min_revel"] = filters.min_revel
-        in_silico_conditions.append("ifNull(a.revel, -1) >= %(detail_min_revel)s")
+        in_silico_conditions.append("ifNull(a.revel, -1) >= toFloat32(%(detail_min_revel)s)")
     # The stored SIFT or PolyPhen value names the prediction asked for, whatever its score:
     # the Python matcher's own test (in_silico_prediction_pattern, CLIN-45). This condition
     # used to find the filter's text anywhere in the value, so "deleterious" also kept
@@ -2586,7 +2623,7 @@ def _small_annotation_filter_condition(
             params[f"detail_{column}_pattern"] = pattern
             in_silico_conditions.append(f"match(a.{column}, %(detail_{column}_pattern)s)")
     if filters.min_spliceai is not None:
-        in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= %(detail_min_spliceai)s")
+        in_silico_conditions.append("ifNull(a.spliceai_max, -1) >= toFloat32(%(detail_min_spliceai)s)")
     if in_silico_conditions:
         conditions.append(f"({' OR '.join(in_silico_conditions)})")
 
@@ -2625,14 +2662,14 @@ def _small_annotation_scope_clauses(
     clauses: list[str] = []
     if filters.chromosome and "chromosomes" in params:
         clauses.append(f"{alias}.chrom IN %(chromosomes)s")
+    # The location as _small_variant_where_clauses reads it.
     if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            clauses.append(
-                f"({alias}.pos <= %(end)s AND ({alias}.pos + length({alias}.ref) - 1) >= %(start)s)"
-            )
-        else:
-            clauses.append(f"{alias}.pos >= %(start)s")
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        clauses.append(
+            f"({alias}.pos + length({alias}.ref) - 1) >= %(start)s"
+            if filters.overlap
+            else f"{alias}.pos >= %(start)s"
+        )
+    if filters.end is not None:
         clauses.append(f"{alias}.pos <= %(end)s")
     return clauses
 
@@ -2742,11 +2779,13 @@ def _small_native_sample_filter_clauses(
             conditions.append(f"dp >= %({dp_param})s")
             params[dp_param] = parsed.minimum_depth
         if parsed.minimum_allele_frequency is not None:
+            # At the precision the fraction is stored at (Float32), as in Python: 0.45 is
+            # stored a little below 0.45 and failed a minimum of 0.45 (ENG-1).
             af_param = f"sample_filter_{index}_min_af"
             conditions.append(
                 "("
-                f"(length(af) > 0 AND arrayMax(af) >= %({af_param})s) "
-                f"OR (length(af) = 0 AND ab >= %({af_param})s)"
+                f"(length(af) > 0 AND arrayMax(af) >= toFloat32(%({af_param})s)) "
+                f"OR (length(af) = 0 AND ab >= toFloat32(%({af_param})s))"
                 ")"
             )
             params[af_param] = parsed.minimum_allele_frequency

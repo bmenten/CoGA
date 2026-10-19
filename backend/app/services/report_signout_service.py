@@ -125,21 +125,87 @@ def _canonical_sample_qc(report: SampleIntegrityReport) -> dict[str, Any]:
     return dataclasses.asdict(report)
 
 
+# Each concern the Sample-QC gate lists, in its 409 and in the sign-out's audit event, names
+# the sample, the pair or the child (with its parents) its check read (CLIN-8): a check's
+# message does not, and two samples without chrX calls read as the same sentence twice. The
+# checks themselves are frozen into the snapshot's ``sample_qc`` as they are, each beside
+# its sample fields, which the signed view labels them with.
+def _join_ids(ids: list[str]) -> str:
+    return ids[0] if len(ids) == 1 else f"{', '.join(ids[:-1])} and {ids[-1]}"
+
+
+def _sample_named(check: Mapping[str, Any]) -> str | None:
+    sample = check.get("sample_id")
+    return f"Sample {sample}" if sample else None
+
+
+def _pair_named(check: Mapping[str, Any]) -> str | None:
+    sample_a, sample_b = check.get("sample_a"), check.get("sample_b")
+    return f"Samples {sample_a} and {sample_b}" if sample_a and sample_b else None
+
+
+def _child_named(check: Mapping[str, Any]) -> str | None:
+    child = check.get("child")
+    if not child:
+        return None
+    parents = [str(parent) for parent in check.get("parents") or [] if parent]
+    return f"Sample {child} (child of {_join_ids(parents)})" if parents else f"Sample {child}"
+
+
+def _father_named(check: Mapping[str, Any]) -> str | None:
+    father = check.get("father")
+    return f"Sample {father} (father)" if father else None
+
+
+def _nothing_named(check: Mapping[str, Any]) -> None:
+    """Fetal sex and the category distribution are read from the cfDNA as a whole; their
+    checks hold no sample to name."""
+    return None
+
+
+# A first word that stays capitalised after the name: a name, not a sentence's capital.
+_KEEP_CAPITALISED = ("Mendelian",)
+
+
+def _named(subject: str | None, message: str) -> str:
+    """A concern as the gate lists it: the message after what it is about, its first word
+    lower-cased unless that is an abbreviation or a name ("Sample X: no chrX genotypes
+    available for sex inference."). With nothing to name, the message as it is."""
+    if not subject:
+        return message
+    if (
+        message[:1].isupper()
+        and message[1:2].islower()
+        and not message.startswith(_KEEP_CAPITALISED)
+    ):
+        message = message[0].lower() + message[1:]
+    return f"{subject}: {message}"
+
+
 def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
-    """Compact summary of the concerning QC checks, for the 409 acknowledge prompt."""
+    """Compact summary of the concerning QC checks, for the 409 acknowledge prompt, each
+    naming its sample, pair or child."""
     messages: list[str] = []
-    for key in ("sex_checks", "relatedness_checks", "mendelian_checks"):
+    for key, subject in (
+        ("sex_checks", _sample_named),
+        ("relatedness_checks", _pair_named),
+        ("mendelian_checks", _child_named),
+    ):
         for check in qc.get(key) or []:
-            if check.get("status") in ("warn", "fail"):
-                messages.append(check.get("message") or "")
-    for key in ("paternity_check", "fetal_sex_check", "category_qc_check"):
+            if check.get("status") in ("warn", "fail") and check.get("message"):
+                messages.append(_named(subject(check), check["message"]))
+    for key, subject in (
+        ("paternity_check", _father_named),
+        ("fetal_sex_check", _nothing_named),
+        ("category_qc_check", _nothing_named),
+    ):
         check = qc.get(key)
-        if check and check.get("status") in ("warn", "fail"):
-            messages.append(check.get("message") or "")
+        if check and check.get("status") in ("warn", "fail") and check.get("message"):
+            messages.append(_named(subject(check), check["message"]))
     return {
         "overall_status": qc.get("overall_status"),
         "application_label": qc.get("application_label"),
-        "messages": [m for m in messages if m],
+        "messages": messages,
     }
 
 
@@ -153,6 +219,10 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
     each ASSERTED (pedigree-declared) relationship whose swap check has too few
     informative sites to verify it. Scoped to asserted edges: non-asserted pairs and
     donor/unknown-parent edges never trigger.
+
+    Each reason names the sample, the pair or the child it is about (:func:`_named`). The
+    NIPT maternal lineage, read from the cfDNA category distribution, and a NIPT family
+    none of whose cfDNA checks ran name no sample: neither holds one.
     """
     reasons: list[str] = []
     for check in qc.get("relatedness_checks") or []:
@@ -161,10 +231,13 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
             and int(check.get("informative_sites") or 0) < MIN_RELATEDNESS_SITES
         ):
             reasons.append(
-                check.get("message")
-                or (
-                    f"Relatedness of {check.get('sample_a')}–{check.get('sample_b')} "
-                    f"(expected {check.get('expected_relationship')}) could not be verified."
+                _named(
+                    _pair_named(check),
+                    check.get("message")
+                    or (
+                        f"Relatedness (expected {check.get('expected_relationship')}) could "
+                        "not be verified."
+                    ),
                 )
             )
     # Mendelian checks are only generated for asserted child+parent(s), so any with too
@@ -173,8 +246,10 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
     for check in qc.get("mendelian_checks") or []:
         if int(check.get("informative_sites") or 0) < MIN_MENDEL_SITES:
             reasons.append(
-                check.get("message")
-                or f"Mendelian consistency for {check.get('child')} could not be verified."
+                _named(
+                    _child_named(check),
+                    check.get("message") or "Mendelian consistency could not be verified.",
+                )
             )
     paternity = qc.get("paternity_check")
     if paternity and paternity_unverifiable(
@@ -184,8 +259,11 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
         + int(paternity.get("het_not_transmitted") or 0),
     ):
         reasons.append(
-            paternity.get("message")
-            or "NIPT paternity could not be verified (too few paternal-informative sites)."
+            _named(
+                _father_named(paternity),
+                paternity.get("message")
+                or "NIPT paternity could not be verified (too few paternal-informative sites).",
+            )
         )
     # The NIPT category QC silently reports "pass" when the maternal-transmission block
     # is skipped for too few maternal-informative sites — i.e. a wrong/absent mother is
@@ -216,10 +294,13 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
     for check in qc.get("sex_checks") or []:
         if check.get("inferred_sex") == "indeterminate" and check.get("sample_id") not in anchored:
             reasons.append(
-                check.get("message")
-                or (
-                    f"Sex/identity of {check.get('sample_id')} could not be verified, and no "
-                    "relatedness check anchors this sample."
+                _named(
+                    _sample_named(check),
+                    check.get("message")
+                    or (
+                        "Sex/identity could not be verified, and no relatedness check "
+                        "anchors this sample."
+                    ),
                 )
             )
 

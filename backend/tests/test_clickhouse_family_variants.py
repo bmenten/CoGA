@@ -439,7 +439,7 @@ async def test_get_family_small_variants_page_filters_simple_sample_gt_in_clickh
     assert [str(variant.id) for variant in page.variants] == ["v2"]
     assert len(queries) == 4
     assert "arrayExists((sample_id, gt, gq, dp, ab, af, ad) -> sample_id IN %(sample_filter_0_samples)s" in queries[0][0]
-    assert "arrayMax(af) >= %(sample_filter_0_min_af)s" in queries[0][0]
+    assert "arrayMax(af) >= toFloat32(%(sample_filter_0_min_af)s)" in queries[0][0]
     assert "ad[2] >= %(sample_filter_0_min_ad_alt)s" in queries[0][0]
     assert "NOT arrayExists(sample_id -> sample_id IN %(sample_filter_1_samples)s" in queries[0][0]
     assert "LIMIT %(limit)s OFFSET %(offset)s" in queries[0][0]
@@ -677,7 +677,7 @@ async def test_get_family_small_variants_page_filters_vep_annotations_in_clickho
     assert "a.impact IN %(detail_impact_terms)s" in query
     assert "hasAny(a.effects, %(detail_effect_terms)s)" in query
     assert "hasAny(a.clinvar_terms, %(detail_clinvar_terms)s)" in query
-    assert "ifNull(a.gnomad_af, 0) <= %(detail_max_gnomad_af)s" in query
+    assert "ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)" in query
     assert "inheritance_affected_het_0_gts" in params
     assert params["detail_impact_terms"] == ("moderate",)
     assert params["detail_effect_terms"] == ["missense_variant"]

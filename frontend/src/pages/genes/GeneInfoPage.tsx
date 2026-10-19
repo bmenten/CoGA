@@ -65,6 +65,7 @@ const SOURCE_LABELS: Record<string, string> = {
   gencc: 'GenCC',
   clinvar_gene_condition: 'ClinVar',
   ncbi: 'NCBI Gene',
+  acmg_sf: 'ACMG SF',
 };
 
 interface GeneExternalLink {
@@ -87,8 +88,6 @@ interface GeneAssemblyLocation {
 interface GeneClingenCurationCounts {
   gene_disease_validity?: number | null;
   dosage_sensitivity?: number | null;
-  clinical_actionability?: number | null;
-  variant_pathogenicity?: number | null;
   cpic_pharmgkb?: string | null;
 }
 
@@ -100,8 +99,21 @@ interface GeneClingenFacts {
   haploinsufficiency_index?: number | null;
   pli?: number | null;
   loeuf?: number | null;
-  acmg_secondary_finding?: boolean | null;
   function?: string | null;
+}
+
+// The gene's entry on the ACMG secondary-findings list (data/ref-data/acmg-sf), as the gene
+// reference sync stores it for a listed gene: the list's version, and the gene's row of the
+// list's Table 1 with the footnotes that name the gene.
+interface GeneAcmgSecondaryFinding {
+  version?: string | null;
+  gene?: string | null;
+  phenotype?: string | null;
+  category?: string | null;
+  inheritance?: string | null;
+  variants_to_report?: string | null;
+  notes?: Array<{ footnote?: string | null; text?: string | null }>;
+  source_url?: string | null;
 }
 
 interface GeneConstraintMetrics {
@@ -205,11 +217,18 @@ interface GeneGenccAssertion {
   pmids?: string[];
 }
 
+// Two sources write these. dbNSFP's copy of ClinGen's haploinsufficiency curation has a
+// score, its description, a disease and PMIDs; ClinGen's own dosage file has both curations
+// in words, the report page and the curation's date.
 interface GeneClingenDosageAssertion {
   haploinsufficiency?: string | null;
   description?: string | null;
   disease?: string | null;
   pmids?: string[];
+  hgnc_id?: string | null;
+  triplosensitivity?: string | null;
+  online_report?: string | null;
+  date?: string | null;
 }
 
 interface GeneModelOrganism {
@@ -238,6 +257,7 @@ interface GeneProfileExtra {
   ncbi_other_designations?: string[];
   clingen_curation_counts?: GeneClingenCurationCounts;
   clingen_gene_facts?: GeneClingenFacts;
+  acmg_secondary_finding?: GeneAcmgSecondaryFinding;
   // HGNC's identifiers live in their own block, mirroring the complete set.
   hgnc_identifiers?: {
     vega_id?: string | null;
@@ -655,6 +675,81 @@ const PubmedLinks: React.FC<{ pmids?: string[] }> = ({ pmids }) => {
   );
 };
 
+// Links taken from reference files: only a web address becomes one.
+const webUrl = (value?: string | null) => {
+  const trimmed = value?.trim() || '';
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
+};
+
+const labelled = (label: string, value?: string | null) =>
+  value?.trim() ? `${label}: ${value.trim()}` : null;
+
+// A dosage entry from ClinGen's own file rather than dbNSFP's copy of its HI score.
+const isClingenFileDosage = (entry: GeneClingenDosageAssertion) =>
+  [entry.hgnc_id, entry.triplosensitivity, entry.online_report, entry.date].some(
+    (value) => value !== undefined,
+  );
+
+// ClinGen dates its curations with a time and zone (2021-09-23T08:27:44-04:00); the day,
+// as written, is what the page needs.
+const curationDay = (value?: string | null) => {
+  const trimmed = value?.trim() || '';
+  return /^\d{4}-\d{2}-\d{2}/.exec(trimmed)?.[0] || trimmed;
+};
+
+/**
+ * Whether the gene is on the ACMG secondary-findings list the gene reference sync read, and
+ * with which phenotype and category. "Not on" is said only when the list was read for this
+ * gene: a list that could not be read, or a gene cached before the sync read the list, says
+ * so instead (CLIN-19).
+ */
+const AcmgSecondaryFindingValue: React.FC<{
+  entry?: GeneAcmgSecondaryFinding;
+  status?: GeneSourceStatus;
+}> = ({ entry, status }) => {
+  const version = entry?.version ? `v${entry.version}` : status?.release;
+  const listName = version ? `ACMG SF ${version}` : 'the ACMG SF list';
+  if (entry) {
+    const listUrl = webUrl(entry.source_url);
+    const meta = [entry.phenotype, entry.category, entry.inheritance, entry.variants_to_report]
+      .map((value) => value?.trim())
+      .filter(Boolean)
+      .join(' · ');
+    const notes = (entry.notes || [])
+      .map((note) => note.text?.trim())
+      .filter((text): text is string => Boolean(text));
+    return (
+      <span className="gene-compact-detail-stack">
+        <span>
+          On{' '}
+          {listUrl ? (
+            <a href={listUrl} target="_blank" rel="noreferrer" className="gene-compact-link">
+              {listName}
+            </a>
+          ) : (
+            listName
+          )}
+        </span>
+        {meta ? <span className="gene-compact-list-meta">{meta}</span> : null}
+        {notes.map((note) => (
+          <span key={note} className="gene-compact-list-meta">
+            {note}
+          </span>
+        ))}
+      </span>
+    );
+  }
+  if (status?.status === 'missing') return <>Not on {listName}</>;
+  if (status?.status === 'error') {
+    return (
+      <span title={status.message || undefined}>
+        Not checked: the ACMG SF list could not be read
+      </span>
+    );
+  }
+  return <>Not checked against the ACMG SF list</>;
+};
+
 const CompactStringGroup: React.FC<{
   group: NamedStringGroup;
   expanded: boolean;
@@ -864,9 +959,11 @@ const GeneInfoPage: React.FC = () => {
       (profile?.extra.clingen_dosage_assertions || []).filter(
         (entry) =>
           Boolean(entry.haploinsufficiency?.trim()) ||
+          Boolean(entry.triplosensitivity?.trim()) ||
           Boolean(entry.description?.trim()) ||
           Boolean(entry.disease?.trim()) ||
-          Boolean(entry.pmids?.length),
+          Boolean(entry.pmids?.length) ||
+          Boolean(webUrl(entry.online_report)),
       ),
     [profile],
   );
@@ -1033,26 +1130,20 @@ const GeneInfoPage: React.FC = () => {
               label: 'Dosage sensitivity',
               value: formatInteger(curationCounts?.dosage_sensitivity),
             },
-            {
-              label: 'Clinical actionability',
-              value: formatInteger(curationCounts?.clinical_actionability),
-            },
-            {
-              label: 'Variant pathogenicity',
-              value: formatInteger(curationCounts?.variant_pathogenicity),
-            },
+            // Clinical actionability and variant pathogenicity rows read counts no source
+            // supplies, so they were removed (CLIN-19).
             {
               label: 'ACMG secondary finding',
-              value:
-                clingenFacts?.acmg_secondary_finding === true
-                  ? 'Yes'
-                  : clingenFacts?.acmg_secondary_finding === false
-                    ? 'No'
-                    : '—',
+              value: (
+                <AcmgSecondaryFindingValue
+                  entry={profile.extra.acmg_secondary_finding}
+                  status={profile.source_status.acmg_sf}
+                />
+              ),
             },
           ]
         : [],
-    [clingenFacts?.acmg_secondary_finding, curationCounts, profile],
+    [curationCounts, profile],
   );
 
   const constraintRows = useMemo<DetailRow[]>(
@@ -1541,11 +1632,43 @@ const GeneInfoPage: React.FC = () => {
                     <p className="gene-compact-subtitle-label">ClinGen dosage assertions</p>
                     <ul className="gene-compact-list">
                       {clingenDosageAssertions.map((entry, index) => {
+                        if (isClingenFileDosage(entry)) {
+                          const reportUrl = webUrl(entry.online_report);
+                          const day = curationDay(entry.date);
+                          const fileMeta = [
+                            labelled('Haploinsufficiency', entry.haploinsufficiency),
+                            labelled('Triplosensitivity', entry.triplosensitivity),
+                            day ? `curated ${day}` : null,
+                          ]
+                            .filter(Boolean)
+                            .join(' · ');
+                          return (
+                            <li key={`clingen-dosage-${reportUrl || index}`}>
+                              <span>ClinGen dosage curation</span>
+                              {fileMeta ? (
+                                <span className="gene-compact-list-meta">{fileMeta}</span>
+                              ) : null}
+                              {reportUrl ? (
+                                <span className="gene-compact-inline-links">
+                                  <a
+                                    href={reportUrl}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="gene-compact-link"
+                                  >
+                                    ClinGen report
+                                  </a>
+                                </span>
+                              ) : null}
+                            </li>
+                          );
+                        }
                         const meta = [
                           entry.haploinsufficiency
                             ? `HI score ${entry.haploinsufficiency}`
                             : null,
                           entry.description,
+                          'via dbNSFP',
                         ]
                           .filter(Boolean)
                           .join(' · ');
