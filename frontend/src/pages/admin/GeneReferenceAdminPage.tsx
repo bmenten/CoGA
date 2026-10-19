@@ -156,7 +156,8 @@ const GeneReferenceAdminPage: React.FC = () => {
             <p className="catalog-card-copy">
               Refresh the cached human gene context for one symbol or the full imported catalog:
               HGNC, ClinGen, GenCC and ClinVar from their bulk downloads, dbNSFP from the local
-              gene file, and NCBI Gene for the genes dbNSFP does not cover.
+              gene file, the ACMG secondary-findings list that ships with CoGA, and NCBI Gene for
+              the genes dbNSFP does not cover.
             </p>
           </div>
           <div className="surface-card-muted gene-profile-status">

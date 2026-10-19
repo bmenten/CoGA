@@ -27,7 +27,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
-from .structural_variant_ingest import is_breakend_alt, parse_bnd_alt, sv_type_from_alt
+from .structural_variant_ingest import is_breakend_alt, parse_bnd_alt, record_sv_len, sv_type_from_alt
 from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
 
 
@@ -329,7 +329,9 @@ def _needlr_records(
                 remote_chr=remote_chr,
                 remote_start=remote_start,
                 remote_end=remote_start,
-                sv_len=sv_len,
+                # The SVLEN as written gave the END, the event and the discriminator above;
+                # the one stored is a sequence allele's own length without it (CLIN-41).
+                sv_len=record_sv_len(sv_len=sv_len, ref=ref, alt=alt),
                 filters=[] if filt is None else [filt],
                 gene_symbols=gene_symbols,
                 annotations=[annotation],
@@ -443,7 +445,7 @@ def _iter_cnv_structural_records(
                 remote_chr=None,
                 remote_start=None,
                 remote_end=None,
-                sv_len=sv_len,
+                sv_len=record_sv_len(sv_len=sv_len, ref=ref, alt=alt),
                 filters=[] if filt is None else filt.split(";"),
                 gene_symbols=gene_symbols,
                 annotations=[{"source": source, "ref": ref, "alt": alt, "info": info}],
@@ -681,7 +683,7 @@ def _iter_mito_sv_records(
                 remote_chr=None,
                 remote_start=None,
                 remote_end=None,
-                sv_len=sv_len,
+                sv_len=record_sv_len(sv_len=sv_len, ref=ref, alt=alt),
                 filters=[] if filt is None else filt.split(";"),
                 gene_symbols=_mt_genes_overlapping(start, end),
                 annotations=[

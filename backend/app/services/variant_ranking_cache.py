@@ -11,10 +11,10 @@ inputs that change the ranking:
 - affected HPO terms, pedigree/affected status and the gene panel's version: its own
   version, which every change of the genes or regions it holds raises (an edit, a
   Mendeliome rebuild, a PanelApp import), and its source's release (``external_version``);
-- the genes and regions the query applied: the panel's (``panel_members_digest``), and the
-  intervals and gene loci it keeps to or leaves out. A gene's loci are read from the gene
-  reference when the query runs, so a reload that moves a gene changes them while every
-  version and filter stays as it was;
+- the genes and regions the query applied: the panel's (``panel_members_digest``), the
+  intervals it keeps to, and the intervals and gene loci it leaves out. A gene's loci are
+  read from the gene reference when the query runs, so a reload that moves a gene changes
+  them while every version and filter stays as it was;
 - the reference data the scores read: Monarch release, the HPO ontology loaded (its
   release and import time, as the signed record reads it) and the gene-constraint table
   (gene_info) for the family's assembly;
@@ -58,7 +58,13 @@ from .hpo_service import get_loaded_hpo_release
 #    the same filters and data, lacks those variants (an empty ranking is cached too).
 # 4: a ranked compound-het, recessive or carrier-screening search ranks only the variants
 #    and pairs the search keeps unranked (CLIN-44); it ranked every prefiltered candidate.
-_ALGORITHM_VERSION = "4"
+# 5: the ranked search keeps what the plain page keeps (ENG-1): its Python record filter
+#    reads every filter as the SQL does, both compare a frequency, score or allele fraction
+#    with its threshold at the precision it is stored at, and a gene filter keeps the gene's
+#    variants outside its loci. A ranking cached before lacks the variants it dropped (chrM
+#    named MT or M, an interval in lower case, an MNV, an indel running past a location's
+#    end, a SpliceAI score of 0, a value at its threshold, a gene's upstream variant).
+_ALGORITHM_VERSION = "5"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 
@@ -223,10 +229,11 @@ async def compute_ranking_hashes(
 
     The rest is what the query applied, as the ranking hands it to the variant fetch:
     ``panel_members`` (``panel_members_digest`` of the panel's genes and regions) in the
-    exact key, and in both keys the regions it keeps to (the intervals and the gene
-    filter's loci), and the regions and genes it leaves out (``exclude_gene`` resolved to
-    loci and names). A gene's loci come from the gene reference, not from the filters, so
-    a reload that moves the gene would otherwise leave both keys as they were.
+    exact key, and in both keys the regions it keeps to (the intervals), and the regions
+    and genes it leaves out (``exclude_gene`` resolved to loci and names). A gene's loci
+    come from the gene reference, not from the filters, so a reload that moves the gene
+    would otherwise leave both keys as they were. A gene filter applies no loci: it keeps
+    the variants annotated with the gene (ENG-1).
     """
     # Review-tag filters are resolved to variant-id sets outside the filter object, so
     # they must be folded into the hash or two otherwise-identical queries would collide.
