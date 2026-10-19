@@ -47,13 +47,19 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   a note that explains it.
 - *Not assessed*: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus
   the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold.
-  CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*.
+  CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*. Where the
+  catalogue gives a locus a benign range but no threshold (STRchive's POLG: 10 repeats), a count
+  inside the range reads *Normal* and any other count *Not assessed*; the cutoff reads
+  *normal 10 · no threshold*. The count is the one TRGT reports for the catalogued motif across
+  the whole locus, flanking copies included, so it can run higher than the count the range
+  describes: in the TRGT catalogue in use (TRID `CPEO_POLG`), POLG's common allele of 10 repeats
+  counts 14 and stays *Not assessed*.
 - *Unknown*: no call.
 
 **Aberrant only** keeps every locus whose status is not *Normal* or *Unknown*, *Not assessed*
-included, and the page header counts the calls at loci without thresholds. The genome tracks colour
-each locus by the status its call was imported with, and keep it until the call is imported again;
-this page classifies every call again, against the catalogue as it is now.
+included, and the page header counts the calls not assessed. The genome tracks colour each locus by
+the status its call was imported with, and keep it until the call is imported again; this page
+classifies every call again, against the catalogue as it is now.
 
 ### mtDNA
 

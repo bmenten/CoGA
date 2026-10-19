@@ -534,9 +534,9 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
       </QueryClientProvider>,
     );
   };
-  const callsWithoutThresholds = () =>
+  const callsNotAssessed = () =>
     screen
-      .getByText('Calls at loci without thresholds')
+      .getByText('Calls not assessed')
       .closest('.family-workspace-stat')
       ?.querySelector('.family-workspace-stat-value')?.textContent;
 
@@ -550,7 +550,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
     expect(within(row).queryByText('Normal')).not.toBeInTheDocument();
     expect(within(row).getByText('12 / 300')).toBeInTheDocument();
     expect(row.querySelectorAll('td').item(3).textContent?.trim()).toBe('No reference cutoff');
-    expect(callsWithoutThresholds()).toBe('2');
+    expect(callsNotAssessed()).toBe('2');
 
     fireEvent.click(screen.getByLabelText('Aberrant only'));
     expect(screen.getByText('1 of 2 loci')).toBeInTheDocument();
@@ -562,8 +562,72 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
     renderWith([htt]);
 
     expect(await screen.findByRole('row', { name: /HTT/ })).toBeInTheDocument();
-    expect(callsWithoutThresholds()).toBe('0');
+    expect(callsNotAssessed()).toBe('0');
     expect(screen.queryByText('Not assessed')).not.toBeInTheDocument();
+  });
+
+  // CLIN-36 — at a locus that states a benign range and no threshold (STRchive's POLG: 10), the
+  // backend reads a count inside the range Normal and any other Not assessed.
+  const polg = (calls: Record<string, ReturnType<typeof call>>, status: string) => ({
+    locus_id: 'CPEO_POLG',
+    gene: 'POLG',
+    display_name: 'POLG',
+    disease: 'Progressive external ophthalmoplegia',
+    chr: '15',
+    start: 89333579,
+    end: 89333629,
+    motif: 'GCT',
+    warning_min: null,
+    pathogenic_min: null,
+    benign_min: 10,
+    benign_max: 10,
+    pathogenic_max: null,
+    status,
+    calls,
+  });
+
+  it('names the benign range of a locus without thresholds as its cutoff and counts only the calls outside it', async () => {
+    renderWith([
+      polg(
+        {
+          PROBAND: { ...call('PROBAND', 'normal', [10, 10]) },
+          MOTHER: {
+            ...call('MOTHER', 'not_assessed', [10, 13]),
+            alleles: [
+              { repeat_count: 10, status: 'normal' },
+              { repeat_count: 13, status: 'not_assessed' },
+            ],
+          },
+        },
+        'not_assessed',
+      ),
+      htt,
+    ]);
+
+    const row = await screen.findByRole('row', { name: /POLG/ });
+    expect(row.querySelectorAll('td').item(3).textContent?.trim()).toBe('normal 10 · no threshold');
+    // The locus flag and the mother's call; the proband's 10 / 10 carries no flag.
+    expect(within(row).getAllByText('Not assessed')).toHaveLength(2);
+    expect(within(row).getByText('10 / 10')).toBeInTheDocument();
+    expect(within(row).getByText('10 / 13')).toBeInTheDocument();
+    expect(callsNotAssessed()).toBe('1');
+
+    fireEvent.click(screen.getByLabelText('Aberrant only'));
+    expect(screen.getByText('1 of 2 loci')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /POLG/ })).toBeInTheDocument();
+  });
+
+  it('leaves a locus whose every call is inside its benign range out of the aberrant-only view', async () => {
+    renderWith([polg({ PROBAND: call('PROBAND', 'normal', [10, 10]) }, 'normal'), htt]);
+
+    const row = await screen.findByRole('row', { name: /POLG/ });
+    expect(row).not.toHaveClass('family-repeat-table-row--abnormal');
+    expect(within(row).queryByText('Not assessed')).not.toBeInTheDocument();
+    expect(callsNotAssessed()).toBe('0');
+
+    fireEvent.click(screen.getByLabelText('Aberrant only'));
+    expect(screen.getByText('0 of 2 loci')).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /POLG/ })).not.toBeInTheDocument();
   });
 });
 
@@ -608,13 +672,25 @@ describe('repeat cutoff labels', () => {
       { warning_min: null, pathogenic_min: null, benign_min: null, benign_max: null, pathogenic_max: null },
       'No reference cutoff',
     ],
-    // A benign range is not a threshold: the locus's calls read Not assessed (CLIN-26).
+    // A benign range is not a threshold: a count inside it reads Normal, any other Not
+    // assessed (CLIN-26, CLIN-36), so the cutoff names the range and says there is no threshold.
     [
       'locus with a benign range only (POLG)',
       { warning_min: null, pathogenic_min: null, benign_min: 10, benign_max: 10, pathogenic_max: null },
+      'normal 10 · no threshold',
+    ],
+    [
+      'locus with a wider benign range only',
+      { warning_min: null, pathogenic_min: null, benign_min: 6, benign_max: 16, pathogenic_max: null },
+      'normal 6-16 · no threshold',
+    ],
+    // Half a range is not a stated one: the calls there read Not assessed.
+    [
+      'locus with only a benign maximum',
+      { warning_min: null, pathogenic_min: null, benign_min: null, benign_max: 10, pathogenic_max: null },
       'No reference cutoff',
     ],
-    // One threshold is a cutoff: "No reference cutoff" is said only where the calls read
+    // One threshold is a cutoff: "No reference cutoff" is said only where every call reads
     // Not assessed.
     [
       'expansion locus with a grey zone and no pathogenic threshold',
