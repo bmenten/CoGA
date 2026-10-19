@@ -485,6 +485,9 @@ export interface ApiReportSignout {
   signed_out_by: string;
   signed_out_at: string;
   content_hash: string;
+  // The code the EPD report quotes for the record, made from its family, version and content
+  // hash (services/report_code.py); null when the stored fields cannot make one.
+  report_code?: string | null;
   // Frozen software identity that produced this sign-out (null for sign-outs created
   // before version-binding shipped). Extracted from the frozen JSONB snapshot.
   software_version?: string | null;
