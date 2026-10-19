@@ -7,8 +7,10 @@ import type {
   ApiFamilyRepeatExpansionTable,
   ApiRepeatExpansionAllele,
   ApiRepeatExpansionRow,
+  ApiRepeatExpansionSampleCall,
   ApiRepeatStatus,
 } from '../../lib/apiTypes';
+import type { RepeatCountUnitWarningOut } from '../../lib/apiSchema.generated';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
@@ -16,6 +18,8 @@ import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { apiPath } from '../../lib/apiPath';
+import InfoTip from '../../components/InfoTip';
+import { COUNT_UNIT_MARK, countUnitWarningText, repeatStatusLabel } from '../../lib/repeatStatus';
 
 
 
@@ -86,29 +90,16 @@ const isAbnormalStatus = (status: ApiRepeatStatus): boolean =>
   status === 'premutation' ||
   status === 'pathogenic';
 
-const repeatStatusLabel = (status: ApiRepeatStatus): string => {
-  switch (status) {
-    case 'review':
-      // A count outside every catalogued range at a contraction locus: the catalog
-      // cannot classify it, so it is surfaced rather than read as normal (#535).
-      return 'Review: outside catalogued ranges';
-    case 'not_assessed':
-      // A locus without thresholds: no catalogue row names the call's TRID, or the row
-      // states none. Read as normal before, so an expansion there could not be seen (CLIN-26).
-      return 'Not assessed';
-    case 'intermediate':
-      return 'Grey zone';
-    case 'premutation':
-      // FMR1 55-200: not affected, but the allele can expand to a full mutation in a child.
-      return 'Premutation';
-    case 'pathogenic':
-      return 'Pathogenic';
-    case 'unknown':
-      return 'Unknown';
-    default:
-      return 'Normal';
-  }
-};
+// A call's counts near a boundary at a locus whose TRGT counting units QA has not validated:
+// a difference of a few repeats between TRGT's count and the clinical repeat number could
+// change their status (repeat_count_units.py). None once the locus is validated.
+const countUnitWarnings = (call: ApiRepeatExpansionSampleCall): RepeatCountUnitWarningOut[] =>
+  call.alleles
+    .map((allele) => allele.count_unit_warning)
+    .filter((warning): warning is RepeatCountUnitWarningOut => Boolean(warning));
+
+const hasCountUnitWarning = (row: ApiRepeatExpansionRow): boolean =>
+  Object.values(row.calls).some((call) => countUnitWarnings(call).length > 0);
 
 const CHROMOSOME_VIEW_PADDING_BP = 1_000_000;
 const CHROMOSOME_VIEW_PADDING_LABEL = '±1 MB';
@@ -232,7 +223,9 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       (repeatTable?.loci || []).filter((row) => {
         if (geneFilter && row.gene !== geneFilter) return false;
         if (diseaseFilter && row.disease !== diseaseFilter) return false;
-        if (aberrantOnly && !isAbnormalStatus(row.status)) return false;
+        // A count near a boundary may read another status in the clinical repeat number, so
+        // its locus stays in view whatever its status.
+        if (aberrantOnly && !isAbnormalStatus(row.status) && !hasCountUnitWarning(row)) return false;
         return true;
       }),
     [aberrantOnly, diseaseFilter, geneFilter, repeatTable?.loci],
@@ -244,6 +237,17 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       (repeatTable?.loci || []).reduce(
         (total, row) =>
           total + Object.values(row.calls).filter((call) => call.status === 'not_assessed').length,
+        0,
+      ),
+    [repeatTable?.loci],
+  );
+  // The members' calls with a count near a boundary while TRGT's counting units are not
+  // validated, counted over the whole table, whatever the filters show.
+  const nearBoundaryCalls = useMemo(
+    () =>
+      (repeatTable?.loci || []).reduce(
+        (total, row) =>
+          total + Object.values(row.calls).filter((call) => countUnitWarnings(call).length > 0).length,
         0,
       ),
     [repeatTable?.loci],
@@ -320,6 +324,10 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                 <span className="stat-label">Calls at loci without thresholds</span>
                 <strong className="family-workspace-stat-value">{notAssessedCalls}</strong>
               </div>
+              <div className="family-workspace-stat">
+                <span className="stat-label">Calls near a boundary</span>
+                <strong className="family-workspace-stat-value">{nearBoundaryCalls}</strong>
+              </div>
             </div>
       </FamilyPageHeader>
 
@@ -331,6 +339,11 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
               Grey marks normal loci, orange grey-zone alleles, deep orange a premutation (an FMR1 allele of 55–200 repeats, which
               can expand in a child), and red pathogenic expansions. Blue marks a call at a locus without thresholds: the
               catalogue gives no cutoff there, so the call is not assessed.
+            </p>
+            <p className="catalog-card-copy">
+              {COUNT_UNIT_MARK} marks a count a few repeats from a boundary at a locus where QA has not yet validated that
+              TRGT counts the clinical repeat number; there, a small difference could change the status. Hover over or
+              focus it for the boundary. Aberrant only keeps such a locus too.
             </p>
           </div>
         </div>
@@ -475,6 +488,15 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                                       </span>
                                     )}
                                   </div>
+                                  {countUnitWarnings(call).length > 0 && (
+                                    <InfoTip
+                                      staticChild
+                                      className="family-repeat-count-unit-flag"
+                                      label={countUnitWarningText(countUnitWarnings(call), row.count_units_note)}
+                                    >
+                                      {COUNT_UNIT_MARK}
+                                    </InfoTip>
+                                  )}
                                   {formatAlleleMotifLabels(call.alleles).map((label) => (
                                     <div key={label} className="family-repeat-table-call-motifs">
                                       {label}

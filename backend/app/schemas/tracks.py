@@ -182,6 +182,25 @@ class RepeatExpansionMotifCountOut(BaseModel):
     count: int
 
 
+class RepeatCountBoundaryOut(BaseModel):
+    """The nearest count on one side of a call's count that reads another status."""
+
+    repeat_count: int
+    status: RepeatStatus
+
+
+class RepeatCountUnitWarningOut(BaseModel):
+    """A count within ``margin`` repeats of a classification boundary, at a locus whose TRGT
+    counting units QA has not validated (repeat_count_units): a difference of that size
+    between TRGT's count and the clinical repeat number could change the status. The status
+    itself is unchanged."""
+
+    repeat_count: int
+    margin: int
+    # The nearest count below and above (within the margin) that reads another status.
+    boundaries: List[RepeatCountBoundaryOut] = Field(default_factory=list)
+
+
 class RepeatExpansionAlleleOut(BaseModel):
     repeat_count: Optional[int] = None
     bp_length: Optional[int] = None
@@ -194,6 +213,8 @@ class RepeatExpansionAlleleOut(BaseModel):
     interrupted: bool = False
     interruption_label: Optional[str] = None
     status: RepeatStatus = "unknown"
+    # Set when the count is near a boundary at a locus whose counting units are not validated.
+    count_unit_warning: Optional[RepeatCountUnitWarningOut] = None
 
 
 class RepeatExpansionSampleCallOut(BaseModel):
@@ -231,6 +252,11 @@ class RepeatExpansionRowOut(BaseModel):
     # The first count of a premutation (FMR1 55), between the grey zone and the
     # pathogenic threshold; None for a locus without one.
     premutation_min: Optional[int] = None
+    # Whether QA validated that TRGT's count at the catalogue row classifying the calls is
+    # the clinical repeat number; False until it did. And what is known of TRGT's count at
+    # the gene (FMR1, HTT, POLG), or None.
+    count_units_validated: bool = False
+    count_units_note: Optional[str] = None
     status: RepeatStatus = "unknown"
     calls: Dict[str, RepeatExpansionSampleCallOut] = Field(default_factory=dict)
 
@@ -354,6 +380,12 @@ class RepeatExpansionTrackItemOut(BaseModel):
     status: RepeatStatus = "unknown"
     allele_repeat_counts: List[int] = Field(default_factory=list)
     allele_bp_lengths: List[int] = Field(default_factory=list)
+    # As on the family table, against the thresholds stored with the call (the status the
+    # track shows): QA's record for the call's catalogue row, what is known of TRGT's count
+    # at the gene, and one warning per allele near a boundary while it is not validated.
+    count_units_validated: bool = False
+    count_units_note: Optional[str] = None
+    count_unit_warnings: List[RepeatCountUnitWarningOut] = Field(default_factory=list)
 
 
 class RepeatExpansionTrackResponse(BaseModel):

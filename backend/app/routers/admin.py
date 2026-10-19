@@ -49,6 +49,9 @@ from ..schemas import (
     QcThresholdProfileCreate,
     QcThresholdUpdate,
     RawImportFileVerifyOut,
+    RepeatLocusCountUnitsCatalogueOut,
+    RepeatLocusCountUnitsSetOut,
+    RepeatLocusCountUnitsUpdate,
     SmallVariantFilterPresetOut,
     SmallVariantTagDefinitionCreate,
     SmallVariantTagDefinitionOut,
@@ -70,6 +73,10 @@ from ..services.integrity_anchor_service import (
     create_integrity_anchor,
     verify_against_latest_anchor,
     verify_anchor_chain,
+)
+from ..services.repeat_count_units import (
+    list_repeat_locus_count_units,
+    set_repeat_locus_count_units,
 )
 from ..services.report_signout_service import verify_report_signout_chain
 from ..services.ui_event_pg import list_ui_events
@@ -680,6 +687,41 @@ async def set_qc_threshold_admin(
         user_id=user.id,
         user_email=user.email,
         reason=payload.reason,
+    )
+
+
+@router.get("/repeat-loci", response_model=RepeatLocusCountUnitsCatalogueOut)
+async def list_repeat_loci_admin(
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> RepeatLocusCountUnitsCatalogueOut:
+    """The repeat catalogue's loci, each with QA's record of whether TRGT's count there is
+    the clinical repeat number, and that record's history (its clinical audit chain)."""
+    del user
+    return RepeatLocusCountUnitsCatalogueOut(**await list_repeat_locus_count_units(session))
+
+
+@router.put("/repeat-loci/{locus_id}/count-units", response_model=RepeatLocusCountUnitsSetOut)
+async def set_repeat_locus_count_units_admin(
+    locus_id: str,
+    payload: RepeatLocusCountUnitsUpdate,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_admin_user),
+) -> RepeatLocusCountUnitsSetOut:
+    """Record whether TRGT's counting units at a catalogue locus are validated.
+
+    While they are not, the repeat page and the genome tracks mark a count near a
+    classification boundary there. The reason is required, and the change is a hash-chained
+    clinical audit event (chain ``system:repeat-loci``) in the transaction that makes it.
+    """
+    return RepeatLocusCountUnitsSetOut(
+        **await set_repeat_locus_count_units(
+            session,
+            locus_id=locus_id,
+            validated=payload.validated,
+            reason=payload.reason,
+            user=user,
+        )
     )
 
 

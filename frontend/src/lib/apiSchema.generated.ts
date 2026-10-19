@@ -2440,6 +2440,24 @@ export interface ReferenceUploadResult {
   replaced: boolean;
 }
 
+/** The nearest count on one side of a call's count that reads another status. */
+export interface RepeatCountBoundaryOut {
+  repeat_count: number;
+  status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+}
+
+/**
+ * A count within ``margin`` repeats of a classification boundary, at a locus whose TRGT
+ * counting units QA has not validated (repeat_count_units): a difference of that size
+ * between TRGT's count and the clinical repeat number could change the status. The status
+ * itself is unchanged.
+ */
+export interface RepeatCountUnitWarningOut {
+  repeat_count: number;
+  margin: number;
+  boundaries: RepeatCountBoundaryOut[];
+}
+
 export interface RepeatExpansionAlleleOut {
   repeat_count: number | null;
   bp_length: number | null;
@@ -2452,6 +2470,7 @@ export interface RepeatExpansionAlleleOut {
   interrupted: boolean;
   interruption_label: string | null;
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+  count_unit_warning: RepeatCountUnitWarningOut | null;
 }
 
 export interface RepeatExpansionMotifCountOut {
@@ -2475,6 +2494,8 @@ export interface RepeatExpansionRowOut {
   benign_max: number | null;
   pathogenic_max: number | null;
   premutation_min: number | null;
+  count_units_validated: boolean;
+  count_units_note: string | null;
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   calls: Record<string, RepeatExpansionSampleCallOut>;
 }
@@ -2506,6 +2527,9 @@ export interface RepeatExpansionTrackItemOut {
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
+  count_units_validated: boolean;
+  count_units_note: string | null;
+  count_unit_warnings: RepeatCountUnitWarningOut[];
 }
 
 export interface RepeatExpansionTrackResponse {
@@ -2516,6 +2540,62 @@ export interface RepeatExpansionUploadResult {
   processed: number;
   inserted: number;
   source_format: "trgt";
+}
+
+export interface RepeatLocusCountUnitsCatalogueOut {
+  margin: number;
+  loci: RepeatLocusCountUnitsOut[];
+  changes: RepeatLocusCountUnitsChangeOut[];
+}
+
+/** One change of the validation record, from its clinical audit chain. */
+export interface RepeatLocusCountUnitsChangeOut {
+  changed_at: string;
+  changed_by: string | null;
+  locus_id: string | null;
+  gene: string | null;
+  validated: boolean;
+  summary: string | null;
+  reason: string | null;
+}
+
+/**
+ * A repeat catalogue locus with QA's record of whether TRGT's count there is the
+ * clinical repeat number its ranges count (services/repeat_count_units.py).
+ */
+export interface RepeatLocusCountUnitsOut {
+  locus_id: string;
+  gene: string;
+  display_name: string;
+  disease: string;
+  motif: string | null;
+  warning_min: number | null;
+  pathogenic_min: number | null;
+  benign_min: number | null;
+  benign_max: number | null;
+  premutation_min: number | null;
+  source: string;
+  validated: boolean;
+  reason: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+  call_count: number;
+  known_difference: string | null;
+}
+
+export interface RepeatLocusCountUnitsSetOut {
+  locus_id: string;
+  gene: string | null;
+  validated: boolean;
+  reason: string;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+/** Whether TRGT's counting units at a locus are validated, and why (required). */
+export interface RepeatLocusCountUnitsUpdate {
+  validated: boolean;
+  reason: string;
 }
 
 /**

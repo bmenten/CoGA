@@ -44,6 +44,20 @@ for the assembly is left alone.
 | TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and `data/ref-data/STRchive-loci.json`, both refreshed on every start. A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
+**TRGT's counting units.** TRGT counts the motif across the region its own catalogue gives a
+locus, which need not be the stretch the clinical repeat number, and so the catalogue's
+ranges, count. Checked in the public HG002 TRGT output and the laboratory's long-read files: at
+FMR1 TRGT counts the CGG copies only and leaves out the AGG interruptions, so an allele of
+about 31 triplets reads 29 (1 to 3 below; a premutation of 55 can read 53, in the grey zone);
+at HTT it also counts the CAG after the CAA interruption, so HG002's pure 17-repeat allele
+reads 18; at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
+QA and the laboratory director check, per catalogue locus, that TRGT's count is the clinical
+repeat number, and an administrator records it on the admin page **Repeat Catalogue**
+(`repeat_locus_count_units`, which no start rewrites; [database.md](database.md)). Until a
+locus is validated, the repeat page and the genome tracks mark a count within 3 repeats of a
+boundary its classification uses (`services/repeat_count_units.py`); no status changes. No
+correction is applied yet.
+
 The segmental duplications and clinical CNVs are loaded into the assembly named by
 `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME` (GRCh38). If UCSC cannot be reached, startup still
 creates the empty GRCh38 assembly and carries on.

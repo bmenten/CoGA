@@ -52,6 +52,8 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/nipt_target_coverage.py": 93.0,  # (95.6)
     "backend/app/services/nipt_triage.py": 93.0,  # (96.8)
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
+    # (97.6 measured locally when it was added: the repeat count-unit warning and QA's record)
+    "backend/app/services/repeat_count_units.py": 94.0,
     "backend/app/services/report_signout_service.py": 92.0,  # (95.7)
     "backend/app/services/review_pg_utils.py": 87.0,  # (90.2)
     "backend/app/services/sample_integrity_qc.py": 90.0,  # (93.4)

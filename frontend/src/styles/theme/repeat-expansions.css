@@ -308,3 +308,17 @@
   min-width: 11rem;
   font-size: var(--fs-xs);
 }
+
+/* A count near a boundary while QA has not validated TRGT's counting units at the locus: a
+   dashed outline, since the status itself may be right; the tip names the boundary. */
+.family-repeat-count-unit-flag {
+  display: inline-block;
+  padding: 0 0.3125rem;
+  border: 1px dashed rgba(180, 125, 45, 0.6);
+  border-radius: var(--radius-control);
+  font-size: var(--fs-2xs);
+  font-weight: 600;
+  line-height: 1.125rem;
+  color: #8d6020;
+  cursor: help;
+}

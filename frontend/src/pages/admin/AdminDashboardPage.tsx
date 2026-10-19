@@ -40,6 +40,12 @@ const adminGroups: AdminGroup[] = [
         description:
           'Gene–disease and disease–phenotype associations from the Monarch knowledge graph: view the loaded release and update to the latest.',
       },
+      {
+        label: 'Repeat Catalogue',
+        to: '/admin/reference/repeat-loci',
+        description:
+          "Record, per repeat locus, whether QA validated that TRGT's count is the clinical repeat number; until then counts near a boundary are marked.",
+      },
     ],
   },
   {

@@ -16,6 +16,7 @@ const GROUPS: Array<{ title: string; cards: Array<[label: string, href: string]>
       ['Gene Panels', '/admin/reference/gene-panels'],
       ['HPO Terminology', '/admin/reference/hpo'],
       ['Monarch Data', '/admin/reference/monarch'],
+      ['Repeat Catalogue', '/admin/reference/repeat-loci'],
     ],
   },
   {

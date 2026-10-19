@@ -42,6 +42,7 @@ migrated ([development.md](development.md#stop-and-reset)).
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
 | `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs) |
+| `repeat_locus_count_units` | QA's record, per `repeat_loci` row, of whether TRGT's count at the locus is the clinical repeat number its ranges count (`validated`), with the `reason`, who (`updated_by`, `updated_by_name`) and when (below) |
 | `reference_dataset_imports` | every reference import and upload: dataset, rows inserted, whether it replaced data, source, the release the source states (below), who and when |
 
 `clinical_cnvs` carries the knowledgebase's ClinVar support per region:
@@ -57,6 +58,22 @@ alone. PanelApp's own coordinates are stored for the assembly they were requeste
 backend process keeps a panel's resolution per panel and assembly while the panel's version,
 its gene and region rows and the assembly's gene-reference imports are unchanged
 ([variant-ranking-cache.md](variant-ranking-cache.md#resolving-a-panel)).
+
+`repeat_locus_count_units` holds the laboratory's own check, not catalogue data: TRGT counts
+the motif across the region its own catalogue gives a locus, which need not be the stretch
+the clinical repeat number counts (at FMR1 it leaves out the AGG interruptions; see
+[data-import.md](data-import.md), section 1). A locus without a row is not validated. Until a
+locus is validated, the repeat page and the genome tracks mark a count within 3 repeats of a
+boundary its classification uses (`services/repeat_count_units.py`); the record changes no
+status. The catalogue seed upserts `repeat_loci` at every start but never writes this table,
+so a start keeps QA's record; `locus_id` references `repeat_loci` (a row for a locus the
+catalogue lacks is refused), and a `CHECK` refuses a blank `reason`. An admin sets it
+(`PUT /api/admin/repeat-loci/{locus_id}/count-units`, with a required reason); each change
+is a hash-chained `clinical_audit_events` row on a chain of its own,
+`family_identifier = system:repeat-loci`, with the record before and after. The corrections
+QA will supply (an offset per locus, or at FMR1 the AGG interruptions TRGT reports beside
+the CGG copies) are not stored yet: they belong in this table, applied to the count before it
+is classified, and until then a locus whose count needs a correction stays not validated.
 
 `reference_dataset_imports.source_version` and `source_release_date` hold the release the
 source states about itself. A GENCODE gene import takes both from its GTF header. No other
@@ -154,7 +171,7 @@ was.
 | `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
-| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes and sign-out, with before and after |
+| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes and sign-out, with before and after; one chain per family, and chains of their own for the NIPT artifact list (`system:nipt-artifacts`) and the repeat loci's counting-unit record (`system:repeat-loci`) |
 | `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
 

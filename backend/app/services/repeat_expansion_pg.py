@@ -27,6 +27,7 @@ from .family_package_common import (
     per_sample_vcf_column,
     resolve_vcf_sample_id,
 )
+from .repeat_count_units import count_unit_warning, known_count_unit_difference
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI, PREMUTATION_MIN_BY_GENE
 from .sex_chromosomes import hemizygous_chromosome
 from .vcf_header_provenance import extract_header_provenance
@@ -515,6 +516,52 @@ def _reclassify_repeat_alleles(
             )
         reclassified.append(next_allele)
     return reclassified
+
+
+def _with_count_unit_warnings(
+    alleles: list[dict[str, Any]],
+    *,
+    validated: bool,
+    warning_min: int | None,
+    pathogenic_min: int | None,
+    benign_min: int | None = None,
+    benign_max: int | None = None,
+    pathogenic_max: int | None = None,
+    premutation_min: int | None = None,
+) -> list[dict[str, Any]]:
+    """Each allele with its ``count_unit_warning`` (repeat_count_units): the boundaries within
+    the margin of its count, at a locus whose counting units QA has not validated.
+
+    The boundaries are found by the classifier itself, with the thresholds the status was
+    read against, so the warning and the status never disagree on where a boundary is. A
+    validated locus, and a no-call, carry none. The statuses are left as they are. A locus
+    without any threshold or range has nothing a count could cross, so the classifier is not
+    asked there: a genome-wide TRGT catalogue holds mostly such loci.
+    """
+    ranges = (warning_min, pathogenic_min, benign_min, benign_max, pathogenic_max, premutation_min)
+    if validated or all(value is None for value in ranges):
+        return [{**allele, "count_unit_warning": None} for allele in alleles]
+
+    def status_at(count: int) -> str:
+        return classify_repeat_count(
+            count,
+            warning_min,
+            pathogenic_min,
+            benign_min=benign_min,
+            benign_max=benign_max,
+            pathogenic_max=pathogenic_max,
+            premutation_min=premutation_min,
+        )
+
+    marked: list[dict[str, Any]] = []
+    for allele in alleles:
+        next_allele = dict(allele)
+        repeat_count = next_allele.get("repeat_count")
+        next_allele["count_unit_warning"] = (
+            None if repeat_count is None else count_unit_warning(int(repeat_count), status_at)
+        )
+        marked.append(next_allele)
+    return marked
 
 
 MALE_X_DISTINCT_ALLELES_NOTE = (
@@ -1217,6 +1264,9 @@ async def get_family_repeat_expansion_table_response(
                 catalog.benign_max AS benign_max,
                 catalog.pathogenic_max AS pathogenic_max,
                 catalog.premutation_min AS premutation_min,
+                -- QA's record for the catalogue row that classifies the call; a call no
+                -- row matches is not validated.
+                COALESCE(units.validated, false) AS count_units_validated,
                 repeat_expansions.status,
                 repeat_expansions.genotype,
                 repeat_expansions.allele_count,
@@ -1265,6 +1315,7 @@ async def get_family_repeat_expansion_table_response(
                     repeat_loci.locus_id
                 LIMIT 1
             ) AS catalog ON TRUE
+            LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = catalog.locus_id
             WHERE repeat_expansions.family_id = CAST(:family_id AS uuid)
               AND repeat_expansions.sample_id IN :sample_ids
             ORDER BY repeat_expansions.chr, repeat_expansions.start, gene
@@ -1290,6 +1341,17 @@ async def get_family_repeat_expansion_table_response(
         pathogenic_min = row.get("pathogenic_min")
         alleles = _reclassify_repeat_alleles(
             row.get("alleles", []),
+            warning_min=warning_min,
+            pathogenic_min=pathogenic_min,
+            benign_min=row.get("benign_min"),
+            benign_max=row.get("benign_max"),
+            pathogenic_max=row.get("pathogenic_max"),
+            premutation_min=row.get("premutation_min"),
+        )
+        count_units_validated = bool(row.get("count_units_validated"))
+        alleles = _with_count_unit_warnings(
+            alleles,
+            validated=count_units_validated,
             warning_min=warning_min,
             pathogenic_min=pathogenic_min,
             benign_min=row.get("benign_min"),
@@ -1327,6 +1389,8 @@ async def get_family_repeat_expansion_table_response(
                 "benign_max": row.get("benign_max"),
                 "pathogenic_max": row.get("pathogenic_max"),
                 "premutation_min": row.get("premutation_min"),
+                "count_units_validated": count_units_validated,
+                "count_units_note": known_count_unit_difference(row.get("gene")),
                 "status": row_status,
                 "calls": {},
             },
@@ -1378,63 +1442,92 @@ async def get_sample_repeat_expansion_track_response(
     for chromosome in chromosomes or []:
         chrom_values.extend(chromosome_aliases(chromosome))
     params: dict[str, Any] = {"sample_id": sample_uuid}
-    where_clauses = ["sample_id = CAST(:sample_id AS uuid)"]
+    where_clauses = ["repeat_expansions.sample_id = CAST(:sample_id AS uuid)"]
     if chrom_values:
-        where_clauses.append("chr IN :chromosomes")
+        where_clauses.append("repeat_expansions.chr IN :chromosomes")
         params["chromosomes"] = chrom_values
     if start is not None and end is not None and chrom_values:
-        where_clauses.append("start <= :end")
-        where_clauses.append("\"end\" >= :start")
+        where_clauses.append("repeat_expansions.start <= :end")
+        where_clauses.append("repeat_expansions.\"end\" >= :start")
         params["start"] = start
         params["end"] = end
     query = text(
         f"""
         SELECT
-            locus_id,
-            gene,
-            display_name,
-            disease,
-            chr,
-            start,
-            "end",
-            motif,
-            warning_min,
-            pathogenic_min,
-            status,
-            alleles
+            repeat_expansions.locus_id,
+            repeat_expansions.gene,
+            repeat_expansions.display_name,
+            repeat_expansions.disease,
+            repeat_expansions.chr,
+            repeat_expansions.start,
+            repeat_expansions."end",
+            repeat_expansions.motif,
+            repeat_expansions.warning_min,
+            repeat_expansions.pathogenic_min,
+            repeat_expansions.status,
+            repeat_expansions.alleles,
+            -- The ranges the import classified the call with, from the catalogue row it
+            -- stored the call under (the thresholds are stored with the call), and QA's
+            -- record for that row: the count-unit warning goes with the stored status.
+            (catalog.metadata ->> 'benign_min')::int AS benign_min,
+            (catalog.metadata ->> 'benign_max')::int AS benign_max,
+            (catalog.metadata ->> 'pathogenic_max')::int AS pathogenic_max,
+            (catalog.metadata ->> 'premutation_min')::int AS premutation_min,
+            COALESCE(units.validated, false) AS count_units_validated
         FROM repeat_expansions
+        LEFT JOIN repeat_loci AS catalog ON catalog.locus_id = repeat_expansions.locus_id
+        LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = repeat_expansions.locus_id
         WHERE {' AND '.join(where_clauses)}
-        ORDER BY chr, start
+        ORDER BY repeat_expansions.chr, repeat_expansions.start
         """
     )
     if chrom_values:
         query = query.bindparams(bindparam("chromosomes", expanding=True))
     result = await session.execute(query, params)
-    items = [
-        RepeatExpansionTrackItemOut(
-            sample=sample_name,
-            locus_id=row["locus_id"],
-            gene=row["gene"],
-            display_name=row["display_name"],
-            disease=row["disease"],
-            chr=row["chr"],
-            start=int(row["start"]),
-            end=int(row["end"]),
-            motif=row.get("motif"),
+    items = []
+    for row in result.mappings().all():
+        count_units_validated = bool(row.get("count_units_validated"))
+        alleles = _with_count_unit_warnings(
+            [allele for allele in row.get("alleles", []) if isinstance(allele, dict)],
+            validated=count_units_validated,
             warning_min=row.get("warning_min"),
             pathogenic_min=row.get("pathogenic_min"),
-            status=row.get("status", "unknown"),
-            allele_repeat_counts=[
-                int(allele["repeat_count"])
-                for allele in row.get("alleles", [])
-                if allele.get("repeat_count") is not None
-            ],
-            allele_bp_lengths=[
-                int(allele["bp_length"])
-                for allele in row.get("alleles", [])
-                if allele.get("bp_length") is not None
-            ],
+            benign_min=row.get("benign_min"),
+            benign_max=row.get("benign_max"),
+            pathogenic_max=row.get("pathogenic_max"),
+            premutation_min=row.get("premutation_min"),
         )
-        for row in result.mappings().all()
-    ]
+        items.append(
+            RepeatExpansionTrackItemOut(
+                sample=sample_name,
+                locus_id=row["locus_id"],
+                gene=row["gene"],
+                display_name=row["display_name"],
+                disease=row["disease"],
+                chr=row["chr"],
+                start=int(row["start"]),
+                end=int(row["end"]),
+                motif=row.get("motif"),
+                warning_min=row.get("warning_min"),
+                pathogenic_min=row.get("pathogenic_min"),
+                status=row.get("status", "unknown"),
+                allele_repeat_counts=[
+                    int(allele["repeat_count"])
+                    for allele in row.get("alleles", [])
+                    if allele.get("repeat_count") is not None
+                ],
+                allele_bp_lengths=[
+                    int(allele["bp_length"])
+                    for allele in row.get("alleles", [])
+                    if allele.get("bp_length") is not None
+                ],
+                count_units_validated=count_units_validated,
+                count_units_note=known_count_unit_difference(row.get("gene")),
+                count_unit_warnings=[
+                    allele["count_unit_warning"]
+                    for allele in alleles
+                    if allele.get("count_unit_warning") is not None
+                ],
+            )
+        )
     return RepeatExpansionTrackResponse(items=items)

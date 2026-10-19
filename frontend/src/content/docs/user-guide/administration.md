@@ -11,6 +11,13 @@ the [admin dashboard](/admin), grouped in six areas.
 - **Monarch Data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
   [phenotype matching](#phenotype-matching) and the ranking. Load it once after installation and about
   monthly; loading it also rebuilds the Mendeliome panel.
+- **Repeat Catalogue** — for each repeat locus, whether QA has validated that TRGT's count there is the
+  clinical repeat number, with the reason, who and when, and the history of these records. Until a
+  locus is validated, the repeat page marks its counts near a boundary
+  ([Structural variants, repeats, Paraphase and mtDNA](#specialised-analyses)). Each record needs a
+  reason and is kept in the clinical audit trail. Record a locus as validated only when TRGT's count
+  there is the clinical repeat number: a locus whose count needs a correction stays not validated,
+  as CoGA applies no correction yet. The loci the stored calls name are listed first.
 
 ### User & Access Management
 
