@@ -389,6 +389,10 @@ python docs/handleiding/build_site.py
 <td><code>backend/db/schema/</code></td>
 <td>De vijf Postgres-baselines (<code>01_access</code> t/m <code>05_grants</code>) en de ClickHouse-bootstrap</td>
 </tr>
+<tr>
+<td><code>backend/db/migrations/</code></td>
+<td>De Alembic-revisies van het Postgres-schema, die het migratiegrootboek <code>alembic_version</code> bijhoudt</td>
+</tr>
 </tbody>
 </table></div>
 <div class="scroll"><table>
@@ -550,7 +554,7 @@ python docs/handleiding/build_site.py
 <p class="waar"><strong>Waar in de code:</strong> <code>frontend/src/components/RequireAuth.tsx</code>, <code>RequireAdmin.tsx</code> en <code>SessionRedirect.tsx</code>; de sessiehulpen in <code>frontend/src/lib/auth.ts</code>.</p>
 <h2>Least privilege in de databank: de runtime-rol <code>coga_app</code></h2>
 <p>Ook een gecompromitteerde applicatie mag de <em>append-only</em> bewijstabellen niet kunnen herschrijven. "Append-only" betekent: alleen bijschrijven, nooit wijzigen of wissen. Daarvoor bestaat een aparte, beperkte databankrol.</p>
-<p><code>05_grants.sql</code> maakt de rol <code>coga_app</code> aan met <code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code> en <code>DELETE</code> op de gewone tabellen. Voor de vijf append-only tabellen trekt het <code>UPDATE</code>, <code>DELETE</code> en <code>TRUNCATE</code> weer in: <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code> en <code>qc_threshold_changes</code>. Als niet-eigenaar kan <code>coga_app</code> bovendien geen trigger uitschakelen. De runtime kan dus wel nieuwe regels toevoegen, maar geen bestaande auditregel, ondertekend rapport, integriteitsanker of eerder vastgelegde QC-grens wijzigen of wissen. De enige toegelaten wijziging is die van de databank zelf bij het verwijderen van een gebruiker of familie: de verwijzing ernaar gaat op <code>NULL</code> (<code>ON DELETE SET NULL</code>), terwijl de rij in een eigen kolom bewaart wie of welke familie het was (hoofdstuk 11).</p>
+<p><code>05_grants.sql</code> maakt de rol <code>coga_app</code> aan met <code>SELECT</code>, <code>INSERT</code>, <code>UPDATE</code> en <code>DELETE</code> op de gewone tabellen. Voor de vijf append-only tabellen trekt het <code>UPDATE</code>, <code>DELETE</code> en <code>TRUNCATE</code> weer in: <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code> en <code>qc_threshold_changes</code>. Het migratiegrootboek <code>alembic_version</code> mag <code>coga_app</code> alleen lezen: alleen de migratiestap, als eigenaar, schrijft er de revisie in waarop de databank staat. Als niet-eigenaar kan <code>coga_app</code> bovendien geen trigger uitschakelen. De runtime kan dus wel nieuwe regels toevoegen, maar geen bestaande auditregel, ondertekend rapport, integriteitsanker of eerder vastgelegde QC-grens wijzigen of wissen. De enige toegelaten wijziging is die van de databank zelf bij het verwijderen van een gebruiker of familie: de verwijzing ernaar gaat op <code>NULL</code> (<code>ON DELETE SET NULL</code>), terwijl de rij in een eigen kolom bewaart wie of welke familie het was (hoofdstuk 11).</p>
 <p>De rol wordt uitgeleverd <strong>zonder login</strong>: standaard draait de applicatie nog als eigenaar van de tabellen. Overschakelen is een operationele stap, geen codewijziging. Het schema wordt dan apart toegepast als eigenaar (<code>backend/app/db_migrate.py</code>, met <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false</code> voor de app), en de app logt in als <code>coga_app</code>. Op Google Cloud is dat één Terraform-variabele, <code>db_runtime_role = "coga_app"</code> (standaard <code>"owner"</code>): een aparte Cloud Run-job (<code>terraform/migrate.tf</code>) past dan vóór elke uitrol het schema toe als eigenaar en zet de login van <code>coga_app</code> aan met <code>POSTGRES_APP_PASSWORD</code>. Die job heeft een eigen serviceaccount, zodat de API het wachtwoord van de eigenaar niet meer kan lezen.</p>
 <p>Elke nieuwe append-only tabel moet in <code>05_grants.sql</code> dezelfde <code>REVOKE</code> krijgen, want de brede <code>GRANT</code> geeft nieuwe tabellen automatisch alle rechten. De integratietest <code>backend/tests/integration/test_app_role_privileges.py</code> bewaakt dat: hij zoekt in de databank elke tabel met een blokkeertrigger (<code>*_block_mutation</code>) en faalt als <code>coga_app</code> er nog <code>UPDATE</code> of <code>DELETE</code> op heeft.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/db/schema/postgres/05_grants.sql</code>; de procedure, verificatie en rollback staan in <code>docs/db-runtime-role-runbook.md</code>.</p>
@@ -620,7 +624,7 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td><code>backend/db/schema/postgres/05_grants.sql</code></td>
-<td>De runtime-rol <code>coga_app</code> en de <code>REVOKE</code> op de append-only tabellen</td>
+<td>De runtime-rol <code>coga_app</code> en de <code>REVOKE</code> op de append-only tabellen en op het migratiegrootboek</td>
 </tr>
 <tr>
 <td><code>frontend/src/components/RequireAuth.tsx</code> · <code>RequireAdmin.tsx</code></td>
@@ -640,7 +644,7 @@ python docs/handleiding/build_site.py
 <p>Postgres is de bron van waarheid voor alles wat relationeel, transactioneel en veiligheidskritisch is. Het biedt foreign keys, <code>CHECK</code>-regels en triggers: precies wat toegangscontrole en een onwrikbaar auditspoor nodig hebben. ClickHouse is gebouwd om over honderden miljoenen rijen snel te filteren en te tellen; daar staan de varianten en de grote interval-tracks (hoofdstuk 1 legt de keuze uit).</p>
 <p>Metadatarijen gebruiken UUID's als sleutel. De variant-id's die de API toont, zijn stabiele tekenreeksen (bv. <code>1-1000-A-T</code>) die losstaan van de opslag. Voor mensen blijven <code>family_id</code> en <code>sample_id</code> de herkenbare namen.</p>
 <h2>Postgres: vijf baseline-bestanden</h2>
-<p>Het Postgres-schema staat in vijf SQL-bestanden in <code>backend/db/schema/postgres/</code>, gegroepeerd per domein. Elke tabel wordt er één keer aangemaakt, in haar eindvorm.</p>
+<p>Het Postgres-schema staat in vijf SQL-bestanden in <code>backend/db/schema/postgres/</code>, gegroepeerd per domein. Elke tabel wordt er één keer aangemaakt, in haar eindvorm. Een bestaande tabel krijgt die vorm via een Alembic-revisie (zie verder, <em>Hoe de schema's worden toegepast</em>).</p>
 <div class="scroll"><table>
 <thead>
 <tr>
@@ -668,12 +672,12 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>04_traceability.sql</code></td>
 <td>Herkomst en klinisch auditspoor</td>
-<td><code>raw_import_files</code>, <code>family_annotation_manifest</code>, <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code>, <code>ui_events</code>, plus de append-only triggers (ook die op <code>qc_threshold_changes</code>)</td>
+<td><code>raw_import_files</code>, <code>family_annotation_manifest</code>, <code>audit_log_events</code>, <code>clinical_audit_events</code>, <code>report_signouts</code>, <code>integrity_anchors</code>, <code>ui_events</code>, plus de append-only triggers (ook die op <code>qc_threshold_changes</code>) en het migratiegrootboek <code>alembic_version</code></td>
 </tr>
 <tr>
 <td><code>05_grants.sql</code></td>
 <td>Rechtenscheiding</td>
-<td>De beperkte runtime-rol <code>coga_app</code> en de <code>REVOKE</code> op de append-only tabellen (hoofdstuk 2)</td>
+<td>De beperkte runtime-rol <code>coga_app</code>, de <code>REVOKE</code> op de append-only tabellen en op het migratiegrootboek (hoofdstuk 2)</td>
 </tr>
 </tbody>
 </table></div>
@@ -730,7 +734,15 @@ python docs/handleiding/build_site.py
 <p>De toegangsbeslissing valt dus altijd eerst in Postgres; ClickHouse ziet alleen de al gefilterde sleutels. Wie wil nagaan dat gegevens niet tussen projecten lekken, controleert twee dingen: dat de scope in Postgres juist wordt bepaald (hoofdstuk 2), en dat elke ClickHouse-query de projectfilter meekrijgt (hoofdstukken 8 en 14).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/clickhouse_family_variants.py</code> (familievarianten) en <code>backend/app/services/variant_explorer_service.py</code> (varianten over projecten heen).</p>
 <h2>Hoe de schema's worden toegepast</h2>
-<p>CoGA houdt geen migratiegrootboek bij (zoals Alembic met een versietabel). Telkens wanneer het schema wordt toegepast (standaard bij elke start van de backend), worden <strong>alle</strong> Postgres-bestanden opnieuw uitgevoerd, in naamvolgorde en binnen één transactie. Daarom is elk statement idempotent geschreven (<code>CREATE TABLE IF NOT EXISTS</code>, <code>ON CONFLICT DO NOTHING</code> voor startgegevens, <code>GRANT</code>/<code>REVOKE</code>). Een destructieve <code>UPDATE</code> hoort daardoor nooit in een schemabestand thuis: ze zou bij elke herstart opnieuw draaien. Omgekeerd bereikt een wijziging aan een tabel die al bestaat, zoals een extra waarde in een <code>CHECK</code>, een bestaande databank niet: <code>CREATE TABLE IF NOT EXISTS</code> laat die tabel zoals ze is. Een databank van vóór het tracktype <code>target_coverage</code> (de dekking per capture-target van een NIPT-panel) kent dat type daarom niet, en de import van zo'n dekkingstabel faalt er op <code>sample_interval_track_sources_track_type_check</code>; een databank van vóór de repeatstatus <code>not_assessed</code> (een call op een locus zonder drempels, hoofdstuk 8) weigert zo'n TRGT-call op <code>repeat_expansions_status_check</code>, en daarmee de hele repeatdataset. Zo'n databank wordt opnieuw aangemaakt (<code>docs/development.md</code>, <em>Stop and reset</em>).</p>
+<p>Het Postgres-schema bereikt een databank via één migratiestap (<code>backend/app/core/postgres_migrations.py</code>), standaard bij elke start van de backend. Ze loopt in één transactie, als eigenaar van de tabellen, zodat ze helemaal of helemaal niet gebeurt:</p>
+<ol>
+<li>Ze neemt een <em>advisory lock</em>, zodat twee instanties die samen starten na elkaar migreren.</li>
+<li>Ze weigert te draaien als <code>coga_app</code>. Ze weigert ook een databank waarvan het migratiegrootboek <code>alembic_version</code> een revisie noemt die deze versie niet kent: een nieuwere versie heeft die databank gemigreerd, en oudere code draait niet op een nieuwer schema.</li>
+<li>Tot de release candidate voert ze <strong>alle</strong> vijf Postgres-bestanden opnieuw uit, in naamvolgorde. Daarom is elk statement idempotent geschreven (<code>CREATE TABLE IF NOT EXISTS</code>, <code>ON CONFLICT DO NOTHING</code> voor startgegevens, <code>GRANT</code>/<code>REVOKE</code>), en hoort een destructieve <code>UPDATE</code> nooit in een schemabestand thuis: ze zou bij elke herstart opnieuw draaien. Zo bereikt een pull request die een baseline wijzigt elke bestaande databank.</li>
+<li>Ze voert de Alembic-revisies in <code>backend/db/migrations/versions/</code> uit die het grootboek nog niet vermeldt, en noteert er de laatste.</li>
+</ol>
+<p><code>CREATE TABLE IF NOT EXISTS</code> laat een tabel die al bestaat zoals ze is. Een wijziging aan zo'n tabel, zoals een extra waarde in een <code>CHECK</code>, staat daarom in haar baseline (de eindvorm) én in een revisie die een bestaande tabel naar die vorm brengt. Revisie <code>0002</code> geeft <code>repeat_expansions</code> de huidige <code>repeat_expansions_status_check</code>, met de repeatstatus <code>not_assessed</code> (een call op een locus zonder drempels, hoofdstuk 8): een databank van daarvoor weigerde zo'n TRGT-call, en daarmee de hele repeatdataset. Revisie <code>0003</code> doet hetzelfde voor het tracktype <code>target_coverage</code> (de dekking per capture-target van een NIPT-panel) in <code>sample_interval_track_sources_track_type_check</code>, en voor de relatie <code>relative</code> (een verre verwant van een PGT-index) in <code>family_relationships_relationship_type_check</code>. Een databank van vóór het grootboek heeft een leeg grootboek en krijgt bij de volgende start alle revisies: elke revisie eindigt bij de definitie van de baseline, wat ze ook aantreft, en alle rijen blijven. Een integratietest toont dat een nieuwe databank precies het schema van de vijf bestanden krijgt (dezelfde catalogusvingerafdruk) en dat een databank van vóór het grootboek met haar rijen hetzelfde schema bereikt. Revisies lopen alleen vooruit: wie terug wil naar een oudere versie, zet de back-up van vóór de upgrade terug.</p>
+<p>Het voorstel voor QA is dat de release candidate de baselines bevriest (<code>docs/database.md</code>, <em>Freezing the baselines at the release candidate</em>). Vanaf dan voert de migratiestap ze niet meer opnieuw uit, past revisie <code>0001</code> ze alleen nog toe op een nieuwe databank, en is elke schemawijziging een eigen revisie.</p>
 <p>De ClickHouse-tabellen maakt de backend met <code>CREATE TABLE IF NOT EXISTS</code> aan, meteen in hun definitieve vorm; een tabel met een ouder schema wordt niet bijgewerkt (op één uitzondering na, hieronder), een lokale databank wordt dan opnieuw aangemaakt (<code>docker compose down -v</code>). De sorteersleutel van een tabel ligt echter vast zodra ClickHouse de tabel aanmaakt. Daarom vergelijkt de backend bij het opstarten, en telkens voordat hij de tabellen van een assembly aanmaakt, de sorteersleutel van <code>SNV_INDEL/entries</code>, <code>SV/entries</code> en <code>SV/key_lookup</code> met de verwachte. Heeft een tabel een andere sleutel, dan weigert de backend te starten; de melding noemt de tabel, haar sleutel en de sleutel die nodig is. De rijen worden niet naar een nieuwe tabel gekopieerd: onder de andere sleutel kunnen samenvoegingen al calls hebben laten vallen, en alleen een nieuwe import brengt ze terug. Het herstel (de small-variant- en SV-tabellen van die assembly verwijderen, opnieuw starten en elke familie van de assembly opnieuw importeren) staat in <code>docs/database.md</code>, onder "Row identity". Op dezelfde twee momenten weigert de backend een tabel <code>SNV_INDEL/entries</code> zonder de kolommen per call <code>calls.filters</code> en <code>calls.metrics</code>; de melding noemt de tabel en de kolommen die ontbreken. De backend voegt geen kolom toe aan een bestaande tabel, en alleen een nieuwe import vult ze, dus het herstel is hetzelfde.</p>
 <p>De uitzondering zijn de dieptekolommen van <code>SNV_INDEL/entries</code>: de leesdiepte (<code>calls.dp</code>) en de dieptes per allel (<code>calls.ad</code>) waren <code>UInt16</code>, tot 65.535 reads, en zijn nu <code>UInt32</code>, tot 4.294.967.295. Een mitochondriale of amplicon-call leest er veel meer, en één zo'n diepte deed de insert van een hele upload of import mislukken (SAFE-30). Een tabel met het oude type verbreedt de backend de eerste keer dat hij de tabellen van de assembly verzekert (<code>_widen_small_variant_call_columns</code>, een <code>ALTER TABLE … MODIFY COLUMN</code>); hij leest eerst de types uit <code>system.columns</code>, zodat hij een tabel maar één keer wijzigt, en de opgeslagen waarden blijven. De genotypekwaliteit (<code>calls.gq</code>), een phred-score, blijft <code>UInt16</code>.</p>
 <p>Elke waarde die een lader schrijft, wordt eerst aan haar kolom gebonden (<code>clickhouse_column_bounds.py</code>, toegepast in <code>clickhouse_variant_rows.py</code> en <code>clickhouse_interval_tracks.py</code>), want de ClickHouse-client weigert een hele insert zodra één waarde niet in haar kolom past. Een waarde die haar kolom niet kan bevatten, of die geen eindig getal is, wordt als ontbrekend opgeslagen: een GQ boven 65.535 of <code>inf</code>, een negatieve phase set, een QUAL, allelfractie, callermetriek of annotatiescore voorbij de grootste <code>Float32</code>, een SVLEN buiten <code>Int32</code>. Een allelfractie die zo ontbreekt, valt uit de lijst van de call, en een alleldiepte wordt 0, zoals een ontbrekende of onleesbare al werd, zodat de andere allelen hun plaats houden. Een record waarvan geen kolom de positie kan bevatten (een negatieve POS, een END voorbij 4.294.967.295, een negatieve start van een trackrij), kan niet geplaatst worden: zijn lader slaat het over als misvormd, net als een POS die geen getal is, en telt het waar hij die telt. De volledige regel per kolom staat in <code>docs/database.md</code>.</p>
@@ -770,6 +782,14 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>backend/app/core/postgres.py</code></td>
 <td>Postgres-verbinding en het toepassen van het schema</td>
+</tr>
+<tr>
+<td><code>backend/app/core/postgres_migrations.py</code></td>
+<td>De migratiestap: lock, weigeringen, baselines en de Alembic-revisies</td>
+</tr>
+<tr>
+<td><code>backend/db/migrations/versions/</code></td>
+<td>De Alembic-revisies van het Postgres-schema</td>
 </tr>
 <tr>
 <td><code>backend/app/core/clickhouse.py</code></td>
@@ -812,8 +832,8 @@ python docs/handleiding/build_site.py
 <p class="waar"><strong>Waar in de code:</strong> <code>docker-compose.dev.yml</code>; de controle in <code>validate_security_defaults</code> in <code>backend/app/core/config.py</code>.</p>
 <h2>De databankstructuren aanmaken</h2>
 <h3>Postgres</h3>
-<p>Het Postgres-schema staat in vijf SQL-bestanden (<code>01_access.sql</code> t/m <code>05_grants.sql</code>, hoofdstuk 3). Bij het toepassen leest de backend ze in naamvolgorde, splitst elk bestand in losse statements en voert alles uit in één transactie. De splitser houdt rekening met <em>dollar-quotes</em> (<code>$$ … $$</code>), zodat een puntkomma in een triggerfunctie een statement niet halverwege afbreekt. Alle statements zijn idempotent: het schema opnieuw toepassen is veilig.</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>init_postgres_schema</code> in <code>backend/app/core/postgres.py</code>.</p>
+<p>Het Postgres-schema staat in vijf SQL-bestanden (<code>01_access.sql</code> t/m <code>05_grants.sql</code>, hoofdstuk 3). Bij het toepassen leest de backend ze in naamvolgorde, splitst elk bestand in losse statements en voert alles uit in één transactie. De splitser houdt rekening met <em>dollar-quotes</em> (<code>$$ … $$</code>), zodat een puntkomma in een triggerfunctie een statement niet halverwege afbreekt. Alle statements zijn idempotent: het schema opnieuw toepassen is veilig. In dezelfde transactie volgen de Alembic-revisies die het migratiegrootboek <code>alembic_version</code> nog niet vermeldt; de log meldt van welke revisie de databank kwam en waar ze nu staat (hoofdstuk 3).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>init_postgres_schema</code> in <code>backend/app/core/postgres.py</code>; de migratiestap <code>apply_postgres_schema</code> in <code>backend/app/core/postgres_migrations.py</code>; de revisies in <code>backend/db/migrations/versions/</code>.</p>
 <h3>ClickHouse</h3>
 <p>Het ClickHouse-bestand maakt alleen de databank aan; de databanknaam komt uit de instelling <code>CLICKHOUSE_DATABASE</code>. De variant- en track-tabellen per assembly maakt de backend pas aan wanneer ze voor het eerst nodig zijn (hoofdstuk 3).</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>init_clickhouse_schema</code> in <code>backend/app/core/clickhouse.py</code>.</p>
@@ -840,7 +860,7 @@ python docs/handleiding/build_site.py
 </tr>
 </tbody>
 </table></div>
-<p>Beide paden gebruiken dezelfde functies, dus er is één bron van waarheid voor het schema. Is <code>POSTGRES_APP_PASSWORD</code> ingesteld, dan zet de migratiestap ook de login van <code>coga_app</code> aan. Het wachtwoord gaat daarbij niet in klare tekst naar de databank: de stap stuurt een SCRAM-SHA-256-afgeleide, zoals <code>\password</code> in <code>psql</code> doet, en het wachtwoord komt in geen enkele logregel. Op Google Cloud draait deze stap als de Cloud Run-job <code>coga-db-migrate</code> (<code>terraform/migrate.tf</code>), zodra <code>db_runtime_role = "coga_app"</code>. ClickHouse volgt altijd het opstartpad van de app.</p>
+<p>Beide paden gebruiken dezelfde functies, dus er is één bron van waarheid voor het schema. De migratiestap weigert te draaien als <code>coga_app</code>, nog voor ze iets wijzigt. Is <code>POSTGRES_APP_PASSWORD</code> ingesteld, dan zet de migratiestap ook de login van <code>coga_app</code> aan. Het wachtwoord gaat daarbij niet in klare tekst naar de databank: de stap stuurt een SCRAM-SHA-256-afgeleide, zoals <code>\password</code> in <code>psql</code> doet, en het wachtwoord komt in geen enkele logregel. Op Google Cloud draait deze stap als de Cloud Run-job <code>coga-db-migrate</code> (<code>terraform/migrate.tf</code>), zodra <code>db_runtime_role = "coga_app"</code>. ClickHouse volgt altijd het opstartpad van de app.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/db_migrate.py</code>; de instellingen in <code>backend/app/core/config.py</code>; de procedure in <code>docs/db-runtime-role-runbook.md</code>.</p>
 <h2>Seeding: beheerder en referentiedata</h2>
 <h3>De eerste beheerder</h3>
@@ -866,7 +886,7 @@ python docs/handleiding/build_site.py
 <p>FastAPI kent een <em>lifespan</em>: een functie die één keer draait bij het opstarten en één keer bij het afsluiten. In <code>backend/app/main.py</code> doet die, in deze volgorde:</p>
 <ol>
 <li>Wachten tot Postgres bereikbaar is.</li>
-<li><strong>Alleen als</strong> <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP</code> aanstaat: het Postgres-schema toepassen en de eerste beheerder aanmaken.</li>
+<li><strong>Alleen als</strong> <code>POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP</code> aanstaat: het Postgres-schema migreren (de baselines, dan de revisies die het grootboek mist) en de eerste beheerder aanmaken.</li>
 <li>De achtergrondschrijvers voor de auditlog en de UI-events starten, zodat alles daarna al gelogd wordt.</li>
 <li>In één Postgres-sessie: de repeatcatalogus seeden, GRCh38 verzekeren, optioneel T2T-CHM13 importeren, de HPO-ontologie laden, de ingebouwde tracks seeden en zo nodig de eerste gen-referentiejob in de wachtrij zetten.</li>
 <li>Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen. Heeft een varianttabel een sorteersleutel zonder de callset, of mist <code>SNV_INDEL/entries</code> de kolommen per call <code>calls.filters</code> en <code>calls.metrics</code>, dan start de backend niet (hoofdstuk 3).</li>
@@ -920,6 +940,10 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>backend/app/core/postgres.py</code> · <code>backend/app/core/clickhouse.py</code></td>
 <td>Het schema toepassen; verbindingen (ook de Cloud SQL-connector en TLS naar ClickHouse)</td>
+</tr>
+<tr>
+<td><code>backend/app/core/postgres_migrations.py</code> · <code>backend/db/migrations/</code></td>
+<td>De Postgres-migratiestap en de Alembic-revisies</td>
 </tr>
 <tr>
 <td><code>backend/app/services/reference_source_service.py</code></td>

@@ -35,9 +35,9 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 
 ### Postgres
 
-Het Postgres-schema staat in vijf SQL-bestanden (`01_access.sql` t/m `05_grants.sql`, hoofdstuk 3). Bij het toepassen leest de backend ze in naamvolgorde, splitst elk bestand in losse statements en voert alles uit in één transactie. De splitser houdt rekening met *dollar-quotes* (`$$ … $$`), zodat een puntkomma in een triggerfunctie een statement niet halverwege afbreekt. Alle statements zijn idempotent: het schema opnieuw toepassen is veilig.
+Het Postgres-schema staat in vijf SQL-bestanden (`01_access.sql` t/m `05_grants.sql`, hoofdstuk 3). Bij het toepassen leest de backend ze in naamvolgorde, splitst elk bestand in losse statements en voert alles uit in één transactie. De splitser houdt rekening met *dollar-quotes* (`$$ … $$`), zodat een puntkomma in een triggerfunctie een statement niet halverwege afbreekt. Alle statements zijn idempotent: het schema opnieuw toepassen is veilig. In dezelfde transactie volgen de Alembic-revisies die het migratiegrootboek `alembic_version` nog niet vermeldt; de log meldt van welke revisie de databank kwam en waar ze nu staat (hoofdstuk 3).
 
-**Waar in de code:** `init_postgres_schema` in `backend/app/core/postgres.py`.
+**Waar in de code:** `init_postgres_schema` in `backend/app/core/postgres.py`; de migratiestap `apply_postgres_schema` in `backend/app/core/postgres_migrations.py`; de revisies in `backend/db/migrations/versions/`.
 
 ### ClickHouse
 
@@ -54,7 +54,7 @@ Wie het schema mag aanmaken, is bewust gescheiden van wie de app draait (de data
 | `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true` (standaard) | De app zelf, bij het opstarten, als eigenaar van de tabellen | De huidige opstelling met één databanklogin |
 | `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` | Een aparte stap (`backend/app/db_migrate.py`) als eigenaar; de app draait daarna als de beperkte rol `coga_app` | Wanneer de runtime geen DDL mag uitvoeren |
 
-Beide paden gebruiken dezelfde functies, dus er is één bron van waarheid voor het schema. Is `POSTGRES_APP_PASSWORD` ingesteld, dan zet de migratiestap ook de login van `coga_app` aan. Het wachtwoord gaat daarbij niet in klare tekst naar de databank: de stap stuurt een SCRAM-SHA-256-afgeleide, zoals `\password` in `psql` doet, en het wachtwoord komt in geen enkele logregel. Op Google Cloud draait deze stap als de Cloud Run-job `coga-db-migrate` (`terraform/migrate.tf`), zodra `db_runtime_role = "coga_app"`. ClickHouse volgt altijd het opstartpad van de app.
+Beide paden gebruiken dezelfde functies, dus er is één bron van waarheid voor het schema. De migratiestap weigert te draaien als `coga_app`, nog voor ze iets wijzigt. Is `POSTGRES_APP_PASSWORD` ingesteld, dan zet de migratiestap ook de login van `coga_app` aan. Het wachtwoord gaat daarbij niet in klare tekst naar de databank: de stap stuurt een SCRAM-SHA-256-afgeleide, zoals `\password` in `psql` doet, en het wachtwoord komt in geen enkele logregel. Op Google Cloud draait deze stap als de Cloud Run-job `coga-db-migrate` (`terraform/migrate.tf`), zodra `db_runtime_role = "coga_app"`. ClickHouse volgt altijd het opstartpad van de app.
 
 **Waar in de code:** `backend/app/db_migrate.py`; de instellingen in `backend/app/core/config.py`; de procedure in `docs/db-runtime-role-runbook.md`.
 
@@ -98,7 +98,7 @@ De verrijkte geninformatie (aliassen, id's, constraint, ziekteassociaties) wordt
 FastAPI kent een *lifespan*: een functie die één keer draait bij het opstarten en één keer bij het afsluiten. In `backend/app/main.py` doet die, in deze volgorde:
 
 1. Wachten tot Postgres bereikbaar is.
-2. **Alleen als** `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` aanstaat: het Postgres-schema toepassen en de eerste beheerder aanmaken.
+2. **Alleen als** `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` aanstaat: het Postgres-schema migreren (de baselines, dan de revisies die het grootboek mist) en de eerste beheerder aanmaken.
 3. De achtergrondschrijvers voor de auditlog en de UI-events starten, zodat alles daarna al gelogd wordt.
 4. In één Postgres-sessie: de repeatcatalogus seeden, GRCh38 verzekeren, optioneel T2T-CHM13 importeren, de HPO-ontologie laden, de ingebouwde tracks seeden en zo nodig de eerste gen-referentiejob in de wachtrij zetten.
 5. Wachten tot ClickHouse bereikbaar is en het ClickHouse-schema toepassen. Heeft een varianttabel een sorteersleutel zonder de callset, of mist `SNV_INDEL/entries` de kolommen per call `calls.filters` en `calls.metrics`, dan start de backend niet (hoofdstuk 3).
@@ -141,6 +141,7 @@ Enkele IVDR-verplichtingen blijven procesmatig en vallen buiten de code, zoals c
 | `backend/app/db_migrate.py` | Schema-migratie als eigenaar, eerste beheerder, login van `coga_app` |
 | `backend/app/core/config.py` | Alle instellingen en de controle op zwakke geheimen |
 | `backend/app/core/postgres.py` · `backend/app/core/clickhouse.py` | Het schema toepassen; verbindingen (ook de Cloud SQL-connector en TLS naar ClickHouse) |
+| `backend/app/core/postgres_migrations.py` · `backend/db/migrations/` | De Postgres-migratiestap en de Alembic-revisies |
 | `backend/app/services/reference_source_service.py` | GRCh38 (en optioneel T2T): soort, assembly, cytobanden, genen |
 | `backend/app/services/reference_metadata_service.py` | Ingebouwde tracks (klinische CNV's, segmentale duplicaties) |
 | `backend/app/services/hpo_service.py` · `gene_info_jobs_pg.py` | HPO-ontologie; de gen-referentiejob |

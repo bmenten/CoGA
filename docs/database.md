@@ -7,10 +7,12 @@ reference.
 ## Postgres Tables
 
 The schema is five idempotent baseline files in
-[backend/db/schema/postgres/](../backend/db/schema/postgres/), applied in name order on every
-start (see "Startup Behavior"). There is no migration ledger and no upgrade statement: each
-table is created in its final form, and a database from an older schema is reset, not
-migrated ([development.md](development.md#stop-and-reset)).
+[backend/db/schema/postgres/](../backend/db/schema/postgres/), which create each table in its
+final form, and the Alembic revisions in
+[backend/db/migrations/versions/](../backend/db/migrations/versions/), which bring a table that
+already exists to that form. One migration step applies both, as the table owner, on every
+start in the default mode (see "Startup Behavior"); the ledger table `alembic_version` records
+the revision a database is at ([Schema Migrations](#schema-migrations)).
 
 ### 01_access.sql: genome foundation and access
 
@@ -95,9 +97,9 @@ built-in reference file is recorded under its file name.
 
 `sample_interval_track_sources.track_type` is held to the track types above by a `CHECK`
 (`sample_interval_track_sources_track_type_check`). The baseline creates the table only when it
-is missing, so a database created before `target_coverage` was in the list keeps the old check,
-and the import of a per-target coverage table fails on it. Reset such a database
-([development.md](development.md#stop-and-reset)).
+is missing, so a database created before `target_coverage` was in the list (#749) kept the old
+check, on which the import of a per-target coverage table failed; revision `0003` gives it the
+current check at its next start ([Schema Migrations](#schema-migrations)).
 
 `repeat_expansions.status` is a call's status as its import classified it: `normal`, `review`,
 `not_assessed` (a call at a locus without thresholds: no catalogue row names its TRID, or the
@@ -105,8 +107,9 @@ row states no intermediate, premutation or pathogenic threshold), `intermediate`
 `premutation`, `pathogenic` or `unknown` (no call). The genome tracks show it; the repeat page
 classifies the call again against the catalogue as it is now. A `CHECK`
 (`repeat_expansions_status_check`) holds it to these values. A database created before
-`not_assessed` was in the list keeps the old check, and a TRGT import with a call at a locus
-without thresholds fails on it, with the whole repeat dataset. Reset such a database too.
+`not_assessed` was in the list (#826) kept the old check, on which a TRGT import with a call at
+a locus without thresholds failed, with the whole repeat dataset; revision `0002` gives it the
+current check at its next start ([Schema Migrations](#schema-migrations)).
 
 JSON keys that package import writes into the `metadata` columns:
 
@@ -150,6 +153,7 @@ was.
 
 | Table | Holds |
 | --- | --- |
+| `alembic_version` | the schema-migration ledger: one row, the revision the database is at. Only the migration step writes it, as the owner; `coga_app` may read it ([Schema Migrations](#schema-migrations)) |
 | `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped (below) |
 | `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
@@ -223,8 +227,90 @@ copy of the actor and the family identifier.
 ### 05_grants.sql: the runtime role
 
 Creates the restricted role `coga_app` and grants it normal access to every table, except
-UPDATE, DELETE and TRUNCATE on the five append-only tables. How and when the application
-switches to it is in [db-runtime-role-runbook.md](db-runtime-role-runbook.md).
+UPDATE, DELETE and TRUNCATE on the five append-only tables, and anything but SELECT on the
+ledger `alembic_version`. How and when the application switches to it is in
+[db-runtime-role-runbook.md](db-runtime-role-runbook.md).
+
+## Schema Migrations
+
+The Postgres schema reaches a database through one migration step,
+[postgres_migrations.py](../backend/app/core/postgres_migrations.py), which `init_postgres_schema`
+runs. The API runs it at every start when it connects as the table owner
+(`POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP`, the default); when the API runs as the restricted
+role, `python -m app.db_migrate` runs it as the owner before each rollout
+([db-runtime-role-runbook.md](db-runtime-role-runbook.md)). The step is one transaction, so it
+applies whole or not at all:
+
+1. It takes an advisory lock, so that two instances starting together migrate one after the
+   other.
+2. It refuses to run as `coga_app`. It also refuses a ledger that names a revision this version
+   does not have: a newer version migrated that database, and older code does not run on a newer
+   schema.
+3. Until the release candidate, it re-applies the five baseline files. They are idempotent, so
+   a pull request that edits a baseline reaches every existing database, the dev stack's
+   included. `CREATE TABLE IF NOT EXISTS` leaves a table that exists as it is, though.
+4. It runs the Alembic revisions in
+   [backend/db/migrations/versions/](../backend/db/migrations/versions/) that the ledger does not
+   list yet, and records the last one in `alembic_version`.
+
+| Revision | What it does |
+| --- | --- |
+| `0001` | applies the five baseline files |
+| `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (#763) and `not_assessed` (#826) |
+| `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (#747) and `target_coverage` (#749) |
+
+A database the baselines created before the ledger existed has an empty one, so its first start
+with the ledger runs every revision. Each revision ends at the baseline's definition whatever
+it starts from, and every row stays. The integration test
+[test_postgres_migrations.py](../backend/tests/integration/test_postgres_migrations.py) shows
+both: a new database ends with exactly the schema the baseline files create (the catalogue
+fingerprint of its columns, constraints, indexes, triggers, functions, sequences, views,
+privileges, extensions and owners is the same), and a database from before the ledger, with
+the old checks and rows in its tables, reaches that same fingerprint with its rows unchanged
+and then stores a TRGT call at a locus without thresholds.
+
+**Writing a revision.** Until the release candidate, a change to a table that already exists (a
+value added to a `CHECK`, a column, a type, an index) goes in its baseline as the table's final
+form, and in a new revision that brings an existing table to that form. From the repository root,
+`alembic revision --rev-id <next number> -m "<what it changes>"` writes the revision from the
+template ([script.py.mako](../backend/db/migrations/script.py.mako)). A revision may meet a table
+that already has the change (a new database gets the baseline first), keeps every stored row
+valid, and runs forward only: its `downgrade` refuses. A new table needs only its baseline.
+`backend/tests/test_postgres_migrations.py` checks that the revisions form one numbered line, so
+two pull requests that take the same number fail it, and that a revision's check is its
+baseline's. Alembic's commands that need a database (`alembic upgrade`, `alembic current`) stop
+in `env.py`: the revisions run only through the migration step.
+
+**Upgrading a database that holds data.** Take a backup first. On Google Cloud, Cloud SQL keeps
+daily backups and point-in-time recovery ([deployment-gcp.md](deployment-gcp.md), 12.3); an
+on-demand backup just before the rollout (`gcloud sql backups create --instance coga-postgres`)
+is the restore point of the upgrade itself. Locally the data is synthetic. Then roll the new
+version out. In the default mode its first start migrates; with the restricted role the
+migration job runs first, and the API rolls out only when it succeeded
+([deployment-gcp.md](deployment-gcp.md), 12.8). The log names the revision the database came
+from and is now at (`Postgres schema migrated from revision … to …`). A failed migration keeps
+nothing, and the running version keeps serving.
+
+**Going back.** Revisions do not run backwards. A version older than the database's revision
+refuses to start on it (step 2; versions from before the ledger do not check): restore the
+backup taken before the upgrade, or go forward with a fix
+([RELEASING.md](../RELEASING.md#rollback)).
+
+### Freezing the baselines at the release candidate
+
+This is a proposal for QA to confirm ([TF-18](regulatory/TF-18-change-configuration-management.md),
+§3a). Until the release candidate, pull requests still edit the baseline files, and step 3
+brings those edits to every database. The release candidate's pull request freezes them:
+
+1. It sets `REAPPLY_BASELINES_ON_EVERY_RUN` to `False` in `postgres_migrations.py`. A start then
+   runs only the revisions the ledger lacks; revision `0001` applies the baselines to a new
+   database, and to one from before the ledger.
+2. It pins the SHA-256 of the five baseline files in a test, so they cannot change after the
+   release candidate: a database created later gets the same baseline as one created at the
+   release candidate.
+3. From then on every schema change is a new revision only. Its change record (TF-18 §8) names
+   the revision, its verification runs it on a database at the previous revision (as the
+   integration test does), and the release record states the release's last revision.
 
 ## ClickHouse Tables
 
@@ -458,10 +544,12 @@ Locally, `docker compose down -v` and loading the demo data again does the same
 
 ## Startup Behavior
 
-On every start the backend re-applies the five Postgres baseline files and makes sure the
-admin user exists, when `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default).
-With the restricted runtime role a separate migration step (`backend/app/db_migrate.py`)
-does this instead, as the table owner. In ClickHouse, startup creates the database and refuses
+On every start the backend migrates the Postgres schema (until the release candidate it
+re-applies the five baseline files, then it runs the revisions the ledger lacks:
+[Schema Migrations](#schema-migrations)) and makes sure the admin user exists, when
+`POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default). With the restricted runtime
+role a separate migration step (`backend/app/db_migrate.py`) does this instead, as the table
+owner. In ClickHouse, startup creates the database and refuses
 to go on when an assembly's tables have a different row identity, or its `SNV_INDEL/entries`
 table lacks the per-call columns ([Row identity](#row-identity)); each assembly's tables are
 created on first use, and an `SNV_INDEL/entries` table created with the narrower depth columns

@@ -58,6 +58,7 @@ De repository bevat twee applicatiemappen (`backend/`, `frontend/`), de document
 | `backend/app/main.py` | Bouwt de app: routers, CORS, middleware en de opstartroutine |
 | `backend/app/db_migrate.py` | Schema-migratie en eerste beheerder, ook als losse stap uit te voeren |
 | `backend/db/schema/` | De vijf Postgres-baselines (`01_access` t/m `05_grants`) en de ClickHouse-bootstrap |
+| `backend/db/migrations/` | De Alembic-revisies van het Postgres-schema, die het migratiegrootboek `alembic_version` bijhoudt |
 
 | Map (frontend) | Rol |
 | --- | --- |

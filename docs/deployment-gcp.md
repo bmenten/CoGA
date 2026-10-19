@@ -598,6 +598,15 @@ file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-downloa
 Cloud Run rolls out a new revision with zero-downtime; if it fails its health check,
 traffic stays on the old revision.
 
+**A Postgres schema change** reaches the database with the new version: in owner mode its
+first start migrates the schema, and with the restricted role (12.8) the migration job does so
+before the rollout ([database.md](database.md#schema-migrations)). The migration is one
+transaction: when it fails, nothing of it is kept, the new revision does not start, and traffic
+stays on the old one. Before rolling out a version that adds a schema revision, take an
+on-demand backup, the restore point of the upgrade: `gcloud sql backups create --instance
+coga-postgres`. Revisions do not run backwards, and a version older than the database's
+revision refuses to start, so going back across a revision means restoring that backup (12.3).
+
 ### 12.2 Rotate a secret
 
 Add a new version, then roll the backend so it picks it up:
@@ -755,8 +764,8 @@ change-controlled deployment; the full procedure, verification and rollback are 
 3. Set `db_runtime_role = "coga_app"` (in CI: the `COGA_TFVARS` environment variable) and
    deploy.
 
-Terraform then runs the `coga-db-migrate` Cloud Run job as the owner. It applies the
-schema, seeds the admin user and enables `coga_app`'s login, and only then does the
+Terraform then runs the `coga-db-migrate` Cloud Run job as the owner. It migrates the
+schema (12.1), seeds the admin user and enables `coga_app`'s login, and only then does the
 backend roll out, connecting as `coga_app`. The job runs again with every new backend
 image. The API's service account loses access to the owner's password.
 
@@ -906,6 +915,8 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 | ClickHouse VM has no data / won't start the container | No Cloud NAT egress to pull the image, or the data disk didn't mount. With the egress lockdown (12.10): the image is not in Artifact Registry, or the VM's account cannot read it. Check the VM serial console: `gcloud compute instances get-serial-port-output coga-clickhouse-vm --zone "$REGION-b"`. |
 | Deploy job fails at "Refuse to deploy without required reviewers" | The `gcp-deploy` environment has no required reviewer. Add one (Section 10) and re-run the job. |
 | `terraform apply` fails in `terraform_data.db_migrate` | The schema migration job failed (12.8); the running revision keeps serving. Read its logs: `gcloud run jobs executions list --job coga-db-migrate --region "$REGION"`, then `gcloud logging read 'resource.type="cloud_run_job" resource.labels.job_name="coga-db-migrate"' --limit 50`. The job loads the backend's settings first, so a "Refusing to start outside development/test…" line in its log has the cause given for that message above; once that is fixed, run the apply again. |
+| "The database is at schema revision …, which this version of CoGA does not have" | A newer version migrated the database, and an older one was rolled out on it. Roll the newer version out again, or restore the backup taken before that upgrade (12.1, 12.3). |
+| "The schema migration runs as the owner of the tables, not as coga_app…" | The API connects as `coga_app` (`POSTGRES_USER`) with `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` on, and only the owner migrates. `db_runtime_role = "coga_app"` sets both together and runs the migration job as the owner (12.8): remove any hand-set override of either and roll the backend. |
 | Postgres connector errors | The backend's service account lacks `roles/cloudsql.client`, or the Cloud SQL Admin API is off. Both come from the central infra repo (5.4), not from this configuration. |
 | Legitimate requests blocked | If you enabled `cloud_armor_waf_enforce`, review the WAF logs (12.6) and tune; revert to `false` to log-only. |
 | Frontend loads but API calls 404 | The LB path rule must route `/api/*` to the backend — re-`apply`; confirm the URL map exists. |
