@@ -784,7 +784,10 @@ def uploads(monkeypatch):
     async def family_context(*_args, **_kwargs):
         return family
 
-    async def ingest_trgt_text(session, *, sample_context, text_value, metadata, declared=None):
+    async def read_trgt_sample_calls(session, *, sample_context, text_value, metadata, declared=None):
+        return SimpleNamespace(records=[{"sample": sample_context.sample_id}], processed=1)
+
+    async def store_trgt_sample_calls(session, *, sample_context, calls, metadata):
         session.executed.append(("INSERT INTO repeat_expansions", {"sample": sample_context.sample_id}))
         await session.commit()
         return {"processed": 1, "inserted": 1, "source_format": "trgt"}
@@ -821,7 +824,8 @@ def uploads(monkeypatch):
     # The TRGT upload's route reads and clears the sample's calls itself.
     monkeypatch.setattr(trgt_router, "lock_family_variant_writes", lock, raising=False)
     monkeypatch.setattr(trgt_router, "clear_sample_repeat_expansions", recorder("clear"))
-    monkeypatch.setattr(trgt_router, "ingest_trgt_text", ingest_trgt_text)
+    monkeypatch.setattr(trgt_router, "read_trgt_sample_calls", read_trgt_sample_calls)
+    monkeypatch.setattr(trgt_router, "store_trgt_sample_calls", store_trgt_sample_calls)
     # The interval-track store; the BED upload's route takes the family's write locks. The
     # upload counts its source's stored rows (SAFE-22).
     monkeypatch.setattr(bed_router, "lock_family_variant_writes", lock, raising=False)
