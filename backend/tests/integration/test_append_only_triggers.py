@@ -1,16 +1,17 @@
 """Integration tests that FIRE the append-only triggers (real Postgres, smoke job).
 
-These prove the database-level immutability controls on four append-only tables
+These prove the database-level immutability controls on six append-only tables
 — ``audit_log_events`` (the HTTP access log), ``clinical_audit_events`` (the clinical
-action log), ``report_signouts`` (frozen signed reports) and ``qc_threshold_changes``
-(the history of QC acceptance limits): a direct UPDATE of a non-carve-out column and any
-DELETE are rejected by the ``BEFORE UPDATE/DELETE`` triggers, while the FK ``ON DELETE
-SET NULL`` carve-out (the user/actor unlink that keeps account deletion working) is
-permitted — and nothing else. This is the verifying evidence for RTM REQ-TRACE-008 and,
-for the QC history, REQ-QC-007. The fifth, ``integrity_anchors``, is not fired here: a
-marker anchor would break the anchor-chain verification that
-``test_integrity_anchor_integration.py`` runs on the same database. Its REVOKE is
-asserted in ``test_app_role_privileges.py``.
+action log), ``report_signouts`` (frozen signed reports), ``qc_threshold_changes``
+(the history of QC acceptance limits), ``family_structure_versions`` (the pedigree's
+history) and ``ui_events`` (the UI-event log): a direct UPDATE of a non-carve-out column
+and any DELETE are rejected by the ``BEFORE UPDATE/DELETE`` triggers, while the FK ``ON
+DELETE SET NULL`` carve-out (the user/actor unlink that keeps account deletion working, and
+for the structure versions the family unlink) is permitted — and nothing else. This is the
+verifying evidence for RTM REQ-TRACE-008 and, for the QC history, REQ-QC-007. The seventh,
+``integrity_anchors``, is not fired here: a marker anchor would break the anchor-chain
+verification that ``test_integrity_anchor_integration.py`` runs on the same database. Its
+REVOKE is asserted in ``test_app_role_privileges.py``.
 
 SCOPE CAVEAT (review finding C1): the smoke job — like the application — connects as
 the DB OWNER, so this proves the triggers block the *owner's* UPDATE/DELETE, NOT that
@@ -160,6 +161,55 @@ def test_append_only_triggers_block_update_and_delete() -> None:
                 {"id": qtc_id},
                 "qc_threshold_changes is append-only; DELETE is not permitted",
             )
+
+            # --- family_structure_versions (a recorded pedigree must not be rewritten) ---
+            async with sm() as s:
+                fsv_id = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO family_structure_versions "
+                            "(family_identifier, version, structure_hash, snapshot) "
+                            "VALUES ('p1-5-test', 1, 'deadbeef', '{}'::jsonb) RETURNING id"
+                        )
+                    )
+                ).scalar_one()
+                await s.commit()
+            await _assert_blocked(
+                sm,
+                "UPDATE family_structure_versions SET structure_hash = 'tampered' WHERE id = :id",
+                {"id": fsv_id},
+                "family_structure_versions is append-only; UPDATE is not permitted",
+            )
+            await _assert_blocked(
+                sm,
+                "DELETE FROM family_structure_versions WHERE id = :id",
+                {"id": fsv_id},
+                "family_structure_versions is append-only; DELETE is not permitted",
+            )
+
+            # --- ui_events (the UI-event log is not rewritten or pruned) ---
+            async with sm() as s:
+                uie_id = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO ui_events (event_type, label) "
+                            "VALUES ('click', 'p1-5-trigger-test') RETURNING id"
+                        )
+                    )
+                ).scalar_one()
+                await s.commit()
+            await _assert_blocked(
+                sm,
+                "UPDATE ui_events SET label = 'tampered' WHERE id = :id",
+                {"id": uie_id},
+                "ui_events is append-only; UPDATE is not permitted",
+            )
+            await _assert_blocked(
+                sm,
+                "DELETE FROM ui_events WHERE id = :id",
+                {"id": uie_id},
+                "ui_events is append-only; DELETE is not permitted",
+            )
         finally:
             await close_postgres_engine()
 
@@ -184,8 +234,20 @@ def test_append_only_fk_null_carveout_is_permitted_but_nothing_else() -> None:
                 user_id = (
                     await s.execute(text("SELECT id FROM users LIMIT 1"))
                 ).scalar_one_or_none()
-            if user_id is None:
-                pytest.skip("no seeded user to exercise the FK-null carve-out")
+                if user_id is None:
+                    # No user seeded (another test may have deleted its own): make one, so
+                    # the carve-outs are exercised whatever ran before.
+                    user_id = (
+                        await s.execute(
+                            text(
+                                "INSERT INTO users (username, hashed_password, role, email) "
+                                "VALUES ('p1-5-carveout', :h, 'viewer', 'p1-5-carveout@x.org') "
+                                "RETURNING id"
+                            ),
+                            {"h": "unusable"},
+                        )
+                    ).scalar_one()
+                    await s.commit()
 
             # A clinical_audit_events row linked to a real actor.
             async with sm() as s:
@@ -271,6 +333,112 @@ def test_append_only_fk_null_carveout_is_permitted_but_nothing_else() -> None:
                 "UPDATE qc_threshold_changes SET warn_value = 5 WHERE id = :id",
                 {"id": qtc_id},
                 "qc_threshold_changes is append-only; UPDATE is not permitted",
+            )
+
+            # A structure version may lose its creator (account removed) and its family row
+            # (family deleted), each nulled by the cascade; the family_identifier, the chain
+            # and the recorded pedigree stay, and nothing else may change.
+            async with sm() as s:
+                family_uuid = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO families (family_id) VALUES ('p1-5-fsv-' || "
+                            "gen_random_uuid()::text) RETURNING id"
+                        )
+                    )
+                ).scalar_one()
+                fsv_id = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO family_structure_versions (family_id, "
+                            "family_identifier, version, structure_hash, snapshot, created_by) "
+                            "VALUES (:fid, 'p1-5-test', 1, 'deadbeef', '{}'::jsonb, :uid) "
+                            "RETURNING id"
+                        ),
+                        {"fid": family_uuid, "uid": user_id},
+                    )
+                ).scalar_one()
+                await s.commit()
+            async with sm() as s:
+                await s.execute(
+                    text("UPDATE family_structure_versions SET created_by = NULL WHERE id = :id"),
+                    {"id": fsv_id},
+                )
+                await s.execute(
+                    text("UPDATE family_structure_versions SET family_id = NULL WHERE id = :id"),
+                    {"id": fsv_id},
+                )
+                await s.commit()
+            async with sm() as s:
+                row = (
+                    await s.execute(
+                        text(
+                            "SELECT created_by, family_id, family_identifier, structure_hash "
+                            "FROM family_structure_versions WHERE id = :id"
+                        ),
+                        {"id": fsv_id},
+                    )
+                ).mappings().one()
+            assert (row["created_by"], row["family_id"]) == (None, None)
+            assert (row["family_identifier"], row["structure_hash"]) == ("p1-5-test", "deadbeef")
+            # Re-linking the version to a family or a user, or changing what it records, stays
+            # blocked.
+            await _assert_blocked(
+                sm,
+                "UPDATE family_structure_versions SET family_id = :fid WHERE id = :id",
+                {"fid": family_uuid, "id": fsv_id},
+                "family_structure_versions is append-only; UPDATE is not permitted",
+            )
+            await _assert_blocked(
+                sm,
+                "UPDATE family_structure_versions SET created_by = :uid WHERE id = :id",
+                {"uid": user_id, "id": fsv_id},
+                "family_structure_versions is append-only; UPDATE is not permitted",
+            )
+            await _assert_blocked(
+                sm,
+                "UPDATE family_structure_versions SET family_identifier = 'other' WHERE id = :id",
+                {"id": fsv_id},
+                "family_structure_versions is append-only; UPDATE is not permitted",
+            )
+
+            # A UI event keeps its user_email and user_role when its user_id is unlinked.
+            async with sm() as s:
+                uie_id = (
+                    await s.execute(
+                        text(
+                            "INSERT INTO ui_events (event_type, label, user_id, user_email) "
+                            "VALUES ('click', 'p1-5-carveout', :uid, 'p1-5@x.org') RETURNING id"
+                        ),
+                        {"uid": user_id},
+                    )
+                ).scalar_one()
+                await s.commit()
+            async with sm() as s:
+                await s.execute(
+                    text("UPDATE ui_events SET user_id = NULL WHERE id = :id"), {"id": uie_id}
+                )
+                await s.commit()
+            async with sm() as s:
+                row = (
+                    await s.execute(
+                        text("SELECT user_id, user_email FROM ui_events WHERE id = :id"),
+                        {"id": uie_id},
+                    )
+                ).mappings().one()
+            assert row["user_id"] is None
+            assert row["user_email"] == "p1-5@x.org"
+            await _assert_blocked(
+                sm,
+                "UPDATE ui_events SET user_id = :uid WHERE id = :id",
+                {"uid": user_id, "id": uie_id},
+                "ui_events is append-only; UPDATE is not permitted",
+            )
+            await _assert_blocked(
+                sm,
+                "UPDATE ui_events SET user_email = 'someone-else@x.org' WHERE id = :id",
+                {"id": uie_id},
+                "ui_events is append-only; UPDATE is not permitted",
             )
         finally:
             await close_postgres_engine()

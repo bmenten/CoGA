@@ -195,9 +195,12 @@ are colleagues, so there is no tenant boundary to protect.
   (`AdminAuditLogsPage.tsx`).
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
-- ✅ **Append-only.** A trigger in `04_traceability.sql` blocks DELETE and UPDATE on
-  `audit_log_events`. The one exception is the `ON DELETE SET NULL` unlink when a user
-  account is deleted; the copied `user_email` and `user_role` keep the actor.
+- ✅ **Append-only.** Triggers in `04_traceability.sql` block DELETE and UPDATE on
+  `audit_log_events` and on the UI-event log `ui_events` (SEC-7), and `05_grants.sql` revokes
+  UPDATE, DELETE and TRUNCATE on both from the runtime role `coga_app`. The one exception is
+  the `ON DELETE SET NULL` unlink when a user account is deleted; the copied `user_email` and
+  `user_role` keep the actor. Neither is hash-chained: a request row and a UI event record
+  access and use, not a clinical decision, and a UI event is what the browser reports of itself.
 - ✅ **No silent loss (S-5).** A full queue applies backpressure for up to
   `AUDIT_LOG_BACKPRESSURE_TIMEOUT_SECONDS` and then writes the event directly; the worker
   retries failed writes (`AUDIT_LOG_MAX_WRITE_ATTEMPTS`) and then writes the batch's events one
@@ -270,7 +273,9 @@ are colleagues, so there is no tenant boundary to protect.
   configured only in the central infra template, and no PHI is served from a bucket yet
   (§4).
 
-The clinical audit trail of classifications and sign-outs is separate; see
+The clinical audit trail is separate: classifications, tags and notes, compound-het pair
+reviews, pedigree and member changes and sign-outs, append-only and hash-chained per family,
+with the pedigree's structure versions on a chain of their own; see
 [clinical-traceability.md](clinical-traceability.md).
 
 ## 3. Encryption

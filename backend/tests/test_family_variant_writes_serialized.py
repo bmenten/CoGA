@@ -746,6 +746,18 @@ async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_unt
     }.items():
         monkeypatch.setattr(admin_service, name, _recorder(postgres, name, result))
 
+    # A sample's delete reads the family's pedigree before it and records the change after
+    # it (SEC-7), in the same transaction: not what this test reads.
+    async def no_pedigree(*_args, **_kwargs):
+        return {"members": [], "relationships": []}
+
+    async def no_change(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(admin_service, "lock_family_pedigree", no_change)
+    monkeypatch.setattr(admin_service, "read_structure_snapshot", no_pedigree)
+    monkeypatch.setattr(admin_service, "record_structure_change", no_change)
+
     await delete(postgres.session("admin"))
 
     trace = postgres.trace("admin")

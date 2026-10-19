@@ -1489,7 +1489,8 @@ const LiveFamilyReport: React.FC = () => {
         <section className="surface-card report-audit">
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">
-            An immutable record of who classified, tagged or annotated each variant.
+            An immutable record of who classified, tagged or annotated each variant, reviewed a
+            compound-heterozygous pair or changed the pedigree, and when.
           </p>
           {auditShownNotice ? (
             // Printed with the list, as the notice at the top of the page is.

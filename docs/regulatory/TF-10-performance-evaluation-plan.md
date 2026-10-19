@@ -237,7 +237,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   variants, SVs and CNVs), sample-integrity, sample-QC, incomplete-import and assembly-scope
   gates; the signed view rendered from its record in the release-candidate format; the
   software, annotation, reference, HPO and QC-limit versions it binds; the device label and
-  the build identity; every review and classification change on the clinical audit trail.
+  the build identity; every review and classification change on the clinical audit trail,
+  a compound-het pair review and every change of a family's pedigree and members included,
+  and the pedigree's structure versions, append-only and hash-chained per family.
 - **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),
   dbNSFP 5.4, HPO releases, and T2T-CHM13v2.0 as an optional assembly outside the validated
   scope.

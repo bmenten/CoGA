@@ -109,6 +109,30 @@ CREATE INDEX IF NOT EXISTS idx_ui_events_event_type
 CREATE INDEX IF NOT EXISTS idx_ui_events_session_id
     ON ui_events (session_id);
 
+-- Append-only like audit_log_events, which it complements (SEC-7): the application only
+-- ever INSERTs here, and no job deletes or rewrites a UI event. DELETE is blocked
+-- outright, UPDATE too except the ON DELETE SET NULL unlink of user_id when an account is
+-- removed (user_email and user_role keep the actor). It is not hash-chained: its rows are
+-- what the browser reports of itself, not the device's own record of a clinical action,
+-- and the HTTP audit log beside it is not chained either.
+CREATE OR REPLACE FUNCTION ui_events_block_mutation() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'ui_events is append-only; DELETE is not permitted';
+    END IF;
+    IF NEW.user_id IS NOT NULL
+        OR (to_jsonb(NEW) - 'user_id') IS DISTINCT FROM (to_jsonb(OLD) - 'user_id') THEN
+        RAISE EXCEPTION 'ui_events is append-only; UPDATE is not permitted';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS ui_events_immutable ON ui_events;
+CREATE TRIGGER ui_events_immutable
+    BEFORE UPDATE OR DELETE ON ui_events
+    FOR EACH ROW EXECUTE FUNCTION ui_events_block_mutation();
+
 -- ---------------------------------------------------------------------------
 -- raw_import_files — raw import file provenance
 -- ---------------------------------------------------------------------------
@@ -302,7 +326,8 @@ CREATE TRIGGER report_signouts_immutable
 -- ---------------------------------------------------------------------------
 -- External SIGNED CHAIN-HEAD ANCHOR (#263), the follow-up to the hash chains.
 --
--- The per-family hash chains (clinical_audit_events/report_signouts) detect tampering
+-- The per-family hash chains (clinical_audit_events/report_signouts/
+-- family_structure_versions) detect tampering
 -- by anyone who cannot recompute them, but an OWNER who DISABLEs the trigger can
 -- re-chain an interior edit (recompute row_hash/prev_hash for it and every successor)
 -- into a self-consistent chain, and can truncate a chain to zero rows — both pass
@@ -311,7 +336,7 @@ CREATE TRIGGER report_signouts_immutable
 -- re-chaining or truncation SINCE a retained signed anchor becomes detectable by a
 -- verifier that does not trust the DB.
 --
--- One row = one whole-system anchor (all families, both tables, captured atomically).
+-- One row = one whole-system anchor (all families, every chained table, captured atomically).
 -- Append-only. The chain of anchors (prev_anchor_hash/anchor_hash) makes
 -- deletion/replacement of an INTERIOR anchor detectable; deletion of the TAIL anchors is
 -- only caught by an out-of-band retained copy (the deferred export seam). See
@@ -379,3 +404,33 @@ DROP TRIGGER IF EXISTS qc_threshold_changes_immutable ON qc_threshold_changes;
 CREATE TRIGGER qc_threshold_changes_immutable
     BEFORE UPDATE OR DELETE ON qc_threshold_changes
     FOR EACH ROW EXECUTE FUNCTION qc_threshold_changes_block_mutation();
+
+-- ---------------------------------------------------------------------------
+-- family_structure_versions — append-only, hash-chained pedigree history
+-- ---------------------------------------------------------------------------
+-- The table lives in 03_assay (next to the pedigree it records). A structure version is
+-- the record of a family's pedigree at a change (members, their sex, role and status, and
+-- the relationships), which the segregation, the haplotypes and the ranking rest on, so it
+-- must not be rewritable (SEC-7). DELETE is blocked. UPDATE is blocked except the
+-- ON DELETE SET NULL cascades that null created_by or family_id when an account or the
+-- family is removed (family_identifier keeps the family, and the chain is partitioned on
+-- it).
+CREATE OR REPLACE FUNCTION family_structure_versions_block_mutation() RETURNS trigger AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'family_structure_versions is append-only; DELETE is not permitted';
+    END IF;
+    IF (NEW.created_by IS NOT NULL AND NEW.created_by IS DISTINCT FROM OLD.created_by)
+        OR (NEW.family_id IS NOT NULL AND NEW.family_id IS DISTINCT FROM OLD.family_id)
+        OR (to_jsonb(NEW) - 'created_by' - 'family_id')
+             IS DISTINCT FROM (to_jsonb(OLD) - 'created_by' - 'family_id') THEN
+        RAISE EXCEPTION 'family_structure_versions is append-only; UPDATE is not permitted';
+    END IF;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS family_structure_versions_immutable ON family_structure_versions;
+CREATE TRIGGER family_structure_versions_immutable
+    BEFORE UPDATE OR DELETE ON family_structure_versions
+    FOR EACH ROW EXECUTE FUNCTION family_structure_versions_block_mutation();

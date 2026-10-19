@@ -25,7 +25,8 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest, changed the NIPT artifact list or signed out, when, with before and after |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, reviewed a compound-heterozygous pair, changed the family's pedigree or members, replaced the annotation manifest, changed the NIPT artifact list or signed out, when, with before and after |
+| Pedigree history | `family_structure_versions` | the family's pedigree after each change (members with their sex, role, affected and carrier status, and the relationships), one version per change, hash-chained per family |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
 
@@ -84,7 +85,23 @@ row's evidence.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
+`compound_het_pair` (SEC-7) is the review of a compound-heterozygous pair, given on one
+variant's review with its partner: a save that records a pair, changes it or breaks it up
+writes one event per pair that changed, with the pair as it was and as it is (its partner,
+gene, classification, tags, note and phase). It is filed under the variant whose review held
+the pair (the saved variant; for a pair the save broke up by pairing either variant with
+another, the variant that held it) and names the partner in its summary (*Compound-het pair with
+1-200-C-T: classification Likely pathogenic → Pathogenic*); `metadata.compound_het_group_id`
+names the pair's group. An unchanged re-save writes none. `pedigree` (SEC-7) is a change of the
+family's pedigree or members: its creation (*Pedigree recorded with 3 members: …*), an edit of
+the structure or of members (sex, role, affected status, carrier status, parents, a rename, a
+member made inactive), a package import that gives a member another affected or carrier status,
+and an admin's deletion of a sample with its data. It holds each changed member and, when they
+changed, the couples and the links of unknown degree, as they were and as they are, and its
+metadata names the structure version the change stored, with its hash and the change's reason;
+an edit that leaves the pedigree as it was writes none
+([family-member-management.md](family-member-management.md#what-is-recorded-of-a-change)).
 For a small variant, `classification` holds the ACMG class, the accepted criteria, the point
 total, the VUS tier and every stored criterion: its strength, whether it was accepted, its
 evidence text and whether it was an automatic suggestion. For a structural variant or CNV, it
@@ -336,16 +353,18 @@ Both views download the frozen record as JSON.
 ## Tamper evidence and its limits
 
 - **Append-only tables.** Database triggers refuse UPDATE and DELETE on `audit_log_events`,
-  `clinical_audit_events`, `report_signouts`, `integrity_anchors` and `qc_threshold_changes`
-  (see [database.md](database.md)). The restricted runtime role `coga_app` also lacks those
+  `ui_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`,
+  `qc_threshold_changes` and `family_structure_versions` (see [database.md](database.md)). The restricted runtime role `coga_app` also lacks those
   rights, but only once the deployment has switched to it
   ([db-runtime-role-runbook.md](db-runtime-role-runbook.md)). Until then the application
   connects as the table owner, who can disable a trigger.
-- **Hash chains.** Each row of `clinical_audit_events` and `report_signouts` carries a
-  `row_hash` over its content and the previous row's hash, per family. A deleted, reordered or
-  edited row breaks the chain. `GET /admin/integrity/verify?table=…&family_id=…` walks one
-  family's chain and names the first bad row; for sign-outs it also recomputes each content
-  hash.
+- **Hash chains.** Each row of `clinical_audit_events`, `report_signouts` and
+  `family_structure_versions` carries a `row_hash` over its content and the previous row's
+  hash, per family. A deleted, reordered or edited row breaks the chain.
+  `GET /admin/integrity/verify?table=…&family_id=…` walks one family's chain and names the first
+  bad row; for sign-outs it also recomputes each content hash. `ui_events` and
+  `audit_log_events` are append-only without a chain: a UI event is what the browser reports of
+  itself, not the device's record of a clinical action.
 - **Signed anchors.** `POST /admin/integrity/anchor` records the head of every chain and signs
   that snapshot with the Ed25519 key in `INTEGRITY_ANCHOR_SIGNING_KEY`, which the database does
   not hold. Outside development the backend refuses to start without the key and never writes
@@ -364,10 +383,9 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   by its ID and says what its record lacks; only the live report shows the rest, from current
   data. There is no byte-stable PDF: a signed version is printed from the browser, laid out by
   the build that renders it (named in its footer).
-- The review of a compound-heterozygous pair (its classification, tags and note) writes no
-  clinical audit event. Nor do pedigree, member and HPO edits: they appear in the HTTP audit log,
-  and pedigree and member edits also as structure versions (`family_structure_versions`, which is
-  neither append-only nor chained).
+- HPO edits write no clinical audit event: they appear in the HTTP audit log only.
+- A family's deletion writes no clinical audit event: the HTTP audit log records it, and the
+  family's chains (clinical audit events, sign-outs, structure versions) stay, unlinked from it.
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
 - The export of each anchor to a store outside the database is not implemented (the

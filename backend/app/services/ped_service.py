@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import Any
 
@@ -12,6 +11,7 @@ from ..core.sql import require_uuid
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
+from .family_structure_audit import FAMILY_CREATED, PedigreeChange, audit_actor, record_structure_version
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .upload_safety import decode_upload_text
 from .access_control import CurrentUser, RecordNotVisible, is_admin_user, user_can_access_metadata_projects
@@ -577,96 +577,21 @@ async def _record_family_structure_version(
     session: AsyncSession,
     *,
     family_uuid: str,
+    family_identifier: str,
     created_by: str | None = None,
     metadata: dict[str, Any] | None = None,
+    change: PedigreeChange | None = None,
 ) -> None:
-    member_result = await session.execute(
-        text(
-            """
-            SELECT
-                s.sample_id,
-                s.sex,
-                fm.role,
-                fm.clinical_status,
-                fm.carrier_status,
-                fm.carrier_type,
-                fm.carrier_evidence,
-                fm.active
-            FROM family_members fm
-            JOIN samples s ON s.id = fm.sample_id
-            WHERE fm.family_id = CAST(:family_uuid AS uuid)
-            ORDER BY lower(s.sample_id)
-            """
-        ),
-        {"family_uuid": family_uuid},
-    )
-    relationship_result = await session.execute(
-        text(
-            """
-            SELECT
-                fr.relationship_type,
-                sa.sample_id AS sample_id_a,
-                sb.sample_id AS sample_id_b,
-                fr.role_a,
-                fr.role_b,
-                fr.source,
-                fr.metadata,
-                fr.active
-            FROM family_relationships fr
-            JOIN samples sa ON sa.id = fr.sample_id_a
-            JOIN samples sb ON sb.id = fr.sample_id_b
-            WHERE fr.family_id = CAST(:family_uuid AS uuid)
-            ORDER BY fr.relationship_type, lower(sa.sample_id), lower(sb.sample_id), fr.role_a, fr.role_b
-            """
-        ),
-        {"family_uuid": family_uuid},
-    )
-    snapshot = {
-        "members": [dict(row) for row in member_result.mappings().all()],
-        "relationships": [dict(row) for row in relationship_result.mappings().all()],
-    }
-    snapshot_json = json.dumps(snapshot, sort_keys=True, default=str)
-    structure_hash = hashlib.sha256(snapshot_json.encode("utf-8")).hexdigest()
-    version_result = await session.execute(
-        text(
-            """
-            SELECT COALESCE(MAX(version), 0) + 1
-            FROM family_structure_versions
-            WHERE family_id = CAST(:family_uuid AS uuid)
-            """
-        ),
-        {"family_uuid": family_uuid},
-    )
-    next_version = int(version_result.scalar_one())
-    await session.execute(
-        text(
-            """
-            INSERT INTO family_structure_versions (
-                family_id,
-                version,
-                structure_hash,
-                snapshot,
-                metadata,
-                created_by
-            )
-            VALUES (
-                CAST(:family_uuid AS uuid),
-                :version,
-                :structure_hash,
-                CAST(:snapshot AS jsonb),
-                CAST(:metadata AS jsonb),
-                CAST(:created_by AS uuid)
-            )
-            """
-        ),
-        {
-            "family_uuid": family_uuid,
-            "version": next_version,
-            "structure_hash": structure_hash,
-            "snapshot": snapshot_json,
-            "metadata": json.dumps(metadata or {}),
-            "created_by": created_by,
-        },
+    """Store the family's pedigree as its next structure version, on the family's hash
+    chain, and record ``change``, the change that led to it, on the clinical audit trail
+    (SEC-7). No commit: the caller owns the transaction."""
+    await record_structure_version(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        created_by=created_by,
+        metadata=metadata,
+        change=change,
     )
 
 
@@ -681,7 +606,11 @@ async def _create_family(
     roi: dict[str, Any] | None = None,
     relationships: list[dict[str, Any]] | None = None,
     created_by: str | None = None,
+    actor: str | None = None,
 ) -> dict[str, Any]:
+    """Create a family with its members and relationships, store its pedigree as its first
+    structure version and record it on the family's clinical audit trail as made by
+    ``actor`` (the user ``created_by``). No commit: the caller owns the transaction."""
     created = await session.execute(
         text(
             """
@@ -869,7 +798,9 @@ async def _create_family(
     await _record_family_structure_version(
         session,
         family_uuid=family_row["family_uuid"],
+        family_identifier=family_id,
         created_by=created_by,
+        change=PedigreeChange(source=FAMILY_CREATED, actor=actor or "unknown", actor_id=created_by),
     )
     return {"family_id": family_id, "samples": sample_ids}
 
@@ -988,6 +919,7 @@ async def upload_ped_data(
                 family_metadata=family_metadata,
                 roi=roi_payload,
                 created_by=user.id,
+                actor=audit_actor(user),
             )
         )
     await _delete_replaced_family_variants(replaced)
@@ -1053,6 +985,7 @@ async def create_manual_family_data(
         ),
         project_id=resolved_project_id,
         created_by=user.id,
+        actor=audit_actor(user),
     )
     await _delete_replaced_family_variants(replaced)
     await session.commit()

@@ -26,6 +26,7 @@ from .clickhouse_variant_storage import (
     count_family_small_variants_by_sample,
     count_family_structural_variants_by_sample,
 )
+from .family_structure_audit import lock_family_pedigree
 from .family_structure_service import (
     _clean_sample_id,
     _family_assembly_groups,
@@ -618,6 +619,8 @@ async def update_family_member_for_admin(
     _require_storable_member_ids(update, new_sample_id_field="sample_id")
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
+    # Before the rename: the pedigree this change records as before is the one it replaces.
+    await lock_family_pedigree(session, str(family_row["family_id"]))
     sample_uuid, resolved_sample_id = await _sample_uuid_for_member(
         session,
         family_uuid=family_uuid,
@@ -627,6 +630,9 @@ async def update_family_member_for_admin(
     _find_member(family.members, resolved_sample_id)
 
     new_sample_id = resolved_sample_id
+    # The member's new ID and its old one, when the edit renames it: the audit event of the
+    # change names the rename (SEC-7).
+    renamed: dict[str, str] = {}
     if _payload_has_field(update, "sample_id") and update.sample_id is not None:
         new_sample_id = _clean_sample_id(update.sample_id)
         if _sample_key(new_sample_id) != _sample_key(resolved_sample_id):
@@ -638,6 +644,7 @@ async def update_family_member_for_admin(
                 sample_id=resolved_sample_id,
                 new_sample_id=new_sample_id,
             )
+            renamed[new_sample_id] = resolved_sample_id
             family = await get_family_record(session, family_id, user)
 
     structure_update = FamilyStructureUpdate(
@@ -656,6 +663,7 @@ async def update_family_member_for_admin(
         family_id=family_id,
         update=structure_update,
         user=user,
+        renamed_members=renamed,
     )
     member = _find_member(response.family.members, new_sample_id)
     father_id, mother_id = _parents_for_member(response.family.relationships, sample_id=member.sample_id)
@@ -694,11 +702,15 @@ async def update_family_members_batch_for_admin(
         _require_storable_member_ids(item, new_sample_id_field="new_sample_id")
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
+    # Before the renames: the pedigree this change records as before is the one it replaces.
+    await lock_family_pedigree(session, str(family_row["family_id"]))
     family = await get_family_record(session, family_id, user)
     relationships_update = _current_relationships_update(family)
     member_updates: list[FamilyStructureMemberUpdate] = []
     seen: set[str] = set()
     relationships_changed = False
+    # Each renamed member's new ID and its old one, for the change's audit event (SEC-7).
+    renamed: dict[str, str] = {}
 
     for item in update.updates:
         current_sample_id = _clean_sample_id(item.sample_id)
@@ -729,6 +741,7 @@ async def update_family_members_batch_for_admin(
                     old_sample_id=resolved_sample_id,
                     new_sample_id=requested_sample_id,
                 )
+                renamed[requested_sample_id] = resolved_sample_id
                 target_sample_id = requested_sample_id
                 relationships_changed = True
 
@@ -762,6 +775,7 @@ async def update_family_members_batch_for_admin(
             relationships=relationships_update if relationships_changed else None,
         ),
         user=user,
+        renamed_members=renamed,
     )
     return FamilyMemberBatchUpdateOut(
         family=response.family,

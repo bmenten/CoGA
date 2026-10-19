@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Mapping
 from typing import Any
 
 from fastapi import HTTPException
@@ -25,6 +26,13 @@ from .clickhouse_variant_storage import (
     count_family_structural_variants,
     delete_family_small_variants,
     delete_family_structural_variants,
+)
+from .family_structure_audit import (
+    STRUCTURE_EDIT,
+    lock_family_pedigree,
+    pedigree_before_renames,
+    pedigree_change_by,
+    pedigree_state,
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .metadata_service import get_accessible_family_mapping, get_family_record
@@ -957,9 +965,23 @@ async def update_family_structure_for_admin(
     family_id: str,
     update: FamilyStructureUpdate,
     user: CurrentUser,
+    renamed_members: Mapping[str, str] | None = None,
 ) -> FamilyStructureUpdateOut:
+    """Change a family's members and relationships, store the result as its next structure
+    version and record the change, with what each changed member and link was and is, on
+    the family's clinical audit trail (SEC-7).
+
+    ``renamed_members`` maps the new sample ID of each member the caller renamed in this
+    transaction (a member edit) to its old one, so the audit event names the rename."""
     family_row = await get_accessible_family_mapping(session, family_id, user)
     family_uuid = str(family_row["id"])
+    # One change of the family's pedigree at a time, from before its state is read until
+    # the change commits, so its audit event's before is what it replaced (SEC-7). A clear of
+    # the imported data takes the family's variant-write locks first, in the order every
+    # writer that holds both takes them.
+    if update.clear_existing_genomic_data:
+        await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
+    await lock_family_pedigree(session, str(family_row["family_id"]))
     current_version = await _fetch_current_structure_version(session, family_uuid=family_uuid)
     if update.expected_structure_version is not None and update.expected_structure_version != current_version:
         raise HTTPException(
@@ -980,6 +1002,11 @@ async def update_family_structure_for_admin(
 
     current_members = await _fetch_family_member_rows(session, family_uuid=family_uuid)
     current_relationships = await _fetch_current_relationship_rows(session, family_uuid=family_uuid)
+    # The pedigree as it was, for the change's clinical audit event: a member the caller
+    # renamed earlier in this change is read under its new ID, and put back under its old one.
+    pedigree_before = pedigree_before_renames(
+        pedigree_state(current_members.values(), current_relationships), renamed_members or {}
+    )
     target_members = {key: dict(row) for key, row in current_members.items()}
     # Track which members actually changed so only they are re-written below —
     # avoids re-UPDATEing every member (2 UPDATEs each) and bumping updated_at on
@@ -1150,7 +1177,15 @@ async def update_family_structure_for_admin(
     await _record_family_structure_version(
         session,
         family_uuid=family_uuid,
+        family_identifier=str(family_row["family_id"]),
         created_by=str(user.id),
+        change=pedigree_change_by(
+            user,
+            source=STRUCTURE_EDIT,
+            before=pedigree_before,
+            renamed=renamed_members,
+            reason=update.change_reason,
+        ),
         metadata={
             "reason": update.change_reason,
             "warnings": warnings,

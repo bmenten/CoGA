@@ -20,7 +20,12 @@ from .clickhouse_small_variants import (
     has_affected_het_call,
     variants_share_gene,
 )
-from .clinical_audit_service import record_review_changes
+from .clinical_audit_service import (
+    CompoundHetPairChange,
+    compound_het_pair_state,
+    record_compound_het_pair_changes,
+    record_review_changes,
+)
 from .family_metadata_context import FamilyMetadataContext
 from .access_control import CurrentUser
 from .review_pg_utils import (
@@ -268,6 +273,16 @@ async def get_small_variant_review_map(
     }
 
 
+def _pair_removed(variant_id: str, holder: dict[str, Any]) -> CompoundHetPairChange:
+    """The removal of the compound-het pair review a variant's review row holds."""
+    return CompoundHetPairChange(
+        variant_id=variant_id,
+        before=compound_het_pair_state(holder),
+        after=None,
+        group_id=str(holder.get("compound_het_group_id") or "") or None,
+    )
+
+
 async def upsert_small_variant_review(
     session: AsyncSession,
     *,
@@ -330,6 +345,9 @@ async def upsert_small_variant_review(
     _raise_on_stale_review(payload, existing, _serialize_review)
     await _refuse_unknown_added_tags(normalized_tags, (existing or {}).get("tags"))
     compound_het_data: dict[str, Any] | None = None
+    # The compound-het pair reviews this save records, removes or changes, each as the
+    # review row of one of its variants held it: audited with the save (SEC-7).
+    pair_changes: list[CompoundHetPairChange] = []
     compound_het_requested = "compound_het" in payload.model_fields_set
     compound_het_payload: SmallVariantCompoundHetReviewUpdate | None = (
         payload.compound_het if compound_het_requested else None
@@ -398,7 +416,24 @@ async def upsert_small_variant_review(
                 and variant_id in (partner_existing.get("compound_het_partner_variant_ids") or [])
             ):
                 target_group_id = existing_group_id
-            for group_id in {existing_group_id, partner_group_id} - {None, target_group_id}:
+            # A pair either variant was in with another variant is broken up, each group
+            # once: its removal is audited under the variant whose review held it.
+            cleared_group_ids: list[str] = []
+            for group_id, holder_id, holder in (
+                (existing_group_id, variant_id, existing),
+                (partner_group_id, compound_het_partner_id, partner_existing),
+            ):
+                if group_id is None or group_id == target_group_id or group_id in cleared_group_ids:
+                    continue
+                cleared_group_ids.append(group_id)
+                pair_changes.append(
+                    CompoundHetPairChange(
+                        variant_id=holder_id,
+                        before=compound_het_pair_state(holder),
+                        after=None,
+                        group_id=str(group_id),
+                    )
+                )
                 await _clear_compound_het_group(
                     session,
                     family_uuid=context.family_uuid,
@@ -428,6 +463,18 @@ async def upsert_small_variant_review(
                 **shared_compound_het_data,
                 "compound_het_partner_variant_ids": [compound_het_partner_id],
             }
+            pair_changes.append(
+                CompoundHetPairChange(
+                    variant_id=variant_id,
+                    before=(
+                        compound_het_pair_state(existing)
+                        if existing is not None and existing.get("compound_het_group_id") == target_group_id
+                        else None
+                    ),
+                    after=compound_het_pair_state(compound_het_data),
+                    group_id=target_group_id,
+                )
+            )
             partner_compound_het_data = {
                 **shared_compound_het_data,
                 "compound_het_partner_variant_ids": [variant_id],
@@ -475,6 +522,7 @@ async def upsert_small_variant_review(
                     detail="Compound-het review requires a partner variant",
                 )
             if existing and existing.get("compound_het_group_id"):
+                pair_changes.append(_pair_removed(variant_id, existing))
                 await _clear_compound_het_group(
                     session,
                     family_uuid=context.family_uuid,
@@ -483,6 +531,7 @@ async def upsert_small_variant_review(
             compound_het_data = _compound_het_clear_payload()
     elif compound_het_requested:
         if existing and existing.get("compound_het_group_id"):
+            pair_changes.append(_pair_removed(variant_id, existing))
             await _clear_compound_het_group(
                 session,
                 family_uuid=context.family_uuid,
@@ -492,7 +541,7 @@ async def upsert_small_variant_review(
 
     async def _audit(new_state: dict[str, Any]) -> None:
         # The before -> after of this save in the immutable clinical audit trail (Phase 2),
-        # in the save's transaction.
+        # in the save's transaction: the variant's own review, then the pair reviews.
         await record_review_changes(
             session,
             family_uuid=context.family_uuid,
@@ -501,6 +550,13 @@ async def upsert_small_variant_review(
             user=user,
             existing=existing,
             new_state=new_state,
+        )
+        await record_compound_het_pair_changes(
+            session,
+            family_uuid=context.family_uuid,
+            family_identifier=context.family_id,
+            user=user,
+            changes=pair_changes,
         )
 
     if (

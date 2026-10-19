@@ -50,7 +50,8 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 
 -- Append-only tables: INSERT + SELECT only. Revoking UPDATE/DELETE means the runtime role
 -- cannot rewrite or remove existing audit rows, signed reports, integrity anchors, the QC
--- cut-off history or hash-chain columns.
+-- cut-off history, the pedigree's structure versions, the UI-event log or hash-chain
+-- columns.
 -- TRUNCATE is never granted by GRANT SELECT,INSERT,UPDATE,DELETE in the first place (so the
 -- REVOKE of it is belt-and-suspenders against a future hand-grant) — important because
 -- TRUNCATE would bypass the BEFORE UPDATE/DELETE triggers. The ON DELETE SET NULL carve-outs
@@ -63,5 +64,5 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 -- missing here.
 REVOKE UPDATE, DELETE, TRUNCATE ON
     audit_log_events, clinical_audit_events, report_signouts, integrity_anchors,
-    qc_threshold_changes
+    qc_threshold_changes, family_structure_versions, ui_events
     FROM coga_app;

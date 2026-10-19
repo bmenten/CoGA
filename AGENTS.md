@@ -56,9 +56,11 @@
   (`clickhouse_variant_storage.py`, `clickhouse_interval_tracks.py`). `docs/database.md` is
   the table-by-table reference — treat it as the source of truth and keep it current.
 - The traceability tables (annotation manifest, evidence snapshots, the hash-chained clinical
-  audit and sign-out tables, integrity anchors, `ui_events`) carry IVDR data-integrity
-  guarantees. A new append-only table needs its `*_block_mutation` trigger, the `REVOKE` in
-  `05_grants.sql`, and its entry in `backend/tests/integration/test_app_role_privileges.py`.
+  audit, sign-out and pedigree structure-version tables, integrity anchors, and the
+  append-only `audit_log_events`, `ui_events` and `qc_threshold_changes`) carry IVDR
+  data-integrity guarantees. A new append-only table needs its `*_block_mutation` trigger, the
+  `REVOKE` in `05_grants.sql`, and its entry in
+  `backend/tests/integration/test_app_role_privileges.py`.
 
 ## Frontend & Integration
 

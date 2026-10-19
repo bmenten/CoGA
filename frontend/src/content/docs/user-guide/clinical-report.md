@@ -19,7 +19,8 @@ and refers to exactly one signed version: the one it rests on.
 - An **evidence-drift** banner when a classification's evidence changed after it was made: for example
   a new ClinVar significance, a new REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), or a
   structural variant that now overlaps other genes. Re-review those variants.
-- The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can
+- The **Classification audit trail**: who classified, tagged or annotated what, who reviewed a
+  compound-heterozygous pair or changed the pedigree, and when. Entries can
   never be changed or deleted. It opens on the 200 most recent entries; when there are more, it says
   how many it shows, and **Show older events** loads the next 200. A printout that shows only part of
   the trail says so.
