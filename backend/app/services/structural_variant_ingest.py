@@ -33,6 +33,8 @@ class ParsedStructuralVariant:
     info: Dict[str, str]
     qual: float | None = None
     filter: str | None = None
+    # The SVLEN the upload stores (``record_sv_len``): the record's own, else the length its
+    # sequence allele states.
     svlen: int | None = None
     remote_chr: str | None = None
     remote_start: int | None = None
@@ -132,25 +134,46 @@ def is_breakend_alt(alt: str) -> bool:
     return False
 
 
+def sequence_allele_sv_len(ref: str, alt: str) -> int | None:
+    """The length a call written as a sequence allele states by its alleles: len(ALT) −
+    len(REF), the bases an insertion inserts (positive) or a deletion deletes (negative, the
+    sign VCF 4.2 gives a deletion's SVLEN, as Sniffles2 and pbsv write it). VCF 4.4 writes
+    SVLEN for a symbolic allele only, and ``.`` for a sequence allele, whose bases hold its
+    length. None when REF or ALT is no sequence of bases (a symbolic allele, breakend
+    notation, several ALT alleles, ``.`` or ``*``), or when the two are as long as each
+    other: such alleles state no length."""
+    ref, alt = ref.strip(), alt.strip()
+    if not (_SEQUENCE_ALLELE_RE.fullmatch(ref) and _SEQUENCE_ALLELE_RE.fullmatch(alt)):
+        return None
+    return (len(alt) - len(ref)) or None
+
+
+def record_sv_len(*, sv_len: int | None, ref: str, alt: str) -> int | None:
+    """A record's SVLEN as CoGA stores it (``svLen``), the length the SV list shows and the
+    length filters measure: its INFO/SVLEN as written, else the length its sequence allele
+    states (``sequence_allele_sv_len``), else None, and the list measures the call by END −
+    POS. Measuring an insertion written as its sequence without SVLEN by END − POS made it
+    0 bp, so a minimum length dropped it (CLIN-41); a deletion written so measured its REF,
+    as its alleles do."""
+    return sv_len if sv_len is not None else sequence_allele_sv_len(ref, alt)
+
+
 def sv_type_from_alt(ref: str, alt: str) -> str | None:
     """The SV type a record's ALT allele states, for a record without INFO/SVTYPE, which
     VCF 4.4 deprecates as redundant with ALT: a symbolic allele states its name
     (``<DUP:TANDEM>`` is ``DUP:TANDEM``), breakend notation BND, and a sequence allele INS
-    or DEL as it is longer or shorter than REF. None when the ALT states none: a sequence
-    as long as REF, a missing ALT, several ALT alleles."""
+    or DEL as it is longer or shorter than REF (``sequence_allele_sv_len``). None when the
+    ALT states none: a sequence as long as REF, a missing ALT, several ALT alleles."""
     alt = alt.strip()
     symbolic = _SYMBOLIC_ALLELE_RE.fullmatch(alt)
     if symbolic:
         return symbolic.group(1)
     if is_breakend_alt(alt):
         return "BND"
-    ref = ref.strip()
-    if _SEQUENCE_ALLELE_RE.fullmatch(alt) and _SEQUENCE_ALLELE_RE.fullmatch(ref):
-        if len(alt) > len(ref):
-            return "INS"
-        if len(alt) < len(ref):
-            return "DEL"
-    return None
+    sv_len = sequence_allele_sv_len(ref, alt)
+    if sv_len is None:
+        return None
+    return "INS" if sv_len > 0 else "DEL"
 
 
 def structural_variant_end(*, pos: int, ref: str, alt: str, sv_len: int | None) -> int:
@@ -236,6 +259,8 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
             svtype=svtype,
             gt=gt,
             info={},
+            # A TSV has no SVLEN column: a row written as a sequence allele states its length.
+            svlen=record_sv_len(sv_len=None, ref=ref, alt=alt),
             remote_chr=remote_chr,
             remote_start=remote_start,
             remote_end=remote_end,
@@ -291,7 +316,7 @@ def _iter_sniffles_records(
             info=info,
             qual=_coerce_qual(qual),
             filter=filt or None,
-            svlen=svlen,
+            svlen=record_sv_len(sv_len=svlen, ref=ref, alt=alt),
             remote_chr=remote_chr,
             remote_start=remote_start,
             remote_end=remote_end,
@@ -342,7 +367,7 @@ def _iter_spectre_records(
             info=info,
             qual=_coerce_qual(qual),
             filter=filt or None,
-            svlen=svlen,
+            svlen=record_sv_len(sv_len=svlen, ref=ref, alt=alt),
             phase_set=parse_phase_set(fmt_vals.get("PS")),
         )
 

@@ -586,6 +586,9 @@ describe('FamilyReportPage', () => {
     });
   }
 
+  // Each concern names the samples its check read, as the backend words it (CLIN-8).
+  const QC_FAILED_PAIR =
+    'Samples CHILD and FATHER: recorded parent-child but genotypes look unrelated (kinship 0.010, IBS0 4.00%, 5000 sites) — possible sample swap or wrong parent.';
   const QC_409 = {
     response: {
       status: 409,
@@ -595,7 +598,7 @@ describe('FamilyReportPage', () => {
           message: "Sample-integrity QC status is 'fail' (possible swap)",
           qc_summary: {
             overall_status: 'fail',
-            messages: ['Relatedness: FATHER-CHILD looks unrelated (kinship 0.01)'],
+            messages: [QC_FAILED_PAIR],
           },
         },
       },
@@ -616,12 +619,15 @@ describe('FamilyReportPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
 
     // The failing QC opens the acknowledge-with-reason dialog with the backend message
-    // + the failing summary.
-    expect(
-      await screen.findByRole('dialog', { name: /acknowledgement required/i }),
-    ).toBeInTheDocument();
+    // + the failing summary, each concern as the 409 gives it, naming its samples.
+    const dialog = await screen.findByRole('dialog', { name: /acknowledgement required/i });
+    expect(dialog).toBeInTheDocument();
     expect(screen.getByText(/possible swap/)).toBeInTheDocument();
-    expect(screen.getByText(/FATHER-CHILD looks unrelated/)).toBeInTheDocument();
+    expect(
+      within(dialog)
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([QC_FAILED_PAIR]);
 
     // "Sign out anyway" is disabled until a non-empty reason is typed.
     expect(screen.getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
@@ -757,17 +763,23 @@ describe('FamilyReportPage', () => {
 
   it('opens the acknowledgement dialog for an UNVERIFIABLE Sample QC (warn), not only a detected fail', async () => {
     // #330: a swap that manifests as missing data blocks with overall_status 'warn'
-    // (not 'fail'); the dialog must still fire and show the specific reason.
+    // (not 'fail'); the dialog must still fire and show the specific reason. Two samples
+    // whose sex could not be checked read the same but for the sample each reason names
+    // (CLIN-8); the dialog shows the message as the 409 gives it.
+    const unverifiable = [
+      'Sample PARTNER_A: no chrX genotypes available for sex inference.',
+      'Sample PARTNER_B: no chrX genotypes available for sex inference.',
+    ];
+    const message = `A swap-relevant sample-integrity check could not be verified for an asserted pedigree relationship (${unverifiable.join('; ')}). A sample swap can present as missing data rather than a mismatch. Resolve it, or acknowledge with a reason to sign out anyway.`;
     const UNVERIFIABLE_QC_409 = {
       response: {
         status: 409,
         data: {
           detail: {
             gate: 'sample_qc',
-            message:
-              'A swap-relevant sample-integrity check could not be verified for an asserted pedigree relationship (Relatedness of CHILD–FATHER could not be verified).',
+            message,
             qc_summary: { overall_status: 'warn', messages: [] },
-            unverifiable_checks: ['Relatedness of CHILD–FATHER could not be verified.'],
+            unverifiable_checks: unverifiable,
           },
         },
       },
@@ -783,13 +795,11 @@ describe('FamilyReportPage', () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
-    expect(
-      await screen.findByRole('dialog', { name: /acknowledgement required/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/could not be verified/)).toBeInTheDocument();
+    const dialog = await screen.findByRole('dialog', { name: /acknowledgement required/i });
+    expect(within(dialog).getByText(message)).toBeInTheDocument();
 
     fireEvent.change(screen.getByLabelText(/Reason for signing out/), {
-      target: { value: 'Father not sequenced (deceased); relatedness not assessable.' },
+      target: { value: 'Both partners were sexed by karyotype.' },
     });
     fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
 

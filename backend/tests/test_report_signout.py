@@ -19,9 +19,15 @@ from backend.app.services.sample_integrity_qc import (
     MendelianCheck,
     NiptCategoryQc,
     PaternityCheck,
+    PedigreeSpec,
     RelatednessCheck,
     SampleIntegrityReport,
     SexCheck,
+    evaluate_fetal_sex,
+    evaluate_nipt_category_qc,
+    evaluate_paternity,
+    evaluate_sample_integrity,
+    profile_for,
 )
 
 
@@ -953,6 +959,278 @@ def test_audit_records_qc_status_and_acknowledgement(monkeypatch) -> None:
     assert after["acknowledged_qc"] is True
     assert after["qc_acknowledgement_reason"] == "repeat genotyping confirms identity"
     assert ", QC override acknowledged" in captured["summary"]
+
+
+# ---------------------------------------------------------------------------
+# Each reason of a Sample-QC refusal names its sample, pair or child (CLIN-8)
+# ---------------------------------------------------------------------------
+
+_NO_CHRX = "No chrX genotypes available for sex inference."
+_PARTNERS_NAMED = [
+    "Sample PARTNER_A: no chrX genotypes available for sex inference.",
+    "Sample PARTNER_B: no chrX genotypes available for sex inference.",
+]
+
+
+def _couple_without_chrx() -> SampleIntegrityReport:
+    """A carrier couple whose callset holds no chrX site: both sex checks could not run, with
+    one message, and no relatedness check anchors either partner."""
+    return SampleIntegrityReport(
+        overall_status="warn",
+        application="couple",
+        sex_checks=[
+            SexCheck("PARTNER_A", "female", "indeterminate", None, 0, "skip", _NO_CHRX),
+            SexCheck("PARTNER_B", "male", "indeterminate", None, 0, "skip", _NO_CHRX),
+        ],
+    )
+
+
+def _trio_with_ten_sites() -> SampleIntegrityReport:
+    """A trio with ten autosomal sites and no chrX: its parent-child and Mendelian checks
+    cannot run, as the QC runs them."""
+    genotypes = [(0, 1)] * 10
+    return evaluate_sample_integrity(
+        {"CHILD": genotypes, "FATHER": genotypes, "MOTHER": genotypes},
+        {},
+        PedigreeSpec(
+            recorded_sex={"CHILD": "male", "FATHER": "male", "MOTHER": "female"},
+            parents_of={"CHILD": {"father": "FATHER", "mother": "MOTHER"}},
+        ),
+        profile=profile_for("wgs"),
+    )
+
+
+def _qc_refusal(monkeypatch, report: SampleIntegrityReport) -> dict:
+    _patch_common(monkeypatch, drifted_count=0, qc_status=report.overall_status)
+    _patch_qc_report(monkeypatch, report)
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    assert excinfo.value.detail["gate"] == "sample_qc"
+    return excinfo.value.detail
+
+
+def test_the_qc_refusal_names_the_sample_of_each_reason(monkeypatch) -> None:
+    # Neither partner's sex could be checked: the refusal gave "No chrX genotypes available
+    # for sex inference." twice and named neither. Each reason names its sample, in the
+    # list and in the message the report page shows.
+    detail = _qc_refusal(monkeypatch, _couple_without_chrx())
+
+    assert detail["unverifiable_checks"] == _PARTNERS_NAMED
+    assert detail["message"] == (
+        "A swap-relevant sample-integrity check could not be verified for an asserted pedigree "
+        f"relationship ({'; '.join(_PARTNERS_NAMED)}). A sample swap can present as missing data "
+        "rather than a mismatch. Resolve it, or acknowledge with a reason to sign out anyway."
+    )
+
+
+def test_the_qc_refusal_names_the_pair_and_the_child_with_its_parents(monkeypatch) -> None:
+    # The relatedness and Mendelian messages say "too few sites" without the pair or the
+    # child they read.
+    detail = _qc_refusal(monkeypatch, _trio_with_ten_sites())
+
+    pairs = [
+        f"Samples {a} and {b}: too few shared sites to assess relatedness (kinship 0.500, IBS0 "
+        "0.00%, 10 sites)."
+        for a, b in (("CHILD", "FATHER"), ("CHILD", "MOTHER"), ("FATHER", "MOTHER"))
+    ]
+    child = (
+        "Sample CHILD (child of FATHER and MOTHER): too few informative sites for a reliable "
+        "estimate (0/10 sites (0.00%))."
+    )
+    # The parents are an unrelated pair the pedigree does not assert: no reason of the gate.
+    assert detail["unverifiable_checks"] == [pairs[0], pairs[1], child]
+    # The acknowledgement prompt lists every concerning check, named the same way; the sex
+    # checks that could not run are not among them (they are not warnings or fails).
+    assert detail["qc_summary"]["messages"] == [*pairs, child]
+
+
+def test_the_qc_refusal_names_the_nipt_father(monkeypatch) -> None:
+    report = SampleIntegrityReport(
+        overall_status="warn",
+        application="nipt",
+        paternity_check=evaluate_paternity(
+            "FATHER",
+            hom_alt_transmitted=3,
+            hom_alt_not_transmitted=0,
+            het_transmitted=0,
+            het_not_transmitted=0,
+        ),
+        fetal_sex_check=evaluate_fetal_sex("indeterminate", 0, 0, 0),
+        category_qc_check=evaluate_nipt_category_qc({2: 3, 3: 1}),
+    )
+
+    detail = _qc_refusal(monkeypatch, report)
+
+    paternity = (
+        "Sample FATHER (father): too few paternal-informative sites (3 homozygous, 0 het) to "
+        "assess paternity."
+    )
+    # The maternal lineage and the fetal sex are read from the cfDNA as a whole: their
+    # checks hold no sample, and their sentences stay as they were.
+    assert detail["unverifiable_checks"] == [
+        paternity,
+        "NIPT maternal lineage could not be verified (too few maternal-informative sites) — "
+        "possible wrong mother.",
+    ]
+    assert detail["qc_summary"]["messages"] == [
+        paternity,
+        "Fetal sex indeterminate — too few informative paternal-X sites (0 paternal-X "
+        "transmitted, 0 absent of 0 sites).",
+    ]
+
+
+def test_a_failed_qc_refusal_names_each_failing_check(monkeypatch) -> None:
+    report = SampleIntegrityReport(
+        overall_status="fail",
+        application="wgs",
+        sex_checks=[
+            SexCheck(
+                "CHILD", "female", "male", 0.01, 500, "fail",
+                "Recorded female but genotypes indicate male (1.0% chrX het over 500 sites) — "
+                "possible sample swap or mislabel.",
+            ),
+        ],
+        relatedness_checks=[
+            RelatednessCheck(
+                "CHILD", "FATHER", "parent-child", "unrelated", 0.01, 0.04, 5000, "fail",
+                "Recorded parent-child but genotypes look unrelated (kinship 0.010, IBS0 4.00%, "
+                "5000 sites) — possible sample swap or wrong parent.",
+            ),
+        ],
+        mendelian_checks=[
+            MendelianCheck(
+                "CHILD", ["FATHER"], 5000, 600, 0.12, "fail",
+                "High Mendelian-error rate 600/5000 sites (12.00%) — likely swap or wrong parent.",
+            ),
+        ],
+    )
+
+    detail = _qc_refusal(monkeypatch, report)
+
+    assert detail["qc_summary"]["messages"] == [
+        "Sample CHILD: recorded female but genotypes indicate male (1.0% chrX het over 500 "
+        "sites) — possible sample swap or mislabel.",
+        "Samples CHILD and FATHER: recorded parent-child but genotypes look unrelated (kinship "
+        "0.010, IBS0 4.00%, 5000 sites) — possible sample swap or wrong parent.",
+        "Sample CHILD (child of FATHER): high Mendelian-error rate 600/5000 sites (12.00%) — "
+        "likely swap or wrong parent.",
+    ]
+
+
+def test_an_acknowledged_refusal_audits_the_named_reasons_and_freezes_the_checks_as_they_are(
+    monkeypatch,
+) -> None:
+    captured: dict = {}
+
+    async def _capture(*args, **kwargs):
+        captured.update(kwargs)
+
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    monkeypatch.setattr(rss, "record_clinical_event", _capture)
+    _patch_qc_report(monkeypatch, _couple_without_chrx())
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(), family_id="FAM1", user=_user(),
+            acknowledge_qc=True, qc_acknowledgement_reason="Both partners were sexed by karyotype.",
+        )
+    )
+
+    # The audit event records what was acknowledged, each reason with its sample.
+    assert captured["after"]["qc_unverifiable"] == _PARTNERS_NAMED
+    # The signed record holds each check as the QC made it, beside its sample: the name is
+    # not written into the check's message.
+    assert [
+        (check["sample_id"], check["message"]) for check in out["snapshot"]["sample_qc"]["sex_checks"]
+    ] == [("PARTNER_A", _NO_CHRX), ("PARTNER_B", _NO_CHRX)]
+
+
+def test_a_record_signed_before_the_reasons_named_their_samples_still_matches(monkeypatch) -> None:
+    # The checks are frozen as before, so a version signed before CLIN-8 does not read as
+    # changed: only the refusal and the audit event name the samples.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _patch_qc_report(monkeypatch, _couple_without_chrx())
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+
+    def _sex_check(sample_id: str, recorded_sex: str) -> dict:
+        return {
+            "sample_id": sample_id, "recorded_sex": recorded_sex, "inferred_sex": "indeterminate",
+            "x_het_rate": None, "x_sites": 0, "status": "skip", "message": _NO_CHRX,
+        }
+
+    # The Sample QC as a sign-out before CLIN-8 froze it.
+    signed["sample_qc"] = {
+        "overall_status": "warn", "application": "couple", "application_label": "",
+        "application_summary": "", "genotype_source": None,
+        "sex_checks": [_sex_check("PARTNER_A", "female"), _sex_check("PARTNER_B", "male")],
+        "relatedness_checks": [], "mendelian_checks": [], "paternity_check": None,
+        "fetal_sex_check": None, "category_qc_check": None, "autosomal_sites": 0, "notes": [],
+    }
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(
+            _CheckSession(_signed_row(signed)), family_id="FAM1", user=_user()
+        )
+    )
+    assert out["matches"] is True
+    assert out["changed_sections"] == []
+
+
+@pytest.mark.parametrize(
+    ("message", "reads"),
+    [
+        ("Too few shared sites.", "Sample X: too few shared sites."),
+        ("Sex could not be checked: no calls.", "Sample X: sex could not be checked: no calls."),
+        # An abbreviation, a name or a lower-case word keeps its first letter.
+        ("NIPT paternity could not be verified.", "Sample X: NIPT paternity could not be verified."),
+        ("Mendelian consistency could not be verified.", "Sample X: Mendelian consistency could not be verified."),
+        ("X-linked sites are missing.", "Sample X: X-linked sites are missing."),
+        ("chrX calls are missing.", "Sample X: chrX calls are missing."),
+    ],
+)
+def test_a_reason_reads_on_from_the_name_it_starts_with(message, reads) -> None:
+    assert rss._named("Sample X", message) == reads
+    # With nothing to name, the message as it is.
+    assert rss._named(None, message) == message
+
+
+def test_a_check_without_its_message_or_its_samples_still_gives_its_reason() -> None:
+    qc = {
+        "relatedness_checks": [
+            {"sample_a": "CHILD", "sample_b": "FATHER", "expected_relationship": "parent-child",
+             "informative_sites": 0},
+            {"expected_relationship": "sibling", "informative_sites": 0,
+             "message": "Too few shared sites to assess relatedness."},
+        ],
+        "mendelian_checks": [
+            {"child": "CHILD", "parents": ["MOTHER"], "informative_sites": 0},
+            {"child": "SIB", "parents": [], "informative_sites": 0,
+             "message": "Too few informative sites for a reliable estimate."},
+            {"parents": ["MOTHER"], "informative_sites": 0,
+             "message": "Too few informative sites for a reliable estimate."},
+        ],
+        "paternity_check": {"father": "FATHER", "hom_alt_transmitted": 0},
+        "sex_checks": [{"sample_id": "AUNT", "inferred_sex": "indeterminate"}],
+    }
+
+    assert rss._unverifiable_swap_checks(qc) == [
+        "Samples CHILD and FATHER: relatedness (expected parent-child) could not be verified.",
+        "Too few shared sites to assess relatedness.",
+        "Sample CHILD (child of MOTHER): Mendelian consistency could not be verified.",
+        "Sample SIB: too few informative sites for a reliable estimate.",
+        "Too few informative sites for a reliable estimate.",
+        "Sample FATHER (father): NIPT paternity could not be verified (too few "
+        "paternal-informative sites).",
+        "Sample AUNT: sex/identity could not be verified, and no relatedness check anchors this "
+        "sample.",
+    ]
+    # The prompt lists only checks with a message; one without its sample reads as it is.
+    summary = rss._qc_failure_summary(
+        {
+            "sex_checks": [{"sample_id": "AUNT", "status": "warn"}],
+            "paternity_check": {"status": "warn", "message": "Paternal transmission off its expectation."},
+        }
+    )
+    assert summary["messages"] == ["Paternal transmission off its expectation."]
 
 
 # ---------------------------------------------------------------------------

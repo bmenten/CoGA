@@ -170,6 +170,11 @@ Sign-out stops at each of these, in this order:
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
 so "signed out over a known problem, and why" is part of the permanent record.
 
+The Sample QC dialog names, in front of each concern, the sample, the pair, the child with its parents
+or the NIPT father its check is about, for example *Sample X: no chrX genotypes available for sex
+inference.* The audit trail records the checks that could not run the same way. Fetal sex and the NIPT
+maternal lineage are read from the cfDNA as a whole and name no sample.
+
 An import or upload that starts while a sign-out records the family either waits for the sign-out to
 finish or refuses the sign-out, so a signed version never mixes the family's data from before and after
 a write.

@@ -276,7 +276,7 @@ def test_clinvar_rescue_keeps_pathogenic_variants_past_the_frequency_ceilings() 
     )
     [transcript] = _transcript_subqueries(clauses)
     assert (
-        "((ifNull(a.gnomad_af, 0) <= %(detail_max_gnomad_af)s"
+        "((ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)"
         " AND ifNull(a.gnomad_hom_count, 0) <= %(detail_max_gnomad_hom_count)s)"
         " OR hasAny(a.clinvar_terms, %(detail_clinvar_rescue_terms)s))"
     ) in transcript
@@ -297,7 +297,7 @@ def test_frequency_ceilings_apply_to_every_variant_without_the_rescue() -> None:
     clauses, params = _explorer_where(max_gnomad_af=0.01)
     assert _transcript_subqueries(clauses) == [
         f"key IN (SELECT a.key FROM {_ANNOTATIONS} AS a"
-        " WHERE (ifNull(a.gnomad_af, 0) <= %(detail_max_gnomad_af)s))"
+        " WHERE (ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)))"
     ]
     assert "detail_clinvar_rescue_terms" not in params
     # The rescue alone, with no ceiling to lift, adds nothing.

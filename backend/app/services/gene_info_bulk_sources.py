@@ -23,6 +23,11 @@ _DEFAULT_DBNSFP_GENE_PATH = Path("/data/ref-data/dbNSFP5.4_gene.gz")
 _REPO_DBNSFP_GENE_PATH = (
     Path(__file__).resolve().parents[3] / "data" / "ref-data" / "dbNSFP5.4_gene.gz"
 )
+# The ACMG secondary-findings list ships with CoGA (data/ref-data/acmg-sf/README.md). In the
+# containers this resolves to /data/ref-data/acmg-sf/, where the reference data is mounted.
+ACMG_SF_LIST_PATH = (
+    Path(__file__).resolve().parents[3] / "data" / "ref-data" / "acmg-sf" / "acmg-sf-genes.json"
+)
 _MISSING_CELL_VALUES = {"", ".", "-", "na", "n/a", "none", "null"}
 
 
@@ -1394,6 +1399,147 @@ def _load_dbnsfp_gene_dataset(
         )
 
 
+class AcmgSfListError(ValueError):
+    """The ACMG SF list file is not the whole, consistent list it says it is."""
+
+
+def _acmg_sf_text(entry: dict[str, Any], key: str, *, required: bool = False) -> str:
+    value = entry.get(key)
+    text_value = value.strip() if isinstance(value, str) else ""
+    if required and not text_value:
+        raise AcmgSfListError(f"gene entry without {key}: {entry!r:.120}")
+    return text_value
+
+
+def parse_acmg_sf_list(text_value: str) -> tuple[str, dict[str, dict[str, Any]]]:
+    """Read the ACMG SF list: its version, and one entry per listed gene keyed by symbol.
+
+    The page reads "not on the list" for every gene the list leaves out, so a list that is
+    not whole must never be taken for one: any inconsistency refuses the file entirely,
+    rather than dropping the entries it cannot read.
+    """
+    document = json.loads(text_value)
+    if not isinstance(document, dict) or document.get("list") != "ACMG SF":
+        raise AcmgSfListError("not an ACMG SF list")
+    version = document.get("version")
+    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+", version.strip()):
+        raise AcmgSfListError("the list states no version")
+    version = version.strip()
+    source = document.get("source") if isinstance(document.get("source"), dict) else {}
+    source_url = _acmg_sf_text(source, "url")
+    genes = document.get("genes")
+    if not isinstance(genes, list) or not genes:
+        raise AcmgSfListError("the list holds no genes")
+    if document.get("gene_count") != len(genes):
+        raise AcmgSfListError(
+            f"the list says it holds {document.get('gene_count')!r} genes but holds {len(genes)}"
+        )
+    entries: dict[str, dict[str, Any]] = {}
+    hgnc_ids: set[str] = set()
+    for gene in genes:
+        if not isinstance(gene, dict):
+            raise AcmgSfListError(f"gene entry is not an object: {gene!r:.120}")
+        symbol = _normalize_symbol(_acmg_sf_text(gene, "gene", required=True))
+        hgnc_id = _acmg_sf_text(gene, "hgnc_id", required=True).upper()
+        if not re.fullmatch(r"HGNC:[0-9]+", hgnc_id):
+            raise AcmgSfListError(f"{symbol} has no valid HGNC ID: {hgnc_id!r}")
+        if symbol in entries or hgnc_id in hgnc_ids:
+            raise AcmgSfListError(f"{symbol} ({hgnc_id}) is listed twice")
+        hgnc_ids.add(hgnc_id)
+        omim_disorders = gene.get("omim_disorders", [])
+        notes = gene.get("notes", [])
+        if not isinstance(omim_disorders, list) or not isinstance(notes, list):
+            raise AcmgSfListError(f"{symbol} has malformed OMIM numbers or notes")
+        entries[symbol] = {
+            "list": "ACMG SF",
+            "version": version,
+            "gene": _acmg_sf_text(gene, "gene", required=True),
+            "hgnc_id": hgnc_id,
+            "phenotype": _acmg_sf_text(gene, "phenotype", required=True),
+            "omim_disorders": [str(value).strip() for value in omim_disorders if str(value).strip()],
+            "category": _acmg_sf_text(gene, "category", required=True),
+            "inheritance": _acmg_sf_text(gene, "inheritance"),
+            "variants_to_report": _acmg_sf_text(gene, "variants_to_report"),
+            "added_in": _acmg_sf_text(gene, "added_in"),
+            "notes": [
+                {"footnote": _acmg_sf_text(note, "footnote"), "text": _acmg_sf_text(note, "text")}
+                for note in notes
+                if isinstance(note, dict) and _acmg_sf_text(note, "text")
+            ],
+            "source_url": source_url,
+        }
+    return version, entries
+
+
+def _load_acmg_sf_dataset(path: Path | None = None) -> GeneBulkSourceDataset:
+    """The ACMG SF list as a gene reference source, read from the file CoGA ships.
+
+    A gene on the list gets its entry under ``extra.acmg_secondary_finding``; every other
+    gene the status ``missing``, which the gene page reads as "not on the list". A file that
+    cannot be read whole is an ``error`` for every gene, never a ``missing``: the page must
+    not say "not on the list" about a list it could not read.
+    """
+    source_path = path or ACMG_SF_LIST_PATH
+    try:
+        raw = source_path.read_bytes()
+        version, entries = parse_acmg_sf_list(raw.decode("utf-8"))
+    except (OSError, ValueError) as exc:
+        return GeneBulkSourceDataset(
+            name="ACMG SF list",
+            source_url=str(source_path),
+            status="error",
+            message=f"The ACMG SF list at {source_path} could not be read: {exc}",
+        )
+    return GeneBulkSourceDataset(
+        name="ACMG SF list",
+        source_url=str(source_path),
+        status="success",
+        records_by_symbol={
+            symbol: {
+                "extra": {"acmg_secondary_finding": entry},
+                "status_payload": {"record_count": 1},
+            }
+            for symbol, entry in entries.items()
+        },
+        payload={"symbols_with_records": len(entries)},
+        # The list names itself "ACMG SF v3.3"; the checksum identifies the exact file.
+        release=GeneSourceRelease(label=f"v{version}", checksum=_checksum(raw), size_bytes=len(raw)),
+    )
+
+
+def _key_acmg_sf_by_current_symbol(
+    acmg_sf: GeneBulkSourceDataset,
+    hgnc: GeneBulkSourceDataset | None,
+) -> None:
+    """Key each listed gene by the symbol HGNC gives its HGNC ID today.
+
+    The sync keys every gene by HGNC's current symbol, and the list names genes as they
+    were called when it was published. Matching on the HGNC ID keeps a gene that HGNC
+    renamed since on the list instead of reading it as not listed. A listed gene the
+    loaded HGNC set does not hold (a single-gene sync loads only that gene) keeps the
+    list's symbol.
+    """
+    if acmg_sf.status != "success" or hgnc is None or hgnc.status != "success":
+        return
+    current_symbol_by_hgnc_id = {
+        str((record.get("profile") or {}).get("hgnc_id") or "").strip().upper(): symbol
+        for symbol, record in hgnc.records_by_symbol.items()
+    }
+    current_symbol_by_hgnc_id.pop("", None)
+    rekeyed: dict[str, dict[str, Any]] = {}
+    unmatched: dict[str, dict[str, Any]] = {}
+    for symbol, record in acmg_sf.records_by_symbol.items():
+        hgnc_id = record["extra"]["acmg_secondary_finding"]["hgnc_id"]
+        current_symbol = current_symbol_by_hgnc_id.get(hgnc_id)
+        if current_symbol is None:
+            unmatched[symbol] = record
+        else:
+            rekeyed[current_symbol] = record
+    for symbol, record in unmatched.items():
+        rekeyed.setdefault(symbol, record)
+    acmg_sf.records_by_symbol = rekeyed
+
+
 async def load_human_gene_bulk_context(
     *,
     symbols: Iterable[str] | None = None,
@@ -1414,4 +1560,9 @@ async def load_human_gene_bulk_context(
     )
     datasets: dict[str, GeneBulkSourceDataset] = {"dbnsfp_gene": dbnsfp_gene}
     datasets.update(online_datasets)
+    # The whole list is read for every sync, a single gene's too: it is 84 genes, and a
+    # gene is found on it by its HGNC ID rather than by the symbol a sync was asked about.
+    acmg_sf = _load_acmg_sf_dataset()
+    _key_acmg_sf_by_current_symbol(acmg_sf, datasets.get("hgnc_complete_set"))
+    datasets["acmg_sf"] = acmg_sf
     return HumanGeneBulkContext(datasets=datasets)
