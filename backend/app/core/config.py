@@ -50,9 +50,11 @@ _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
 # data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. The startup
 # downloads only when it finds no ontology file. It then fetches this release from its own
 # PURL, which never floats, and uses the file only if its SHA-256 is this one. These two values
-# are the pin, and the URL is built from the release. They move with the vendored file:
-# data/ref-data/hpo/README.md says how, and test_hpo_download_pin.py fails until the file,
-# the pin and that README agree.
+# are the pin, and the URL is built from the release. No setting overrides them: the release
+# changes only through a reviewed code change, with the vendored file (the HPO_ONTOLOGY_URL and
+# HPO_ONTOLOGY_SHA256 settings were removed; Settings ignores them, like every name it does not
+# define). data/ref-data/hpo/README.md says how, and test_hpo_download_pin.py fails until the
+# file, the pin and that README agree.
 HPO_PINNED_RELEASE = "hp/releases/2026-02-16"
 HPO_PINNED_ONTOLOGY_SHA256 = "8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd"
 HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}/hp.obo"
@@ -420,20 +422,9 @@ class Settings(BaseSettings):
         default="/data/ref-data/hpo/hp.obo",
         alias="HPO_ONTOLOGY_PATH",
     )
-    # Where the startup downloads the ontology when it finds no file: the pinned release's
-    # PURL unless set (blank is the same). HTTPS only (#522): the bootstrap trusts what it
-    # downloads as the phenotype ontology. Another URL, a mirror for instance, must serve a
-    # file with the HPO_ONTOLOGY_SHA256 digest, or the download is refused.
-    hpo_ontology_url: str = Field(
-        default=HPO_PINNED_ONTOLOGY_URL,
-        alias="HPO_ONTOLOGY_URL",
-    )
-    # The SHA-256 (hex) the downloaded ontology must have before it is written or imported:
-    # the vendored file's unless set. Blank is the same, never "no check" (OPS-6).
-    hpo_ontology_sha256: str = Field(
-        default=HPO_PINNED_ONTOLOGY_SHA256,
-        alias="HPO_ONTOLOGY_SHA256",
-    )
+    # Whether the startup may download the ontology when it finds no file. What it downloads
+    # is not a setting: the pinned release from its PURL, checked against the pinned SHA-256
+    # (HPO_PINNED_ONTOLOGY_URL and HPO_PINNED_ONTOLOGY_SHA256 above).
     hpo_download_if_missing: bool = Field(default=True, alias="HPO_DOWNLOAD_IF_MISSING")
     # Storage backend for raw family data (IGV alignments + family-package sources).
     # "local" reads from the local filesystem (dev); "s3"/"gcs" read from a cloud
@@ -596,22 +587,6 @@ class Settings(BaseSettings):
         # report the VERSION file's version (TF-18 §2). The commit stays GIT_SHA's, "unknown"
         # unless stamped, so an unstamped build is still told apart from a released one.
         return value.strip() or _read_version_file()
-
-    @field_validator("hpo_ontology_url", mode="before")
-    @classmethod
-    def default_blank_hpo_ontology_url(cls, value: object) -> object:
-        if isinstance(value, str):
-            return value.strip() or HPO_PINNED_ONTOLOGY_URL
-        return value
-
-    @field_validator("hpo_ontology_sha256", mode="before")
-    @classmethod
-    def default_blank_hpo_ontology_sha256(cls, value: object) -> object:
-        # A blank value is the pinned digest: the startup download is always checked (OPS-6).
-        # The download refuses a value that is no SHA-256 before it requests anything.
-        if isinstance(value, str):
-            return value.strip().lower() or HPO_PINNED_ONTOLOGY_SHA256
-        return value
 
     @field_validator("storage_backend", mode="before")
     @classmethod

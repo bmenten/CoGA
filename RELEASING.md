@@ -139,9 +139,13 @@ Then re-run `deploy` from the previous release's tag, or apply Terraform locally
 `backend_image` / `frontend_image` set to the previous tag. Record the rollback as a change
 under TF-18 — a rollback is a release.
 
-> Rolling back the **application** does not roll back a **database migration**. The schema
-> loader applies every file on boot; check whether the previous image can run against the
-> current schema before rolling back.
+> Rolling back the **application** does not roll back a **database migration**. Schema
+> revisions run forward only, and a version older than the database's revision (the ledger
+> `alembic_version`) refuses to start on it. Rolling back across a schema revision therefore
+> means restoring the Postgres backup taken just before the upgrade
+> ([deployment-gcp.md](docs/deployment-gcp.md), 12.1 and 12.3), which loses what was written
+> since; otherwise go forward with a fix
+> ([database.md](docs/database.md#schema-migrations)).
 
 ---
 

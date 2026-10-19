@@ -65,8 +65,9 @@ def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None
 
 
 def test_tag_scope_consolidation_has_no_destructive_backfill_update() -> None:
-    # Regression guard (#255): init_postgres_schema() replays every statement on every
-    # restart (no migration ledger), so a one-shot UPDATE normalizing rows back to
+    # Regression guard (#255): init_postgres_schema() replays every baseline statement on
+    # every restart until the release candidate (core/postgres_migrations.py; a one-shot
+    # change belongs in an Alembic revision, which runs once), so an UPDATE normalizing rows back to
     # scope='global'/project_id=NULL would silently clobber every legitimately created
     # project-scoped tag on each boot. The project-scoped-tag definition — now folded into
     # the consolidated 03_assay.sql — must contain no such UPDATE; the inline column

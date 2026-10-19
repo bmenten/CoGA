@@ -48,10 +48,11 @@ and imports nothing. The HPO terminology then stays empty until this file is in
 place.
 
 The pin is kept in one place, `backend/app/core/config.py`: `HPO_PINNED_RELEASE`
-and `HPO_PINNED_ONTOLOGY_SHA256`, with the URL built from the release. They are the
-defaults of `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256`, and a blank value of either
-means the default, so the check cannot be switched off. A deployment that sets them
-replaces the pin: a mirror in `HPO_ONTOLOGY_URL` must serve this exact file.
+and `HPO_PINNED_ONTOLOGY_SHA256`, with the URL built from the release. No setting
+changes them, so the release changes only through a reviewed code change, together with
+this file. The `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` settings that could replace
+them were removed; the backend ignores either variable if a deployment still sets it, as
+it ignores every variable it does not define, and downloads the pinned release.
 [`test_hpo_download_pin.py`](../../../backend/tests/test_hpo_download_pin.py) fails
 until this file, the pin and the table above agree.
 
@@ -72,9 +73,7 @@ Replacing this ontology is a **TF-18 controlled change**:
    loaded. Apply the new file under Administration → HPO Terminology
    (`/admin/reference/hpo`): preview, then apply, with the path
    `/data/ref-data/hpo/hp.obo`. A deployment that reads its reference data from a
-   bucket needs the new file there too, and one that sets `HPO_ONTOLOGY_URL` or
-   `HPO_ONTOLOGY_SHA256` must change or remove them, or its download stays on the
-   old pin.
+   bucket needs the new file there too.
 5. Record it: before the first release candidate the pull request is the record (TF-10 §8
    already lists HPO releases in the validation scope); from the release candidate on, a
    `CHANGELOG.md` entry and a TF-18 §8 change record.
