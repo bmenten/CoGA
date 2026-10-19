@@ -62,11 +62,12 @@ CNV regions cannot be loaded fails: the Reference catalogue says why, and the cl
 they were.
 
 **Gene reference refresh.** From the Reference catalogue an administrator can refresh the cached gene
-information for all human genes. The refresh reads a local dbNSFP gene file and the downloads of HGNC,
-ClinGen, GenCC and ClinVar for every gene, and asks NCBI Gene for a summary of the genes that dbNSFP does
-not cover. It adds identifiers, names and aliases, disease
-context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway terms, expression and constraint
-metrics.
+information for all human genes. The refresh reads a local dbNSFP gene file, the ACMG secondary-findings
+list that ships with CoGA (ACMG SF v3.3) and the downloads of HGNC, ClinGen, GenCC and ClinVar for every
+gene, and asks NCBI Gene for a summary of the genes that dbNSFP does not cover. It adds identifiers, names
+and aliases, disease context (OMIM, Orphanet, GenCC), ClinGen dosage, HPO and pathway terms, expression and
+constraint metrics, and whether the gene is on the ACMG secondary-findings list. A gene refreshed before
+CoGA had the list reads *Not checked* on the gene page until the next full refresh.
 
 ---
 
@@ -344,8 +345,9 @@ names no sample (such as `Sample0`) is taken as that sample's. A file whose colu
 and not this one, of this family or another, or that has two columns for it, is refused, and nothing is
 replaced; so is a Sniffles or Spectre VCF without its `#CHROM` header line, once, before its records. A
 manual TSV has no sample column: each of its rows is the sample's call. Nor has it an SVLEN, so the
-structural-variant length filters measure a TSV call by its end minus its start: an insertion whose end
-is its start is 0 bp to them. A package's per-sample TRGT,
+structural-variant length filters measure a TSV call by its REF and ALT when they are sequences (see
+below), and otherwise by its end minus its start: an insertion written `N`, `<INS>` whose end is its
+start is 0 bp to them. A package's per-sample TRGT,
 mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
 verified its tubes), the entry's `vcf_sample` says so.
 
@@ -354,6 +356,12 @@ duplication, inversion or copy-number change SVLEN bases after its start, any ot
 The SV is listed with the genes that span overlaps, so a search for a gene a deletion removes finds it.
 A record without an SVTYPE takes the type its ALT states, so a breakend written as `N]5:3000000]` is
 a BND; a package's NeedlR, HiFiCNV and mitochondrial SV files take a missing type the same way.
+A call written as its sequence (REF and ALT bases of other lengths) without an SVLEN, as VCF 4.4 writes
+it, is as long as its alleles say: an insertion the bases it inserts, a deletion the bases it deletes,
+shown with a minus sign as a deletion's SVLEN is. The structural-variant list shows that length and the
+length filters measure it; every caller's file, a package's included, is read this way. A call that
+gives its SVLEN keeps it. An SV loaded before this rule keeps the length it had until its file is
+loaded again.
 A breakend keeps its mate, the position its ALT names in brackets (5:3000000 here): the structural-variant
 list has it in its **Remote chr** and **Remote start** columns, as does its CSV export, beside the locus
 (empty for an SV without a mate), and the filters of those names find the breakend by it. A package's

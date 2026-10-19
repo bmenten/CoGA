@@ -89,7 +89,7 @@ The reference is written into the report by the person who drafts it.
 | Aligned reads (CRAM/BAM) | Location only — read data is streamed to the browser for visual confirmation and never re-analysed by the device | All |
 | Pipeline run record | Tool versions and run parameters of the upstream analysis pipeline, captured per family for report traceability | All |
 | Pedigree / family metadata | Roles, parentage, sex, affected/carrier status, ROI, inheritance model, assay tags | All |
-| Reference data | Assembly, gene/transcript reference, ClinVar/gnomAD/GenCC/PanelApp/HPO/Monarch, clinical-CNV catalogue | All |
+| Reference data | Assembly, gene/transcript reference, ClinVar/gnomAD/GenCC/PanelApp/HPO/Monarch, clinical-CNV catalogue, ACMG SF list | All |
 
 ## 5. Functional modules
 

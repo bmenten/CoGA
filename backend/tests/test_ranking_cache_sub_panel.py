@@ -9,9 +9,11 @@ applied (``panel_members_digest``): a broader ranking is used only while its pan
 exactly those, and one that recorded none is not used.
 
 The keys also cover the regions the query applied: a gene's loci are read from the gene
-reference when the query runs, so a reload that moves a gene changes a panel's or a gene
-filter's reach without any version or filter changing; and a ranking computed without the
-query's intervals (the background warm's replay) is not served for the query.
+reference when the query runs, so a reload that moves a gene changes a panel's reach
+without any version or filter changing; and a ranking computed without the query's
+intervals (the background warm's replay) is not served for the query. A gene filter reads
+no loci: it keeps the variants annotated with the gene, wherever the reference places it
+(ENG-1).
 
 CLIN-34 and CLIN-35: a served panel is what a fresh computation of that panel gives. The
 broader ranking must hold every variant the panel reaches: a panel of more than
@@ -504,21 +506,22 @@ def test_a_ranking_from_before_the_gene_reference_moved_a_panel_gene_is_not_serv
     assert _ids(broad) == [GENE1_A.variant_id, beyond.variant_id]
 
 
-def test_a_ranking_from_before_the_gene_reference_moved_the_gene_filtered_on_is_not_served(
+def test_the_gene_filter_keeps_the_genes_variants_wherever_the_reference_places_the_gene(
     world,
 ) -> None:
-    # The gene filter keeps the variants annotated with the gene inside its loci: a
-    # variant just upstream is outside them until a reload extends the gene over it. The
-    # filter's text is unchanged, so only the loci the query applied tell the two apart.
+    # The gene filter keeps the variants annotated with the gene, as the unranked search
+    # keeps them: one just upstream, outside the gene's loci, too. The ranked search kept
+    # those inside the loci alone (ENG-1), and a reload that extended the gene over the
+    # variant changed what it kept. Now the loci change nothing, nor the cache key.
     upstream = _variant("1-2500-A-G", "GENE1", start=2500)
     world.records.append(upstream)
     first = _open(None, gene="GENE1")
     assert first.ranking_cached is False
-    assert _ids(first) == [GENE1_A.variant_id]
+    assert _ids(first) == [GENE1_A.variant_id, upstream.variant_id]
 
     world.loci["GENE1"] = [Region(chr="1", start=1000, end=3000)]
     after = _open(None, gene="GENE1")
-    assert after.ranking_cached is False
+    assert after.ranking_cached is True
     assert _ids(after) == [GENE1_A.variant_id, upstream.variant_id]
 
 

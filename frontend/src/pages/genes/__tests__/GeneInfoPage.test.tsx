@@ -27,6 +27,31 @@ const renderPage = (initialEntry = '/genes?gene=BRCA1') => {
   );
 };
 
+type ProfileFixture = {
+  symbol: string;
+  source_status: Record<string, Record<string, unknown>>;
+  extra: Record<string, unknown>;
+};
+
+// Opens another gene's page, its profile the BRCA1 fixture below as changed by `change`.
+const renderGeneFrom = (symbol: string, change: (profile: ProfileFixture) => void) => {
+  const get = api.get as unknown as Mock;
+  const brca1 = get.getMockImplementation()!;
+  get.mockImplementation(async (url: string, config?: { params?: Record<string, unknown> }) => {
+    if (url !== '/genes/profile') return brca1(url, config);
+    expect(config?.params?.symbol).toBe(symbol);
+    const { data } = (await brca1(url, { params: { symbol: 'BRCA1' } })) as { data: ProfileFixture };
+    const profile = JSON.parse(JSON.stringify(data)) as ProfileFixture;
+    profile.symbol = symbol;
+    change(profile);
+    return { data: profile };
+  });
+  return renderPage(`/genes?gene=${symbol}`);
+};
+
+const acmgSecondaryFindingRow = () =>
+  screen.getByText('ACMG secondary finding').closest('.gene-compact-detail-row') as HTMLElement;
+
 describe('GeneInfoPage', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -185,6 +210,16 @@ describe('GeneInfoPage', () => {
                   release: '2026-08-07',
                   payload: {},
                 },
+                // The ACMG SF list CoGA ships, as the gene reference sync records it.
+                acmg_sf: {
+                  status: 'success',
+                  fetched_at: '2026-10-14T09:00:00Z',
+                  source_url: '/data/ref-data/acmg-sf/acmg-sf-genes.json',
+                  message: null,
+                  release: 'v3.3',
+                  release_detail: { label: 'v3.3', checksum: 'ee61f8b98357a728', size_bytes: 24007 },
+                  payload: { symbols_with_records: 84, record_count: 1 },
+                },
               },
               external_links: [
                 { label: 'Ensembl', href: 'https://www.ensembl.org/id/ENSG00000012048' },
@@ -255,11 +290,20 @@ describe('GeneInfoPage', () => {
                   },
                 ],
                 clingen_dosage_assertions: [
+                  // dbNSFP's copy of ClinGen's haploinsufficiency curation.
                   {
                     haploinsufficiency: '3',
                     description: 'Sufficient evidence for dosage pathogenicity',
                     disease: 'BRCA1-related cancer predisposition',
                     pmids: ['32375709'],
+                  },
+                  // ClinGen's own dosage file, as parse_clingen_dosage_rows writes it.
+                  {
+                    hgnc_id: 'HGNC:1100',
+                    haploinsufficiency: 'Sufficient Evidence for Haploinsufficiency',
+                    triplosensitivity: 'No Evidence for Triplosensitivity',
+                    online_report: 'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1100',
+                    date: '2021-09-23T08:27:44-04:00',
                   },
                 ],
                 constraint_metrics: {
@@ -322,8 +366,6 @@ describe('GeneInfoPage', () => {
                 clingen_curation_counts: {
                   gene_disease_validity: 12,
                   dosage_sensitivity: 3,
-                  clinical_actionability: 2,
-                  variant_pathogenicity: 27,
                   cpic_pharmgkb: '6',
                 },
                 clingen_gene_facts: {
@@ -337,8 +379,23 @@ describe('GeneInfoPage', () => {
                   haploinsufficiency_index: 13.4,
                   pli: 1.0,
                   loeuf: 0.16,
-                  acmg_secondary_finding: true,
                   function: 'DNA repair and double-strand break signaling.',
+                },
+                // BRCA1's entry in data/ref-data/acmg-sf/acmg-sf-genes.json, as the sync
+                // stores it.
+                acmg_secondary_finding: {
+                  list: 'ACMG SF',
+                  version: '3.3',
+                  gene: 'BRCA1',
+                  hgnc_id: 'HGNC:1100',
+                  phenotype: 'Hereditary breast and/or ovarian cancer',
+                  omim_disorders: ['604370'],
+                  category: 'Cancer Predisposition',
+                  inheritance: 'AD',
+                  variants_to_report: 'All P and LP',
+                  added_in: '1.0',
+                  notes: [],
+                  source_url: 'https://doi.org/10.1016/j.gim.2025.101454',
                 },
               },
               updated_at: '2026-03-27T10:00:00Z',
@@ -403,6 +460,37 @@ describe('GeneInfoPage', () => {
       'href',
       'https://pubmed.ncbi.nlm.nih.gov/32375709/',
     );
+    expect(screen.getByText(/HI score 3 · Sufficient evidence .* · via dbNSFP/)).toBeInTheDocument();
+    // ClinGen's own dosage file: both curations in words, the curation's day and its report,
+    // not a second "ClinGen haploinsufficiency" item that calls the words an HI score (CLIN-19).
+    expect(screen.getByText('ClinGen dosage curation')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Haploinsufficiency: Sufficient Evidence for Haploinsufficiency · ' +
+          'Triplosensitivity: No Evidence for Triplosensitivity · curated 2021-09-23',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'ClinGen report' })).toHaveAttribute(
+      'href',
+      'https://search.clinicalgenome.org/kb/gene-dosage/HGNC:1100',
+    );
+    expect(screen.queryByText(/HI score Sufficient/)).not.toBeInTheDocument();
+    // BRCA1 is on the ACMG SF list: the row names the list's version, linked to the policy
+    // statement, and the gene's phenotype and category as the list states them. The two
+    // ClinGen count rows that no source fills are gone (CLIN-19).
+    const acmgRow = acmgSecondaryFindingRow();
+    expect(acmgRow).toHaveTextContent('On ACMG SF v3.3');
+    expect(within(acmgRow).getByRole('link', { name: 'ACMG SF v3.3' })).toHaveAttribute(
+      'href',
+      'https://doi.org/10.1016/j.gim.2025.101454',
+    );
+    expect(
+      within(acmgRow).getByText(
+        'Hereditary breast and/or ovarian cancer · Cancer Predisposition · AD · All P and LP',
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText('Clinical actionability')).not.toBeInTheDocument();
+    expect(screen.queryByText('Variant pathogenicity')).not.toBeInTheDocument();
     const vegaRow = screen.getByText('Vega').closest('.gene-compact-detail-row');
     expect(vegaRow).not.toBeNull();
     expect(within(vegaRow as HTMLElement).getByText('OTTHUMG00000157426')).toBeInTheDocument();
@@ -508,6 +596,8 @@ describe('GeneInfoPage', () => {
     expect(screen.getByText(/Annotation gencode v50 \(Ensembl 116\)/)).toBeInTheDocument();
     expect(screen.getByText('dbNSFP 5.4')).toBeInTheDocument();
     expect(screen.getByText('HGNC 2026-08-07')).toBeInTheDocument();
+    const footer = document.querySelector('.gene-compact-footer') as HTMLElement;
+    expect(within(footer).getByText('ACMG SF v3.3')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'KEGG' })).toHaveAttribute(
       'href',
       'https://www.genome.jp/dbget-bin/www_bget?hsa:672',
@@ -541,5 +631,100 @@ describe('GeneInfoPage', () => {
     failing = false;
     await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(await screen.findByRole('heading', { name: 'BRCA1' })).toBeInTheDocument();
+  });
+
+  // CLIN-19: the row read a key nothing wrote, so it said "—" for every gene, BRCA1 included.
+  it('says a gene the ACMG SF list leaves out is not on it, naming the list version', async () => {
+    renderGeneFrom('CFTR', (profile) => {
+      delete profile.extra.acmg_secondary_finding;
+      profile.source_status.acmg_sf = {
+        ...profile.source_status.acmg_sf,
+        status: 'missing',
+        message: 'No ACMG SF list record for CFTR',
+        payload: { symbols_with_records: 84, record_count: 0 },
+      };
+    });
+
+    expect(await screen.findByRole('heading', { name: 'CFTR' })).toBeInTheDocument();
+    const row = acmgSecondaryFindingRow();
+    expect(row).toHaveTextContent('ACMG secondary findingNot on ACMG SF v3.3');
+    expect(row).not.toHaveTextContent('—');
+  });
+
+  it('shows the footnotes of the list that narrow what is reported for a gene', async () => {
+    renderGeneFrom('TTN', (profile) => {
+      profile.extra.acmg_secondary_finding = {
+        list: 'ACMG SF',
+        version: '3.3',
+        gene: 'TTN',
+        hgnc_id: 'HGNC:12403',
+        phenotype: 'Dilated cardiomyopathy',
+        omim_disorders: ['604145'],
+        category: 'Cardiovascular Disease Predisposition',
+        inheritance: 'AD',
+        variants_to_report: 'All P and LP (see text)',
+        added_in: '3.0',
+        notes: [
+          {
+            footnote: 'f',
+            text:
+              'Only truncating variants in the Titin gene (TTNtv) should be reported as a ' +
+              'secondary finding.',
+          },
+        ],
+        source_url: 'https://doi.org/10.1016/j.gim.2025.101454',
+      };
+    });
+
+    expect(await screen.findByRole('heading', { name: 'TTN' })).toBeInTheDocument();
+    const row = acmgSecondaryFindingRow();
+    expect(
+      within(row).getByText(
+        'Dilated cardiomyopathy · Cardiovascular Disease Predisposition · AD · All P and LP (see text)',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(row).getByText(
+        'Only truncating variants in the Titin gene (TTNtv) should be reported as a secondary finding.',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('never says a gene is not on the list when the list was not read for it', async () => {
+    // A gene cached by a gene reference sync from before CoGA had the list.
+    renderGeneFrom('CFTR', (profile) => {
+      delete profile.extra.acmg_secondary_finding;
+      delete profile.source_status.acmg_sf;
+    });
+
+    expect(await screen.findByRole('heading', { name: 'CFTR' })).toBeInTheDocument();
+    expect(acmgSecondaryFindingRow()).toHaveTextContent(
+      'ACMG secondary findingNot checked against the ACMG SF list',
+    );
+  });
+
+  it('says the ACMG SF list could not be read when the sync could not read it', async () => {
+    renderGeneFrom('CFTR', (profile) => {
+      delete profile.extra.acmg_secondary_finding;
+      profile.source_status.acmg_sf = {
+        status: 'error',
+        fetched_at: '2026-10-14T09:00:00Z',
+        source_url: '/data/ref-data/acmg-sf/acmg-sf-genes.json',
+        message:
+          'The ACMG SF list at /data/ref-data/acmg-sf/acmg-sf-genes.json could not be read: ' +
+          'the list says it holds 84 genes but holds 83',
+        release: null,
+        release_detail: {},
+        payload: {},
+      };
+    });
+
+    expect(await screen.findByRole('heading', { name: 'CFTR' })).toBeInTheDocument();
+    const row = acmgSecondaryFindingRow();
+    expect(row).toHaveTextContent(
+      'ACMG secondary findingNot checked: the ACMG SF list could not be read',
+    );
+    expect(within(row).getByTitle(/holds 84 genes but holds 83/)).toBeInTheDocument();
+    expect(row).not.toHaveTextContent(/Not on/);
   });
 });
