@@ -42,7 +42,12 @@ table differs.
   sent twice would score +16) and a strength the criterion does not take (`ALLOWED_STRENGTHS`, the
   dialog's `allowedStrengths`: BS1 at very strong would score −8). It then recomputes the points and
   class, stores the VUS tier in the JSON record, and freezes the evidence snapshot
-  (`build_evidence_snapshot`) that the report's drift check compares against later.
+  (`build_evidence_snapshot`) that the report's drift check compares against later: the
+  annotation version and set hash, the ClinVar significance, and the population frequencies and
+  in-silico scores the criteria read (gnomAD and the other frequencies and counts the filters
+  read, CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense), as the dialog reads them,
+  from the variant's primary transcript (`small_variant_evidence`). A later change of any of them
+  is drift that names the value ([clinical-traceability.md](clinical-traceability.md#evidence-drift)).
 - CNVs: `structural_variant_reviews.cnv_acmg` (JSONB), `cnv_point_total`, `cnv_class` and
   `cnv_evidence_snapshot`. The server refuses a criterion listed twice (`400`; the range caps one
   entry, and a repeat would count past it), clamps each submitted point value to the criterion's

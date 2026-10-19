@@ -154,8 +154,8 @@ was.
 | `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
-| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes and sign-out, with before and after |
-| `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot |
+| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after |
+| `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot; its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)) |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
 
 **Files from a bucket.** For a package imported from a bucket, `storage_path` is the
@@ -241,7 +241,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/variants/annotations` | per variant and transcript: gene, consequence, HGVS, population frequencies, scores. The family search and the Variant Explorer test their annotation filters here, all on one row (one transcript) |
 | `SNV_INDEL/variants/annotation_index` | per variant: its genes and the fields the filters use, pooled over its transcripts, for what holds for the variant as a whole (its rsID, genes and ClinVar terms). The Variant Explorer also reads each variant's position here to apply a gene panel's regions to every family at once |
 | `SNV_INDEL/variants/gene_index` | per gene term (symbol or gene id) and variant, for gene searches and the gene panel filter of the family page and the Variant Explorer |
-| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`) |
+| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`). The family page also reads a family's own rows here, by position, to apply a gene panel's regions: a join on 64-kb windows (ENG-15) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
 | `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`; the SV length filters measure it), the full annotation. A call written as a sequence allele without SVLEN (VCF 4.4 writes it `.`) is stored with the length its alleles state, len(ALT) − len(REF), negative for a deletion (CLIN-41); any other call without SVLEN is stored with none and measured by END − POS. A call stored before that rule keeps its stored value until its file is imported again |

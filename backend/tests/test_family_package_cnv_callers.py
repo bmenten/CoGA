@@ -90,13 +90,17 @@ def test_wisecondorx_is_found_under_its_sample_prefixed_names(tmp_path: Path) ->
 class _Recorder:
     """Captures the (track_type, source) pairs cleared before an import runs. ``existing``
     is what Postgres records of the track (``sample_interval_track_sources``), ``stored``
-    how many of its rows the interval table holds (by default as many)."""
+    how many of its rows the interval table holds (by default as many). ``events`` is the
+    order of the importer's check of its file, the clears and its import; with ``empty``
+    the check refuses the file, as an importer refuses one without a row (SAFE-29)."""
 
-    def __init__(self, existing: int, stored: int | None = None) -> None:
+    def __init__(self, existing: int, stored: int | None = None, *, empty: bool = False) -> None:
         self.existing = existing
         self.stored = existing if stored is None else stored
+        self.empty = empty
         self.cleared: list[tuple[str, str]] = []
         self.imported = False
+        self.events: list[str] = []
 
     async def count(self, session: Any, **kwargs: Any) -> int:
         return self.existing
@@ -106,8 +110,17 @@ class _Recorder:
 
     async def delete(self, session: Any, **kwargs: Any) -> None:
         self.cleared.append((kwargs["track_type"], kwargs["source"]))
+        self.events.append("clear")
 
-    async def importer(self) -> dict[str, int]:
+    async def importer(self, *, check_only: bool = False) -> dict[str, int]:
+        if check_only:
+            self.events.append("check")
+            if self.empty:
+                from app.services.family_package_tracks import EmptyTrackFileError
+
+                raise EmptyTrackFileError("The file holds no record")
+            return {}
+        self.events.append("import")
         self.imported = True
         return {"processed": 1, "inserted": 1, "skipped": 0}
 
@@ -195,3 +208,30 @@ async def test_nothing_is_cleared_when_the_track_is_empty(
     # pointless round trip per track per sample.
     assert recorder.cleared == []
     assert recorder.imported
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("conflict_mode", ["overwrite", "update"])
+async def test_the_file_is_checked_before_the_track_is_cleared(
+    monkeypatch: pytest.MonkeyPatch, conflict_mode: str
+) -> None:
+    # The update's track is recorded with its rows gone, so the update imports it too.
+    recorder = _Recorder(existing=500, stored=0 if conflict_mode == "update" else None)
+    await _run_guard(monkeypatch, recorder, conflict_mode)
+
+    assert recorder.events == ["check", "clear", "import"]
+
+
+@pytest.mark.asyncio
+async def test_a_file_without_a_row_is_refused_before_the_track_is_cleared(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.services.family_package_tracks import EmptyTrackFileError
+
+    # SAFE-29: the guard cleared the track, and the importer stored none of an empty file.
+    recorder = _Recorder(existing=500, empty=True)
+    with pytest.raises(EmptyTrackFileError):
+        await _run_guard(monkeypatch, recorder, "overwrite")
+
+    assert recorder.events == ["check"]
+    assert (recorder.cleared, recorder.imported) == ([], False)

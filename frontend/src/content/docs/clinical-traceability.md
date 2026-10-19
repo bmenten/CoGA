@@ -7,8 +7,8 @@ can never change.
 
 **Sign-out is the analyst's analytical sign-off, not the medical one.** It closes the analysis and
 freezes it. The clinical report is drafted and medically signed in the hospital's electronic patient
-record (EPD), outside CoGA, and refers to exactly one signed version of the analysis. CoGA does not see
-the EPD report and does not check that reference.
+record (EPD), outside CoGA, and refers to exactly one signed version of the analysis, by its **report
+code** (below). CoGA does not see the EPD report and does not check that reference.
 
 How to prepare and sign out a report is in the [user guide](/docs), section *Clinical report and
 sign-out*. This page holds the rules.
@@ -47,8 +47,11 @@ by*, the build that drew the page from its record. After a CoGA update the two c
 
 When you save a classification, CoGA freezes the evidence it rests on:
 
-- **ACMG classify** (a small variant): a fingerprint of the variant's annotation and its ClinVar
-  significance at that moment;
+- **ACMG classify** (a small variant): a fingerprint of the variant's annotation, its ClinVar
+  significance, and the population frequencies and in-silico scores the dialog read — the gnomAD
+  frequencies (overall, exomes, genomes, popmax), the TOPMed frequency, the gnomAD allele,
+  homozygote and hemizygote counts, CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense —
+  taken from the variant's primary transcript, as the dialog shows them;
 - **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
   event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
   position, a fingerprint of its annotation, and the annotation versions its genes came from. The
@@ -61,8 +64,13 @@ When you open the report, each frozen classification is compared with the curren
 banner lists every classification whose evidence changed:
 
 - the ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*);
+- a frozen frequency or in-silico score changed, or a value missing then is there now: each is
+  named with its value then and now (for example *REVEL 0.412 → 0.951* or *gnomAD AF 3.10e-5 →
+  0.012*), and so is a change of the primary transcript they are read from;
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
-  (*annotation set changed*);
+  (*annotation set changed*). A classification saved before CoGA froze the frequencies and
+  in-silico scores is compared on its fingerprint and ClinVar significance alone, so its banner
+  line does not say which value moved;
 - for a structural variant, what moved in the row of the caller its evidence was frozen from: for
   example *genes TCF4, TXNL1 → TCF4* or *pLI 0.990 → 0.410*, and likewise its inheritance, type or
   position. It says *annotation changed* when only its other annotation changed, and *its frozen
@@ -92,7 +100,14 @@ went. Clearing a review is listed too.
 - *CNV classification VUS - class 3 → Pathogenic - class 5*
 - *Tags added report*
 - *Annotation manifest replaced (was vcf_header, now manual): VEP 110 → 112*
-- *Report signed out (v2) — 3 reported variant(s)*
+- *Gene panel Epilepsy version 2 (PanelApp panel 402, version 3.1) first applied to the small-variant search*
+- *Report signed out (v2, report code 7KQM2X-2-4PHT) — 3 reported variant(s)*
+
+A search of the family that applies a gene panel (the small-variant and structural-variant lists and
+their exports, the NIPT variants and coverage) writes the panel to the trail the first time it applies
+that version of the panel: its name, local version and, for a PanelApp panel, PanelApp's version of it.
+Applying the same version again writes nothing; a new version of the panel is written again. A panel
+applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
 This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
@@ -118,9 +133,35 @@ the clinical report in the EPD refers to:
 - the drift state, the Sample QC verdict, and the sequencing-QC verdicts with the cut-offs they were
   judged against;
 - whether the family's data imported completely, and if not, which datasets failed;
+- what the analysis looked at: each reported variant's **description** as you reviewed it (gene,
+  transcript, HGVS c. and p., consequence and each sample's genotype; for a structural variant its type,
+  copy change, position, genes and each sample's genotype and copy number), the **gene panels** the
+  family's searches applied (each version, with PanelApp's version of a PanelApp panel), the
+  **reference-data releases** (the gene reference for the reported genes and the clinical CNV
+  knowledgebase), and the family's **repeat expansions** (TRGT) and **Paraphase** results, each with
+  its status as CoGA reads it at sign-out and the catalogue behind it;
+- a sentence that says what the record is (the analytical sign-off, referred to by the EPD);
 - the CoGA software version that produced it.
 
-A signed version can never change; any later tampering would show as a fingerprint mismatch.
+A signed version can never change; any later tampering would show as a fingerprint mismatch. A part
+that could not be read while the version was frozen is recorded as not captured, never as empty.
+
+### The report code
+
+Each signed version has a **report code**, for example `7KQM2X-2-4PHT`: six characters that every
+version of the family's record shares, the version number, and four characters tied to the signed
+content. Quote it in the EPD report. A code is unique, and its last character is a check: a mistyped
+character or two swapped neighbours is refused as a typo, never taken for another record's code. Upper
+or lower case and the hyphens do not matter, and an I or L reads as 1, an O as 0.
+
+The code is on the signed version, on screen and in print (top card and footer), on the live report
+next to the latest signed version, and in the audit trail entry of the sign-out. Straight after you sign
+out, the page confirms *Signed out as version N. Report code …*.
+
+To find a signed record from its code, open **Report codes** in the main menu (the arrow at the right of
+the header), enter the code, and open the signed version it names. The EPD can link to
+`/report-codes/<code>` directly. A code that no record you can open has gives the same answer whether
+no record has it or it belongs to a family outside your projects.
 
 ### The sign-out checks
 
@@ -202,25 +243,32 @@ The report page has two views. Only the signed version is the signed report.
 
 A case that has been signed out opens on its **latest signed version**. The page is drawn from the
 frozen record alone; nothing on it is read from the family's current data. Its top card says *Signed
-version 2 — signed out by … on …*, with the fingerprint (content hash), the build that signed it, and
-whether the stored record still matches its fingerprint.
+version 2 — signed out by … on …*, with the report code, the sentence that says what the record is,
+the fingerprint (content hash), the build that signed it, and whether the stored record still matches
+its fingerprint.
 
 It shows what the record holds:
 
-- each reported small variant, named by its variant ID, with its classification and points, the
-  accepted ACMG criteria and their evidence, the evidence frozen when it was classified (the ClinVar
-  significance and the annotation version), its tags and its note;
-- each reported structural variant or CNV, with its classification and ClinGen CNV criteria;
+- each reported small variant, named by its variant ID, with its description as you reviewed it, its
+  classification and points, the accepted ACMG criteria and their evidence, the evidence frozen when it
+  was classified (the ClinVar significance and the annotation version and, for a classification saved
+  since CoGA froze them, the population frequencies and in-silico scores as they were then, read from
+  its primary transcript), its tags and its note;
+- each reported structural variant or CNV, with its description, classification and ClinGen CNV
+  criteria;
+- the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
-- the versions it was signed with, in the footer.
+- the versions it was signed with and the reference-data releases, in the footer, with the report code.
 
-The record does not hold the rest of what the live report shows: the variant description (gene, HGVS,
-consequence, genotypes, population frequency, in silico predictions), the segregation and the family's
-members, the gene description, conditions and panels, the phenotype match, the audit trail and the
-pipeline settings. The page says so, once for the report and on each variant, and never fills them in
-from current data. A part the record does not hold is marked *Not in the signed record*, never shown as
-empty.
+The record does not hold the rest of what the live report shows: the population frequency and the in
+silico predictions, the segregation and the family's members, the gene description, conditions and
+panels, the phenotype match, the audit trail and the pipeline settings. The page says so, once for the
+report and on each variant, and never fills them in from current data. A part the record does not hold
+is marked *Not in the signed record*, never shown as empty: a version signed before CoGA recorded the
+variant description, the gene panels, the reference-data releases, the repeat expansions or the
+Paraphase results says so for each (*Not in the signed record: version 2 was signed before CoGA
+recorded …*).
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,
