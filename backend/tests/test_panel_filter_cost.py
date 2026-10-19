@@ -29,6 +29,7 @@ import pytest
 from backend.app.services import clickhouse_variant_queries as queries
 from backend.app.services.clickhouse_family_variants import _kept_small_candidates, _SmallVariantScope
 from backend.app.services.clickhouse_variant_queries import (
+    _panel_regions_apply,
     _small_query_filter_parts,
     _small_record_hits_gene_terms,
     _small_record_matches,
@@ -100,12 +101,16 @@ def _scope(panel: PanelFilterConstraints) -> _SmallVariantScope:
 
 def _rule(record: SmallVariantRecord, panel: PanelFilterConstraints) -> bool:
     """The panel check as the record filter made it before ENG-15: a gene of the panel among
-    the record's gene names, or the record in one of the panel's regions."""
+    the record's gene names, or the record in one of the panel's regions; a panel of genes
+    with more regions than the SQL inlines is matched on its genes alone
+    (``_panel_regions_apply``, ENG-1)."""
     if not (panel.genes or panel.regions):
         return True
     gene_match = bool(panel.genes) and _small_record_hits_gene_terms(record, panel.genes)
-    region_match = bool(panel.regions) and _variant_overlaps_regions(
-        record.chr, record.start, record.end, panel.regions
+    region_match = (
+        bool(panel.regions)
+        and _panel_regions_apply(panel)
+        and _variant_overlaps_regions(record.chr, record.start, record.end, panel.regions)
     )
     return gene_match or region_match
 
@@ -275,7 +280,9 @@ def test_the_region_lookup_answers_what_testing_every_region_answers() -> None:
 def test_the_kept_candidates_are_the_per_row_rule_s_on_a_mendeliome_sized_panel() -> None:
     panel, records = _panel_and_records(genes=5_300, records=400)
     rng = random.Random(5300)
-    # Half of them annotated with another symbol: kept, or not, by their position alone.
+    # Half of them annotated with another symbol. A panel this size is matched on its genes
+    # alone (``_panel_regions_apply``, ENG-1), so these are left out, in their gene's locus or
+    # past it.
     for record in records[::2]:
         record.gene_symbols = ["RENAMED"]
         record.annotations = [{"gene": "RENAMED"}]

@@ -74,7 +74,15 @@ describe('GeneReferenceAdminPage', () => {
     renderPage();
 
     const lead = await screen.findByText(/cached human gene context/i);
-    for (const source of ['HGNC', 'ClinGen', 'GenCC', 'ClinVar', 'dbNSFP', 'NCBI Gene']) {
+    for (const source of [
+      'HGNC',
+      'ClinGen',
+      'GenCC',
+      'ClinVar',
+      'dbNSFP',
+      'ACMG secondary-findings list',
+      'NCBI Gene',
+    ]) {
       expect(lead).toHaveTextContent(source);
     }
     // The sync no longer calls Ensembl: NCBI is its only per-gene request.

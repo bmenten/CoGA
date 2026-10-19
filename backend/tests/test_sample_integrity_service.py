@@ -352,7 +352,11 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
     assert _warnings(caplog) == ["NIPT parents' sex could not be checked for family FAM1: DatabaseError"]
     assert _QUOTED_VALUE not in _frozen(report)
     assert "DB::Exception" not in _frozen(report)
-    assert _unverifiable_swap_checks(_canonical_sample_qc(report)) == [not_checked, not_checked]
+    # The gate holds each parent by name: the same sentence twice named neither (CLIN-8).
+    assert _unverifiable_swap_checks(_canonical_sample_qc(report)) == [
+        "Sample FATHER: sex could not be checked: the genotypes could not be loaded.",
+        "Sample MOTHER: sex could not be checked: the genotypes could not be loaded.",
+    ]
 
 
 def test_service_nipt_parent_sex_without_a_callset_adds_nothing(monkeypatch) -> None:
@@ -412,7 +416,12 @@ def test_service_nipt_parents_without_chrx_calls_warn_and_are_named(monkeypatch)
     frozen = _canonical_sample_qc(report)
     assert frozen["overall_status"] == "warn"
     assert frozen["notes"] == report.notes
-    assert _unverifiable_swap_checks(frozen) == [no_chrx, no_chrx]
+    # Each parent named in the gate's reason, while the check keeps its own message.
+    assert _unverifiable_swap_checks(frozen) == [
+        "Sample FATHER: no chrX genotypes available for sex inference.",
+        "Sample MOTHER: no chrX genotypes available for sex inference.",
+    ]
+    assert [check["message"] for check in frozen["sex_checks"]] == [no_chrx, no_chrx]
 
 
 def test_service_trio_without_chrx_calls_warns_and_the_signed_snapshot_records_it(monkeypatch) -> None:

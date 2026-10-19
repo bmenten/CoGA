@@ -89,7 +89,9 @@ De sample-QC spoort verwisselde samples of een foute stamboom op (`TF-06`, gevaa
 
 Blokkeert de poort en is ze niet erkend, dan volgt `409` met de bevindingen. Erkennen vraagt een reden (anders `422`); de reden wordt, net als het QC-oordeel, in de hash bevroren en in het auditevent opgenomen. De rapportpagina opent daarvoor een aparte dialoog waarin de reden verplicht is.
 
-**Waar in de code:** `sign_out_report` en `_unverifiable_swap_checks` in `report_signout_service.py`.
+Elke bevinding noemt vooraan het sample, het paar, het kind met zijn ouders of de NIPT-vader waarover haar controle gaat, bijvoorbeeld *Sample X: no chrX genotypes available for sex inference.* Zonder die naam las de melding voor twee samples zonder chrX-calls twee keer dezelfde zin (CLIN-8). Dat geldt voor de bevindingen in de `409` (`qc_summary.messages`, `unverifiable_checks` en de melding zelf) en voor de lijst van controles die niet konden draaien in het auditevent (`qc_unverifiable`). Het foetale geslacht en de NIPT-moederlijn worden uit het cfDNA als geheel gelezen en noemen geen sample. De controles in het snapshot (`sample_qc`) houden hun eigen melding, naast hun samplevelden: een versie die vóór deze wijziging werd ondertekend, vergelijkt dus gelijk, en een ouder auditevent noemt geen samples.
+
+**Waar in de code:** `sign_out_report`, `_qc_failure_summary`, `_unverifiable_swap_checks` en `_named` in `report_signout_service.py`.
 
 ### Poort 3 — geen onverklaarde onvolledige import
 

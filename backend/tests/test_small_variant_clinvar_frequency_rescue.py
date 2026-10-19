@@ -69,8 +69,8 @@ def _sql(**overrides):
 def test_sql_frequency_block_is_rescued_by_clinvar_when_enabled() -> None:
     sql, params = _sql(clinvar_overrides_frequency=True)
     # The whole frequency block is OR-ed with the ClinVar P/LP terms, as in Python.
-    assert "ifNull(a.gnomad_af, 0) <= %(detail_max_gnomad_af)s" in sql
-    assert "ifNull(a.gnomad_popmax_af, 0) <= %(detail_max_gnomad_popmax_af)s" in sql
+    assert "ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)" in sql
+    assert "ifNull(a.gnomad_popmax_af, 0) <= toFloat32(%(detail_max_gnomad_popmax_af)s)" in sql
     assert ") OR hasAny(a.clinvar_terms, %(detail_clinvar_rescue_terms)s))" in sql
     assert params["detail_clinvar_rescue_terms"] == [
         "pathogenic",
@@ -84,7 +84,7 @@ def test_sql_frequency_block_is_strict_without_rescue() -> None:
     sql, params = _sql(clinvar_overrides_frequency=False)
     assert "hasAny(a.clinvar_terms" not in sql
     assert "detail_clinvar_rescue_terms" not in params
-    assert "ifNull(a.gnomad_af, 0) <= %(detail_max_gnomad_af)s" in sql
+    assert "ifNull(a.gnomad_af, 0) <= toFloat32(%(detail_max_gnomad_af)s)" in sql
 
 
 def test_sql_rescue_covers_counts_as_well_as_frequencies() -> None:

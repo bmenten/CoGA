@@ -117,6 +117,7 @@ from .clickhouse_variant_queries import (
     _small_hemizygous_position_condition,
     _small_pair_inheritance_candidate_limit,
     _small_query_filter_parts,
+    _small_record_hits_gene_terms,
     _small_record_matches,
     _small_search_keeps_by_pairing,
     _small_summary_table_name,
@@ -2444,13 +2445,10 @@ async def _prioritized_small_variants_page(
     truncated and the candidates capped, and counts what it found within the window, a
     lower bound.
     """
-    if filters.gene:
-        include_regions = [
-            *include_regions,
-            *await _fetch_gene_regions(
-                session, gene_query=filters.gene, assembly_id=context.assembly_id
-            ),
-        ]
+    # The gene filter keeps the variants annotated with the gene, as the unranked search
+    # keeps them: it adds none of the gene's loci to the regions. The ranked search kept
+    # only those inside the loci the gene reference gives, and lost a variant VEP assigns to
+    # the gene outside them, an upstream or downstream one (ENG-1).
     scope = _SmallVariantScope(
         panel_constraints=panel_constraints,
         review_variant_ids=review_variant_ids,
@@ -2815,6 +2813,12 @@ def _kept_small_candidates(
             (not scope.include_review_filter_active)
             or record.variant_id in (scope.review_variant_ids or set())
         )
+        # An excluded gene leaves out every variant annotated with it, as the SQL leaves
+        # them out (by name, besides the gene's loci, ENG-1).
+        and not (
+            scope.exclude_gene_terms
+            and _small_record_hits_gene_terms(record, scope.exclude_gene_terms)
+        )
         and _small_record_matches(
             record,
             filters,
@@ -3099,15 +3103,10 @@ async def _small_variants_candidate_page(
     small_variant_summary: SmallVariantSummaryOut | None,
 ) -> VariantPage:
     """The Python-side path: fetch the candidates ClickHouse can narrow, then apply what it
-    cannot — gene symbols, inheritance pairing, carrier screening, a track's sampling. The
-    ranked search keeps the same (``_kept_small_candidates``, ``_small_inheritance_items``)."""
-    if filters.gene:
-        gene_regions = await _fetch_gene_regions(
-            session,
-            gene_query=filters.gene,
-            assembly_id=context.assembly_id,
-        )
-        scope.include_regions.extend(gene_regions)
+    cannot — inheritance pairing, carrier screening, a track's sampling. The ranked search
+    keeps the same (``_kept_small_candidates``, ``_small_inheritance_items``). A gene filter
+    keeps the variants annotated with the gene, as the native page keeps them; this path
+    also kept them to the gene's loci in the gene reference (ENG-1)."""
     inheritance_candidate_limit = _small_pair_inheritance_candidate_limit(filters)
     records = await _fetch_small_variant_rows(
         context,

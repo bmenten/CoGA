@@ -10,6 +10,7 @@ from .family_variant_filters import (
     SmallVariantQueryFilters,
     in_silico_prediction_matches,
     in_silico_prediction_pattern,
+    stored_precision,
 )
 
 
@@ -467,6 +468,27 @@ def _nullable_lte(value: float | int | None, maximum: float | int | None) -> boo
     return value <= maximum
 
 
+def _score_meets(value: float | None, minimum: float | None) -> bool:
+    """Whether an in-silico score meets the minimum a filter sets, as the SQL reads it
+    (``ifNull(score, -1) >= toFloat32(minimum)``): a missing score reads as -1, a score of 0
+    is a score, and both are compared at the precision the score is stored at
+    (``stored_precision``). ``value or -1.0`` read a score of 0 as missing, so a SpliceAI
+    score of 0.00, most variants' own, missed a minimum of 0 that the SQL kept it for
+    (ENG-1)."""
+    if minimum is None:
+        return False
+    return stored_precision(-1.0 if value is None else value) >= stored_precision(minimum)
+
+
+def _frequency_within(value: float | None, maximum: float | None) -> bool:
+    """Whether a population frequency is within the maximum a filter sets, as the SQL reads
+    it (``ifNull(frequency, 0) <= toFloat32(maximum)``): a missing frequency passes, and both
+    are compared at the precision the frequency is stored at (``stored_precision``)."""
+    if maximum is None or value is None:
+        return True
+    return stored_precision(value) <= stored_precision(maximum)
+
+
 def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariantQueryFilters) -> bool:
     if filters.transcript and not _contains_casefold(
         _annotation_text(annotation, "transcript_id", "transcriptId"),
@@ -492,16 +514,16 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
         _annotation_clinvar(annotation), CLINVAR_FREQUENCY_RESCUE_TERMS
     )
     if not clinvar_rescue:
-        if not _nullable_lte(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
+        if not _frequency_within(_annotation_float(annotation, "gnomad_af", "gnomadAf"), filters.max_gnomad_af):
             return False
         population_frequencies = _annotation_population_frequencies(annotation)
-        if not _nullable_lte(population_frequencies.get("gnomad_exomes_af"), filters.max_gnomad_exomes_af):
+        if not _frequency_within(population_frequencies.get("gnomad_exomes_af"), filters.max_gnomad_exomes_af):
             return False
-        if not _nullable_lte(population_frequencies.get("gnomad_genomes_af"), filters.max_gnomad_genomes_af):
+        if not _frequency_within(population_frequencies.get("gnomad_genomes_af"), filters.max_gnomad_genomes_af):
             return False
-        if not _nullable_lte(population_frequencies.get("gnomad_popmax_af"), filters.max_gnomad_popmax_af):
+        if not _frequency_within(population_frequencies.get("gnomad_popmax_af"), filters.max_gnomad_popmax_af):
             return False
-        if not _nullable_lte(population_frequencies.get("topmed_af"), filters.max_topmed_af):
+        if not _frequency_within(population_frequencies.get("topmed_af"), filters.max_topmed_af):
             return False
         if not _nullable_lte(_annotation_int(annotation, "gnomad_ac"), filters.max_gnomad_ac):
             return False
@@ -513,15 +535,14 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
             return False
 
     impact_terms = {_casefold(value) for value in filters.impact if str(value).strip()}
-    effect_terms = {_casefold(value) for value in filters.effect if str(value).strip()}
+    # A consequence value is read as the SQL reads it: terms VEP joins with & (or , ; | /)
+    # are each a term of their own (ENG-1).
+    effect_terms = {term for value in filters.effect for term in _annotation_terms(value)}
     any_impact_effect = bool(impact_terms or effect_terms or filters.min_spliceai is not None)
     if any_impact_effect:
         impact_match = bool(impact_terms) and _casefold(_annotation_text(annotation, "impact")) in impact_terms
         effect_match = bool(effect_terms) and bool(effect_terms.intersection(_annotation_terms(_annotation_effect(annotation))))
-        splice_match = (
-            filters.min_spliceai is not None
-            and (_annotation_spliceai_max(annotation) or -1.0) >= filters.min_spliceai
-        )
+        splice_match = _score_meets(_annotation_spliceai_max(annotation), filters.min_spliceai)
         if not (impact_match or effect_match or splice_match):
             return False
 
@@ -539,15 +560,9 @@ def _annotation_matches_normal(annotation: dict[str, Any], filters: SmallVariant
         or in_silico_prediction_pattern(filters.polyphen) is not None
     )
     if in_silico_requested:
-        cadd_match = filters.min_cadd is not None and (
-            (_annotation_float(annotation, "cadd_phred", "caddPhred") or -1.0) >= filters.min_cadd
-        )
-        revel_match = filters.min_revel is not None and (
-            (_annotation_float(annotation, "revel") or -1.0) >= filters.min_revel
-        )
-        splice_match = filters.min_spliceai is not None and (
-            (_annotation_spliceai_max(annotation) or -1.0) >= filters.min_spliceai
-        )
+        cadd_match = _score_meets(_annotation_float(annotation, "cadd_phred", "caddPhred"), filters.min_cadd)
+        revel_match = _score_meets(_annotation_float(annotation, "revel"), filters.min_revel)
+        splice_match = _score_meets(_annotation_spliceai_max(annotation), filters.min_spliceai)
         # The value names the prediction asked for, whatever its score: the SQL condition's
         # own test (CLIN-45). A whole-term match missed "deleterious(0.01)".
         sift_match = in_silico_prediction_matches(_annotation_sift(annotation), filters.sift)
