@@ -246,7 +246,9 @@ The API behind the page:
   (`sample_interval_track_sources`), which a failed overwrite's restore can leave behind its
   rows. The track datasets and Paraphase are skipped sample by sample (the HiFiCNV tracks of
   `cnv` track by track, its calls whole), and the dataset's message names what was skipped; a
-  dataset skipped whole ends `skipped`, not `imported`. A track dataset reads its own source's
+  dataset skipped whole ends `skipped`, not `imported`. The SNV family VCF is skipped when the
+  family holds small variants of the callset the file holds, which the message names
+  ([below](#the-small-variant-callset-an-import-records)). A track dataset reads its own source's
   track only ([Where each dataset lands](#where-each-dataset-lands)): a sample's coverage BED is
   imported though the sample holds WisecondorX bins, and its APCAD though it holds HiFiCNV's
   minor allele fraction.
@@ -298,9 +300,19 @@ that looks complete:
   do: the failing loader's rows were rolled back or cleaned up, so the
   update finds none and imports the dataset whole (one whose rows stayed is skipped, and a
   skipped dataset does not count; nor does a skipped sample: a dataset the update imported for
-  some samples and skipped for others counts as imported again for those it imported). A later
-  failure keeps an earlier one's failed datasets in the flag, each with the job that holds its
-  error (`failed_jobs`).
+  some samples and skipped for others counts as imported again for those it imported). A
+  dataset counts as imported again when the import ends it imported, imported with warnings
+  (the phenotype rows it refused left out, each named in the job), or registered when
+  the package carries nothing CoGA imports for it (phenotypes without an HPO row, per-sample
+  GLIMPSE2 BCFs, a family-level APCAD BED, a pipeline run record without its versions or
+  parameters): nothing of such a dataset can be missing, and its registration completes no
+  failure of data another import brought. A dataset registered for want of an assembly or of a
+  file it could read does not count. A later failure keeps an earlier one's failed datasets in
+  the flag, and a dataset that fails again for another callset or other samples keeps each:
+  the flag lists every scope a dataset failed for, each with the job that holds its error
+  (`failed_scopes`), and a dataset leaves it only once each has been brought again.
+  `failed_jobs` names the job of each dataset's latest failure, which the family pages and a
+  sign-out show.
 
 An import whose process stops part-way does none of this: nothing runs in a process that
 has ended. So an import marks the family before it writes anything of it, with an entry in
@@ -367,6 +379,17 @@ other's failure or entry only when their files hold the same callset: an import 
 does not bring again imputed genotypes the family held, nor the other way round. The import
 stores the file as that callset: a file that reads as another callset when its dataset's turn
 comes changed while the import ran, and is refused before anything of it is written.
+
+The SNV dataset's update check and its clean-up read that callset too, never an assumed one: an
+`update` skips the dataset when the family holds small variants of the callset its file holds
+(imputed genotypes are imported beside direct calls the family holds), and after a failure the
+clean-up removes the rows of that callset only (a failed import of imputed genotypes leaves the
+direct calls, and the other way round), which is the callset the flag names. An import that
+could not read the file when it began reads it when the dataset's turn comes; one it still
+cannot read is refused, as the loader refuses it, before anything is counted, written or
+removed. Before, both read the direct calls (`clair3`) whatever the file held: an update of
+imputed genotypes was skipped when the family held direct calls, and a failed import of
+imputed genotypes whose overwrite had no backup removed the direct calls.
 
 A record whose callset reads `auto` names no callset, and no import or upload completes it,
 whatever callset it stores: one written before imports recorded the callset they stored (such

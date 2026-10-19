@@ -922,7 +922,10 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
     assert flag is not None
     assert (flag["failed_datasets"], flag["imported_datasets"]) == (every, [])
     assert flag["failed_jobs"] == dict.fromkeys(every, JOB)
-    assert sorted(flag["scopes"]) == every
+    assert sorted(flag["failed_scopes"]) == every
+    assert all(
+        [item["job_id"] for item in failures] == [JOB] for failures in flag["failed_scopes"].values()
+    )
     # The sign-out reads every dataset failed. And the import's entry stays, every dataset
     # of the family pending (SAFE-16; before, it made way for the flag): the family holds
     # nothing an earlier import recorded, so that is this import's.

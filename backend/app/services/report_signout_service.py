@@ -389,7 +389,10 @@ async def _import_incomplete_state(
     ``failed_jobs`` names, for each failed dataset, the import job whose record holds its
     error: a later failure keeps an earlier import's failed datasets in the flag
     (``family_package_registration.merged_import_failure``), so they can come from
-    different jobs. A flag without it names its own job for every dataset.
+    different jobs. A flag without it names its own job for every dataset. A dataset that
+    failed for more than one scope (another callset, other samples) is named with the job of
+    its latest failure; the flag keeps every scope with its own job (``failed_scopes``),
+    which is not frozen.
     """
     raw = (
         await session.execute(

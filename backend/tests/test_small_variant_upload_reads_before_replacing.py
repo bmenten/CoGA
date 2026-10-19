@@ -489,7 +489,7 @@ async def test_a_write_that_fails_after_the_delete_flags_the_family_for_the_call
     flag = database.committed["flag"]
     assert flag is not None
     assert (flag["failed_datasets"], flag["imported_datasets"]) == (["snv"], [])
-    assert flag["scopes"] == {"snv": {"source": "clair3", "samples": None}}
+    assert flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
     assert flag["failed_jobs"] == {"snv": None} and flag["job_id"] is None
     assert database.commits == 1
     assert database.committed["imported"] == _IMPORTED
@@ -531,7 +531,9 @@ async def test_a_failed_write_of_imputed_genotypes_flags_the_haplotypes(stores) 
     assert database.committed["corrections"] == _STORED_CORRECTIONS
     flag = database.committed["flag"]
     assert flag["failed_datasets"] == ["haplotypes"]
-    assert flag["scopes"] == {"haplotypes": {"source": None, "samples": None}}
+    assert flag["failed_scopes"] == {
+        "haplotypes": [{"scope": {"source": None, "samples": None}, "job_id": None}]
+    }
 
 
 @pytest.mark.asyncio
