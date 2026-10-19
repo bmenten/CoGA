@@ -1,6 +1,6 @@
 # 5. Login & authenticatie
 
-Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA: hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een toegangstoken wordt uitgegeven en bij elk volgend verzoek gecontroleerd, hoe de sessie in de browser leeft en hoe het raden van wachtwoorden wordt afgeremd. Ook de optionele aanmelding via Azure AD en het registreren van een nieuw account komen aan bod. Wat een ingelogde gebruiker daarna mag zien, staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
+Dit hoofdstuk beschrijft hoe een gebruiker toegang krijgt tot CoGA. Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (Microsoft Entra ID, vroeger Azure AD); dat staat verderop, in *Aanmelden met Microsoft*. Daarnaast bestaat het lokale aanmelden met e-mailadres en wachtwoord: in ontwikkeling voor iedereen, en naast Microsoft alleen voor de noodbeheerder. Voor dat lokale aanmelden beschrijft het hoofdstuk hoe het inlogformulier zijn gegevens naar de backend stuurt, hoe wachtwoorden veilig worden bewaard, hoe een toegangstoken wordt uitgegeven en bij elk volgend verzoek gecontroleerd, hoe de sessie in de browser leeft en hoe het raden van wachtwoorden wordt afgeremd. Ook het registreren van een nieuw account komt aan bod. Wat een ingelogde gebruiker daarna mag zien, staat in [hoofdstuk 2](02-beveiliging-rollen-rechten.md).
 
 ## Begrippen
 
@@ -116,24 +116,40 @@ Iedereen kan zich registreren via `POST /auth/signup` (pagina `frontend/src/page
 - Het antwoord is altijd hetzelfde ("Registration received …"), of het adres nu nieuw is of al bestaat. Ook dat voorkomt het opsommen van accounts. Alleen bij een echt nieuw adres krijgt de beheerder een e-mail, als `ADMIN_EMAIL` is ingesteld.
 - De pagina toont die bevestiging: het account wacht op activatie.
 
-Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders); dat endpoint zet alleen actief of inactief. Een rol wijzigen kan in CoGA niet: er is geen endpoint of scherm voor, alleen een ingreep rechtstreeks in de databank. Projecttoegang regelt een beheerder in de projectinstellingen.
+Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders). Hetzelfde endpoint zet ook de globale rol (`viewer`, `superuser` of `admin`), op de pagina *Users* via een keuzelijst die eerst om bevestiging vraagt. Niemand wijzigt zijn eigen rol, en de rol van de noodbeheerder verandert niet; hij kan ook niet worden gedeactiveerd. De auditregel van het verzoek legt vast wat er veranderde, elk veld van en naar (`request_meta.account_change`). Projecttoegang regelt een beheerder in de projectinstellingen.
+
+Met Microsoft-aanmelding bestaat registreren niet: `POST /auth/signup` antwoordt `403`, en de eerste aanmelding met Microsoft maakt het account (hieronder).
 
 **Waar in de code:** `signup` en `update_user` in `backend/app/routers/auth.py`; het aanmaken van het account in `backend/app/services/metadata_service.py`; de minimale lengte in `backend/app/schemas/auth.py`.
 
-## Optioneel: Azure AD
+## Aanmelden met Microsoft (Azure AD / Entra ID)
 
-De backend kan tokens van **Azure AD** (Microsofts identiteitsdienst) aanvaarden zodra `AZURE_TENANT_ID` en `AZURE_CLIENT_ID` zijn ingesteld. De webinterface kent geen aanmelding via Azure: de inlogpagina vraagt altijd een lokaal token (`POST /auth/login`). Met Azure ingesteld raakt via de interface dus alleen een beheerder binnen, en dan enkel met de noodoverride hieronder. De backend controleert het token dan als een Azure-token: hij haalt Microsofts publieke sleutels op (met cache, en één keer opnieuw als Azure van sleutel wisselde), controleert de handtekening (RS256), de *audience* (de client-id) en de *issuer*, en leest het e-mailadres uit `preferred_username` of `email`. Is Azure ingesteld, dan aanvaardt de backend geen lokaal uitgegeven tokens meer, behalve via de noodoverride hieronder.
+Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (SEC-4). Microsoft Entra ID (vroeger Azure AD) controleert dan het wachtwoord en de tweede factor (MFA); IT regelt het opnieuw instellen van een wachtwoord en het afsluiten van wie vertrekt. De backend zet het aan zodra `AZURE_TENANT_ID` (het ID van de organisatie) en `AZURE_CLIENT_ID` (het ID van de app-registratie van CoGA) zijn ingesteld. Beide of geen van beide: de helft ervan, een tenant die geen GUID is (zoals `common`) of de noodoverride zonder Microsoft laat de backend niet starten. Wat IT daarvoor aanmaakt, staat in `docs/deployment-gcp.md` §12.11.
 
-**Noodoverride.** Faalt de Azure-controle én staat `AZURE_ADMIN_OVERRIDE` aan (standaard uit), dan probeert de server het token als lokaal token te lezen. Dat werkt alleen voor beheerders, en elk gebruik schrijft een waarschuwing naar de log, zodat een per ongeluk ingeschakelde override opvalt. Het is bedoeld om binnen te raken als de koppeling met Azure stuk is.
+**De aanmelding in vogelvlucht.**
 
-**Waar in de code:** `backend/app/core/azure.py` en de Azure-tak in `get_current_user` (`backend/app/dependencies.py`).
+1. De inlogpagina vraagt de backend hoe gebruikers zich aanmelden (`GET /auth/config`: het client-ID, de *authority* van de organisatie en de API-scope van CoGA; niets daarvan is geheim). Met Microsoft toont ze alleen de knop *Sign in with Microsoft*, zonder wachtwoordformulier en zonder registratie.
+2. De browser gaat met **MSAL** (`@azure/msal-browser`) naar Microsoft, met de *authorization code flow* met **PKCE**, en vraagt een toegangstoken voor de scope van CoGA (`api://<client-id>/access_as_user`). Microsoft vraagt altijd welk account verdergaat, zodat op een gedeelde pc niemand ongevraagd als zijn voorganger binnenkomt. De pagina die de gebruiker vroeg, gaat niet mee naar Microsoft: alleen een willekeurige sleutel, waaronder het pad in de sessieopslag van het tabblad wacht.
+3. Microsoft stuurt de browser terug naar `/login`. De pagina rondt de aanmelding af, vraagt met het token het profiel op (`GET /auth/me`), bewaart de sessie en opent de gevraagde pagina, als die van deze site is.
+4. Elk volgend verzoek draagt het Microsoft-token. Dat leeft ongeveer een uur: voor elk verzoek vraagt de API-client MSAL om het token, en MSAL vernieuwt het stil vóór het verloopt. MSAL bewaart zijn tokens in de sessieopslag van het tabblad; die verdwijnen als het tabblad sluit.
+
+**Het token controleren.** `get_current_user` kiest de controle op het algoritme in de kop van het token: RS256 is een Microsoft-token, HS256 een lokaal token. Een Microsoft-token wordt aanvaard als het ondertekend is met een van de gepubliceerde sleutels van de organisatie (opgehaald uit haar OpenID-configuratie, een dag bewaard, en voor een onbekende sleutel hoogstens om de vijf minuten opnieuw opgehaald), een token van versie 2.0 is van de eigen organisatie (`iss`, `tid`), voor de API van CoGA is en door CoGA zelf gevraagd (`aud` en `azp`: het client-ID), de scope van CoGA draagt (`scp`; het token van een applicatie zelf heeft er geen) en niet verlopen is (met een minuut speling). Een geweigerd token krijgt `401`; de reden (nooit het token) gaat naar de log, behalve bij een verlopen token.
+
+**Het account.** De backend zoekt het account op het object-ID van de gebruiker in Entra ID (`oid`, kolom `users.azure_object_id`), nooit op het e-mailadres. Bij de eerste aanmelding maakt hij het: rol `viewer`, actief, lid van geen enkel project, en dus zonder toegang tot patiëntgegevens tot een beheerder het aan een project toevoegt. Het account heeft geen wachtwoord (`hashed_password` bevat een merkteken waar geen wachtwoord bij past). E-mailadres en naam komen uit het token (`email`, anders `preferred_username`; `given_name` en `family_name`) en volgen het token als ze veranderen. Heeft een ander account dat e-mailadres of die gebruikersnaam al, dan weigert de backend de eerste aanmelding (`403`) en koppelt hij niets: een bestaand account wordt nooit via een e-mailadres overgenomen. Een gedeactiveerd account krijgt `401` met de melding dat het niet actief is. De auditregel van het verzoek dat het account maakte, zegt dat (`request_meta.account_change`).
+
+**De noodbeheerder.** Naast Microsoft bestaat één lokaal account: de noodbeheerder (*break-glass*), het account dat `ADMIN_USERNAME` noemt (`coga-admin` op Google Cloud), met een beheerdersrol die CoGA niet laat wijzigen, en actief: CoGA laat hem niet deactiveren, zodat de noodaanmelding werkt zodra de override aan staat. Zijn wachtwoord is `ADMIN_PASSWORD`: de seed vervangt de opgeslagen hash zodra die er niet meer bij past, dus wie het geheim roteert, roteert het wachtwoord. Hij meldt zich aan op `/login/emergency`, een pagina waarnaar de inlogpagina niet verwijst, en alleen zolang `AZURE_ADMIN_OVERRIDE` aan staat (standaard uit). Elk ander account, ook een andere beheerder, krijgt daar `403`, en een lokaal token dat niet van de noodbeheerder is, `401`. Elke noodaanmelding en elk verzoek dat ermee gebeurt, schrijft een waarschuwing (`azure_admin_override`) naar de log en wordt in de auditregel gemarkeerd (`request_meta.emergency_sign_in`, *Emergency sign-in* op de pagina *Audit logs*). Zet de override alleen aan voor een noodgeval en daarna weer uit.
+
+**Afmelden.** *Logout* wist de sessie van CoGA en de tokens van MSAL in het tabblad. De aanmelding bij Microsoft in de browser blijft; de inlogpagina biedt daarna *Sign out of Microsoft* aan, wat ook die beëindigt (aan te raden op een gedeelde pc).
+
+**Waar in de code:** `backend/app/core/azure.py` (de controle van het token), `backend/app/services/user_accounts.py` (het account en de noodbeheerder), de Microsoft-tak in `get_current_user` (`backend/app/dependencies.py`), `GET /auth/config` in `backend/app/routers/auth.py`, en in de browser `frontend/src/lib/microsoftSignIn.ts` en `frontend/src/pages/auth/LoginPage.tsx`.
 
 ## Veiligheid en traceerbaarheid
 
 - **Elk verzoek wordt gelogd,** ook elke loginpoging, met statuscode, tijdstip, bron-IP en user-agent (hoofdstuk 7). Een mislukte login is herkenbaar aan `400`, `403` of `429`.
 - **Wachtwoorden en tokens komen niet in de logs.** De auditlog maskeert gevoelige velden, ook in het formulier van `/auth/token`.
 - **De tabel `auth_login_attempts`** toont per e-mailadres en IP de mislukkingen en blokkeringen: bruikbaar om een aanval te herkennen.
-- **De noodoverride laat altijd een spoor na** in de log.
+- **De noodaanmelding laat altijd een spoor na** in de log en in de auditregel van elk verzoek (`request_meta.emergency_sign_in`).
+- **Een account dat de eerste Microsoft-aanmelding maakte, en elke wijziging van rol of activatie,** staan in de auditregel van het verzoek, elk veld van en naar (`request_meta.account_change`).
 - **Korte tokens en uitloggen bij `401`** beperken de gevolgen van een gelekt token.
 
 ## Belangrijkste bestanden
@@ -141,10 +157,12 @@ De backend kan tokens van **Azure AD** (Microsofts identiteitsdienst) aanvaarden
 | Bestand | Rol |
 | --- | --- |
 | `backend/app/routers/auth.py` | Login, token, registratie, profiel en gebruikersbeheer |
-| `backend/app/dependencies.py` | Wachtwoorden (bcrypt), tokens maken en controleren, Azure-tak |
-| `backend/app/core/azure.py` | Controle van Azure-tokens |
+| `backend/app/dependencies.py` | Wachtwoorden (bcrypt), tokens maken en controleren, Microsoft-tak en noodbeheerder |
+| `backend/app/core/azure.py` | Controle van Microsoft-tokens |
+| `backend/app/services/user_accounts.py` | Het account van een Microsoft-aanmelding; de noodbeheerder |
 | `backend/app/services/auth_rate_limit_pg.py` | Rate limiting en lockout |
 | `backend/app/schemas/auth.py` | Invoer van login en registratie (minimale wachtwoordlengte) |
 | `backend/db/schema/postgres/01_access.sql` | De tabellen `users` en `auth_login_attempts` |
-| `frontend/src/pages/auth/LoginPage.tsx` · `SignupPage.tsx` | Inloggen en registreren |
+| `frontend/src/pages/auth/LoginPage.tsx` · `SignupPage.tsx` | Inloggen (ook met Microsoft en op `/login/emergency`) en registreren |
+| `frontend/src/lib/microsoftSignIn.ts` | De aanmelding met Microsoft in de browser (MSAL) |
 | `frontend/src/lib/auth.ts` · `frontend/src/lib/storage.ts` | De sessie in de browser |

@@ -1,4 +1,5 @@
-// Logout — #521: it cleared the session but left the previous user's query cache.
+// Logout — #521: it cleared the session but left the previous user's query cache. A session
+// signed in with Microsoft also forgets the Microsoft account's tokens in the tab (SEC-4).
 // Main menu — the main sections behind the arrow at the right of the header; Admin only for an
 // admin.
 // Footer — the device label (TF-15 §1): the running build, the in-house IVD status and the
@@ -20,6 +21,9 @@ vi.mock('../../lib/telemetry', async (importOriginal) => ({
 
 const apiMock = vi.hoisted(() => ({ get: vi.fn() }));
 vi.mock('../../lib/api', () => ({ default: apiMock }));
+
+const microsoftSignIn = vi.hoisted(() => ({ forgetMicrosoftAccount: vi.fn() }));
+vi.mock('../../lib/microsoftSignIn', () => microsoftSignIn);
 
 const RUNNING_BUILD = { version: '0.1.0-beta.1', git_sha: '0123456789abcdef' };
 const CMGGMC_ROUTE = 'https://cmggmc.example.org/probleemmelding';
@@ -60,6 +64,24 @@ describe('Layout logout', () => {
     expect(telemetry.flushUiEventsNow).toHaveBeenCalledTimes(1);
     expect(queryClient.getQueryData(['family', 'F1'])).toBeUndefined();
     expect(localStorage.getItem('token')).toBeNull();
+    expect(screen.getByText('Login page')).toBeInTheDocument();
+    // A password session has no Microsoft account to forget.
+    expect(microsoftSignIn.forgetMicrosoftAccount).not.toHaveBeenCalled();
+  });
+
+  it('forgets the Microsoft account in the tab too after a Microsoft sign-in', () => {
+    microsoftSignIn.forgetMicrosoftAccount.mockResolvedValue(undefined);
+    localStorage.setItem('token', ['microsoft', 'session'].join('-'));
+    localStorage.setItem('username', 'alice@example.org');
+    localStorage.setItem('sign_in', 'microsoft');
+
+    renderLayout();
+
+    fireEvent.click(screen.getByRole('button', { name: /logout/i }));
+
+    expect(microsoftSignIn.forgetMicrosoftAccount).toHaveBeenCalledTimes(1);
+    expect(localStorage.getItem('token')).toBeNull();
+    expect(localStorage.getItem('sign_in')).toBeNull();
     expect(screen.getByText('Login page')).toBeInTheDocument();
   });
 });

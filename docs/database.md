@@ -8,9 +8,11 @@ reference.
 
 The schema is five idempotent baseline files in
 [backend/db/schema/postgres/](../backend/db/schema/postgres/), applied in name order on every
-start (see "Startup Behavior"). There is no migration ledger and no upgrade statement: each
-table is created in its final form, and a database from an older schema is reset, not
-migrated ([development.md](development.md#stop-and-reset)).
+start (see "Startup Behavior"). There is no migration ledger. Each table is created in its
+final form, and a database from an older schema is reset, not migrated
+([development.md](development.md#stop-and-reset)), with one upgrade statement:
+`01_access.sql` also adds `users.azure_object_id` with `ALTER TABLE … ADD COLUMN IF NOT
+EXISTS`, so a database made before Microsoft sign-in keeps its accounts (SEC-4).
 
 ### 01_access.sql: genome foundation and access
 
@@ -19,7 +21,7 @@ migrated ([development.md](development.md#stop-and-reset)).
 | `species` | organisms: name, common name, NCBI taxonomy id |
 | `assemblies` | genome assemblies per species |
 | `chromosomes` | chromosome sizes and cytobands per assembly |
-| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`), active flag |
+| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`), active flag, and for an account made at its first Microsoft sign-in the user's object ID in Microsoft Entra ID (`azure_object_id`, unique), by which every later sign-in finds it; such an account has no password (`hashed_password` holds a marker no password matches). A local account, such as the emergency administrator, has none (SEC-4) |
 | `projects` | projects, each bound to one species and assembly |
 | `project_users` | which users belong to which project; data access is scoped by project |
 | `auth_login_attempts` | failed-login counts and back-off per email and per client address, and sign-up attempts per address |

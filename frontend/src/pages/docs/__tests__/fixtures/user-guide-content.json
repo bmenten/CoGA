@@ -16,9 +16,9 @@
     "/variant-explorer"
    ]
   ],
-  "text": "GettingstartedTogetanaccount,chooseSignuponthesign-inpageandfillinCreateaccount.Youcansigninonceanadministratorhasactivatedtheaccountandgivenyouaccesstoyourprojects.Thearrowattherightofthetopbaropensamenuofthemainsections:theprojects,theexplorers,thegenepanels,thisguideand,foradministrators,Admin.Settingsinthesamebarholdsyourdisplaypreferences.CoGAkeepsthepedigree,theassaydataandyourinterpretationtogether,soacaseisreviewedasawhole:Aprojectdecideswhoseesthedataandwhichreferenceassemblyapplies.Youseeonlytheprojectsyoubelongto;administratorsseeeverythingandcreatetheprojects.Afamilyisthecase:relatedsampleswiththeirpedigree,rolesandaffectedstatus.Asamplecarriestheassaydata:variants,coverage,segments,repeatsandmore.Referencedata(genes,cytobands,ClinVar,gnomAD,clinicalCNVsandmore)belongstoanassemblyandissharedbyallprojectsonit.Reviewstate—classifications,tagsandnotes—isyourinterpretation,keptperfamily.UseCoGAsafely.Decisionsupportonly.Revieweverysuggestion,rankingandcall;CoGAmakesnodiagnosis.Screeningneedsconfirmation.Confirmanat-riskNIPTorcarrier-screeningfindingwithadiagnostictest.Validatedscopeonly.AfamilymarkedNotvalidatedforclinicaluseisoutsidethevalidatedassembly(GRCh38)andcannotbesignedout.CheckSampleQCbeforesign-out:itconfirmsthatthesamplesarewhothepedigreesays.Sign-outclosestheanalysis.Itistheanalyst'ssign-off,notthemedicalone:theclinicalreportisdraftedandmedicallysignedintheEPDandreferstothesignedversion.Onlypeoplethelaboratoryauthorisessignout;CoGAdoesnotcheckwhomay.ReviewingacaseOnthedashboard,searchforaproject,familyorsample,andopenthefamily.Onthefamilypage,picktheanalysisthatfitsthequestion.Abuttonappearsonlywhenthefamilyhasthatkindofdata.CheckSampleQCbeforeyouinterpret.Buildashortlistinthevariantlistbeforeyouopentheviewers.Recordyourinterpretationasyougo:classification,tagsandnotes.TagthevariantstoreportwithReport,checkthedraftedreport,andhavesomeonethelaboratoryauthorisessignouttheanalysis.TheclinicalreportisthendraftedandmedicallysignedintheEPD,referringtothatsignedversion.Tosetupanewcase,seeCasesetupanddataimport.Notfindingavariantyouexpect?TheSmallvariantspageopenswithadefaultfilter:thePhenotypeprioritypresetontheMendeliomepanel(rare,HIGHorMODERATEimpact,carriedbytheaffectedmembers).PressClearallfiltersbeforeyouconcludethatavariantismissing.TheVariantExplorerleavesoutimputedcallsunlessyoutickIncludeimputedvariants.",
+  "text": "GettingstartedChooseSigninwithMicrosoftandsigninwiththeMicrosoftaccountofyourhospitaloruniversity.Yourfirstsign-inmakesyourCoGAaccount;youseeaproject'sdataonceanadministratorhasgivenyouaccesstoit.WhereCoGArunswithoutMicrosoftsign-in,chooseSignuponthesign-inpageandfillinCreateaccountinstead:youcansigninonceanadministratorhasactivatedtheaccountandgivenyouaccesstoyourprojects.LogoutsignsyououtofCoGA;onasharedcomputer,thenchooseSignoutofMicrosoftonthesign-inpagetoo.Thearrowattherightofthetopbaropensamenuofthemainsections:theprojects,theexplorers,thegenepanels,thisguideand,foradministrators,Admin.Settingsinthesamebarholdsyourdisplaypreferences.CoGAkeepsthepedigree,theassaydataandyourinterpretationtogether,soacaseisreviewedasawhole:Aprojectdecideswhoseesthedataandwhichreferenceassemblyapplies.Youseeonlytheprojectsyoubelongto;administratorsseeeverythingandcreatetheprojects.Afamilyisthecase:relatedsampleswiththeirpedigree,rolesandaffectedstatus.Asamplecarriestheassaydata:variants,coverage,segments,repeatsandmore.Referencedata(genes,cytobands,ClinVar,gnomAD,clinicalCNVsandmore)belongstoanassemblyandissharedbyallprojectsonit.Reviewstate—classifications,tagsandnotes—isyourinterpretation,keptperfamily.UseCoGAsafely.Decisionsupportonly.Revieweverysuggestion,rankingandcall;CoGAmakesnodiagnosis.Screeningneedsconfirmation.Confirmanat-riskNIPTorcarrier-screeningfindingwithadiagnostictest.Validatedscopeonly.AfamilymarkedNotvalidatedforclinicaluseisoutsidethevalidatedassembly(GRCh38)andcannotbesignedout.CheckSampleQCbeforesign-out:itconfirmsthatthesamplesarewhothepedigreesays.Sign-outclosestheanalysis.Itistheanalyst'ssign-off,notthemedicalone:theclinicalreportisdraftedandmedicallysignedintheEPDandreferstothesignedversion.Onlypeoplethelaboratoryauthorisessignout;CoGAdoesnotcheckwhomay.ReviewingacaseOnthedashboard,searchforaproject,familyorsample,andopenthefamily.Onthefamilypage,picktheanalysisthatfitsthequestion.Abuttonappearsonlywhenthefamilyhasthatkindofdata.CheckSampleQCbeforeyouinterpret.Buildashortlistinthevariantlistbeforeyouopentheviewers.Recordyourinterpretationasyougo:classification,tagsandnotes.TagthevariantstoreportwithReport,checkthedraftedreport,andhavesomeonethelaboratoryauthorisessignouttheanalysis.TheclinicalreportisthendraftedandmedicallysignedintheEPD,referringtothatsignedversion.Tosetupanewcase,seeCasesetupanddataimport.Notfindingavariantyouexpect?TheSmallvariantspageopenswithadefaultfilter:thePhenotypeprioritypresetontheMendeliomepanel(rare,HIGHorMODERATEimpact,carriedbytheaffectedmembers).PressClearallfiltersbeforeyouconcludethatavariantismissing.TheVariantExplorerleavesoutimputedcallsunlessyoutickIncludeimputedvariants.",
   "paragraphs": [
-   "To get an account, choose Sign up on the sign-in page and fill in Create account. You can sign in once an administrator has activated the account and given you access to your projects. The arrow at the right of the top bar opens a menu of the main sections: the projects, the explorers, the gene panels, this guide and, for administrators, Admin. Settings in the same bar holds your display preferences.",
+   "Choose Sign in with Microsoft and sign in with the Microsoft account of your hospital or university. Your first sign-in makes your CoGA account; you see a project's data once an administrator has given you access to it. Where CoGA runs without Microsoft sign-in, choose Sign up on the sign-in page and fill in Create account instead: you can sign in once an administrator has activated the account and given you access to your projects. Logout signs you out of CoGA; on a shared computer, then choose Sign out of Microsoft on the sign-in page too. The arrow at the right of the top bar opens a menu of the main sections: the projects, the explorers, the gene panels, this guide and, for administrators, Admin. Settings in the same bar holds your display preferences.",
    "CoGA keeps the pedigree, the assay data and your interpretation together, so a case is reviewed as a whole:",
    "To set up a new case, see Case setup and data import."
   ],
@@ -107,11 +107,23 @@
   "inline": [
    [
     "strong",
+    "Sign in with Microsoft"
+   ],
+   [
+    "strong",
     "Sign up"
    ],
    [
     "strong",
     "Create account"
+   ],
+   [
+    "strong",
+    "Logout"
+   ],
+   [
+    "strong",
+    "Sign out of Microsoft"
    ],
    [
     "strong",
@@ -2841,7 +2853,7 @@
     "/admin/monitoring/audit-logs"
    ]
   ],
-  "text": "Administratortoolssitbehindadminaccess.Admin,inthetop-barmenuoronthedashboard,openstheadmindashboard,groupedinsixareas.ReferenceDataSpecies&Assemblies—thegenomebuildsandtheirreferencedata(cytobands,genes,clinicalCNVs,segmentalduplications,DGV),witheachdataset'sstatus.Refreshthehumangeneinformation,rebuildtheclinical-CNVknowledgebase,oruploadareferencefile.GenePanels—thepanelcatalogue:createpanels,importthemfromPanelApp,andseetheirgenes.HPOTerminology—theHPOreleaseinuse;previewandapplyanewrelease.MonarchData—loadtheMonarchrelease(gene–diseaseanddisease–phenotypelinks)thatpowersphenotypematchingandtheranking.Loaditonceafterinstallationandaboutmonthly;loadingitalsorebuildstheMendeliomepanel.User&AccessManagementUsers—accounts,rolesandactivation.Activateanewaccounthere;deactivateonetorevokeaccesswithoutdeletingitshistory.Projects&Access—theprojects(eachtiedtoanassembly)andwhichfamilies,samplesandusersbelongtothem.Auserseesonlythedataoftheirprojects,andthecohortcountsintheexplorersfollowthesamescope.DataManagementFamily&SampleData—theinventoryoffamiliesandsamples:openafamily'smembersanddata,changeitsprojects,downloadandverifytheoriginalimportfiles,ordeleteadatalayer,asampleorafamily(thiscannotbeundoneandisrecordedintheauditlog).Deletingasampletakesoutonlyitsowncalls:theothermembers'smallvariantsstayastheywere,ineverycallset.Afilekeptinastoragebucketisnotdownloadedhere;Verifychecksitagainstthebucket'srecordofitinsteadofitsSHA-256.Afilerecordedoutsidetheimportfolders(FAMILY_IMPORT_ROOTS)andCoGA'suploadfolderisshownasunavailable,andisneitherdownloadednorverified.DeletingasampleorafamilydeletesCoGA'sowncopiesofitsuploadedfiles,neverapackage'sfiles.FamilyStatuses—theworkflowstatusesanalystsgiveacase.SequencingQCThresholds—thewarninganderrorcut-offsperassaybehindtheSeq.QCchip.Noneshipbydefault;ametricwithoutacut-offreadsasnotassessed,andasamplewithnocut-offforanyofitsmetricsshowsNotrunonthechip.PackageImport—importafamilypackage(seeCasesetupanddataimport).VariantConfigurationVariantTags—create,rename,recolourorremovecustomreviewtags,foroneprojectorforeveryone.Arenamedtagstaysoneveryreviewandsavedfilterthatusesit;aremovedtagstaysonthereviewsthatholdit,markeddeleted,andcannolongerbeadded.Thebuilt-inandACMGtagsarelistedforreference.PresetFilters—thecatalogueofthesmall-variantpresetstheteamuses.Presetsaresavedonthesmall-variantpage.Database&OperationsClickHouseTables&Operations—technicaldatabasemaintenance,forthebioinformaticsteam.Eachassemblyshowsthelastresultofthescheduledintegritycheckandwhenitran;Integritycheckrunsonenow.Monitoring&AuditAuditLogs—everyrequesttotheserver(who,what,when,theoutcome)andeverybuttonandlinkauserclicked.Identifiersaremasked,sothelogshowshowCoGAisusedwithoutexposingpatientdata.TheFlagscolumnmarksarequestforafamily,sampleorprojectoutsidetheuser'sprojects,whichCoGAansweredasforanunknownone,andarowinwhichavaluethedatabasecannotstorewassavedasanescape,namingthecolumns.Itisseparatefromeachfamily'sClassificationaudittrailonthereport.",
+  "text": "Administratortoolssitbehindadminaccess.Admin,inthetop-barmenuoronthedashboard,openstheadmindashboard,groupedinsixareas.ReferenceDataSpecies&Assemblies—thegenomebuildsandtheirreferencedata(cytobands,genes,clinicalCNVs,segmentalduplications,DGV),witheachdataset'sstatus.Refreshthehumangeneinformation,rebuildtheclinical-CNVknowledgebase,oruploadareferencefile.GenePanels—thepanelcatalogue:createpanels,importthemfromPanelApp,andseetheirgenes.HPOTerminology—theHPOreleaseinuse;previewandapplyanewrelease.MonarchData—loadtheMonarchrelease(gene–diseaseanddisease–phenotypelinks)thatpowersphenotypematchingandtheranking.Loaditonceafterinstallationandaboutmonthly;loadingitalsorebuildstheMendeliomepanel.User&AccessManagementUsers—accounts,howeachsignsin(Microsoftorapassword),rolesandactivation.Acolleague'sfirstMicrosoftsign-inmakestheiraccount,aviewerinnoproject.Setanaccount'sroleinitsRolelist(CoGAasksyoutoconfirm;youcannotchangeyourown).Activateanewaccounthere;deactivateonetorevokeaccesswithoutdeletingitshistory.Projects&Access—theprojects(eachtiedtoanassembly)andwhichfamilies,samplesandusersbelongtothem.Auserseesonlythedataoftheirprojects,andthecohortcountsintheexplorersfollowthesamescope.DataManagementFamily&SampleData—theinventoryoffamiliesandsamples:openafamily'smembersanddata,changeitsprojects,downloadandverifytheoriginalimportfiles,ordeleteadatalayer,asampleorafamily(thiscannotbeundoneandisrecordedintheauditlog).Deletingasampletakesoutonlyitsowncalls:theothermembers'smallvariantsstayastheywere,ineverycallset.Afilekeptinastoragebucketisnotdownloadedhere;Verifychecksitagainstthebucket'srecordofitinsteadofitsSHA-256.Afilerecordedoutsidetheimportfolders(FAMILY_IMPORT_ROOTS)andCoGA'suploadfolderisshownasunavailable,andisneitherdownloadednorverified.DeletingasampleorafamilydeletesCoGA'sowncopiesofitsuploadedfiles,neverapackage'sfiles.FamilyStatuses—theworkflowstatusesanalystsgiveacase.SequencingQCThresholds—thewarninganderrorcut-offsperassaybehindtheSeq.QCchip.Noneshipbydefault;ametricwithoutacut-offreadsasnotassessed,andasamplewithnocut-offforanyofitsmetricsshowsNotrunonthechip.PackageImport—importafamilypackage(seeCasesetupanddataimport).VariantConfigurationVariantTags—create,rename,recolourorremovecustomreviewtags,foroneprojectorforeveryone.Arenamedtagstaysoneveryreviewandsavedfilterthatusesit;aremovedtagstaysonthereviewsthatholdit,markeddeleted,andcannolongerbeadded.Thebuilt-inandACMGtagsarelistedforreference.PresetFilters—thecatalogueofthesmall-variantpresetstheteamuses.Presetsaresavedonthesmall-variantpage.Database&OperationsClickHouseTables&Operations—technicaldatabasemaintenance,forthebioinformaticsteam.Eachassemblyshowsthelastresultofthescheduledintegritycheckandwhenitran;Integritycheckrunsonenow.Monitoring&AuditAuditLogs—everyrequesttotheserver(who,what,when,theoutcome)andeverybuttonandlinkauserclicked.Identifiersaremasked,sothelogshowshowCoGAisusedwithoutexposingpatientdata.TheFlagscolumnmarksarequestforafamily,sampleorprojectoutsidetheuser'sprojects,whichCoGAansweredasforanunknownone,arowinwhichavaluethedatabasecannotstorewassavedasanescape,namingthecolumns,anaccountmadeatitsfirstMicrosoftsign-inorwhoseroleoractivationchanged(fromandto),andeveryrequestoftheemergencyadministrator'spasswordsign-in(Emergencysign-in).Itisseparatefromeachfamily'sClassificationaudittrailonthereport.",
   "paragraphs": [
    "Administrator tools sit behind admin access. Admin, in the top-bar menu or on the dashboard, opens the admin dashboard, grouped in six areas."
   ],
@@ -2872,7 +2884,7 @@
    ],
    [
     "li",
-    "Users — accounts, roles and activation. Activate a new account here; deactivate one to revoke access without deleting its history."
+    "Users — accounts, how each signs in (Microsoft or a password), roles and activation. A colleague's first Microsoft sign-in makes their account, a viewer in no project. Set an account's role in its Role list (CoGA asks you to confirm; you cannot change your own). Activate a new account here; deactivate one to revoke access without deleting its history."
    ],
    [
     "li",
@@ -2924,7 +2936,7 @@
    ],
    [
     "li",
-    "Audit Logs — every request to the server (who, what, when, the outcome) and every button and link a user clicked. Identifiers are masked, so the log shows how CoGA is used without exposing patient data. The Flags column marks a request for a family, sample or project outside the user's projects, which CoGA answered as for an unknown one, and a row in which a value the database cannot store was saved as an escape, naming the columns. It is separate from each family's Classification audit trail on the report."
+    "Audit Logs — every request to the server (who, what, when, the outcome) and every button and link a user clicked. Identifiers are masked, so the log shows how CoGA is used without exposing patient data. The Flags column marks a request for a family, sample or project outside the user's projects, which CoGA answered as for an unknown one, a row in which a value the database cannot store was saved as an escape, naming the columns, an account made at its first Microsoft sign-in or whose role or activation changed (from and to), and every request of the emergency administrator's password sign-in (Emergency sign-in). It is separate from each family's Classification audit trail on the report."
    ]
   ],
   "inline": [
@@ -2961,6 +2973,10 @@
    [
     "strong",
     "Users"
+   ],
+   [
+    "strong",
+    "Role"
    ],
    [
     "strong",
@@ -3030,6 +3046,10 @@
    [
     "strong",
     "Flags"
+   ],
+   [
+    "strong",
+    "Emergency sign-in"
    ],
    [
     "em",

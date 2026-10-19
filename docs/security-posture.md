@@ -11,13 +11,38 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 
 ## 1. Authentication & RBAC
 
-- ✅ **Sign-in.** JWT bearer tokens (HS256), with optional Azure AD. Without Azure, local
-  tokens work for everyone; with Azure, a local token is accepted only from an admin and only
-  with `AZURE_ADMIN_OVERRIDE` on (below).
+- ✅ **Sign-in with Microsoft (SEC-4).** With Azure AD (Microsoft Entra ID) configured
+  (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`), users sign in with their hospital or university
+  Microsoft account: Entra ID checks the password and MFA, and IT handles password resets
+  and leavers. The browser (MSAL, `frontend/src/lib/microsoftSignIn.ts`) uses the
+  authorization code flow with PKCE and sends Microsoft's access token for CoGA's API scope
+  as the bearer. `core/azure.py` accepts it only when it is signed (RS256) with one of the
+  directory's published keys (fetched from its OpenID configuration, kept a day, fetched
+  again for an unknown key at most every five minutes), is a version 2.0 token of CoGA's own
+  directory (`iss`, `tid`), is for CoGA's API and asked for by CoGA itself (`aud` and `azp`,
+  the application ID), carries CoGA's scope (`scp`: an application's own token has none) and
+  is within its lifetime (one minute's leeway). The account is the one bound to the token's
+  object ID (`oid`, `users.azure_object_id`), never one found by an e-mail address: a first
+  sign-in makes it, a viewer in no project who sees no patient data until an administrator
+  adds them to a project, and a first sign-in whose e-mail address or user name another
+  account has is refused (403) rather than linked (`services/user_accounts.py`). A
+  deactivated account is refused with a 401 that says so. With Microsoft sign-in the
+  password sign-in and the sign-up are refused, except for the emergency administrator
+  (below). A half configuration (a tenant without a client ID, a tenant that is no GUID such
+  as `common`, a scope or the override without Azure AD) is refused at startup, in every
+  environment.
+- ✅ **Without Microsoft sign-in** (development), JWT bearer tokens (HS256) that the
+  password sign-in issues work for every account.
   See `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`). Roles are
   `admin`, `superuser` and `viewer`; every admin check goes through `ADMIN_ROLES`
   (`services/access_control.py`), so a superuser is an admin everywhere, and
   `test_admin_role_checks.py` fails on any comparison with the literal `"admin"`.
+- ✅ **Roles are set in the UI, and audited.** An administrator sets an account's global role
+  (viewer, superuser, admin) on the *Users* page (`PATCH /api/auth/users/{id}` with `role`),
+  asked to confirm each change. Nobody changes their own role, and the emergency
+  administrator keeps its role and cannot be deactivated. The request's audit row records what changed,
+  each field from and to (`request_meta.account_change`), and so does an activation change
+  and an account a first Microsoft sign-in made. Project access stays on the project pages.
 - ✅ **Access is scoped by project.** Every family, sample and variant endpoint resolves
   access through one checkpoint: `build_family_metadata_context`
   (`services/family_metadata_context.py`) → `get_accessible_family_mapping`
@@ -165,21 +190,39 @@ is open to a viewer with a project) can learn from that that the ID exists, but 
 about it. Closing that would take IDs scoped per project.
 
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
-cookies would add CSRF surface and rework the Azure and telemetry paths, so the damage an XSS
-could do is bounded instead by the app's CSP, which allows no inline or outside scripts
-(§4a), and by a 2-hour token lifetime (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request
-re-checks `is_active`, so deactivating a user ends their access at once. A leaked token of a still-active user stays
-valid until it expires; there is no revocation list. For a single-lab internal deployment
-this is an **accepted residual**.
+cookies would add CSRF surface and rework the Microsoft sign-in and telemetry paths, so the
+damage an XSS could do is bounded instead by the app's CSP, which allows no inline or
+outside scripts (§4a), and by the token lifetime: about an hour for Microsoft's access
+token, which MSAL renews silently before each API request with its refresh token (kept in
+the tab's `sessionStorage`, gone when the tab closes), and 2 hours for a local token
+(`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks `is_active`, so deactivating a user
+ends their access at once. A leaked token of a still-active user stays valid until it
+expires; there is no revocation list, and CoGA's sign-out does not end the Microsoft session
+in the browser (the sign-in page offers *Sign out of Microsoft*). For a single-lab internal
+deployment this is an **accepted residual**.
 
-**Azure local-admin fallback (break-glass).** With Azure AD configured,
-`AZURE_ADMIN_OVERRIDE` (default off) lets an admin sign in with a local token when Azure is
-unreachable. That widens the admin trust boundary to anyone holding `SECRET_KEY`, so keep it
-off in production unless a break-glass path is required.
+**Emergency (break-glass) administrator.** With Microsoft sign-in there is one local
+account, the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on
+Google Cloud), seeded by the deployment, bound to no Microsoft object ID, with an
+administrator's role that CoGA will not change, and active: CoGA will not deactivate it, so
+the break-glass sign-in works whenever the override is switched on. Its password is `ADMIN_PASSWORD` (Secret
+Manager): the seed replaces the stored hash whenever it no longer matches, so rotating the
+secret rotates the password. It signs in with that password at `/login/emergency`, and only
+while `AZURE_ADMIN_OVERRIDE` is on (default off, deployment-gcp.md §12.11); any other
+account's password, and any local token not its own, is refused. Every such sign-in and every
+request made with it is logged (`azure_admin_override`, WARNING) and flagged in its audit row
+(`request_meta.emergency_sign_in`, *Emergency sign-in* on the *Audit logs* page). While the
+override is on, the admin trust boundary includes anyone holding `SECRET_KEY` or the
+emergency password, without MFA, so switch it on only for an emergency and off afterwards.
+The page is not linked from the sign-in page, so nobody is led to type a Microsoft password
+into CoGA.
 
 **Accepted residual: staff roster.** `GET /api/users` returns names and e-mail addresses to
 any signed-in user, for the reviewer picker. CoGA is installed for one lab, where all users
-are colleagues, so there is no tenant boundary to protect.
+are colleagues, so there is no tenant boundary to protect. With Microsoft sign-in this holds
+only while the app registration requires assignment to the lab's group (deployment-gcp.md
+§12.11): any other member of the directory who could sign in would get an account, and so
+see the roster, though no patient data.
 
 ## 2. Access / audit logging
 
@@ -193,6 +236,12 @@ are colleagues, so there is no tenant boundary to protect.
   *Audit logs* page flags the row in its *Flags* column (*Family outside the user's projects*),
   and shows nothing else of `request_meta`, which also holds two request headers
   (`AdminAuditLogsPage.tsx`).
+- ✅ **Accounts made and changed, and the emergency sign-in, stay visible in the audit
+  (SEC-4).** The row of the request that made an account at a first Microsoft sign-in, or
+  changed an account's role or activation, carries `request_meta.account_change`: the account,
+  and each field from and to. The emergency administrator's password sign-in, and every
+  request made with it, carries `request_meta.emergency_sign_in`. The *Audit logs* page flags
+  both in its *Flags* column (*Account …: role viewer → admin*, *Emergency sign-in*).
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
 - ✅ **Append-only.** A trigger in `04_traceability.sql` blocks DELETE and UPDATE on
@@ -324,7 +373,11 @@ What the application relies on there:
 ### 4a. Web tier: the single-page app and its `/api` proxy
 
 - ✅ **Logout leaves nothing behind.** It flushes the pending UI telemetry, clears the query
-  cache (which holds family data) and only then the session. Login starts with an empty cache.
+  cache (which holds family data) and only then the session, and after a Microsoft sign-in
+  MSAL's accounts and tokens in the tab. Login starts with an empty cache. The Microsoft
+  sign-in always asks which account continues, so a shared workstation never signs the next
+  person in as the previous one silently, and the page CoGA asked for before it travels to
+  Microsoft only as a random key (the path, with any family ID in it, stays in the tab).
 - ✅ **Encoded path segments.** API paths are built with `apiPath` (`lib/apiPath.ts`), which
   percent-encodes every identifier, so an imported id such as `../families/F1` cannot
   redirect a call. Query strings go through `raw()`. The URLs the backend hands the browser
@@ -354,7 +407,9 @@ What the application relies on there:
   setting as a boolean, so `1` or `True` would turn on the API's header alone.
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
   changing set of hosts and a signed CRAM URL points at the object store. A deployment that
-  knows its hosts narrows it with `CSP_CONNECT_SRC`. `style-src` keeps `'unsafe-inline'`
+  knows its hosts narrows it with `CSP_CONNECT_SRC`, keeping
+  `https://login.microsoftonline.com` with Microsoft sign-in (the browser fetches its tokens
+  there). `style-src` keeps `'unsafe-inline'`
   because IGV injects inline styles.
 - ✅ **Docker Compose** publishes Postgres, ClickHouse and the backend on loopback only, and
   the frontend container gets only the settings its server reads.

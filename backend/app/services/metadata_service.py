@@ -89,6 +89,7 @@ def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
         first_name=mapping.get("first_name") or "",
         last_name=mapping.get("last_name") or "",
         affiliation=mapping.get("affiliation") or "",
+        sign_in="microsoft" if mapping.get("azure_object_id") else "password",
         is_active=bool(mapping["is_active"]),
         role=mapping["role"],
         projects=_string_list(mapping.get("metadata_project_ids")),
@@ -205,6 +206,7 @@ async def _fetch_user_mapping_by_email(session: AsyncSession, email: str) -> dic
                 u.affiliation,
                 u.is_active,
                 u.created_at,
+                u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
                     FILTER (WHERE pu.project_id IS NOT NULL),
@@ -237,6 +239,7 @@ async def _fetch_user_mapping_by_id(session: AsyncSession, user_id: str) -> dict
                 u.affiliation,
                 u.is_active,
                 u.created_at,
+                u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
                     FILTER (WHERE pu.project_id IS NOT NULL),
@@ -268,6 +271,7 @@ async def _fetch_all_user_mappings(session: AsyncSession) -> list[dict[str, Any]
                 u.affiliation,
                 u.is_active,
                 u.created_at,
+                u.azure_object_id::text AS azure_object_id,
                 COALESCE(
                     ARRAY_AGG(DISTINCT pu.project_id::text)
                     FILTER (WHERE pu.project_id IS NOT NULL),
@@ -295,6 +299,7 @@ async def get_current_user_by_email(session: AsyncSession, email: str) -> Curren
         first_name=mapping.get("first_name") or "",
         last_name=mapping.get("last_name") or "",
         affiliation=mapping.get("affiliation") or "",
+        azure_object_id=mapping.get("azure_object_id"),
         is_active=bool(mapping["is_active"]),
         role=mapping["role"],
         projects=metadata_project_ids,
@@ -383,27 +388,59 @@ async def list_user_accounts(session: AsyncSession) -> list[UserRead]:
     return [_user_read_from_mapping(mapping) for mapping in await _fetch_all_user_mappings(session)]
 
 
+async def get_user_account_mapping(session: AsyncSession, user_id: str) -> dict[str, Any] | None:
+    """One account's row as the account list reads it, or None."""
+    return await _fetch_user_mapping_by_id(session, user_id)
+
+
 async def update_user_account(
     session: AsyncSession,
     *,
     user_id: str,
     is_active: bool | None,
-) -> UserRead:
-    mapping = await _fetch_user_mapping_by_id(session, user_id)
-    if mapping is None:
+    role: str | None = None,
+) -> tuple[UserRead, dict[str, dict[str, Any]]]:
+    """Set an account's activation and its global role (SEC-4).
+
+    Returns the account and what changed, each field as ``{"from": ..., "to": ...}``: the
+    request audit records it (``request_meta.account_change``). The row is locked while it is
+    read and changed, so the "from" is the value the change replaced.
+    """
+    current = (
+        await session.execute(
+            text("SELECT role, is_active FROM users WHERE id = CAST(:user_id AS uuid) FOR UPDATE"),
+            {"user_id": user_id},
+        )
+    ).mappings().first()
+    if current is None:
         raise HTTPException(status_code=404, detail="User not found")
 
-    if is_active is not None:
+    changes: dict[str, dict[str, Any]] = {}
+    if is_active is not None and is_active != current["is_active"]:
+        changes["is_active"] = {"from": bool(current["is_active"]), "to": is_active}
+    if role is not None and role != current["role"]:
+        changes["role"] = {"from": current["role"], "to": role}
+    if changes:
         await session.execute(
-            text("UPDATE users SET is_active = :is_active WHERE id = CAST(:user_id AS uuid)"),
-            {"user_id": user_id, "is_active": is_active},
+            text(
+                """
+                UPDATE users
+                SET is_active = :is_active, role = :role
+                WHERE id = CAST(:user_id AS uuid)
+                """
+            ),
+            {
+                "user_id": user_id,
+                "is_active": changes.get("is_active", {}).get("to", current["is_active"]),
+                "role": changes.get("role", {}).get("to", current["role"]),
+            },
         )
-        await session.commit()
+    await session.commit()
 
     updated_mapping = await _fetch_user_mapping_by_id(session, user_id)
     if updated_mapping is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return _user_read_from_mapping(updated_mapping)
+    return _user_read_from_mapping(updated_mapping), changes
 
 
 async def list_species_records(session: AsyncSession) -> list[SpeciesOut]:
