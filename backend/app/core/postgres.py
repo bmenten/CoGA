@@ -142,11 +142,18 @@ def _split_sql_script(contents: str) -> list[str]:
 
 
 async def init_postgres_schema() -> None:
+    """Bring the database to this version's schema, as the table owner, in one transaction.
+
+    Until the release candidate this re-applies the baseline files, then runs the Alembic
+    revisions the ledger lacks (core/postgres_migrations.py).
+    """
+
+    # Imported here: postgres_migrations reads the baseline helpers above from this module.
+    from .postgres_migrations import apply_postgres_schema
+
     engine = get_postgres_engine()
     async with engine.begin() as conn:
-        for path in _schema_files():
-            for statement in _split_sql_script(path.read_text()):
-                await conn.exec_driver_sql(statement)
+        await apply_postgres_schema(conn)
 
 
 async def close_postgres_engine() -> None:

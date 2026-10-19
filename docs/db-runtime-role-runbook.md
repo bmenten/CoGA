@@ -20,10 +20,11 @@ The switch is a configuration change; the application needs no code change:
   self-migrates as the owner — the current single-DSN deployment, unchanged.
 - The owner-privileged migration is exposed as a standalone entrypoint,
   `python -m backend.app.db_migrate` (`python -m app.db_migrate` inside the backend image).
-  It applies the schema and seeds the admin user, and with `POSTGRES_APP_PASSWORD` set it
-  also enables `coga_app`'s login (step 2). Both the startup path and this entrypoint call
-  the same `init_postgres_schema` / `init_postgres_admin_user`, so there is one source of
-  truth for the schema apply.
+  It migrates the schema (the baselines, then the Alembic revisions the ledger
+  `alembic_version` lacks: [database.md](database.md#schema-migrations)) and seeds the admin
+  user, and with `POSTGRES_APP_PASSWORD` set it also enables `coga_app`'s login (step 2). Both
+  the startup path and this entrypoint call the same `init_postgres_schema` /
+  `init_postgres_admin_user`, so there is one source of truth for the schema apply.
 - On Google Cloud the whole switch is one Terraform variable, `db_runtime_role` (see
   "Google Cloud" below).
 
@@ -42,7 +43,8 @@ The switch is a configuration change; the application needs no code change:
 | Application runtime | **`coga_app`** | least privilege; cannot bypass the append-only controls |
 
 Do **not** make migrations run as `coga_app` — it deliberately cannot create or alter
-tables or manage triggers.
+tables or manage triggers, and it may read the schema ledger (`alembic_version`) but not write
+it. The migration step refuses to run as `coga_app`, before it changes anything.
 
 ## Steps
 
@@ -156,3 +158,7 @@ coga_app;` in `05_grants.sql`, after the broad `GRANT` — the `GRANT … ON ALL
 Add it to `_APPEND_ONLY` in `test_app_role_privileges.py` as well: the test fails for a
 trigger-guarded table it does not list, which is how `qc_threshold_changes` would have been
 caught when it shipped with its trigger but without the `REVOKE`.
+
+A change to a table that already exists also needs an Alembic revision, which the migration
+step runs as the owner, before the rollout in this mode
+([database.md](database.md#schema-migrations)).

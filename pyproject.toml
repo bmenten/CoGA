@@ -86,3 +86,10 @@ markers = [
 [tool.coverage.run]
 relative_files = true
 concurrency = ["greenlet", "thread"]
+
+# Alembic's command line, for writing a Postgres schema revision from the repository root:
+# `alembic revision --rev-id <next number> -m "<what it changes>"` (docs/database.md, "Schema
+# migrations"). The revisions run only through CoGA's migration step
+# (backend/app/core/postgres_migrations.py); `alembic upgrade` stops in env.py.
+[tool.alembic]
+script_location = "%(here)s/backend/db/migrations"
