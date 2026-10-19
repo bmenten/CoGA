@@ -196,6 +196,12 @@
   color: var(--color-heading);
 }
 
+/* A value of several lines, such as the ACMG secondary-finding row's list and phenotype. */
+.gene-compact-detail-stack {
+  display: grid;
+  gap: 0.0625rem;
+}
+
 .gene-compact-inline-links {
   display: flex;
   flex-wrap: wrap;

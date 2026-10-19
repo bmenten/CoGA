@@ -339,7 +339,10 @@ def test_the_scenarios_reach_every_path() -> None:
     assert expected["track_limit_on_a_python_path"]["page"].get("variants", []) == []
     assert expected["compound_het"]["page"]["variant_groups"], "no compound-het pair was formed"
     assert expected["candidates_capped"]["page"]["total_is_estimated"] is True
-    assert "_fetch_gene_regions" in called["recessive_with_gene"]
+    # A gene filter keeps the variants annotated with the gene and reads none of its loci
+    # (ENG-1); an excluded gene's loci are still read.
+    assert "_fetch_gene_regions" not in called["recessive_with_gene"]
+    assert "_fetch_gene_regions" in called["every_scope_filter"]
     assert "get_sv_hit_genes" in called["sv_second_hit"]
     assert expected["intervals_unparseable"]["refused"]["status"] == 422
     assert "_fetch_small_variant_rows" not in called["intervals_unparseable"]

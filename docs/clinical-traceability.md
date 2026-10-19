@@ -200,7 +200,14 @@ Five gates run first, in this order:
    identity (a relationship or Mendelian check the pedigree asserts, NIPT paternity or maternal
    lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent),
    gives 409 (`gate: "sample_qc"`), unless the request sets `acknowledge_qc` with a
-   `qc_acknowledgement_reason` (422 without).
+   `qc_acknowledgement_reason` (422 without). Each concern the 409 lists names the sample,
+   the pair, the child with its parents, or the NIPT father its check read ("Sample X: no
+   chrX genotypes available for sex inference."), in `qc_summary.messages`, in
+   `unverifiable_checks` and in the message, and so does the list of checks that could not
+   run which the sign-out's audit event records (`qc_unverifiable`). Fetal sex and the NIPT
+   maternal lineage, read from the cfDNA as a whole, name no sample. The checks frozen in
+   `sample_qc` keep their own messages beside their sample fields, so a record signed before
+   the names were added compares the same; an audit event recorded before names none (CLIN-8).
 5. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
    that left it partly loaded ([data-import.md](data-import.md)), or by a small-variant upload
    that failed after deleting the callset it replaced (with no import job;
