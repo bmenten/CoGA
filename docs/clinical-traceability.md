@@ -43,7 +43,17 @@ The report footer shows the merged list, and sign-out freezes it.
 
 **The evidence snapshot** is taken on every ACMG save. It holds the variant's annotation
 version, its annotation-set hash and its ClinVar significance, with the time. The hash
-changes whenever any annotation of the variant changes, so it is the drift key.
+changes whenever any annotation of the variant changes, so it is the drift key. It also holds
+the population frequencies and in-silico scores the classification rests on, as the ACMG dialog
+reads them: from the variant's primary transcript (MANE Select, then canonical, then the most
+severe impact), whose id it records in `transcript_id`, with the helpers the variant list serves
+them with (`small_variant_review_acmg.small_variant_evidence`). Under `frequencies`: the gnomAD
+allele frequency the frequency criteria read (`gnomad_af`), the exome, genome, popmax and TOPMed
+frequencies and the gnomAD allele, homozygote and hemizygote counts the filters read. Under
+`in_silico`: CADD (`cadd_phred`), REVEL, SpliceAI (`spliceai_max`), SIFT, PolyPhen and the
+AlphaMissense class and score. Every field is frozen, `null` without a value, so a value that
+appears later is a change; a value JSONB cannot hold (NaN, infinity) is frozen as `null`. A
+snapshot taken before these values were frozen (CLIN-7) holds none of them.
 
 A structural variant or CNV has no annotation-set hash in ClickHouse, so its snapshot
 (`services/structural_variant_evidence.py`, taken on every save of a CNV scoring) holds the
@@ -104,10 +114,21 @@ in between.
 `GET /families/{family_id}/classification-drift` compares each classification's snapshot with
 the variant's current annotation:
 
-- `current`: the annotation-set hash is unchanged;
-- `drifted`: the hash changed (a new annotation release, ClinVar and version shown from → to);
-- `unknown`: a hash is missing, so the match cannot be verified;
+- `current`: the annotation-set hash and every value the snapshot froze are unchanged;
+- `drifted`: the hash changed (a new annotation release, ClinVar and version shown from → to),
+  or a frozen value did (even under the same hash). `changed` names what moved: `clinvar`,
+  `transcript_id` (the primary transcript), each frequency or in-silico field by its name
+  (`gnomad_af`, `revel`, …), and `annotations` when the hash moved; `evidence_from` and
+  `evidence_to` hold the transcript, frequencies and in-silico scores as frozen and as they are
+  now;
+- `unknown`: nothing is seen to have moved, but a hash is missing or a frozen group cannot be
+  read, so the match cannot be verified;
 - `variant_missing`: the variant is no longer in the data.
+
+Only the values a snapshot froze are compared, numbers by value (JSONB keeps a number's digits,
+not whether it was an integer). A snapshot taken before the frequencies and in-silico scores
+were frozen has `evidence_from` null and is compared by its hash and ClinVar significance alone,
+as before: it does not turn into drift.
 
 The structural variants and CNVs are under `structural`: each CNV scoring's snapshot compared
 with the SV as the SV page reads it now, in the row of the caller the snapshot names
@@ -299,7 +320,12 @@ still shows what was signed; signing out again records the new verdict.
 
 A signed version lists the SV/CNV classifications whose evidence had moved at sign-out with the
 small variants', under *Evidence drift at sign-out*, and says when its record holds no SV/CNV drift
-check.
+check. A small variant's entry names the frozen values that had moved, with the values
+(*REVEL 0.412 → 0.951*), and each reported small variant shows, under *Evidence when classified*,
+the frequencies and in-silico scores its snapshot froze; one frozen before CoGA froze them shows
+its ClinVar significance and annotation version only. A version signed before a small-variant
+drift entry named what moved (CLIN-7) has its `drift` section listed as changed by the check
+while it holds such an entry.
 
 The release candidate's snapshot format is the first one CoGA reads: records signed by earlier
 development builds get no reading of their own (#681). They still verify, since verification
