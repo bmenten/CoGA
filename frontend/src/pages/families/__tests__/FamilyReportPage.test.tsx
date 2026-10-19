@@ -347,6 +347,57 @@ describe('FamilyReportPage', () => {
     expect(screen.getByText(/classified by alice/)).toBeInTheDocument();
   });
 
+  it('names the frozen frequencies and in-silico scores that moved since a classification (CLIN-7)', async () => {
+    const item = (variantId: string, overrides: Record<string, unknown>) => ({
+      variant_id: variantId,
+      acmg_class: 'acmg_class_4',
+      classified_by: 'alice',
+      classified_at: null,
+      status: 'drifted',
+      annotation_version_from: 'v1',
+      annotation_version_to: 'v1',
+      clinvar_from: null,
+      clinvar_to: null,
+      changed: [],
+      evidence_from: null,
+      evidence_to: null,
+      ...overrides,
+    });
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/classification-drift') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            checked: 2,
+            drifted_count: 2,
+            drifted: [
+              item('1-100-A-G', {
+                changed: ['gnomad_af', 'revel', 'annotations'],
+                evidence_from: { gnomad_af: 3.1e-5, revel: 0.412 },
+                evidence_to: { gnomad_af: 0.012, revel: 0.951 },
+              }),
+              // Frozen before the values were, or only another annotation moved.
+              item('2-200-C-T', { changed: ['annotations'] }),
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText(/2 classifications have evidence changes since being made/)).toBeInTheDocument();
+    const items = screen.getAllByRole('listitem').map((listItem) => listItem.textContent ?? '');
+    expect(items).toContain('1-100-A-G — gnomAD AF 3.10e-5 → 0.012; REVEL 0.412 → 0.951 (classified by alice)');
+    expect(items).toContain('2-200-C-T — annotation set changed (classified by alice)');
+  });
+
   it('lists the structural variants and CNVs whose classification evidence moved', async () => {
     const evidence = {
       source: 'needlr',
@@ -1282,6 +1333,77 @@ describe('FamilyReportPage', () => {
       expect(drift).toHaveTextContent('sv-18-del (structural variant) — pLI 0.990 → 0.410 (classified by bob)');
       expect(drift).toHaveTextContent('Signed out over it, with the reason: SV re-reviewed.');
       expect(drift).not.toHaveTextContent(/The record predates/);
+    });
+
+    it('shows the frequencies and in-silico scores frozen with a classification, and those that had moved (CLIN-7)', async () => {
+      const [reported] = SIGNED_SNAPSHOT.reported_variants;
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'REVEL re-reviewed' }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_variants: [
+            {
+              ...reported,
+              evidence_snapshot: {
+                ...reported.evidence_snapshot,
+                transcript_id: 'ENST00000000001',
+                frequencies: {
+                  gnomad_af: 3.1e-5,
+                  gnomad_exomes_af: null,
+                  gnomad_genomes_af: 3.1e-5,
+                  gnomad_popmax_af: null,
+                  topmed_af: null,
+                  gnomad_ac: 4,
+                  gnomad_hom_count: 0,
+                  gnomad_hemi_count: null,
+                },
+                in_silico: {
+                  cadd_phred: 24.3,
+                  revel: 0.412,
+                  spliceai_max: 0.02,
+                  sift: 'deleterious(0.01)',
+                  polyphen: 'probably_damaging(0.981)',
+                  alpha_missense_class: null,
+                  alpha_missense_pathogenicity: null,
+                },
+              },
+            },
+          ],
+          drift: {
+            checked: 1,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '17-43000000-A-G',
+                status: 'drifted',
+                clinvar_from: 'Likely_pathogenic',
+                clinvar_to: 'Likely_pathogenic',
+                changed: ['revel', 'annotations'],
+                evidence_from: { revel: 0.412 },
+                evidence_to: { revel: 0.951 },
+                classified_by: 'alice',
+              },
+            ],
+          },
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'REVEL re-reviewed',
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent('ClinVar reported Likely pathogenic, with annotation version v1');
+      expect(variant).toHaveTextContent(
+        'Read from its primary transcript ENST00000000001: population frequencies gnomAD AF 3.10e-5, ' +
+          'gnomAD exomes AF not annotated, gnomAD genomes AF 3.10e-5, gnomAD popmax AF not annotated, ' +
+          'TOPMed AF not annotated, gnomAD allele count 4, gnomAD homozygotes 0 and gnomAD hemizygotes not ' +
+          'annotated; in silico scores CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT deleterious(0.01), PolyPhen ' +
+          'probably_damaging(0.981), AlphaMissense class not annotated and AlphaMissense score not annotated.',
+      );
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent('17-43000000-A-G — REVEL 0.412 → 0.951 (classified by alice)');
+      expect(drift).toHaveTextContent('Signed out over it, with the reason: REVEL re-reviewed.');
     });
 
     it('shows the overrides frozen into the signed version', async () => {

@@ -234,7 +234,18 @@ QDNAseq bins and HiFiCNV's depth, and an APCAD import leaves HiFiCNV's minor all
 uploaded coverage BED count as one caller: each replaces the other. The mtDNA analysis, and the NIPT
 coverage check without a per-target table, read as depth only a coverage BED, or HiFiCNV's depth where
 the import stored it as read: never the WisecondorX or QDNAseq bins or HiFiCNV's normalised depth,
-which are log2 ratios.
+which are log2 ratios. An APCAD family file replaces the track of each sample it holds values for;
+a sample it holds none for keeps its track.
+
+**A file without a record fails its dataset, and nothing is replaced.** A file that holds nothing
+CoGA can store (a header alone, a file cut short before its first record, an empty file) used to
+replace the stored data with none, and the dataset read *imported*. Now its dataset fails before
+anything is deleted, and the job's log names the file: a TRGT file, WisecondorX or QDNAseq bins or
+segments, HiFiCNV's copy-number and signal files, an APCAD file, a PCF table, a Paraphase result, a
+sample's NeedlR file or a long-read sample's SNV file. A file cut short after its first records still
+fails its dataset when the import reaches the cut, and the family is put back or marked as for any
+failed dataset. A mitochondrial file without a call is a result, not an empty file (most samples carry
+no mtDNA deletion): it removes that sample's earlier calls, as above.
 
 ### What validation checks
 
@@ -352,6 +363,11 @@ below), and otherwise by its end minus its start: an insertion written `N`, `<IN
 start is 0 bp to them. A package's per-sample TRGT,
 mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
 verified its tubes), the entry's `vcf_sample` says so.
+
+A repeat-expansion (TRGT) upload reads the whole file before it replaces anything. TRGT writes a record
+for every locus of its catalogue, so a file without a record for the sample (a header alone, or a file
+cut short in a copy) is refused (*No valid TRGT records found*), and the sample's stored calls stay as
+they were. Before, it replaced them with none.
 
 A Sniffles or Spectre record without an END ends where the VCF standard (4.4) puts it: a deletion,
 duplication, inversion or copy-number change SVLEN bases after its start, any other call on its start.

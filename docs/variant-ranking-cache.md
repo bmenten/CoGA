@@ -120,6 +120,70 @@ served and fresh (variants, order, scores, ranks, total). What a sub-panel serve
 Mendeliome's ranking reads beyond a fresh computation is that ranking itself, about 0.015 s for
 its 2,299 variants; the check of the Mendeliome's panel reads its token, about 0.003 s.
 
+## Applying a panel
+
+A panel keeps a variant in one of its regions or annotated with one of its genes. The family
+search applies it twice: in SQL, where it reads the family's rows, and in the record filter
+(`_kept_small_candidates` → `_small_record_matches`) over the candidates it fetched, which a
+ranking computed afresh runs, and a compound-het, recessive or carrier-screening search, ranked
+or not, on an exact hit too. Until ENG-15 both cost the number of rows times the panel's size:
+
+- **In SQL** each of the family's rows was tested against every region (`arrayExists` over the
+  regions): 1.3 s at 500 regions and 2.1 s at 1,000 for a family of about 190,000 rows. The
+  region arrays, repeated for every row ClickHouse reads, could also run it out of memory, which
+  the page answers 422 ("matches too many variants"). The regions are now joined to the family's
+  own rows on 64-kb windows, as the Variant Explorer joins its annotation index
+  (`_small_family_region_condition`). A row is kept when its chromosome, position and REF length,
+  all that the overlap rule reads of a row, are those of a row of the family that overlaps a
+  region. The join reads the family's rows in its projects and within the search's locus, every
+  row the search itself reads, so it keeps exactly the rows the per-row test kept. The intervals
+  and the excluded genes and intervals, short lists, keep the per-row test, and a panel of genes
+  with more than 1,000 regions is still matched on gene symbols alone (see above).
+- **In the record filter** the panel's gene names were casefolded again for every candidate
+  (5,300 for the Mendeliome) and every region was tested even after a gene had matched. The panel
+  is now prepared once per search (`_SmallPanelMatch`): its genes casefolded once, and its regions
+  read only for a record none of its genes names, by bisection over a lookup built on first use.
+
+Neither changes what a search keeps or how it ranks, so the scoring version stays. Measured on the
+throwaway stack, main and the change back to back on a shared machine (best and median, in
+seconds). The family page, with synthetic trios written straight into the entries table and
+panels of regions only (the page: its rows and its count; the track: 10 Mb):
+
+| Panel and request | 190,000 rows: before | after | 1,000,000 rows: before | after |
+| --- | --- | --- | --- | --- |
+| 5 regions, the page | 0.14 / 0.17 | 0.36 / 0.40 | 0.27 / 0.27 | 0.63 / 0.65 |
+| 25 regions, the page | 0.22 / 0.22 | 0.31 / 0.34 | 0.36 / 0.36 | 0.31 / 0.35 |
+| 100 regions, the page | 0.42 / 0.43 | 0.40 / 0.44 | 0.76 / 0.85 | 0.33 / 0.33 |
+| 500 regions, the page | 1.43 / 1.69 | 0.45 / 0.49 | 422 after 3.8 | 0.36 / 0.37 |
+| 1,000 regions, the page | 3.70 / 3.74 | 0.39 / 0.43 | 422 after 4.9 | 0.38 / 0.41 |
+| 1,000 regions, compound het | 1.46 / 1.49 | 0.48 / 0.52 | 3.04 / 3.16 | 0.40 / 0.46 |
+| 5 regions, the track | 0.01 / 0.01 | 0.03 / 0.05 | 0.01 / 0.02 | 0.06 / 0.06 |
+| 1,000 regions, the track | 0.06 / 0.06 | 0.11 / 0.12 | 0.13 / 0.14 | 0.06 / 0.06 |
+
+Before, the page ran ClickHouse out of memory with 500 and 1,000 regions on the larger family,
+which it answers 422 (in a first round, on a more loaded machine, with 500 regions on the
+smaller family too). Every request that answered did so alike before and after. The join costs
+about one more read of the family's rows: a panel of five regions, which the per-row test
+handled in hundredths of a second, takes 0.2 to 0.4 s longer, and the track a few hundredths.
+
+The record filter, on #839's synthetic trio and 5,300-gene Mendeliome (the benchmark above), with
+a gene reference of one row per gene and one of GENCODE's size:
+
+| Request on the Mendeliome | One row per gene: before | after | GENCODE size: before | after |
+| --- | --- | --- | --- | --- |
+| Ranked, computed afresh | 3.04 / 3.11 | 1.38 / 1.41 | 2.84 / 3.10 | 1.40 / 1.42 |
+| Compound het, ranked, exact hit | 1.57 / 1.80 | 0.20 / 0.25 | 1.61 / 1.67 | 0.20 / 0.25 |
+| Recessive, ranked, exact hit | 1.89 / 5.29 | 0.20 / 0.21 | 1.65 / 1.93 | 0.21 / 0.22 |
+| Carrier screening, ranked, exact hit | 1.64 / 1.68 | 0.19 / 0.25 | 1.66 / 1.69 | 0.21 / 0.22 |
+| Compound het, unranked | 4.84 / 4.86 | 0.15 / 0.16 | 1.60 / 1.64 | 0.15 / 0.17 |
+| Carrier screening, unranked | 1.58 / 1.69 | 0.15 / 0.15 | 1.61 / 1.64 | 0.16 / 0.16 |
+| The default view, computed afresh | 2.89 / 2.92 | 1.37 / 1.40 | 3.80 / 8.24 | 1.43 / 1.46 |
+| The record filter alone, in each of these (best) | 1.36 to 4.41 | 0.011 to 0.042 | 1.38 to 1.57 | 0.011 to 0.043 |
+
+Every request answered the same before and after: the variants, their order, the pairs, the
+scores, the ranks and the total. An exact hit of a search that does not pair reads no
+candidates, so it runs no record filter.
+
 ## Serving a narrower panel from a broader one
 
 The panel decides which variants are in scope. A variant's score depends on it in one way
@@ -262,5 +326,7 @@ computed.
   `_panel_members`, `_fetch_gene_regions_for_terms`)
 - The panel filter, and the region limit above which it matches gene symbols alone:
   `backend/app/services/clickhouse_variant_queries.py` (`_small_panel_filter_condition`,
-  `_PANEL_REGION_INLINE_LIMIT`)
+  `_PANEL_REGION_INLINE_LIMIT`); its regions joined to the family's rows
+  (`_small_family_region_condition`), and the panel as the record filter applies it
+  (`_SmallPanelMatch`), see [Applying a panel](#applying-a-panel)
 - Warming hooks: `backend/app/routers/families.py`, `backend/app/routers/ped.py`
