@@ -125,7 +125,9 @@ data: 3 samples (F1, M1, P1), 1204 small variants, 3 structural variants, 5 vari
 none. It is written in the deletion's transaction, before anything of the family is deleted (an
 admin's deletion) or before the family row goes, so a deletion that fails records nothing; the
 family's chains (its clinical audit events, sign-outs and structure versions) stay after it,
-unlinked from the family row and verifiable by the family's ID.
+unlinked from the family row and verifiable by the family's ID. A family made again under that
+ID (a replacement with overwrite does so at once) writes on the same three chains, after the
+deletion, so each chain of a family ID covers every family made under it (TRACE-13).
 
 **The gene panels a family's searches apply** (`services/panel_use_audit.py`, REQ-CARR-003). A
 search of the family's data that applies a gene panel writes a `panel_applied` event before it
@@ -365,6 +367,14 @@ and `variant_descriptions` like any reported small variant, with its classificat
 analysis once more, beside the one the Sample QC runs.
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
+Versions are numbered per family ID: a family made again under the ID of a deleted family
+numbers on from the deleted family's last version (its first sign-out is version 3 after two),
+on the same chain, so a family ID and a version name one signed record for good, and the
+database refuses a second record under them (`uq_report_signouts_family_identifier_version`,
+TRACE-13). Before TRACE-13 they were numbered per family row: the new family took version 1
+again, and the chain failed verification as if it had been tampered with. The family's pages
+list only its own versions; the deleted family's stay on the chain, verifiable by the ID, and
+are not opened through the new family.
 An amendment is a new sign-out; no version is ever changed. The sign-out is also written to the
 clinical audit trail. A stored hash is always checked against the snapshot as it was stored, so
 a version signed before a field was added still verifies; the sign-out check reports that
@@ -508,8 +518,10 @@ is read back in any case, with or without its hyphens or with spaces, an I or L 
 **Unique.** Every sign-out takes one lock (`report-code`) from the moment it makes its code to its
 commit, and looks the code up among the records signed before. A sign-out whose code another
 record already has is signed again a microsecond later: the new time changes its content hash and
-so its code. The code is in the sign-out's clinical audit event (its summary and `after.report_code`)
-and in every sign-out the API returns.
+so its code. The records looked up include a deleted family's, and versions are numbered per
+family ID (*Sign-out*), so a family made again under its ID never repeats the deleted family's
+codes either: their versions differ. The code is in the sign-out's clinical audit event (its
+summary and `after.report_code`) and in every sign-out the API returns.
 
 **Finding a record.** `GET /report-codes/{code}` answers with the family, version, signer, time
 and content hash of the record the code names. A string that is not a report code (a letter a code
