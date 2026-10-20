@@ -18,6 +18,14 @@ API, this:
 * signs out once more as a build from before the NIPT section (its key left out) and shows
   that record still verifies and reads, and that the check names ``nipt`` as not compared.
 
+CI runs every e2e module in one process on one database. The artifact list and the de novo
+recurrence are shared by every cfDNA sample of an assay, and other modules import the same
+demo package (``test_e2e_demo_smoke.py``, which also lists an artifact on the default assay).
+So each run gives its maternal plasma an assay panel of its own (``assay_panel``, the scope of
+both), lists an artifact in that scope through the admin API, compares the record with the
+list it read in the same run, and removes the artifact when it is done: the run sees no other
+module's samples or artifacts, and leaves no sample or artifact in a scope another module reads.
+
 The golden trio's records, a family that is no NIPT family, are checked by
 ``test_e2e_signed_analysis_record.py``: its check names nothing it does not compare.
 
@@ -40,6 +48,7 @@ _DEMO = Path(__file__).resolve().parents[3] / "demo" / "nipt_family"
 _TOKENS = ("FAM_NIPT_DEMO", "FATHER_NIPT", "CFDNA_NIPT", "FETUS_NIPT")
 DE_NOVO = "1-1001-A-G"  # GENE_DENOVO, category 1, in the fetal window
 PATERNAL = "1-10000-A-G"  # a paternal allele the fetus inherited, category 7
+ARTIFACT = "1-9501-A-G"  # the demo's recurrent artifact (EXP_CAT=ARTIFACT), in the plasma only
 SIGN_OUT_BODY = {
     "acknowledge_drift": True,
     "drift_acknowledgement_reason": "e2e: the reported variants hold no ACMG classification",
@@ -69,7 +78,7 @@ async def _import_demo(root: Path) -> dict:
     await ensure_clickhouse_variant_tables(_harness.ASSEMBLY)
     sessionmaker = get_postgres_sessionmaker()
     async with sessionmaker() as session:
-        admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
+        admin, project_id, assembly_id = await _harness.ensure_e2e_project(session)
     async with sessionmaker() as session:
         result = await package_import.execute_family_package_import(
             session,
@@ -83,13 +92,16 @@ async def _import_demo(root: Path) -> dict:
         "completed": result.completed,
         "error": result.error,
         "dataset_status": {dataset.dataset_type: dataset.status for dataset in result.datasets},
+        "assembly_id": assembly_id,
     }
 
 
 def _prepare_copy(parent: Path) -> dict[str, str]:
-    """Copy the demo package under ``parent`` with every hardcoded id suffixed; the new ids."""
+    """Copy the demo package under ``parent`` with every hardcoded id suffixed, and the maternal
+    plasma on an assay panel of this run's own; the new ids and the panel (``assay_key``)."""
     suffix = uuid4().hex[:8]
     ids = {token: f"{token}_{suffix}" for token in _TOKENS}
+    assay_key = f"e2e-nipt-signed-record-{suffix}"
     root = parent / ids["FAM_NIPT_DEMO"]
     shutil.copytree(_DEMO, root)
     for name in ("manifest.yaml", "nipt_trio.ped", "nipt_combined.vcf"):
@@ -97,11 +109,16 @@ def _prepare_copy(parent: Path) -> dict[str, str]:
         content = path.read_text(encoding="utf-8")
         for old, new in ids.items():
             content = content.replace(old, new)
+        if name == "manifest.yaml":
+            # The panel is the scope of the artifact list and of the de novo recurrence.
+            plasma = f"  {ids['CFDNA_NIPT']}:\n    assay: nipt_cfdna\n"
+            assert content.count(plasma) == 1, content
+            content = content.replace(plasma, f"{plasma}    assay_panel: {assay_key}\n")
         path.write_text(content, encoding="utf-8")
-    return {"root": str(root), **ids}
+    return {"root": str(root), "assay_key": assay_key, **ids}
 
 
-async def _collect(root: Path, family_id: str) -> dict:
+async def _collect(root: Path, family_id: str, assay_key: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.main import app
@@ -114,59 +131,79 @@ async def _collect(root: Path, family_id: str) -> dict:
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
+        scope = {"assembly_id": out["import"]["assembly_id"], "assay_key": assay_key}
 
-        # What the NIPT page shows.
-        r["summary"] = _cap(await ac.get(f"{family}/nipt/summary"))
-        r["variants"] = _cap(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
-        r["de_novo_view"] = _cap(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
-
-        # Two variants for the report, from the NIPT page's list.
-        for variant_id in (DE_NOVO, PATERNAL):
-            r[f"review_{variant_id}"] = _cap(
-                await ac.put(f"{family}/small-variants/{variant_id}/review", json={"tags": ["report"]})
-            )
-
-        # The gates, one by one: the drift of the unclassified reported variants, then the
-        # Sample QC (the demo's paternity cannot be verified).
-        r["refused_drift"] = _cap(await ac.post(f"{family}/report/sign-out", json={}))
-        r["refused_qc"] = _cap(
-            await ac.post(
-                f"{family}/report/sign-out",
-                json={key: SIGN_OUT_BODY[key] for key in ("acknowledge_drift", "drift_acknowledgement_reason")},
-            )
+        # The run's own artifact list: the demo's recurrent artifact, listed through the admin
+        # API, and the list as it reads back, which the record is compared with.
+        r["artifact_added"] = _cap(
+            await ac.post("/api/admin/nipt/artifacts", json={**scope, "variant_id": ARTIFACT, "label": "e2e recurrent artifact"})
         )
-        r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
-        version = (r["signout"]["json"] or {}).get("version")
-        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
-        r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["chain"] = _cap(
-            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
-        )
-        r["audit"] = _cap(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
-
-        # A record signed by a build from before the NIPT section: its key left out.
-        real_build = rss.build_report_snapshot
-
-        async def _old_build(*args, **kwargs):
-            body = await real_build(*args, **kwargs)
-            body.pop("nipt", None)
-            return body
-
-        mp = pytest.MonkeyPatch()
-        mp.setattr(rss, "build_report_snapshot", _old_build)
+        artifact_id = (r["artifact_added"]["json"] or {}).get("id")
         try:
-            r["old_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+            r["artifacts"] = _cap(await ac.get("/api/admin/nipt/artifacts", params=scope))
+            await _sign_out_and_read(ac, r, family, family_id, rss)
         finally:
-            mp.undo()
-        old_version = (r["old_signout"]["json"] or {}).get("version")
-        r["old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{old_version}"))
-        r["old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["old_chain"] = _cap(
-            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
-        )
-        # The family ends on a record of today's build.
-        r["final_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+            # Nothing left in a scope another module could read.
+            if artifact_id:
+                r["artifact_deleted"] = _cap(await ac.delete(f"/api/admin/nipt/artifacts/{artifact_id}"))
+            r["artifacts_after"] = _cap(await ac.get("/api/admin/nipt/artifacts", params=scope))
     return out
+
+
+async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> None:
+    """Read the NIPT page, tag two variants for the report, sign out through the gates, and
+    read the record, the check and the chain back; then a record of an older build."""
+    # What the NIPT page shows.
+    r["summary"] = _cap(await ac.get(f"{family}/nipt/summary"))
+    r["variants"] = _cap(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
+    r["de_novo_view"] = _cap(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
+
+    # Two variants for the report, from the NIPT page's list.
+    for variant_id in (DE_NOVO, PATERNAL):
+        r[f"review_{variant_id}"] = _cap(
+            await ac.put(f"{family}/small-variants/{variant_id}/review", json={"tags": ["report"]})
+        )
+
+    # The gates, one by one: the drift of the unclassified reported variants, then the
+    # Sample QC (the demo's paternity cannot be verified).
+    r["refused_drift"] = _cap(await ac.post(f"{family}/report/sign-out", json={}))
+    r["refused_qc"] = _cap(
+        await ac.post(
+            f"{family}/report/sign-out",
+            json={key: SIGN_OUT_BODY[key] for key in ("acknowledge_drift", "drift_acknowledgement_reason")},
+        )
+    )
+    r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+    version = (r["signout"]["json"] or {}).get("version")
+    r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
+    r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+    r["chain"] = _cap(
+        await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
+    )
+    r["audit"] = _cap(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
+
+    # A record signed by a build from before the NIPT section: its key left out.
+    real_build = rss.build_report_snapshot
+
+    async def _old_build(*args, **kwargs):
+        body = await real_build(*args, **kwargs)
+        body.pop("nipt", None)
+        return body
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(rss, "build_report_snapshot", _old_build)
+    try:
+        r["old_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+    finally:
+        mp.undo()
+    old_version = (r["old_signout"]["json"] or {}).get("version")
+    r["old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{old_version}"))
+    r["old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+    r["old_chain"] = _cap(
+        await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
+    )
+    # The family ends on a record of today's build.
+    r["final_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
 
 
 @pytest.fixture(scope="module")
@@ -182,7 +219,7 @@ def signed(tmp_path_factory, request) -> dict:
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
     request.addfinalizer(mp.undo)
 
-    out = _harness.run_async(lambda: _collect(root, copy["FAM_NIPT_DEMO"]))
+    out = _harness.run_async(lambda: _collect(root, copy["FAM_NIPT_DEMO"], copy["assay_key"]))
     assert out["import"]["completed"] is True, out["import"]
     out["ids"] = copy
     return out
@@ -252,10 +289,30 @@ def test_the_record_holds_the_nipt_results_the_page_showed(signed) -> None:
         summary["qc"]["plasma_profile_status"],
         summary["qc"]["plasma_profile_message"],
     )
-    # No per-target coverage table in the demo, no artifact listed.
+    # No per-target coverage table in the demo.
     assert nipt["target_coverage"] is None and nipt["inputs"]["target_tables"] == []
-    assert nipt["inputs"]["artifact_list"]["entries"] == 0
     assert nipt["model"]["reference"].startswith("R NIPT-M v0.5.1")
+
+
+def test_the_record_holds_the_artifact_list_the_analysis_applied(signed) -> None:
+    from backend.app.services.hash_chain import canonical_hash
+
+    _ok(signed, "artifact_added")
+    # The list of the run's own assay panel, as the admin API read it back in the same run.
+    listed = sorted(entry["variant_id"] for entry in _ok(signed, "artifacts"))
+    assert listed == [ARTIFACT]
+    frozen = _nipt(signed)["inputs"]["artifact_list"]
+    assert frozen["assay_key"] == signed["ids"]["assay_key"]
+    assert (frozen["entries"], frozen["digest"]) == (len(listed), canonical_hash(listed))
+    # The plasma carries the listed allele: the analysis left it out, as its funnel counts it,
+    # and the family's annotation protects none of it.
+    assert frozen["removed"] == _ok(signed, "summary")["filter_counts"]["failed_artifact"] == 1
+    assert frozen["kept"] == []
+
+
+def test_the_run_leaves_no_artifact_behind(signed) -> None:
+    assert _ok(signed, "artifact_deleted") == {"deleted": True}
+    assert _ok(signed, "artifacts_after") == []
 
 
 def test_each_reported_variant_is_frozen_as_the_nipt_variant_list_classifies_it(signed) -> None:
