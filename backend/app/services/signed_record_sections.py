@@ -431,8 +431,9 @@ async def gene_reference_releases(
 
 async def clinical_cnv_release(session: AsyncSession, assembly_id: str | None) -> dict[str, Any] | None:
     """The clinical CNV knowledgebase loaded for the assembly: where it came from, the release
-    its source states (none for a rebuild, which reads the data current on the day) and when
-    it was loaded. None when none is loaded."""
+    its source states and when it was loaded. A rebuild reads the data current on the day; its
+    release is the one pinned file it read, ClinGen's recurrent CNV file, by release and
+    SHA-256 (TRACE-14; ``not stated`` for a rebuild loaded before). None when none is loaded."""
     if not assembly_id:
         return None
     row = (await session.execute(_CLINICAL_CNV_SQL, {"assembly_id": assembly_id})).mappings().first()

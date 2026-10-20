@@ -27,7 +27,13 @@ The **pinned release URL** is the reproducible fetch: it always returns the exac
 
 ## How the version is used
 
-On startup, when no HPO terms are loaded yet, the backend imports this file. It
+On startup, when no HPO terms are loaded yet, the backend imports this file, and
+only this file: whichever ontology file it finds (`HPO_ONTOLOGY_PATH`, on Cloud Run
+the reference-data bucket's copy) is imported only if its SHA-256 is the one above
+(TRACE-14). Another file, such as a later release, is refused before anything is
+written: the backend logs one error that names the file, both digests and the fix,
+imports nothing and downloads nothing in its place, and the start goes on with the
+HPO terminology empty until this file is there. It
 reads the `data-version:` header and stores the release on every term
 (`hpo_term.release_version` and `release_date`). The release is shown on the admin
 HPO page, and it is part of the key of the phenotype-prioritised ranking cache, so
@@ -73,7 +79,8 @@ Replacing this ontology is a **TF-18 controlled change**:
    loaded. Apply the new file under Administration → HPO Terminology
    (`/admin/reference/hpo`): preview, then apply, with the path
    `/data/ref-data/hpo/hp.obo`. A deployment that reads its reference data from a
-   bucket needs the new file there too.
+   bucket needs the new file there too, or a start on an empty database refuses the
+   old file in the bucket.
 5. Record it: before the first release candidate the pull request is the record (TF-10 §8
    already lists HPO releases in the validation scope); from the release candidate on, a
    `CHANGELOG.md` entry and a TF-18 §8 change record.

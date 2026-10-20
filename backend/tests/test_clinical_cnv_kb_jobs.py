@@ -13,6 +13,8 @@ real Postgres in ``integration/test_clinical_cnv_kb_one_active_job.py``.
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import logging
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -276,19 +278,30 @@ class _Process:
         return self.returncode
 
 
+# What the build records of the pinned file it checked and read (--sources-out, TRACE-14). The
+# digest stands in for the file's: the job records it as given, the build checked it.
+_RECURRENT_URL = "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg38.bed"
+_RECURRENT_SHA256 = hashlib.sha256(b"ClinGen recurrent CNV V2.1, GRCh38").hexdigest()
+_CHECKED_FILE = {"source": "ClinGen recurrent CNV", "release": "V2.1", "url": _RECURRENT_URL, "sha256": _RECURRENT_SHA256}
+_SOURCES = json.dumps({"checked_files": [_CHECKED_FILE]})
+_RECORDED_RELEASE = f"ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 {_RECURRENT_SHA256}"
+
+
 def _run(
     monkeypatch: pytest.MonkeyPatch,
     *,
     row: dict | None = _ROW,
     returncode: int = 0,
     tsv: str = "chr1\t1\t100\tX\n",
+    sources: str | None = _SOURCES,
     runtime: float | None = 0.0,
     claim_error: Exception | None = None,
     update_errors: dict[str, Exception] | None = None,
     still_ours: Callable[[str], bool] = lambda assignments: True,
     stderr: bytes | None = None,
 ) -> SimpleNamespace:
-    """Run one job against stand-ins; each write is recorded with the worker it is guarded by."""
+    """Run one job against stand-ins; each write is recorded with the worker it is guarded by.
+    A build that succeeds writes ``tsv`` and, unless it is None, ``sources``."""
     run = SimpleNamespace(updates=[], commands=[], applied=[], claims=[], processes=[])
 
     async def claim_job(job_id, worker_id):
@@ -309,6 +322,8 @@ def _run(
         out = Path(cmd[cmd.index("--out") + 1])
         if returncode == 0:
             out.write_text(tsv, encoding="utf-8")
+            if sources is not None and "--sources-out" in cmd:
+                Path(cmd[cmd.index("--sources-out") + 1]).write_text(sources, encoding="utf-8")
         said = stderr if stderr is not None else (
             b"downloading ClinGen\nbuild step failed\n" if returncode else b"built 1 region\n"
         )
@@ -338,6 +353,9 @@ def test_a_successful_build_replaces_the_knowledgebase(script: Path, monkeypatch
 
     assert run.commands[0][1:4] == [str(script), "--assembly", "GRCh38"]
     assert run.commands[0][-1] == "--skip-clinvar"
+    out = run.commands[0][run.commands[0].index("--out") + 1]
+    sources = run.commands[0][run.commands[0].index("--sources-out") + 1]
+    assert Path(sources).parent == Path(out).parent
     assert run.applied == [
         {
             "assembly_id": "asm-1",
@@ -346,6 +364,8 @@ def test_a_successful_build_replaces_the_knowledgebase(script: Path, monkeypatch
             "overwrite": True,
             "performed_by": "lab.admin",
             "source": "clinical-cnv-kb",
+            # The pinned file the build read, recorded with the load (TRACE-14).
+            "source_version": _RECORDED_RELEASE,
         }
     ]
     # Every write after the claim is guarded by the worker that took the job.
@@ -392,6 +412,43 @@ def test_a_failed_build_that_said_nothing_keeps_the_plain_error(script: Path, mo
 
     _assignments, params, _worker = run.updates[-1]
     assert params["error"] == "Knowledgebase build failed (exit 1)."
+
+
+# --- the pinned file the build read is recorded with the load (TRACE-14) ------------------------
+
+
+@pytest.mark.parametrize(
+    "sources",
+    [
+        None,
+        "not a record",
+        json.dumps({"checked_files": []}),
+        json.dumps({"checked_files": [{**_CHECKED_FILE, "sha256": ""}]}),
+        json.dumps({"checked_files": [{**_CHECKED_FILE, "sha256": _RECURRENT_SHA256[:12]}]}),
+        json.dumps({"checked_files": [{key: value for key, value in _CHECKED_FILE.items() if key != "release"}]}),
+    ],
+    ids=["no record", "unreadable", "no file", "no digest", "a shortened digest", "no release"],
+)
+def test_a_build_that_did_not_record_the_pinned_file_it_read_is_not_loaded(
+    script: Path, monkeypatch: pytest.MonkeyPatch, sources: str | None
+) -> None:
+    run = _run(monkeypatch, sources=sources)
+
+    # Refused before the load, which replaces the knowledgebase: the one from before stays.
+    assert run.applied == []
+    assignments, params, worker = run.updates[-1]
+    assert assignments.startswith("status = 'failed'") and worker == run.claims[0]
+    assert params["error"] == kb._SOURCES_UNRECORDED
+    assert "built 1 region" in params["log"]
+
+
+def test_each_file_the_build_checked_is_recorded_by_release_file_name_and_sha256() -> None:
+    other_sha256 = hashlib.sha256(b"another pinned file").hexdigest()
+    other = {"source": "Other source", "release": "7", "url": "https://example.org/files/other.bed", "sha256": other_sha256}
+
+    recorded = kb.checked_files_release(json.dumps({"checked_files": [_CHECKED_FILE, other]}))
+
+    assert recorded == f"{_RECORDED_RELEASE}; Other source 7: other.bed, SHA-256 {other_sha256}"
 
 
 

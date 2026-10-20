@@ -611,6 +611,21 @@ If the HPO ontology is missing there, the startup bootstrap downloads the same p
 release to a temporary directory, and imports it only if its SHA-256 is the vendored
 file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
 
+Two more files in the bucket must be the repository's files of the version being deployed,
+byte for byte: `hpo/hp.obo` and
+`clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`, the segmental
+duplications. A start on a database without HPO terms, or without segmental duplications,
+loads the file only if its SHA-256 is the pinned one. Any other file is not loaded: the log
+names it, both SHA-256 digests and the fix, and the start goes on without it (the HPO
+terminology, or the segmental duplications track, stays empty until the file is right).
+Copying them again is always safe:
+
+```bash
+gcloud storage cp data/ref-data/hpo/hp.obo "gs://${REFDATA}/hpo/"
+gcloud storage cp data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed \
+  "gs://${REFDATA}/clinical_cnv_syndromes_hg38_bundle/"
+```
+
 The repeat catalogue's `STRchive-loci.json` must be the repository's file of the version
 being deployed, byte for byte. If the bucket holds another file, or none, the backend does
 not start, and its log names the file, both SHA-256 digests and the fix

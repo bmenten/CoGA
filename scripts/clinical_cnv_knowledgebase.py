@@ -17,8 +17,8 @@ Sources:
 Install: the backend's environment (backend/requirements.txt pins pandas, requests,
 beautifulsoup4, intervaltree and tqdm).
 
-Usage (the admin "rebuild knowledgebase" action runs it the same way, with --out in a
-temporary folder):
+Usage (the admin "rebuild knowledgebase" action runs it the same way, with --out and
+--sources-out in a temporary folder):
     python scripts/clinical_cnv_knowledgebase.py \
         --assembly GRCh38 \
         --out clinical_cnv_knowledgebase.tsv
@@ -30,6 +30,12 @@ Optional:
 The ClinGen dosage curation and the recurrent CNV regions are the knowledgebase's backbone: when
 either cannot be loaded the build stops with a non-zero exit, rather than write a knowledgebase
 that lacks them (SourceUnavailable). The optional enrichments are skipped with a log line.
+
+ClinGen's recurrent CNV file is pinned per assembly by its SHA-256 (CLINGEN_RECURRENT_CNV_SHA256,
+TRACE-14): the build reads the file only if its SHA-256 is the pinned one, and stops otherwise,
+as it does for an assembly with no pinned file (GRCh37), before downloading it. With
+--sources-out it writes the files it checked (source, release, URL, SHA-256) as JSON, which the
+admin rebuild records with the load.
 """
 
 from __future__ import annotations
@@ -37,12 +43,14 @@ from __future__ import annotations
 import argparse
 import gzip
 import io
+import json
 import os
 import re
 import sys
 import tempfile
 import time
 import hashlib
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 
@@ -58,10 +66,28 @@ CLINGEN_DOWNLOADS = "https://search.clinicalgenome.org/kb/downloads"
 
 # Authoritative recurrent-CNV regions with inline names (1q21.1 TAR, 7q11.23 Williams-Beuren,
 # 15q11.2q13 PWS/AS, 22q11.2, ...). Complements the region curation list.
+CLINGEN_RECURRENT_CNV_SOURCE = "ClinGen recurrent CNV"
+CLINGEN_RECURRENT_CNV_RELEASE = "V2.1"
 CLINGEN_RECURRENT_CNV = {
     "GRCh38": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg38.bed",
     "GRCh37": "https://ftp.clinicalgenome.org/ClinGen_recurrent_CNV_V2.1-hg37.bed",
 }
+# The SHA-256 of that release's file, per assembly (TRACE-14). The build reads a recurrent CNV
+# file only if its SHA-256 is pinned here, so the knowledgebase's named regions are always the
+# release that was checked; a file ClinGen changes stops the build until it is checked again and
+# the pin moved, in a reviewed change recorded in TF-08. GRCh38: ClinGen's V2.1 GRCh38 file,
+# byte-identical with the bundled
+# data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed, which was
+# checked against ClinGen's download on 2026-10-14 (the backend pins the same file as
+# SEGMENTAL_DUPLICATIONS_PINNED_SHA256). GRCh37: no checked copy of ClinGen's V2.1 GRCh37 file
+# exists yet, so none is pinned, and a GRCh37 build stops before downloading it.
+CLINGEN_RECURRENT_CNV_SHA256 = {
+    "GRCh38": "e6a7428f58b055e51a956941da85cdc984d9519ea7839c365c9b557ccc76a763",
+}
+_PIN_REMEDY = (
+    "Check the file against ClinGen's release by SHA-256 and move CLINGEN_RECURRENT_CNV_SHA256 "
+    "in a reviewed change (TF-08)."
+)
 
 UCSC_CYTO = {
     "GRCh38": "https://hgdownload.soe.ucsc.edu/goldenPath/hg38/database/cytoBand.txt.gz",
@@ -84,8 +110,18 @@ class SourceUnavailable(RuntimeError):
 
     The build stops rather than write a knowledgebase without it: the admin rebuild would
     otherwise replace a complete knowledgebase with one that silently lacks, say, every named
-    recurrent syndrome.
+    recurrent syndrome. A pinned file that is not the pinned one counts as not loaded.
     """
+
+
+@dataclass(frozen=True)
+class CheckedFile:
+    """A source file the build read only because its SHA-256 is the pinned one (TRACE-14)."""
+
+    source: str
+    release: str
+    url: str
+    sha256: str
 
 
 def log(msg: str) -> None:
@@ -960,28 +996,60 @@ def parse_recurrent_cnv_bed(text: str, *, assembly: str, source_url: str) -> pd.
     return pd.DataFrame(records)
 
 
-def load_clingen_recurrent_regions(assembly: str) -> pd.DataFrame:
-    """ClinGen recurrent-CNV regions with authoritative inline syndrome names.
+def fetch_pinned_recurrent_cnv_file(assembly: str) -> Tuple[str, CheckedFile]:
+    """ClinGen's recurrent CNV file for the assembly, if it is the pinned one (TRACE-14).
 
-    These carry the recognizable names (TAR syndrome, Williams-Beuren, PWS/AS, 22q11.2,
-    etc.) with exact coordinates, so no fuzzy name matching is required. They are the only
-    source of those names, so a file that cannot be downloaded, or holds no regions, stops
-    the build (SourceUnavailable).
+    The file is downloaded only when a SHA-256 is pinned for the assembly, and read only when
+    its SHA-256 is that one; otherwise the build stops (SourceUnavailable), naming the file,
+    both digests and the fix. The text returned is the text of the bytes that were checked.
     """
     url = CLINGEN_RECURRENT_CNV.get(assembly)
     if not url:
         raise SourceUnavailable(f"No ClinGen recurrent CNV file is known for {assembly}.")
+    pinned = CLINGEN_RECURRENT_CNV_SHA256.get(assembly)
+    if not pinned:
+        raise SourceUnavailable(
+            f"No SHA-256 is pinned for ClinGen's recurrent CNV file for {assembly} ({url}), so it "
+            f"cannot be checked and was not downloaded. {_PIN_REMEDY}"
+        )
     try:
-        text = safe_get(url).decode("utf-8", errors="replace")
+        payload = safe_get(url)
     except Exception as e:
         raise SourceUnavailable(f"The ClinGen recurrent CNV regions could not be downloaded from {url}: {e}") from e
-    regions = parse_recurrent_cnv_bed(text, assembly=assembly, source_url=url)
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != pinned:
+        raise SourceUnavailable(
+            f"The ClinGen recurrent CNV file {url} is not the pinned {CLINGEN_RECURRENT_CNV_RELEASE} file: "
+            f"its SHA-256 is {digest}, the pinned file's is {pinned}. {_PIN_REMEDY}"
+        )
+    log(f"  {url}: SHA-256 {digest}, the pinned {CLINGEN_RECURRENT_CNV_RELEASE} file")
+    checked = CheckedFile(
+        source=CLINGEN_RECURRENT_CNV_SOURCE,
+        release=CLINGEN_RECURRENT_CNV_RELEASE,
+        url=url,
+        sha256=digest,
+    )
+    return payload.decode("utf-8", errors="replace"), checked
+
+
+def load_clingen_recurrent_regions(assembly: str) -> Tuple[pd.DataFrame, CheckedFile]:
+    """ClinGen recurrent-CNV regions with authoritative inline syndrome names, and the file
+    they were read from.
+
+    These carry the recognizable names (TAR syndrome, Williams-Beuren, PWS/AS, 22q11.2,
+    etc.) with exact coordinates, so no fuzzy name matching is required. They are the only
+    source of those names, so a file that cannot be downloaded, is not the pinned file
+    (``fetch_pinned_recurrent_cnv_file``) or holds no regions stops the build
+    (SourceUnavailable).
+    """
+    text, checked = fetch_pinned_recurrent_cnv_file(assembly)
+    regions = parse_recurrent_cnv_bed(text, assembly=assembly, source_url=checked.url)
     if regions.empty:
         raise SourceUnavailable(
-            f"The ClinGen recurrent CNV file {url} holds no recurrent regions; its format may have changed."
+            f"The ClinGen recurrent CNV file {checked.url} holds no recurrent regions; its format may have changed."
         )
     log(f"  retained {len(regions)} recurrent CNV regions")
-    return regions
+    return regions, checked
 
 
 def clean_syndrome_name(name: str) -> str:
@@ -1002,8 +1070,8 @@ def build_kb(
     orphanet_xml: Optional[str] = None,
     decipher_map: Optional[str] = None,
     skip_clinvar: bool = False,
-) -> pd.DataFrame:
-    """Build the clinical CNV knowledgebase DataFrame.
+) -> Tuple[pd.DataFrame, List[CheckedFile]]:
+    """Build the clinical CNV knowledgebase DataFrame, with the pinned source files it read.
 
     Importable so the backend can invoke the build programmatically (see the
     admin "rebuild clinical CNV knowledgebase" action) in addition to the CLI.
@@ -1036,7 +1104,8 @@ def build_kb(
         raise SourceUnavailable("No usable ClinGen dosage-curation records found.")
 
     log("Loading ClinGen recurrent CNV regions (named syndromes).")
-    tables.append(load_clingen_recurrent_regions(assembly))
+    recurrent_regions, recurrent_file = load_clingen_recurrent_regions(assembly)
+    tables.append(recurrent_regions)
 
     kb = pd.concat(tables, ignore_index=True)
     kb["syndrome_name"] = kb["syndrome_name"].map(clean_syndrome_name)
@@ -1098,7 +1167,7 @@ def build_kb(
     kb["chrom_sort"] = kb["chromosome"].map(canonical_chr_sort_key)
     kb = kb.sort_values(["chrom_sort", "start", "end"]).drop(columns=["chrom_sort"])
 
-    return kb
+    return kb, [recurrent_file]
 
 
 def make_description(row) -> str:
@@ -1148,11 +1217,17 @@ def main():
         action="store_true",
         help="Skip ClinVar support counts.",
     )
+    parser.add_argument(
+        "--sources-out",
+        default=None,
+        help="Optional JSON file: the pinned source files the build checked and read "
+        "(source, release, URL, SHA-256).",
+    )
 
     args = parser.parse_args()
 
     try:
-        kb = build_kb(
+        kb, checked_files = build_kb(
             assembly=args.assembly,
             orphanet_xml=args.orphanet_xml,
             decipher_map=args.decipher_map,
@@ -1163,6 +1238,12 @@ def main():
         log(f"Build stopped: {e}")
         sys.exit(1)
     kb.to_csv(args.out, sep="\t", index=False)
+    if args.sources_out:
+        # What the admin rebuild records with the load (TRACE-14).
+        Path(args.sources_out).write_text(
+            json.dumps({"checked_files": [asdict(checked) for checked in checked_files]}, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
     log(f"Wrote {len(kb):,} CNV records to {args.out}")
 

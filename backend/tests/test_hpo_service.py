@@ -537,20 +537,9 @@ async def test_hpo_startup_bootstrap_imports_empty_database(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    # The startup imports only the pinned release, byte for byte (TRACE-14): the vendored file.
     ontology_path = tmp_path / "hpo.obo"
-    ontology_path.write_text(
-        "\n".join(
-            [
-                "format-version: 1.2",
-                "data-version: hp/releases/2026-02-16",
-                "",
-                "[Term]",
-                "id: HP:0000001",
-                "name: All",
-            ]
-        ),
-        encoding="utf-8",
-    )
+    ontology_path.write_bytes((Path(__file__).resolve().parents[2] / "data" / "ref-data" / "hpo" / "hp.obo").read_bytes())
     session = _FakeSession(
         [
             _FakeResult([{"hpo_term": True, "hpo_synonym": True, "hpo_edge": True, "hpo_closure": True}]),
@@ -575,6 +564,7 @@ async def test_hpo_startup_bootstrap_imports_empty_database(
     assert result["release_version"] == "hp/releases/2026-02-16"
     assert result["release_date"].isoformat() == "2026-02-16"
     assert captured["path"] == ontology_path
+    assert captured["ontology_text"] == ontology_path.read_text(encoding="utf-8")
     assert captured["release_version"] == "hp/releases/2026-02-16"
     assert captured["release_date"].isoformat() == "2026-02-16"
 

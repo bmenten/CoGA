@@ -21,7 +21,13 @@ from sqlalchemy import bindparam, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import HPO_PINNED_ONTOLOGY_SHA256, HPO_PINNED_ONTOLOGY_URL, settings
+from ..core.coga_logging import scrub_log
+from ..core.config import (
+    HPO_PINNED_ONTOLOGY_SHA256,
+    HPO_PINNED_ONTOLOGY_URL,
+    HPO_PINNED_RELEASE,
+    settings,
+)
 from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid
 from .access_control import CurrentUser
 from .clinical_audit_service import record_clinical_event
@@ -496,19 +502,26 @@ def parse_hpo_ontology_release_metadata_text(
     return _parse_hpo_obo_release_metadata(text_value)
 
 
+def _hpo_source_format(path: str | Path) -> str:
+    return "json" if Path(path).suffix.lower() == ".json" else "obo"
+
+
 def parse_hpo_ontology_release_metadata_path(path: str | Path) -> HpoOntologyReleaseMetadata:
     resolved = Path(path)
     text_value = resolved.read_text(encoding="utf-8")
-    source_format = "json" if resolved.suffix.lower() == ".json" else "obo"
-    return parse_hpo_ontology_release_metadata_text(text_value, source_format=source_format)
+    return parse_hpo_ontology_release_metadata_text(text_value, source_format=_hpo_source_format(resolved))
+
+
+def parse_hpo_ontology_text(text_value: str, *, source_format: str = "obo") -> ParsedHpoOntology:
+    if source_format.lower() == "json":
+        return parse_hpo_json_text(text_value)
+    return parse_hpo_obo_text(text_value)
 
 
 def parse_hpo_ontology_path(path: str | Path) -> ParsedHpoOntology:
     resolved = Path(path)
     text_value = resolved.read_text(encoding="utf-8")
-    if resolved.suffix.lower() == ".json":
-        return parse_hpo_json_text(text_value)
-    return parse_hpo_obo_text(text_value)
+    return parse_hpo_ontology_text(text_value, source_format=_hpo_source_format(resolved))
 
 
 def hpo_ontology_candidate_paths(ontology_path: str | Path | None = None) -> list[Path]:
@@ -582,7 +595,37 @@ def _read_bounded(response: Any, max_bytes: int) -> bytes:
 
 
 class HpoOntologyChecksumMismatch(RuntimeError):
-    """The downloaded ontology is not the pinned file, so it was refused (OPS-6)."""
+    """The ontology, downloaded (OPS-6) or found in place (TRACE-14), is not the pinned file,
+    so it was refused."""
+
+
+_HPO_PINNED_FILE_REMEDY = (
+    "Copy the repository's data/ref-data/hpo/hp.obo there unchanged (on Cloud Run: gcloud storage "
+    "cp data/ref-data/hpo/hp.obo gs://<reference-data bucket>/hpo/), or set HPO_ONTOLOGY_PATH to "
+    "such a copy. Another HPO release needs a reviewed change that moves HPO_PINNED_RELEASE and "
+    "HPO_PINNED_ONTOLOGY_SHA256 with the vendored file (data/ref-data/hpo/README.md)."
+)
+
+
+def read_pinned_hpo_ontology(path: Path) -> bytes:
+    """The ontology file's bytes, if it is the pinned release byte for byte (TRACE-14).
+
+    The startup imports only the vendored release: a file already in place is held to the pin
+    (``HPO_PINNED_ONTOLOGY_SHA256``, which no setting overrides) as the download is. Any other
+    file raises ``HpoOntologyChecksumMismatch`` before anything is written; one that cannot be
+    read raises ``OSError``. The bytes checked are the bytes returned, so the import parses
+    exactly what was checked."""
+    payload = path.read_bytes()
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != HPO_PINNED_ONTOLOGY_SHA256:
+        raise HpoOntologyChecksumMismatch(
+            f"Refused the HPO ontology file {scrub_log(path)}: it is not the pinned release "
+            f"{HPO_PINNED_RELEASE}. Its SHA-256 is {digest}, the pinned file's is "
+            f"{HPO_PINNED_ONTOLOGY_SHA256}. Nothing was imported, and no file was downloaded "
+            f"in its place: the HPO terminology stays empty until the pinned file is there. "
+            f"{_HPO_PINNED_FILE_REMEDY}"
+        )
+    return payload
 
 
 def _download_hpo_ontology_file(
@@ -667,6 +710,12 @@ async def ensure_hpo_ontology_on_startup(
     PURL, checked against the pinned SHA-256 (``HPO_PINNED_ONTOLOGY_URL`` and
     ``HPO_PINNED_ONTOLOGY_SHA256``). No setting changes either: the release moves only with
     the vendored file, through a reviewed code change (OPS-6).
+
+    The file it finds is held to the same pin (TRACE-14): it is imported, from the bytes that
+    were checked, only if its SHA-256 is the pinned one. Another file, or one that cannot be
+    read, is refused with one logged error, nothing is imported and nothing is downloaded in
+    its place, as for a refused download. The start goes on: the terminology stays empty,
+    which the admin HPO page shows, until the pinned file is in place.
     """
     if not enabled:
         return None
@@ -708,12 +757,35 @@ async def ensure_hpo_ontology_on_startup(
         )
         return None
 
-    # Reading and parsing the ontology file is CPU and disk work: keep it off the event loop (#527).
-    metadata = await asyncio.to_thread(parse_hpo_ontology_release_metadata_path, resolved_path)
+    # Reading, checking and parsing the ontology file is CPU and disk work: keep it off the
+    # event loop (#527). The file is imported only if it is the pinned release (TRACE-14),
+    # whether it was found in place or just downloaded.
+    try:
+        payload = await asyncio.to_thread(read_pinned_hpo_ontology, resolved_path)
+    except HpoOntologyChecksumMismatch as exc:
+        # An expected refusal, logged once without a traceback: its message is the fix.
+        logger.error("%s", exc)
+        return None
+    except OSError as exc:
+        logger.error(
+            "Refused the HPO ontology file %s: it cannot be read (%s), so it cannot be checked "
+            "against the pinned release %s (SHA-256 %s). Nothing was imported. %s",
+            scrub_log(resolved_path),
+            type(exc).__name__,
+            HPO_PINNED_RELEASE,
+            HPO_PINNED_ONTOLOGY_SHA256,
+            _HPO_PINNED_FILE_REMEDY,
+        )
+        return None
+    ontology_text = payload.decode("utf-8")
+    metadata = parse_hpo_ontology_release_metadata_text(
+        ontology_text, source_format=_hpo_source_format(resolved_path)
+    )
     try:
         imported = await import_hpo_ontology(
             session,
             path=resolved_path,
+            ontology_text=ontology_text,
             release_version=metadata.release_version,
             release_date=metadata.release_date,
         )
@@ -773,13 +845,21 @@ async def import_hpo_ontology(
     session: AsyncSession,
     *,
     path: str | Path,
+    ontology_text: str | None = None,
     release_version: str | None = None,
     release_date: date | None = None,
 ) -> dict[str, int]:
-    ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
+    """Import the ontology at ``path``, or ``ontology_text`` when given: the file's text as the
+    caller read (and checked) it, so the file is not read again (TRACE-14)."""
+    source_format = _hpo_source_format(path)
+    if ontology_text is None:
+        ontology = await asyncio.to_thread(parse_hpo_ontology_path, path)
+        release_metadata = await asyncio.to_thread(parse_hpo_ontology_release_metadata_path, path)
+    else:
+        ontology = await asyncio.to_thread(parse_hpo_ontology_text, ontology_text, source_format=source_format)
+        release_metadata = parse_hpo_ontology_release_metadata_text(ontology_text, source_format=source_format)
     if not ontology.terms:
         raise ValueError("HPO ontology import found no terms")
-    release_metadata = await asyncio.to_thread(parse_hpo_ontology_release_metadata_path, path)
     effective_release_version = release_version or release_metadata.release_version
     effective_release_date = release_date or release_metadata.release_date
 
