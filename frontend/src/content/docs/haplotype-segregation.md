@@ -55,6 +55,24 @@ show it), every embryo shows **⚠ phase corrected**: where the phase switched i
 so the call across the locus is less certain, and an embryo's own crossover there may not show.
 Review the ROI markers.
 
+### The blocks on chrX
+
+Outside the pseudo-autosomal regions a man has one X, and the blocks read him so, by the rule the
+phasing QC uses (see [At an X-linked locus](#phasing-qc-at-the-roi)): his call, written as one
+allele (`1`) or as the same allele twice (`1|1`), is that one allele, and a call of two different
+alleles is not read. A son's X is his mother's: his blocks show the homolog he inherited from her,
+read where she is heterozygous, and none of his father's, who gave him a Y. A daughter receives her
+father's one X and one of her mother's two: her paternal lane is her father's X, the same in every
+daughter, so it never changes; her maternal homolog is read where her father's allele is known. A
+member whose sex is not recorded is read as having two copies, as on the autosomes. Each block lies
+in PAR1, in the X between the PARs, or in PAR2, so a haplotype read in a PAR is not carried over
+the X. CoGA takes the PAR bounds from the family's assembly (GRCh38 or GRCh37); on an assembly
+whose PAR bounds it does not have, every member is read as having two copies.
+
+The blocks are made when the phased genotypes are imported, with the sexes recorded then. Record
+every member's sex before the import; after recording or correcting a sex, import the phased
+genotypes again, or the blocks on chrX keep the sexes they were made with.
+
 ---
 
 ## The colours
@@ -289,7 +307,8 @@ side, against the thresholds of [Phasing QC at the ROI](#phasing-qc-at-the-roi).
 - **Phased imputed genotypes** (GLIMPSE2) for the couple and the embryos, and for any relatives you
   want coloured.
 - A **pedigree** with correct parentage, roles and sex, including the grandparents, who phase the
-  parents and so anchor the disease haplotype.
+  parents and so anchor the disease haplotype. On chrX the blocks are made with the sexes recorded
+  when the phased genotypes are imported (see [The blocks on chrX](#the-blocks-on-chrx)).
 - The **affected and carrier status** of the members that define the disease haplotype.
 - The **inheritance model** and the **ROI**.
 

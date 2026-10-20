@@ -6,7 +6,10 @@ children's blocks of a chromosome come after its parents' blocks: they are built
 chromosome is read, to undo a parent's phase switches, of which these families have none
 (the switch-error family's switches are each child's own). They are a quartet with
 segregation haplotypes, the same at the unit-test switch thresholds, a family without both
-parents (per-sample phase-set blocks), and a quartet with chromosome sizes known.
+parents (per-sample phase-set blocks), and a quartet with chromosome sizes known. On chrX
+the recorded father has one X outside the PARs (GRCh38: from 2,781,480, and before 10,001),
+and each block lies in one stretch of chrX: the segregation families' chrX blocks were
+recorded again when the builder learnt that (test_haplotype_block_builder_chrx.py).
 Regenerate the fixture only for an intended change to the blocks:
 
     COGA_REGENERATE_GOLDEN=1 python -m pytest backend/tests/test_variant_upload_haplotype_golden.py
