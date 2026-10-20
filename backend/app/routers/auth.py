@@ -78,6 +78,10 @@ EMERGENCY_ACTIVE_DETAIL = (
     "The emergency administrator cannot be deactivated: its sign-in is switched on and off "
     "with AZURE_ADMIN_OVERRIDE."
 )
+# The account fields an administrator changes, in the order the log line names them. The log
+# names a changed field only: what it changed from and to is in the request audit
+# (``request_meta.account_change``), so no value of the request reaches the application log.
+ACCOUNT_CHANGE_FIELDS = ("role", "is_active")
 
 
 def _request_remote_ip(request: Request) -> str | None:
@@ -379,9 +383,9 @@ async def update_user(
     if changes:
         request.state.account_change = {"user_id": updated.id, "email": updated.email, **changes}
         logger.info(
-            "account %s changed by %s: %s",
+            "account %s changed by %s: %s (from and to in the request audit)",
             updated.id,
             current.id,
-            ", ".join(f"{field} {change['from']} -> {change['to']}" for field, change in changes.items()),
+            ", ".join(field for field in ACCOUNT_CHANGE_FIELDS if field in changes),
         )
     return updated
