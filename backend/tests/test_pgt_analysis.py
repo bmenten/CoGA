@@ -220,6 +220,120 @@ def test_each_embryo_is_called_at_the_roi_from_the_blocks_the_haplotype_view_rea
         1_000_000, 250_000, 2_000_000)
 
 
+def _verdict(embryo) -> tuple[str, list[str], list[tuple[str, float, float]]]:
+    verdict = embryo.qc_verdict
+    return (
+        verdict.status,
+        verdict.sides,
+        [(finding.measure, finding.value, finding.threshold) for finding in verdict.findings],
+    )
+
+
+def test_each_embryo_gets_its_qc_verdict_checked_on_the_side_its_call_reads(monkeypatch) -> None:
+    _patch_reads(monkeypatch)
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))
+
+    clear, risk = out.embryos
+    # The dominant haplotype is the father's: his side is checked, the mother's is not.
+    assert _verdict(risk) == (
+        "warning",
+        ["paternal"],
+        [("informative_sites", 40, 50), ("mendel_rate", 0.025, 0.02), ("paternal_markers", 2, 6)],
+    )
+    assert _verdict(clear) == ("warning", ["paternal"], [("informative_sites", 38, 50), ("paternal_markers", 0, 6)])
+    # The call stands: a warning beside it, never a change to it.
+    assert (risk.call, clear.call) == ("affected_or_at_risk", "unaffected_non_carrier")
+    # The thresholds in force travel with the analysis.
+    assert out.rules.qc_thresholds.model_dump() == {
+        "min_informative_sites": 50,
+        "max_mendel_rate": 0.02,
+        "min_markers_per_side": 6,
+    }
+
+
+def test_an_embryo_whose_qc_meets_every_threshold_passes(monkeypatch) -> None:
+    markers = _markers()
+    risk = markers.samples[1]
+    risk.qc = PhasedSampleQc(informative_sites=60, mendel_errors=1, mendel_rate=1 / 60)
+    risk.markers = [PhasedMarker(pos=30_510_000 + index, hap1=1, hap2=None) for index in range(6)]
+    _patch_reads(monkeypatch, markers=markers)
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))
+
+    assert out.embryos[1].sample == "E_RISK"
+    assert _verdict(out.embryos[1]) == ("pass", ["paternal"], [])
+
+
+def test_a_qc_not_counted_at_the_roi_reads_as_not_counted_never_as_a_pass(monkeypatch) -> None:
+    _patch_reads(monkeypatch, markers=_markers(truncated=True))
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))
+    assert [_verdict(embryo) for embryo in out.embryos] == [
+        ("not_counted", ["paternal"], []),
+        ("not_counted", ["paternal"], []),
+    ]
+
+
+def test_an_embryo_not_called_has_no_qc_verdict(monkeypatch) -> None:
+    _patch_reads(monkeypatch)
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(roi=None), _context()))
+    assert [embryo.qc_verdict for embryo in out.embryos] == [None, None]
+    # The thresholds are stated all the same: they are the analysis's rules.
+    assert out.rules.qc_thresholds.min_informative_sites == 50
+
+
+# --- A record signed before the QC verdict ------------------------------------------------
+
+
+def _current(monkeypatch) -> dict[str, Any]:
+    _patch_reads(monkeypatch)
+    return asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context())).model_dump(mode="json")
+
+
+def _before_the_verdict(analysis: dict[str, Any]) -> dict[str, Any]:
+    """The analysis as a record signed before the QC verdict holds it."""
+    return {
+        **analysis,
+        "embryos": [{key: value for key, value in embryo.items() if key != "qc_verdict"} for embryo in analysis["embryos"]],
+        "rules": {key: value for key, value in analysis["rules"].items() if key != "qc_thresholds"},
+    }
+
+
+def test_a_record_signed_before_the_qc_verdict_is_compared_on_what_it_holds(monkeypatch) -> None:
+    current = _current(monkeypatch)
+    signed = _before_the_verdict(current)
+    comparable, predated = pgt_analysis.comparable_with_record(signed, current)
+    assert comparable == signed
+    assert predated == ["pgt_analysis.qc_verdict"]
+    # The current analysis itself is left as it is.
+    assert all("qc_verdict" in embryo for embryo in current["embryos"])
+
+    # What the record holds is still compared: a call that changed reads as a change.
+    changed = {**current, "embryos": [{**current["embryos"][0], "call": "carrier"}, *current["embryos"][1:]]}
+    comparable, _ = pgt_analysis.comparable_with_record(signed, changed)
+    assert comparable != signed
+
+
+def test_a_record_holding_the_qc_verdict_is_compared_whole(monkeypatch) -> None:
+    current = _current(monkeypatch)
+    assert pgt_analysis.comparable_with_record(current, current) == (current, [])
+    # A threshold or verdict that changed since the record was signed is not hidden.
+    moved = {**current, "rules": {**current["rules"], "qc_thresholds": {**current["rules"]["qc_thresholds"], "min_markers_per_side": 3}}}
+    assert pgt_analysis.comparable_with_record(current, moved) == (moved, [])
+
+
+@pytest.mark.parametrize(
+    ("signed", "current"),
+    [
+        ({"unavailable": "The PGT analysis's embryo results could not be read."}, {"embryos": []}),
+        ({"rules": {}}, {"unavailable": "The PGT analysis's embryo results could not be read."}),
+        ({"rules": {}}, None),
+        ({"rules": {}}, {"rules": {"window_flank": 1}, "embryos": ["not an embryo"]}),
+    ],
+)
+def test_a_record_or_analysis_that_holds_no_verdict_is_compared_as_it_is(signed, current) -> None:
+    # Unavailable on either side, or nothing the record predates: compared as it is, nothing named.
+    assert pgt_analysis.comparable_with_record(signed, current) == (current, [])
+
+
 def test_the_analysis_does_not_depend_on_the_order_the_store_returns_blocks_in(monkeypatch) -> None:
     _patch_reads(monkeypatch)
     stored = asyncio.run(pgt_analysis.family_pgt_analysis(_session(), _context()))

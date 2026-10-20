@@ -18,7 +18,14 @@ import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../..
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiSmallVariantEvidence, ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
-import { segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
+import type { PgtEmbryoQcFindingOut } from '../../lib/apiSchema.generated';
+import {
+  describeQcFindings,
+  describeQcSides,
+  formatQcRate,
+  segregationStateLabel,
+  sexUnknownWarning,
+} from '../../lib/embryoSegregation';
 import { formatCount, joinWithAnd } from '../../lib/format';
 import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
@@ -404,6 +411,24 @@ export interface SignedPgtEmbryoQc {
   maternalMarkers: number | null;
 }
 
+/** An embryo's phasing QC at the ROI checked against the thresholds, as the record froze it. */
+export interface SignedPgtQcVerdict {
+  status: 'pass' | 'warning' | 'not_counted';
+  /** The parental sides whose markers were checked: the sides the call reads. */
+  sides: ('paternal' | 'maternal')[];
+  /** Each measure that did not meet its threshold, with its value and the threshold. */
+  findings: PgtEmbryoQcFindingOut[];
+  /** Findings the record holds that cannot be read here (kept in the downloaded record). */
+  unreadableFindings: number;
+}
+
+/** The thresholds each embryo's phasing QC was checked against, as the record froze them. */
+export interface SignedPgtQcThresholds {
+  minInformativeSites: number | null;
+  maxMendelRate: number | null;
+  minMarkersPerSide: number | null;
+}
+
 export interface SignedPgtEmbryo {
   sample: string;
   sex: string | null;
@@ -414,6 +439,8 @@ export interface SignedPgtEmbryo {
   inherited: SignedPgtInherited[];
   recombinations: number[];
   qc: SignedPgtEmbryoQc | null;
+  /** Null: not assessed, or a record signed before CoGA checked the QC against thresholds. */
+  qcVerdict: SignedPgtQcVerdict | null;
 }
 
 export interface SignedPgtMember {
@@ -447,6 +474,8 @@ export interface SignedPgtAnalysis {
   blocksDigest: string | null;
   markersTruncated: boolean;
   recombinationFlank: number | null;
+  /** Null: a record signed before CoGA checked each embryo's QC against thresholds. */
+  qcThresholds: SignedPgtQcThresholds | null;
 }
 
 /** A NIPT quality check as frozen (`nipt_quality_checks`): its verdict and why. */
@@ -1119,6 +1148,47 @@ const riskState = (value: unknown): HaplotypeRiskState | null =>
 const parentSide = (value: unknown): 'paternal' | 'maternal' | null =>
   value === 'paternal' || value === 'maternal' ? value : null;
 
+const QC_VERDICT_STATUSES: SignedPgtQcVerdict['status'][] = ['pass', 'warning', 'not_counted'];
+const QC_MEASURES: PgtEmbryoQcFindingOut['measure'][] = [
+  'informative_sites',
+  'mendel_rate',
+  'paternal_markers',
+  'maternal_markers',
+];
+
+/** An embryo's QC verdict as frozen; null when the record holds none (or none it can read). */
+const parseQcVerdict = (value: unknown): SignedPgtQcVerdict | null => {
+  if (!isObject(value)) return null;
+  const status = QC_VERDICT_STATUSES.find((candidate) => candidate === value.status);
+  if (!status) return null;
+  const entries = Array.isArray(value.findings) ? (value.findings as unknown[]) : [];
+  const findings = entries.flatMap((entry): PgtEmbryoQcFindingOut[] => {
+    if (!isObject(entry)) return [];
+    const measure = QC_MEASURES.find((candidate) => candidate === entry.measure);
+    const found = number(entry.value);
+    const threshold = number(entry.threshold);
+    return measure && found !== null && threshold !== null ? [{ measure, value: found, threshold }] : [];
+  });
+  return {
+    status,
+    sides: (Array.isArray(value.sides) ? (value.sides as unknown[]) : []).flatMap((side) => {
+      const read = parentSide(side);
+      return read ? [read] : [];
+    }),
+    findings,
+    unreadableFindings: entries.length - findings.length,
+  };
+};
+
+const parseQcThresholds = (value: unknown): SignedPgtQcThresholds | null =>
+  isObject(value)
+    ? {
+        minInformativeSites: number(value.min_informative_sites),
+        maxMendelRate: number(value.max_mendel_rate),
+        minMarkersPerSide: number(value.min_markers_per_side),
+      }
+    : null;
+
 const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
   const roi = isObject(value.region_of_interest) ? value.region_of_interest : null;
   const inheritance = isObject(value.inheritance_model) ? value.inheritance_model : {};
@@ -1185,6 +1255,7 @@ const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
               maternalMarkers: number(qc.maternal_markers),
             }
           : null,
+        qcVerdict: parseQcVerdict(embryo.qc_verdict),
       };
     }),
     members: objects(value.members).map((member) => ({
@@ -1206,6 +1277,7 @@ const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
     blocksDigest: text(inputs.blocks_digest),
     markersTruncated: inputs.markers_truncated === true,
     recombinationFlank: number(rules.recombination_flank),
+    qcThresholds: parseQcThresholds(rules.qc_thresholds),
   };
 };
 
@@ -1941,6 +2013,39 @@ export const describeEmbryoQc = (qc: SignedPgtEmbryoQc): string => {
   ).toLocaleString()} of ${sites.toLocaleString()}); informative markers ${qc.paternalMarkers ?? 0} paternal, ${
     qc.maternalMarkers ?? 0
   } maternal`;
+};
+
+/**
+ * The thresholds the record's embryo QC was checked against: "at least 50 informative sites, a
+ * Mendelian error rate of at most 2% and at least 6 markers on each parental side the call reads".
+ */
+export const describeQcThresholds = (thresholds: SignedPgtQcThresholds): string => {
+  const parts = [
+    thresholds.minInformativeSites !== null
+      ? `at least ${thresholds.minInformativeSites.toLocaleString()} informative sites`
+      : null,
+    thresholds.maxMendelRate !== null ? `a Mendelian error rate of at most ${formatQcRate(thresholds.maxMendelRate)}` : null,
+    thresholds.minMarkersPerSide !== null
+      ? `at least ${thresholds.minMarkersPerSide.toLocaleString()} markers on each parental side the call reads`
+      : null,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length ? joinWithAnd(parts) : 'thresholds the record does not state';
+};
+
+/**
+ * An embryo's QC verdict as signed: that its phasing QC at the ROI met the thresholds, did not
+ * (each measure, its value and the threshold), or was not counted, so the call was not checked.
+ */
+export const describeSignedQcVerdict = (verdict: SignedPgtQcVerdict): string => {
+  if (verdict.status === 'pass') return `The phasing QC at the ROI met its thresholds (${describeQcSides(verdict.sides)}).`;
+  if (verdict.status === 'not_counted') return '⚠ The call was not checked against the QC thresholds.';
+  const findings = verdict.findings.length ? `: ${describeQcFindings(verdict)}` : '';
+  const unreadable = verdict.unreadableFindings
+    ? ` ${verdict.unreadableFindings} measure${verdict.unreadableFindings === 1 ? '' : 's'} of it cannot be read here; the downloaded record holds ${
+        verdict.unreadableFindings === 1 ? 'it' : 'them'
+      } as stored.`
+    : '';
+  return `⚠ The phasing QC at the ROI did not meet its thresholds (${describeQcSides(verdict.sides)})${findings}.${unreadable}`;
 };
 
 /** An embryo's call as signed: its badge's words, or that it was not assessed. */

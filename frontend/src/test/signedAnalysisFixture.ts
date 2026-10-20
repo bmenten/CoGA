@@ -193,6 +193,14 @@ export const SIGNED_PGT_ANALYSIS = {
       ],
       recombinations: [],
       qc: { informative_sites: 40, mendel_errors: 1, mendel_rate: 0.025, paternal_markers: 22, maternal_markers: 18 },
+      qc_verdict: {
+        status: 'warning',
+        sides: ['paternal'],
+        findings: [
+          { measure: 'informative_sites', value: 40, threshold: 50 },
+          { measure: 'mendel_rate', value: 0.025, threshold: 0.02 },
+        ],
+      },
     },
     {
       sample: 'E2',
@@ -203,6 +211,7 @@ export const SIGNED_PGT_ANALYSIS = {
       inherited: [],
       recombinations: [30550000],
       qc: null,
+      qc_verdict: { status: 'not_counted', sides: ['paternal'], findings: [] },
     },
     {
       sample: 'E3',
@@ -215,7 +224,8 @@ export const SIGNED_PGT_ANALYSIS = {
         { origin: 'paternal', homolog: '0', start: 29000000, end: 32000000 },
       ],
       recombinations: [],
-      qc: { informative_sites: 38, mendel_errors: 0, mendel_rate: 0, paternal_markers: 20, maternal_markers: 17 },
+      qc: { informative_sites: 120, mendel_errors: 0, mendel_rate: 0, paternal_markers: 40, maternal_markers: 35 },
+      qc_verdict: { status: 'pass', sides: ['paternal'], findings: [] },
     },
     { call: 'not a call' },
   ],
@@ -228,5 +238,21 @@ export const SIGNED_PGT_ANALYSIS = {
     blocks_digest: 'abcdef0123456789',
     markers_truncated: false,
   },
+  rules: {
+    window_flank: 1000000,
+    recombination_flank: 250000,
+    phase_switch_uncertainty: 2000000,
+    // The phasing-QC thresholds each embryo's verdict was made against (pgt_embryo_qc.py).
+    qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_side: 6 },
+  },
+};
+
+// The same analysis as a PGT family's record signed before CoGA checked each embryo's phasing QC
+// against thresholds holds it: no verdict beside the embryos' QC, and no thresholds.
+export const SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT = {
+  ...SIGNED_PGT_ANALYSIS,
+  embryos: SIGNED_PGT_ANALYSIS.embryos.map((embryo) =>
+    Object.fromEntries(Object.entries(embryo).filter(([key]) => key !== 'qc_verdict')),
+  ),
   rules: { window_flank: 1000000, recombination_flank: 250000, phase_switch_uncertainty: 2000000 },
 };

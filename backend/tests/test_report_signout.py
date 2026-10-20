@@ -3194,6 +3194,71 @@ def test_signout_check_says_when_a_family_lost_the_embryo_calls_its_record_holds
     assert out["matches"] is False and out["changed_sections"] == ["pgt_analysis"]
 
 
+# The same analysis as CoGA serves it since 2026-10-20: each embryo's phasing-QC verdict and the
+# thresholds it was made against (pgt_embryo_qc). _PGT_ANALYSIS above is a record signed before.
+def _with_qc_verdict(analysis: dict, **thresholds: float) -> dict:
+    from backend.app.schemas import PgtEmbryoQcOut, PgtQcThresholdsOut
+    from backend.app.services import pgt_embryo_qc
+
+    limits = PgtQcThresholdsOut(**{**pgt_embryo_qc.QC_THRESHOLDS.model_dump(), **thresholds})
+    out = copy.deepcopy(analysis)
+    for embryo in out["embryos"]:
+        embryo["qc_verdict"] = pgt_embryo_qc.embryo_qc_verdict(
+            PgtEmbryoQcOut(**embryo["qc"]), ("paternal",), limits
+        ).model_dump(mode="json")
+    out["rules"]["qc_thresholds"] = limits.model_dump(mode="json")
+    return out
+
+
+def test_signout_check_compares_a_pgt_record_signed_before_the_qc_verdict_on_what_it_holds(monkeypatch) -> None:
+    # Signed before CoGA checked the embryos' QC against thresholds: the record still matches,
+    # the verdict is named as not compared, and nothing is "not captured".
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    current = _with_qc_verdict(_PGT_ANALYSIS)
+    assert current["embryos"][0]["qc_verdict"]["status"] == "warning"
+    _with_sections(monkeypatch, pgt_analysis=current)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True, out
+    assert out["changed_sections"] == []
+    assert out["not_compared"] == ["pgt_analysis.qc_verdict"]
+    assert out["not_captured"] == []
+
+    # What the record holds is still compared: a call that changed since reads as a change.
+    changed = copy.deepcopy(current)
+    changed["embryos"][0]["call"] = "unaffected_non_carrier"
+    _with_sections(monkeypatch, pgt_analysis=changed)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert (out["matches"], out["changed_sections"]) == (False, ["pgt_analysis"])
+
+
+def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed_analysis = _with_qc_verdict(_PGT_ANALYSIS)
+    _with_sections(monkeypatch, pgt_analysis=signed_analysis)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert (out["matches"], out["not_compared"]) == (True, [])
+
+    # The laboratory lowers the marker threshold after sign-out: the verdict the record froze
+    # is no longer the one CoGA gives, and the check says so.
+    relaxed = _with_qc_verdict(_PGT_ANALYSIS, min_markers_per_side=3)
+    assert relaxed["embryos"][0]["qc_verdict"] != signed_analysis["embryos"][0]["qc_verdict"]
+    assert relaxed["rules"]["qc_thresholds"]["min_markers_per_side"] == 3
+    _with_sections(monkeypatch, pgt_analysis=relaxed)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["pgt_analysis"], [])
+
+
 def test_a_sign_out_carries_its_report_code(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
     captured = _capture_audit(monkeypatch)

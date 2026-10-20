@@ -51,10 +51,12 @@ import {
   describePgtInheritance,
   describePgtInputs,
   describePgtMembers,
+  describeQcThresholds,
   describeRepeatCall,
   describeRepeatThresholds,
   describeReportSections,
   describeSignedDrift,
+  describeSignedQcVerdict,
   describeSignedStructuralDrift,
   describeSmallVariantDescription,
   describeSmallVariantLocus,
@@ -662,6 +664,13 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
                 locus is less certain, and an embryo’s own crossover there may not show.
               </p>
             ) : null}
+            {analysis.qcThresholds && analysis.embryos.some((embryo) => embryo.qcVerdict) ? (
+              <p className="report-paragraph">
+                Each embryo’s phasing QC at the ROI was checked against these thresholds:{' '}
+                {describeQcThresholds(analysis.qcThresholds)}. A call that did not meet them carries a warning and
+                stands as called.
+              </p>
+            ) : null}
             {analysis.embryos.length ? (
               <ul className="report-signed-list">
                 {analysis.embryos.map((embryo, index) => {
@@ -691,6 +700,7 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
                                 : 'the embryo is not recorded as a child of the couple'
                             }).`
                           : ''}
+                      {embryo.qcVerdict ? ` ${describeSignedQcVerdict(embryo.qcVerdict)}` : ''}
                     </li>
                   );
                 })}

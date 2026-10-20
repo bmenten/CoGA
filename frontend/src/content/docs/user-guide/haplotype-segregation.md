@@ -29,8 +29,16 @@ Each embryo's call is a badge in the **Family members** table on the family page
 needs the embryo's own haplotype, seen across the ROI; without it the embryo reads *Uninformative*.
 CoGA works the calls out on the server, from the stored haplotypes, and **Sign out report** freezes
 the same calls into the signed version (*PGT embryo results*), each with the haplotypes it rests on,
-its warnings and its QC at the ROI. Next to the badge may be:
+its warnings, its QC at the ROI and that QC's verdict against the thresholds. Next to the badge may be:
 
+- **⚠ phasing QC** — the embryo's phasing QC at the ROI does not meet its thresholds: at least 50
+  informative sites, a Mendelian error rate of at most 2%, and at least 6 markers on each parent's side
+  the call reads. The tooltip names each measure, its value and its threshold. The call stands: check
+  it in the ROI markers before you rely on it. These thresholds are provisional, to be confirmed by
+  the laboratory director and QA. At an X-linked locus an embryo can carry this warning because of
+  how a man's one X is counted; the reference explains it.
+- **⚠ QC not counted** — no phasing QC was counted at the ROI, so the call was not checked against the
+  thresholds; the tooltip says why.
 - **⚠ recombination** — a haplotype change inside the ROI or within 250 kb of it; the call may not hold
   across the locus.
 - **⚠ phase corrected** — CoGA undid a phase switch in a parent's haplotypes inside or close to the ROI.

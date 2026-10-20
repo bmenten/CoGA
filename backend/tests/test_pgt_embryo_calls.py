@@ -234,6 +234,107 @@ def test_a_model_of_no_mode_calls_no_one_whatever_it_holds() -> None:
     )
 
 
+# --- The sides a call reads (its phasing QC is checked there: pgt_embryo_qc) ---------------
+
+
+def _x_block(hap1: str, hap2: str) -> dict[str, Any]:
+    """A block on chrX outside the PARs: a male is read on one copy there."""
+    return {**_block(hap1, hap2), "chr": "X", "hemizygous_in_males": True}
+
+
+X_REGION = Region("X", 1_000_000, 1_001_000)
+
+
+def test_a_dominant_call_reads_the_side_the_disease_haplotype_is_on() -> None:
+    _, embryos = calls.call_embryos(
+        members=DOMINANT_MEMBERS, samples=DOMINANT_SAMPLES, inheritance_model="AD", region=REGION
+    )
+    # The father's side alone, whatever the call: the mother's side is not read.
+    assert [(embryo.sample, embryo.assessment.state, embryo.sides) for embryo in embryos] == [
+        ("E_RISK", "affected_or_at_risk", ("paternal",)),
+        ("E_CLEAR", "unaffected_non_carrier", ("paternal",)),
+    ]
+
+
+def test_a_recessive_call_reads_both_sides() -> None:
+    members = [
+        {"sample_id": "INDEX", "role": "proband", "affected": True, "sex": "female"},
+        {"sample_id": "E1", "role": "embryo", "affected": False, "sex": "female"},
+    ]
+    samples = [
+        {"sample": "INDEX", "segments": [_block("1", "1")]},
+        {"sample": "E1", "segments": [_block("1", "0")]},
+    ]
+    model, embryos = calls.call_embryos(members=members, samples=samples, inheritance_model="AR", region=REGION)
+    assert {signature.kind for signature in model.signatures} == {"recessive-paternal", "recessive-maternal"}
+    assert (embryos[0].assessment.state, embryos[0].sides) == ("carrier", ("paternal", "maternal"))
+
+
+def test_a_son_on_his_one_x_reads_his_mothers_side_and_a_daughter_her_fathers_risk_x() -> None:
+    # X-linked dominant from the affected father: a daughter inherits his X, a son his Y.
+    members = [
+        {"sample_id": "FATHER", "role": "father", "affected": True, "sex": "male"},
+        {"sample_id": "INDEX", "role": "proband", "affected": True, "sex": "female"},
+        {"sample_id": "E_DAUGHTER", "role": "embryo", "affected": False, "sex": "female"},
+        {"sample_id": "E_SON", "role": "embryo", "affected": False, "sex": "male"},
+    ]
+    samples = [
+        {"sample": "FATHER", "segments": [{**_x_block("1", "?"), "hap1_lineage": "paternal", "hap2_lineage": "paternal"}]},
+        {"sample": "INDEX", "segments": [_x_block("1", "0")]},
+        {"sample": "E_DAUGHTER", "segments": [_x_block("1", "1")]},
+        {"sample": "E_SON", "segments": [_x_block("?", "0")]},
+    ]
+    model, embryos = calls.call_embryos(members=members, samples=samples, inheritance_model="XLD", region=X_REGION)
+    assert [(signature.origin, signature.kind) for signature in model.signatures] == [("paternal", "x-linked")]
+    out = _by_sample(embryos)
+    assert (out["E_DAUGHTER"].assessment.state, out["E_DAUGHTER"].sides) == ("affected_or_at_risk", ("paternal",))
+    assert (out["E_SON"].assessment.state, out["E_SON"].sides) == ("unaffected_non_carrier", ("maternal",))
+
+
+def test_an_x_linked_recessive_call_of_unrecorded_sex_reads_the_sides_of_both_its_calls() -> None:
+    # Two affected sisters share a homolog on each side: a daughter is read on both, a son on
+    # his mother's X alone, and an embryo of unrecorded sex as either.
+    members = [
+        {"sample_id": "INDEX", "role": "proband", "affected": True, "sex": "female"},
+        {"sample_id": "SISTER", "role": "sibling", "affected": True, "sex": "female"},
+        {"sample_id": "E_SON", "role": "embryo", "affected": False, "sex": "male"},
+        {"sample_id": "E_DAUGHTER", "role": "embryo", "affected": False, "sex": "female"},
+        {"sample_id": "E_UNKNOWN", "role": "embryo", "affected": False, "sex": "und"},
+    ]
+    samples = [
+        {"sample": "INDEX", "segments": [_x_block("1", "1")]},
+        {"sample": "SISTER", "segments": [_x_block("1", "1")]},
+        {"sample": "E_SON", "segments": [_x_block("?", "0")]},
+        {"sample": "E_DAUGHTER", "segments": [_x_block("0", "0")]},
+        {"sample": "E_UNKNOWN", "segments": [_x_block("0", "0")]},
+    ]
+    model, embryos = calls.call_embryos(members=members, samples=samples, inheritance_model="XLR", region=X_REGION)
+    assert {signature.origin for signature in model.signatures} == {"paternal", "maternal"}
+    sides = {embryo.sample: embryo.sides for embryo in embryos}
+    assert sides == {
+        "E_SON": ("maternal",),
+        "E_DAUGHTER": ("paternal", "maternal"),
+        "E_UNKNOWN": ("paternal", "maternal"),
+    }
+    # The same sides the call's own reading uses: assess_member is unchanged by them.
+    by_sample = {member["sample_id"]: member for member in members}
+    for sample in sides:
+        assert calls.call_sides(model=model, samples=samples, member=by_sample[sample], region=X_REGION) == sides[sample]
+
+
+def test_a_call_without_a_resolved_disease_haplotype_reads_no_side() -> None:
+    members = [
+        {"sample_id": "PROBAND", "role": "proband", "affected": True, "sex": "female"},
+        {"sample_id": "E1", "role": "embryo", "affected": False, "sex": "female"},
+    ]
+    samples = [
+        {"sample": "PROBAND", "segments": [_block("1", "1")]},
+        {"sample": "E1", "segments": [_block("1", "0")]},
+    ]
+    model, embryos = calls.call_embryos(members=members, samples=samples, inheritance_model="AD", region=REGION)
+    assert model.informative is False and embryos[0].sides == ()
+
+
 def test_only_members_recorded_as_embryos_are_called() -> None:
     members = [
         {"sample_id": "E1", "role": "Embryo"},

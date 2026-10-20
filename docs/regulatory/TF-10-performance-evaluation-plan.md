@@ -218,7 +218,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   triage, the per-gene recessive risk, an allele written as an MNV in one sample and as SNVs
   in the other, the audited artifact list and its import from the pipeline's recurrent
   table, a report that says when it is incomplete); PGT embryo calls that are uninformative
-  without supporting data, and the risk-haplotype display, with a parent's phase switches undone where the embryos switch
+  without supporting data, and that carry a warning when their phasing QC at the ROI falls below
+  its provisional thresholds (informative sites, Mendelian error rate, markers on each side the
+  call reads), and the risk-haplotype display, with a parent's phase switches undone where the embryos switch
   together, a relative of unknown degree coloured along the genome when it is the linked
   member's parent or child and otherwise at the ROI where both flanks name the haplotype
   it shares, and the affected parent's and the index's statuses from the inheritance

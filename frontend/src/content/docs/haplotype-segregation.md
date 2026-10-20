@@ -149,8 +149,9 @@ call appears as a badge in the **Family members** table on the family page. CoGA
 on the server, from the stored haplotype blocks over the ROI and 1 Mb on each side, and **Sign out
 report** freezes the same calls into the signed version, each with the haplotypes it carries at the
 ROI, its warnings, its QC at the ROI (the informative sites and the Mendelian error rate the ROI
-marker review shows) and the haplotype file it was read from. The tracks' risk line and risk state
-follow the same rules.
+marker review shows) and that QC's verdict against the thresholds (see [Phasing QC at the
+ROI](#phasing-qc-at-the-roi)), and the haplotype file it was read from. The tracks' risk line and
+risk state follow the same rules.
 
 | Badge | Meaning |
 | --- | --- |
@@ -189,8 +190,13 @@ daughter a carrier. So an embryo whose sex is not recorded is called both ways. 
 that is the call. If they differ, CoGA assumes neither sex: the embryo reads *Affected / at risk* when
 either call is, and *Uninformative* otherwise. Record the embryo's sex to resolve it.
 
-Four warnings can sit next to the badge:
+These warnings can sit next to the badge:
 
+- **⚠ phasing QC** — the embryo's phasing QC at the ROI does not meet its thresholds (see [Phasing QC
+  at the ROI](#phasing-qc-at-the-roi)). Its tooltip names each measure, its value and its threshold.
+- **⚠ QC not counted** — no phasing QC was counted at the ROI (the embryo is not recorded as a child of
+  the couple, or the ROI holds more sites than the marker review reads), so the call was not checked
+  against the thresholds. That is not a pass.
 - **⚠ recombination** — a haplotype block boundary lies inside the ROI or within 250 kb of it. The
   embryo's haplotype may change across the locus; use the markers to see where the breakpoint falls.
 - **⚠ phase corrected** — a parent's phase switch was undone inside or close to the ROI (see [Phase
@@ -203,6 +209,41 @@ Four warnings can sit next to the badge:
 
 If the embryo calls at the ROI cannot be loaded, the embryo shows *⚠ segregation not derived*: its call
 and its warnings are then unknown, not absent.
+
+### Phasing QC at the ROI
+
+Each called embryo's phasing QC at the ROI is checked against three thresholds. A call that does not
+meet one gets **⚠ phasing QC** beside its badge. The call itself is not changed or hidden, and the
+sign-out is not held up: the warning tells you to check the call in the ROI markers, and you decide.
+**Sign out report** freezes each embryo's verdict (met, did not meet with each measure, or not
+counted) and the thresholds in force into the signed version.
+
+| Measure, at the ROI | Threshold | Why this value |
+| --- | --- | --- |
+| **Informative sites**: sites where both parents and the embryo have a phased genotype | at least 50 | With fewer, a single Mendelian error already puts the rate above 2%, so the rate cannot tell one genotyping error from a swap. With no error among 50 sites, a rate of 6% or more is ruled out with 95% confidence. |
+| **Mendelian error rate**: the share of those sites whose genotype the embryo cannot have from these parents | at most 2% | Where CoGA's Sample QC starts to warn, and what the haplotype track marks. A higher rate at the locus points to a sample swap, a wrong pedigree, contamination, or a deletion or a uniparental segment there. |
+| **Markers on each parent's side the call reads**: sites where the homolog inherited from that parent is read | at least 6 | The ESHRE PGT Consortium's good practice recommendations for monogenic disorders (2020) ask for at least six informative SNPs on each side of the locus when the embryo is read from linked markers alone. |
+
+**These values are provisional.** The developers proposed them; the laboratory director and QA are to
+confirm or change them before clinical use, and the validation is to test them. Two differences from
+the ESHRE recommendation are for the laboratory to weigh: CoGA counts the markers over the ROI as a
+whole, not on each flank of the locus, and it reads imputed low-pass genotypes rather than amplified
+loci.
+
+Only the parental sides the call reads are checked for markers: the side or sides a disease haplotype
+was resolved on (both for a recessive disorder), and for a son on chrX outside the pseudo-autosomal
+regions his mother's. A side the call does not read (the other parent's in a dominant family, a donor's)
+is not checked, so it cannot raise a warning about evidence the call does not use. Without a resolved
+disease haplotype no side is read, and only the informative sites and the Mendelian error rate are
+checked. The thresholds are set in `backend/app/services/pgt_embryo_qc.py`; a change there changes what
+the family page warns about and what a signed version freezes.
+
+**At an X-linked locus.** On chrX outside the pseudo-autosomal regions the QC counts read every
+member as having two copies, and a man's one-copy calls do not fit that. Written as a single allele,
+the father's calls leave no informative site for any embryo, and a son's leave none for him; written
+as two copies, a son shows a Mendelian error wherever his mother's allele is not his father's. So at
+an X-linked locus a call can carry *⚠ phasing QC* for that reason alone: check the embryo's maternal
+markers in the ROI markers before reading it as a swap.
 
 ---
 
@@ -229,7 +270,9 @@ Per child, CoGA reports two numbers:
   parents. A clear rate points to a sample swap or a wrong pedigree: resolve it before trusting any
   call. (With one known parent, an error is a child that shares no allele with that parent.)
 
-Both parents and the child heterozygous is consistent, just uninformative, and is not an error.
+Both parents and the child heterozygous is consistent, just uninformative, and is not an error. Each
+embryo call's QC verdict reads these numbers over the ROI itself, with the markers on each parent's
+side, against the thresholds of [Phasing QC at the ROI](#phasing-qc-at-the-roi).
 
 ---
 

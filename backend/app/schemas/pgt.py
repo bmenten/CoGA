@@ -8,11 +8,13 @@ change to the signed-record format, which freezes at the release candidate.
 
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import List, Literal, Optional, Union
 
 from pydantic import BaseModel, Field
 
 PgtRiskState = Literal["affected_or_at_risk", "carrier", "unaffected_non_carrier", "uninformative"]
+PgtParentSide = Literal["paternal", "maternal"]
+PgtQcMeasure = Literal["informative_sites", "mendel_rate", "paternal_markers", "maternal_markers"]
 
 
 class PgtRegionOfInterestOut(BaseModel):
@@ -103,6 +105,30 @@ class PgtEmbryoQcOut(BaseModel):
     maternal_markers: int = 0
 
 
+class PgtEmbryoQcFindingOut(BaseModel):
+    """A measure of the embryo's phasing QC at the ROI outside its threshold: a count below
+    its minimum, or the Mendelian error rate above its maximum (``pgt_embryo_qc``)."""
+
+    measure: PgtQcMeasure
+    value: Union[int, float]
+    threshold: Union[int, float]
+
+
+class PgtEmbryoQcVerdictOut(BaseModel):
+    """The embryo's phasing QC at the ROI checked against the thresholds (``pgt_embryo_qc``):
+    a warning beside the call, never a gate. The call stands and the analyst decides (the
+    owner's decision of 2026-10-20)."""
+
+    # pass: every measure checked is within its threshold; warning: one or more is not
+    # (``findings``); not_counted: no QC was counted at the ROI (``PgtEmbryoOut.qc`` is None),
+    # so the call could not be checked against the thresholds.
+    status: Literal["pass", "warning", "not_counted"]
+    # The parental sides whose markers were checked: the sides the call reads.
+    sides: List[PgtParentSide] = Field(default_factory=list)
+    # Each measure outside its threshold, in a fixed order, with its value and the threshold.
+    findings: List[PgtEmbryoQcFindingOut] = Field(default_factory=list)
+
+
 class PgtEmbryoOut(BaseModel):
     sample: str
     sex: Optional[str] = None
@@ -118,6 +144,9 @@ class PgtEmbryoOut(BaseModel):
     # None when not counted: no ROI, the ROI held more sites than the marker review reads
     # (``inputs.markers_truncated``), or the embryo is not recorded as the couple's child.
     qc: Optional[PgtEmbryoQcOut] = None
+    # That QC against the thresholds of ``rules.qc_thresholds``. None: the embryo was not
+    # called (no ROI, or no haplotypes were read).
+    qc_verdict: Optional[PgtEmbryoQcVerdictOut] = None
 
 
 class PgtHaplotypeSourceOut(BaseModel):
@@ -140,12 +169,26 @@ class PgtInputsOut(BaseModel):
     markers_truncated: bool = False
 
 
+class PgtQcThresholdsOut(BaseModel):
+    """The thresholds each embryo's phasing QC at the ROI is checked against
+    (``pgt_embryo_qc``). Provisional: the laboratory director and QA are to confirm them."""
+
+    # Fewer sites at the ROI where both parents and the embryo are genotyped is a warning.
+    min_informative_sites: int
+    # A Mendelian error rate above this is a warning.
+    max_mendel_rate: float
+    # Fewer markers than this on a parental side the call reads is a warning.
+    min_markers_per_side: int
+
+
 class PgtRulesOut(BaseModel):
-    """The distances the calls and their warnings were read with (``pgt_embryo_calls``)."""
+    """The distances the calls and their warnings were read with (``pgt_embryo_calls``), and
+    the thresholds each embryo's phasing QC was checked against (``pgt_embryo_qc``)."""
 
     window_flank: int
     recombination_flank: int
     phase_switch_uncertainty: int
+    qc_thresholds: PgtQcThresholdsOut
 
 
 class PgtAnalysisOut(BaseModel):
