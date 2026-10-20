@@ -434,6 +434,7 @@ async def get_family_nipt_coverage_summary(
             for region in summary.low_coverage_regions
         ],
         targets=_target_coverage_out(coverage.targets) if coverage.targets is not None else None,
+        coverage_notes=list(coverage.notes),
     )
 
 

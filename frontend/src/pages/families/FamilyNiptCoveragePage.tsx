@@ -11,6 +11,7 @@ import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
 import { depth, lowCoverageChipClass, lowCoverageDetail, niptGeneTerms, targetExon } from './niptClassification';
+import NiptCoverageNotes from './NiptCoverageNotes';
 
 // A whole panel holds thousands of genes: the first are drawn, the rest on request.
 const GENE_ROWS_SHOWN = 300;
@@ -515,6 +516,7 @@ const FamilyNiptCoveragePage: React.FC = () => {
               <span className="family-workspace-stat-copy">below QC</span>
             </div>
           </div>
+          <NiptCoverageNotes notes={coverage.coverage_notes} />
           {filterField}
         </div>,
       )}

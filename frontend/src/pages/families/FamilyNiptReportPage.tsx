@@ -658,6 +658,12 @@ const FamilyNiptReportPage: React.FC = () => {
               across {coverage.target_region_count} target region
               {coverage.target_region_count === 1 ? '' : 's'}.
             </p>
+            {/* Each coverage track not read as depth, and why (TRACE-9). */}
+            {(coverage.coverage_notes ?? []).map((note) => (
+              <p key={note} className="report-paragraph">
+                {note}
+              </p>
+            ))}
             {lowCoverage.length ? (
               <>
                 <p className="report-paragraph">

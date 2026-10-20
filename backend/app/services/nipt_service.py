@@ -50,7 +50,11 @@ from .clickhouse_variant_records import (
 if TYPE_CHECKING:
     from ..schemas import FamilyOut, VariantOut
 from .clickhouse_interval_tracks import fetch_interval_track_rows
-from .coverage_read_depth import COVERAGE_TRACK_TYPE, read_depth_sources_by_sample
+from .coverage_read_depth import (
+    COVERAGE_TRACK_TYPE,
+    coverage_tracks_by_sample,
+    not_read_as_depth_note,
+)
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
@@ -1360,27 +1364,41 @@ async def _load_coverage_intervals(
     context: FamilyMetadataContext,
     sample_id: str,
     target_regions: list[TargetRegion],
-) -> list[CoverageInterval]:
+) -> tuple[list[CoverageInterval], list[str]]:
     """The sample's coverage on the target regions' chromosomes, from its one coverage track
-    whose values are read depth (CLIN-46): the coverage BED, or a depth track stored as read
-    (``coverage_read_depth``). WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth
-    are log2 ratios: merged with the BED's depths they pulled its median down, and their rows
-    over a region counted its bases again, which can hide an uncovered stretch from the
-    completeness check. Without a depth track, [], which reads as no coverage."""
+    whose values are read depth (CLIN-46): a coverage BED declared as read depth, or a depth
+    track stored as read (``coverage_read_depth``). WisecondorX's and QDNAseq's bins and
+    HiFiCNV's normalised depth are log2 ratios: merged with the BED's depths they pulled its
+    median down, and their rows over a region counted its bases again, which can hide an
+    uncovered stretch from the completeness check. A coverage BED that does not declare what
+    it holds is of unknown kind, and is not read as depth either (TRACE-9). Without a depth
+    track, [], which reads as no coverage.
+
+    With the intervals, a note for each of the sample's coverage tracks there that is not
+    read as depth, with the reason (``not_read_as_depth_note``): the check shows them, so a
+    region without coverage says why."""
     sample_uuid = context.sample_name_to_uuid.get(sample_id)
     if not sample_uuid or not context.assembly_name or not target_regions:
-        return []
+        return [], []
     chromosomes = sorted({region.chrom for region in target_regions})
-    depth_sources = await read_depth_sources_by_sample(
-        session,
-        assembly_name=context.assembly_name,
-        family_uuid=context.family_uuid,
-        sample_uuid_to_name={sample_uuid: sample_id},
-        chromosomes=chromosomes,
-    )
-    source = depth_sources.get(sample_id)
+    tracks = (
+        await coverage_tracks_by_sample(
+            session,
+            assembly_name=context.assembly_name,
+            family_uuid=context.family_uuid,
+            sample_uuid_to_name={sample_uuid: sample_id},
+            chromosomes=chromosomes,
+        )
+    ).get(sample_id)
+    if tracks is None:
+        return [], []
+    notes = [
+        not_read_as_depth_note(sample_id, track_source, content)
+        for track_source, content in tracks.not_read_as_depth()
+    ]
+    source = tracks.depth_source
     if source is None:
-        return []
+        return [], notes
     rows = await fetch_interval_track_rows(
         context.assembly_name,
         sample_uuid=sample_uuid,
@@ -1402,16 +1420,18 @@ async def _load_coverage_intervals(
                 value=float(value),
             )
         )
-    return intervals
+    return intervals, notes
 
 
 @dataclass(slots=True)
 class NiptCoverageResult:
     """The coverage QC: the target table's when the plasma has one (``targets``), else the
-    coverage track's over the gene or panel spans (``regions``)."""
+    coverage track's over the gene or panel spans (``regions``), with a note for each of the
+    plasma's coverage tracks not read as depth (``notes``, TRACE-9)."""
 
     regions: NiptCoverageSummary
     targets: TargetCoverageSummary | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 async def get_family_nipt_coverage(
@@ -1448,11 +1468,12 @@ async def get_family_nipt_coverage(
     target_regions = await _resolve_nipt_target_regions(
         session, family=family, context=context, gene=gene, panel_id=panel_id
     )
-    coverage = await _load_coverage_intervals(
+    coverage, notes = await _load_coverage_intervals(
         session, context, trio.cfdna_sample_id, target_regions
     )
     return NiptCoverageResult(
-        regions=summarize_on_target_coverage(target_regions, coverage, min_depth=min_depth)
+        regions=summarize_on_target_coverage(target_regions, coverage, min_depth=min_depth),
+        notes=notes,
     )
 
 

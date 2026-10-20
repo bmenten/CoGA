@@ -133,10 +133,14 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
   gene in scope (`include_passing`) and reads one gene's targets on demand
   (`get_family_nipt_gene_targets`). Without the plasma's table, `nipt_coverage.py` takes the median
   depth over the genes or the family ROI from the plasma's one coverage track of read depth
-  (`_load_coverage_intervals`, `coverage_read_depth.py`): its coverage BED, otherwise HiFiCNV's
-  depth stored as read. A log2-ratio track (WisecondorX's or QDNAseq's bins, HiFiCNV's normalised
-  depth) is never read as depth: merged with the BED it pulled the median down, and its rows
-  covered the BED's gaps. Without a depth track every region reads `no_coverage`.
+  (`_load_coverage_intervals`, `coverage_read_depth.py`): its coverage BED when it was declared
+  as read depth (the upload's or the manifest entry's `content: read_depth`, TRACE-9), otherwise
+  HiFiCNV's depth stored as read. A log2-ratio track (WisecondorX's or QDNAseq's bins, HiFiCNV's
+  normalised depth, a BED declared as a log2 ratio) is never read as depth: merged with the BED it
+  pulled the median down, and its rows covered the BED's gaps. Nor is a coverage BED that declares
+  nothing (`unknown`), which was read as depth before TRACE-9. Each track left out is named with
+  the reason in the check's `coverage_notes`, which the NIPT page, the coverage page and the
+  printed report show. Without a depth track every region reads `no_coverage`.
 
 ## Two paths
 

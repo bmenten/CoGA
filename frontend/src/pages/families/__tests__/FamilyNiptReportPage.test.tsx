@@ -120,6 +120,7 @@ describe('FamilyNiptReportPage', () => {
             low_coverage_regions: [
               { label: 'ARID1B', chr: '6', median_coverage: 8, covered_fraction: 1, reason: 'low_depth' },
             ],
+            coverage_notes: ['CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.'],
           },
         });
       }
@@ -165,6 +166,8 @@ describe('FamilyNiptReportPage', () => {
     // Coverage QC flags the low-depth panel gene.
     expect(screen.getByText('Coverage QC')).toBeInTheDocument();
     expect(screen.getByText(/1 of 3 panel genes were not adequately interrogated/)).toBeInTheDocument();
+    // Printed with the coverage: the plasma's track the check did not read as depth (TRACE-9).
+    expect(screen.getByText('CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.')).toBeInTheDocument();
     expect(screen.getByText(/8x median/)).toBeInTheDocument();
 
     // Candidates are grouped by inheritance.

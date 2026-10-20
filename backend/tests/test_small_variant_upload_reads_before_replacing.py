@@ -377,6 +377,29 @@ async def test_a_record_that_cannot_be_read_leaves_the_callset_as_it_was(stores,
     _as_stored_before(stores, database)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [_HEADER, _HEADER + _calls(3).replace("1\t10", "1\tx10")],
+    ids=["header-alone", "no-readable-record"],
+)
+async def test_a_mitochondrial_upload_without_a_record_leaves_the_mitochondrial_calls(stores, body) -> None:
+    # The owner's decision (SAFE-29): a mitochondrial SNV file without a variant record is a
+    # failed analysis, never "no mitochondrial variant". The upload of the family's chrM calls
+    # (source_format=mito) reads its file whole before it replaces them, as every small-variant
+    # upload does since SAFE-25, and refuses it with them as they were.
+    stores.rows["mito"] = ["stored-mito-1"]
+    database = _Postgres()
+
+    with pytest.raises(HTTPException) as refused:
+        await _upload(database, body, callset="mito")
+
+    assert (refused.value.status_code, refused.value.detail) == (400, "No valid small-variant records found")
+    assert stores.rows["mito"] == ["stored-mito-1"]
+    assert not [event for event in stores.events if event[0] in {"delete", "insert"}]
+    assert database.commits == 0
+
+
 # Imputed genotypes the upload refuses.
 _INVALID_IMPUTED = {
     "a gzip file cut short": _cut_short(_HEADER + _imputed(400)),

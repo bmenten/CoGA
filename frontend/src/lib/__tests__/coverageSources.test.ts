@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   apcadAxisMax,
-  coverageNotDrawnNote,
+  coverageScale,
+  coverageScaleNote,
   coverageSourceLabel,
   coverageTrackLabel,
   orderCoverageSources,
@@ -53,32 +54,49 @@ describe('coverage sources', () => {
     expect(coverageTrackLabel('hificnv', 3)).toBe('Coverage · HiFiCNV');
   });
 
-  // TRACE-7: the chart's axis is a log2 ratio, and a track is drawn on it only when its
-  // record says its values are one.
-  it('draws a track whose values are a log2 ratio on the log2-ratio axis', () => {
-    // Put on that scale by the import: HiFiCNV's depth and copy number.
-    expect(coverageNotDrawnNote(['log2_ratio_to_autosomal_median'])).toBeNull();
-    expect(coverageNotDrawnNote(['log2_ratio_to_diploid'])).toBeNull();
-    // No transform recorded: the file's own values, which WisecondorX and QDNAseq write as
-    // log2 ratios.
-    expect(coverageNotDrawnNote([])).toBeNull();
-    expect(coverageNotDrawnNote(undefined)).toBeNull();
+  // TRACE-9: each coverage track is drawn on the axis of what it holds, as the track availability
+  // serves it (`coverage_contents`, decided by the rule the depth readers read it by).
+  it('draws each track on the axis of what it holds', () => {
+    expect(coverageScale('log2_ratio')).toBe('log2_ratio');
+    expect(coverageScale('read_depth')).toBe('read_depth');
+    // A coverage BED that does not declare what it holds, a transform not known, or a track the
+    // availability says nothing of: on neither axis.
+    expect(coverageScale('unknown')).toBe('unknown');
+    expect(coverageScale('counts')).toBe('unknown');
+    expect(coverageScale(undefined)).toBe('unknown');
   });
 
-  it('leaves depths stored as read off the log2-ratio axis, and says why', () => {
-    // A HiFiCNV depth file without a usable autosomal median: raw depth, which drawn on
-    // the axis sat above its top and read as a gain across the genome.
-    const note =
-      'Not drawn: no usable autosomal median, so these depths are stored as read, not as a log2 ratio. IGV shows the depth file.';
-    expect(coverageNotDrawnNote(['none'])).toBe(note);
-    // Two records that disagree are not averaged into a scale: one of them is not a ratio.
-    expect(coverageNotDrawnNote(['log2_ratio_to_autosomal_median', 'none'])).toBe(note);
+  it('says nothing where the legend says it all', () => {
+    // A log2 ratio: the WisecondorX and QDNAseq bins, HiFiCNV's normalised depth, a BED declared
+    // as one.
+    expect(coverageScaleNote('wisecondorx', 'log2_ratio')).toBeNull();
+    expect(coverageScaleNote('web', 'log2_ratio')).toBeNull();
+    // A coverage BED declared as read depth: the depth axis says so.
+    expect(coverageScaleNote('web', 'read_depth')).toBeNull();
   });
 
-  it('leaves a transform it does not know off the log2-ratio axis', () => {
-    expect(coverageNotDrawnNote(['log10_ratio'])).toBe(
-      'Not drawn: these values are stored as log10_ratio, not as a log2 ratio.',
-    );
+  it('says why depths stored as read are on a depth axis, beside the callers log2 ratios', () => {
+    // TRACE-7: a HiFiCNV depth file without a usable autosomal median, stored as read. It used to
+    // be left off the chart, the log2-ratio axis being the only one.
+    expect(coverageScaleNote('hificnv', 'read_depth', ['none'])).toEqual({
+      text: 'Read depth, stored as read: the sample had no usable autosomal median to normalise it by.',
+      warning: false,
+    });
+  });
+
+  it('warns that values of unknown kind are neither depth nor a log2 ratio', () => {
+    // A coverage BED that does not declare what it holds: it was drawn on the log2-ratio axis
+    // while the depth readers read it as depth.
+    expect(coverageScaleNote('web', 'unknown')).toEqual({
+      text: 'This coverage BED does not declare whether it holds read depth or a log2 ratio: drawn on its own range without an axis, and not read as depth. Load it again with what it holds.',
+      warning: true,
+    });
+    expect(coverageScaleNote('web', undefined)?.warning).toBe(true);
+    // Another caller whose record names a transform not known here.
+    expect(coverageScaleNote('hificnv', 'unknown', ['log10_ratio'])).toEqual({
+      text: 'What these values are is not recorded: drawn on their own range without an axis, and not read as depth.',
+      warning: true,
+    });
   });
 
   it('folds the APCAD axis only when every caller on it is folded', () => {

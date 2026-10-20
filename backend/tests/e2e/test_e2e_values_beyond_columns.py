@@ -225,6 +225,8 @@ async def _exercise(base: Path, family_id: str, package_family_id: str) -> dict[
         out["bed_upload"] = _cap(
             await ac.post(
                 f"/api/bed/upload/{proband}/coverage",
+                # A coverage BED declares what it holds (TRACE-9).
+                params={"content": "read_depth"},
                 files={"file": ("coverage.bed", _BED.encode(), "text/plain")},
             )
         )

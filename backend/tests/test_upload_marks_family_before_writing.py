@@ -82,6 +82,8 @@ def _calls(count: int) -> str:
 
 _CLAIR3 = {"source": "clair3", "samples": None}
 _COVERAGE_S1 = {"source": None, "samples": ["S1"]}
+# What the coverage BED upload below brings: S1's BED, declared as read depth (TRACE-9).
+_DECLARED_COVERAGE_S1 = {**_COVERAGE_S1, "content": "read_depth"}
 
 
 class _ProcessStopped(BaseException):
@@ -298,6 +300,7 @@ async def _coverage(database: _Postgres, *, overwrite: bool = True, body: str = 
             bed_type="coverage",
             file=UploadFile(file=BytesIO(body.encode()), filename="coverage.bed"),
             overwrite=overwrite,
+            content="read_depth",
             session=database,  # type: ignore[arg-type]
             user=SimpleNamespace(id="admin", username="admin"),
         ),
@@ -398,7 +401,7 @@ async def test_a_bed_upload_whose_process_stops_after_its_delete_leaves_the_fami
     key, mark = database.mark()
     assert key.startswith("upload-")
     assert mark["datasets"] == ["bed_coverage"]
-    assert mark["whole_family"] == [{"dataset": "bed_coverage", "scope": _COVERAGE_S1}]
+    assert mark["whole_family"] == [{"dataset": "bed_coverage", "scope": _DECLARED_COVERAGE_S1}]
     assert database.events == [("mark",), ("delete track",)]
 
 
@@ -413,7 +416,7 @@ async def test_a_bed_upload_that_fails_after_its_delete_leaves_the_family_marked
 
     # The sample's track is gone: before, nothing marked the family.
     assert clickhouse.coverage == []
-    assert database.mark()[1]["whole_family"] == [{"dataset": "bed_coverage", "scope": _COVERAGE_S1}]
+    assert database.mark()[1]["whole_family"] == [{"dataset": "bed_coverage", "scope": _DECLARED_COVERAGE_S1}]
 
 
 @pytest.mark.asyncio

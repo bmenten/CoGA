@@ -24,6 +24,7 @@ from ..schemas import (
     FamilyImportValidationIssue,
     FamilyPackageValidationOut,
 )
+from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
 from .clickhouse_interval_tracks import (
     count_interval_track_source_rows,
     delete_interval_tracks,
@@ -746,9 +747,23 @@ def dataset_scopes(
         source: str | None = None
         if dataset_type == "snv" and dataset is not None:
             source = snv_dataset_callset(bundle)
-        scopes[dataset_type] = {"source": source, "samples": samples}
+        scope: dict[str, Any] = {"source": source, "samples": samples}
+        if dataset_type == "coverage" and dataset is not None and samples:
+            # What each sample's coverage BED declares it holds (TRACE-9), as the import
+            # stores it: `unknown` without the manifest's `content`. A per-target table
+            # declares nothing.
+            contents = {
+                str(sample_id): declared_coverage_content(entry.get(COVERAGE_CONTENT_KEY))
+                for sample_id, entry in dataset.per_sample.items()
+                if isinstance(entry, dict)
+                and not entry.get("target_table")
+                and (entry.get("bed") or entry.get("file"))
+            }
+            if contents:
+                scope[COVERAGE_CONTENT_KEY] = contents
         if dataset_carries_nothing(bundle, dataset_type):
-            scopes[dataset_type][EMPTY_SCOPE_KEY] = True
+            scope[EMPTY_SCOPE_KEY] = True
+        scopes[dataset_type] = scope
     return scopes
 
 
@@ -1104,19 +1119,39 @@ def _scope_items(dataset: str, scope: Any) -> list[dict[str, Any]]:
     per-sample scope one sample at a time, as an overwrite of each sample replaces it. A
     scope not in the shape ``dataset_scopes`` gives is kept as it is (None when there is
     none): no import can be shown to cover it. A dataset that carries nothing stays marked
-    so (``EMPTY_SCOPE_KEY``)."""
+    so (``EMPTY_SCOPE_KEY``).
+
+    A coverage BED's scope also says what each sample's BED declared it holds
+    (``content``: one value for an upload's sample, or sample -> value for a package's
+    ``coverage`` dataset, TRACE-9), and each sample's item keeps its own. It says what the
+    data is, not what an overwrite replaces: ``_scope_covers`` does not read it."""
     if not isinstance(scope, Mapping):
         return [{"dataset": dataset, "scope": None}]
     source, samples = scope.get("source"), scope.get("samples")
     empty = {EMPTY_SCOPE_KEY: True} if _carries_nothing(scope) else {}
+    content = scope.get(COVERAGE_CONTENT_KEY)
+
+    def item(item_samples: Any, name: str | None = None) -> dict[str, Any]:
+        item_scope: dict[str, Any] = {"source": source, "samples": item_samples, **empty}
+        declared = content.get(name) if isinstance(content, Mapping) else content
+        if declared is not None and not isinstance(declared, Mapping):
+            item_scope[COVERAGE_CONTENT_KEY] = declared
+        return {"dataset": dataset, "scope": item_scope}
+
     if isinstance(samples, list):
         names = sorted({str(sample) for sample in samples if sample})
         if names:
-            return [
-                {"dataset": dataset, "scope": {"source": source, "samples": [name], **empty}}
-                for name in names
-            ]
-    return [{"dataset": dataset, "scope": {"source": source, "samples": samples, **empty}}]
+            return [item([name], name) for name in names]
+    return [item(samples)]
+
+
+def _scope_identity(scope: Any) -> Any:
+    """A scope as an overwrite replaces it: without what its data was declared to hold
+    (``content``), so that a later record of the same dataset and sample replaces an
+    earlier one's declaration rather than standing beside it."""
+    if isinstance(scope, Mapping) and COVERAGE_CONTENT_KEY in scope:
+        return {key: value for key, value in scope.items() if key != COVERAGE_CONTENT_KEY}
+    return scope
 
 
 def merged_imported_scopes(
@@ -1133,7 +1168,8 @@ def merged_imported_scopes(
     its own commit (``record_family_upload``). An addition without a scope (an import run
     without its bookkeeping) adds nothing, nor does one of a dataset that carried nothing
     (``EMPTY_SCOPE_KEY``): the family holds nothing of it (SAFE-17). A stored value not in
-    this shape is read as holding nothing."""
+    this shape is read as holding nothing. A coverage BED's item says what the BED declared
+    it holds (``content``), and a later addition for the same sample replaces it (TRACE-9)."""
     if isinstance(stored, str):
         try:
             stored = json.loads(stored)
@@ -1152,7 +1188,7 @@ def merged_imported_scopes(
     merged: dict[str, dict[str, Any]] = {}
     for dataset, scope in pairs:
         for item in _scope_items(dataset, scope):
-            merged.setdefault(dataset, {})[_canonical(item["scope"])] = item["scope"]
+            merged.setdefault(dataset, {})[_canonical(_scope_identity(item["scope"]))] = item["scope"]
     return {
         dataset: [scopes[key] for key in sorted(scopes)]
         for dataset, scopes in sorted(merged.items())
@@ -2001,14 +2037,20 @@ def repeat_upload_scope(sample_id: str) -> tuple[str, dict[str, Any]]:
     return "repeats_trgt", {"source": None, "samples": [sample_id]}
 
 
-def interval_track_upload_scope(bed_type: str, sample_id: str) -> tuple[str, dict[str, Any]]:
+def interval_track_upload_scope(
+    bed_type: str, sample_id: str, *, content: str | None = None
+) -> tuple[str, dict[str, Any]]:
     """What a BED upload of one sample's ``bed_type`` track brought; it replaces the
     sample's track of that type that a BED brought (source ``web``), and no other caller's
     (SAFE-22). A package dataset that writes such a track may read another kind of file, or
     write another track (a coverage dataset's target table, an APCAD VCF), so neither can
     show that it replaced what the other wrote: the upload has a dataset of its own,
-    ``bed_<type>``."""
-    return f"bed_{bed_type}", {"source": None, "samples": [sample_id]}
+    ``bed_<type>``. A coverage BED's scope also says what it declared it holds
+    (``content``, TRACE-9), which no overwrite compares."""
+    scope: dict[str, Any] = {"source": None, "samples": [sample_id]}
+    if content is not None:
+        scope[COVERAGE_CONTENT_KEY] = content
+    return f"bed_{bed_type}", scope
 
 
 # A write of the family's data made outside a package import marks the family as an import
