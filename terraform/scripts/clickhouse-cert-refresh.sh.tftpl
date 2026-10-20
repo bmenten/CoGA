@@ -1,8 +1,9 @@
 #!/bin/bash
 # Refresh the ClickHouse TLS server cert/key from Secret Manager and restart the
 # container only if they changed. Run on a systemd timer so cert rotation needs no
-# manual VM rebuild. The CA is long-lived and unchanged, so the backend keeps
-# verifying across a server-cert rotation.
+# manual VM rebuild. Terraform re-issues the CA with every server cert (tls.tf), and the
+# backend trusts only the new CA from that apply on, so the VM is restarted right after
+# such an apply (docs/deployment-gcp.md §12.4); this timer is the fallback.
 #
 # Rendered by Terraform templatefile(): bash expansions are escaped as $$; only the
 # named TF vars are substituted.

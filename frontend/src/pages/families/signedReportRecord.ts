@@ -190,7 +190,189 @@ export interface SignedModule {
   byModality: Record<string, string> | null;
 }
 
+/**
+ * What a signed record is (owner decision of 2026-10-14). Frozen into each record since
+ * (`record_statement`); said on the live report, and on a record signed before CoGA froze it.
+ */
+export const ANALYTICAL_SIGN_OFF_STATEMENT =
+  'This record is the analytical sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient report happens in the EPD, which refers to this record by its report code.';
+
+/** The same, on the live report, where the case is signed out. */
+export const LIVE_REPORT_SIGN_OFF_STATEMENT =
+  'Signing out is the analytical sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient report happens in the EPD, which refers to the signed record by its report code.';
+
+/**
+ * A section of what the analysis looked at (`signed_record_sections.py`): `absent` from a
+ * record signed before CoGA recorded it, `unavailable` when it could not be read at sign-out
+ * (the reason frozen in its place), else `recorded`. Adding a section: parse it with
+ * `parseRecordSection` and render it with `RecordSectionBlock` (SignedFamilyReport.tsx).
+ */
+export type SignedRecordSection<T> =
+  | { state: 'absent' }
+  | { state: 'unavailable'; reason: string }
+  | { state: 'recorded'; value: T };
+
+export interface SignedGenotype {
+  sample: string;
+  gt: string | null;
+  dp: number | null;
+  gq: number | null;
+  ad: number[] | null;
+  af: number[] | null;
+  /** Structural variants: the copy number and the reads that support the call. */
+  cn: number | null;
+  readSupport: number | null;
+}
+
+/** A reported small variant as the analyst reviewed it, one per callset that calls it. */
+export interface SignedSmallVariantDescription {
+  variantId: string | null;
+  source: string | null;
+  chrom: string | null;
+  start: number | null;
+  ref: string | null;
+  alt: string | null;
+  gene: string | null;
+  transcript: string | null;
+  hgvsc: string | null;
+  hgvsp: string | null;
+  consequence: string | null;
+  impact: string | null;
+  maneSelect: boolean;
+  genotypes: SignedGenotype[];
+}
+
+/** A reported structural variant or CNV as the analyst reviewed it, one per caller. */
+export interface SignedStructuralVariantDescription {
+  variantId: string | null;
+  source: string | null;
+  svType: string | null;
+  copyChange: string | null;
+  chrom: string | null;
+  start: number | null;
+  end: number | null;
+  length: number | null;
+  remoteChrom: string | null;
+  remoteStart: number | null;
+  genes: string[];
+  cytoband: string | null;
+  genotypes: SignedGenotype[];
+}
+
+export interface SignedVariantDescriptions {
+  small: SignedSmallVariantDescription[];
+  structural: SignedStructuralVariantDescription[];
+}
+
+/** A gene-panel version the family's searches applied, with the release of its source. */
+export interface SignedGenePanel {
+  panelId: string | null;
+  name: string | null;
+  version: number | null;
+  source: string | null;
+  geneCount: number | null;
+  externalId: string | null;
+  externalVersion: string | null;
+  externalVersionCreated: string | null;
+  confidenceLevels: string[];
+  sourceUpdatedAt: string | null;
+  firstAppliedAt: string | null;
+  firstAppliedBy: string | null;
+}
+
+export interface SignedGeneReferenceSource {
+  source: string;
+  status: string | null;
+  release: string | null;
+  checksum: string | null;
+  genes: string[];
+}
+
+export interface SignedGeneReference {
+  genes: string[];
+  sources: SignedGeneReferenceSource[];
+  notInReference: string[];
+}
+
+export interface SignedCnvKnowledgebase {
+  source: string | null;
+  release: string | null;
+  releaseDate: string | null;
+  loadedAt: string | null;
+  records: number | null;
+}
+
+export interface SignedReferenceData {
+  geneReference: SignedRecordSection<SignedGeneReference>;
+  /** `recorded` with null: no knowledgebase was loaded. */
+  clinicalCnvs: SignedRecordSection<SignedCnvKnowledgebase | null>;
+}
+
+export interface SignedRepeatAllele {
+  repeatCount: number | null;
+  bpLength: number | null;
+  status: string;
+}
+
+export interface SignedRepeatCall {
+  sample: string;
+  genotype: string | null;
+  status: string;
+  note: string | null;
+  alleles: SignedRepeatAllele[];
+}
+
+export interface SignedRepeatLocus {
+  locusId: string | null;
+  gene: string | null;
+  disease: string | null;
+  chrom: string | null;
+  start: number | null;
+  motif: string | null;
+  thresholds: {
+    intermediateMin: number | null;
+    premutationMin: number | null;
+    pathogenicMin: number | null;
+  };
+  status: string;
+  calls: SignedRepeatCall[];
+}
+
+export interface SignedCatalogue {
+  /** How many loci (TRGT) or regions (Paraphase) it holds. */
+  entries: number | null;
+  sources: string[];
+  digest: string | null;
+}
+
+export interface SignedRepeatExpansions {
+  catalogue: SignedCatalogue | null;
+  loci: SignedRepeatLocus[];
+}
+
+export interface SignedParaphaseResult {
+  sample: string;
+  status: string | null;
+  copyNumberSignal: boolean;
+  copyNumber: { label: string; value: number | null }[];
+}
+
+export interface SignedParaphaseGene {
+  gene: string | null;
+  region: string | null;
+  /** How the catalogue reads the status ("status by smn1_cn: pathogenic = 0, …"), when it has a rule. */
+  statusRule: string | null;
+  results: SignedParaphaseResult[];
+}
+
+export interface SignedParaphase {
+  catalogue: SignedCatalogue | null;
+  genes: SignedParaphaseGene[];
+}
+
 export interface SignedReport {
+  /** What the record says it is; null: signed before CoGA froze the sentence. */
+  statement: string | null;
   familyId: string | null;
   assembly: string | null;
   modules: SignedModule[] | null;
@@ -210,6 +392,12 @@ export interface SignedReport {
   reportedVariants: SignedSmallVariant[] | null;
   /** Null: the record holds no list of reported SVs. */
   reportedStructuralVariants: SignedStructuralVariant[] | null;
+  /** What the analysis looked at (signed_record_sections.py). */
+  variantDescriptions: SignedRecordSection<SignedVariantDescriptions>;
+  genePanels: SignedRecordSection<SignedGenePanel[]>;
+  referenceData: SignedRecordSection<SignedReferenceData>;
+  repeatExpansions: SignedRecordSection<SignedRepeatExpansions>;
+  paraphase: SignedRecordSection<SignedParaphase>;
 }
 
 const acknowledgement = (snapshot: Json, flag: string, reason: string): SignedAcknowledgement => ({
@@ -566,11 +754,194 @@ const parseModules = (value: unknown): SignedModule[] | null => {
   });
 };
 
+// --- What the analysis looked at ---------------------------------------------------
+
+const UNREADABLE_SECTION = 'it cannot be read here; the downloaded record holds it as stored';
+
+/** A section's state in a record: see `SignedRecordSection`. */
+export const parseRecordSection = <T>(
+  holder: Json,
+  key: string,
+  parse: (value: Json) => T,
+): SignedRecordSection<T> => {
+  if (!has(holder, key)) return { state: 'absent' };
+  const value = holder[key];
+  if (!isObject(value)) return { state: 'unavailable', reason: UNREADABLE_SECTION };
+  const reason = text(value.unavailable);
+  if (reason) return { state: 'unavailable', reason };
+  return { state: 'recorded', value: parse(value) };
+};
+
+const numbers = (value: unknown): number[] | null =>
+  Array.isArray(value) ? value.filter((item): item is number => number(item) !== null) : null;
+
+const objects = (value: unknown): Json[] => (Array.isArray(value) ? value.filter(isObject) : []);
+
+const parseGenotypes = (value: unknown): SignedGenotype[] =>
+  objects(value).map((genotype) => ({
+    sample: text(genotype.sample) ?? 'a sample',
+    gt: text(genotype.gt),
+    dp: number(genotype.dp),
+    gq: number(genotype.gq),
+    ad: numbers(genotype.ad),
+    af: numbers(genotype.af),
+    cn: number(genotype.cn),
+    readSupport: number(genotype.read_support),
+  }));
+
+const parseVariantDescriptions = (value: Json): SignedVariantDescriptions => ({
+  small: objects(value.small).map((entry) => ({
+    variantId: text(entry.variant_id),
+    source: text(entry.source),
+    chrom: text(entry.chrom),
+    start: number(entry.start),
+    ref: text(entry.ref),
+    alt: text(entry.alt),
+    gene: text(entry.gene),
+    transcript: text(entry.transcript),
+    hgvsc: text(entry.hgvsc),
+    hgvsp: text(entry.hgvsp),
+    consequence: text(entry.consequence),
+    impact: text(entry.impact),
+    maneSelect: entry.mane_select === true,
+    genotypes: parseGenotypes(entry.genotypes),
+  })),
+  structural: objects(value.structural).map((entry) => ({
+    variantId: text(entry.variant_id),
+    source: text(entry.source),
+    svType: text(entry.sv_type),
+    copyChange: text(entry.copy_change),
+    chrom: text(entry.chrom),
+    start: number(entry.start),
+    end: number(entry.end),
+    length: number(entry.length),
+    remoteChrom: text(entry.remote_chrom),
+    remoteStart: number(entry.remote_start),
+    genes: strings(entry.genes),
+    cytoband: text(entry.cytoband),
+    genotypes: parseGenotypes(entry.genotypes),
+  })),
+});
+
+const parseGenePanels = (value: Json): SignedGenePanel[] =>
+  objects(value.applied).map((panel) => ({
+    panelId: text(panel.panel_id),
+    name: text(panel.name),
+    version: number(panel.version),
+    source: text(panel.source),
+    geneCount: number(panel.gene_count),
+    externalId: text(panel.external_id),
+    externalVersion: text(panel.external_version),
+    externalVersionCreated: text(panel.external_version_created),
+    confidenceLevels: strings(panel.confidence_levels),
+    sourceUpdatedAt: text(panel.source_updated_at),
+    firstAppliedAt: text(panel.first_applied_at),
+    firstAppliedBy: text(panel.first_applied_by),
+  }));
+
+const parseReferenceData = (value: Json): SignedReferenceData => ({
+  geneReference: parseRecordSection(value, 'gene_reference', (part) => ({
+    genes: strings(part.genes),
+    sources: objects(part.sources).map((source) => ({
+      source: text(source.source) ?? 'source',
+      status: text(source.status),
+      release: text(source.release),
+      checksum: text(source.checksum),
+      genes: strings(source.genes),
+    })),
+    notInReference: strings(part.not_in_reference),
+  })),
+  // A knowledgebase never loaded is frozen as null: recorded, as none.
+  clinicalCnvs: !has(value, 'clinical_cnvs')
+    ? { state: 'absent' }
+    : value.clinical_cnvs === null
+      ? { state: 'recorded', value: null }
+      : parseRecordSection(value, 'clinical_cnvs', (part) => ({
+          source: text(part.source),
+          release: text(part.release),
+          releaseDate: text(part.release_date),
+          loadedAt: text(part.loaded_at),
+          records: number(part.records),
+        })),
+});
+
+const parseCatalogue = (value: unknown, entries: string): SignedCatalogue | null =>
+  isObject(value)
+    ? { entries: number(value[entries]), sources: strings(value.sources), digest: text(value.digest) }
+    : null;
+
+const parseRepeatExpansions = (value: Json): SignedRepeatExpansions => ({
+  catalogue: parseCatalogue(value.catalogue, 'loci'),
+  loci: objects(value.loci).map((locus) => {
+    const thresholds = isObject(locus.thresholds) ? locus.thresholds : {};
+    return {
+      locusId: text(locus.locus_id),
+      gene: text(locus.gene),
+      disease: text(locus.disease),
+      chrom: text(locus.chrom),
+      start: number(locus.start),
+      motif: text(locus.motif),
+      thresholds: {
+        intermediateMin: number(thresholds.intermediate_min),
+        premutationMin: number(thresholds.premutation_min),
+        pathogenicMin: number(thresholds.pathogenic_min),
+      },
+      status: text(locus.status) ?? 'unknown',
+      calls: objects(locus.calls).map((call) => ({
+        sample: text(call.sample) ?? 'a sample',
+        genotype: text(call.genotype),
+        status: text(call.status) ?? 'unknown',
+        note: text(call.note),
+        alleles: objects(call.alleles).map((allele) => ({
+          repeatCount: number(allele.repeat_count),
+          bpLength: number(allele.bp_length),
+          status: text(allele.status) ?? 'unknown',
+        })),
+      })),
+    };
+  }),
+});
+
+const RULE_OPERATORS: Record<string, string> = { eq: '=', lte: '≤', gte: '≥', lt: '<', gt: '>' };
+
+/** A Paraphase status rule as words: "status by smn1_cn: pathogenic = 0, carrier = 1, normal ≥ 2". */
+const describeStatusRule = (rule: unknown): string | null => {
+  if (!isObject(rule) || !text(rule.field)) return null;
+  const parts = ['pathogenic', 'carrier', 'normal']
+    .filter((status) => isObject(rule[status]))
+    .map(
+      (status) =>
+        `${status} ${Object.entries(rule[status] as Json)
+          .map(([operator, bound]) => `${RULE_OPERATORS[operator] ?? operator} ${String(bound)}`)
+          .join(' and ')}`,
+    );
+  return `status by ${String(rule.field)}: ${parts.join(', ')}`;
+};
+
+const parseParaphase = (value: Json): SignedParaphase => ({
+  catalogue: parseCatalogue(value.catalogue, 'regions'),
+  genes: objects(value.genes).map((gene) => ({
+    gene: text(gene.gene),
+    region: text(gene.region),
+    statusRule: describeStatusRule(gene.status_rule),
+    results: objects(gene.samples).map((result) => ({
+      sample: text(result.sample) ?? 'a sample',
+      status: text(result.status),
+      copyNumberSignal: result.copy_number_signal === true,
+      copyNumber: objects(result.copy_number).map((metric) => ({
+        label: text(metric.label) ?? text(metric.key) ?? 'copy number',
+        value: number(metric.value),
+      })),
+    })),
+  })),
+});
+
 /** The signed version's frozen snapshot, read; null when there is no readable snapshot. */
 export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
   if (!isObject(snapshot)) return null;
   const software = isObject(snapshot.software) ? snapshot.software : null;
   return {
+    statement: text(snapshot.record_statement),
     familyId: text(snapshot.family_id),
     assembly: text(snapshot.assembly),
     modules: parseModules(snapshot.modules),
@@ -600,6 +971,11 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     reportedStructuralVariants: Array.isArray(snapshot.reported_structural_variants)
       ? (snapshot.reported_structural_variants as unknown[]).map(parseStructuralVariant)
       : null,
+    variantDescriptions: parseRecordSection(snapshot, 'variant_descriptions', parseVariantDescriptions),
+    genePanels: parseRecordSection(snapshot, 'gene_panels', parseGenePanels),
+    referenceData: parseRecordSection(snapshot, 'reference_data', parseReferenceData),
+    repeatExpansions: parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions),
+    paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
   };
 };
 
@@ -652,7 +1028,200 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   sequencing_qc: 'sequencing QC cut-offs',
   import_incomplete: 'import completeness',
   import_unfinished: 'unfinished imports',
+  variant_descriptions: 'variant descriptions',
+  gene_panels: 'gene panels applied',
+  reference_data: 'reference-data releases',
+  repeat_expansions: 'repeat expansions',
+  paraphase: 'Paraphase results',
 };
+
+// --- Wording of what the analysis looked at --------------------------------------------
+
+const joinNumbers = (values: number[] | null): string | null =>
+  values && values.length ? values.join(',') : null;
+
+/** One sample's genotype as reviewed: "PROBAND 0/1 (depth 30, AD 15,15)". */
+export const describeGenotype = (genotype: SignedGenotype): string => {
+  const details = [
+    genotype.dp !== null ? `depth ${genotype.dp}` : null,
+    genotype.gq !== null ? `GQ ${genotype.gq}` : null,
+    joinNumbers(genotype.ad) ? `AD ${joinNumbers(genotype.ad)}` : null,
+    joinNumbers(genotype.af) ? `VAF ${joinNumbers(genotype.af)}` : null,
+    genotype.cn !== null ? `copy number ${genotype.cn}` : null,
+    genotype.readSupport !== null ? `${genotype.readSupport} supporting reads` : null,
+  ].filter((part): part is string => Boolean(part));
+  return `${genotype.sample} ${genotype.gt ?? 'no call'}${details.length ? ` (${details.join(', ')})` : ''}`;
+};
+
+/** A small variant as reviewed: "GENE c.10C>T p.(Arg4Trp), missense_variant (MODERATE)". */
+export const describeSmallVariantDescription = (description: SignedSmallVariantDescription): string => {
+  const name = [description.gene ?? 'No gene', description.hgvsc, description.hgvsp]
+    .filter((part): part is string => Boolean(part))
+    .join(' ');
+  const consequence = description.consequence
+    ? `, ${description.consequence.replace(/_/g, ' ')}${description.impact ? ` (${description.impact})` : ''}`
+    : '';
+  return `${name}${consequence}`;
+};
+
+/** Where it is, on which transcript, in which callset. */
+export const describeSmallVariantLocus = (description: SignedSmallVariantDescription): string =>
+  [
+    description.chrom && description.start !== null
+      ? `${description.chrom}:${description.start.toLocaleString()} ${description.ref ?? '?'} → ${description.alt ?? '?'}`
+      : null,
+    description.transcript
+      ? `transcript ${description.transcript}${description.maneSelect ? ' (MANE Select)' : ''}`
+      : null,
+    description.source ? `callset ${description.source}` : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(' · ');
+
+const SV_TYPE_WORDS: Record<string, string> = {
+  DEL: 'Deletion',
+  DUP: 'Duplication',
+  INS: 'Insertion',
+  INV: 'Inversion',
+  BND: 'Breakend',
+  TRA: 'Translocation',
+  CNV: 'Copy-number variant',
+};
+
+/** A structural variant as reviewed: "Deletion (copy loss), 1:7,000-12,000, 5,000 bp, genes BRCA2". */
+export const describeStructuralVariantDescription = (
+  description: SignedStructuralVariantDescription,
+): string => {
+  const type = description.svType ? (SV_TYPE_WORDS[description.svType.toUpperCase()] ?? description.svType) : 'Structural variant';
+  const change = description.copyChange ? ` (copy ${description.copyChange})` : '';
+  const locus =
+    description.chrom && description.start !== null && description.end !== null
+      ? `${description.chrom}:${description.start.toLocaleString()}-${description.end.toLocaleString()}`
+      : null;
+  const mate =
+    description.remoteChrom && description.remoteStart !== null
+      ? `mate ${description.remoteChrom}:${description.remoteStart.toLocaleString()}`
+      : null;
+  return [
+    `${type}${change}`,
+    locus,
+    mate,
+    description.length !== null ? `${description.length.toLocaleString()} bp` : null,
+    description.genes.length ? `genes ${description.genes.join(', ')}` : 'no gene',
+    description.cytoband,
+    description.source ? `caller ${description.source}` : null,
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(', ');
+};
+
+/** A panel version the analysis applied, and the release it was read from. */
+export const describeGenePanel = (panel: SignedGenePanel): string => {
+  const genes = panel.geneCount !== null ? `, ${panel.geneCount} gene${panel.geneCount === 1 ? '' : 's'}` : '';
+  const head = `${panel.name ?? panel.panelId ?? 'A panel'}, version ${panel.version ?? '?'}${genes}`;
+  let source = '';
+  if (panel.source === 'panelapp') {
+    source = `; PanelApp panel ${panel.externalId ?? '?'}, version ${panel.externalVersion ?? 'not stated'}${
+      panel.confidenceLevels.length ? ` (confidence levels ${panel.confidenceLevels.join(', ')})` : ''
+    }${panel.sourceUpdatedAt ? `, imported ${formatReportTime(panel.sourceUpdatedAt)}` : ''}`;
+  } else if (panel.externalVersion) {
+    source = `; ${panel.source ?? 'source'} release ${panel.externalVersion}`;
+  }
+  const first = panel.firstAppliedAt
+    ? `; first applied ${formatReportTime(panel.firstAppliedAt)}${panel.firstAppliedBy ? ` by ${panel.firstAppliedBy}` : ''}`
+    : '';
+  return `${head}${source}${first}`;
+};
+
+const REPEAT_STATUS_WORDS: Record<string, string> = {
+  normal: 'Normal',
+  intermediate: 'Grey zone',
+  premutation: 'Premutation',
+  pathogenic: 'Pathogenic',
+  review: 'Review: outside catalogued ranges',
+  not_assessed: 'Not assessed',
+  unknown: 'Unknown',
+};
+
+export const repeatStatusWords = (status: string): string => REPEAT_STATUS_WORDS[status] ?? status;
+
+/** A locus's thresholds as the record froze them: "grey zone from 27, pathogenic from 36". */
+export const describeRepeatThresholds = (locus: SignedRepeatLocus): string => {
+  const parts = [
+    locus.thresholds.intermediateMin !== null ? `grey zone from ${locus.thresholds.intermediateMin}` : null,
+    locus.thresholds.premutationMin !== null ? `premutation from ${locus.thresholds.premutationMin}` : null,
+    locus.thresholds.pathogenicMin !== null ? `pathogenic from ${locus.thresholds.pathogenicMin}` : null,
+  ].filter((part): part is string => Boolean(part));
+  return parts.length ? parts.join(', ') : 'no thresholds';
+};
+
+/** One sample's call: "PROBAND 0/1: 18, 40 repeats — Pathogenic". */
+export const describeRepeatCall = (call: SignedRepeatCall): string => {
+  const sizes = call.alleles
+    .map((allele) => (allele.repeatCount !== null ? String(allele.repeatCount) : allele.bpLength !== null ? `${allele.bpLength} bp` : '?'))
+    .join(', ');
+  return `${call.sample} ${call.genotype ?? 'no call'}${sizes ? `: ${sizes} repeats` : ''} — ${repeatStatusWords(call.status)}${
+    call.note ? ` (${call.note})` : ''
+  }`;
+};
+
+const PARAPHASE_STATUS_WORDS: Record<string, string> = {
+  pathogenic: 'Pathogenic',
+  carrier: 'Carrier',
+  normal: 'Normal',
+  review: 'Review',
+  no_call: 'No-call',
+  none: 'No change',
+};
+
+export const paraphaseStatusWords = (status: string | null): string =>
+  status ? (PARAPHASE_STATUS_WORDS[status] ?? status) : 'Not assessed';
+
+const GENE_REFERENCE_SOURCES: Record<string, string> = {
+  hgnc_complete_set: 'HGNC',
+  dbnsfp_gene: 'dbNSFP',
+  clingen_gene_validity: 'ClinGen validity',
+  clingen_dosage: 'ClinGen dosage',
+  gencc: 'GenCC',
+  clinvar_gene_condition: 'ClinVar gene-condition',
+  ncbi: 'NCBI Gene',
+};
+
+export const geneReferenceSourceLabel = (source: string): string =>
+  GENE_REFERENCE_SOURCES[source] ?? source;
+
+/** Each gene-reference source and the releases that answered: "HGNC 2026-09-01 · dbNSFP 5.4". */
+export const describeGeneReferenceReleases = (reference: SignedGeneReference): string | null => {
+  const releases = new Map<string, Set<string>>();
+  reference.sources.forEach((source) => {
+    if (!source.release) return;
+    const label = geneReferenceSourceLabel(source.source);
+    releases.set(label, (releases.get(label) ?? new Set()).add(source.release));
+  });
+  return releases.size
+    ? Array.from(releases.entries())
+        .map(([label, values]) => `${label} ${joinWithAnd(Array.from(values))}`)
+        .join(' · ')
+    : null;
+};
+
+/** The clinical CNV knowledgebase as signed: "loaded 2026-10-01 09:00 UTC (release not stated)". */
+export const describeCnvKnowledgebase = (knowledgebase: SignedCnvKnowledgebase | null): string =>
+  knowledgebase
+    ? `${knowledgebase.source ?? 'source not named'}${
+        knowledgebase.loadedAt ? `, loaded ${formatReportTime(knowledgebase.loadedAt)}` : ''
+      } (release ${knowledgebase.release ?? 'not stated'}${
+        knowledgebase.releaseDate ? `, ${knowledgebase.releaseDate}` : ''
+      })`
+    : 'none loaded';
+
+/** A catalogue as the record names it: "75 loci (STRchive, CoGA built-in), digest 1a2b3c4d…". */
+export const describeCatalogue = (catalogue: SignedCatalogue | null, noun: string): string =>
+  catalogue
+    ? `${catalogue.entries ?? '?'} ${noun}${catalogue.sources.length ? ` (${catalogue.sources.join(', ')})` : ''}${
+        catalogue.digest ? `, digest ${catalogue.digest.slice(0, 12)}` : ''
+      }`
+    : 'not recorded';
 
 /** The sections the sign-out check names as changed: "reported small variants and …". */
 export const describeReportSections = (sections: string[]): string =>

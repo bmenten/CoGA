@@ -102,19 +102,24 @@ class TestReclassification:
         )
         assert [allele["status"] for allele in result] == ["normal", "pathogenic"]
 
-    def test_a_benign_range_alone_is_not_a_threshold(self) -> None:
-        # Without an intermediate or pathogenic threshold nothing says where harm starts,
-        # so a benign range alone (STRchive's POLG) leaves the allele not assessed; the
-        # stored status is replaced all the same (CLIN-26; it read "normal" before).
+    def test_a_benign_range_alone_classifies_only_the_counts_inside_it(self) -> None:
+        # Without an intermediate or pathogenic threshold nothing says where harm starts, so
+        # a count outside a benign range alone (STRchive's POLG states 10) stays not assessed
+        # (CLIN-26), and a count inside it is normal (CLIN-36). The stored status is replaced
+        # all the same.
         result = _reclassify_repeat_alleles(
-            [{"repeat_count": 4, "status": "pathogenic"}],
+            [
+                {"repeat_count": 3, "status": "normal"},
+                {"repeat_count": 4, "status": "not_assessed"},
+                {"repeat_count": 5, "status": "normal"},
+            ],
             warning_min=None,
             pathogenic_min=None,
             benign_min=4,
             benign_max=4,
             pathogenic_max=None,
         )
-        assert result[0]["status"] == "not_assessed"
+        assert [allele["status"] for allele in result] == ["not_assessed", "normal", "not_assessed"]
 
     def test_a_no_call_allele_is_left_alone(self) -> None:
         result = _reclassify_repeat_alleles(

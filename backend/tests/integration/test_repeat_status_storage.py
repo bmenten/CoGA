@@ -536,3 +536,202 @@ def test_a_call_at_a_locus_without_thresholds_is_stored_not_assessed_and_the_tab
         "ADTKD_MUC1": ("not_assessed", "not_assessed", ["not_assessed", "not_assessed"], None, None),
         "HD_HTT": ("pathogenic", "pathogenic", ["normal", "pathogenic"], 27, 36),
     }
+
+
+# CLIN-36: a count inside the benign range of a row without thresholds is normal (STRchive's
+# CPEO_POLG states exactly 10); any other count there, and every count at ADTKD_MUC1, which
+# states nothing, stays not assessed. Each member's calls: TRID -> (chrom, pos, motif, counts).
+_BENIGN_RANGE_CALLS = {
+    "WOMAN": {
+        "CPEO_POLG": ("chr15", 89333579, "GCT", (10, 10)),
+        "ADTKD_MUC1": ("chr1", 155188505, "GCC", (10, 60)),
+    },
+    "MAN": {"CPEO_POLG": ("chr15", 89333579, "GCT", (10, 13))},
+}
+
+
+def _benign_range_vcf(column: str, calls: dict[str, tuple[str, int, str, tuple[int, int]]]) -> str:
+    records = "".join(
+        f"{chrom}\t{pos}\t.\t{motif}\t<TR>\t.\t.\tTRID={trid};END={pos + 50};MOTIFS={motif};STRUC=<TR>"
+        f"\tGT:AL:MC\t0/1:{first * len(motif)},{second * len(motif)}:{first},{second}\n"
+        for trid, (chrom, pos, motif, (first, second)) in calls.items()
+    )
+    return _HEADER.format(column=column) + records
+
+
+def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_reads_older_calls_so(
+    monkeypatch,
+) -> None:
+    from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
+    from backend.app.services import repeat_expansion_pg
+    from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+    from backend.app.services.repeat_expansion_pg import (
+        clear_sample_repeat_expansions,
+        get_family_repeat_expansion_table_response,
+        get_sample_repeat_expansion_track_response,
+        ingest_trgt_text,
+        seed_builtin_repeat_catalog,
+    )
+
+    # The shipped STRchive file, not one an environment variable may point at.
+    monkeypatch.setattr(repeat_expansion_pg.settings, "trgt_strchive_loci_path", None)
+    label = f"itest-repeat-benign-range-{uuid4()}"
+    stored_query = text(
+        "SELECT s.sample_id, r.locus_id, r.status FROM repeat_expansions r "
+        "JOIN samples s ON s.id = r.sample_id WHERE r.family_id = CAST(:f AS uuid)"
+    )
+
+    async def _run():
+        await init_postgres_schema()
+        sessionmaker = get_postgres_sessionmaker()
+        try:
+            async with sessionmaker() as session:
+                await seed_builtin_repeat_catalog(session)
+                family_uuid = str(
+                    (
+                        await session.execute(
+                            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": label}
+                        )
+                    ).scalar_one()
+                )
+                contexts: dict[str, SampleMetadataContext] = {}
+                for name, sex in (("WOMAN", "female"), ("MAN", "male")):
+                    sample_id = f"{label}-{name}"
+                    sample_uuid = str(
+                        (
+                            await session.execute(
+                                text(
+                                    "INSERT INTO samples (sample_id, family_id, sex) "
+                                    "VALUES (:s, CAST(:f AS uuid), :sex) RETURNING id::text"
+                                ),
+                                {"s": sample_id, "f": family_uuid, "sex": sex},
+                            )
+                        ).scalar_one()
+                    )
+                    contexts[name] = SampleMetadataContext(
+                        sample_uuid=sample_uuid,
+                        sample_id=sample_id,
+                        family_uuid=family_uuid,
+                        family_id=label,
+                        sex=sex,
+                        project_ids=[],
+                        assembly_id=None,
+                        assembly_name="GRCh38",
+                    )
+                await session.commit()
+
+                async def _import(name: str) -> None:
+                    await ingest_trgt_text(
+                        session,
+                        sample_context=contexts[name],
+                        text_value=_benign_range_vcf(contexts[name].sample_id, _BENIGN_RANGE_CALLS[name]),
+                        metadata={"source": "trgt", "filename": f"{name}.vcf"},
+                    )
+
+                async def _stored() -> dict[tuple[str, str], str]:
+                    rows = await session.execute(stored_query, {"f": family_uuid})
+                    return {
+                        (str(sample_id).rsplit("-", 1)[-1], str(locus_id)): str(status)
+                        for sample_id, locus_id, status in rows.all()
+                    }
+
+                for name in _BENIGN_RANGE_CALLS:
+                    await _import(name)
+                stored = await _stored()
+
+                # What an import from CLIN-26 to CLIN-36 stored for the woman's POLG call.
+                await session.execute(
+                    text(
+                        "UPDATE repeat_expansions SET status = 'not_assessed', alleles = CAST(:alleles AS jsonb) "
+                        "WHERE sample_id = CAST(:s AS uuid) AND locus_id = 'CPEO_POLG'"
+                    ),
+                    {
+                        "alleles": json.dumps(
+                            [{"repeat_count": 10, "status": "not_assessed"}, {"repeat_count": 10, "status": "not_assessed"}]
+                        ),
+                        "s": contexts["WOMAN"].sample_uuid,
+                    },
+                )
+                await session.commit()
+                context = FamilyMetadataContext(
+                    family_uuid=family_uuid,
+                    family_id=label,
+                    project_ids=[],
+                    sample_rows=[
+                        {
+                            "sample_uuid": contexts[name].sample_uuid,
+                            "sample_id": contexts[name].sample_id,
+                            "role": role,
+                            "affected": False,
+                            "sex": contexts[name].sex,
+                        }
+                        for name, role in (("WOMAN", "mother"), ("MAN", "father"))
+                    ],
+                    sample_uuid_to_name={ctx.sample_uuid: ctx.sample_id for ctx in contexts.values()},
+                    sample_name_to_uuid={ctx.sample_id: ctx.sample_uuid for ctx in contexts.values()},
+                    affected_sample_names=[],
+                    assembly_id=None,
+                    assembly_name="GRCh38",
+                )
+                table = await get_family_repeat_expansion_table_response(session, context=context)
+                read_by_table = {
+                    str(row.locus_id): (
+                        row.status,
+                        (row.benign_min, row.benign_max, row.warning_min, row.pathogenic_min),
+                        {
+                            sample.rsplit("-", 1)[-1]: (call.status, [allele.status for allele in call.alleles])
+                            for sample, call in row.calls.items()
+                        },
+                    )
+                    for row in table.loci
+                }
+
+                async def _track_status() -> str:
+                    track = await get_sample_repeat_expansion_track_response(
+                        session, context=context, sample_name=contexts["WOMAN"].sample_id, chromosomes=["15"]
+                    )
+                    [item] = track.items
+                    return item.status
+
+                track_before = await _track_status()
+                # Imported again: the stored status follows the rule, and the track with it.
+                await clear_sample_repeat_expansions(session, sample_uuid=contexts["WOMAN"].sample_uuid)
+                await _import("WOMAN")
+                stored_after = await _stored()
+                track_after = await _track_status()
+                return stored, read_by_table, track_before, stored_after, track_after
+        finally:
+            async with sessionmaker() as session:
+                await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": label})
+                await session.commit()
+            await close_postgres_engine()
+
+    stored, read_by_table, track_before, stored_after, track_after = asyncio.run(_run())
+
+    expected_stored = {
+        ("WOMAN", "CPEO_POLG"): "normal",
+        ("WOMAN", "ADTKD_MUC1"): "not_assessed",
+        ("MAN", "CPEO_POLG"): "not_assessed",
+    }
+    assert stored == expected_stored
+    # The family table reads the call stored as not assessed before as normal at once; the
+    # locus reads its most severe call, the man's allele of 13.
+    assert read_by_table == {
+        "CPEO_POLG": (
+            "not_assessed",
+            (10, 10, None, None),
+            {
+                "WOMAN": ("normal", ["normal", "normal"]),
+                "MAN": ("not_assessed", ["normal", "not_assessed"]),
+            },
+        ),
+        "ADTKD_MUC1": (
+            "not_assessed",
+            (None, None, None, None),
+            {"WOMAN": ("not_assessed", ["not_assessed", "not_assessed"])},
+        ),
+    }
+    # The genome track shows the status stored at import until the call is imported again
+    # (CLIN-14), then the one the rule gives.
+    assert (track_before, track_after) == ("not_assessed", "normal")
+    assert stored_after == expected_stored

@@ -48,6 +48,11 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA public
 ALTER DEFAULT PRIVILEGES IN SCHEMA public
     GRANT USAGE, SELECT ON SEQUENCES TO coga_app;
 
+-- The schema-migration ledger (alembic_version, 04_traceability.sql): only the migration
+-- step writes it, as the owner. coga_app may read which revision the database is at, never
+-- record one.
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON alembic_version FROM coga_app;
+
 -- Append-only tables: INSERT + SELECT only. Revoking UPDATE/DELETE means the runtime role
 -- cannot rewrite or remove existing audit rows, signed reports, integrity anchors, the QC
 -- cut-off history or hash-chain columns.

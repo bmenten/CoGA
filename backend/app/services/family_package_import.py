@@ -80,6 +80,7 @@ from .family_package_registration import (
     _mark_family_import_restoring,
     _record_family_import_finished,
     _enabled_dataset_summaries,
+    datasets_brought_again,
     imported_dataset_scopes,
     _normalized_conflict_mode,
     _execution_metadata,
@@ -132,20 +133,25 @@ def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> s
 
 def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
     """The log line of an import that completed while the family stays flagged by an
-    earlier import's failure it did not import again."""
+    earlier import's failure it did not import again. A dataset is named with each job
+    that holds an error of it still flagged: one that failed for several scopes (callsets,
+    samples) can have more than one (SAFE-26)."""
     if failures.unreadable:
         return (
             f"Family {family_id} stays flagged import-incomplete: its flag is not in the shape "
             "an import writes, so nothing shows what would complete it."
         )
     by_job: dict[str, list[str]] = {}
-    for name, job_id in sorted(failures.failed.items()):
-        by_job.setdefault(f"import job {job_id}" if job_id else "an import", []).append(name)
+    for name, latest in sorted(failures.failed.items()):
+        for job_id in failures.jobs.get(name) or [latest]:
+            names = by_job.setdefault(f"import job {job_id}" if job_id else "an import", [])
+            if name not in names:
+                names.append(name)
     failed = "; ".join(f"{', '.join(names)} in {job}" for job, names in sorted(by_job.items()))
     return (
         f"Family {family_id} stays flagged import-incomplete: an earlier import failed for "
-        f"datasets this import did not import again ({failed}). Import them again to "
-        "complete the family."
+        "datasets this import did not import again, for the callset and samples that failed "
+        f"({failed}). Import them again to complete the family."
     )
 
 
@@ -570,11 +576,21 @@ async def _import_family_datasets(
 
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
-    # What each imported dataset replaced (dataset_scopes): an earlier import's failure or
-    # unfinished entry for the same scope is completed by it. Not the samples an update
-    # skipped, nor a dataset it skipped whole (`skipped`): a skip imports nothing again,
-    # so it completes nothing (SAFE-20).
-    imported_scopes = imported_dataset_scopes(imported_datasets, mark_scopes, skipped_samples)
+    # What each dataset it brought again replaced (dataset_scopes): an earlier import's
+    # failure or unfinished entry for the same scope is completed by it. Brought again:
+    # imported, imported with warnings, or registered when the package carries nothing for
+    # it (SAFE-17). Not the samples an update skipped, nor a dataset it skipped whole
+    # (`skipped`): a skip imports nothing again, so it completes nothing (SAFE-20).
+    # Only the datasets the loop ran: validation names its own `warning`s.
+    ran = {summary.dataset_type for summary in _enabled_dataset_summaries(validation)}
+    imported_scopes = imported_dataset_scopes(
+        datasets_brought_again(
+            ((dataset.dataset_type, dataset.status) for dataset in datasets if dataset.dataset_type in ran),
+            mark_scopes,
+        ),
+        mark_scopes,
+        skipped_samples,
+    )
 
     # Fail-clean. A failed import must not leave a silently-partial family behind:
     #   * NEW family, and NOTHING imported -> compensate by deleting the freshly-created

@@ -163,6 +163,10 @@ class ReportSignoutSummary(BaseModel):
     signed_out_by: str
     signed_out_at: datetime
     content_hash: str
+    # The code the EPD report quotes for this record: made from the family, the version and
+    # the content hash (services/report_code.py), so no column holds it. None only for a
+    # record whose stored fields cannot make one.
+    report_code: Optional[str] = None
     # Frozen software identity that produced this sign-out (NULL for sign-outs
     # created before version-binding shipped). Extracted from the JSONB snapshot.
     software_version: Optional[str] = None
@@ -196,6 +200,21 @@ class ReportSignoutDetail(ReportSignoutSummary):
     # What this version's snapshot froze as unavailable or, being older, does not hold. The
     # report page renders a signed version from its snapshot alone, so it names these.
     not_captured: List[ReportSnapshotGapOut] = Field(default_factory=list)
+
+
+class ReportCodeLookupOut(BaseModel):
+    """The signed record a report code names (``GET /report-codes/{code}``).
+
+    The EPD report refers to the record by its code; this says which family and version it
+    is, to open it at ``/families/{family_id}/report?version={version}``.
+    """
+
+    report_code: str
+    family_id: str
+    version: int
+    signed_out_at: datetime
+    signed_out_by: str
+    content_hash: str
 
 
 class ReportSignoutListOut(BaseModel):

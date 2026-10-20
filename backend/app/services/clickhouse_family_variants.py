@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from itertools import zip_longest
 from typing import Any, Collection, Literal, Mapping, Sequence
@@ -3452,9 +3452,9 @@ async def export_family_structural_variants(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters | None = None,
     limit: int = _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS,
     prioritize: bool = False,
-    **filters: Any,
 ) -> VariantExport:
     """Fetch up to ``limit`` filtered structural variants for CSV export.
 
@@ -3470,10 +3470,10 @@ async def export_family_structural_variants(
         context=context,
         page=1,
         page_size=limit + 1,
+        filters=filters,
         prioritize=prioritize,
         track_mode=False,
         max_page_size=limit + 1,
-        **filters,
     )
     rows = list(page.variants)
     return VariantExport(rows=rows[:limit], truncated_reason=_export_truncation(page, rows, limit), limit=limit)
@@ -3723,70 +3723,23 @@ async def get_family_structural_variants_page(
     context: FamilyMetadataContext,
     page: int,
     page_size: int,
-    chr: str | None = None,
-    start: int | None = None,
-    end: int | None = None,
-    length: int | None = None,
-    min_length: int | None = None,
-    type: str | None = None,
-    source: str | None = None,
-    sample_filters: list[str] | None = None,
-    samples: list[str] | None = None,
-    remote_chr: str | None = None,
-    remote_start: int | None = None,
-    gene: str | None = None,
-    panel_id: str | None = None,
-    inheritance: str | None = None,
-    phenotype: str | None = None,
-    hpo: str | None = None,
-    moi: str | None = None,
-    gencc_support: str | None = None,
-    region_flags: list[str] | None = None,
-    max_control_af: float | None = None,
-    max_population_af: float | None = None,
-    min_pli: float | None = None,
-    review_classifications: list[str] | None = None,
-    review_tags: list[str] | None = None,
-    exclude_review_tags: list[str] | None = None,
-    has_notes: bool = False,
-    overlap: bool = False,
+    filters: StructuralVariantQueryFilters | None = None,
     prioritize: bool = False,
     track_mode: bool = False,
     count_only: bool = False,
     max_page_size: int = MAX_VARIANT_PAGE_SIZE,
 ) -> VariantPage:
+    """Page ``page``, of ``page_size`` rows, of the family's SVs that ``filters`` keeps:
+    every SV without filters. The page is the caller's ``page`` and ``page_size``: it
+    replaces the one ``filters`` holds (the SV list and its export read their filters from
+    one query dependency, which gives them none of their own)."""
+
     # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
     page_size = max(0, min(page_size, max_page_size))
-    filters = StructuralVariantQueryFilters(
-        page=page,
-        page_size=page_size,
-        chromosome=chr,
-        start=start,
-        end=end,
-        length=length,
-        min_length=min_length,
-        variant_type=type,
-        source=source,
-        sample_filters=sample_filters or [],
-        selected_samples=samples or [],
-        remote_chr=remote_chr,
-        remote_start=remote_start,
-        gene=gene,
-        panel_id=panel_id,
-        inheritance=inheritance,
-        phenotype=phenotype,
-        hpo=hpo,
-        moi=moi,
-        gencc_support=gencc_support,
-        region_flags=region_flags or [],
-        max_control_af=max_control_af,
-        max_population_af=max_population_af,
-        min_pli=min_pli,
-        review_classifications=review_classifications or [],
-        review_tags=review_tags or [],
-        exclude_review_tags=exclude_review_tags or [],
-        has_notes=has_notes,
-        overlap=overlap,
+    filters = (
+        StructuralVariantQueryFilters(page=page, page_size=page_size)
+        if filters is None
+        else replace(filters, page=page, page_size=page_size)
     )
     selected_samples = _selected_structural_samples(context, filters.selected_samples)
     if selected_samples is None:

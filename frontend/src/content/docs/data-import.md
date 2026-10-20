@@ -79,7 +79,7 @@ Each layer is optional and switches on part of CoGA.
 | --- | --- |
 | **Small variants (SNV/indel)** | the small-variant page, its review, and the Sample QC page |
 | **Structural variants** | the structural-variant page, its review, CNV classification and the variant summary |
-| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). A call whose TRID names no catalogued locus, or a locus without thresholds, reads *Not assessed*, never normal |
+| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). A call whose TRID names no catalogued locus, or a locus without thresholds, reads *Not assessed*, never normal, except a count inside the benign range STRchive states for a locus without thresholds (POLG: 10), which reads normal |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
@@ -288,11 +288,13 @@ no mtDNA deletion): it removes that sample's earlier calls, as above.
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import has imported each dataset that failed again, or an
-  upload has brought it again (an **update** will do; a dataset, or a sample, it skips because its data
-  is there is not imported again, and stays named), and its report can be signed out only with an
-  acknowledgement
-  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
-  without them leaves the warning, and says so in its log.
+  upload has brought it again, for each callset and each set of samples it failed for (an **update**
+  will do; a dataset, or a sample, it skips because its data is there is not imported again, and stays
+  named), and its report can be signed out only with an acknowledgement
+  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). A dataset imported with
+  warnings counts, as does one the package carries nothing for that CoGA imports (phenotypes without
+  an HPO term, say), which the import only registers. An import that completes without them leaves
+  the warning, and says so in its log.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
   too, part of the family's data may be gone, whichever import or upload it came from: the warning
   then names every dataset of that import as failed, the ones that imported too, and every dataset

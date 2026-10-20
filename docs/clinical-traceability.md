@@ -25,8 +25,8 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest, changed the NIPT artifact list or signed out, when, with before and after |
-| Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest, changed the NIPT artifact list, first applied a gene-panel version to a search of the family, or signed out, when, with before and after |
+| Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot, found again by its report code |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
 
 **The manifest** is filled from three sources: the VCF headers read at import
@@ -93,7 +93,24 @@ row's evidence.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `panel_applied` (below), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
+
+**The gene panels a family's searches apply** (`services/panel_use_audit.py`, REQ-CARR-003). A
+search of the family's data that applies a gene panel writes a `panel_applied` event before it
+runs, the first time it applies that version of the panel: the small-variant and the
+structural-variant list and their CSV exports, the NIPT variant list and the NIPT coverage. The
+event holds the panel's id, name, local version and gene count, and the release of its source:
+for a PanelApp panel PanelApp's panel id, its version of the panel, the date PanelApp gives
+that version, the confidence levels imported and when CoGA imported it; for the Mendeliome the
+Monarch release. One event per panel version and family: a version already recorded writes
+nothing, and the check runs again under the family's audit-chain lock, so two searches at once
+record it once. A panel edited or imported again since (each such version is archived in
+`gene_panel_versions`, #809), or a PanelApp version imported over the same genes, is recorded
+again when a search next applies it. A search the event cannot be recorded for fails with it.
+Nothing recorded the panel before: the HTTP audit log keeps only the query's keys by default
+(`AUDIT_LOG_QUERY_STRING_MODE=keys`), writes in batches after the response and can be switched
+off, so it could not anchor a signed record. A panel applied in the variant explorer, which
+searches across families, is recorded for no family.
 For a small variant, `classification` holds the ACMG class, the accepted criteria, the point
 total, the VUS tier and every stored criterion: its strength, whether it was accepted, its
 evidence text and whether it was an automatic suggestion. For a structural variant or CNV, it
@@ -126,7 +143,8 @@ the variant's current annotation:
 - `current`: the annotation-set hash and every value the snapshot froze are unchanged;
 - `drifted`: the hash changed (a new annotation release, ClinVar and version shown from → to),
   or a frozen value did (even under the same hash: the gene's missense Z is not under it, so a
-  refresh of the gene profiles moves it alone). `changed` names what moved: `clinvar`,
+  refresh of the gene profiles can move it while the hash stays the same). `changed` names what
+  moved: `clinvar`,
   `transcript_id` (the primary transcript), each consequence, frequency or in-silico field by
   its name (`effect`, `impact`, `lof`, `gnomad_af`, `revel`, …), `gene_missense_z`, and
   `annotations` when the hash moved; `evidence_from` and `evidence_to` hold the transcript,
@@ -157,8 +175,14 @@ At sign-out, a reported classification that has no snapshot counts as drift too
 
 ## Sign-out
 
+A sign-out is the analyst's analytical sign-off (*What sign-out is*, above). The clinical report
+in the EPD refers to the signed version by its report code (*The report code* below).
+
 `POST /families/{family_id}/report/sign-out` freezes:
 
+- what the record is (`record_statement`): *This record is the analytical sign-off in CoGA,
+  which closes and freezes the analysis; the medical sign-off of the patient report happens in
+  the EPD, which refers to this record by its report code.*;
 - the merged manifest and the reference assembly;
 - the software version and git commit that produced the snapshot;
 - the small variants tagged `report`, each with its classification, ACMG criteria and
@@ -173,7 +197,39 @@ At sign-out, a reported classification that has no snapshot counts as drift too
   otherwise for each its import job, when it began, its datasets and those it finished (for
   a failed overwrite whose restore did not finish, every dataset of the family still to
   import again, none finished);
+- what the analysis looked at (`services/signed_record_sections.py`, one section each):
+  - `variant_descriptions` (REQ-TRACE-007): each reported variant as the analyst reviewed it,
+    read from the family's variant lists as the report page reads them (`review_tag=report`),
+    one entry per callset or caller that calls it. A small variant: its locus, reference and
+    alternative allele, gene, transcript (and whether it is MANE Select), HGVS c. and p.,
+    consequence and impact, and each sample's genotype with its depth, genotype quality,
+    allele depths and allele fraction. A structural variant or CNV: its type, copy change
+    (loss or gain), locus, length, breakend mate, genes, cytoband and caller, and each sample's
+    genotype, copy number, supporting reads, quality and filter;
+  - `gene_panels` (REQ-CARR-003): each gene-panel version the family's searches applied, as
+    the `panel_applied` events recorded it (above): name, id, local version, gene count, source
+    and the source's release (PanelApp's version of the panel, or the Monarch release of the
+    Mendeliome), when CoGA imported that release, and when and by whom it was first applied;
+  - `reference_data` (TRACE-5), beside the manifest's modules: the gene reference's releases
+    for the reported variants' genes (for each source, the release and checksum of the file
+    that answered for each gene, and the genes it has no record of) and the clinical CNV
+    knowledgebase loaded for the assembly (its source, the release its source states, none for
+    a rebuild, and when it was loaded). PanelApp gives each panel a version of its own, which
+    `gene_panels` holds;
+  - `repeat_expansions`: every TRGT call of the family's samples, with the status CoGA gives it
+    at sign-out (as the repeat page classifies it), its alleles, and the thresholds behind it,
+    and the catalogue it was classified against: how many loci, from which sources (STRchive,
+    CoGA's built-in rows) and a SHA-256 digest of every locus's thresholds, since STRchive's
+    file states no release;
+  - `paraphase`: every Paraphase result of the family's samples, with its status as CoGA reads
+    it at sign-out, its copy numbers, the region's status rule and copy-number norm, and the
+    catalogue of regions (how many, and a digest of their rules);
 - the signer, the time, and any acknowledgement with its reason.
+
+Each section of what the analysis looked at is read inside a savepoint. One that cannot be
+read is frozen as `{"unavailable": <a fixed sentence>}`, never as an empty section, and is
+named in `not_captured` (a part of `reference_data` on its own); the error's own text, which may
+quote what it read, is not frozen.
 
 Sign-out exists for the family report only. Its snapshot holds no PGT embryo call (REQ-PGT-005):
 the embryo calls are derived in the browser from the family's haplotype blocks
@@ -183,7 +239,7 @@ does not include them. It holds no NIPT result either: the monogenic NIPT report
 fetal-fraction estimate and no variant's category, fetal-inheritance probability, de novo
 priority or recessive fetal risk. Of the NIPT analysis it holds only the sample-integrity checks
 in `sample_qc` (`paternity_check`, `fetal_sex_check` from the father's X alleles,
-`category_qc_check`). A NIPT variant whose review is tagged `report` is frozen like any reported
+`category_qc_check`) and the gene panels its NIPT searches applied (`gene_panels`). A NIPT variant whose review is tagged `report` is frozen like any reported
 small variant: with its classification, not with its category or probabilities. What the signed
 record is to hold per application is an open decision (*Known limitations*).
 
@@ -255,8 +311,11 @@ Five gates run first, in this order:
    which may be partly written or missing), and the one acknowledgement covers both. Every
    family page shows *Import incomplete* while either is set. The flag clears only once an
    import has imported each failed dataset again, or an upload has brought it again (in any
-   mode, for the same samples and small-variant source; a later failure keeps an earlier one's failed datasets, each with its
-   job, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
+   mode, for the same samples and small-variant source, an import counting a dataset it imports
+   with warnings, or registers when its package carries nothing CoGA imports for it; a later
+   failure keeps an earlier one's failed datasets, and every callset or set of samples a
+   dataset failed for, each with its job, `failed_scopes`; the gate names each dataset with the
+   job of its latest failure, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
    to start without its whole backup, may have lost rows of any dataset of the family,
    whichever import or upload wrote them: its flag names every dataset of the import as
    failed, those it imported too, and its `import_unfinished` entry stays, naming every dataset
@@ -279,9 +338,52 @@ The other sign-out endpoints:
 
 | Endpoint | Returns |
 | --- | --- |
-| `GET /families/{family_id}/report/sign-outs` | the list of signed versions |
-| `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with `verified` (its content hash recomputed on read) and `not_captured` (what its record could not capture) |
+| `GET /families/{family_id}/report/sign-outs` | the list of signed versions, each with its `report_code` |
+| `GET /families/{family_id}/report/sign-outs/{version}` | one signed version, with its `report_code`, `verified` (its content hash recomputed on read) and `not_captured` (what its record could not capture) |
 | `GET /families/{family_id}/report/sign-out-check` | whether the report as it would be signed now matches the latest version: `matches`, `changed_sections`, `not_compared`, `not_captured` |
+| `GET /report-codes/{code}` | the family and version of the signed record a report code names (*The report code*) |
+
+### The report code
+
+The EPD report quotes the signed record by its report code (`services/report_code.py`). The code
+is made from fields of the record that never change, so no column holds it and records signed
+before it existed have one too:
+
+```
+FFFFFF-V-HHHC        e.g. 7KQM2X-2-4PHT
+```
+
+- `FFFFFF`: six symbols from the SHA-256 of the family identifier, the same in every version of
+  the family's record, so an amendment's code starts like the code of the record it amends;
+- `V`: the version, in decimal;
+- `HHH`: three symbols from the first 15 bits of the record's content hash, which tie the code
+  to the content that was signed;
+- `C`: a check symbol over all the others, by the Damm algorithm over GF(32) (the operation
+  `x * y = 2x + y`, modulo `x^5 + x^2 + 1`). It detects every single mistyped symbol and every
+  swap of two neighbouring symbols, so a code copied wrong is refused rather than finding
+  another record.
+
+The symbols are Crockford's base 32: the digits and the capitals without I, L, O and U. A code
+is read back in any case, with or without its hyphens or with spaces, an I or L as 1 and an O as
+0. It is 13 characters for versions 1 to 9 and at most 16 up to version 9999.
+
+**Unique.** Every sign-out takes one lock (`report-code`) from the moment it makes its code to its
+commit, and looks the code up among the records signed before. A sign-out whose code another
+record already has is signed again a microsecond later: the new time changes its content hash and
+so its code. The code is in the sign-out's clinical audit event (its summary and `after.report_code`)
+and in every sign-out the API returns.
+
+**Finding a record.** `GET /report-codes/{code}` answers with the family, version, signer, time
+and content hash of the record the code names. A string that is not a report code (a letter a code
+never holds, too short, a version that is not a number, or a check symbol that does not match) is
+refused with 422 `report_code_invalid` and says why; that is read from the string alone. A
+well-formed code no record has, one whose record's family is outside the caller's projects, and one
+whose family has been deleted all get the same 404 (*No signed record has this report code.*), so a
+code tells nobody whether a record exists outside their projects; only the request's audit row
+names the hidden family (REQ-SEC-001). The candidates are read by the code's version and the
+content-hash prefix its hash symbols spell, as bound parameters. In the interface the lookup is
+*Report codes* in the main menu (`/report-codes`, and `/report-codes/<code>` as a link from the
+EPD); it shows the record's family, version, signer and content hash, and opens the signed version.
 
 ## The report page and the signed record
 
@@ -291,20 +393,30 @@ latest signed version; one that never was opens on the live report.
 **A signed version** (`?version=N`) is rendered from the snapshot that
 `GET …/report/sign-outs/{version}` returns, and from nothing else
 (`frontend/src/pages/families/signedReportRecord.ts` reads it). It shows the version, signer,
-time, content hash, `verified` and the frozen build; each reported variant's classification,
-accepted criteria, evidence snapshot, tags and note; the reported SVs with their ClinGen CNV
-scoring; the drift, Sample QC, sequencing QC and import state, with the acknowledgements; the
-frozen modules; and `not_captured`. A section the snapshot lacks is shown as not in the record,
-never as empty. What no snapshot holds is said on the page: the
-variant description (gene, HGVS, consequence, genotypes, frequencies, predictions), the
-segregation, the gene and phenotype context, the audit trail and the pipeline settings. Print
-prints this view. A printout starts with a notice when the record fails its content hash, when
-a later version supersedes it, or when the list of versions could not be loaded. On the latest
-version the page also runs `sign-out-check` and says, on screen only, whether the family's data
-has changed since.
+time, **report code**, content hash, `verified` and the frozen build, and the sentence that says
+what the record is (the record's own, or for a record signed before CoGA froze it, the same
+sentence); each reported variant's description as reviewed, classification, accepted criteria,
+evidence snapshot, tags and note; the reported SVs with their description and ClinGen CNV
+scoring; the gene panels applied, the repeat expansions, the Paraphase results and the
+reference-data releases; the drift, Sample QC, sequencing QC and import state, with the
+acknowledgements; the frozen modules, and the reference-data releases beside them in the footer
+with the report code; and `not_captured`. A section the snapshot lacks is shown as not in the
+record (*Not in the signed record: version N was signed before CoGA recorded …*), never as
+empty, and one frozen as unavailable as not captured, with its reason. What no snapshot holds is
+said on the page: the population frequencies and in silico predictions the live report shows,
+the segregation, the gene and phenotype context, the audit trail and the pipeline settings (and,
+for a record signed before CoGA froze it, the variant description). Print prints this view, the
+report code included. A printout starts with a notice when the record fails its content hash,
+when a later version supersedes it, or when the list of versions could not be loaded. On the
+latest version the page also runs `sign-out-check` and says, on screen only, whether the
+family's data has changed since. Straight after a sign-out the page says, on screen only,
+*Signed out as version N. Report code …: the EPD report refers to this record by it.*
 
 **The live report** (`?view=live`) draws live data. It is where a case is signed out, and it is
-never presented as the signed record. It checks itself against the latest sign-out
+never presented as the signed record. It says what a sign-out is (*Signing out is the analytical
+sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient
+report happens in the EPD, which refers to the signed record by its report code.*), names the
+latest signed version with its report code, and checks itself against the latest sign-out
 (`sign-out-check`):
 
 - the content matches the signed version: it says so, and is still not the signed report;
@@ -350,6 +462,30 @@ re-hashes the record as stored.
 
 Both views download the frozen record as JSON.
 
+### Adding a section to the signed record
+
+The NIPT and PGT results are to follow the sections of what the analysis looked at. A new
+section is added in four places, or it is missing from the signed view without a trace:
+
+1. **Its builder** in `backend/app/services/signed_record_sections.py`: an async function that
+   reads what the analysis showed the analyst and returns a JSON-safe dict, deterministic (lists
+   sorted, no clock, no random order: the sign-out check compares it right after sign-out
+   through the JSONB round trip). Give it a `RecordSection` (its key, the words that name it,
+   the fixed sentence frozen when it cannot be read), add it to `RECORD_SECTIONS` and call it in
+   `build_record_sections` through `_guarded`. It is then frozen and hashed with the record,
+   compared by `sign-out-check` (`REPORT_CONTENT_SECTIONS` holds every key of `RECORD_SECTIONS`),
+   listed as `not_compared` against a record signed before it, and named in `not_captured` when
+   it could not be read.
+2. **Its reading** in `frontend/src/pages/families/signedReportRecord.ts`: a field of
+   `SignedReport` parsed with `parseRecordSection`, which gives the absent, unavailable and
+   recorded states; and its label in `REPORT_SECTION_LABELS`, which the check's changed sections
+   are named with.
+3. **Its rendering** in `SignedFamilyReport.tsx`, through `RecordSectionBlock`, which says what
+   a record that does not hold the section lacks and what one could not capture.
+4. **Its description** here, under *Sign-out*, and in the in-app reference and handleiding
+   chapter 11, with tests of each (`test_signed_record_sections.py`,
+   `signedReportRecord.test.ts`, `FamilyReportPage.test.tsx`).
+
 ## Tamper evidence and its limits
 
 - **Append-only tables.** Database triggers refuse UPDATE and DELETE on `audit_log_events`,
@@ -376,11 +512,24 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 
 ## Known limitations
 
-- The snapshot holds no variant description (gene, HGVS, consequence, genotypes, frequencies,
-  predictions) and no gene or phenotype context. A signed version therefore names each variant
-  by its ID and says what its record lacks; only the live report shows the rest, from current
-  data. There is no byte-stable PDF: a signed version is printed from the browser, laid out by
-  the build that renders it (named in its footer).
+- The variant description holds no population frequency or in silico prediction, and the
+  snapshot holds no gene or phenotype context: a signed version says what its record lacks, and
+  only the live report shows the rest, from current data. A record signed before CoGA froze the
+  variant description (2026-10-14) names each variant by its ID alone. There is no byte-stable
+  PDF: a signed version is printed from the browser, laid out by the build that renders it
+  (named in its footer).
+- The gene reference is frozen for the reported variants' genes only: a record without a reported
+  variant names no gene-reference release. The gene loci the panel filters read are in the
+  manifest (`gene_loci`). The clinical CNV knowledgebase states no release, so the record dates it
+  by its load.
+- A panel version is recorded the first time a search of the family applies it, not at each search,
+  and a panel applied in the variant explorer, which searches across families, is recorded for no
+  family. Searches made before the `panel_applied` event existed recorded nothing, so a record
+  signed for such a family names only the panels applied since.
+- A repeat-expansion call's and a Paraphase result's status is frozen as CoGA classifies it at
+  sign-out, from the catalogue loaded then; the genome tracks still show the status stored at
+  import until the calls are imported again (*TRGT repeat catalogue*,
+  [data-import.md](data-import.md)).
 - The review of a compound-heterozygous pair (its classification, tags and note) writes no
   clinical audit event. Nor do pedigree, member and HPO edits: they appear in the HTTP audit log,
   and pedigree and member edits also as structure versions (`family_structure_versions`, which is
@@ -394,13 +543,15 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 - `coga_app` keeps INSERT on the chained tables, so it could append a forged but
   self-consistent row; it cannot rewrite or delete existing ones.
 - The manifest's platform layer covers the assembly, the gene loci, Monarch and HPO. The
-  releases of the gene reference, PanelApp and the clinical CNVs are not in it. Each
-  reference import records the release its source states in `reference_dataset_imports`,
-  but the manifest does not read it; the clinical-CNV knowledgebase states none.
+  releases of the gene reference, PanelApp and the clinical CNVs are frozen beside it
+  (`reference_data`, `gene_panels`), not in it: `GET …/annotation-manifest` and the live report's
+  footer do not show them.
 - Any user who can open the family can sign out; sign-out is not limited to a role.
 - CoGA does not see the clinical report in the EPD. Nothing in CoGA checks that the report
   refers to a signed version, which one, or that it says what that version holds; the
-  reference is written into the report by the person who drafts it.
+  reference is written into the report by the person who drafts it. The report code makes that
+  reference short and refuses a mistyped one, and `GET /report-codes/{code}` finds the version
+  it names, but CoGA does not see where a code is quoted.
 - Sign-out exists for the family report only; the monogenic NIPT report page has none. The PGT
   embryo calls and the NIPT results (the fetal fraction, each variant's category and
   fetal-inheritance probabilities, the de novo candidates, the recessive fetal risk) are

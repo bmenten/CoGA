@@ -326,7 +326,7 @@ def test_a_write_that_fails_after_the_delete_flags_the_family_until_it_is_upload
     # warns, and sign-out needs it acknowledged (before: nothing marked the family).
     flag = failed["flag"]
     assert (flag["failed_datasets"], flag["imported_datasets"], flag["job_id"]) == (["snv"], [], None)
-    assert flag["scopes"] == {"snv": {"source": "clair3", "samples": None}}
+    assert flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
     page = run["family_page"]
     assert page["status"] == 200
     assert page["json"]["metadata"]["import_incomplete"] == flag
