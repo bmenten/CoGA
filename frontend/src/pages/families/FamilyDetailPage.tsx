@@ -24,6 +24,7 @@ import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
+import { READ_ONLY_HINT } from '../../lib/familyAccess';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import {
@@ -108,6 +109,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       queryClient.invalidateQueries({ queryKey: ['haplotypes', familyId] }),
       queryClient.invalidateQueries({ queryKey: ['phased-markers', familyId] }),
       queryClient.invalidateQueries({ queryKey: ['genome-haplotypes'] }),
+      queryClient.invalidateQueries({ queryKey: ['pgt-analysis', familyId] }),
     ]);
   const [roiInput, setRoiInput] = useState('');
   const [roiBusy, setRoiBusy] = useState(false);
@@ -154,6 +156,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       return res.data as ApiFamilyRecord;
     },
   });
+  // A reader in the family's projects changes nothing here (SEC-1): the server refuses it, and
+  // the controls say so.
+  const readOnly = Boolean(data?.read_only);
 
   // Active status catalogue + assignable users power the status / assignment
   // pickers below. Both are small, app-wide lookups so they are cached by a
@@ -396,8 +401,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       ),
     [data?.members],
   );
-  // Derived embryo segregation at the ROI (carrier/affected/unaffected), shown per
-  // embryo in the Family members table below. Derived from the haplotype analysis.
+  // The embryo calls at the ROI (carrier/affected/unaffected), shown per embryo in the
+  // Family members table below: made by the backend from the haplotype analysis, the calls
+  // a sign-out of the family freezes.
   const phaseCorrections = useMemo(
     () => phaseCorrectionsFromMetadata(data?.metadata as Record<string, unknown> | undefined),
     [data?.metadata],
@@ -1006,7 +1012,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setStatusDraft(value);
                     saveMetadata({ status_key: value || null });
                   }}
-                  disabled={metadataBusy || statusesFailed}
+                  disabled={readOnly || metadataBusy || statusesFailed}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                 >
                   <option value="">No status</option>
                   {familyStatusOptions.map((option) => (
@@ -1034,7 +1041,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setAssignedToDraft(value);
                     saveMetadata({ assigned_to: value || null });
                   }}
-                  disabled={metadataBusy || usersFailed}
+                  disabled={readOnly || metadataBusy || usersFailed}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                 >
                   <option value="">Unassigned</option>
                   {assignableUsers.map((candidate) => (
@@ -1060,7 +1068,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     setReviewedByDraft(value);
                     saveMetadata({ reviewed_by: value || null });
                   }}
-                  disabled={metadataBusy || usersFailed}
+                  disabled={readOnly || metadataBusy || usersFailed}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                 >
                   <option value="">Not reviewed</option>
                   {assignableUsers.map((candidate) => (
@@ -1417,10 +1426,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </div>
         )}
         {/* No derived segregation is not "no warnings": the embryos' recombination and
-            uninformative flags come from the same haplotypes (#607, TF-12 U2). */}
+            uninformative flags come with the calls (#607, TF-12 U2). */}
         {segregationFailed ? (
           <QueryFailure
-            what="the haplotypes at the ROI"
+            what="the embryo calls at the ROI"
             onRetry={retrySegregation}
             consequence="The embryos' segregation, and any recombination or uninformative warning, are not shown."
           />
@@ -1709,7 +1718,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                           {segregationFailed && String(displayMember.role || '').toLowerCase() === 'embryo' && (
                             <InfoTip
                               className="segregation-warning"
-                              label="The haplotypes at the ROI could not be loaded: this embryo's segregation, and any recombination or uninformative warning, are unknown."
+                              label="The embryo calls at the ROI could not be loaded: this embryo's segregation, and any recombination or uninformative warning, are unknown."
                             >
                               ⚠ segregation not derived
                             </InfoTip>
@@ -2038,6 +2047,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           memberId={selectedMemberId}
           orderedMembers={orderedMembers}
           userIsAdmin={userIsAdmin}
+          canEditPhenotypes={!readOnly}
           pendingDraft={pendingMemberUpdates[selectedMemberId]}
           onQueue={queueMemberUpdate}
           onRemoved={invalidatePedigreeDependentQueries}

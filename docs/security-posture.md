@@ -11,13 +11,39 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 
 ## 1. Authentication & RBAC
 
-- ✅ **Sign-in.** JWT bearer tokens (HS256), with optional Azure AD. Without Azure, local
-  tokens work for everyone; with Azure, a local token is accepted only from an admin and only
-  with `AZURE_ADMIN_OVERRIDE` on (below).
+- ✅ **Sign-in with Microsoft (SEC-4).** With Azure AD (Microsoft Entra ID) configured
+  (`AZURE_TENANT_ID`, `AZURE_CLIENT_ID`), users sign in with their hospital or university
+  Microsoft account: Entra ID checks the password and MFA, and IT handles password resets
+  and leavers. The browser (MSAL, `frontend/src/lib/microsoftSignIn.ts`) uses the
+  authorization code flow with PKCE and sends Microsoft's access token for CoGA's API scope
+  as the bearer. `core/azure.py` accepts it only when it is signed (RS256) with one of the
+  directory's published keys (fetched from its OpenID configuration, kept a day, fetched
+  again for an unknown key at most every five minutes), is a version 2.0 token of CoGA's own
+  directory (`iss`, `tid`), is for CoGA's API and asked for by CoGA itself (`aud` and `azp`,
+  the application ID), carries CoGA's scope (`scp`: an application's own token has none) and
+  is within its lifetime (one minute's leeway). The account is the one bound to the token's
+  object ID (`oid`, `users.azure_object_id`), never one found by an e-mail address: a first
+  sign-in makes it, a viewer in no project who sees no patient data until an administrator
+  adds them to a project, and a first sign-in whose e-mail address or user name another
+  account has is refused (403) rather than linked (`services/user_accounts.py`). A
+  deactivated account is refused with a 401 that says so. With Microsoft sign-in the
+  password sign-in and the sign-up are refused, except for the emergency administrator
+  (below). A half configuration (a tenant without a client ID, a tenant that is no GUID such
+  as `common`, a scope or the override without Azure AD) is refused at startup, in every
+  environment.
+- ✅ **Without Microsoft sign-in** (development), JWT bearer tokens (HS256) that the
+  password sign-in issues work for every account.
   See `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`). Roles are
   `admin`, `superuser` and `viewer`; every admin check goes through `ADMIN_ROLES`
   (`services/access_control.py`), so a superuser is an admin everywhere, and
-  `test_admin_role_checks.py` fails on any comparison with the literal `"admin"`.
+  `test_admin_role_checks.py` fails on any comparison with the literal `"admin"`. A `viewer` is
+  an analyst or a reader in each of their projects (below).
+- ✅ **Roles are set in the UI, and audited.** An administrator sets an account's global role
+  (viewer, superuser, admin) on the *Users* page (`PATCH /api/auth/users/{id}` with `role`),
+  asked to confirm each change. Nobody changes their own role, and the emergency
+  administrator keeps its role and cannot be deactivated. The request's audit row records what changed,
+  each field from and to (`request_meta.account_change`), and so does an activation change
+  and an account a first Microsoft sign-in made. Project access stays on the project pages.
 - ✅ **Access is scoped by project.** Every family, sample and variant endpoint resolves
   access through one checkpoint: `build_family_metadata_context`
   (`services/family_metadata_context.py`) → `get_accessible_family_mapping`
@@ -40,6 +66,33 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   family or sample ID in its path, on real Postgres, for a family of another project and for
   an unknown one, and requires the same status and body. Refusals because of the caller's
   role (`403 Admin access required`) are unchanged: they say nothing about the record.
+- ✅ **Read-only project access: analyst or reader (SEC-1).** Each project membership has an
+  access level (`project_users.access_level`): an **analyst** reads and changes the project's
+  records, a **reader** (a student, say) only reads them. An admin has every right in every
+  project, member or not. One person may be an analyst in one project and a reader in another,
+  and a record of several projects may be changed by an analyst of any one of them. An admin
+  sets each member's level on the *Projects & Access* page (`reader_user_ids` in the project
+  API); a membership made without one is an analyst's, and each membership made before the
+  levels became one. `get_current_user` records whether a request changes something: any
+  method but GET, HEAD and OPTIONS, unless its route is marked `changes_only_own_data`
+  (`services/access_control.py`: the caller's own filter presets and interface events). The
+  family, sample and project checkpoints (`get_accessible_family_mapping`,
+  `get_accessible_sample_mapping`, and the Family Builder's `_resolve_accessible_project_id`)
+  then refuse a reader's change with `403` and the reason (`require_change_access`), after the
+  visibility check, so a record outside the caller's projects still answers like an unknown
+  one: every route that names a record passes there, and none can leave the check out. A
+  reader is also refused a family's clinical audit trail (`403`). A reader may view and search
+  their projects' families, variants, tracks, reports and signed versions, export CSV, print
+  the report and a signed version, and save their own filter presets; a change to anything
+  clinical is refused: phenotypes, reviews, tags, ACMG and CNV classifications, sign-out, the
+  case's workflow fields, a new family, and every upload, import, edit and deletion an admin's
+  route guards. The family and project records the API serves say whether they are read-only
+  for the caller (`read_only`), so the screens hide or disable what a reader may not use; the
+  server's refusal is the guard. `test_project_access_levels.py` keeps the catalogue of every
+  route that changes something (an admin's, the caller's own data, or refused at a
+  checkpoint), and `e2e/test_e2e_project_reader_role.py` asks each of them as a reader on real
+  Postgres, then every route that reads a family or sample as a reader and as an analyst, and
+  requires the same answer but for the audit trail.
 - ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
   and Postgres cannot compare a NUL, so a request that looked up a family's path
   (`/api/families/FAM%00X`) or any other path or query value with one failed with a 500.
@@ -55,8 +108,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **Admin-only changes.** Structure changes and deletions of families and data (member and
   structure edits, region of interest, project assignment, family and sample deletions),
   replacing a family's annotation manifest, reference data, imports and uploads require
-  `get_current_admin_user`. A user with access to a family can edit its phenotypes, reviews
-  and saved filters.
+  `get_current_admin_user`. An analyst of a family's project can edit its phenotypes (each
+  change an event on its clinical audit trail), its reviews and its workflow fields, and sign
+  its report out; a reader can do none of these. Every member saves their own filter presets.
 - ✅ **A UUID a request names a record by is read once.** asyncpg's uuid codec takes nothing
   but hex digits and hyphens, so a path or query value that was no UUID
   (`/api/admin/data/files/PROBEX/download`), or a UUID in braces or after `urn:uuid:` that a
@@ -161,25 +215,43 @@ through the checkpoint above. No unscoped PHI endpoint was found.
 **Residual: IDs that are taken.** Family and sample IDs are unique across all projects, so
 creating a family refuses an ID that another project already uses (`409 Family id already
 exists`, `409 Sample id already exists`). A user who may create families (the Family Builder
-is open to a viewer with a project) can learn from that that the ID exists, but nothing else
+is open to an analyst of a project) can learn from that that the ID exists, but nothing else
 about it. Closing that would take IDs scoped per project.
 
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
-cookies would add CSRF surface and rework the Azure and telemetry paths, so the damage an XSS
-could do is bounded instead by the app's CSP, which allows no inline or outside scripts
-(§4a), and by a 2-hour token lifetime (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request
-re-checks `is_active`, so deactivating a user ends their access at once. A leaked token of a still-active user stays
-valid until it expires; there is no revocation list. For a single-lab internal deployment
-this is an **accepted residual**.
+cookies would add CSRF surface and rework the Microsoft sign-in and telemetry paths, so the
+damage an XSS could do is bounded instead by the app's CSP, which allows no inline or
+outside scripts (§4a), and by the token lifetime: about an hour for Microsoft's access
+token, which MSAL renews silently before each API request with its refresh token (kept in
+the tab's `sessionStorage`, gone when the tab closes), and 2 hours for a local token
+(`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks `is_active`, so deactivating a user
+ends their access at once. A leaked token of a still-active user stays valid until it
+expires; there is no revocation list, and CoGA's sign-out does not end the Microsoft session
+in the browser (the sign-in page offers *Sign out of Microsoft*). For a single-lab internal
+deployment this is an **accepted residual**.
 
-**Azure local-admin fallback (break-glass).** With Azure AD configured,
-`AZURE_ADMIN_OVERRIDE` (default off) lets an admin sign in with a local token when Azure is
-unreachable. That widens the admin trust boundary to anyone holding `SECRET_KEY`, so keep it
-off in production unless a break-glass path is required.
+**Emergency (break-glass) administrator.** With Microsoft sign-in there is one local
+account, the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on
+Google Cloud), seeded by the deployment, bound to no Microsoft object ID, with an
+administrator's role that CoGA will not change, and active: CoGA will not deactivate it, so
+the break-glass sign-in works whenever the override is switched on. Its password is `ADMIN_PASSWORD` (Secret
+Manager): the seed replaces the stored hash whenever it no longer matches, so rotating the
+secret rotates the password. It signs in with that password at `/login/emergency`, and only
+while `AZURE_ADMIN_OVERRIDE` is on (default off, deployment-gcp.md §12.12); any other
+account's password, and any local token not its own, is refused. Every such sign-in and every
+request made with it is logged (`azure_admin_override`, WARNING) and flagged in its audit row
+(`request_meta.emergency_sign_in`, *Emergency sign-in* on the *Audit logs* page). While the
+override is on, the admin trust boundary includes anyone holding `SECRET_KEY` or the
+emergency password, without MFA, so switch it on only for an emergency and off afterwards.
+The page is not linked from the sign-in page, so nobody is led to type a Microsoft password
+into CoGA.
 
 **Accepted residual: staff roster.** `GET /api/users` returns names and e-mail addresses to
 any signed-in user, for the reviewer picker. CoGA is installed for one lab, where all users
-are colleagues, so there is no tenant boundary to protect.
+are colleagues, so there is no tenant boundary to protect. With Microsoft sign-in this holds
+only while the app registration requires assignment to the lab's group (deployment-gcp.md
+§12.12): any other member of the directory who could sign in would get an account, and so
+see the roster, though no patient data.
 
 ## 2. Access / audit logging
 
@@ -193,6 +265,12 @@ are colleagues, so there is no tenant boundary to protect.
   *Audit logs* page flags the row in its *Flags* column (*Family outside the user's projects*),
   and shows nothing else of `request_meta`, which also holds two request headers
   (`AdminAuditLogsPage.tsx`).
+- ✅ **Accounts made and changed, and the emergency sign-in, stay visible in the audit
+  (SEC-4).** The row of the request that made an account at a first Microsoft sign-in, or
+  changed an account's role or activation, carries `request_meta.account_change`: the account,
+  and each field from and to. The emergency administrator's password sign-in, and every
+  request made with it, carries `request_meta.emergency_sign_in`. The *Audit logs* page flags
+  both in its *Flags* column (*Account …: role viewer → admin*, *Emergency sign-in*).
 - ✅ **Minimal personal data.** Query strings are reduced to their keys by default
   (`AUDIT_LOG_QUERY_STRING_MODE=keys`), and secret-like body fields are masked.
 - ✅ **Append-only.** A trigger in `04_traceability.sql` blocks DELETE and UPDATE on
@@ -324,7 +402,11 @@ What the application relies on there:
 ### 4a. Web tier: the single-page app and its `/api` proxy
 
 - ✅ **Logout leaves nothing behind.** It flushes the pending UI telemetry, clears the query
-  cache (which holds family data) and only then the session. Login starts with an empty cache.
+  cache (which holds family data) and only then the session, and after a Microsoft sign-in
+  MSAL's accounts and tokens in the tab. Login starts with an empty cache. The Microsoft
+  sign-in always asks which account continues, so a shared workstation never signs the next
+  person in as the previous one silently, and the page CoGA asked for before it travels to
+  Microsoft only as a random key (the path, with any family ID in it, stays in the tab).
 - ✅ **Encoded path segments.** API paths are built with `apiPath` (`lib/apiPath.ts`), which
   percent-encodes every identifier, so an imported id such as `../families/F1` cannot
   redirect a call. Query strings go through `raw()`. The URLs the backend hands the browser
@@ -354,7 +436,9 @@ What the application relies on there:
   setting as a boolean, so `1` or `True` would turn on the API's header alone.
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
   changing set of hosts and a signed CRAM URL points at the object store. A deployment that
-  knows its hosts narrows it with `CSP_CONNECT_SRC`. `style-src` keeps `'unsafe-inline'`
+  knows its hosts narrows it with `CSP_CONNECT_SRC`, keeping
+  `https://login.microsoftonline.com` with Microsoft sign-in (the browser fetches its tokens
+  there). `style-src` keeps `'unsafe-inline'`
   because IGV injects inline styles.
 - ✅ **Docker Compose** publishes Postgres, ClickHouse and the backend on loopback only, and
   the frontend container gets only the settings its server reads.
@@ -379,7 +463,8 @@ Every suppressed advisory is recorded in
 ## Summary
 
 The application layer applies project-scoped access consistently, with no cross-project IDOR
-found, keeps a durable append-only audit trail, needs a signed-in user for reference data,
+found, refuses every change to a reader (a member with read-only access to a project), keeps a
+durable append-only audit trail, needs a signed-in user for reference data,
 throttles sign-ups and logins, bounds input sizes, decompression and paths, refuses a control
 character in what a request looks up, and refuses to
 start on weak or shared secrets or with the request audit log switched off. S-5 (audit

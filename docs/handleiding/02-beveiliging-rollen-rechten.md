@@ -1,6 +1,6 @@
 # 2. Gebruikersrollen, machtigingen & afscherming
 
-Dit hoofdstuk beschrijft hoe CoGA bepaalt *wie* iets mag zien of doen: welke rollen er zijn, hoe toegang tot data per *project* wordt afgeschermd, hoe de backend dat afdwingt en waarom de bewaking in de browser geen echte poort is. Daarna volgt de verdediging in de diepte: een beperkte databankrol, security-headers en CORS, de weigering om met zwakke geheimen te starten, en de bescherming van uploads. De Engelse bron is `docs/security-posture.md`; de cybersecurity-analyse voor het dossier staat in `docs/regulatory/TF-13-cybersecurity.md`.
+Dit hoofdstuk beschrijft hoe CoGA bepaalt *wie* iets mag zien of doen: welke rollen er zijn, hoe toegang tot data per *project* wordt afgeschermd, welk toegangsniveau (analist of lezer) een lid per project heeft, hoe de backend dat afdwingt en waarom de bewaking in de browser geen echte poort is. Daarna volgt de verdediging in de diepte: een beperkte databankrol, security-headers en CORS, de weigering om met zwakke geheimen te starten, en de bescherming van uploads. De Engelse bron is `docs/security-posture.md`; de cybersecurity-analyse voor het dossier staat in `docs/regulatory/TF-13-cybersecurity.md`.
 
 Een paar begrippen vooraf. **RBAC** (*Role-Based Access Control*) is toegang op basis van rollen. Een **JWT** (*JSON Web Token*) is een ondertekend toegangsbewijs dat de browser bij elk verzoek meestuurt. Een **dependency** is in FastAPI (het Python-framework van de backend) een functie die vóór een endpoint draait en het verzoek kan weigeren. Een **endpoint** is één API-adres, bijvoorbeeld `GET /api/families/{family_id}`.
 
@@ -10,15 +10,17 @@ CoGA kent precies drie rollen. De databank zelf laat geen andere waarde toe.
 
 | Rol | Betekenis | Wat mag deze rol |
 | --- | --- | --- |
-| `viewer` | Gewone (klinische) gebruiker | Alleen de families, samples en varianten van de **projecten waarvan hij lid is**; kan binnen die projecten taggen en reviewen. Kan ook een analyse afsluiten met *Sign out*, de analytische ondertekening: de software beperkt dat niet. Alleen wie het labo daartoe machtigt, mag dat; dat is een procedurele maatregel (`docs/regulatory/TF-06-risk-management-plan.md`, gevaar H15). De medische ondertekening van het klinische verslag gebeurt in het EPD, niet in CoGA. |
+| `viewer` | Gewone (klinische) gebruiker | Alleen de families, samples en varianten van de **projecten waarvan hij lid is**. Wat hij er mag, hangt af van zijn **toegangsniveau in dat project** (zie *Toegangsniveau per project* verderop): als **analist** kan hij er taggen, reviewen, fenotypes wijzigen en een analyse afsluiten met *Sign out*, de analytische ondertekening; als **lezer** kan hij er alleen lezen. Welke analist mag ondertekenen, beperkt de software niet: alleen wie het labo daartoe machtigt, mag dat; dat is een procedurele maatregel (`docs/regulatory/TF-06-risk-management-plan.md`, gevaar H15). De medische ondertekening van het klinische verslag gebeurt in het EPD, niet in CoGA. |
 | `admin` | Beheerder | Alles wat een viewer mag, over alle projecten heen, plus alle beheeracties (projecttoewijzing, verwijderen, referentiedata, auditlogs) |
 | `superuser` | Beheerder | Wordt overal als `admin` behandeld |
 
 **Waar in de code:** de toegestane rollen staan als `CHECK`-regel op de tabel `users` in `backend/db/schema/postgres/01_access.sql`. In de backend vormen `admin` en `superuser` samen de beheerders, via `ADMIN_ROLES` en `is_admin_user` in `backend/app/services/access_control.py`.
 
-Er is geen aparte rechtentabel per gebruiker. Wat iemand mag zien, volgt volledig uit **projectlidmaatschap**: de koppeltabel `project_users`. Een familie hangt via `family_projects` aan een of meer projecten, en een sample is zichtbaar via de projecten van zijn familie (`sample_projects` koppelt een sample daarnaast rechtstreeks aan projecten, o.a. voor de samplekeuzelijst van de Variant Explorer). Een viewer ziet dus precies de families waarvan minstens één project ook een van zijn projecten is.
+**Een rol toekennen.** Een beheerder zet de rol van een account op de pagina *Users* (`PATCH /api/auth/users/{id}` met `role`), na een bevestiging. Niemand wijzigt zijn eigen rol, en de noodbeheerder (hoofdstuk 5) houdt zijn rol en blijft actief. Elke wijziging staat in de auditregel van het verzoek, met de rol ervoor en erna (`request_meta.account_change`). Wie zich met Microsoft voor het eerst aanmeldt, krijgt een account met de rol `viewer` en zonder project: hij ziet geen patiëntgegevens tot een beheerder hem aan een project toevoegt, net zoals een lokaal account (hoofdstuk 5).
 
-Het token draagt alleen de identiteit (het e-mailadres). De projectenlijst zit er **niet** in: bij elk verzoek laadt de backend de gebruiker en zijn projecten vers uit Postgres. Intrekken werkt daardoor meteen. Een gedeactiveerde gebruiker, of iemand die uit een project wordt gehaald, verliest de toegang bij het volgende verzoek, zonder te wachten tot het token verloopt.
+Er is geen aparte rechtentabel per gebruiker. Wat iemand mag zien, volgt volledig uit **projectlidmaatschap**: de koppeltabel `project_users`, die per lid ook zijn toegangsniveau in dat project bewaart. Een familie hangt via `family_projects` aan een of meer projecten, en een sample is zichtbaar via de projecten van zijn familie (`sample_projects` koppelt een sample daarnaast rechtstreeks aan projecten, o.a. voor de samplekeuzelijst van de Variant Explorer). Een viewer ziet dus precies de families waarvan minstens één project ook een van zijn projecten is.
+
+Het token draagt alleen de identiteit: het object-ID van de gebruiker bij een Microsoft-token, het e-mailadres bij een lokaal token. De projectenlijst zit er **niet** in: bij elk verzoek laadt de backend de gebruiker, zijn projecten en zijn toegangsniveau in elk ervan vers uit Postgres. Intrekken werkt daardoor meteen. Een gedeactiveerde gebruiker, of iemand die uit een project wordt gehaald of er lezer wordt, verliest de toegang of het recht om te wijzigen bij het volgende verzoek, zonder te wachten tot het token verloopt.
 
 ## Projectgebonden toegang: hoe elk dataverzoek wordt ingeperkt
 
@@ -47,6 +49,27 @@ Twee nuances voor de auditor:
 2. Een beperkte gebruikerslijst (`GET /api/users`, alleen naam en e-mail) is leesbaar voor elke ingelogde gebruiker; ze voedt de keuzelijst voor een reviewer. `docs/security-posture.md` (§1) documenteert dat als **aanvaard restrisico**: CoGA draait in één labo waar alle gebruikers collega's zijn.
 
 **Waar in de code:** `backend/app/dependencies.py` (beide dependencies), `backend/app/routers/admin.py` en `backend/app/routers/projects.py`.
+
+## Toegangsniveau per project: analist of lezer
+
+Elk projectlid heeft in dat project een **toegangsniveau** (SEC-1, beslissing van de eigenaar van 2026-10-14):
+
+| Niveau | Mag in het project |
+| --- | --- |
+| **analist** (`analyst`) | Lezen én wijzigen: alles wat hierboven voor een `viewer` staat. |
+| **lezer** (`reader`), bv. een student | Alleen lezen: de families, varianten, tracks, rapporten en ondertekende versies bekijken en doorzoeken, CSV exporteren, het rapport en een ondertekende versie afdrukken, en eigen filterpresets bewaren. Niet: het klinische auditspoor zien, en niets klinisch wijzigen: geen fenotypes, reviews, tags, ACMG- of CNV-classificaties, *Sign out*, workflowvelden (status, toegewezen aan, nagekeken door), nieuwe families, uploads, imports, bewerkingen of verwijderingen. |
+
+Dezelfde persoon kan analist zijn in het ene project en lezer in het andere. Hangt een familie aan meerdere projecten, dan mag een analist van eender welk ervan ze wijzigen, net zoals een lid van eender welk ervan ze mag zien. Een beheerder (`admin`, `superuser`) heeft alle rechten in elk project, lid of niet.
+
+**Instellen.** Een beheerder kiest het niveau per lid op de pagina *Projects & Access* (een keuzelijst naast elk aangevinkt lid); de pagina *Users* toont per project het niveau. In de API is het het veld `reader_user_ids` van een project: de leden die lezer zijn, de andere leden zijn analist. Een lid zonder niveau is analist (de standaardwaarde van de kolom). Een update zonder `reader_user_ids` laat elk blijvend lid zijn niveau houden; een lezer die geen lid is, wordt geweigerd (`400`). Toen de kolom kwam, werd elk bestaand lidmaatschap analist, zodat er voor bestaande gebruikers niets veranderde.
+
+**Afdwingen op één plaats.** `get_current_user` legt bij elk verzoek vast of het iets wijzigt: elke methode behalve GET, HEAD en OPTIONS, tenzij de route gemarkeerd is met `changes_only_own_data` (alleen de eigen filterpresets van de gebruiker en de gebeurtenissen van zijn eigen gebruik van de interface). De checkpoints van familie, sample en project (`get_accessible_family_mapping`, `get_accessible_sample_mapping` en `_resolve_accessible_project_id` van de Family Builder) weigeren dan de wijziging van een lezer met `403` en de reden (`require_change_access`), **na** de zichtbaarheidscontrole: een familie buiten zijn projecten blijft dus `404` antwoorden, zoals een onbekende. Omdat elke route die een familie, sample of project noemt langs die checkpoints moet, kan geen route de controle vergeten. Het klinische auditspoor (`GET /api/families/{id}/clinical-audit`) weigert een lezer ook (`403`). De beheerroutes blijven achter `get_current_admin_user`.
+
+**In de schermen.** De familie en de projecten die de API teruggeeft, zeggen of ze voor de gebruiker alleen-lezen zijn (`read_only`). Een familiepagina toont dan *Read-only access (reader)*, en de knoppen die een lezer niet mag gebruiken, zijn uitgeschakeld of verborgen: de review- en ACMG-dialogen bewaren niet, de snelle tags staan uit, *Sign out report* is uitgeschakeld, het auditspoor wordt niet opgevraagd (het rapport zegt op het scherm en op papier waarom het er niet staat), de fenotypes en workflowvelden zijn niet te wijzigen en de Family Builder biedt alleen de projecten aan waarin de gebruiker analist is. Dat is gemak; de weigering van de server is de poort.
+
+**Testen.** `backend/tests/test_project_access_levels.py` houdt de catalogus bij van elke route die iets wijzigt (van een beheerder, eigen data, of geweigerd aan een checkpoint): een nieuwe route faalt tot ze ingedeeld is. `backend/tests/e2e/test_e2e_project_reader_role.py` stelt elke zo'n route op echte Postgres als lezer en eist `403` met de reden, en stelt elke route die een familie of sample leest als lezer en als analist en eist hetzelfde antwoord, behalve het auditspoor.
+
+**Waar in de code:** `backend/app/services/access_control.py` (`user_can_change_metadata_projects`, `require_change_access`, `require_audit_trail_access`, `changes_only_own_data`, `request_changes_records`), `backend/app/dependencies.py` (`get_current_user`), `backend/app/services/metadata_service.py` (de checkpoints en `_set_project_user_links`), de kolom `access_level` in `backend/db/schema/postgres/01_access.sql`; in de frontend `frontend/src/lib/familyAccess.ts`.
 
 ## Bewaking in de browser: gemak, geen slot
 
@@ -117,12 +140,12 @@ Elke onderdrukking van een beveiligingsscan (afhankelijkheden, geheimen, SAST) i
 | Bestand | Rol |
 | --- | --- |
 | `backend/app/dependencies.py` | `get_current_user` en `get_current_admin_user` |
-| `backend/app/services/access_control.py` | Rollen (`ADMIN_ROLES`) en de toegangsregels |
+| `backend/app/services/access_control.py` | Rollen (`ADMIN_ROLES`), de toegangsregels en het toegangsniveau per project (analist of lezer) |
 | `backend/app/services/metadata_service.py` | Projectfilter in de queries |
 | `backend/app/services/family_metadata_context.py` | Het gedeelde toegangscheckpoint voor familie- en sampledata |
 | `backend/app/core/config.py` | Weigering van zwakke geheimen, CORS-controle, uploadgrenzen |
 | `backend/app/middleware/` | Client-IP, security-headers en request-logging |
-| `backend/db/schema/postgres/01_access.sql` | `users` met de rolregel, `project_users`, `auth_login_attempts` |
+| `backend/db/schema/postgres/01_access.sql` | `users` met de rolregel, `project_users` met het toegangsniveau van elk lid, `auth_login_attempts` |
 | `backend/db/schema/postgres/05_grants.sql` | De runtime-rol `coga_app` en de `REVOKE` op de append-only tabellen en op het migratiegrootboek |
 | `frontend/src/components/RequireAuth.tsx` · `RequireAdmin.tsx` | Bewakers in de browser (gemak, geen poort) |
 | `docs/security-posture.md` · `docs/db-runtime-role-runbook.md` | Beveiligingsoverzicht en het draaiboek voor `coga_app` |

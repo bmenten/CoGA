@@ -24,6 +24,7 @@ import {
 } from './structuralVariantSearch';
 import { SV_IGV_FLANK_BP, buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import VariantScoreCell from './VariantScoreCell';
+import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 interface StructuralVariantTableProps {
   familyId?: string;
@@ -104,6 +105,8 @@ export default function StructuralVariantTable({
   onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantTableProps) {
+  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  const readOnly = useFamilyReadOnly();
   // Pure derivations of props — memoize so they aren't rebuilt on every unrelated re-render
   // (this table re-renders on review/sort state changes that don't touch tags/members).
   const tagMap = useMemo(() => getTagDefinitionMap(tags), [tags]);
@@ -321,7 +324,8 @@ export default function StructuralVariantTable({
                         type="button"
                         className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
                         aria-pressed={hasReviewTag}
-                        disabled={reviewIsPending || !onToggleReviewTag}
+                        disabled={readOnly || reviewIsPending || !onToggleReviewTag}
+                        title={readOnly ? READ_ONLY_HINT : undefined}
                         onClick={() => {
                           void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.review);
                         }}
@@ -332,7 +336,8 @@ export default function StructuralVariantTable({
                         type="button"
                         className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
                         aria-pressed={isExcluded}
-                        disabled={reviewIsPending || !onToggleReviewTag}
+                        disabled={readOnly || reviewIsPending || !onToggleReviewTag}
+                        title={readOnly ? READ_ONLY_HINT : undefined}
                         onClick={() => {
                           void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.excluded);
                         }}
@@ -343,8 +348,8 @@ export default function StructuralVariantTable({
                         type="button"
                         className={`variant-quick-toggle${hasReportTag ? ' variant-quick-toggle--active' : ''}`}
                         aria-pressed={hasReportTag}
-                        disabled={reviewIsPending || !onToggleReviewTag}
-                        title="Flag this SV for the family clinical report"
+                        disabled={readOnly || reviewIsPending || !onToggleReviewTag}
+                        title={readOnly ? READ_ONLY_HINT : 'Flag this SV for the family clinical report'}
                         onClick={() => {
                           void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.report);
                         }}

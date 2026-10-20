@@ -151,9 +151,17 @@ class TrackAvailabilityOut(BaseModel):
     # the import put them through (`sample_interval_track_sources.metadata.normalization`):
     # `log2_ratio_to_autosomal_median`, or `none` for HiFiCNV depths stored as read because
     # the sample had no usable autosomal median. A caller whose records name none is not
-    # listed: its values are its file's. The views draw a coverage track on their
-    # log2-ratio axis only when its values are a log2 ratio.
+    # listed: its values are its file's.
     coverage_normalizations: Dict[str, List[str]] = Field(default_factory=dict)
+    # What each caller's coverage track holds, by the rule the depth readers read it by
+    # (`coverage_read_depth.coverage_track_content`, TRACE-9): `read_depth`, `log2_ratio` or
+    # `unknown`. A coverage BED (`web`) holds what it declared when it was loaded (its
+    # record's `content`), `unknown` when it declared nothing; another caller's track what
+    # its transform made of its file. The views draw a track of read depth on a depth axis,
+    # a log2 ratio on their log2-ratio axis, and an unknown one on neither, with a note.
+    coverage_contents: Dict[str, Literal["read_depth", "log2_ratio", "unknown"]] = Field(
+        default_factory=dict
+    )
     # Which callers wrote the APCAD track. It holds parent-of-origin markers (0-1)
     # for a phased trio and folded minor allele fraction (0-0.5) from a depth
     # caller's bigWig; the two need different axes.
@@ -171,7 +179,8 @@ class FamilyTrackAvailabilityOut(BaseModel):
 
 
 # A repeat allele's, call's or locus's status (repeat_expansion_pg.classify_repeat_count):
-# `not_assessed` is a call at a locus without thresholds (CLIN-26), `unknown` a no-call.
+# `not_assessed` is a call at a locus without thresholds (CLIN-26) whose count is outside any
+# benign range the catalogue states there (CLIN-36), `unknown` a no-call.
 RepeatStatus = Literal[
     "normal", "review", "not_assessed", "intermediate", "premutation", "pathogenic", "unknown"
 ]
@@ -206,7 +215,8 @@ class RepeatExpansionSampleCallOut(BaseModel):
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
     status: RepeatStatus = "unknown"
     # Why the call needs a second look beyond its allele sizes (a male with two
-    # different chrX alleles), or None.
+    # different chrX alleles), or why no catalogue locus classifies it (its TRID names
+    # several STRchive loci and its region does not pick one, CLIN-31), or None.
     note: Optional[str] = None
 
 

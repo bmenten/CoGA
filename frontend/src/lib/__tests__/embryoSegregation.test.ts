@@ -1,198 +1,103 @@
 import { describe, expect, it } from 'vitest';
-import {
-  classifyEmbryosAtRoi,
-  hasRecombinationNearRoi,
-  type EmbryoClassification,
-} from '../embryoSegregation';
-import type { HaplotypeMemberLike, HaplotypeSampleLike } from '../haplotypeRisk';
+import type { PgtAnalysisOut, PgtEmbryoOut } from '../apiSchema.generated';
+import { embryoClassificationsFromAnalysis, segregationStateLabel, sexUnknownWarning } from '../embryoSegregation';
 
-const region = { chr: '1', start: 1_000_000, end: 1_001_000 };
+// The backend makes the embryo calls (backend/app/services/pgt_embryo_calls.py; its rules are
+// tested in backend/tests/test_pgt_embryo_calls.py). The family page reads them as served.
+const embryo = (overrides: Partial<PgtEmbryoOut>): PgtEmbryoOut => ({
+  sample: 'E1',
+  sex: 'female',
+  call: 'unaffected_non_carrier',
+  roi_not_covered: false,
+  sex_dependent: null,
+  inherited: [],
+  recombinations: [],
+  qc: null,
+  ...overrides,
+});
 
-const seg = (
-  hap1: string,
-  hap2: string,
-  hap1_lineage = 'paternal',
-  hap2_lineage = 'maternal',
-  start = 0,
-  end = 2_000_000,
-) => ({ chr: '1', start, end, hap1, hap2, hap1_lineage, hap2_lineage });
+const correction = {
+  parent: 'FATHER',
+  side: 'father' as const,
+  chr: '7',
+  position: 30_400_000,
+  end: 30_450_000,
+  children_switching: 3,
+  children: 3,
+};
 
-const byId = (rows: EmbryoClassification[]) => Object.fromEntries(rows.map((r) => [r.sampleId, r]));
+const analysis = (embryos: PgtEmbryoOut[], overrides: Partial<PgtAnalysisOut> = {}): PgtAnalysisOut => ({
+  region_of_interest: { query: 'GENE1', label: 'GENE1', source: 'gene', chrom: '7', start: 30_500_000, end: 30_600_000 },
+  window: { chrom: '7', start: 29_500_000, end: 31_600_000 },
+  inheritance_model: { recorded: 'AD', applied: 'AD', mode: 'dominant' },
+  members: [],
+  disease_haplotype_resolved: true,
+  disease_haplotypes: [{ origin: 'paternal', homolog: '1', kind: 'dominant' }],
+  phase_corrections: [],
+  embryos,
+  inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false },
+  rules: { window_flank: 1_000_000, recombination_flank: 250_000, phase_switch_uncertainty: 2_000_000 },
+  ...overrides,
+});
 
-describe('classifyEmbryosAtRoi (dominant)', () => {
-  const members: HaplotypeMemberLike[] = [
-    { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
-    { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
-    { sample_id: 'E_RISK', role: 'embryo', affected: false, sex: 'female' },
-    { sample_id: 'E_CLEAR', role: 'embryo', affected: false, sex: 'female' },
-  ];
-  const samples: HaplotypeSampleLike[] = [
-    { sample: 'FATHER', segments: [seg('0', '1', 'paternal', 'paternal')] },
-    { sample: 'PROBAND', segments: [seg('1', '0')] }, // shares paternal:1 with father -> disease hap
-    { sample: 'E_RISK', segments: [seg('1', '1')] }, // inherited paternal:1 -> at risk
-    { sample: 'E_CLEAR', segments: [seg('0', '1')] }, // inherited paternal:0 -> unaffected
-  ];
-
-  it('classifies each embryo by the shared dominant haplotype', () => {
-    const out = byId(classifyEmbryosAtRoi({ members, samples, inheritanceModel: 'AD', region }));
-    expect(Object.keys(out).sort()).toEqual(['E_CLEAR', 'E_RISK']);
-    expect(out.E_RISK.state).toBe('affected_or_at_risk');
-    expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
-    expect(out.E_RISK.recombinationNearRoi).toBe(false);
-    expect(out.E_RISK.uninformative).toBe(false);
-  });
-
-  it("flags every embryo when a parent's phase was corrected near the ROI", () => {
-    const correction = {
-      parent: 'FATHER',
-      side: 'father' as const,
-      chr: '1',
-      position: 1_100_000,
-      end: 1_150_000,
-      children_switching: 3,
-      children: 3,
-    };
-    const near = byId(
-      classifyEmbryosAtRoi({ members, samples, inheritanceModel: 'AD', region, phaseCorrections: [correction] }),
-    );
-    expect(near.E_RISK.phaseCorrectionsNearRoi).toEqual([correction]);
-    expect(near.E_CLEAR.phaseCorrectionsNearRoi).toEqual([correction]);
-    // The swap leaves which embryos share the risk haplotype as it was.
-    expect(near.E_RISK.state).toBe('affected_or_at_risk');
-    const far = byId(
-      classifyEmbryosAtRoi({
-        members,
-        samples,
-        inheritanceModel: 'AD',
-        region,
-        phaseCorrections: [{ ...correction, position: 5_000_000, end: 5_100_000 }],
-      }),
-    );
-    expect(far.E_RISK.phaseCorrectionsNearRoi).toEqual([]);
-  });
-
-  it('calls an embryo with no haplotype over the ROI uninformative, never unaffected', () => {
-    // The disease haplotype resolves (paternal 1), but these embryos have no block at the
-    // ROI: one has blocks only in the flank the ROI view fetches, one none at all. They
-    // used to read "Unaffected", the badge of an embryo seen not to carry it.
-    const withMissing: HaplotypeMemberLike[] = [
-      ...members,
-      { sample_id: 'E_FLANK', role: 'embryo', affected: false, sex: 'female' },
-      { sample_id: 'E_NONE', role: 'embryo', affected: false, sex: 'female' },
-    ];
-    const withMissingSamples: HaplotypeSampleLike[] = [
-      ...samples,
-      {
-        sample: 'E_FLANK',
-        segments: [
-          seg('0', '1', 'paternal', 'maternal', 0, 900_000),
-          seg('0', '1', 'paternal', 'maternal', 1_100_000, 2_000_000),
+describe('embryoClassificationsFromAnalysis', () => {
+  it('reads each called embryo with its warnings, as the backend made the call', () => {
+    const out = embryoClassificationsFromAnalysis(
+      analysis(
+        [
+          embryo({ sample: 'E_RISK', call: 'affected_or_at_risk', recombinations: [30_550_000] }),
+          embryo({ sample: 'E_GAP', call: 'uninformative', roi_not_covered: true }),
+          embryo({
+            sample: 'E_SEX',
+            call: 'affected_or_at_risk',
+            sex: 'und',
+            sex_dependent: { if_male: 'affected_or_at_risk', if_female: 'carrier' },
+          }),
         ],
-      },
-    ];
-    const out = byId(
-      classifyEmbryosAtRoi({ members: withMissing, samples: withMissingSamples, inheritanceModel: 'AD', region }),
+        { phase_corrections: [correction] },
+      ),
     );
-    for (const id of ['E_FLANK', 'E_NONE']) {
-      expect(out[id].state).toBe('uninformative');
-      expect(out[id].uninformative).toBe(true);
-      // The reason is this embryo's missing data, not an unresolved disease haplotype.
-      expect(out[id].roiNotCovered).toBe(true);
-    }
-    // The embryos with data at the ROI keep their calls.
-    expect(out.E_RISK.state).toBe('affected_or_at_risk');
-    expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
-    expect(out.E_CLEAR.roiNotCovered).toBe(false);
+
+    expect([...out.keys()]).toEqual(['E_RISK', 'E_GAP', 'E_SEX']);
+    expect(out.get('E_RISK')).toEqual({
+      sampleId: 'E_RISK',
+      state: 'affected_or_at_risk',
+      recombinationNearRoi: true,
+      uninformative: false,
+      roiNotCovered: false,
+      sexDependent: null,
+      phaseCorrectionsNearRoi: [correction],
+    });
+    expect(out.get('E_GAP')).toMatchObject({ state: 'uninformative', uninformative: true, roiNotCovered: true });
+    expect(out.get('E_SEX')?.sexDependent).toEqual({ ifMale: 'affected_or_at_risk', ifFemale: 'carrier' });
+    // The parents' corrections near the ROI flag every embryo.
+    expect(out.get('E_GAP')?.phaseCorrectionsNearRoi).toEqual([correction]);
   });
 
-  it('flags uninformative when the disease haplotype cannot be resolved', () => {
-    // A single affected member with a homozygous block is ambiguous -> uninformative.
-    const lone: HaplotypeMemberLike[] = [
-      { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
-      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
-    ];
-    const loneSamples: HaplotypeSampleLike[] = [
-      { sample: 'PROBAND', segments: [seg('1', '1')] },
-      { sample: 'E1', segments: [seg('1', '0')] },
-    ];
-    const out = byId(classifyEmbryosAtRoi({ members: lone, samples: loneSamples, inheritanceModel: 'AD', region }));
-    expect(out.E1.state).toBe('uninformative');
-    expect(out.E1.uninformative).toBe(true);
-    // No disease haplotype to call against: that, not the embryo's data, is the reason.
-    expect(out.E1.roiNotCovered).toBe(false);
+  it('reads an embryo of an analysis without a disease haplotype as uninformative for that reason', () => {
+    const out = embryoClassificationsFromAnalysis(
+      analysis([embryo({ call: 'uninformative' })], { disease_haplotype_resolved: false, disease_haplotypes: [] }),
+    );
+    expect(out.get('E1')).toMatchObject({ uninformative: true, roiNotCovered: false });
   });
-});
 
-describe("classifyEmbryosAtRoi (X-linked recessive, the embryos' sex not recorded)", () => {
-  const xRegion = { chr: 'X', start: 1_000_000, end: 1_001_000 };
-  // Outside the pseudo-autosomal regions, as the backend marks the block.
-  const xSeg = (hap1: string, hap2: string) => ({ ...seg(hap1, hap2), chr: 'X', hemizygous_in_males: true });
-  // The affected son resolves the mother's risk X (maternal 1). The trio builder never
-  // confirms a paternal X side, hence '?'.
-  const members: HaplotypeMemberLike[] = [
-    { sample_id: 'SON', role: 'proband', affected: true, sex: 'male' },
-    { sample_id: 'E_RISK', role: 'embryo', affected: false, sex: 'unknown' },
-    { sample_id: 'E_CLEAR', role: 'embryo', affected: false, sex: 'unknown' },
-  ];
-  const samples: HaplotypeSampleLike[] = [
-    { sample: 'SON', segments: [xSeg('?', '1')] },
-    { sample: 'E_RISK', segments: [xSeg('?', '1')] },
-    { sample: 'E_CLEAR', segments: [xSeg('?', '0')] },
-  ];
-
-  it('calls the embryo with the maternal risk haplotype at risk, with both calls, not a carrier', () => {
-    const out = byId(classifyEmbryosAtRoi({ members, samples, inheritanceModel: 'XLR', region: xRegion }));
-    expect(out.E_RISK.state).toBe('affected_or_at_risk');
-    expect(out.E_RISK.sexDependent).toEqual({ ifMale: 'affected_or_at_risk', ifFemale: 'carrier' });
-    expect(out.E_RISK.uninformative).toBe(false);
-    // The other maternal X: unaffected whatever the sex.
-    expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
-    expect(out.E_CLEAR.sexDependent ?? null).toBeNull();
+  it('gives no badge to an embryo the analysis did not call', () => {
+    // No ROI, or no haplotypes read: the backend calls no embryo, and the page shows none.
+    expect(embryoClassificationsFromAnalysis(analysis([embryo({ call: null })])).size).toBe(0);
   });
 });
 
-describe('classifyEmbryosAtRoi (dominant, an ROI in PAR1)', () => {
-  // In a pseudo-autosomal region a son carries his father's copy too.
-  const parRegion = { chr: 'X', start: 600_000, end: 650_000 };
-  const parSeg = (hap1: string, hap2: string, lineage: [string, string]) => ({
-    ...seg(hap1, hap2, lineage[0], lineage[1], 10_001, 2_781_479),
-    chr: 'X',
-    hemizygous_in_males: false,
-  });
-  const members: HaplotypeMemberLike[] = [
-    { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
-    { sample_id: 'DAUGHTER', role: 'proband', affected: true, sex: 'female' },
-    { sample_id: 'E_RISK', role: 'embryo', affected: false, sex: 'male' },
-    { sample_id: 'E_CLEAR', role: 'embryo', affected: false, sex: 'male' },
-  ];
-  const samples: HaplotypeSampleLike[] = [
-    { sample: 'FATHER', segments: [parSeg('1', '0', ['paternal', 'paternal'])] },
-    { sample: 'DAUGHTER', segments: [parSeg('1', '0', ['paternal', 'maternal'])] },
-    { sample: 'E_RISK', segments: [parSeg('1', '0', ['paternal', 'maternal'])] },
-    { sample: 'E_CLEAR', segments: [parSeg('0', '1', ['paternal', 'maternal'])] },
-  ];
-
-  it("calls a son on both copies: his father's risk haplotype is at risk", () => {
-    const out = byId(classifyEmbryosAtRoi({ members, samples, inheritanceModel: 'AD', region: parRegion }));
-    expect(out.E_RISK.state).toBe('affected_or_at_risk');
-    expect(out.E_CLEAR.state).toBe('unaffected_non_carrier');
-  });
-});
-
-describe('hasRecombinationNearRoi', () => {
-  it('flags a block boundary inside the ROI', () => {
-    const segs = [
-      seg('1', '1', 'paternal', 'maternal', 0, 1_000_500),
-      seg('0', '1', 'paternal', 'maternal', 1_000_500, 2_000_000), // crossover at 1,000,500 (inside ROI)
-    ];
-    expect(hasRecombinationNearRoi(segs, region)).toBe(true);
+describe('the embryo call wording', () => {
+  it('names each call as the badge does', () => {
+    expect(segregationStateLabel('affected_or_at_risk')).toBe('Affected / at risk');
+    expect(segregationStateLabel('carrier')).toBe('Carrier');
+    expect(segregationStateLabel('unaffected_non_carrier')).toBe('Unaffected');
+    expect(segregationStateLabel('uninformative')).toBe('Uninformative');
   });
 
-  it('does not flag a boundary far from the ROI', () => {
-    const segs = [
-      seg('1', '1', 'paternal', 'maternal', 0, 500_000),
-      seg('0', '1', 'paternal', 'maternal', 500_000, 2_000_000), // crossover at 500k, >250k from ROI
-    ];
-    expect(hasRecombinationNearRoi(segs, region)).toBe(false);
+  it('gives both calls when the call depends on an unrecorded sex', () => {
+    expect(sexUnknownWarning({ ifMale: 'affected_or_at_risk', ifFemale: 'carrier' })).toBe(
+      "This embryo's sex is not recorded, and the call depends on it: affected / at risk if male, carrier if female. Record the sex to resolve it.",
+    );
   });
 });

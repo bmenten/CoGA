@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import SmallVariantReviewDialog from '../SmallVariantReviewDialog';
+import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type {
   SmallVariantReview,
   SmallVariantReviewSavePayload,
@@ -181,5 +182,47 @@ describe('SmallVariantReviewDialog deleted tags', () => {
   it('lists no held tag while the tag list is still loading', () => {
     renderWithTags(['probe_x', 'report'], []);
     expect(screen.queryByRole('checkbox', { name: /probe_x|Probe X/ })).toBeNull();
+  });
+});
+
+// SEC-1: a reader in the family's projects reads the review but cannot save it.
+describe('SmallVariantReviewDialog for a reader', () => {
+  const renderDialog = (readOnly: boolean) => {
+    const onSave = vi.fn(async () => undefined);
+    render(
+      <FamilyReadOnlyContext.Provider value={readOnly}>
+        <SmallVariantReviewDialog
+          members={[]}
+          variant={{
+            _id: 'v1',
+            chr: 'chr1',
+            start: 1000,
+            end: 1000,
+            type: 'SNV',
+            review: { variant_id: 'v1', tags: ['report'], tag_metadata: {}, note: 'kept' } as SmallVariantReview,
+          }}
+          tags={[]}
+          onClose={vi.fn()}
+          onSave={onSave}
+        />
+      </FamilyReadOnlyContext.Provider>,
+    );
+    return onSave;
+  };
+
+  it('shows a reader the review, says why it cannot be saved and does not save it', () => {
+    const onSave = renderDialog(true);
+    expect(screen.getByDisplayValue('kept')).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent(/you are a reader in this family/);
+    const save = screen.getByRole('button', { name: /save review/i });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('lets an analyst save it', () => {
+    renderDialog(false);
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /save review/i })).toBeEnabled();
   });
 });

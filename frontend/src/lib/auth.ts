@@ -4,9 +4,14 @@ export const AUTH_STORAGE_KEYS = {
   token: 'token',
   username: 'username',
   role: 'role',
+  // How this session signed in: with Microsoft, whose access token the API client renews
+  // before it expires, or with a password (SEC-4).
+  signIn: 'sign_in',
 } as const;
 
 export type UserRole = 'admin' | 'superuser' | 'viewer' | null;
+
+export type SignInMethod = 'microsoft' | 'password';
 
 export function getAuthToken(): string | null {
   return storage.getItem(AUTH_STORAGE_KEYS.token);
@@ -21,6 +26,10 @@ export function getStoredRole(): UserRole {
   return role === 'admin' || role === 'superuser' || role === 'viewer' ? role : null;
 }
 
+export function getSessionSignIn(): SignInMethod {
+  return storage.getItem(AUTH_STORAGE_KEYS.signIn) === 'microsoft' ? 'microsoft' : 'password';
+}
+
 export function isAuthenticated(): boolean {
   return Boolean(getAuthToken());
 }
@@ -30,14 +39,28 @@ export function isAdmin(): boolean {
   return role === 'admin' || role === 'superuser';
 }
 
-export function persistSession(token: string, username: string, role: string): void {
+export function persistSession(
+  token: string,
+  username: string,
+  role: string,
+  signIn: SignInMethod = 'password',
+): void {
   storage.setItem(AUTH_STORAGE_KEYS.token, token);
   storage.setItem(AUTH_STORAGE_KEYS.username, username);
   storage.setItem(AUTH_STORAGE_KEYS.role, role);
+  storage.setItem(AUTH_STORAGE_KEYS.signIn, signIn);
+}
+
+/** Keep a renewed access token for the session that holds one; no session, no token. */
+export function updateSessionToken(token: string): void {
+  if (getAuthToken()) {
+    storage.setItem(AUTH_STORAGE_KEYS.token, token);
+  }
 }
 
 export function clearSession(): void {
   storage.removeItem(AUTH_STORAGE_KEYS.token);
   storage.removeItem(AUTH_STORAGE_KEYS.username);
   storage.removeItem(AUTH_STORAGE_KEYS.role);
+  storage.removeItem(AUTH_STORAGE_KEYS.signIn);
 }

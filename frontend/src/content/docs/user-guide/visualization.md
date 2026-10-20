@@ -36,9 +36,13 @@ genotype. Without a parent in the family there is one row.
 > that data was loaded for the sample, so an empty track usually means the layer is missing, not that
 > the viewer failed. When a view holds too many variants to draw, the track says so: zoom in or filter.
 
-Coverage is drawn as a log2 ratio, one track per CNV caller. A HiFiCNV depth file without autosomal
-depth gives no baseline to take that ratio against, so its depths are kept as read: the track is not
-drawn, its place says why, and IGV shows the depth file.
+Coverage is drawn one track per CNV caller, on the axis of what the track holds. The callers' log2
+ratios share the log2-ratio axis, with the gain and loss colours and the caller's segments. Read depth is
+drawn on a depth axis from 0, without those colours or segments: a coverage BED declared as read depth,
+and a HiFiCNV depth file without autosomal depth, which gives no baseline to take a ratio against, so its
+depths are kept as read (the track's header says so). A coverage BED says what it holds when it is
+loaded; one that does not is drawn on its own range without an axis, and its header warns that it is
+read as neither depth nor a log2 ratio.
 
 In a PGT family, judge each embryo's aneuploidy and large (>10 Mb) structural variants yourself, on its
 segment, copy-number (coverage) and APCAD tracks. CoGA shows the tracks but makes no aneuploidy call.

@@ -205,6 +205,9 @@ export interface ApiFamilyBase<TMember = ApiFamilyMemberRef> {
   status?: ApiFamilyStatusRef | null;
   assigned_to?: ApiUserRef | null;
   reviewed_by?: ApiUserRef | null;
+  // The caller only reads this family: they are a reader in each of its projects they
+  // belong to (SEC-1). The server refuses their changes; the screens hide the controls.
+  read_only?: boolean;
 }
 
 export interface ApiFamilySummary extends ApiFamilyBase<ApiFamilyMember> {
@@ -303,6 +306,9 @@ export interface ApiNiptCoverageSummary {
   low_coverage_regions?: ApiNiptCoverageLowRegion[];
   // The capture targets' QC, when the plasma has a per-target coverage table.
   targets?: NiptTargetCoverageOut | null;
+  // Without a table: why each of the plasma's coverage tracks over the regions was not read
+  // as depth (TRACE-9): a log2 ratio, or a coverage BED that does not declare what it holds.
+  coverage_notes?: string[];
 }
 
 export type QcStatus = 'pass' | 'warn' | 'fail' | 'skip';
@@ -394,8 +400,9 @@ export interface ApiAnnotationManifest {
   modules: ApiAnnotationModule[];
 }
 
-// The primary transcript, population frequencies and in-silico scores a small-variant
-// classification rested on, as frozen and as they are now, by field (backend
+// The primary transcript, its consequence, the population frequencies and in-silico scores, and
+// (for a missense variant) the gene's missense Z a small-variant classification rested on, as
+// frozen and as they are now, by field (backend
 // services/small_variant_review_acmg.py::small_variant_evidence).
 export type ApiSmallVariantEvidence = Record<string, unknown>;
 
@@ -409,8 +416,9 @@ export interface ApiClassificationDriftItem {
   annotation_version_to: string | null;
   clinvar_from: string | null;
   clinvar_to: string | null;
-  // What moved: 'clinvar', 'transcript_id', a frequency or in-silico field ('gnomad_af',
-  // 'revel', …) or 'annotations' (the annotation set).
+  // What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field
+  // ('effect', 'lof', 'gnomad_af', 'revel', …), a missense variant's gene 'gene_missense_z' or
+  // 'annotations' (the annotation set).
   changed: string[];
   evidence_from: ApiSmallVariantEvidence | null;
   evidence_to: ApiSmallVariantEvidence | null;
@@ -568,6 +576,10 @@ export interface ApiProjectRecord<TFamily = ApiFamilySummary> {
   // Inside the validated scope (VALIDATED_ASSEMBLIES)? Sign-out refuses a family that is not.
   assembly_validated?: boolean;
   user_ids?: string[];
+  // The members who only read the project's records; the others are analysts (SEC-1).
+  reader_user_ids?: string[];
+  // The caller is a reader in this project.
+  read_only?: boolean;
   families: TFamily[];
   samples: string[];
 }
@@ -581,6 +593,8 @@ export interface ApiUserRecord {
   role: string;
   is_active: boolean;
   projects: string[];
+  // The projects among `projects` where the user is a reader (SEC-1).
+  reader_projects?: string[];
 }
 
 export interface ApiSpeciesRecord {
@@ -648,10 +662,14 @@ export interface ApiChromosomeTrackAvailability {
   coverage_sources?: string[];
   /**
    * The transforms each caller's coverage track records, by caller; a caller whose
-   * records name none is absent. Decides whether a track is drawn on the log2-ratio axis
-   * (`coverageNotDrawnNote`).
+   * records name none is absent.
    */
   coverage_normalizations?: Record<string, string[]>;
+  /**
+   * What each caller's coverage track holds (TRACE-9): read depth, a log2 ratio, or
+   * unknown. Decides the axis it is drawn on (`coverageScale`).
+   */
+  coverage_contents?: Record<string, CoverageContent>;
   segments_sources?: string[];
   /** Which callers wrote the APCAD track; decides the axis (see MAF_AXIS_MAX). */
   apcad_sources?: string[];
@@ -663,11 +681,15 @@ export interface ApiChromosomeTrackAvailability {
   repeat_expansions: boolean;
 }
 
+/** What a coverage track holds, as the track availability serves it (TRACE-9). */
+export type CoverageContent = 'read_depth' | 'log2_ratio' | 'unknown';
+
 export interface ApiGenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
   coverage_sources?: string[];
   coverage_normalizations?: Record<string, string[]>;
+  coverage_contents?: Record<string, CoverageContent>;
   segments_sources?: string[];
   apcad_sources?: string[];
   apcad: boolean;
@@ -679,8 +701,8 @@ export interface ApiGenomeTrackAvailability {
 
 /**
  * A repeat allele's, call's or locus's status. `not_assessed` is a call at a locus without
- * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26); `unknown` a
- * no-call.
+ * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26) whose count is
+ * outside any benign range the row states (CLIN-36); `unknown` a no-call.
  */
 export type ApiRepeatStatus =
   | 'normal'

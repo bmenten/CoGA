@@ -13,6 +13,7 @@ from backend.app.schemas import ReportSignoutDetail
 from backend.app.services import annotation_manifest_service as ams
 from backend.app.services import report_signout_service as rss
 from backend.app.services.access_control import RecordNotVisible
+from backend.app.services.nipt_quality_checks import PLASMA_PROFILE_VERDICTS
 from backend.app.services.report_code import parse_report_code, report_code
 from backend.app.services.signed_record_sections import RECORD_SECTIONS
 from backend.app.services.sample_integrity_qc import (
@@ -2808,9 +2809,11 @@ def test_the_snapshot_freezes_what_the_analysis_looked_at_and_what_the_record_is
     snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
 
     for section in RECORD_SECTIONS:
-        assert section.key in snapshot, section.key
         # Each is report content: the sign-out check compares it.
         assert section.key in rss.REPORT_CONTENT_SECTIONS
+        # The family here is no PGT family (it has no embryo) and no NIPT family, so it
+        # holds every section but those of one application.
+        assert (section.key in snapshot) is (section.application is None), section.key
     assert snapshot["gene_panels"] == {"applied": [_PANEL]}
     assert snapshot["record_statement"] == (
         "This record is the analytical sign-off in CoGA, which closes and freezes the analysis; "
@@ -2853,6 +2856,342 @@ def test_each_new_section_is_bound_into_the_content_hash_and_compared(monkeypatc
     )
     assert out["matches"] is False
     assert out["changed_sections"] == list(change)
+
+
+# --- A NIPT family's record: its NIPT results (signed_record_nipt) ---------------------
+
+_MALE_DNA = PLASMA_PROFILE_VERDICTS["male_like_not_maternal_plasma"][1]
+_DISCORDANT = (
+    "The father's X alleles read female and the plasma's chrY coverage reads male: the two "
+    "signals disagree; check the samples."
+)
+_NO_FF = "Not estimated, from 3 category-7 sites (an estimate needs at least 5)."
+
+
+def _nipt_section(*, ff: str = "pass", fetal_sex: str = "pass", plasma: str = "pass") -> dict:
+    """A NIPT family's ``nipt`` section, each check with the verdict given."""
+    return {
+        "samples": {"father": "FATHER1", "maternal_plasma": "CFDNA1", "fetus": None},
+        "fetal_fraction": {
+            "ff": 0.12 if ff != "fail" else 0.0,
+            "ff_computed": 0.12 if ff != "fail" else None,
+            "n_sites": 40 if ff != "fail" else 3,
+            "status": ff,
+            "message": _NO_FF if ff == "fail" else "12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites.",
+        },
+        "checks": {
+            "paternity": {"status": "pass", "message": "Paternity supported (61 of 122 (50%) of his het alleles seen (half expected))."},
+            "fetal_sex": {
+                "call": {"pass": "female", "warn": "indeterminate", "fail": "discordant"}[fetal_sex],
+                "status": fetal_sex,
+                "message": _DISCORDANT if fetal_sex == "fail" else "Female, read from the father's X alleles.",
+            },
+            "plasma_sample": {
+                "status": plasma,
+                "message": _MALE_DNA if plasma == "fail" else "Female plasma with a male fetal chrY signal.",
+                "profile": "male_like_not_maternal_plasma" if plasma == "fail" else "female_with_male_fetal_signal",
+            },
+        },
+        "variants": [],
+        "not_classified": [],
+        "recessive_genes": [],
+    }
+
+
+_NIPT_REFUSED = [
+    "NIPT fetal sex: the father's X alleles read female and the plasma's chrY coverage reads male: "
+    "the two signals disagree; check the samples.",
+    "Sample CFDNA1 (maternal plasma): male DNA (chrY at the autosomal level, chrX low): this sample "
+    "cannot be maternal plasma.",
+]
+
+
+def test_a_failed_nipt_quality_check_gates_the_sign_out_like_a_failed_sample_qc(monkeypatch) -> None:
+    # The Sample QC passes, but the NIPT page fails male DNA given as the maternal plasma and
+    # fetal-sex signals that disagree (REQ-NIPT-015, TF-06 H4): a NIPT family is signed out
+    # with its NIPT results, so those gate it too, under the Sample QC's acknowledgement.
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, nipt=_nipt_section(fetal_sex="fail", plasma="fail"))
+    session = _Session()
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+    assert excinfo.value.status_code == 409
+    detail = excinfo.value.detail
+    assert detail["gate"] == "sample_qc"
+    assert detail["nipt_failed_checks"] == _NIPT_REFUSED
+    assert detail["qc_summary"]["messages"] == _NIPT_REFUSED
+    assert detail["unverifiable_checks"] == []
+    assert detail["message"] == (
+        f"A NIPT quality check failed ({'; '.join(_NIPT_REFUSED)}). Resolve it, or acknowledge "
+        "with a reason to sign out anyway."
+    )
+    assert not _inserts(session)
+
+
+def test_a_fetal_fraction_that_could_not_be_estimated_gates_the_sign_out(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, nipt=_nipt_section(ff="fail"))
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert excinfo.value.detail["nipt_failed_checks"] == [
+        "NIPT fetal fraction: not estimated, from 3 category-7 sites (an estimate needs at least 5)."
+    ]
+
+
+def test_a_failed_nipt_check_is_named_beside_a_failed_sample_qc(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0, qc_status="fail")
+    _with_sections(monkeypatch, nipt=_nipt_section(plasma="fail"))
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    message = excinfo.value.detail["message"]
+    assert message.startswith("Sample-integrity QC status is 'fail'")
+    assert f"A NIPT quality check failed ({_NIPT_REFUSED[1]})." in message
+
+
+def test_an_acknowledged_nipt_check_is_frozen_and_audited(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, nipt=_nipt_section(fetal_sex="fail", plasma="fail"))
+    with pytest.raises(HTTPException) as excinfo:
+        asyncio.run(
+            rss.sign_out_report(
+                _Session(), family_id="FAM1", user=_user(), acknowledge_qc=True, qc_acknowledgement_reason=" "
+            )
+        )
+    assert excinfo.value.status_code == 422
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_qc=True,
+            qc_acknowledgement_reason="Plasma tube re-drawn and re-run; the samples are confirmed.",
+        )
+    )
+    snapshot = out["snapshot"]
+    assert snapshot["acknowledged_qc"] is True
+    assert snapshot["qc_acknowledgement_reason"] == "Plasma tube re-drawn and re-run; the samples are confirmed."
+    # The failed checks themselves are in the record's NIPT section, as they were.
+    assert snapshot["nipt"]["checks"]["plasma_sample"]["status"] == "fail"
+    assert captured["after"]["nipt_failed_checks"] == _NIPT_REFUSED
+    assert ", QC override acknowledged" in captured["summary"]
+
+
+@pytest.mark.parametrize(
+    "section",
+    [
+        _nipt_section(),
+        # A low-confidence estimate, no fetal sex, no sex profile: warnings, as on the page.
+        {
+            **_nipt_section(ff="warn", fetal_sex="warn"),
+            "checks": {
+                **_nipt_section(fetal_sex="warn")["checks"],
+                "plasma_sample": {"status": "unknown", "message": "No per-target coverage: no sex profile."},
+            },
+        },
+        # Results that could not be read: not captured (the record names them), not a QC fail.
+        {"unavailable": "The NIPT results could not be read."},
+        # The trio could not be resolved: the Sample QC's own NIPT check gates that.
+        {"unavailable": "The NIPT trio could not be resolved."},
+    ],
+)
+def test_nipt_checks_that_did_not_fail_do_not_gate(monkeypatch, section) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, nipt=section)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert out["snapshot"]["acknowledged_qc"] is False
+    assert out["snapshot"]["nipt"] == section
+    assert captured["after"]["nipt_failed_checks"] == []
+
+
+def test_a_family_that_is_no_nipt_family_is_gated_and_audited_as_before(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    assert "nipt" not in out["snapshot"]
+    assert captured["after"]["nipt_failed_checks"] == []
+
+
+def test_a_nipt_familys_results_are_bound_into_the_content_hash_and_compared(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, nipt=_nipt_section())
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (True, [], [])
+
+    # A re-import moved the fetal fraction.
+    moved = _nipt_section()
+    moved["fetal_fraction"] = {**moved["fetal_fraction"], "ff": 0.13, "ff_computed": 0.13}
+    _with_sections(monkeypatch, nipt=moved)
+    current = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert rss._canonical_hash(current) != rss._canonical_hash(signed)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["nipt"]
+
+
+def test_a_nipt_record_signed_before_the_section_names_it_not_compared(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert "nipt" not in signed
+    # The family is a NIPT family: the current data holds the section the record predates.
+    _with_sections(monkeypatch, nipt=_nipt_section())
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True
+    assert out["not_compared"] == ["nipt"]
+    assert out["not_captured"] == []
+
+
+def test_the_check_of_a_family_that_is_no_nipt_family_names_no_nipt_section(monkeypatch) -> None:
+    # Neither the record nor the family's data holds it: not compared, and not named.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert "nipt" in rss.REPORT_CONTENT_SECTIONS
+    assert (out["matches"], out["not_compared"], out["changed_sections"]) == (True, [], [])
+
+
+def test_nipt_results_not_captured_are_named_by_the_check_and_the_audit(monkeypatch) -> None:
+    unavailable = {"unavailable": "The NIPT results could not be read."}
+    _patch_common(monkeypatch, drifted_count=0)
+    _with_sections(monkeypatch, nipt=unavailable)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+    gap = {"section": "nipt", "item": "NIPT results", "reason": "The NIPT results could not be read."}
+    assert gap in out["not_captured"]
+    assert gap in captured["after"]["not_captured"]
+
+
+# A PGT family's embryo calls as signed_record_sections freezes them (pgt_analysis.py): only a
+# family with an embryo holds the section.
+_PGT_ANALYSIS = {
+    "region_of_interest": {"query": "GENE1", "label": "GENE1", "source": "gene", "chrom": "7", "start": 10, "end": 20},
+    "window": {"chrom": "7", "start": 0, "end": 1_000_020},
+    "inheritance_model": {"recorded": "AD", "applied": "AD", "mode": "dominant"},
+    "members": [],
+    "disease_haplotype_resolved": True,
+    "disease_haplotypes": [{"origin": "paternal", "homolog": "1", "kind": "dominant"}],
+    "phase_corrections": [],
+    "embryos": [
+        {
+            "sample": "E1",
+            "sex": "female",
+            "call": "affected_or_at_risk",
+            "roi_not_covered": False,
+            "sex_dependent": None,
+            "inherited": [{"origin": "paternal", "homolog": "1", "start": 0, "end": 30}],
+            "recombinations": [],
+            "qc": {"informative_sites": 40, "mendel_errors": 0, "mendel_rate": 0.0, "paternal_markers": 3, "maternal_markers": 2},
+        }
+    ],
+    "inputs": {"haplotype_sources": [], "blocks_read": 4, "blocks_digest": "d" * 64, "markers_truncated": False},
+    "rules": {"window_flank": 1_000_000, "recombination_flank": 250_000, "phase_switch_uncertainty": 2_000_000},
+}
+
+
+def _no_sequencing_qc(monkeypatch) -> None:
+    async def _sequencing_qc(session, context):
+        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+
+    monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+
+
+def test_a_pgt_familys_sign_out_freezes_its_embryo_calls_into_the_hashed_record(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _no_sequencing_qc(monkeypatch)
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    captured = _capture_audit(monkeypatch)
+    session = _Session()
+    out = asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+
+    [insert] = [args for args, _ in session.executed if "INSERT INTO report_signouts" in str(args[0])]
+    stored = json.loads(insert[1]["snapshot"])
+    assert stored["pgt_analysis"] == _PGT_ANALYSIS
+    assert rss._canonical_hash(stored) == out["content_hash"]
+    assert captured["after"]["not_captured"] == []
+
+
+def test_a_pgt_analysis_not_captured_at_sign_out_is_named_on_the_trail(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _no_sequencing_qc(monkeypatch)
+    unavailable = {"unavailable": "The PGT analysis's embryo results could not be read."}
+    _with_sections(monkeypatch, pgt_analysis=unavailable)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    gap = {"section": "pgt_analysis", "item": "PGT embryo results", "reason": unavailable["unavailable"]}
+    assert captured["after"]["not_captured"] == [gap]
+    assert out["not_captured"] == [gap]
+    assert "1 part(s) not captured" in captured["summary"]
+
+
+def test_signout_check_compares_the_embryo_calls_a_pgt_familys_record_holds(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True and out["not_compared"] == []
+
+    # After sign-out an embryo's call changes (a member's status edited, blocks re-imported).
+    changed = copy.deepcopy(_PGT_ANALYSIS)
+    changed["embryos"][0]["call"] = "unaffected_non_carrier"
+    _with_sections(monkeypatch, pgt_analysis=changed)
+    current = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert rss._canonical_hash(current) != rss._canonical_hash(signed)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["pgt_analysis"]
+
+
+def test_signout_check_names_the_embryo_calls_a_pgt_familys_older_record_predates(monkeypatch) -> None:
+    # Signed before CoGA froze the embryo calls: the record still matches, the section is
+    # not compared, and nothing is "not captured".
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert "pgt_analysis" not in signed
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True
+    assert out["not_compared"] == ["pgt_analysis"]
+    assert out["not_captured"] == []
+
+
+def test_signout_check_does_not_name_the_pgt_section_for_a_family_without_embryos(monkeypatch) -> None:
+    # Neither the record nor the family's data holds it: it is no section of this family.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert "pgt_analysis" not in signed
+    assert out["matches"] is True and out["not_compared"] == [] and out["changed_sections"] == []
+
+
+def test_signout_check_says_when_a_family_lost_the_embryo_calls_its_record_holds(monkeypatch) -> None:
+    # The record holds them; the family's data no longer gives them (its embryos removed).
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _with_sections(monkeypatch)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False and out["changed_sections"] == ["pgt_analysis"]
 
 
 def test_a_sign_out_carries_its_report_code(monkeypatch) -> None:

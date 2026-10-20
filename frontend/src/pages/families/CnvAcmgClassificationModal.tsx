@@ -19,6 +19,8 @@ import type {
   StructuralVariant,
   StructuralVariantReviewSavePayload,
 } from './structuralVariantSearch';
+import ReadOnlyNote from '../../components/ReadOnlyNote';
+import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 type CnvAcmgClassificationModalProps = {
   variant: StructuralVariant;
@@ -45,6 +47,8 @@ export default function CnvAcmgClassificationModal({
   isPending = false,
   errorMessage = null,
 }: CnvAcmgClassificationModalProps) {
+  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  const readOnly = useFamilyReadOnly();
   const savedKind = variant.review?.cnv_acmg?.kind;
   const [kind, setKind] = useState<CnvKind>(savedKind ?? cnvKindForType(variant.type));
 
@@ -260,11 +264,18 @@ export default function CnvAcmgClassificationModal({
           </div>
         </div>
 
+        {readOnly ? <ReadOnlyNote /> : null}
         <div className="variant-search-actions variant-review-modal-actions">
           <button type="button" className="button-secondary" onClick={dialog.requestClose}>
             Cancel
           </button>
-          <button type="button" className="form-button" disabled={isPending} onClick={handleSave}>
+          <button
+            type="button"
+            className="form-button"
+            disabled={readOnly || isPending}
+            title={readOnly ? READ_ONLY_HINT : undefined}
+            onClick={handleSave}
+          >
             {isPending ? 'Saving…' : 'Save classification'}
           </button>
         </div>

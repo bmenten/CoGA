@@ -125,6 +125,12 @@ class _FamilyRow(_FakeSession):
         assert sql.startswith("UPDATE families"), sql
         if "entry" in params:
             self.unfinished = {**(self.unfinished or {}), params["import_key"]: json.loads(params["entry"])}
+        elif set(params) == {"family_uuid", "import_key"}:
+            # An entry removed alone: an import's that was put back, or a write's mark
+            # (SAFE-28).
+            if isinstance(self.unfinished, dict):
+                self.unfinished.pop(params["import_key"], None)
+                self.unfinished = self.unfinished or None
         elif "payload" in params:
             self.flag = json.loads(params["payload"])
             if isinstance(self.unfinished, dict):
@@ -678,7 +684,11 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
             datasets={
                 "snv": dataset(family_vcf="snv/family.vcf", extra={"source_format": "deepvariant"}),
                 "haplotypes": dataset(family_vcf="GLIMPSE2/FAM.vcf.gz"),
-                "coverage": dataset(per_sample={"S2": {"bed": "b"}, "S1": {"bed": "a"}, "bad": "x"}),
+                # S2's BED declares what it holds; S1's declares nothing, so it is stored as
+                # unknown (TRACE-9). The scope says so, sample by sample.
+                "coverage": dataset(
+                    per_sample={"S2": {"bed": "b", "content": "read_depth"}, "S1": {"bed": "a"}, "bad": "x"}
+                ),
                 # A family VCF wins over per-sample files, as the TRGT loader reads it.
                 "repeats_trgt": dataset(family_vcf="repeats/fam.vcf", per_sample={"S1": {"file": "r"}}),
             }
@@ -692,7 +702,11 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
     assert scopes == {
         "snv": {"source": "deepvariant", "samples": None},
         "haplotypes": {"source": None, "samples": None},
-        "coverage": {"source": None, "samples": ["S1", "S2"]},
+        "coverage": {
+            "source": None,
+            "samples": ["S1", "S2"],
+            "content": {"S1": "unknown", "S2": "read_depth"},
+        },
         "repeats_trgt": {"source": None, "samples": None},
         "phenotypes": {"source": None, "samples": None},
     }
@@ -717,7 +731,8 @@ _UPLOADS = {
     "small_variants": ("snv", {"source": "clair3", "samples": None}),
     "structural_variants": ("sv_manual", _one("S1")),
     "repeats": ("repeats_trgt", _one("S1")),
-    "track": ("bed_coverage", _one("S1")),
+    # A coverage BED's scope says what it declared it holds (TRACE-9).
+    "track": ("bed_coverage", {**_one("S1"), "content": "read_depth"}),
 }
 
 
@@ -730,6 +745,8 @@ class _UploadFamily(_FamilyRow):
     def __init__(self, *, repeats: int = 0, **row) -> None:
         super().__init__(**row)
         self.repeats = repeats
+        # The marks the upload wrote on a connection of its own (_MarkConnection).
+        self.marks: dict[str, dict] = {}
 
     async def execute(self, statement, params=None):
         sql = " ".join(str(statement).split())
@@ -745,6 +762,33 @@ class _UploadFamily(_FamilyRow):
 
     def index(self, prefix: str) -> int:
         return next(i for i, (sql, _) in enumerate(self.executed) if sql.lstrip().startswith(prefix))
+
+
+class _MarkConnection:
+    """The connection a single-file upload writes its mark on
+    (``registration.mark_family_upload``, SAFE-28): its write applies to the family row at
+    once, committed whatever becomes of the upload's own transaction, and its statements are
+    kept apart from the upload's (``row.marks``: each mark's entry, by its key)."""
+
+    def __init__(self, row: "_UploadFamily") -> None:
+        self.row = row
+
+    async def __aenter__(self) -> "_MarkConnection":
+        return self
+
+    async def __aexit__(self, *_exc) -> bool:
+        return False
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        assert sql.startswith("UPDATE families"), sql
+        entry = json.loads(params["entry"])
+        self.row.marks[params["import_key"]] = entry
+        self.row.unfinished = {**(self.row.unfinished or {}), params["import_key"]: entry}
+        return SimpleNamespace(rowcount=1)
+
+    async def commit(self) -> None:
+        return None
 
 
 def _upload_file(text: str, name: str):
@@ -774,6 +818,7 @@ def uploads(monkeypatch):
         assembly_id="assembly-1",
         assembly_name="GRCh38",
         sample_rows=_FAMILY_SAMPLES,
+        sample_uuid_to_name={row["sample_uuid"]: row["sample_id"] for row in _FAMILY_SAMPLES},
         relationship_rows=[],
         affected_sample_names=[],
     )
@@ -870,6 +915,9 @@ def uploads(monkeypatch):
 
         for module in (sv_router, trgt_router, bed_router):
             monkeypatch.setattr(module, "build_sample_metadata_context", sample_context)
+        # The upload's mark, written on a connection of its own before its first ClickHouse
+        # write (SAFE-28), applies to the family row at once.
+        monkeypatch.setattr(registration, "get_postgres_sessionmaker", lambda: lambda: _MarkConnection(row))
         if kind == "small_variants":
             glimpse2 = callset == "glimpse2"
             await snv_router.upload_family_small_variants(
@@ -912,6 +960,7 @@ def uploads(monkeypatch):
                 bed_type="coverage",
                 file=_upload_file("1\t0\t1000\tbin1\t31.0\n", "coverage.bed"),
                 overwrite=overwrite,
+                content="read_depth",
                 session=row,
                 user=user,
             )
@@ -1111,13 +1160,23 @@ async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_
         assert [name for name, _ in writes] == ["delete", "insert", "delete"]
         assert writes[-1][1] == {"source": "clair3"}
         # It had deleted the callset it replaces: the one commit is the flag that names
-        # it, so that the family does not read as complete (SAFE-25).
+        # it, so that the family does not read as complete (SAFE-25), and the upload's
+        # mark goes with it (SAFE-28).
         assert [sql for sql, _ in row.executed].count("COMMIT") == 1
         assert row.flag["failed_datasets"] == ["snv"]
         assert row.flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
         assert row.flag["failed_jobs"] == {"snv": None} and row.flag["job_id"] is None
-    else:
+        assert len(row.marks) == 1 and row.unfinished is None
+    elif kind == "repeats":
+        # Postgres alone, in one transaction: no mark.
         assert ("COMMIT", None) not in row.executed
+        assert row.flag is None and row.marks == {}
+        assert writes == []
+    else:
+        # The mark written before the record (SAFE-28) goes again, in a transaction of its
+        # own: nothing was written.
+        assert [sql for sql, _ in row.executed].count("COMMIT") == 1
+        assert len(row.marks) == 1 and row.unfinished is None
         assert row.flag is None
         assert writes == []
     assert ("INSERT INTO repeat_expansions", {"sample": "S1"}) not in row.executed

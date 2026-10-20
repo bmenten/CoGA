@@ -89,7 +89,8 @@ backend/.venv/bin/python -m pytest backend/tests/test_nipt_end_to_end.py
 `manifest.yaml` makes this folder a self-describing package: it declares
 `analysis_type: monogenic_nipt`, tags `CFDNA_NIPT` with `assay: nipt_cfdna`, names
 the PED, and lists the datasets — the combined father+cfDNA VCF (`snv`) and the
-cfDNA `coverage` BED.
+cfDNA `coverage` BED, which declares that it holds read depths (`content: read_depth`):
+the NIPT coverage check reads a coverage BED as depth only when it says so.
 
 Package Import scans the folders in `FAMILY_IMPORT_ROOTS` (default `/data/families`).
 In the Docker stack the repository's `data/` folder is mounted at `/data`, so copy
@@ -134,8 +135,9 @@ family-VCF importer accepts the uncompressed `.vcf`.)
    with `nipt_combined.vcf` (its two columns map to FATHER_NIPT and CFDNA_NIPT;
    the fetus has no column).
 
-3. **Upload coverage:** `POST /api/bed/upload/CFDNA_NIPT/coverage` with
-   `nipt_coverage.bed`, and set the family **ROI to `1:1000-20000`** (Family
+3. **Upload coverage:** `POST /api/bed/upload/CFDNA_NIPT/coverage?content=read_depth`
+   with `nipt_coverage.bed` (on the upload page: track type *Coverage*, *Coverage BED
+   holds* → *Read depth*), and set the family **ROI to `1:1000-20000`** (Family
    dashboard → ROI editor) so the coverage card has a target.
 
 4. **Open the family** → the **Monogenic NIPT** tab shows the fetal fraction,

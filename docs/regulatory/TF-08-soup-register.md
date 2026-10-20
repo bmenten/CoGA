@@ -49,7 +49,7 @@ each release; it is not maintained by hand. **Reconciled with the lockfile on 20
 | Alembic (+ Mako, MarkupSafe) | 1.20.0 (+ 1.4.3, 3.0.4) | Postgres schema migrations: the ledger `alembic_version` and the revisions in `backend/db/migrations/`, run as the table owner by the migration step (`app/core/postgres_migrations.py`) at startup or in `python -m app.db_migrate`. Mako renders a new revision from its template (`alembic revision`, development only) and MarkupSafe is Mako's escaping; both are imported with Alembic. Licences: MIT (Alembic, Mako), BSD-3-Clause (MarkupSafe) | H | Changelog/CVE |
 | clickhouse-connect[async] | 1.9.0 | ClickHouse client (variant store) | H | CVE/changelog |
 | pydantic / pydantic-settings | 2.13.5 / 2.15.0 | Data validation, settings | H | Changelog |
-| **PyJWT[crypto]** (+ cryptography) | **2.15.1** (+ 50.0.0) | JWT signing/verification (HS256 local, RS256 Azure) | **H (security)** | CVE watch (auth) |
+| **PyJWT[crypto]** (+ cryptography) | **2.15.1** (+ 50.0.0) | JWT signing/verification (HS256 local, RS256 Microsoft Entra ID access tokens) | **H (security)** | CVE watch (auth) |
 | bcrypt | 5.0.0 | Password hashing, called directly (no passlib wrapper); the stored `$2b$` hashes verify unchanged | **H (security)** | CVE watch |
 | pysam | 0.24.1 | VCF/BAM/CRAM access | H | Changelog |
 | pyBigWig | 0.3.26 | bigWig signal-track reading (HiFiCNV read depth and minor allele fraction) | M | Changelog |
@@ -79,6 +79,7 @@ Versions as locked in `frontend/package-lock.json`.
 | react-router | 8.4.0 | Routing | Browser bundle | M |
 | @tanstack/react-query | 5.104.1 | Server-state fetching/caching | Browser bundle | H |
 | axios | 1.20.0 | HTTP client (JWT) | Browser bundle | H (security) |
+| @azure/msal-browser (+ @azure/msal-common) | **5.23.0** (+ 16.14.1), pinned exactly | Microsoft sign-in (SEC-4): authorization code flow with PKCE against Microsoft Entra ID, access-token renewal; loaded only when Microsoft sign-in is configured (its own chunk). MIT, Microsoft; no install scripts | Browser bundle | **H (security)** |
 | d3 | 7.9.0 | Visualizations | Browser bundle | M |
 | igv | 3.8.9 | Embedded genome browser | Browser bundle | M |
 | react-markdown / remark-gfm | 10.1.0 / 4.0.1 | In-app docs rendering | Browser bundle | L |
@@ -141,7 +142,7 @@ change a prior classification ([clinical-traceability.md](../clinical-traceabili
 | ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date; the bundled ClinGen recurrent-CNV file: release V2.1, checksum checked (note below) |
 | ACMG SF list (secondary findings) | Whether a gene is on the ACMG secondary-findings list, shown on the gene page only | vendored `data/ref-data/acmg-sf/`; gene reference sync (`acmg_sf` release and SHA-256 per gene) | Version pinned: ACMG SF v3.3 (*Genet Med* 2025), its SHA-256 in the [README](../../data/ref-data/acmg-sf/README.md) |
 | AlphaMissense | Missense pathogenicity prediction | VEP plugin, per-family manifest | Model version |
-| STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Catalogue build |
+| STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Release pinned: the shipped `data/ref-data/STRchive-loci.json` (75 loci), SHA-256 `a0295e1fe3e2…` (`STRCHIVE_PINNED_LOCI_SHA256` in `core/config.py`); a start on any other file, or none, is refused, and `repeat_loci` holds that release's loci only ([data-import.md](../data-import.md#the-strchive-release)). The file names no upstream release; it is byte-identical to the `STRchive-loci-v2.18.0.json` STRchive published with release **v2.18.0** (2026-04-28) (`STRCHIVE_PINNED_RELEASE`), checked on 2026-10-20 against the loci file of every published STRchive release, with the owner's permission |
 | MITOMAP / Phylotree 17 (via mutserve) | mtDNA haplogroup + variant context | pipeline manifest; mutserve annotation TSV | Tool release |
 | Helix mtDB | mtDNA population frequency | mutserve annotation TSV | Bundled with the annotator |
 

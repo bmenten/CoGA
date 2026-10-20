@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from itertools import zip_longest
 from typing import Any, Collection, Literal, Mapping, Sequence
@@ -34,6 +34,7 @@ from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
 )
+from .gene_constraint_metrics import fetch_gene_constraint_metrics
 from .small_variant_review_pg import (
     get_small_variant_review_map,
     list_matching_small_variant_review_ids,
@@ -96,7 +97,6 @@ from .clickhouse_variant_queries import (
     _decode_json_payload,
     _dedupe_regions,
     _display_sample_name,
-    _extract_gene_constraint_metrics,
     _family_affected_unaffected_sample_names,
     _family_pedigree,
     _filter_expanded_carrier_screening,
@@ -532,52 +532,11 @@ async def _fetch_gene_constraint_metric_map(
     session: AsyncSession,
     variants: Sequence[VariantOut],
 ) -> dict[str, dict[str, float | None]]:
-    if not variants:
-        return {}
-    gene_symbols = sorted({variant.gene for variant in variants if variant.gene})
-    gene_ids = sorted({variant.gene_id for variant in variants if variant.gene_id})
-    # Each list goes as one text[] parameter, not one parameter per gene (an expanding IN):
-    # a CSV export's 50,001 rows can hit more genes than the 32,767 parameters asyncpg
-    # takes in one statement (DATA-3).
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if gene_symbols:
-        clauses.append("upper(hgnc_symbol) = ANY(CAST(:gene_symbols AS text[]))")
-        params["gene_symbols"] = [symbol.upper() for symbol in gene_symbols]
-    if gene_ids:
-        clauses.append("gene_id = ANY(CAST(:gene_ids AS text[]))")
-        params["gene_ids"] = gene_ids
-    if not clauses:
-        return {}
-    result = await session.execute(
-        text(
-            f"""
-            SELECT hgnc_symbol, gene_id, extra, source_status, updated_at
-            FROM gene_info
-            WHERE {' OR '.join(clauses)}
-            ORDER BY updated_at DESC
-            """
-        ),
-        params,
+    """Each variant's gene pLI and missense Z, by variant id, from the gene profiles: the
+    lookup an ACMG classification freezes the missense Z with (gene_constraint_metrics)."""
+    return await fetch_gene_constraint_metrics(
+        session, [(str(variant.id), variant.gene, variant.gene_id) for variant in variants]
     )
-    by_symbol: dict[str, dict[str, float | None]] = {}
-    by_gene_id: dict[str, dict[str, float | None]] = {}
-    for row in result.mappings().all():
-        doc = dict(row)
-        metrics = _extract_gene_constraint_metrics(doc)
-        symbol = str(doc.get("hgnc_symbol") or "").strip()
-        gene_id = str(doc.get("gene_id") or "").strip()
-        if symbol and symbol not in by_symbol:
-            by_symbol[symbol] = metrics
-        if gene_id and gene_id not in by_gene_id:
-            by_gene_id[gene_id] = metrics
-    result_map: dict[str, dict[str, float | None]] = {}
-    for variant in variants:
-        if variant.gene_id and variant.gene_id in by_gene_id:
-            result_map[str(variant.id)] = by_gene_id[variant.gene_id]
-        elif variant.gene and variant.gene in by_symbol:
-            result_map[str(variant.id)] = by_symbol[variant.gene]
-    return result_map
 
 
 
@@ -2193,12 +2152,17 @@ async def _serve_subpanel_from_superset(
     - it is complete (not truncated), and has no panel or a panel that still holds exactly
       the genes and regions it was computed on, and whose genes cover the request (CLIN-27);
     - it holds every one of the variants, and recorded the same segregation modes for each
-      (``_priorities_from_ranking``). A panel of more than ``_PANEL_REGION_INLINE_LIMIT``
-      regions (the Mendeliome) is matched on gene symbols alone, so its ranking can lack a
-      variant a smaller panel reaches by position only (CLIN-34); a compound-het pair whose
-      partner the panel leaves out is no pair within the panel, so the variant loses that
-      mode, and with it, unless another mode is as strong, segregation weight and score
-      (CLIN-35).
+      (``_priorities_from_ranking``). Every panel, the Mendeliome included, is matched by
+      its genes and its regions, and the broader panel holds the requested genes, whose
+      loci it applied as they are now (the CLIN-27 check), so its ranking holds every
+      variant the requested panel reaches by a gene or a gene's locus. It can still lack
+      one the requested panel reaches by a region of its own only: coordinates PanelApp
+      gave for a gene, or a locus stored when the panel was made, that the broader panel
+      does not hold. (Until the owner's decision of 2026-10-14 a panel of more than 1,000
+      regions was matched on gene symbols alone, and its ranking lacked every variant a
+      smaller panel reaches by position only: CLIN-34.) A compound-het pair whose partner
+      the panel leaves out is no pair within the panel, so the variant loses that mode, and
+      with it, unless another mode is as strong, segregation weight and score (CLIN-35).
     """
     request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
     if not request_genes:
@@ -3493,9 +3457,9 @@ async def export_family_structural_variants(
     session: AsyncSession,
     *,
     context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters | None = None,
     limit: int = _MAX_STRUCTURAL_VARIANT_EXPORT_ROWS,
     prioritize: bool = False,
-    **filters: Any,
 ) -> VariantExport:
     """Fetch up to ``limit`` filtered structural variants for CSV export.
 
@@ -3511,10 +3475,10 @@ async def export_family_structural_variants(
         context=context,
         page=1,
         page_size=limit + 1,
+        filters=filters,
         prioritize=prioritize,
         track_mode=False,
         max_page_size=limit + 1,
-        **filters,
     )
     rows = list(page.variants)
     return VariantExport(rows=rows[:limit], truncated_reason=_export_truncation(page, rows, limit), limit=limit)
@@ -3764,70 +3728,23 @@ async def get_family_structural_variants_page(
     context: FamilyMetadataContext,
     page: int,
     page_size: int,
-    chr: str | None = None,
-    start: int | None = None,
-    end: int | None = None,
-    length: int | None = None,
-    min_length: int | None = None,
-    type: str | None = None,
-    source: str | None = None,
-    sample_filters: list[str] | None = None,
-    samples: list[str] | None = None,
-    remote_chr: str | None = None,
-    remote_start: int | None = None,
-    gene: str | None = None,
-    panel_id: str | None = None,
-    inheritance: str | None = None,
-    phenotype: str | None = None,
-    hpo: str | None = None,
-    moi: str | None = None,
-    gencc_support: str | None = None,
-    region_flags: list[str] | None = None,
-    max_control_af: float | None = None,
-    max_population_af: float | None = None,
-    min_pli: float | None = None,
-    review_classifications: list[str] | None = None,
-    review_tags: list[str] | None = None,
-    exclude_review_tags: list[str] | None = None,
-    has_notes: bool = False,
-    overlap: bool = False,
+    filters: StructuralVariantQueryFilters | None = None,
     prioritize: bool = False,
     track_mode: bool = False,
     count_only: bool = False,
     max_page_size: int = MAX_VARIANT_PAGE_SIZE,
 ) -> VariantPage:
+    """Page ``page``, of ``page_size`` rows, of the family's SVs that ``filters`` keeps:
+    every SV without filters. The page is the caller's ``page`` and ``page_size``: it
+    replaces the one ``filters`` holds (the SV list and its export read their filters from
+    one query dependency, which gives them none of their own)."""
+
     # Defensive clamp for non-HTTP/internal callers; the routers also bound page_size.
     page_size = max(0, min(page_size, max_page_size))
-    filters = StructuralVariantQueryFilters(
-        page=page,
-        page_size=page_size,
-        chromosome=chr,
-        start=start,
-        end=end,
-        length=length,
-        min_length=min_length,
-        variant_type=type,
-        source=source,
-        sample_filters=sample_filters or [],
-        selected_samples=samples or [],
-        remote_chr=remote_chr,
-        remote_start=remote_start,
-        gene=gene,
-        panel_id=panel_id,
-        inheritance=inheritance,
-        phenotype=phenotype,
-        hpo=hpo,
-        moi=moi,
-        gencc_support=gencc_support,
-        region_flags=region_flags or [],
-        max_control_af=max_control_af,
-        max_population_af=max_population_af,
-        min_pli=min_pli,
-        review_classifications=review_classifications or [],
-        review_tags=review_tags or [],
-        exclude_review_tags=exclude_review_tags or [],
-        has_notes=has_notes,
-        overlap=overlap,
+    filters = (
+        StructuralVariantQueryFilters(page=page, page_size=page_size)
+        if filters is None
+        else replace(filters, page=page, page_size=page_size)
     )
     selected_samples = _selected_structural_samples(context, filters.selected_samples)
     if selected_samples is None:

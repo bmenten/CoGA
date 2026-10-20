@@ -16,7 +16,7 @@
 | Version (`VERSION`) | `<e.g. 0.1.0-beta.1>` |
 | Git tag | `<v0.1.0-beta.1>` |
 | Commit SHA (full) | `<40-char sha>` |
-| Tag is an ancestor of `main` | ☐ verified (`git merge-base --is-ancestor <sha> origin/main`) |
+| Tag is an ancestor of `main` | ☐ verified (`build.yml`'s `prepare` job passed, or `./scripts/check-release-on-main.sh <tag>`) |
 | Release type | ☐ pre-release (synthetic data) ☐ clinical release |
 | TF-18 change level | ☐ patch ☐ minor ☐ major — *rationale:* `<…>` |
 | CMGGMC software number | `S<xxxx>` |
@@ -34,9 +34,9 @@
 | `build.yml` run | `<url>` |
 | Deploy job outcome | ☐ applied ☐ **skipped (no GCP credentials)** ☐ failed |
 
-*The digests are not captured automatically — resolve them with
-`gcloud artifacts docker images describe` (RELEASING.md §4). A record without digests cannot
-identify the deployed artefact, because the tag is mutable.*
+*Copy the digests from the summary of the `build.yml` run, where each build job wrote the
+digest of the image it pushed; deploy runs each image by that digest (RELEASING.md §4). A
+record without digests cannot identify the deployed artefact, because the tag is mutable.*
 
 ## 3. Verification evidence
 
@@ -46,9 +46,9 @@ identify the deployed artefact, because the tag is mutable.*
 | QA's four-eyes review of the pull requests since the last reviewed tag, signed before the tag ([TF-18 §6](regulatory/TF-18-change-configuration-management.md)) | ☐ — record: `<reference, date>` |
 | Backend tests | `<n passed / n skipped>` |
 | Frontend tests | `<n passed>` |
-| `sbom/backend.cdx.json` SHA-256 | `<…>` |
-| `sbom/frontend.cdx.json` SHA-256 | `<…>` |
-| SBOM archived to the technical file | ☐ — *artifact expires 90 days after the build* |
+| `backend.cdx.json` SHA-256 | `<…>` — *from the release's `sbom-sha256sums.txt`* |
+| `frontend.cdx.json` SHA-256 | `<…>` |
+| SBOMs attached to the release | ☐ — *by `build.yml`'s `release-sbom` job; release URL:* `<…>` |
 | Deployed `/api/version` matches | ☐ — `version=<…>` `git_sha=<…>` |
 
 ## 4. Clinical release gate

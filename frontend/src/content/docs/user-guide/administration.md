@@ -14,11 +14,18 @@ the [admin dashboard](/admin), grouped in six areas.
 
 ### User & Access Management
 
-- **Users** — accounts, roles and activation. Activate a new account here; deactivate one to revoke
-  access without deleting its history.
+- **Users** — accounts, how each signs in (Microsoft or a password), roles and activation, and each user's projects with their level there
+  (*analyst* or *reader*). A colleague's
+  first Microsoft sign-in makes their account, a viewer in no project. Set an account's role in its
+  **Role** list (CoGA asks you to confirm; you cannot change your own). Activate a new account
+  here; deactivate one to revoke access without
+  deleting its history.
 - **Projects & Access** — the projects (each tied to an assembly) and which families, samples and users
   belong to them. A user sees only the data of their projects, and the cohort counts in the explorers
-  follow the same scope.
+  follow the same scope. Tick a user to make them a member and choose their level next to their name:
+  an **analyst** reads and changes the project's records; a **reader** (a student, say) reads, searches,
+  exports and prints them and saves their own filter presets, but changes nothing and does not see the
+  audit trail. A member added starts as an analyst. Administrators have every right in every project.
 
 ### Data Management
 
@@ -56,6 +63,8 @@ the [admin dashboard](/admin), grouped in six areas.
 - **Audit Logs** — every request to the server (who, what, when, the outcome) and every button and link a
   user clicked. Identifiers are masked, so the log shows how CoGA is used without exposing patient data.
   The **Flags** column marks a request for a family, sample or project outside the user's projects, which
-  CoGA answered as for an unknown one, and a row in which a value the database cannot store was saved as
-  an escape, naming the columns. It is separate from each family's *Classification audit trail* on the
+  CoGA answered as for an unknown one, a row in which a value the database cannot store was saved as an
+  escape, naming the columns, an account made at its first Microsoft sign-in or whose role or activation
+  changed (from and to), and every request of the emergency administrator's password sign-in
+  (**Emergency sign-in**). It is separate from each family's *Classification audit trail* on the
   report.

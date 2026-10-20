@@ -1,6 +1,6 @@
 from typing import Literal
 
-from fastapi import APIRouter, Depends, File, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import PlainTextResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -12,7 +12,9 @@ from ..services.bed_service import (
     fetch_bed_json,
     fetch_bed_text,
     upload_bed_data,
+    validate_bed_type,
 )
+from ..services.coverage_content import DECLARED_COVERAGE_CONTENTS, DeclaredCoverageContent
 from ..services.family_metadata_context import build_sample_metadata_context
 from ..services.family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from ..services.access_control import CurrentUser
@@ -27,9 +29,32 @@ async def upload_bed(
     bed_type: str,
     file: UploadFile = File(...),
     overwrite: bool = False,
+    # What a coverage BED holds (TRACE-9): required for `coverage`, refused for the other
+    # types. A query parameter, so the request's audit row records it.
+    content: DeclaredCoverageContent | None = Query(
+        None,
+        description=(
+            "What a coverage BED holds: read_depth or log2_ratio. Required for coverage, "
+            "not accepted for the other track types."
+        ),
+    ),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> dict[str, int]:
+    # Before anything is read: the request names what it loads, or it is refused (422). A
+    # coverage BED that declared nothing was read as depth and drawn as a log2 ratio.
+    validate_bed_type(bed_type)
+    if bed_type == "coverage" and content not in DECLARED_COVERAGE_CONTENTS:
+        raise HTTPException(
+            status_code=422,
+            detail="Declare what the coverage BED holds: content=read_depth or content=log2_ratio",
+        )
+    if bed_type != "coverage" and content in DECLARED_COVERAGE_CONTENTS:
+        raise HTTPException(
+            status_code=422,
+            detail="content declares what a coverage BED holds; it does not apply to a "
+            f"{bed_type} BED",
+        )
     sample_context = await build_sample_metadata_context(
         session,
         sample_identifier=sample_id,
@@ -52,6 +77,7 @@ async def upload_bed(
         file=file,
         overwrite=overwrite,
         record_upload=True,
+        content=content if bed_type == "coverage" else None,
     )
     await record_upload_file_obj(
         session,
@@ -61,6 +87,8 @@ async def upload_bed(
         sample_uuid=sample_context.sample_uuid,
         scope="individual",
         dataset=bed_type,
+        # The raw file's record says what it was declared to hold, beside its checksum.
+        metadata={"content": content} if bed_type == "coverage" else None,
     )
     return result
 

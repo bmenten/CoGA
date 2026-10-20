@@ -311,7 +311,8 @@ Notes:
 - Terraform reads `coga-postgres-password` during each plan and apply to set the database
   owner's password, and keeps only the number of the version it read, not the value.
 - The `coga-admin-password` is the first login password of the admin user **`coga-admin`**,
-  who signs in with the email `admin@<app_domain>` (Section 9).
+  who signs in with the email `admin@<app_domain>` (Section 9). Once Microsoft sign-in is on,
+  `coga-admin` is the emergency administrator, and this secret stays its password (12.12).
 
 ### 5.6 (CI only) Workload Identity Federation
 
@@ -349,7 +350,7 @@ The variables you'll most likely set:
 | `region` / `zone` | Where to deploy | `europe-west1` / `europe-west1-b` |
 | `app_domain` | Public domain for the app | `coga.cmgg.be` |
 | `cmek_key_self_link` | Your KMS key (from 5.2) | *(required — CMEK is always on)* |
-| `backend_image` / `frontend_image` | Container images to run | *(required)* — CI sets these |
+| `backend_image` / `frontend_image` | Container images to run, by digest (`…@sha256:…`) | *(required)* — CI sets these |
 | `allowed_ingress_cidrs` | Source ranges allowed at the edge (UGent/UZ + VPN); empty = open | `[]` |
 | `*_service_account_email` | Override runtime SA emails (created in the central repo) | *(derived by default)* |
 | `db_tier` | Cloud SQL machine size | `db-custom-1-3840` (1 vCPU / 3.75 GB) |
@@ -359,13 +360,15 @@ The variables you'll most likely set:
 | `storage_backend` | `local` or `gcs` | `local` (flip to `gcs` later — Section 11) |
 | `enable_cloud_armor` | Edge WAF/DDoS | `true` |
 | `cloud_armor_waf_enforce` | Block (vs log-only) WAF matches | `false` (log-only first) |
-| `azure_ad_tenant_id` / `azure_ad_client_id` | Institutional login | empty |
+| `azure_ad_tenant_id` / `azure_ad_client_id` | Microsoft sign-in (12.12): the directory (tenant) ID and the application (client) ID IT gives you; both or neither | empty (password sign-in) |
+| `azure_ad_api_scope` / `azure_admin_override` | CoGA's API scope, and the emergency administrator's password sign-in beside Microsoft sign-in (12.12) | empty (`api://<client id>/access_as_user`) / `false` |
 | `alert_notification_emails` | Who the alert policies email (12.6) | `[]` — set it, or nobody is told (Terraform warns) |
 | `metrics_collection_enabled` | Run the metrics collector beside the backend, and the metric alerts | `true` |
 | `uptime_check_enabled` | Check `https://<app_domain>/api/health` every minute and alert when it fails | `true` (see 12.6 with `allowed_ingress_cidrs`) |
 
 The go-live switches (`cloud_armor_waf_enforce`, `db_runtime_role`,
-`allowed_ingress_cidrs`, `clickhouse_restrict_egress`) are described in 12.7–12.10.
+`allowed_ingress_cidrs`, `clickhouse_restrict_egress`) are described in 12.7–12.10, and
+Microsoft sign-in (`azure_ad_*`) in 12.12.
 Every variable, with its default, is in `terraform/variables.tf`.
 
 For **production**, consider `db_availability_type = "REGIONAL"` and a larger
@@ -379,20 +382,34 @@ You need container images first. Either let CI build them (Section 10), or build
 manually from the repo root:
 
 ```bash
-# From the repo root. Stamp the real version/SHA (frozen into signed reports).
+# From the repo root. Stamp the version and commit (frozen into signed reports). A manual
+# build is not a release, so it reports VERSION as a development build (e.g. 0.1.0-dev).
 export TAG="manual-$(git rev-parse --short=12 HEAD)"
 export IMG_BASE="europe-west1-docker.pkg.dev/${PROJECT}/gen-ghreg-shared-gbl/coga"
 export PROBLEM_REPORT_URL="<the CMGGMC probleemmelding route>"
 
 gcloud builds submit --config=ci/cloudbuild.backend.yaml \
-  --substitutions=_IMAGE=${IMG_BASE}-backend:${TAG},_APP_VERSION=$(cat VERSION),_GIT_SHA=$(git rev-parse --short=12 HEAD) .
+  --substitutions=_IMAGE=${IMG_BASE}-backend:${TAG},_APP_VERSION=$(./scripts/build-version.sh),_GIT_SHA=$(git rev-parse --short=12 HEAD) .
 
 gcloud builds submit --config=ci/cloudbuild.frontend.yaml \
   --substitutions=_IMAGE=${IMG_BASE}-frontend:${TAG},_PROBLEM_REPORT_URL=${PROBLEM_REPORT_URL} .
+
+# Each image as Terraform gets it: by the digest of what you just pushed.
+export BACKEND_IMAGE="${IMG_BASE}-backend@$(gcloud artifacts docker images describe \
+  "${IMG_BASE}-backend:${TAG}" --format='value(image_summary.digest)')"
+export FRONTEND_IMAGE="${IMG_BASE}-frontend@$(gcloud artifacts docker images describe \
+  "${IMG_BASE}-frontend:${TAG}" --format='value(image_summary.digest)')"
+echo "$BACKEND_IMAGE" "$FRONTEND_IMAGE"   # each ends in @sha256: and 64 hex digits
 ```
 
-Give every build a new tag, as above: Terraform deploys only when the image string
-changes, so an image pushed under a tag it already runs would never roll out.
+Give every build a new tag, as above, and deploy it by its digest (`…@sha256:…`), as CI
+does: the digest names exactly the image you built, whatever the tag is later pushed over,
+and a new build always changes the image string, which is what Terraform deploys on.
+
+`./scripts/build-version.sh` prints `VERSION` with the pre-release identifier `dev` added
+(`0.1.0` → `0.1.0-dev`, `0.1.0-rc.1` → `0.1.0-rc.1.dev`): only a release build, which
+`build.yml` makes from a published release, reports a release's version
+([RELEASING.md](../RELEASING.md)).
 
 `_PROBLEM_REPORT_URL` is where **Report a problem** in the app goes: the CMGGMC
 probleemmelding route, as an `https://` or `mailto:` address without commas. It is built
@@ -408,8 +425,8 @@ terraform init -backend-config="bucket=${STATE_BUCKET}" -backend-config="prefix=
 terraform plan -out=tfplan \
   -var="project_id=${PROJECT}" \
   -var="cmek_key_self_link=${CMEK_KEY}" \
-  -var="backend_image=${IMG_BASE}-backend:${TAG}" \
-  -var="frontend_image=${IMG_BASE}-frontend:${TAG}"
+  -var="backend_image=${BACKEND_IMAGE}" \
+  -var="frontend_image=${FRONTEND_IMAGE}"
 
 terraform apply tfplan
 ```
@@ -466,8 +483,10 @@ Then open `https://coga.cmgg.be` in a browser and log in with:
   `ADMIN_EMAIL`, and CoGA signs in by email, not by the username `coga-admin`)
 - **Password:** the `coga-admin-password` value you set in 5.5
 
-If the page loads and you can log in, the deployment is live. **Change/rotate the
-admin password** and create real user accounts.
+If the page loads and you can log in, the deployment is live. **Rotate the admin
+password** (12.2) and **set up Microsoft sign-in** (12.12): users then sign in with their
+hospital or university Microsoft account, and `coga-admin` becomes the emergency
+administrator.
 
 The footer of every page names the same version and commit as `/api/version`, and its
 **Report a problem** link opens the CMGGMC route.
@@ -491,12 +510,19 @@ Day-to-day you don't run Terraform by hand — GitHub Actions does it. The workf
   `terraform/versions.tf` requires.
 - **On push to `main` (or a published release):** it builds both images (stamping
   `APP_VERSION`/`GIT_SHA`), pushes them to Artifact Registry, then runs `terraform
-  init/plan/apply` to deploy. A `main` build is tagged `main-<12-character commit>` and a
-  release build with its release tag, so every deploy carries a new image: Cloud Run rolls
-  out new revisions, and with the restricted database role (12.8) the migration job runs
-  again. Only **one** trigger applies: pushes to `main` by default, or published releases
-  when the repository variable `COGA_DEPLOY_TRIGGER` is `release`. There is one environment
-  and one state, so a later `main` push must not overwrite a release deployment.
+  init/plan/apply` to deploy. A release build stamps its release's version; a `main` build
+  stamps `VERSION` marked as a development build (`0.1.0-dev`, or `0.1.0-rc.1.dev` after the
+  release candidate), so `/api/version` and the reports never give it a release's version. A
+  `main` build is tagged `main-<12-character commit>` and a release build with its release
+  tag, and Terraform gets each image by the digest its build pushed (`…@sha256:…`), so the
+  revision Cloud Run runs is exactly the image that run built. Every build is a new digest,
+  so every deploy carries a new image: Cloud Run rolls out new revisions, and with the
+  restricted database role (12.8) the migration job runs again. Only **one** trigger
+  applies: pushes to `main` by default, or published releases when the repository variable
+  `COGA_DEPLOY_TRIGGER` is `release`. There is one environment and one state, so a later
+  `main` push must not overwrite a release deployment.
+- **On a published release** it also refuses a tag that is not on `main` before it builds
+  anything, and attaches the release's SBOMs to the release ([RELEASING.md](../RELEASING.md)).
 
 Set these **GitHub repository secrets** (Settings → Secrets and variables → Actions):
 
@@ -585,6 +611,21 @@ If the HPO ontology is missing there, the startup bootstrap downloads the same p
 release to a temporary directory, and imports it only if its SHA-256 is the vendored
 file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
 
+The repeat catalogue's `STRchive-loci.json` must be the repository's file of the version
+being deployed, byte for byte. If the bucket holds another file, or none, the backend does
+not start, and its log names the file, both SHA-256 digests and the fix
+([data-import.md](data-import.md#the-strchive-release)); a new revision that cannot start never
+receives traffic. Copying the file again is always safe:
+
+```bash
+gcloud storage cp data/ref-data/STRchive-loci.json "gs://${REFDATA}/"
+```
+
+A version that moves to another STRchive release ships its file and says so in its change
+record. Copy that file to the bucket just before you deploy the version: from then on an
+instance of the running version that starts (a scale-out or a restart) is refused, until the
+new revision serves.
+
 ---
 
 ## 12. Day-2 operations
@@ -592,8 +633,8 @@ file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-downloa
 ### 12.1 Deploy a new version of the app
 
 - **Normal:** merge to `main` → CI builds new images, and after approval applies them.
-- **Manual:** build new images under a new tag (Section 7), then
-  `terraform apply -var="backend_image=...:newtag" -var="frontend_image=...:newtag"`.
+- **Manual:** build new images under a new tag (Section 7), then apply them by digest:
+  `terraform apply -var="backend_image=...@sha256:<digest>" -var="frontend_image=...@sha256:<digest>"`.
 
 Cloud Run rolls out a new revision with zero-downtime; if it fails its health check,
 traffic stays on the old revision.
@@ -626,6 +667,13 @@ the backend: it sees the new version by its number, the only part of the secret 
 keeps), then roll the backend as above. Between the two, running instances cannot
 open new database connections, so do it at a quiet time. For `coga_app`'s password, see
 [db-runtime-role-runbook.md](db-runtime-role-runbook.md), "Google Cloud".
+
+For **`coga-admin-password`**, the password of `coga-admin` (the emergency administrator,
+12.12): add the new version, then let the admin seed run. In owner mode it runs when the
+backend starts, so roll the backend as above; with the restricted role (12.8) re-run the
+migration job (`gcloud run jobs execute coga-db-migrate --region "$REGION" --wait`). The seed
+replaces the stored password hash when it no longer matches the secret, so the secret is the
+password; nothing else changes a local password.
 
 ### 12.3 Backups & restore
 
@@ -851,6 +899,83 @@ change** (none had been when it was made). Otherwise, once per environment:
    change, for example from a manual run (Section 7); they hold the same values. CI keeps
    none: its plan file lives only on the runner.
 
+### 12.12 Microsoft sign-in (Azure AD / Microsoft Entra ID)
+
+At go-live users sign in with their hospital or university Microsoft account (SEC-4):
+Microsoft Entra ID (formerly Azure AD) checks the password and MFA, and IT handles password
+resets and leavers. The browser signs the user in with the authorization code flow with PKCE
+(MSAL) and sends the access token Microsoft issues for CoGA's API scope with every request;
+the backend checks it (signature, issuer, tenant, audience, scope, lifetime). A user's first
+sign-in makes their CoGA account, a viewer in no project, so they see no patient data until an
+administrator adds them to a project; administrators set the role on the *Users* page. Without
+these settings every account signs in with its password, as in development.
+
+**What IT creates** (in the organisation's Entra ID, once per environment):
+
+1. An **app registration**, for example `CoGA (production)`:
+   - *Supported account types*: accounts in this organisational directory only (single
+     tenant).
+   - *Authentication*: platform **Single-page application**, redirect URI
+     `https://<app_domain>/login` (for example `https://coga.cmgg.be/login`). CoGA also
+     returns there after a Microsoft sign-out. No web platform, no implicit grant (leave
+     *Access tokens* and *ID tokens* unticked), and **no client secret or certificate**: a
+     single-page application has none.
+   - *Expose an API*: application ID URI `api://<application (client) ID>` (the default), and
+     one scope **`access_as_user`** (*Access CoGA as the signed-in user*), enabled. The app is
+     its own client: the browser asks for this scope.
+   - *Manifest*: **`"requestedAccessTokenVersion": 2`** (`accessTokenAcceptedVersion: 2` in
+     the older manifest). CoGA accepts only version 2.0 tokens, issued by
+     `https://login.microsoftonline.com/<tenant ID>/v2.0` for the application ID; a version 1
+     token is refused, and the backend log then says so.
+   - *API permissions*: Microsoft Graph `openid`, `profile` and `offline_access` (delegated)
+     and the app's own `access_as_user`, with **admin consent** granted for the organisation,
+     so no user is asked to consent.
+   - *Token configuration*: the optional claims **`email`**, **`given_name`** and
+     **`family_name`** in the **access** token. Without `email`, CoGA takes
+     `preferred_username` (the user principal name) as the e-mail address; without a name it
+     shows the e-mail address.
+2. On its **enterprise application**: *Assignment required* = **Yes**, with the group of lab
+   members who use CoGA assigned. Nobody else can get a token, so nobody else gets an account
+   or sees the list of CoGA users.
+3. The organisation's **Conditional Access** policy (MFA) applied to the app.
+
+**What IT gives you** (none of it is secret): the **directory (tenant) ID** and the
+**application (client) ID**, both GUIDs, and the scope if it is not
+`api://<client ID>/access_as_user`.
+
+**What you set**: `azure_ad_tenant_id`, `azure_ad_client_id` and, for another scope,
+`azure_ad_api_scope` (6). A plan with one of the two IDs and not the other is refused, and so
+is the backend's start; so are a tenant that is no GUID (`common`, `organizations`, a domain
+name) and an override without Microsoft sign-in. The browser fetches its tokens from
+`https://login.microsoftonline.com`: the default CSP allows it, and a narrowed
+`CSP_CONNECT_SRC` (Docker Compose) must keep it.
+
+**Go-live** (each step a change-controlled deployment, TF-18):
+
+1. Deploy with the two IDs and `azure_admin_override = true`.
+2. The lab's administrators each sign in with Microsoft once; CoGA makes their accounts.
+3. Sign in at `https://<app_domain>/login/emergency` as `coga-admin` (`admin@<app_domain>`,
+   the `coga-admin-password` secret), give those accounts the admin role on the *Users* page,
+   and add the users to their projects.
+4. Deploy with `azure_admin_override = false`. From then on everyone signs in with Microsoft;
+   the password sign-in and the sign-up are refused.
+
+**The emergency (break-glass) administrator** is `coga-admin`, the one local account. While
+`azure_admin_override` is `false` (the default) it cannot sign in. When Microsoft sign-in
+cannot be used and an administrator must act: deploy with `azure_admin_override = true`, sign
+in at `/login/emergency`, do what is needed, and deploy with `false` again. Every emergency
+sign-in and every request made with it writes an `azure_admin_override` warning to the
+backend log and is flagged *Emergency sign-in* on the *Audit logs* page
+(`request_meta.emergency_sign_in`); review them after each use. CoGA does not change its
+role or deactivate it, and its password is the `coga-admin-password` secret (12.2).
+
+**Leavers and changes**: disabling the account in Entra ID stops new sign-ins; an access token
+already issued stays valid until it expires (about an hour). For an immediate stop, deactivate
+the account on the *Users* page. A changed name or e-mail address follows at the next sign-in:
+the account is bound to the user's object ID in Entra ID, never to an e-mail address. A first
+sign-in whose e-mail address belongs to another CoGA account is refused rather than linked;
+an administrator resolves it in the database.
+
 ---
 
 ## 13. Security & compliance
@@ -867,11 +992,12 @@ This deployment closes the deployment-level security items tracked in
 | **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) |
 | **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
 | DB privilege separation (#262) | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
+| Sign-in (SEC-4) | Microsoft Entra ID (12.12): MFA, password policy and leavers by IT, the app assigned to the lab's group; one local emergency administrator, whose password sign-in is off unless `azure_admin_override` is switched on |
 | Backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
 | edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile; the app page and the API send HSTS (`max-age=63072000; includeSubDomains`) |
 
 **Still your responsibility (process, not code):** IVDR **change control** (TF-18) for
-each switch in 12.7–12.10 and for the first production deployment, and the IFU (TF-15)
+each switch in 12.7–12.10 and 12.12 and for the first production deployment, and the IFU (TF-15)
 minimum IT requirements. Google Cloud is the chosen host. The DPIA and the data
 processing agreement with Google are tracked in TF-14 and TF-02 §10.
 

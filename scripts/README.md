@@ -12,7 +12,9 @@ scripts that import backend code need the backend's environment, installed from
 | [check-test-catalogue.sh](check-test-catalogue.sh) | Fails unless `docs/testing.md` lists exactly the test files in the tree. |
 | [check-handleiding-sync.sh](check-handleiding-sync.sh) | Rebuilds the handleiding HTML and fails if that changed it; needs the `markdown` package. |
 | [check-coverage-floor.py](check-coverage-floor.py) | Fails when a clinical-critical backend module, or the backend as a whole, drops below its coverage floor. |
-| [check-release-version.sh](check-release-version.sh) | Checks that `VERSION` is valid SemVer, that `frontend/package.json` carries the same version and, given a tag, that the tag is `v<VERSION>` ([RELEASING.md](../RELEASING.md)). |
+| [check-release-version.sh](check-release-version.sh) | Checks that `VERSION` is valid SemVer without the identifier `dev` or build metadata, that `frontend/package.json` carries the same version and, given a tag, that the tag is `v<VERSION>` ([RELEASING.md](../RELEASING.md)). |
+| [check-release-on-main.sh](check-release-on-main.sh) | Checks that a release tag names a commit on `main`, with `main`'s whole history; `build.yml` runs it before it builds a release ([RELEASING.md](../RELEASING.md)). |
+| [build-version.sh](build-version.sh) | Prints the version a build stamps into the backend image: `VERSION` for the release build of tag `v<VERSION>` (`--release <tag>`), otherwise `VERSION` with the pre-release identifier `dev` added (`0.1.0-dev`, `0.1.0-rc.1.dev`), so only a release reports a release's version. |
 | [audit-frontend-prod.mjs](audit-frontend-prod.mjs) | Audits the frontend's production dependencies; its exceptions are in [frontend-audit-allowlist.json](frontend-audit-allowlist.json) and justified in [SECURITY-AUDIT-ALLOWLIST.md](../SECURITY-AUDIT-ALLOWLIST.md). |
 | [generate-api-types.py](generate-api-types.py) | Writes the frontend's API types (`frontend/src/lib/apiSchema.generated.ts`) from the backend's OpenAPI schema; run it after changing a Pydantic model. `--check` fails when the file is stale. |
 | **Dependencies and SBOM** | |

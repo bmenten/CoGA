@@ -27,6 +27,9 @@ async def create_project(
     species_id = require_uuid(project_in.species_id, "Invalid species id")
     assembly_id = require_uuid(project_in.assembly_id, "Invalid assembly id")
     user_ids = [require_uuid(user_id, f"Invalid user id: {user_id}") for user_id in project_in.user_ids]
+    reader_user_ids = [
+        require_uuid(user_id, f"Invalid user id: {user_id}") for user_id in project_in.reader_user_ids
+    ]
     return await create_project_record(
         session,
         name=project_in.name,
@@ -34,6 +37,7 @@ async def create_project(
         species_id=species_id,
         assembly_id=assembly_id,
         user_ids=user_ids,
+        reader_user_ids=reader_user_ids,
     )
 
 
@@ -54,6 +58,11 @@ async def update_project(
     user_ids = None
     if project_in.user_ids is not None:
         user_ids = [require_uuid(user_id, f"Invalid user id: {user_id}") for user_id in project_in.user_ids]
+    reader_user_ids = None
+    if project_in.reader_user_ids is not None:
+        reader_user_ids = [
+            require_uuid(user_id, f"Invalid user id: {user_id}") for user_id in project_in.reader_user_ids
+        ]
     return await update_project_record(
         session,
         project_id=project_uuid,
@@ -62,6 +71,7 @@ async def update_project(
         species_id=species_id,
         assembly_id=assembly_id,
         user_ids=user_ids,
+        reader_user_ids=reader_user_ids,
     )
 
 

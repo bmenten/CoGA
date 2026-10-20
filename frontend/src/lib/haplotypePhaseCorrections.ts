@@ -6,9 +6,10 @@
  * over at the same place on that parent's side. Where (nearly) all of them switched
  * together, the blocks swap that parent's two haplotypes back from there, so the
  * children's spurious crossovers disappear. The genotypes stay as called; the views
- * mark where the swap is.
+ * mark where the swap is. Which corrections lie near the region of interest, where every
+ * embryo is warned of them, the backend reads with the embryo calls
+ * (backend/app/services/pgt_embryo_calls.py, `phase_corrections_near`).
  */
-import { normalizeHaplotypeChrom } from './haplotypeRisk';
 
 export interface HaplotypePhaseCorrection {
   /** The parent whose phase was swapped back. */
@@ -22,11 +23,6 @@ export interface HaplotypePhaseCorrection {
   children_switching: number;
   children: number;
 }
-
-/** How far before a correction the parent's phase may already have switched: each child's
- * switch is read where its own run of agreeing sites begins, which noise delays, and the
- * swap starts at the earliest of them (the cluster span, `PHASE_SWITCH_CLUSTER_SPAN`). */
-export const PHASE_SWITCH_UNCERTAINTY = 2_000_000;
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -68,22 +64,5 @@ export const describePhaseCorrection = (correction: HaplotypePhaseCorrection): s
     `Phase corrected: ${correction.children_switching} of ${correction.children} children switched ` +
     `together on the ${parent} side ${where}, a switch in the ${parent} phasing rather than ` +
     `crossovers. The ${parent} two haplotypes are swapped from ${formatMb(correction.position)}.`
-  );
-};
-
-/** The corrections on the region's chromosome whose switch may lie within `flank` of it:
- * anywhere from `PHASE_SWITCH_UNCERTAINTY` before the correction to its children's last switch. */
-export const phaseCorrectionsNearRegion = (
-  corrections: HaplotypePhaseCorrection[],
-  region: { chr?: string | null; start: number; end: number },
-  flank: number,
-): HaplotypePhaseCorrection[] => {
-  if (!region.chr) return [];
-  const chrom = normalizeHaplotypeChrom(region.chr);
-  return corrections.filter(
-    (correction) =>
-      normalizeHaplotypeChrom(correction.chr) === chrom &&
-      correction.end >= region.start - flank &&
-      correction.position - PHASE_SWITCH_UNCERTAINTY <= region.end + flank,
   );
 };

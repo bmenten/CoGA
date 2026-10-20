@@ -149,7 +149,7 @@ async def test_family_mitochondrial_analysis_summarizes_maternal_mt_calls(
                 source="coverage",
                 regions=4,
             )
-        }
+        }, []
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
     monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
@@ -232,7 +232,7 @@ async def test_family_mitochondrial_analysis_surfaces_frequency_consequence_and_
         return [common_synonymous]
 
     async def fake_coverage_by_sample(_session, _context):
-        return {}
+        return {}, []
 
     monkeypatch.setattr(mitochondrial_analysis, "_fetch_mt_records", fake_fetch_mt_records)
     monkeypatch.setattr(mitochondrial_analysis, "_coverage_by_sample", fake_coverage_by_sample)
@@ -408,7 +408,7 @@ async def test_maternal_transmission_follows_the_mother_the_pedigree_links_to_th
         return [record]
 
     async def fake_coverage_by_sample(_session, _context):
-        return {}
+        return {}, []
 
     async def fake_thresholds(_session, *, family_uuid):
         return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
@@ -469,7 +469,7 @@ async def test_mtdna_response_lists_chrm_structural_variants_with_each_samples_h
         return []
 
     async def fake_coverage_by_sample(_session, _context):
-        return {}
+        return {}, []
 
     async def fake_thresholds(_session, *, family_uuid):
         return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}
@@ -495,7 +495,7 @@ async def _transmissions(monkeypatch: pytest.MonkeyPatch, context, records) -> l
         return records
 
     async def fake_coverage_by_sample(_session, _context):
-        return {}
+        return {}, []
 
     async def fake_thresholds(_session, *, family_uuid):
         return {"profile_key": "default", "profile_label": "Default", "thresholds": {}}

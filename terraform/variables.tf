@@ -16,12 +16,12 @@ variable "zone" {
 }
 
 variable "backend_image" {
-  description = "Full backend container image URL, e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-backend:<tag>."
+  description = "Full backend container image URL, by digest so the revision runs exactly the image that was built: e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-backend@sha256:<digest>. build.yml passes the digest its build pushed."
   type        = string
 }
 
 variable "frontend_image" {
-  description = "Full frontend container image URL, e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-frontend:<tag>."
+  description = "Full frontend container image URL, by digest: e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-frontend@sha256:<digest>. build.yml passes the digest its build pushed."
   type        = string
 }
 
@@ -167,15 +167,42 @@ variable "frontend_max_instances" {
 # ---------------------------------------------------------------------------
 
 variable "azure_ad_tenant_id" {
-  description = "Azure AD / Entra tenant id for institutional login. Empty disables Azure auth env."
+  description = "Directory (tenant) ID of the organisation, a GUID, for Microsoft sign-in (SEC-4; docs/deployment-gcp.md §12.12). Set together with azure_ad_client_id, or leave both empty for the password sign-in."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.azure_ad_tenant_id == "" || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.azure_ad_tenant_id))
+    error_message = "azure_ad_tenant_id must be the directory (tenant) ID, a GUID; 'common', 'organizations' and a domain name are refused."
+  }
 }
 
 variable "azure_ad_client_id" {
-  description = "Azure AD / Entra application (client) id."
+  description = "Application (client) ID of CoGA's app registration, a GUID (Microsoft sign-in, SEC-4)."
   type        = string
   default     = ""
+
+  validation {
+    condition     = var.azure_ad_client_id == "" || can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.azure_ad_client_id))
+    error_message = "azure_ad_client_id must be the application (client) ID of CoGA's app registration, a GUID."
+  }
+}
+
+variable "azure_ad_api_scope" {
+  description = "CoGA's API scope as the app registration exposes it. Empty: api://<azure_ad_client_id>/access_as_user."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.azure_ad_api_scope == "" || can(regex("^(api|https)://[^\\s/]+(/[^\\s/]+)*/[A-Za-z0-9_-][A-Za-z0-9._-]*$", var.azure_ad_api_scope))
+    error_message = "azure_ad_api_scope must be the application ID URI followed by the scope's name, such as api://<client id>/access_as_user."
+  }
+}
+
+variable "azure_admin_override" {
+  description = "Emergency (break-glass) sign-in: true lets the emergency administrator (the coga-admin account) sign in with its password at /login/emergency beside Microsoft sign-in, every use logged and flagged in the audit. Keep false; switch on only for an emergency, as a change-controlled deploy (docs/deployment-gcp.md §12.12)."
+  type        = bool
+  default     = false
 }
 
 # ---------------------------------------------------------------------------

@@ -49,6 +49,15 @@ import NiptRecessiveGenes from './NiptRecessiveGenes';
 import NiptTargetCoverage from './NiptTargetCoverage';
 import VariantResultsLoading from './VariantResultsLoading';
 import { apiPath } from '../../lib/apiPath';
+import NiptCoverageNotes from './NiptCoverageNotes';
+import { signOutRefusal, useReportSignOut } from './reportSignOut';
+import { useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
+import {
+  describeReportSections,
+  formatReportTime,
+  LIVE_REPORT_SIGN_OFF_STATEMENT,
+  liveReportSignedState,
+} from './signedReportRecord';
 
 const PAGE_SIZE = 50;
 
@@ -379,6 +388,38 @@ const FamilyNiptPage: React.FC = () => {
     },
   });
 
+  // The NIPT analysis is signed out through the family sign-out, its gates and report code:
+  // one record per analysis, which holds the NIPT results (signed_record_nipt). The signed
+  // version opens on the report page, which renders it from its record.
+  const {
+    data: signouts,
+    isError: signoutsFailed,
+    isPending: signoutsPending,
+    refetch: refetchSignouts,
+  } = useReportSignouts(isMonogenicNipt ? familyId : undefined);
+  const latestSignout = signouts?.latest ?? null;
+  const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
+    familyId,
+    latestSignout?.version ?? null,
+  );
+  const signedVersionLink = (version: number) => {
+    const params = new URLSearchParams();
+    if (projectId) params.set('project_id', projectId);
+    params.set('version', String(version));
+    return { pathname: `/families/${familyId}/report`, search: `?${params.toString()}` };
+  };
+  const {
+    signOut,
+    isPending: signOutPending,
+    error: signOutError,
+    dialogs: signOutDialogs,
+  } = useReportSignOut(
+    familyId,
+    (version) => navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
+    // A reader in the family's project signs nothing out (SEC-1).
+    { readOnly: Boolean(family?.read_only) },
+  );
+
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   // Unknown, not zero, while the summary could not be loaded (#606).
   const categoryCounts = summaryFailed ? null : (summary?.category_counts ?? {});
@@ -455,6 +496,19 @@ const FamilyNiptPage: React.FC = () => {
   // now, filters and all (they live in the URL).
   const coverageHref = `/families/${familyId}/nipt/coverage${niptReportQuerySuffix}`;
   const coverageLinkState = { from: `${location.pathname}${location.search}` };
+  // Whether the family's data still matches the latest signed version (sign-out-check), read
+  // as the live reports read it.
+  const signOutBlocked = signOutRefusal(
+    { readOnly: Boolean(family?.read_only), assemblyValidated, signoutsFailed, signoutsPending },
+    'analysis',
+  );
+  const signoutCheckState = liveReportSignedState({
+    signoutsFailed,
+    signoutsPending,
+    latestVersion: latestSignout?.version ?? null,
+    checkFailed: signoutCheckFailed,
+    check: signoutCheck,
+  });
 
   return (
     <div className="page-shell analysis-shell">
@@ -507,6 +561,21 @@ const FamilyNiptPage: React.FC = () => {
                 >
                   Report
                 </Link>
+                <button
+                  type="button"
+                  className="form-button"
+                  onClick={signOut}
+                  // As on the report page: not to a reader (SEC-1), nor off the validated scope,
+                  // nor while the sign-out record is unknown (the analysis may be signed already).
+                  disabled={signOutPending || signOutBlocked !== null}
+                  title={signOutBlocked ?? undefined}
+                >
+                  {signOutPending
+                    ? 'Signing out…'
+                    : latestSignout
+                      ? 'Amend sign-out'
+                      : 'Sign out NIPT analysis'}
+                </button>
               </div>
             </div>
             {/* As on every family page: a NIPT family can be partly imported like any other,
@@ -569,6 +638,62 @@ const FamilyNiptPage: React.FC = () => {
             }}
           />
         )}
+      </section>
+
+      {signOutError ? (
+        <section className="surface-card report-signout-error" role="alert">
+          <p className="report-paragraph">
+            <strong>Not signed out.</strong> {signOutError}
+          </p>
+        </section>
+      ) : null}
+      {signOutDialogs}
+
+      <section className="surface-card space-y-2" aria-label="Sign-out">
+        <h2 className="section-title">Sign-out</h2>
+        {signoutsFailed ? (
+          <p className="table-subtle" role="alert">
+            The sign-out record could not be loaded, so it is not known whether this analysis has been
+            signed out.{' '}
+            <button type="button" className="button-link" onClick={() => void refetchSignouts()}>
+              Retry
+            </button>
+          </p>
+        ) : signoutsPending ? (
+          <p className="table-subtle" role="status">
+            Looking up the signed versions…
+          </p>
+        ) : latestSignout ? (
+          <p
+            className={`table-subtle${signoutCheckState === 'changed' ? ' status-note status-note--warning' : ''}`}
+            role={signoutCheckState === 'changed' ? 'alert' : undefined}
+          >
+            Signed version {latestSignout.version}
+            {latestSignout.report_code ? ` (report code ${latestSignout.report_code})` : ''} was signed out by{' '}
+            <strong>{latestSignout.signed_out_by}</strong> on {formatReportTime(latestSignout.signed_out_at)}.{' '}
+            {signoutCheckState === 'checking' ? 'Checking the family’s current data against it… ' : null}
+            {signoutCheckState === 'matches' ? 'The family’s current data still matches it. ' : null}
+            {signoutCheckState === 'changed' ? (
+              <>
+                <strong>Changed since sign-out:</strong>{' '}
+                {describeReportSections(signoutCheck?.changed_sections ?? [])}. Sign out again to issue a new
+                version.{' '}
+              </>
+            ) : null}
+            {signoutCheckState === 'unverified'
+              ? 'Whether the family’s current data still matches it could not be checked. '
+              : null}
+            <Link to={signedVersionLink(latestSignout.version)}>View signed version {latestSignout.version}</Link>
+          </p>
+        ) : (
+          <p className="table-subtle">This NIPT analysis has not been signed out.</p>
+        )}
+        <p className="table-subtle">
+          {LIVE_REPORT_SIGN_OFF_STATEMENT} The family has one signed record: signing out here or from
+          the family report freezes the same analysis, with its NIPT results (the fetal fraction, the
+          quality checks, the target coverage, and each variant tagged report as this analysis
+          classifies it).
+        </p>
       </section>
 
       {summary?.qc ? <NiptQcPanel qc={summary.qc} fetalFraction={summary.fetal_fraction} /> : null}
@@ -635,6 +760,7 @@ const FamilyNiptPage: React.FC = () => {
           totalPages={pageCount}
           tags={tags}
           showCsvExport={false}
+          readOnly={Boolean(family?.read_only)}
           reviewIsPending={reviewMutation.isPending}
           reviewError={
             reviewMutation.isError
@@ -696,6 +822,7 @@ const FamilyNiptPage: React.FC = () => {
                     </Link>
                   </p>
                 )}
+                <NiptCoverageNotes notes={coverage.coverage_notes} />
               </>
             )
           ) : coverageFailed ? (

@@ -23,6 +23,11 @@ API_PATH_PREFIX = "/api"
 _VERSION_FILE = Path(__file__).resolve().parents[3] / "VERSION"
 # The version of a build that could not establish one: never blank, and never a real release.
 _UNKNOWN_APP_VERSION = "0.0.0+unknown"
+# The SemVer pre-release identifier that marks a build that is not a release (TF-18 §2). Only
+# a release build stamps VERSION as it is (scripts/build-version.sh --release); every other
+# build reports VERSION with this identifier added, so it is never mistaken for a release.
+# scripts/check-release-version.sh refuses a VERSION that carries it.
+_DEVELOPMENT_IDENTIFIER = "dev"
 
 _DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
 _INSECURE_SECRET_VALUES = {"secret", "change-me"}
@@ -46,6 +51,16 @@ _CORS_PROBE_ORIGINS = (
 # The commit a build was made from, as build.yml and ci/cloudbuild.backend.yaml stamp it
 # (`git rev-parse --short=12 HEAD`); a full 40-character hash is accepted too.
 _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
+# A directory (tenant) ID and an application (client) ID, as the Azure portal shows them.
+_GUID_PATTERN = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+# CoGA's API scope: the application ID URI the app registration exposes, then the scope's
+# name (`api://<client id>/access_as_user`). The name is what a token's `scp` claim lists.
+_AZURE_API_SCOPE_PATTERN = re.compile(r"(?:api|https)://[^\s/]+(?:/[^\s/]+)*/[A-Za-z0-9_-][A-Za-z0-9._-]*")
+# The scope IT exposes on CoGA's app registration (docs/deployment-gcp.md), when
+# AZURE_API_SCOPE names none.
+AZURE_DEFAULT_SCOPE_NAME = "access_as_user"
 # The HPO release the startup download is pinned to (OPS-6): the release of the vendored
 # data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. The startup
 # downloads only when it finds no ontology file. It then fetches this release from its own
@@ -58,6 +73,19 @@ _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
 HPO_PINNED_RELEASE = "hp/releases/2026-02-16"
 HPO_PINNED_ONTOLOGY_SHA256 = "8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd"
 HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}/hp.obo"
+# The STRchive release the repeat catalogue is built from (CLIN-31): the shipped
+# data/ref-data/STRchive-loci.json, validated with the built-in repeat loci, which carry its
+# thresholds (CLIN-22). The file states no release of its own, so its SHA-256 is its identity.
+# Every start reads the STRchive file (TRGT_STRCHIVE_LOCI_PATH, else the repository's copy)
+# only if its SHA-256 is this one, and refuses to start on any other file, or on none: no
+# setting overrides it. The pin moves only with the file, in a reviewed change
+# (docs/data-import.md, "The STRchive release"); test_strchive_release_pin.py fails until
+# the file, the pin and that section agree.
+STRCHIVE_PINNED_LOCI_SHA256 = "a0295e1fe3e25a9f375db25fa27c403c217c74047ec3fa4b4f8060d4868399e9"
+# The upstream STRchive release that file is: byte-identical to the `STRchive-loci-v2.18.0.json`
+# STRchive published with release v2.18.0 (2026-04-28), found on 2026-10-20 by comparing the
+# SHA-256 with the loci file of every published STRchive release. It moves with the pin.
+STRCHIVE_PINNED_RELEASE = "v2.18.0"
 
 
 def _read_version_file() -> str:
@@ -67,6 +95,28 @@ def _read_version_file() -> str:
     except (OSError, UnicodeDecodeError):
         return _UNKNOWN_APP_VERSION
     return version or _UNKNOWN_APP_VERSION
+
+
+def _development_version(version: str) -> str:
+    """``version`` as a build that is not a release reports it: with the SemVer pre-release
+    identifier ``dev`` added, ``0.1.0`` → ``0.1.0-dev``, ``0.1.0-rc.1`` → ``0.1.0-rc.1.dev``.
+
+    The rule of ``scripts/build-version.sh``, for an image built without APP_VERSION. Build
+    metadata, which VERSION never carries, stays at the end.
+    """
+    release, plus, metadata = version.partition("+")
+    separator = "." if "-" in release else "-"
+    return f"{release}{separator}{_DEVELOPMENT_IDENTIFIER}{plus}{metadata}"
+
+
+def _unstamped_app_version() -> str:
+    """The version of a build that stamped no APP_VERSION: the VERSION file's, as a build that
+    is not a release, since only a release build stamps one (TF-18 §2). The unknown sentinel
+    when there is no VERSION file to read."""
+    version = _read_version_file()
+    if version == _UNKNOWN_APP_VERSION:
+        return version
+    return _development_version(version)
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -112,8 +162,10 @@ class Settings(BaseSettings):
 
     app_env: str = Field(default="production", alias="APP_ENV")
     # Build identity, injected at image-build time via the APP_VERSION/GIT_SHA
-    # build-args. A build that stamps no APP_VERSION reports the VERSION file's, so a
-    # local build names the version it was built from. Free-form strings with permissive
+    # build-args. Only a release build stamps the release's version; every other build
+    # stamps, or (without APP_VERSION) reports, the VERSION file's version marked as a
+    # development build (0.1.0-dev), so a local build names the version it was built from
+    # and is never taken for that release. Free-form strings with permissive
     # defaults so a missing/malformed value never crash-loops the clinical app; "unknown"
     # is recorded honestly (and frozen into every signed report's content hash).
     app_version: str = Field(default="", alias="APP_VERSION", validate_default=True)
@@ -465,6 +517,9 @@ class Settings(BaseSettings):
     # client address is taken that many entries from the right (#520). 0 leaves it to
     # uvicorn. Google's external Application Load Balancer appends two (client, LB).
     trusted_proxy_hops: int = Field(default=0, ge=0, le=5, alias="TRUSTED_PROXY_HOPS")
+    # The STRchive file the repeat catalogue reads first; the repository's copy when this one
+    # does not exist. Whichever is read must be the shipped release, byte for byte
+    # (STRCHIVE_PINNED_LOCI_SHA256), or the backend refuses to start (CLIN-31).
     trgt_strchive_loci_path: str | None = Field(
         default="/data/ref-data/STRchive-loci.json",
         alias="TRGT_STRCHIVE_LOCI_PATH",
@@ -500,8 +555,21 @@ class Settings(BaseSettings):
         default="/data/ref-data/paraphase-medical-regions.json",
         alias="PARAPHASE_MEDICAL_REGIONS_PATH",
     )
+    # Microsoft sign-in (Azure AD / Microsoft Entra ID, SEC-4). With the directory (tenant) ID
+    # and the application (client) ID of the app registration IT made for CoGA, users sign in
+    # with their Microsoft account and the API accepts only Microsoft's access tokens for
+    # CoGA's API scope (core/azure.py); without them, the local password sign-in serves every
+    # account. Both or neither: a half configuration is refused at startup.
     azure_tenant_id: str | None = Field(default=None, alias="AZURE_TENANT_ID")
     azure_client_id: str | None = Field(default=None, alias="AZURE_CLIENT_ID")
+    # The API scope the browser asks Microsoft for, whose name every access token must carry
+    # in its `scp` claim. Blank: api://<AZURE_CLIENT_ID>/access_as_user, the scope IT exposes
+    # (docs/deployment-gcp.md).
+    azure_api_scope: str | None = Field(default=None, alias="AZURE_API_SCOPE")
+    # The emergency (break-glass) sign-in. Off (the default), Microsoft sign-in is the only
+    # one. On, the emergency administrator (the local account ADMIN_USERNAME names) may also
+    # sign in with its password at /login/emergency; every such sign-in, and every request
+    # made with it, is logged and flagged in the request audit. It needs Azure AD.
     azure_admin_override: bool = Field(default=False, alias="AZURE_ADMIN_OVERRIDE")
 
     # Resolve the project root .env if present (repo root), otherwise fallback to CWD
@@ -561,6 +629,18 @@ class Settings(BaseSettings):
             return [entry.strip() for entry in stripped.split(",") if entry.strip()]
         return value
 
+    @field_validator("azure_tenant_id", "azure_client_id", "azure_api_scope", mode="before")
+    @classmethod
+    def normalize_blank_azure_values(cls, value: object) -> object:
+        # Terraform passes an unset variable as an empty value: that is no value. A GUID is
+        # compared as Microsoft writes it in a token, in lower case.
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            return stripped.lower() if _GUID_PATTERN.fullmatch(stripped) else stripped
+        return value
+
     @field_validator("app_env", mode="before")
     @classmethod
     def normalize_app_env(cls, value: object) -> object:
@@ -572,9 +652,9 @@ class Settings(BaseSettings):
     @classmethod
     def default_app_version_to_version_file(cls, value: str) -> str:
         # No APP_VERSION, or the empty one the image carries when no build-arg was given:
-        # report the VERSION file's version (TF-18 §2). The commit stays GIT_SHA's, "unknown"
-        # unless stamped, so an unstamped build is still told apart from a released one.
-        return value.strip() or _read_version_file()
+        # report the VERSION file's version as a development build (TF-18 §2), never as the
+        # release it names: only a release build stamps APP_VERSION with that.
+        return value.strip() or _unstamped_app_version()
 
     @field_validator("storage_backend", mode="before")
     @classmethod
@@ -596,6 +676,69 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip().lower() or "keys"
         return value
+
+    @model_validator(mode="after")
+    def validate_azure_ad(self) -> "Settings":
+        """Refuse a half Microsoft sign-in configuration, in every environment (SEC-4).
+
+        A tenant without a client ID (or the reverse) used to leave Azure AD off without a
+        word, and an override without Azure AD did nothing; either way the deployment did not
+        sign in the way it was configured to.
+        """
+        tenant, client = self.azure_tenant_id, self.azure_client_id
+        if bool(tenant) != bool(client):
+            missing = "AZURE_CLIENT_ID" if tenant else "AZURE_TENANT_ID"
+            raise ValueError(
+                "Microsoft sign-in needs both AZURE_TENANT_ID and AZURE_CLIENT_ID, and "
+                f"{missing} is not set. Set both (the directory (tenant) ID and the application "
+                "(client) ID of CoGA's app registration), or neither for the local sign-in."
+            )
+        if tenant and not _GUID_PATTERN.fullmatch(tenant):
+            raise ValueError(
+                "AZURE_TENANT_ID must be the directory (tenant) ID of the organisation, a GUID "
+                "such as 00000000-0000-0000-0000-000000000000. 'common', 'organizations', "
+                "'consumers' and a domain name are refused: CoGA admits accounts of one "
+                "directory only."
+            )
+        if client and not _GUID_PATTERN.fullmatch(client):
+            raise ValueError(
+                "AZURE_CLIENT_ID must be the application (client) ID of CoGA's app "
+                "registration, a GUID such as 00000000-0000-0000-0000-000000000000."
+            )
+        if self.azure_api_scope and not tenant:
+            raise ValueError(
+                "AZURE_API_SCOPE is set without AZURE_TENANT_ID and AZURE_CLIENT_ID: the scope "
+                "is used only with Microsoft sign-in."
+            )
+        if self.azure_api_scope and not _AZURE_API_SCOPE_PATTERN.fullmatch(self.azure_api_scope):
+            raise ValueError(
+                "AZURE_API_SCOPE must be CoGA's application ID URI followed by the scope's "
+                "name, such as api://<AZURE_CLIENT_ID>/access_as_user, or be left blank for "
+                "that default."
+            )
+        if self.azure_admin_override and not tenant:
+            raise ValueError(
+                "AZURE_ADMIN_OVERRIDE=true opens the emergency administrator's password "
+                "sign-in beside Microsoft sign-in, and Microsoft sign-in is not configured "
+                "(AZURE_TENANT_ID, AZURE_CLIENT_ID). Without it every local account signs in "
+                "with its password already: set AZURE_ADMIN_OVERRIDE=false."
+            )
+        return self
+
+    @property
+    def azure_ad_enabled(self) -> bool:
+        """Whether users sign in with Microsoft (Azure AD) rather than with a password."""
+        return bool(self.azure_tenant_id and self.azure_client_id)
+
+    @property
+    def azure_api_scope_value(self) -> str:
+        """The API scope the browser asks for: AZURE_API_SCOPE, else the default one."""
+        return self.azure_api_scope or f"api://{self.azure_client_id}/{AZURE_DEFAULT_SCOPE_NAME}"
+
+    @property
+    def azure_api_scope_name(self) -> str:
+        """The scope's name, as an access token's `scp` claim lists it."""
+        return self.azure_api_scope_value.rsplit("/", 1)[-1]
 
     @model_validator(mode="after")
     def validate_security_defaults(self) -> "Settings":

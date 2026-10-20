@@ -50,7 +50,11 @@ from .clickhouse_variant_records import (
 if TYPE_CHECKING:
     from ..schemas import FamilyOut, VariantOut
 from .clickhouse_interval_tracks import fetch_interval_track_rows
-from .coverage_read_depth import COVERAGE_TRACK_TYPE, read_depth_sources_by_sample
+from .coverage_read_depth import (
+    COVERAGE_TRACK_TYPE,
+    coverage_tracks_by_sample,
+    not_read_as_depth_note,
+)
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_variant_filters import SmallVariantQueryFilters
@@ -690,10 +694,17 @@ async def get_family_nipt_summary(
     listed = await _load_listed_artifacts(session, context, assay_key)
     data = await _load_family_data(context, trio)
     removed, _protected = family_artifact_ids(data.records, listed)
+    return await _summarize_family(data, trio, qc or NiptQualityThresholds(), removed)
+
+
+async def _summarize_family(
+    data: _FamilyData, trio: NiptTrio, qc: NiptQualityThresholds, removed: set[str]
+) -> NiptFamilySummary:
+    """The summary of the family's analysis, the NIPT page's and the signed record's."""
     # The whole family callset goes through the analysis: pure CPU work, so it runs in a
     # worker thread and other requests are served meanwhile (#527).
     analysis = await asyncio.to_thread(
-        _analyse_family_sites, data, trio, qc or NiptQualityThresholds(), removed.__contains__
+        _analyse_family_sites, data, trio, qc, removed.__contains__
     )
     target_coverage = summarize_target_coverage(data.plasma_targets) if data.plasma_targets else None
     sex_chromosomes = sex_chromosome_coverage(data.plasma_targets) if data.plasma_targets else None
@@ -932,17 +943,18 @@ def _recessive_view(
     return kept, genes
 
 
-async def _de_novo_view(
+async def _triage_de_novo_candidates(
     classified: list[NiptClassifiedVariant],
     ff_estimate: FetalFractionEstimate,
     *,
     assembly_name: str | None,
     carrier_samples: dict[str, str],
     family_uuid: str,
-    min_priority: str,
 ) -> list[NiptClassifiedVariant]:
-    """The de novo candidates in the family's fetal window, triaged (nipt_triage) and
-    ranked by score, from ``min_priority`` up."""
+    """The de novo candidates among ``classified``, each given its triage (nipt_triage) in
+    the family's fetal window, whatever its label; [] without a window. The de novo view
+    lists them from a priority up; the signed record freezes the triage of each reported
+    one."""
     window = de_novo_window(ff_estimate)
     candidates = [
         item
@@ -959,8 +971,7 @@ async def _de_novo_view(
             carrier_samples=carrier_samples,
             exclude_family_uuid=family_uuid,
         )
-    wanted = _DE_NOVO_PRIORITY_LABELS.get(min_priority, _DE_NOVO_PRIORITY_LABELS["low"])
-    kept: list[NiptClassifiedVariant] = []
+    triaged: list[NiptClassifiedVariant] = []
     for item in candidates:
         assert item.site is not None
         triage = triage_de_novo(
@@ -969,9 +980,37 @@ async def _de_novo_view(
             triage_annotation(item.record),
             other_cfdna_carriers=others.get(item.record.variant_id, 0),
         )
-        if triage is None or triage.label not in wanted:
+        if triage is None:  # pragma: no cover - a window always gives a triage
             continue
         item.de_novo = triage
+        triaged.append(item)
+    return triaged
+
+
+async def _de_novo_view(
+    classified: list[NiptClassifiedVariant],
+    ff_estimate: FetalFractionEstimate,
+    *,
+    assembly_name: str | None,
+    carrier_samples: dict[str, str],
+    family_uuid: str,
+    min_priority: str,
+) -> list[NiptClassifiedVariant]:
+    """The de novo candidates in the family's fetal window, triaged (nipt_triage) and
+    ranked by score, from ``min_priority`` up."""
+    wanted = _DE_NOVO_PRIORITY_LABELS.get(min_priority, _DE_NOVO_PRIORITY_LABELS["low"])
+    triaged = await _triage_de_novo_candidates(
+        classified,
+        ff_estimate,
+        assembly_name=assembly_name,
+        carrier_samples=carrier_samples,
+        family_uuid=family_uuid,
+    )
+    kept: list[NiptClassifiedVariant] = []
+    for item in triaged:
+        if item.de_novo is None or item.de_novo.label not in wanted:
+            item.de_novo = None
+            continue
         kept.append(item)
     kept.sort(key=lambda item: -(item.de_novo.score if item.de_novo else 0))
     return kept
@@ -1128,6 +1167,111 @@ async def get_family_nipt_variants(
     )
 
 
+@dataclass(slots=True)
+class NiptFamilyRecord:
+    """What the signed analysis record freezes of a family's NIPT analysis
+    (``signed_record_nipt``): the summary the NIPT page shows, the artifact list it ran
+    with, and each reported variant as the NIPT variant list classifies it."""
+
+    summary: NiptFamilySummary
+    # The assay's artifact list (its allele ids), and what it removed from the family's
+    # analysis and what the family's own annotation kept in (variant id -> reason).
+    listed_artifacts: set[str]
+    removed_artifacts: set[str]
+    protected_artifacts: dict[str, str]
+    # Each reported variant the analysis classifies, with its de novo triage when it is a
+    # candidate in the fetal window (the ones the de novo view leaves out as recurrent too).
+    variants: list[NiptClassifiedVariant]
+    # Each reported variant it does not classify, and why: not_in_data, artifact_list or
+    # no_plasma_call.
+    unclassified: dict[str, str]
+    # The recessive fetal risk of the genes the reported variants make both parents carriers
+    # in, as the recessive view computes it over them.
+    recessive_genes: list[RecessiveGeneRisk]
+
+
+# Why a reported variant has no NIPT classification.
+NOT_IN_DATA = "not_in_data"
+ON_ARTIFACT_LIST = "artifact_list"
+NO_PLASMA_CALL = "no_plasma_call"
+# The de novo triage's positions inside the family's fetal window.
+_FETAL_WINDOWS = frozenset({"strict", "loose"})
+
+
+async def get_family_nipt_record(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    trio: NiptTrio,
+    assay_key: str,
+    variant_ids: Iterable[str],
+    qc: NiptQualityThresholds | None = None,
+) -> NiptFamilyRecord:
+    """The family's NIPT analysis as the NIPT page computes it, for the signed record: the
+    summary (``get_family_nipt_summary``) and each of ``variant_ids`` classified as the
+    NIPT variant list classifies it (``get_family_nipt_variants``), against the one fetal
+    fraction, with its de novo triage when it is a candidate in the fetal window, and the
+    recessive fetal risk of the genes they make both parents carriers in. One load of the
+    family's data serves every part."""
+    qc = qc or NiptQualityThresholds()
+    listed = await _load_listed_artifacts(session, context, assay_key)
+    data = await _load_family_data(context, trio)
+    removed, protected = family_artifact_ids(data.records, listed)
+    summary = await _summarize_family(data, trio, qc, removed)
+    wanted = {str(variant_id) for variant_id in variant_ids if variant_id}
+    records = [record for record in data.records if record.variant_id in wanted]
+    classified = await asyncio.to_thread(
+        _classify_candidates,
+        records,
+        trio,
+        listed,
+        summary.analysis.fetal_fraction,
+        qc,
+        None,
+        plasma_targets=data.plasma_targets,
+        father_targets=data.father_targets,
+        family_records=data.records,
+    )
+    found = {record.variant_id for record in records}
+    classified_ids = {item.record.variant_id for item in classified}
+    unclassified: dict[str, str] = {}
+    for variant_id in sorted(wanted - classified_ids):
+        if variant_id not in found:
+            unclassified[variant_id] = NOT_IN_DATA
+        elif variant_id in removed:
+            unclassified[variant_id] = ON_ARTIFACT_LIST
+        else:
+            unclassified[variant_id] = NO_PLASMA_CALL
+    candidates = [
+        item
+        for item in classified
+        if item.site is not None and is_de_novo_candidate(item.site, item.classification)
+    ]
+    if candidates:
+        triaged = await _triage_de_novo_candidates(
+            candidates,
+            summary.analysis.fetal_fraction,
+            assembly_name=context.assembly_name,
+            carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
+            family_uuid=context.family_uuid,
+        )
+        for item in triaged:
+            # A de novo candidate is one in the fetal window (nipt_triage): a maternal
+            # allele above it, or a call below it, is none, and the page triages neither.
+            if item.de_novo is not None and item.de_novo.window not in _FETAL_WINDOWS:
+                item.de_novo = None
+    _carriers, recessive_genes = _recessive_view(classified, qc)
+    return NiptFamilyRecord(
+        summary=summary,
+        listed_artifacts=listed,
+        removed_artifacts=removed,
+        protected_artifacts=protected,
+        variants=classified,
+        unclassified=unclassified,
+        recessive_genes=recessive_genes,
+    )
+
+
 async def _fetch_labeled_gene_regions(
     session: AsyncSession, *, terms: list[str], assembly_id: str | None
 ) -> list[TargetRegion]:
@@ -1220,27 +1364,41 @@ async def _load_coverage_intervals(
     context: FamilyMetadataContext,
     sample_id: str,
     target_regions: list[TargetRegion],
-) -> list[CoverageInterval]:
+) -> tuple[list[CoverageInterval], list[str]]:
     """The sample's coverage on the target regions' chromosomes, from its one coverage track
-    whose values are read depth (CLIN-46): the coverage BED, or a depth track stored as read
-    (``coverage_read_depth``). WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth
-    are log2 ratios: merged with the BED's depths they pulled its median down, and their rows
-    over a region counted its bases again, which can hide an uncovered stretch from the
-    completeness check. Without a depth track, [], which reads as no coverage."""
+    whose values are read depth (CLIN-46): a coverage BED declared as read depth, or a depth
+    track stored as read (``coverage_read_depth``). WisecondorX's and QDNAseq's bins and
+    HiFiCNV's normalised depth are log2 ratios: merged with the BED's depths they pulled its
+    median down, and their rows over a region counted its bases again, which can hide an
+    uncovered stretch from the completeness check. A coverage BED that does not declare what
+    it holds is of unknown kind, and is not read as depth either (TRACE-9). Without a depth
+    track, [], which reads as no coverage.
+
+    With the intervals, a note for each of the sample's coverage tracks there that is not
+    read as depth, with the reason (``not_read_as_depth_note``): the check shows them, so a
+    region without coverage says why."""
     sample_uuid = context.sample_name_to_uuid.get(sample_id)
     if not sample_uuid or not context.assembly_name or not target_regions:
-        return []
+        return [], []
     chromosomes = sorted({region.chrom for region in target_regions})
-    depth_sources = await read_depth_sources_by_sample(
-        session,
-        assembly_name=context.assembly_name,
-        family_uuid=context.family_uuid,
-        sample_uuid_to_name={sample_uuid: sample_id},
-        chromosomes=chromosomes,
-    )
-    source = depth_sources.get(sample_id)
+    tracks = (
+        await coverage_tracks_by_sample(
+            session,
+            assembly_name=context.assembly_name,
+            family_uuid=context.family_uuid,
+            sample_uuid_to_name={sample_uuid: sample_id},
+            chromosomes=chromosomes,
+        )
+    ).get(sample_id)
+    if tracks is None:
+        return [], []
+    notes = [
+        not_read_as_depth_note(sample_id, track_source, content)
+        for track_source, content in tracks.not_read_as_depth()
+    ]
+    source = tracks.depth_source
     if source is None:
-        return []
+        return [], notes
     rows = await fetch_interval_track_rows(
         context.assembly_name,
         sample_uuid=sample_uuid,
@@ -1262,16 +1420,18 @@ async def _load_coverage_intervals(
                 value=float(value),
             )
         )
-    return intervals
+    return intervals, notes
 
 
 @dataclass(slots=True)
 class NiptCoverageResult:
     """The coverage QC: the target table's when the plasma has one (``targets``), else the
-    coverage track's over the gene or panel spans (``regions``)."""
+    coverage track's over the gene or panel spans (``regions``), with a note for each of the
+    plasma's coverage tracks not read as depth (``notes``, TRACE-9)."""
 
     regions: NiptCoverageSummary
     targets: TargetCoverageSummary | None = None
+    notes: list[str] = field(default_factory=list)
 
 
 async def get_family_nipt_coverage(
@@ -1308,11 +1468,12 @@ async def get_family_nipt_coverage(
     target_regions = await _resolve_nipt_target_regions(
         session, family=family, context=context, gene=gene, panel_id=panel_id
     )
-    coverage = await _load_coverage_intervals(
+    coverage, notes = await _load_coverage_intervals(
         session, context, trio.cfdna_sample_id, target_regions
     )
     return NiptCoverageResult(
-        regions=summarize_on_target_coverage(target_regions, coverage, min_depth=min_depth)
+        regions=summarize_on_target_coverage(target_regions, coverage, min_depth=min_depth),
+        notes=notes,
     )
 
 

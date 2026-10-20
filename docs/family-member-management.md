@@ -80,7 +80,10 @@ recomputed, and the prioritised variant ranking is warmed again. An HPO edit re-
 ranking only.
 
 Changing an HPO term marks the phenotype-dependent views stale in
-`derived_data_status.hpo_annotations`.
+`derived_data_status.hpo_annotations`. A family's HPO terms are added, changed and removed by an
+analyst of its project or an admin, not by a reader (SEC-1), and each change is a `phenotype`
+event on the family's clinical audit trail, written in the same transaction
+([clinical-traceability.md](clinical-traceability.md)).
 
 Saved variant reviews stay as they are. After a change to phenotypes, carriers or
 relationships, re-check the saved interpretations before you rely on them.
@@ -92,6 +95,12 @@ family's imported data, so it can be reloaded under the new structure: small and
 variants, interval tracks, repeat expansions, Paraphase results, and the small- and
 structural-variant reviews. It is the only edit that deletes data. The web interface never
 sends it.
+
+ClickHouse has no transactions, so the variants and tracks it holds go last: once every other
+write of the edit is done (the Postgres-held data, the members, the relationships, the
+pedigree, the structure version), just before the commit. An edit that fails before then rolls
+back with the family's variants and tracks still stored; before, they were deleted first, and a
+failure brought the family back without them.
 
 When it deleted data, the stale marker records `raw_datasets_preserved: false` and the
 sample-data scope, and the response warns that the data was cleared, also when the request

@@ -355,7 +355,7 @@ export interface SmallVariantTagDefinition {
 export type FamilyMember = ApiFamilyMember;
 export type SmallVariantFamily = Pick<
   ApiFamilyRecord,
-  'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata'
+  'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata' | 'read_only'
 >;
 
 export interface GenePanel {

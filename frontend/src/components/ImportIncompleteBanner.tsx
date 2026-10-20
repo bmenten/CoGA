@@ -69,9 +69,16 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
   };
 };
 
-/** A package import that began writing the family and has not finished. */
+/**
+ * A package import that began writing the family and has not finished, or the mark of a
+ * single-file upload or of a deletion that did not finish (its key says which:
+ * {@link unfinishedWriter}).
+ */
 export interface FamilyImportUnfinished {
-  /** Its key in `import_unfinished`: the import job's id, or one of its own run outside a job. */
+  /**
+   * Its key in `import_unfinished`: the import job's id, or one of its own run outside a job;
+   * `upload-…` or `deletion-…` for a mark.
+   */
   key: string;
   /** The import job, or null when it ran outside one (or none is recorded). */
   jobId: string | null;
@@ -88,14 +95,36 @@ export const pendingDatasets = (entry: FamilyImportUnfinished): string[] =>
   entry.datasets.filter((name) => !entry.finishedDatasets.includes(name));
 
 /**
+ * What wrote an `import_unfinished` entry, read from its key, as the server reads it
+ * (family_package_registration.unfinished_entry_writer): a single-file upload marks the
+ * family before its first ClickHouse write (`upload-…`), and an admin's deletion of a
+ * sample's data whose rewrite could not put the family's structural variants back leaves a
+ * mark (`deletion-…`); any other key is a package import's (its job, or a run of its own).
+ * The signed record keeps the key with the entry, so it says the same.
+ */
+export type UnfinishedWriter = 'import' | 'upload' | 'deletion';
+
+export const unfinishedWriter = (key: string): UnfinishedWriter =>
+  key.startsWith('upload-') ? 'upload' : key.startsWith('deletion-') ? 'deletion' : 'import';
+
+/** A single-file upload's or a deletion's mark, as a sentence starts it. */
+export const WRITER_LABELS: Record<Exclude<UnfinishedWriter, 'import'>, string> = {
+  upload: 'A single-file upload',
+  deletion: 'A deletion of a sample’s data',
+};
+
+/**
  * The family's `import_unfinished` entries, oldest first; empty when there are none.
  *
  * A package import records its entry before it writes anything of the family and removes it
  * when it ends (family_package_registration.ImportMark). So an entry is an import still
  * running, or one whose process stopped part-way (a restart, a crash, running out of memory)
  * and left what it had not finished partly written. Only an import that imports that again
- * with overwrite removes it. As on the server, a value that is set but not in the shape an
- * import writes still counts, with nothing to name.
+ * with overwrite removes it. A single-file upload marks the family the same way before its
+ * first ClickHouse write, and a deletion that could not put the family's structural variants
+ * back leaves a mark (FamilyWriteMark); each item of a mark goes once an upload or an import
+ * with overwrite has brought it again. As on the server, a value that is set but not in the
+ * shape an import writes still counts, with nothing to name.
  */
 export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnfinished[] => {
   if (!metadata || typeof metadata !== 'object') return [];
@@ -137,6 +166,8 @@ export const wholeFamilyImportKeys = (metadata: unknown): Set<string> => {
   if (!map || typeof map !== 'object' || Array.isArray(map)) return new Set();
   return new Set(
     Object.entries(map as Record<string, unknown>)
+      // An upload's or a deletion's mark lists its items the same way, but is no restore.
+      .filter(([key]) => unfinishedWriter(key) === 'import')
       .filter(([, value]) => value && typeof value === 'object' && 'whole_family' in value)
       .map(([key]) => key),
   );
@@ -150,6 +181,22 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
   wholeFamily,
 }) => {
   const pending = pendingDatasets(entry);
+  const writer = unfinishedWriter(entry.key);
+  if (writer !== 'import') {
+    // A single-file upload marks the family before its first ClickHouse write; a deletion
+    // leaves a mark once it could not put the family's SVs back (SAFE-28). No import job.
+    const when = entry.at ? ` (${bannerTime(entry.at)})` : '';
+    return (
+      <>
+        {WRITER_LABELS[writer]}
+        {when}
+        {writer === 'upload'
+          ? ' began rewriting this family’s data and has not finished: it is still running, or it stopped or failed part-way.'
+          : ' failed, and putting this family’s structural variants back as they were did not finish.'}
+        {pending.length ? ` ${joinWithAnd(pending)} may be partly written or missing.` : ''}{' '}
+      </>
+    );
+  }
   const who = (
     <>
       A family-package import{entry.at ? ` (${bannerTime(entry.at)})` : ''}
@@ -191,7 +238,9 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
  * "Import incomplete" — shown on every family page while the family's data only partly
  * loaded, naming what failed, and while an import of it has not finished (it is running,
  * or it stopped part-way), naming what it had not finished; after a failed overwrite whose
- * restore did not finish, naming every dataset of the family still to import again in full.
+ * restore did not finish, naming every dataset of the family still to import again in full;
+ * and while a single-file upload, or a deletion of a sample's data, has not finished,
+ * naming what it may have left partly written or missing.
  * Printed with the report, like the assembly-scope label. Sign-out refuses such a family
  * unless the signer acknowledges it with a reason, whatever this banner does.
  */
@@ -235,9 +284,14 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
       ) : null}
       {wholeFamily.size
         ? 'Import this family again in full, with overwrite: every dataset named here, not only those that failed, and upload again what a single-file upload brought. An update keeps the data already there. '
-        : unfinished.length
+        : unfinished.some((entry) => unfinishedWriter(entry.key) === 'import')
           ? 'Import what failed or did not finish again to complete it, with overwrite for what an import did not finish: an update keeps the data already there. '
-          : 'Import what failed again to complete it. '}
+          : flag
+            ? 'Import what failed again to complete it. '
+            : null}
+      {unfinished.some((entry) => unfinishedWriter(entry.key) !== 'import')
+        ? 'Upload or import again, with overwrite, what a single-file upload or a deletion did not finish: one without overwrite keeps the data already there. '
+        : null}
       Sign-out needs this acknowledged with a reason.
     </div>
   );

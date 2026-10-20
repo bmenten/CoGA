@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 from backend.app.services import panel_use_audit as pua
+from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
 
 _PANEL_ID = "33333333-3333-3333-3333-333333333333"
 
@@ -346,7 +347,7 @@ def test_the_exports_record_their_panel_before_they_run(monkeypatch, order) -> N
         return _export([])
 
     async def _sv_export(session, **kwargs):
-        order.append(f"exported sv {kwargs['panel_id']}")
+        order.append(f"exported sv {kwargs['filters'].panel_id}")
         return _export([])
 
     monkeypatch.setattr(small, "export_family_small_variants", _small_export)
@@ -366,32 +367,7 @@ def test_the_exports_record_their_panel_before_they_run(monkeypatch, order) -> N
             "FAM1",
             project_id=None,
             prioritize=False,
-            chr=None,
-            start=None,
-            end=None,
-            length=None,
-            min_length=None,
-            type=None,
-            source=None,
-            sample_filters=[],
-            samples=[],
-            remote_chr=None,
-            remote_start=None,
-            gene=None,
-            panel_id=_PANEL_ID,
-            inheritance=None,
-            phenotype=None,
-            hpo=None,
-            moi=None,
-            gencc_support=None,
-            region_flags=[],
-            max_control_af=None,
-            max_population_af=None,
-            min_pli=None,
-            classifications=[],
-            review_tags=[],
-            exclude_review_tags=[],
-            has_notes=False,
+            filters=StructuralVariantQueryFilters(page=1, page_size=0, panel_id=_PANEL_ID),
             session=object(),
             user=_user(),
         )
@@ -438,7 +414,7 @@ def test_the_structural_variant_search_records_its_panel_before_it_runs(monkeypa
     from backend.app.routers import families_structural_variants as structural
 
     async def _search(session, **kwargs):
-        order.append(f"searched {kwargs['panel_id']}")
+        order.append(f"searched {kwargs['filters'].panel_id}")
         return types.SimpleNamespace(total=0)
 
     monkeypatch.setattr(structural, "get_family_structural_variants_clickhouse", _search)
@@ -447,32 +423,7 @@ def test_the_structural_variant_search_records_its_panel_before_it_runs(monkeypa
             "FAM1",
             page=1,
             page_size=10,
-            chr=None,
-            start=None,
-            end=None,
-            length=None,
-            min_length=None,
-            type=None,
-            source=None,
-            sample_filters=[],
-            samples=[],
-            remote_chr=None,
-            remote_start=None,
-            gene=None,
-            panel_id=_PANEL_ID,
-            inheritance=None,
-            phenotype=None,
-            hpo=None,
-            moi=None,
-            gencc_support=None,
-            region_flags=[],
-            max_control_af=None,
-            max_population_af=None,
-            min_pli=None,
-            classifications=[],
-            review_tags=[],
-            exclude_review_tags=[],
-            has_notes=False,
+            filters=StructuralVariantQueryFilters(page=1, page_size=0, panel_id=_PANEL_ID),
             project_id=None,
             overlap=False,
             prioritize=False,

@@ -13,7 +13,7 @@ from ..schemas import (
     UiEventIn,
     UiEventIngestResult,
 )
-from ..services.access_control import CurrentUser
+from ..services.access_control import CurrentUser, changes_only_own_data
 from ..services.ui_event_pg import UiEventPayload, write_ui_event
 
 router = APIRouter(prefix="/ui-events", tags=["ui-events"])
@@ -177,6 +177,9 @@ def _payload_from_event(
 
 
 @router.post("", response_model=UiEventIngestResult, status_code=202)
+# The events of the caller's own use of the interface (a print or an export, say): a reader's
+# are recorded as anyone's are.
+@changes_only_own_data
 async def ingest_ui_events(
     payload: UiEventBatchIn,
     request: Request,

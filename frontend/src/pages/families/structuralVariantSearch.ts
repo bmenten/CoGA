@@ -87,7 +87,10 @@ export interface StructuralVariantAnnotationExtra {
 }
 
 export type StructuralVariantFamilyMember = ApiFamilyMember;
-export type StructuralVariantFamily = Pick<ApiFamilyRecord, 'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata'>;
+export type StructuralVariantFamily = Pick<
+  ApiFamilyRecord,
+  'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata' | 'read_only'
+>;
 // An SV preset is saved for one family or, reusable, for all of its owner's families. It is
 // read through its generated type, so tsc fails when the API stops serving its scope.
 export type StructuralVariantFilterPreset = StructuralVariantFilterPresetOut;

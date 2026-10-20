@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyReportPage from '../FamilyReportPage';
 import { APP_VERSION_QUERY_KEY } from '../../../lib/appVersion';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import { SIGNED_ANALYSIS, SIGNED_STATEMENT } from '../../../test/signedAnalysisFixture';
+import { SIGNED_ANALYSIS, SIGNED_PGT_ANALYSIS, SIGNED_STATEMENT } from '../../../test/signedAnalysisFixture';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -399,6 +399,66 @@ describe('FamilyReportPage', () => {
     expect(items).toContain('2-200-C-T — annotation set changed (classified by alice)');
   });
 
+  it('names a moved consequence, LoF call or gene missense Z since a classification', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/classification-drift') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            checked: 2,
+            drifted_count: 2,
+            drifted: [
+              {
+                variant_id: '1-100-A-G',
+                acmg_class: 'acmg_class_4',
+                classified_by: 'alice',
+                classified_at: null,
+                status: 'drifted',
+                annotation_version_from: 'v1',
+                annotation_version_to: 'v2',
+                clinvar_from: null,
+                clinvar_to: null,
+                changed: ['effect', 'lof', 'annotations'],
+                evidence_from: { effect: 'stop_gained', lof: 'LC' },
+                evidence_to: { effect: 'stop_gained&splice_region_variant', lof: 'HC' },
+              },
+              {
+                // The gene profiles were refreshed; the variant's annotation was not.
+                variant_id: '2-200-C-T',
+                acmg_class: 'acmg_class_3',
+                classified_by: 'bob',
+                classified_at: null,
+                status: 'drifted',
+                annotation_version_from: 'v1',
+                annotation_version_to: 'v1',
+                clinvar_from: null,
+                clinvar_to: null,
+                changed: ['gene_missense_z'],
+                evidence_from: { gene_missense_z: 2.95 },
+                evidence_to: { gene_missense_z: 3.52 },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText(/2 classifications have evidence changes since being made/)).toBeInTheDocument();
+    const items = screen.getAllByRole('listitem').map((listItem) => listItem.textContent ?? '');
+    expect(items).toContain(
+      '1-100-A-G — consequence stop_gained → stop_gained&splice_region_variant; LoF LC → HC (classified by alice)',
+    );
+    expect(items).toContain('2-200-C-T — gnomAD missense Z 2.95 → 3.52 (classified by bob)');
+  });
+
   it('lists the structural variants and CNVs whose classification evidence moved', async () => {
     const evidence = {
       source: 'needlr',
@@ -781,6 +841,36 @@ describe('FamilyReportPage', () => {
     expect(screen.queryByRole('button', { name: /Sign out report/ })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
     expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  // SEC-1: a reader in the family's project reads and prints the report but signs nothing out,
+  // and is not shown the audit trail; the printout says why it holds none.
+  it('lets a reader print the report but not sign it out, and says why the audit trail is not shown', async () => {
+    const asked: string[] = [];
+    apiMock.get.mockImplementation((url: string) => {
+      asked.push(url);
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], read_only: true } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    const signOut = await screen.findByRole('button', { name: /Sign out report/ });
+    await waitFor(() => expect(signOut).toBeDisabled());
+    expect(signOut).toHaveAttribute('title', expect.stringMatching(/you are a reader in this family/));
+    expect(screen.getByRole('button', { name: 'Print report' })).toBeEnabled();
+    expect(screen.getByText('Read-only access (reader)')).toBeInTheDocument();
+    expect(screen.getByText('Classification audit trail')).toBeInTheDocument();
+    expect(screen.getByText(/Not shown: the audit trail is for analysts and administrators/)).toBeInTheDocument();
+    // The trail is not asked for: the server refuses it to a reader.
+    expect(asked.some((url) => url.includes('clinical-audit'))).toBe(false);
   });
 
   it('shows no scope label for a validated assembly', async () => {
@@ -1293,6 +1383,164 @@ describe('FamilyReportPage', () => {
       );
     });
 
+    // A monogenic NIPT family's record holds its NIPT results (signed_record_nipt); no other
+    // family's does.
+    const NIPT_SAMPLE_QC = {
+      ...SIGNED_SNAPSHOT.sample_qc,
+      application: 'nipt',
+      application_label: 'Monogenic NIPT (cfDNA)',
+    };
+    const SIGNED_NIPT = {
+      samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetus: 'FETUS1' },
+      fetal_fraction: {
+        ff: 0.12,
+        ff_computed: 0.12,
+        ff_median: 0.118,
+        ci_low: 0.109,
+        ci_high: 0.131,
+        n_sites: 40,
+        method: 'category7_pooled',
+        low_confidence: false,
+        vaf_q05: 0.04,
+        vaf_q95: 0.08,
+        status: 'pass',
+        message: '12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites.',
+      },
+      de_novo_window: { strict_min: 0.04, strict_max: 0.08, loose_min: 0.03, loose_max: 0.1 },
+      category_counts: { '1': 1, '3': 1, '7': 40, '8': 0 },
+      filter_counts: { total_in: 48, failed_quality: 1, failed_artifact: 1, passed: 46, paternal_only: 1 },
+      quality_failures: { low_quality: 1 },
+      checks: {
+        paternity: { status: 'pass', message: 'Paternity supported (36 of 40 (90%) of his homozygous alleles seen).' },
+        fetal_sex: {
+          call: 'discordant',
+          status: 'fail',
+          message:
+            "The father's X alleles read female and the plasma's chrY coverage reads male: the two signals disagree; check the samples.",
+          paternal_x: 'female',
+          chry: 'male',
+        },
+        plasma_sample: { status: 'unknown', message: 'The panel has no chrY target: no sex profile.', profile: 'no_chrY_targets' },
+      },
+      target_coverage: {
+        targets: 3,
+        median_mean: 1500,
+        q05_mean: 300,
+        below_critical: 1,
+        below_advisory: 1,
+        zero_mean: 0,
+        incomplete: 0,
+        critical_mean_depth: 300,
+        advisory_mean_depth: 1000,
+        genes: [{ gene: 'GENEA', targets: 1, weak_targets: 1, min_mean: 250, mean_of_means: 250 }],
+      },
+      variants: [
+        {
+          variant_id: '1-1001-A-G',
+          source: 'nipt',
+          genes: ['GENE_DENOVO'],
+          category: 1,
+          category_label: 'de novo in fetus',
+          maternal_state: 'hom_ref',
+          fetal_inheritance: 'de_novo',
+          expected_vaf: 0.06,
+          observed_vaf: 0.06,
+          confidence: 0.98,
+          paternal_transmission_probability: null,
+          maternal_allele_probability: null,
+          fetal_hom_alt_probability: null,
+          flags: ['father_no_call'],
+          plasma: { alt_reads: 30, depth: 500, depth_estimated: false },
+          father: { state: 'hom_ref', vaf: 0, depth: 50 },
+          de_novo: { window: 'strict', score: 14, label: 'high', reasons: ['novel'], other_cfdna_carriers: 0 },
+        },
+      ],
+      not_classified: [{ variant_id: '9-999-A-G', reason: 'not_in_data' }],
+      recessive_genes: [
+        {
+          gene: 'GENE_RECESS',
+          risk: 0.86,
+          risk_uses_prior: false,
+          maternal_variant_id: '1-3001-A-G',
+          paternal_variant_id: '1-10000-A-G',
+          maternal: [],
+          paternal: [],
+        },
+      ],
+      inputs: {
+        target_tables: [{ sample: 'CFDNA1', file: 'cfdna.targets.tsv', targets: 3, loaded_at: '2026-10-01T09:00:00+00:00' }],
+        artifact_list: { assay_key: 'nipt_cfdna', entries: 2, digest: 'abcdef01'.repeat(2), removed: 1, kept: [] },
+      },
+      model: { reference: 'R NIPT-M v0.5.1 validation (6 families with trio exomes)' },
+    };
+
+    it('shows a NIPT family’s NIPT results as the record froze them, in print too', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: NIPT_SAMPLE_QC, nipt: SIGNED_NIPT } });
+      renderPage();
+
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt.closest('.no-print')).toBeNull();
+      expect(nipt).toHaveTextContent(
+        'The monogenic NIPT analysis of the maternal plasma CFDNA1 against the father FATHER1, for fetus FETUS1',
+      );
+      expect(nipt).toHaveTextContent(
+        'Fetal fraction: 12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites; per-site median 11.8% — Pass; fetal window for de novo alleles 4.0%–8.0%',
+      );
+      expect(nipt).toHaveTextContent('Paternity: Pass — Paternity supported');
+      expect(nipt).toHaveTextContent(
+        "Fetal sex: Discordant (the father's X alleles read female; the plasma's chrY coverage reads male) — Fail — The father's X alleles read female",
+      );
+      expect(nipt).toHaveTextContent('Maternal plasma sample: Not run — The panel has no chrY target: no sex profile.');
+      expect(nipt).toHaveTextContent(
+        'Target coverage: median 1500x over 3 targets; 1 below 300x, 0 with uncovered bases; genes with a weak target: GENEA (1 of 1, lowest mean 250x)',
+      );
+      expect(nipt).toHaveTextContent(
+        'Filters: 48 cfDNA calls: 1 quality-filtered, 1 artifact-filtered, 46 analysed; 1 paternal allele without a plasma call of its own; quality-filter failures: 1 quality (TLOD) below the minimum',
+      );
+      expect(nipt).toHaveTextContent('Categories: De novo in fetus: 1; Maternal het, inherited: 1; Paternal, transmitted: 40');
+      // Each reported variant as the NIPT analysis classified it, with its de novo triage.
+      expect(nipt).toHaveTextContent(
+        '1-1001-A-G (GENE_DENOVO): Category 1 (de novo in fetus), confidence 0.98: maternal hom_ref, fetal de_novo; VAF 6.0% (expected 6.0%); plasma reads 30 of 500; father reference · 0.0% · 50×. de novo: high priority (14). Flags: father_no_call.',
+      );
+      expect(nipt).toHaveTextContent('9-999-A-G: not classified — it was not in the family’s NIPT data.');
+      expect(nipt).toHaveTextContent('GENE_RECESS: 86.0% (maternal 1-3001-A-G, paternal 1-10000-A-G)');
+      expect(nipt).toHaveTextContent('Per-target coverage: CFDNA1: cfdna.targets.tsv, 3 targets, loaded 2026-10-01 09:00 UTC');
+      expect(nipt).toHaveTextContent('Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis');
+      expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
+    });
+
+    it('says a NIPT family’s record signed before CoGA froze the NIPT results does not hold them', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, sample_qc: NIPT_SAMPLE_QC } });
+      renderPage();
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the NIPT results.',
+      );
+    });
+
+    it('says when a NIPT family’s NIPT results could not be captured', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          sample_qc: NIPT_SAMPLE_QC,
+          nipt: { unavailable: 'The NIPT results could not be read.' },
+        },
+      });
+      renderPage();
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt).toHaveTextContent(
+        'Not captured: the NIPT results could not be read when version 2 was signed (The NIPT results could not be read.).',
+      );
+    });
+
+    it('says nothing of NIPT results in the record of a family that is no NIPT family', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      renderPage();
+      await screen.findByRole('heading', { name: 'Gene panels applied' });
+      expect(screen.queryByRole('heading', { name: 'NIPT results' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/NIPT/)).not.toBeInTheDocument();
+    });
+
     it('says when the record holds no description of a reported variant', async () => {
       mockSignedCase({
         snapshot: {
@@ -1307,6 +1555,105 @@ describe('FamilyReportPage', () => {
       expect(variant).toHaveTextContent(
         'The record holds no description of this variant: it was not in the family’s data when version 2 was signed.',
       );
+    });
+
+    // A PGT family's record holds the embryo calls the family page showed (since 2026-10-20).
+    const PGT_SAMPLE_QC = { ...SIGNED_SNAPSHOT.sample_qc, application: 'pgt', application_label: 'Shallow-WGS PGT (imputed)' };
+    const pgtSection = async () => (await screen.findByRole('heading', { name: 'PGT embryo results' })).closest('section')!;
+
+    it("shows a PGT family's embryo calls as the record froze them, and prints them", async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: PGT_SAMPLE_QC, pgt_analysis: SIGNED_PGT_ANALYSIS },
+      });
+      const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+      renderPage();
+
+      const pgt = await pgtSection();
+      expect(pgt).toHaveTextContent(
+        'Each embryo’s call at the region of interest GENE1 (7:30,500,000–30,600,000), as the family page showed it when version 2 was signed. Inheritance model: not recorded; CoGA assumed AD. Disease haplotype at the ROI: P2 (dominant).',
+      );
+      expect(pgt).toHaveTextContent(
+        "⚠ Phase corrected: 3 of 3 children switched together on the father's side between 30.40 Mb and 30.45 Mb, a switch in the father's phasing rather than crossovers. The father's two haplotypes are swapped from 30.40 Mb. This is inside or close to the ROI",
+      );
+      expect(pgt).toHaveTextContent(
+        'E1 (female): Affected / at risk. Inherited at the ROI: M1 and P2 (29,000,000–32,000,000). QC at the ROI: 40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal.',
+      );
+      expect(pgt).toHaveTextContent(
+        'E2 (und): Uninformative. This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made. ⚠ Recombination inside the ROI or within 250,000 bp of it, at 30,550,000. QC at the ROI: not counted (the embryo is not recorded as a child of the couple).',
+      );
+      expect(pgt).toHaveTextContent('E3 (female): Unaffected. Inherited at the ROI: M2 and P1 (29,000,000–32,000,000).');
+      expect(pgt).toHaveTextContent('an embryo: Not assessed.');
+      expect(pgt).toHaveTextContent(
+        'The members’ roles and statuses as the analysis read them: E1 (embryo), E2 (embryo), E3 (embryo), FATHER (father, affected), INDEX (proband, affected), MOTHER (mother, not a carrier).',
+      );
+      expect(pgt).toHaveTextContent(
+        'Read from the haplotype blocks of family.vcf.gz, loaded 2026-10-01 09:00 UTC (E1 and FATHER); 6 blocks read, digest abcdef012345.',
+      );
+      // On the printout: the section is part of the record, not of the page around it.
+      expect(pgt.closest('.no-print')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Print signed version 2' }));
+      expect(print).toHaveBeenCalledTimes(1);
+      // From the record alone: the family's current calls are not asked for.
+      const requested = apiMock.get.mock.calls.map(([url]) => String(url));
+      expect(requested.filter((url) => url.includes('pgt-analysis'))).toEqual([]);
+      print.mockRestore();
+    });
+
+    it('says when the family had no region of interest, so no embryo was called', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          sample_qc: PGT_SAMPLE_QC,
+          pgt_analysis: {
+            ...SIGNED_PGT_ANALYSIS,
+            region_of_interest: null,
+            window: null,
+            disease_haplotype_resolved: false,
+            disease_haplotypes: [],
+            phase_corrections: [],
+            embryos: [{ sample: 'E1', sex: 'female', call: null, roi_not_covered: false, sex_dependent: null, inherited: [], recombinations: [], qc: null }],
+          },
+        },
+      });
+      renderPage();
+
+      const pgt = await pgtSection();
+      expect(pgt).toHaveTextContent('The family had no region of interest when version 2 was signed, so no embryo was called.');
+      expect(pgt).toHaveTextContent('E1 (female): Not assessed.');
+      expect(pgt).not.toHaveTextContent('QC at the ROI');
+    });
+
+    it("says a PGT family's record signed before CoGA froze the embryo calls does not hold them", async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, sample_qc: PGT_SAMPLE_QC } });
+      renderPage();
+
+      expect(await pgtSection()).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the PGT embryo results.',
+      );
+    });
+
+    it('says when the embryo calls could not be captured at sign-out', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          sample_qc: PGT_SAMPLE_QC,
+          pgt_analysis: { unavailable: "The PGT analysis's embryo results could not be read." },
+        },
+      });
+      renderPage();
+
+      expect(await pgtSection()).toHaveTextContent(
+        "Not captured: the PGT embryo results could not be read when version 2 was signed (The PGT analysis's embryo results could not be read.).",
+      );
+    });
+
+    it('shows no PGT section in the record of a family without embryos', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      renderPage();
+
+      await signedRecordCard();
+      expect(await screen.findByRole('heading', { name: 'Paraphase' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'PGT embryo results' })).not.toBeInTheDocument();
     });
 
     it('prints the signed version: the page Print prints is the record', async () => {
@@ -1537,6 +1884,57 @@ describe('FamilyReportPage', () => {
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent('17-43000000-A-G — REVEL 0.412 → 0.951 (classified by alice)');
       expect(drift).toHaveTextContent('Signed out over it, with the reason: REVEL re-reviewed.');
+      // Frozen before the consequence and the gene's missense Z were: nothing is said of them.
+      expect(variant).not.toHaveTextContent(/consequence|missense Z/);
+    });
+
+    it('shows the consequence, LoF call and gene missense Z frozen with a classification, and those that had moved', async () => {
+      const [reported] = SIGNED_SNAPSHOT.reported_variants;
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'PP2 re-reviewed' }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_variants: [
+            {
+              // A missense variant: its gene's missense Z, which PP2 reads, is frozen too.
+              ...reported,
+              evidence_snapshot: {
+                ...reported.evidence_snapshot,
+                transcript_id: 'ENST00000000001',
+                consequence: { effect: 'missense_variant', impact: 'MODERATE', lof: null },
+                gene_constraint: { gene_missense_z: 2.95 },
+              },
+            },
+          ],
+          drift: {
+            checked: 1,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '17-43000000-A-G',
+                status: 'drifted',
+                clinvar_from: 'Likely_pathogenic',
+                clinvar_to: 'Likely_pathogenic',
+                changed: ['gene_missense_z'],
+                evidence_from: { gene_missense_z: 2.95 },
+                evidence_to: { gene_missense_z: 3.52 },
+                classified_by: 'alice',
+              },
+            ],
+          },
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'PP2 re-reviewed',
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent(
+        "Read from its primary transcript ENST00000000001: consequence missense_variant, impact MODERATE and LoF not annotated. From its gene's profile: gnomAD missense Z 2.95.",
+      );
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent('17-43000000-A-G — gnomAD missense Z 2.95 → 3.52 (classified by alice)');
     });
 
     it('shows the overrides frozen into the signed version', async () => {
@@ -2269,6 +2667,84 @@ describe('FamilyReportPage', () => {
         `An import (begun 2026-10-02 09:12 UTC), import job ${STOPPED_JOB_ID}, had begun writing the family’s data and had not finished: haplotypes may have been partly written or missing (apcad and qdnaseq had finished). Signed out over it, with the reason: ${REASON}`,
       );
       expect(checks).not.toHaveTextContent('imported completely');
+    });
+
+    // A single-file upload marks the family before its first ClickHouse write, and a deletion
+    // leaves a mark when it could not put the family's SVs back (SAFE-28): entries of their
+    // own in `import_unfinished`, with no job, named by their key.
+    const UPLOAD_KEY = 'upload-0a1b2c3d4e5f60718293a4b5c6d7e8f9';
+    const DELETION_KEY = 'deletion-9f8e7d6c5b4a39281706f5e4d3c2b1a0';
+    const WRITE_MARKS = {
+      [UPLOAD_KEY]: {
+        job_id: null,
+        at: '2026-10-14T08:30:00+00:00',
+        datasets: ['sv_sniffles'],
+        finished_datasets: [],
+      },
+      [DELETION_KEY]: {
+        job_id: null,
+        at: '2026-10-14T09:00:00+00:00',
+        datasets: ['cnv', 'sv_needlr'],
+        finished_datasets: [],
+      },
+    };
+
+    it('lists an upload and a deletion that did not finish in the acknowledgement dialog', async () => {
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'import_incomplete',
+                message:
+                  "This family's data is incomplete: a single-file upload (2026-10-14T08:30:00+00:00) did not finish, so sv_sniffles may be partly written or missing.",
+                import_incomplete: null,
+                import_unfinished: WRITE_MARKS,
+              },
+            },
+          },
+        }),
+      );
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(
+        within(dialog).getByText('Not finished (single-file upload): sv_sniffles may be partly written or missing'),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(
+          'Not finished (deletion of a sample’s data): cnv, sv_needlr may be partly written or missing',
+        ),
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByText(/import job/)).not.toBeInTheDocument();
+    });
+
+    it('shows on the signed record an upload and a deletion that had not finished', async () => {
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_unfinished: WRITE_MARKS,
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        'A single-file upload (begun 2026-10-14 08:30 UTC) had not finished: sv_sniffles may have been partly written or missing.',
+      );
+      expect(checks).toHaveTextContent(
+        'A deletion of a sample’s data (begun 2026-10-14 09:00 UTC) had not finished: cnv and sv_needlr may have been partly written or missing.',
+      );
+      expect(checks).not.toHaveTextContent(/An import \(begun 2026-10-14/);
     });
 
     it('names a change in unfinished imports since sign-out', async () => {
