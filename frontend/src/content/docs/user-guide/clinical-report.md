@@ -56,8 +56,10 @@ its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
    re-review, or acknowledge with a reason.
 4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity, and for a NIPT
-   family a NIPT quality check that failed: acknowledge with a reason. Each concern names the sample,
-   the pair or the child it is about.
+   family a NIPT quality check that failed: acknowledge with a reason. The dialog lists every concern
+   before you write it, under its own heading: the checks that failed, the checks that could not run,
+   the NIPT quality checks that failed, and the warnings, which do not stop the sign-out on their own.
+   Each concern names the sample, the pair or the child it is about, and your reason covers all of them.
 5. **An incomplete import** (the page says *Import incomplete*): import what failed again, or
    acknowledge with a reason. After an import that stopped part-way, re-run it with **overwrite**: an
    update skips data that is already there, partly written data too. After a failed overwrite that

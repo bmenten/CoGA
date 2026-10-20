@@ -555,10 +555,13 @@ describe('FamilyNiptPage', () => {
             data: {
               detail: {
                 gate: 'sample_qc',
-                message: `A NIPT quality check failed (${concern}). Resolve it, or acknowledge with a reason to sign out anyway.`,
+                message:
+                  'A NIPT quality check failed. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.',
                 qc_summary: { overall_status: 'pass', messages: [concern] },
+                failed_checks: [],
                 unverifiable_checks: [],
                 nipt_failed_checks: [concern],
+                warning_checks: [],
               },
             },
           },
@@ -579,6 +582,79 @@ describe('FamilyNiptPage', () => {
       expect(apiMock.post).toHaveBeenLastCalledWith(
         '/families/NIPT001/report/sign-out',
         expect.objectContaining({ acknowledge_qc: true, qc_acknowledgement_reason: 'Plasma re-drawn; identity confirmed.' }),
+      );
+    });
+
+    it('lists the checks that could not run beside the failures, each group under its heading (CLIN-58)', async () => {
+      // The mother's sex check failed and the maternal plasma is male DNA, while the paternity
+      // and the maternal lineage could not run. The dialog listed the failures and the
+      // paternity (`qc_summary`), but not the maternal lineage, which the 409 names among the
+      // checks that could not run: the reason written there might not cover it. Each group the
+      // 409 names is listed under its heading, before the reason.
+      serve();
+      const motherFailed =
+        'Sample MOTHER1: recorded female but genotypes indicate male (1.0% chrX het over 500 sites) — possible sample swap or mislabel.';
+      const paternity =
+        'Sample FATHER1 (father): too few paternal-informative sites (3 homozygous, 0 het) to assess paternity.';
+      const lineage =
+        'NIPT maternal lineage could not be verified (too few maternal-informative sites) — possible wrong mother.';
+      const plasma =
+        'Sample CFDNA1 (maternal plasma): male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.';
+      const fetalSex =
+        'Fetal sex indeterminate — too few informative paternal-X sites (0 paternal-X transmitted, 0 absent of 0 sites).';
+      apiMock.post
+        .mockRejectedValueOnce({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'sample_qc',
+                message:
+                  "Sample-integrity QC status is 'fail' (possible sample or pedigree swap — TF-06 H4). A sample-integrity check that confirms the pedigree or a sample's identity could not run. A sample swap can present as missing data rather than a mismatch. A NIPT quality check failed. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.",
+                qc_summary: {
+                  overall_status: 'fail',
+                  messages: [motherFailed, paternity, fetalSex, plasma],
+                },
+                failed_checks: [motherFailed],
+                unverifiable_checks: [paternity, lineage],
+                nipt_failed_checks: [plasma],
+                warning_checks: [fetalSex],
+              },
+            },
+          },
+        })
+        .mockResolvedValueOnce({ data: { version: 1 } });
+      renderWithReport();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign out NIPT analysis' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Sample-integrity QC acknowledgement required' });
+      expect(within(dialog).getByText(lineage)).toBeInTheDocument();
+      const group = (name: string) =>
+        within(within(dialog).getByRole('list', { name }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent);
+      expect(group('Sample QC checks that failed')).toEqual([motherFailed]);
+      expect(group('Checks that could not run')).toEqual([paternity, lineage]);
+      expect(group('NIPT quality checks that failed')).toEqual([plasma]);
+      expect(group('Warnings, which do not stop the sign-out on their own')).toEqual([fetalSex]);
+      // Each concern once, the paternity among the checks that could not run only.
+      expect(within(dialog).getAllByRole('listitem')).toHaveLength(5);
+      const reason = within(dialog).getByLabelText(
+        'Reason for signing out despite the QC concerns listed (required)',
+      );
+      for (const list of within(dialog).getAllByRole('list')) {
+        expect(list.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+      }
+      fireEvent.change(reason, { target: { value: 'Samples re-drawn and re-run; identities confirmed.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      expect(apiMock.post).toHaveBeenLastCalledWith(
+        '/families/NIPT001/report/sign-out',
+        expect.objectContaining({
+          acknowledge_qc: true,
+          qc_acknowledgement_reason: 'Samples re-drawn and re-run; identities confirmed.',
+        }),
       );
     });
 
