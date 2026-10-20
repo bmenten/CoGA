@@ -34,6 +34,7 @@ from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
 )
+from .gene_constraint_metrics import fetch_gene_constraint_metrics
 from .small_variant_review_pg import (
     get_small_variant_review_map,
     list_matching_small_variant_review_ids,
@@ -96,7 +97,6 @@ from .clickhouse_variant_queries import (
     _decode_json_payload,
     _dedupe_regions,
     _display_sample_name,
-    _extract_gene_constraint_metrics,
     _family_affected_unaffected_sample_names,
     _family_pedigree,
     _filter_expanded_carrier_screening,
@@ -532,52 +532,11 @@ async def _fetch_gene_constraint_metric_map(
     session: AsyncSession,
     variants: Sequence[VariantOut],
 ) -> dict[str, dict[str, float | None]]:
-    if not variants:
-        return {}
-    gene_symbols = sorted({variant.gene for variant in variants if variant.gene})
-    gene_ids = sorted({variant.gene_id for variant in variants if variant.gene_id})
-    # Each list goes as one text[] parameter, not one parameter per gene (an expanding IN):
-    # a CSV export's 50,001 rows can hit more genes than the 32,767 parameters asyncpg
-    # takes in one statement (DATA-3).
-    clauses: list[str] = []
-    params: dict[str, Any] = {}
-    if gene_symbols:
-        clauses.append("upper(hgnc_symbol) = ANY(CAST(:gene_symbols AS text[]))")
-        params["gene_symbols"] = [symbol.upper() for symbol in gene_symbols]
-    if gene_ids:
-        clauses.append("gene_id = ANY(CAST(:gene_ids AS text[]))")
-        params["gene_ids"] = gene_ids
-    if not clauses:
-        return {}
-    result = await session.execute(
-        text(
-            f"""
-            SELECT hgnc_symbol, gene_id, extra, source_status, updated_at
-            FROM gene_info
-            WHERE {' OR '.join(clauses)}
-            ORDER BY updated_at DESC
-            """
-        ),
-        params,
+    """Each variant's gene pLI and missense Z, by variant id, from the gene profiles: the
+    lookup an ACMG classification freezes the missense Z with (gene_constraint_metrics)."""
+    return await fetch_gene_constraint_metrics(
+        session, [(str(variant.id), variant.gene, variant.gene_id) for variant in variants]
     )
-    by_symbol: dict[str, dict[str, float | None]] = {}
-    by_gene_id: dict[str, dict[str, float | None]] = {}
-    for row in result.mappings().all():
-        doc = dict(row)
-        metrics = _extract_gene_constraint_metrics(doc)
-        symbol = str(doc.get("hgnc_symbol") or "").strip()
-        gene_id = str(doc.get("gene_id") or "").strip()
-        if symbol and symbol not in by_symbol:
-            by_symbol[symbol] = metrics
-        if gene_id and gene_id not in by_gene_id:
-            by_gene_id[gene_id] = metrics
-    result_map: dict[str, dict[str, float | None]] = {}
-    for variant in variants:
-        if variant.gene_id and variant.gene_id in by_gene_id:
-            result_map[str(variant.id)] = by_gene_id[variant.gene_id]
-        elif variant.gene and variant.gene in by_symbol:
-            result_map[str(variant.id)] = by_symbol[variant.gene]
-    return result_map
 
 
 

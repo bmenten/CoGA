@@ -54,7 +54,7 @@ export interface SignedAcmgCriterion {
   evidence: string | null;
 }
 
-/** A frozen frequency or in-silico score, written as the report writes it (null: no value). */
+/** A frozen value (a frequency, a score, the consequence), written as the report writes it (null: no value). */
 export interface SignedEvidenceValue {
   label: string;
   value: string | null;
@@ -65,11 +65,14 @@ export interface SignedEvidence {
   clinvar: string | null;
   annotationVersion: string | null;
   capturedAt: string | null;
-  /** The primary transcript the frequencies and scores were read from. */
+  /** The primary transcript the consequence, frequencies and scores were read from. */
   transcriptId: string | null;
   /** Null when the record holds none (frozen before CoGA froze them). */
+  consequence: SignedEvidenceValue[] | null;
   frequencies: SignedEvidenceValue[] | null;
   inSilico: SignedEvidenceValue[] | null;
+  /** The gene's missense Z, from its gene profile; null when the record holds none. */
+  geneConstraint: SignedEvidenceValue[] | null;
 }
 
 export interface SignedSmallVariant {
@@ -110,7 +113,10 @@ export interface SignedDriftItem {
   status: string;
   clinvarFrom: string | null;
   clinvarTo: string | null;
-  /** What moved: 'clinvar', 'transcript_id', a frequency or in-silico field, 'annotations'. */
+  /**
+   * What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field, the
+   * gene's 'gene_missense_z', 'annotations'.
+   */
   changed: string[];
   evidenceFrom: ApiSmallVariantEvidence | null;
   evidenceTo: ApiSmallVariantEvidence | null;
@@ -236,15 +242,24 @@ const parseAcmgCriteria = (acmg: Json | null): { criteria: SignedAcmgCriterion[]
   return { criteria, unreadable };
 };
 
-// The frequencies and in-silico scores a small-variant classification's evidence freezes
-// (backend `small_variant_review_acmg.small_variant_evidence`), in the order a reviewer
-// reads them, each with how the report writes it: an allele frequency as the variant
-// description does, a count whole, a score to its digits, a prediction as annotated.
+// The consequence, frequencies and in-silico scores a small-variant classification's evidence
+// freezes from its primary transcript, and its gene's missense Z (backend
+// `small_variant_review_acmg.small_variant_evidence`), in the order a reviewer reads them, each
+// with how the report writes it: an allele frequency as the variant description does, a count
+// whole, a score to its digits, a consequence or a prediction as annotated.
 interface EvidenceField {
   key: string;
   label: string;
   format: 'frequency' | 'count' | 'text' | number;
 }
+
+// The consequence term(s), the impact and LOFTEE's loss-of-function call, as the variant card
+// names it (LoF HC).
+const CONSEQUENCE_FIELDS: EvidenceField[] = [
+  { key: 'effect', label: 'consequence', format: 'text' },
+  { key: 'impact', label: 'impact', format: 'text' },
+  { key: 'lof', label: 'LoF', format: 'text' },
+];
 
 const FREQUENCY_FIELDS: EvidenceField[] = [
   { key: 'gnomad_af', label: 'gnomAD AF', format: 'frequency' },
@@ -266,6 +281,9 @@ const IN_SILICO_FIELDS: EvidenceField[] = [
   { key: 'alpha_missense_class', label: 'AlphaMissense class', format: 'text' },
   { key: 'alpha_missense_pathogenicity', label: 'AlphaMissense score', format: 3 },
 ];
+
+// The gene's missense constraint the PP2 suggestion reads, from the gene's profile.
+const GENE_CONSTRAINT_FIELDS: EvidenceField[] = [{ key: 'gene_missense_z', label: 'gnomAD missense Z', format: 2 }];
 
 // A value of the wrong type for its field is not guessed: it reads as no value.
 const formatEvidenceValue = (field: EvidenceField, value: unknown): string | null => {
@@ -320,8 +338,10 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
           annotationVersion: text(evidence.annotation_version),
           capturedAt: text(evidence.captured_at),
           transcriptId: text(evidence.transcript_id),
+          consequence: parseEvidenceValues(evidence.consequence, CONSEQUENCE_FIELDS),
           frequencies: parseEvidenceValues(evidence.frequencies, FREQUENCY_FIELDS),
           inSilico: parseEvidenceValues(evidence.in_silico, IN_SILICO_FIELDS),
+          geneConstraint: parseEvidenceValues(evidence.gene_constraint, GENE_CONSTRAINT_FIELDS),
         }
       : null,
   };
@@ -643,26 +663,34 @@ export const qcStatusLabel = (status: string | null): string =>
   status ? (QC_STATUS_LABEL[status as QcStatus] ?? status) : 'not recorded';
 
 /**
- * The frozen frequencies and in-silico scores of a classification, as the signed view writes
- * them: "Read from its primary transcript ENST…: population frequencies gnomAD AF 3.10e-5, …;
- * in silico scores CADD 24.3, …". Null when the record holds none (frozen before CoGA froze
- * them).
+ * The frozen consequence, frequencies and in-silico scores of a classification and its gene's
+ * missense Z, as the signed view writes them: "Read from its primary transcript ENST…:
+ * consequence stop_gained, impact HIGH and LoF HC; population frequencies gnomAD AF 3.10e-5, …;
+ * in silico scores CADD 24.3, …. From its gene's profile: gnomAD missense Z 3.52." A group
+ * the record does not hold (frozen before CoGA froze it) is left out; null when it holds none.
  */
 export const describeFrozenEvidenceValues = (evidence: SignedEvidence): string | null => {
   const list = (values: SignedEvidenceValue[]) =>
     joinWithAnd(values.map((entry) => `${entry.label} ${entry.value ?? 'not annotated'}`));
   const groups = [
+    evidence.consequence?.length ? list(evidence.consequence) : null,
     evidence.frequencies?.length ? `population frequencies ${list(evidence.frequencies)}` : null,
     evidence.inSilico?.length ? `in silico scores ${list(evidence.inSilico)}` : null,
   ].filter((group): group is string => group !== null);
-  if (!groups.length) return null;
-  return `Read from its primary transcript${evidence.transcriptId ? ` ${evidence.transcriptId}` : ''}: ${groups.join('; ')}.`;
+  const sentences = [
+    groups.length
+      ? `Read from its primary transcript${evidence.transcriptId ? ` ${evidence.transcriptId}` : ''}: ${groups.join('; ')}.`
+      : null,
+    evidence.geneConstraint?.length ? `From its gene's profile: ${list(evidence.geneConstraint)}.` : null,
+  ].filter((sentence): sentence is string => sentence !== null);
+  return sentences.length ? sentences.join(' ') : null;
 };
 
 /**
- * What moved in a small-variant classification's frozen frequencies and in-silico scores
- * ("REVEL 0.412 → 0.951; gnomAD AF 3.10e-5 → 0.012"); null when none of them moved. The
- * live report and the signed version both describe drift this way.
+ * What moved in a small-variant classification's frozen values ("consequence stop_gained →
+ * stop_gained&splice_region_variant; REVEL 0.412 → 0.951; gnomAD missense Z 2.95 → 3.52");
+ * null when none of them moved. The live report and the signed version both describe drift
+ * this way.
  */
 export const describeSmallVariantEvidenceChange = (
   changed: string[],
@@ -673,7 +701,7 @@ export const describeSmallVariantEvidenceChange = (
   if (changed.includes('transcript_id')) {
     parts.push(`primary transcript ${text(from?.transcript_id) ?? 'n/a'} → ${text(to?.transcript_id) ?? 'n/a'}`);
   }
-  [...FREQUENCY_FIELDS, ...IN_SILICO_FIELDS]
+  [...CONSEQUENCE_FIELDS, ...FREQUENCY_FIELDS, ...IN_SILICO_FIELDS, ...GENE_CONSTRAINT_FIELDS]
     .filter((field) => changed.includes(field.key))
     .forEach((field) => {
       let before = formatEvidenceValue(field, from?.[field.key]);

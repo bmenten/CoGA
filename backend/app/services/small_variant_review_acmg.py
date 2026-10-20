@@ -2,15 +2,19 @@ from __future__ import annotations
 
 import math
 from datetime import datetime
-from typing import Any
+from typing import Any, Mapping
 
 from fastapi import HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import AcmgClassificationPayload
 from . import acmg_points
 from .clickhouse_variant_queries import _normalize_alpha_missense_class, _select_primary_annotation
 from .clickhouse_variant_records import (
+    _annotation_effect,
     _annotation_float,
+    _annotation_gene,
+    _annotation_gene_id,
     _annotation_int,
     _annotation_polyphen,
     _annotation_population_frequencies,
@@ -18,8 +22,16 @@ from .clickhouse_variant_records import (
     _annotation_spliceai_max,
     _annotation_text,
 )
+from .gene_constraint_metrics import fetch_gene_constraint_metrics
 from .review_pg_utils import _json_payload, _read_stored_classification
 
+# The consequence a small-variant classification rests on, read from its primary transcript:
+# the consequence term(s) the criteria for a null, missense, synonymous or length-changing
+# variant read (PVS1, PM4, PP2, BP7, and the criteria a consequence rules out), the impact
+# beside them, and LOFTEE's loss-of-function call the PVS1 strength reads (HC: very strong).
+# Frozen like the frequencies, also without a value, so one that changes or appears later
+# reads as a change.
+EVIDENCE_CONSEQUENCE_FIELDS: tuple[str, ...] = ("effect", "impact", "lof")
 # The population frequencies a small-variant classification rests on (CLIN-7), in the order
 # a reviewer reads them: the gnomAD allele frequency the frequency criteria read (PM2, BS1,
 # BA1), and the other frequencies and the gnomAD allele, homozygote and hemizygote counts
@@ -46,6 +58,10 @@ EVIDENCE_IN_SILICO_FIELDS: tuple[str, ...] = (
     "alpha_missense_class",
     "alpha_missense_pathogenicity",
 )
+# The gene's missense constraint the PP2 suggestion reads (missense in a gene with a gnomAD
+# missense Z of 3.09 or more). It is the gene profile's, not the annotation's: looked up as
+# the variant list looks it up (``evidence_gene_missense_z``).
+EVIDENCE_GENE_CONSTRAINT_FIELDS: tuple[str, ...] = ("gene_missense_z",)
 
 
 def _normalize_acmg_payload(
@@ -132,16 +148,48 @@ def _frozen_int(annotation: dict[str, Any], *keys: str) -> int | None:
         return None
 
 
-def small_variant_evidence(record: Any) -> dict[str, Any]:
-    """The population frequencies and in-silico scores a classification of ``record`` reads,
-    and the transcript they are read from (CLIN-7).
+def _primary_annotation(record: Any) -> dict[str, Any]:
+    return _select_primary_annotation(list(getattr(record, "annotations", None) or []))
+
+
+def evidence_gene(record: Any) -> tuple[str | None, str | None]:
+    """The gene symbol and gene id whose constraint ``record`` is served with: its primary
+    transcript's gene, else the variant's first gene symbol (``_small_variant_out``)."""
+    annotation = _primary_annotation(record)
+    symbols = list(getattr(record, "gene_symbols", None) or [])
+    return (
+        _annotation_gene(annotation) or (symbols[0] if symbols else None),
+        _annotation_gene_id(annotation),
+    )
+
+
+async def evidence_gene_missense_z(
+    session: AsyncSession, records: Mapping[str, Any]
+) -> dict[str, float | None]:
+    """The gene missense Z of each record, by its key: the value the variant list serves it
+    with and the PP2 suggestion reads (``gene_constraint_metrics``); None when its gene's
+    profile holds none."""
+    genes: list[tuple[str, str | None, str | None]] = []
+    for key, record in records.items():
+        symbol, gene_id = evidence_gene(record)
+        genes.append((key, symbol, gene_id))
+    found = await fetch_gene_constraint_metrics(session, genes)
+    return {key: (found.get(key) or {}).get("gene_missense_z") for key in records}
+
+
+def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str, Any]:
+    """The consequence, population frequencies and in-silico scores a classification of
+    ``record`` reads, the transcript they are read from (CLIN-7), and its gene's missense
+    constraint.
 
     Read from the variant's primary transcript (MANE Select, then canonical, then the most
     severe impact) with the helpers the variant's fields are served with
     (``_small_variant_out``), so the frozen values are the ones the ACMG dialog was given.
-    Every field is present, None without a value.
+    The gene's missense Z is not in the annotation: the caller looks it up in the gene
+    profiles as the variant list does (``evidence_gene_missense_z``). Every field is
+    present, None without a value.
     """
-    annotation = _select_primary_annotation(list(getattr(record, "annotations", None) or []))
+    annotation = _primary_annotation(record)
     population = _annotation_population_frequencies(annotation)
 
     def _population(key: str) -> float | None:
@@ -149,6 +197,11 @@ def small_variant_evidence(record: Any) -> dict[str, Any]:
 
     return {
         "transcript_id": _annotation_text(annotation, "transcript_id", "transcriptId"),
+        "consequence": {
+            "effect": _annotation_effect(annotation),
+            "impact": _annotation_text(annotation, "impact"),
+            "lof": _annotation_text(annotation, "lof"),
+        },
         "frequencies": {
             "gnomad_af": _frozen_float(annotation, "gnomad_af", "gnomadAf"),
             "gnomad_exomes_af": _population("gnomad_exomes_af"),
@@ -172,17 +225,21 @@ def small_variant_evidence(record: Any) -> dict[str, Any]:
                 annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
             ),
         },
+        "gene_constraint": {"gene_missense_z": _finite(gene_missense_z)},
     }
 
 
-def build_evidence_snapshot(record: Any, captured_at: datetime) -> dict[str, Any]:
+def build_evidence_snapshot(
+    record: Any, captured_at: datetime, *, gene_missense_z: float | None
+) -> dict[str, Any]:
     """Freeze the evidence a classification was based on (clinical traceability).
 
     The annotation-set identity (``annotation_set_hash``) is the cheap drift key —
     it changes whenever any annotation changes — alongside the ClinVar significance,
     the most decision-relevant value, read from the per-transcript annotations, and the
-    population frequencies and in-silico scores the classification reads, with the
-    transcript they are read from (``small_variant_evidence``). The drift check compares
+    consequence, population frequencies and in-silico scores the classification reads, with
+    the transcript they are read from, and the gene's missense Z (``small_variant_evidence``;
+    ``gene_missense_z`` as ``evidence_gene_missense_z`` reads it). The drift check compares
     each value the snapshot froze, so it names what moved.
     """
     clinvar = None
@@ -196,9 +253,18 @@ def build_evidence_snapshot(record: Any, captured_at: datetime) -> dict[str, Any
         "annotation_version": getattr(record, "annotation_version", None),
         "annotation_set_hash": getattr(record, "annotation_set_hash", None),
         "clinvar": clinvar,
-        **small_variant_evidence(record),
+        **small_variant_evidence(record, gene_missense_z=gene_missense_z),
         "captured_at": captured_at.isoformat(),
     }
+
+
+async def freeze_evidence_snapshot(
+    session: AsyncSession, record: Any, captured_at: datetime
+) -> dict[str, Any]:
+    """The evidence snapshot a classification of ``record`` saved now freezes, its gene's
+    missense Z looked up as the variant list looks it up."""
+    gene_missense_z = (await evidence_gene_missense_z(session, {"record": record}))["record"]
+    return build_evidence_snapshot(record, captured_at, gene_missense_z=gene_missense_z)
 
 
 def _deserialize_acmg(value: Any) -> AcmgClassificationPayload | None:
