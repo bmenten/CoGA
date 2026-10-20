@@ -234,10 +234,14 @@ Sign-out stops at each of these, in this order:
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
 so "signed out over a known problem, and why" is part of the permanent record.
 
-The Sample QC dialog names, in front of each concern, the sample, the pair, the child with its parents
-or the NIPT father its check is about, for example *Sample X: no chrX genotypes available for sex
-inference.* The audit trail records the checks that could not run the same way. Fetal sex and the NIPT
-maternal lineage are read from the cfDNA as a whole and name no sample.
+The Sample QC dialog lists every concern before you write the reason, each group under its own
+heading: the *Sample QC checks that failed*, the *Checks that could not run*, the *NIPT quality checks
+that failed*, and the *Warnings, which do not stop the sign-out on their own*. A failure does not hide a
+check that could not run, and each concern is listed once. In front of each concern it names the
+sample, the pair, the child with its parents or the NIPT father its check is about, for example
+*Sample X: no chrX genotypes available for sex inference.* Your reason covers every concern listed, and
+the audit trail records each group as the dialog showed it. Fetal sex and the NIPT maternal lineage are
+read from the cfDNA as a whole and name no sample.
 
 An import or upload that starts while a sign-out records the family either waits for the sign-out to
 finish or refuses the sign-out, so a signed version never mixes the family's data from before and after

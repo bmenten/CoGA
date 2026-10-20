@@ -37,7 +37,7 @@ import dataclasses
 import json
 import logging
 from datetime import datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import Any, Callable, Iterator, Mapping
 
 from fastapi import HTTPException
 from sqlalchemy import text
@@ -228,32 +228,73 @@ def _named(subject: str | None, message: str) -> str:
     return f"{subject}: {message}"
 
 
+# The Sample-QC checks in the order the Sample QC page lists them: where the snapshot's
+# ``sample_qc`` holds them, what names each one's subject, and what a failed one is called
+# when it holds no message of its own.
+_QC_CHECK_LISTS = (
+    ("sex_checks", _sample_named, "Sex check"),
+    ("relatedness_checks", _pair_named, "Relatedness check"),
+    ("mendelian_checks", _child_named, "Mendelian check"),
+)
+_QC_SINGLE_CHECKS = (
+    ("paternity_check", _father_named, "NIPT paternity check"),
+    ("fetal_sex_check", _nothing_named, "NIPT fetal-sex check"),
+    ("category_qc_check", _nothing_named, "NIPT category-distribution check"),
+)
+
+
+def _qc_checks(
+    qc: Mapping[str, Any],
+) -> Iterator[tuple[Mapping[str, Any], Callable[[Mapping[str, Any]], str | None], str]]:
+    """Each Sample-QC check, with what names its subject and what it is called."""
+    for key, subject, kind in _QC_CHECK_LISTS:
+        for check in qc.get(key) or []:
+            yield check, subject, kind
+    for key, subject, kind in _QC_SINGLE_CHECKS:
+        check = qc.get(key)
+        if check:
+            yield check, subject, kind
+
+
 def _qc_failure_summary(qc: dict[str, Any], nipt_failed: list[str] | None = None) -> dict[str, Any]:
     """Compact summary of the concerning QC checks, for the 409 acknowledge prompt, each
     naming its sample, pair or child; then the NIPT quality checks that failed."""
-    messages: list[str] = []
-    for key, subject in (
-        ("sex_checks", _sample_named),
-        ("relatedness_checks", _pair_named),
-        ("mendelian_checks", _child_named),
-    ):
-        for check in qc.get(key) or []:
-            if check.get("status") in ("warn", "fail") and check.get("message"):
-                messages.append(_named(subject(check), check["message"]))
-    for key, subject in (
-        ("paternity_check", _father_named),
-        ("fetal_sex_check", _nothing_named),
-        ("category_qc_check", _nothing_named),
-    ):
-        check = qc.get(key)
-        if check and check.get("status") in ("warn", "fail") and check.get("message"):
-            messages.append(_named(subject(check), check["message"]))
+    messages = [
+        _named(subject(check), check["message"])
+        for check, subject, _kind in _qc_checks(qc)
+        if check.get("status") in ("warn", "fail") and check.get("message")
+    ]
     messages.extend(nipt_failed or [])
     return {
         "overall_status": qc.get("overall_status"),
         "application_label": qc.get("application_label"),
         "messages": messages,
     }
+
+
+def _failed_qc_checks(qc: Mapping[str, Any]) -> list[str]:
+    """The Sample-QC checks that failed (a detected mismatch), each named as the gate lists
+    it. One without a message of its own is listed all the same, by what it is: no failure
+    is left out of the list the sign-out dialog shows."""
+    return [
+        _named(subject(check), check.get("message") or f"{kind} failed.")
+        for check, subject, kind in _qc_checks(qc)
+        if check.get("status") == "fail"
+    ]
+
+
+def _warning_qc_checks(qc: Mapping[str, Any], unverifiable: list[str]) -> list[str]:
+    """The Sample-QC checks that warn, each named as the gate lists it, but for those that
+    are among the checks that could not run (``unverifiable``, named the same way): each
+    concern is listed once, in its own group. A warning does not gate on its own."""
+    could_not_run = set(unverifiable)
+    warnings: list[str] = []
+    for check, subject, _kind in _qc_checks(qc):
+        if check.get("status") == "warn" and check.get("message"):
+            named = _named(subject(check), check["message"])
+            if named not in could_not_run:
+                warnings.append(named)
+    return warnings
 
 
 def _nipt_failed_checks(snapshot: Mapping[str, Any]) -> list[str]:
@@ -384,23 +425,28 @@ def _qc_gate_message(
     unverifiable: list[str],
     nipt_failed: list[str] | None = None,
 ) -> str:
-    nipt_part = (
-        f"A NIPT quality check failed ({'; '.join(nipt_failed)}). " if nipt_failed else ""
-    )
+    """The Sample-QC refusal's message: a sentence for each kind of concern the gate holds
+    (a failed check, a check that could not run, a NIPT quality check that failed), so a
+    failure never hides a check that could not run (CLIN-58). The concerns themselves are
+    in the refusal's own lists, which the sign-out dialog shows under the message, each
+    group under its heading; the message does not repeat them."""
+    parts: list[str] = []
     if hard_fail:
-        return (
-            f"Sample-integrity QC status is '{qc_status}' (possible sample or pedigree "
-            f"swap — TF-06 H4). {nipt_part}Resolve it, or acknowledge with a reason to sign "
-            "out anyway."
+        parts.append(
+            f"Sample-integrity QC status is '{qc_status}' (possible sample or pedigree swap "
+            "— TF-06 H4)."
         )
     if unverifiable:
-        return (
-            "A swap-relevant sample-integrity check could not be verified for an asserted "
-            f"pedigree relationship ({'; '.join(unverifiable)}). A sample swap can present as "
-            f"missing data rather than a mismatch. {nipt_part}Resolve it, or acknowledge with "
-            "a reason to sign out anyway."
+        parts.append(
+            "A sample-integrity check that confirms the pedigree or a sample's identity could "
+            "not run. A sample swap can present as missing data rather than a mismatch."
         )
-    return f"{nipt_part}Resolve it, or acknowledge with a reason to sign out anyway."
+    if nipt_failed:
+        parts.append("A NIPT quality check failed.")
+    parts.append(
+        "Resolve each concern listed, or acknowledge them with a reason to sign out anyway."
+    )
+    return " ".join(parts)
 
 
 async def _import_incomplete_state(
@@ -1213,6 +1259,12 @@ async def sign_out_report(
     # disagree are sample-integrity concerns (TF-06 H4) the same acknowledgement covers.
     nipt_failed = _nipt_failed_checks(snapshot_body)
     qc_blocks = qc_hard_fail or bool(qc_unverifiable) or bool(nipt_failed)
+    # Every concern of the refusal, each in its own group, as the sign-out dialog lists them
+    # before the reason is written, and as the audit event records what the acknowledgement
+    # covered (CLIN-58): the checks that failed, those that could not run, the NIPT quality
+    # checks that failed, and the warnings beside them, which do not gate on their own.
+    qc_failed = _failed_qc_checks(sample_qc)
+    qc_warnings = _warning_qc_checks(sample_qc, qc_unverifiable)
     if qc_blocks and not acknowledge_qc:
         raise HTTPException(
             status_code=409,
@@ -1220,8 +1272,10 @@ async def sign_out_report(
                 "gate": "sample_qc",
                 "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable, nipt_failed),
                 "qc_summary": _qc_failure_summary(sample_qc, nipt_failed),
+                "failed_checks": qc_failed,
                 "unverifiable_checks": qc_unverifiable,
                 "nipt_failed_checks": nipt_failed,
+                "warning_checks": qc_warnings,
             },
         )
     qc_reason = (qc_acknowledgement_reason or "").strip()
@@ -1395,9 +1449,13 @@ async def sign_out_report(
             "qc_status": qc_status,
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
+            # Each group of concerns the Sample-QC refusal listed, as its dialog showed them
+            # and the QC acknowledgement covered them: the checks that failed, those that
+            # could not run, the NIPT quality checks that failed, and the warnings.
+            "qc_failed": qc_failed,
             "qc_unverifiable": qc_unverifiable,
-            # The NIPT quality checks that failed, which the QC acknowledgement covered.
             "nipt_failed_checks": nipt_failed,
+            "qc_warnings": qc_warnings,
             # What the family's import left out when it was signed (None: nothing), the
             # imports that stopped part-way ({}: none), and the override of that gate.
             "import_incomplete": import_incomplete,

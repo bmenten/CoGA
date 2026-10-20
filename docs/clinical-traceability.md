@@ -424,10 +424,9 @@ Five gates run first, in this order:
    gives 409 (`gate: "sample_qc"`), unless the request sets `acknowledge_qc` with a
    `qc_acknowledgement_reason` (422 without). Each concern the 409 lists names the sample,
    the pair, the child with its parents, or the NIPT father its check read ("Sample X: no
-   chrX genotypes available for sex inference."), in `qc_summary.messages`, in
-   `unverifiable_checks` and in the message, and so does the list of checks that could not
-   run which the sign-out's audit event records (`qc_unverifiable`). Fetal sex and the NIPT
-   maternal lineage, read from the cfDNA as a whole, name no sample. The checks frozen in
+   chrX genotypes available for sex inference."), in `qc_summary.messages` and in each of
+   its groups below, as do the groups the sign-out's audit event records. Fetal sex and the
+   NIPT maternal lineage, read from the cfDNA as a whole, name no sample. The checks frozen in
    `sample_qc` keep their own messages beside their sample fields, so a record signed before
    the names were added compares the same; an audit event recorded before names none (CLIN-8).
    For a monogenic NIPT family a NIPT quality check that failed in the record's `nipt` section
@@ -438,6 +437,19 @@ Five gates run first, in this order:
    DNA …"), and the audit event records them (`nipt_failed_checks`). Paternity is not among
    them: the Sample QC reads it from the same analysis, and gates on it already. NIPT results
    that could not be read are not captured (named in `not_captured`), not a QC concern.
+   The 409 lists every concern in its group (CLIN-58): the checks that failed
+   (`failed_checks`), those that could not run (`unverifiable_checks`), the NIPT quality
+   checks that failed (`nipt_failed_checks`), and the checks that warn (`warning_checks`),
+   which do not gate on their own. A check that warns because it could not run is listed
+   with the checks that could not run only, so each concern is listed once. The message
+   names each kind of concern the gate holds, so a failure does not hide a check that could
+   not run, and leaves the concerns themselves to the groups.
+   The sign-out dialog of the report page and of the NIPT page shows each group under its
+   heading, before the reason, and the acknowledged sign-out's audit event records the same
+   groups (`qc_failed`, `qc_unverifiable`, `nipt_failed_checks`, `qc_warnings`): what the
+   acknowledgement covered. `qc_summary.messages` lists the warnings, the failures and the
+   NIPT checks that failed together, as before; an audit event recorded before CLIN-58 holds
+   no `qc_failed` or `qc_warnings`.
 5. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
    that left it partly loaded ([data-import.md](data-import.md)), or by a small-variant upload
    that failed after deleting the callset it replaced (with no import job;
