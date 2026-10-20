@@ -159,6 +159,57 @@ export const SIGNED_ANALYSIS = {
       { gene: 'GBA', region_id: 'gba', region: 'GBA/GBAP1', medically_relevant: true, status_rule: null, samples: [] },
     ],
   },
+  // What each coverage track held, frozen since 2026-10-20 (signed_record_sections.coverage_tracks).
+  coverage_tracks: {
+    tracks: [
+      {
+        sample: 'MOTHER',
+        source: 'web',
+        content: 'unknown',
+        files: [
+          {
+            file: 'MOTHER.bed',
+            rows: 2,
+            loaded_at: '2026-10-01T09:00:00+00:00',
+            loaded_from: 'package',
+            declared: 'unknown',
+            normalization: null,
+          },
+        ],
+      },
+      {
+        sample: 'PROBAND',
+        source: 'web',
+        content: 'read_depth',
+        files: [
+          {
+            file: 'PROBAND.upload.bed',
+            rows: 1200,
+            loaded_at: '2026-10-02T09:00:00+00:00',
+            loaded_from: 'upload',
+            declared: 'read_depth',
+            normalization: null,
+          },
+        ],
+      },
+      {
+        sample: 'PROBAND',
+        source: 'wisecondorx',
+        content: 'log2_ratio',
+        files: [
+          {
+            file: 'PROBAND_bins.bed',
+            rows: 3000,
+            loaded_at: '2026-10-01T09:00:00+00:00',
+            loaded_from: 'package',
+            declared: null,
+            normalization: null,
+          },
+        ],
+      },
+      'not a track',
+    ],
+  },
 };
 
 // A PGT family's embryo calls at the ROI, as its record freezes them since 2026-10-20

@@ -20,6 +20,11 @@ of its own:
   classifies it at sign-out and the thresholds and catalogue behind it;
 * ``paraphase`` — each Paraphase result of the family's samples, with its status as CoGA
   classifies it at sign-out and the catalogue rule behind it;
+* ``coverage_tracks`` — each coverage track of the family's samples, per sample and caller:
+  what it holds as the depth readers read it (read depth, a log2 ratio or unknown: a coverage
+  BED what it declared, TRACE-9), and the file(s) it was loaded from, from where and when
+  (owner decision of 2026-10-20), so it stays traceable which kind of coverage a depth check
+  rested on;
 * ``pgt_analysis`` — in a PGT family (one with an embryo) only: the PGT analysis at the ROI,
   each embryo's call with what it rests on, as the family page shows it (``pgt_analysis``,
   REQ-PGT-005). A family without an embryo has no such key, so its record is as before.
@@ -70,6 +75,8 @@ from .clickhouse_family_variants import (
     get_family_small_variants_page,
     get_family_structural_variants_page,
 )
+from .coverage_content import COVERAGE_CONTENT_KEY
+from .coverage_read_depth import COVERAGE_TRACK_TYPE, coverage_track_content
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
 from .panel_use_audit import applied_gene_panels
@@ -122,6 +129,11 @@ REPEAT_EXPANSIONS = RecordSection(
 PARAPHASE = RecordSection(
     "paraphase", "Paraphase results", "The Paraphase results could not be read."
 )
+# Every family's: one without a coverage track holds none, so a track loaded after sign-out
+# reads as a change.
+COVERAGE_TRACKS = RecordSection(
+    "coverage_tracks", "Coverage tracks", "The coverage tracks could not be read."
+)
 # In a PGT family only (``is_pgt_family``).
 PGT_ANALYSIS = RecordSection(
     "pgt_analysis",
@@ -140,6 +152,7 @@ RECORD_SECTIONS: tuple[RecordSection, ...] = (
     REFERENCE_DATA,
     REPEAT_EXPANSIONS,
     PARAPHASE,
+    COVERAGE_TRACKS,
     PGT_ANALYSIS,
     NIPT_RESULTS,
 )
@@ -610,6 +623,105 @@ async def paraphase_results(
     return {"catalogue": paraphase_catalogue_identity(), "genes": genes}
 
 
+# --- Coverage tracks ----------------------------------------------------------------
+
+# Every record of the family's coverage tracks, with what the depth readers read of each: a
+# coverage BED's declaration (``content``, TRACE-9) and another caller's transform
+# (``normalization``, TRACE-7), as ``interval_track_contents_by_sample`` and
+# ``interval_track_normalizations_by_sample`` read them; and where the file came from.
+_COVERAGE_TRACKS_SQL = text(
+    """
+    SELECT sample_id::text AS sample_uuid,
+           source,
+           filename,
+           row_count,
+           uploaded_at,
+           metadata ->> CAST(:content_key AS text) AS declared,
+           metadata ->> CAST(:normalization_key AS text) AS normalization,
+           metadata ->> CAST(:loaded_from_key AS text) AS loaded_from
+    FROM sample_interval_track_sources
+    WHERE family_id = CAST(:family_uuid AS uuid)
+      AND track_type = :track_type
+    """
+)
+
+# Where a track's record says it was loaded from (``metadata.uploaded_from``), in the record's
+# words: a single-file upload, or a package import's dataset. Another value (a demo loader's) is
+# frozen as stored; a record that says nothing, as null.
+_LOADED_FROM = {"web": "upload", "family_package": "package"}
+
+
+def _loaded_from(value: Any) -> str | None:
+    stored = _text(value)
+    return _LOADED_FROM.get(stored, stored) if stored else None
+
+
+def _distinct(records: Sequence[Mapping[str, Any]], key: str) -> list[str]:
+    """The distinct values ``key`` holds in ``records``, sorted, as the depth readers take
+    them: two records that disagree are both named, not one picked."""
+    return sorted({str(record[key]) for record in records if record.get(key) is not None})
+
+
+async def coverage_tracks(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
+    """Every coverage track of the family's members, one per sample and caller (source), with
+    what it holds as the depth readers read it -- ``read_depth``, ``log2_ratio`` or
+    ``unknown``, by their one rule (``coverage_read_depth.coverage_track_content``) over the same
+    records -- and each file it was loaded from: its name, its rows, when and from where it was
+    loaded, what a coverage BED declared and the transform another caller's import recorded.
+
+    Read from the tracks' records in Postgres, as the PGT and NIPT sections read their inputs.
+    The depth readers take a track only where its rows cover the chromosomes they read (chrM, the
+    NIPT targets'); the record names every track, so a depth check's note that leaves one out,
+    and why, can be traced to it."""
+    rows = (
+        await session.execute(
+            _COVERAGE_TRACKS_SQL,
+            {
+                "family_uuid": context.family_uuid,
+                "track_type": COVERAGE_TRACK_TYPE,
+                "content_key": COVERAGE_CONTENT_KEY,
+                "normalization_key": "normalization",
+                "loaded_from_key": "uploaded_from",
+            },
+        )
+    ).mappings().all()
+    members = getattr(context, "sample_uuid_to_name", None) or {}
+    by_track: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for row in rows:
+        sample = members.get(str(row.get("sample_uuid") or ""))
+        if sample is None:
+            continue
+        by_track.setdefault((str(sample), str(row.get("source") or "")), []).append(dict(row))
+    tracks: list[dict[str, Any]] = []
+    for (sample, source), records in sorted(by_track.items()):
+        files = [
+            {
+                "file": _text(record.get("filename")),
+                "rows": _int_or_none(record.get("row_count")),
+                "loaded_at": _iso(record.get("uploaded_at")),
+                "loaded_from": _loaded_from(record.get("loaded_from")),
+                "declared": None if record.get("declared") is None else str(record["declared"]),
+                "normalization": (
+                    None if record.get("normalization") is None else str(record["normalization"])
+                ),
+            }
+            for record in records
+        ]
+        tracks.append(
+            {
+                "sample": sample,
+                "source": source,
+                "content": coverage_track_content(
+                    source, _distinct(records, "normalization"), _distinct(records, "declared")
+                ),
+                "files": sorted(
+                    files, key=lambda entry: (str(entry["file"] or ""), str(entry["loaded_at"] or ""))
+                ),
+            }
+        )
+    return {"tracks": tracks}
+
+
 # --- The sections together ----------------------------------------------------------
 
 
@@ -648,6 +760,9 @@ async def build_record_sections(
         ),
         PARAPHASE.key: await _guarded(
             session, PARAPHASE.unavailable, lambda: paraphase_results(session, context)
+        ),
+        COVERAGE_TRACKS.key: await _guarded(
+            session, COVERAGE_TRACKS.unavailable, lambda: coverage_tracks(session, context)
         ),
     }
     if is_pgt_family(context):

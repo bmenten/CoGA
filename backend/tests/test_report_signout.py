@@ -33,10 +33,11 @@ from backend.app.services.sample_integrity_qc import (
 
 
 # What the analysis looked at (signed_record_sections): the variant descriptions, the gene
-# panels applied, the reference-data releases, the repeat expansions and the Paraphase
-# results. They read ClickHouse and the audit trail, which the stub sessions here do not
-# serve, so every test gets these; the tests of the sections themselves are in
-# test_signed_record_sections.py, and the tests below that need others patch their own.
+# panels applied, the reference-data releases, the repeat expansions, the Paraphase results
+# and the coverage tracks. They read ClickHouse and the audit trail, which the stub sessions
+# here do not serve, so every test gets these; the tests of the sections themselves are in
+# test_signed_record_sections.py (the coverage tracks' in test_signed_record_coverage_tracks.py),
+# and the tests below that need others patch their own.
 _RECORD_SECTIONS = {
     "variant_descriptions": {"small": [], "structural": []},
     "gene_panels": {"applied": []},
@@ -46,6 +47,7 @@ _RECORD_SECTIONS = {
     },
     "repeat_expansions": {"catalogue": {"loci": 0, "sources": [], "digest": "0" * 64}, "loci": []},
     "paraphase": {"catalogue": {"regions": 0, "digest": "0" * 64}, "genes": []},
+    "coverage_tracks": {"tracks": []},
 }
 
 
@@ -2753,6 +2755,8 @@ def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypat
         "reference_data",
         "repeat_expansions",
         "paraphase",
+        # Nor what each coverage track holds, which records hold since 2026-10-20.
+        "coverage_tracks",
     ]
     assert out["not_captured"] == []
 

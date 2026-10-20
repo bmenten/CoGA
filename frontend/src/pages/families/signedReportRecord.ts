@@ -17,8 +17,9 @@ import {
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
-import type { ApiSmallVariantEvidence, ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
+import type { ApiSmallVariantEvidence, ApiStructuralEvidence, CoverageContent, QcStatus } from '../../lib/apiTypes';
 import type { PgtEmbryoQcFindingOut } from '../../lib/apiSchema.generated';
+import { coverageScale, coverageSourceLabel } from '../../lib/coverageSources';
 import {
   describeQcFindings,
   describeQcSides,
@@ -386,6 +387,29 @@ export interface SignedParaphase {
   genes: SignedParaphaseGene[];
 }
 
+/** A file a coverage track was loaded from, as its record names it. */
+export interface SignedCoverageFile {
+  file: string | null;
+  rows: number | null;
+  loadedAt: string | null;
+  /** 'upload' (a single-file upload), 'package' (a package import), another loader as recorded; null: not recorded. */
+  loadedFrom: string | null;
+}
+
+/**
+ * A member's coverage track of one caller, with what it held as the depth readers read it when the
+ * version was signed (TRACE-9; `signed_record_sections.coverage_tracks`): a coverage BED what it
+ * declared, another caller's track what its import recorded. Only read depth is read as depth.
+ */
+export interface SignedCoverageTrack {
+  sample: string;
+  /** The caller's source: `web` for a coverage BED (an upload's or a package's). */
+  source: string;
+  /** A value the record holds that is neither read depth nor a log2 ratio reads as unknown. */
+  content: CoverageContent;
+  files: SignedCoverageFile[];
+}
+
 /** A parental homolog as the PGT analysis names it: its side and its label ('0', '1'). */
 export interface SignedPgtHaplotype {
   origin: 'paternal' | 'maternal' | null;
@@ -598,6 +622,8 @@ export interface SignedReport {
   referenceData: SignedRecordSection<SignedReferenceData>;
   repeatExpansions: SignedRecordSection<SignedRepeatExpansions>;
   paraphase: SignedRecordSection<SignedParaphase>;
+  /** What each coverage track of the family's samples held: every family's record holds it since 2026-10-20. */
+  coverageTracks: SignedRecordSection<SignedCoverageTrack[]>;
   /** A PGT family's embryo calls at the ROI; `absent` from a record of any other family too. */
   pgtAnalysis: SignedRecordSection<SignedPgtAnalysis>;
   /** A monogenic NIPT family's NIPT results; `absent` from a record of any other family too. */
@@ -1142,6 +1168,19 @@ const parseParaphase = (value: Json): SignedParaphase => ({
   })),
 });
 
+const parseCoverageTracks = (value: Json): SignedCoverageTrack[] =>
+  objects(value.tracks).map((track) => ({
+    sample: text(track.sample) ?? 'a sample',
+    source: text(track.source) ?? 'an unnamed caller',
+    content: coverageScale(text(track.content) ?? undefined),
+    files: objects(track.files).map((file) => ({
+      file: text(file.file),
+      rows: number(file.rows),
+      loadedAt: text(file.loaded_at),
+      loadedFrom: text(file.loaded_from),
+    })),
+  }));
+
 const RISK_STATES: HaplotypeRiskState[] = ['affected_or_at_risk', 'carrier', 'unaffected_non_carrier', 'uninformative'];
 const riskState = (value: unknown): HaplotypeRiskState | null =>
   RISK_STATES.includes(value as HaplotypeRiskState) ? (value as HaplotypeRiskState) : null;
@@ -1461,6 +1500,7 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     referenceData: parseRecordSection(snapshot, 'reference_data', parseReferenceData),
     repeatExpansions: parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions),
     paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
+    coverageTracks: parseRecordSection(snapshot, 'coverage_tracks', parseCoverageTracks),
     pgtAnalysis: parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis),
     nipt: parseRecordSection(snapshot, 'nipt', parseNipt),
   };
@@ -1528,6 +1568,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   reference_data: 'reference-data releases',
   repeat_expansions: 'repeat expansions',
   paraphase: 'Paraphase results',
+  coverage_tracks: 'coverage tracks',
   pgt_analysis: 'PGT embryo results',
   nipt: 'NIPT results',
 };
@@ -1719,6 +1760,62 @@ export const describeCatalogue = (catalogue: SignedCatalogue | null, noun: strin
         catalogue.digest ? `, digest ${catalogue.digest.slice(0, 12)}` : ''
       }`
     : 'not recorded';
+
+// --- Wording of the coverage tracks ---------------------------------------------------
+
+const COVERAGE_CONTENT_WORDS: Record<CoverageContent, string> = {
+  read_depth: 'read depth',
+  log2_ratio: 'log2 ratio',
+  unknown: 'unknown',
+};
+
+/** How the signed record names a caller's coverage track: "coverage BED", "WisecondorX", … */
+export const coverageTrackCaller = (source: string): string =>
+  source === 'web' ? 'coverage BED' : coverageSourceLabel(source);
+
+/** Where a track's files came from, each once: "upload", "package", "upload and package". */
+const coverageTrackOrigins = (track: SignedCoverageTrack): string =>
+  joinWithAnd([...new Set(track.files.map((file) => file.loadedFrom ?? 'origin not recorded'))]) ||
+  'origin not recorded';
+
+/** One coverage track on a line, as the footer lists them: "S1 WisecondorX (package) — log2 ratio". */
+export const describeCoverageTrack = (track: SignedCoverageTrack): string =>
+  `${track.sample} ${coverageTrackCaller(track.source)} (${coverageTrackOrigins(track)}) — ${
+    COVERAGE_CONTENT_WORDS[track.content]
+  }`;
+
+/** Every coverage track on one line, as the footer lists them; "none" without one. */
+export const describeCoverageTracks = (tracks: SignedCoverageTrack[]): string =>
+  tracks.length ? tracks.map(describeCoverageTrack).join('; ') : 'none';
+
+/** What a track held, and whether the depth checks read it as depth. */
+export const describeCoverageContent = (track: SignedCoverageTrack): string => {
+  if (track.content === 'read_depth') return 'read depth';
+  if (track.content === 'log2_ratio') return 'log2 ratio, not read as depth';
+  return track.source === 'web'
+    ? 'unknown: it declares neither read depth nor a log2 ratio, so it is not read as depth'
+    : 'unknown: what it holds is not recorded, so it is not read as depth';
+};
+
+const FILE_ORIGIN_WORDS: Record<string, string> = {
+  upload: 'a single-file upload',
+  package: 'a package import',
+};
+
+/** The files a track was loaded from: "S1.bed, from a package import, 1,200 rows, loaded 2026-10-20 08:00 UTC". */
+export const describeCoverageFiles = (track: SignedCoverageTrack): string =>
+  track.files
+    .map((file) =>
+      [
+        file.file ?? 'file not named',
+        file.loadedFrom ? `from ${FILE_ORIGIN_WORDS[file.loadedFrom] ?? file.loadedFrom}` : 'origin not recorded',
+        file.rows !== null ? `${formatCount(file.rows)} row${file.rows === 1 ? '' : 's'}` : null,
+        file.loadedAt ? `loaded ${formatReportTime(file.loadedAt)}` : null,
+      ]
+        .filter((part): part is string => Boolean(part))
+        .join(', '),
+    )
+    .join('; ') || 'no file recorded';
 
 // --- Wording of a NIPT family's NIPT results -------------------------------------------
 

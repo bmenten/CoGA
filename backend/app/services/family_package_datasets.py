@@ -1459,6 +1459,9 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
                 file=upload,
                 overwrite=True,
                 content=content,
+                # Its record says a package loaded it, as the other package tracks' records do:
+                # the single-file upload shares its source (`web`).
+                uploaded_from="family_package",
             )
         sample_results[sample_id] = {**stored, COVERAGE_CONTENT_KEY: content}
     return _sample_by_sample_outcome(

@@ -40,11 +40,12 @@ and refers to exactly one signed version: the one it rests on.
 **Sign out report** is your analytical sign-off: it closes the analysis and freezes the reported result
 into a numbered version with a unique fingerprint, with what the analysis looked at: each reported
 variant's description as you reviewed it, the gene panels the family's searches applied, the
-reference-data releases, the repeat-expansion and Paraphase results, in a PGT family each embryo's
-call at the region of interest as the family page shows it, with its phasing QC and that QC's verdict
-against the thresholds, and for a monogenic NIPT family its NIPT results (the NIPT page signs out
-through this same sign-out, see the NIPT chapter). The EPD refers to the signed version by its
-**report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
+reference-data releases, the repeat-expansion and Paraphase results, what each coverage track held
+(read depth, a log2 ratio or unknown, and whether an upload or a package loaded it), in a PGT family
+each embryo's call at the region of interest as the family page shows it, with its phasing QC and that
+QC's verdict against the thresholds, and for a monogenic NIPT family its NIPT results (the NIPT page
+signs out through this same sign-out, see the NIPT chapter). The EPD refers to the signed version by
+its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
@@ -86,7 +87,9 @@ record: *Signed version N — signed out by … on …*, with its report code an
 was signed: each reported variant's description, classification, criteria, evidence and note, in a PGT
 family the embryo calls (*PGT embryo results*, with each call's QC verdict and the thresholds), in a
 monogenic NIPT family its NIPT results (*NIPT results*), the gene panels applied, the repeat expansions
-and Paraphase results, the reference-data releases, and the checks at sign-out. It says what the record does not hold — the population frequencies and predictions, the
+and Paraphase results, the coverage tracks (*Coverage tracks*: what each held, and from which file), the
+reference-data releases, and the checks at sign-out. It says what the record does not hold — the
+population frequencies and predictions, the
 gene and phenotype context, the audit trail — and never fills that in from current data. **Print
 signed version N** prints it, and **Download signed version N (JSON)** returns the record itself.
 *Signed versions* lists the earlier ones.

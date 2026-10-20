@@ -78,6 +78,9 @@ async def upload_bed(
         overwrite=overwrite,
         record_upload=True,
         content=content if bed_type == "coverage" else None,
+        # The track's record says a single-file upload loaded it: a package's coverage BED
+        # shares its source (`web`), and the signed record names which of the two did.
+        uploaded_from="web",
     )
     await record_upload_file_obj(
         session,
