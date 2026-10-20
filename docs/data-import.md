@@ -114,7 +114,10 @@ pinned to the vendored release; moving the pin and the vendored file is a code c
 
 The repeat catalogue is built from one STRchive release, the one shipped as
 `data/ref-data/STRchive-loci.json` and validated with the built-in loci, which carry its
-thresholds. The file states no release of its own, so its SHA-256 identifies it:
+thresholds: STRchive release **v2.18.0** (2026-04-28), `STRCHIVE_PINNED_RELEASE`. The file
+is byte-identical to the `STRchive-loci-v2.18.0.json` STRchive published with that release,
+found on 2026-10-20 by comparing the SHA-256 with the loci file of every published release.
+The file states no release of its own, so its SHA-256 identifies it:
 `a0295e1fe3e2…` (75 loci), pinned in `backend/app/core/config.py` as
 `STRCHIVE_PINNED_LOCI_SHA256`, which holds it in full. No setting overrides the pin, and
 `.gitattributes` keeps git from changing the file's line endings in a checkout.

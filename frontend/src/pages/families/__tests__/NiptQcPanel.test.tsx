@@ -20,8 +20,10 @@ const qc: NiptQcOut = {
     status: 'pass',
     message: 'Paternity supported.',
   },
+  fetal_fraction_status: 'pass',
   fetal_sex: {
     call: 'female',
+    status: 'pass',
     paternal_x: 'female',
     x_transmitted: 40,
     x_not_transmitted: 0,
@@ -91,7 +93,7 @@ describe('NiptQcPanel', () => {
       <NiptQcPanel
         qc={{
           ...qc,
-          fetal_sex: { ...qc.fetal_sex, call: 'discordant' },
+          fetal_sex: { ...qc.fetal_sex, call: 'discordant', status: 'fail' },
           paternity: { ...qc.paternity, status: 'fail', message: 'Another father.' },
         }}
         fetalFraction={ff}
@@ -103,8 +105,29 @@ describe('NiptQcPanel', () => {
   });
 
   it('warns on a low-confidence fetal fraction', () => {
-    render(<NiptQcPanel qc={qc} fetalFraction={{ ...ff, low_confidence: true }} />);
+    render(
+      <NiptQcPanel qc={{ ...qc, fetal_fraction_status: 'warn' }} fetalFraction={{ ...ff, low_confidence: true }} />,
+    );
     expect(screen.getByText(/Low confidence: too few sites or a wide interval/)).toBeInTheDocument();
     expect(screen.getByText('Warning')).toBeInTheDocument();
+  });
+
+  // The signed record freezes the backend's verdicts (nipt_quality_checks): the panel shows
+  // those, never one of its own.
+  it("shows the backend's verdicts on the fetal fraction and the fetal sex", () => {
+    render(
+      <NiptQcPanel
+        qc={{
+          ...qc,
+          fetal_fraction_status: 'fail',
+          fetal_sex: { ...qc.fetal_sex, call: 'female', status: 'warn' },
+        }}
+        fetalFraction={ff}
+      />,
+    );
+    expect(screen.getByText('Fetal fraction 18.0% (95% CI 17.8%–18.2%)')).toBeInTheDocument();
+    expect(screen.getAllByText('Fail').length).toBe(1);
+    expect(screen.getByText('Fetal sex: Female')).toBeInTheDocument();
+    expect(screen.getAllByText('Warning').length).toBe(1);
   });
 });

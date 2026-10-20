@@ -1,15 +1,8 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router';
-import {
-  useInfiniteQuery,
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from '@tanstack/react-query';
+import { useInfiniteQuery, useQueries, useQuery } from '@tanstack/react-query';
 
 import api from '../../lib/api';
-import ModalDialog from '../../components/ModalDialog';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import SignedFamilyReport from './SignedFamilyReport';
@@ -21,11 +14,11 @@ import type {
   ApiStructuralClassificationDriftItem,
 } from '../../lib/apiTypes';
 import {
-  apiErrorMessage,
   useReportSignoutCheck,
   useReportSignouts,
   useSignedVersionDownload,
 } from './reportSignoutQueries';
+import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import {
   describeModuleVersions,
   describeReportSections,
@@ -33,6 +26,8 @@ import {
   describeStructuralEvidenceChange,
   formatReportTime,
   LIVE_REPORT_SIGN_OFF_STATEMENT,
+  liveReportSignedNotice,
+  liveReportSignedState,
   parseSignedVersionParam,
   reportViewSearch,
 } from './signedReportRecord';
@@ -66,17 +61,8 @@ import {
 import { apiPath, raw } from '../../lib/apiPath';
 import { memberLabel } from '../../lib/familyMembers';
 import { joinWithAnd } from '../../lib/format';
-import {
-  failuresByJob,
-  importIncompleteFromMetadata,
-  importUnfinishedFromMetadata,
-  pendingDatasets,
-  unfinishedWriter,
-  type FamilyImportUnfinished,
-} from '../../components/ImportIncompleteBanner';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
 import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
-import { READ_ONLY_HINT } from '../../lib/familyAccess';
 
 // The report's SV list: its variants, and what the page says about its completeness.
 type StructuralReportPage = Omit<ReportedListPage, 'variants'> & { variants: StructuralVariant[] };
@@ -185,17 +171,6 @@ const describeStructuralDrift = (item: ApiStructuralClassificationDriftItem): st
     (item.changed.includes('annotations') ? 'annotation changed' : 'evidence changed')
   );
 };
-
-// How the live report relates to the latest signed version. It is never the signed report,
-// whatever the state: only the signed version, rendered from its record, is (#508).
-type SignedState =
-  | 'loading'
-  | 'none'
-  | 'checking'
-  | 'matches'
-  | 'changed'
-  | 'unverified'
-  | 'unknown';
 
 /**
  * The live report: current data, and where the case is signed out. Labelled on screen and in
@@ -394,7 +369,6 @@ const LiveFamilyReport: React.FC = () => {
 
   // Case sign-out: the frozen, versioned, content-hashed report record. This page is never
   // it; a signed version is rendered from its record by SignedFamilyReport.
-  const queryClient = useQueryClient();
   const {
     data: signouts,
     isError: signoutsFailed,
@@ -409,40 +383,18 @@ const LiveFamilyReport: React.FC = () => {
     familyId,
     latestSignout?.version ?? null,
   );
-  // A sign-out record that could not be loaded leaves it unknown whether the case is
-  // signed: the page is then neither a draft nor the signed report (#605).
-  // Still loading, it is not known either: not yet a draft (#605).
-  const signedState: SignedState = signoutsFailed
-    ? 'unknown'
-    : signoutsPending
-      ? 'loading'
-      : !latestSignout
-    ? 'none'
-    : signoutCheckFailed
-      ? 'unverified'
-      : !signoutCheck
-        ? 'checking'
-        : signoutCheck.version !== latestSignout.version ||
-            typeof signoutCheck.matches !== 'boolean'
-          ? 'unverified'
-          : signoutCheck.matches
-            ? 'matches'
-            : 'changed';
+  // How this page relates to the latest signed version (the NIPT report reads it the same way).
+  const signedState = liveReportSignedState({
+    signoutsFailed,
+    signoutsPending,
+    latestVersion: latestSignout?.version ?? null,
+    checkFailed: signoutCheckFailed,
+    check: signoutCheck,
+  });
   // Every printout of this page says it is not the signed report: even content that matches
   // the latest signed version is drawn from current data, the gene and phenotype context
   // included, which the signed record does not hold.
-  const signedNotice =
-    signedState === 'unknown'
-      ? 'The sign-out record could not be loaded — do not use as the signed report.'
-      : signedState === 'loading'
-        ? 'The sign-out record is still loading — do not use as the signed report.'
-      : signedState === 'none'
-      ? 'Draft — this report has not been signed.'
-      : signedState === 'changed'
-        ? `Not the signed report — the content differs from signed version ${latestSignout?.version}.`
-        : signedState === 'matches'
-          ? `Not the signed report — this is the live report. Print signed version ${latestSignout?.version} from its record.`
-          : `Not verified against signed version ${latestSignout?.version} — do not use as the signed report.`;
+  const signedNotice = liveReportSignedNotice(signedState, latestSignout?.version ?? null);
   // The parts of the report that could not be loaded. Each says so where it belongs, and
   // together they head every printed page: a printout without them used to read as
   // complete, their sections as "none" (#605).
@@ -484,213 +436,25 @@ const LiveFamilyReport: React.FC = () => {
   const printNotice =
     [incompleteNotice, reportListNotice, auditListNotice, signedNotice].filter(Boolean).join(' ') || null;
 
-  // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
-  // signed record: evidence drift first, then a failing / unverifiable Sample QC, then an
-  // incomplete import. Each dialog keeps the attempt its gate refused (`vars`), so the
-  // acknowledgements already given travel on with the next one.
-  type SignOutVars = {
-    acknowledgeDrift: boolean;
-    driftReason?: string;
-    acknowledgeQc?: boolean;
-    qcReason?: string;
-    acknowledgeImportIncomplete?: boolean;
-    importReason?: string;
-  };
-  const [driftGate, setDriftGate] = useState<{ message: string; vars: SignOutVars } | null>(
-    null,
+  // The sign-out and its gates' dialogs (reportSignOut.tsx), shared with the NIPT page.
+  const {
+    signOut: handleSignOut,
+    isPending: signOutPending,
+    error: signOutError,
+    dialogs: signOutDialogs,
+  } = useReportSignOut(
+    familyId,
+    (version) =>
+      navigate(
+        { search: reportViewSearch(location.search, { version }) },
+        { state: { signedOut: { version } } },
+      ),
+    { readOnly },
   );
-  const [driftReason, setDriftReason] = useState('');
-  const [qcGate, setQcGate] = useState<{
-    message: string;
-    vars: SignOutVars;
-    summary?: { overall_status?: string; messages?: string[] };
-  } | null>(null);
-  const [qcReason, setQcReason] = useState('');
-  const [importGate, setImportGate] = useState<{
-    message: string;
-    vars: SignOutVars;
-    failed: string[];
-    imported: string[];
-    jobId: string | null;
-    failedByJob: [string, string[]][] | null;
-    unfinished: FamilyImportUnfinished[];
-  } | null>(null);
-  const [importReason, setImportReason] = useState('');
-  const [signOutError, setSignOutError] = useState<string | null>(null);
-
-  const closeGates = () => {
-    setDriftGate(null);
-    setQcGate(null);
-    setImportGate(null);
-  };
-
-  const signOut = useMutation({
-    mutationFn: async (vars: SignOutVars) =>
-      (
-        await api.post(apiPath`/families/${familyId}/report/sign-out`, {
-          acknowledge_drift: vars.acknowledgeDrift,
-          drift_acknowledgement_reason: vars.driftReason,
-          acknowledge_qc: vars.acknowledgeQc ?? false,
-          qc_acknowledgement_reason: vars.qcReason,
-          acknowledge_import_incomplete: vars.acknowledgeImportIncomplete ?? false,
-          import_incomplete_acknowledgement_reason: vars.importReason,
-        })
-      ).data,
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signouts'] });
-      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signout-check'] });
-      queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
-    },
-  });
-
-  const attemptSignOut = async (vars: SignOutVars) => {
-    setSignOutError(null);
-    try {
-      const signed = (await signOut.mutateAsync(vars)) as { version?: unknown } | undefined;
-      closeGates();
-      setDriftReason('');
-      setQcReason('');
-      setImportReason('');
-      // Show the signer what was signed: the new version, rendered from its record, with the
-      // report code the EPD report quotes (the signed view confirms it once).
-      if (typeof signed?.version === 'number') {
-        navigate(
-          { search: reportViewSearch(location.search, { version: signed.version }) },
-          { state: { signedOut: { version: signed.version } } },
-        );
-      }
-    } catch (error) {
-      const response = (
-        error as { response?: { status?: number; data?: { detail?: unknown } } }
-      ).response;
-      if (response?.status !== 409) {
-        // Anything but a gate is a failure the reviewer must see: the report was NOT
-        // signed out.
-        closeGates();
-        setSignOutError(apiErrorMessage(error, 'The report could not be signed out'));
-        return;
-      }
-      const detail = response.data?.detail;
-      const gate =
-        detail && typeof detail === 'object' ? (detail as { gate?: string }).gate : undefined;
-      closeGates();
-      // Off the validated assembly scope: a refusal with no override, never the drift
-      // dialog that a plain 409 would open (#515).
-      if (gate === 'assembly_scope') {
-        setSignOutError(
-          (detail as { message?: string }).message ||
-            'This family is outside the validated assembly scope.',
-        );
-        return;
-      }
-      // The family's data is being written: an import queued or running, or another write
-      // of its variants. No override either; the reviewer signs out once it has finished.
-      if (gate === 'import_in_progress' || gate === 'variant_writes_in_progress') {
-        setSignOutError(
-          (detail as { message?: string }).message ||
-            'This family’s data is being written. Sign out once that has finished.',
-        );
-        return;
-      }
-      // A failing Sample QC returns a structured detail (gate discriminator + a failure
-      // summary); it needs an acknowledge-WITH-REASON override, so open the dialog.
-      if (gate === 'sample_qc') {
-        const qc = detail as {
-          message?: string;
-          qc_summary?: { overall_status?: string; messages?: string[] };
-        };
-        setQcGate({
-          message: qc.message || 'Sample-integrity QC failed.',
-          summary: qc.qc_summary,
-          vars,
-        });
-        return;
-      }
-      // An import that partly failed: structured like the QC gate, naming what the import
-      // left out, and acknowledged the same way.
-      if (gate === 'import_incomplete') {
-        const incomplete = detail as {
-          message?: string;
-          import_incomplete?: {
-            failed_datasets?: string[];
-            imported_datasets?: string[];
-            job_id?: string | null;
-            failed_jobs?: Record<string, string | null>;
-          } | null;
-        };
-        setImportGate({
-          message: incomplete.message || 'The family’s import is incomplete.',
-          failed: incomplete.import_incomplete?.failed_datasets ?? [],
-          imported: incomplete.import_incomplete?.imported_datasets ?? [],
-          jobId: incomplete.import_incomplete?.job_id ?? null,
-          // The jobs that hold the failed datasets' errors, when more than one does.
-          failedByJob: failuresByJob(
-            importIncompleteFromMetadata(detail) ?? {
-              at: null,
-              failedDatasets: [],
-              importedDatasets: [],
-              jobId: null,
-              failedJobs: {},
-            },
-          ),
-          // The imports that began writing the family and did not finish (detail.import_unfinished).
-          unfinished: importUnfinishedFromMetadata(detail),
-          vars,
-        });
-        return;
-      }
-      // A gate this page does not know is a refusal, never the drift override below.
-      if (gate !== undefined) {
-        setSignOutError(
-          (detail as { message?: string }).message || 'The report could not be signed out.',
-        );
-        return;
-      }
-      // Evidence-drift gate (plain string detail): acknowledge WITH a reason, like QC.
-      setDriftGate({
-        message:
-          typeof detail === 'string'
-            ? detail
-            : 'Evidence has changed since some classifications were made.',
-        vars,
-      });
-    }
-  };
-
-  const handleSignOut = () =>
-    attemptSignOut({
-      acknowledgeDrift: false,
-      acknowledgeQc: false,
-      acknowledgeImportIncomplete: false,
-    });
-
-  const submitDriftAcknowledgement = async () => {
-    const reason = driftReason.trim();
-    if (!reason || !driftGate) {
-      return;
-    }
-    await attemptSignOut({ ...driftGate.vars, acknowledgeDrift: true, driftReason: reason });
-  };
-
-  const submitQcAcknowledgement = async () => {
-    const reason = qcReason.trim();
-    if (!reason || !qcGate) {
-      return;
-    }
-    await attemptSignOut({ ...qcGate.vars, acknowledgeQc: true, qcReason: reason });
-  };
-
-  const submitImportAcknowledgement = async () => {
-    const reason = importReason.trim();
-    if (!reason || !importGate) {
-      return;
-    }
-    await attemptSignOut({
-      ...importGate.vars,
-      acknowledgeImportIncomplete: true,
-      importReason: reason,
-    });
-  };
+  const signOutBlocked = signOutRefusal(
+    { readOnly, assemblyValidated, signoutsFailed, signoutsPending },
+    'report',
+  );
 
   // The frozen record itself, as stored at sign-out.
   const { download: downloadSignedVersion, error: downloadError } = useSignedVersionDownload(
@@ -820,28 +584,12 @@ const LiveFamilyReport: React.FC = () => {
               type="button"
               className="form-button"
               onClick={handleSignOut}
-              // Off the validated scope the server refuses anyway; do not offer it (#515).
-              // Nor while the sign-out record is unknown: this may already be signed (#605).
-              disabled={
-                readOnly ||
-                signOut.isPending ||
-                assemblyValidated === false ||
-                signoutsFailed ||
-                signoutsPending
-              }
-              title={
-                readOnly
-                  ? READ_ONLY_HINT
-                  : assemblyValidated === false
-                    ? 'Not validated for clinical use — this report cannot be signed out'
-                    : signoutsFailed
-                      ? 'The sign-out record could not be loaded'
-                      : signoutsPending
-                        ? 'The sign-out record is still loading'
-                        : undefined
-              }
+              // Not to a reader (SEC-1), nor off the validated scope (#515), nor while the
+              // sign-out record is unknown (#605): the rule the NIPT page offers it by too.
+              disabled={signOutPending || signOutBlocked !== null}
+              title={signOutBlocked ?? undefined}
             >
-              {signOut.isPending
+              {signOutPending
                 ? 'Signing out…'
                 : signouts?.latest
                   ? 'Amend sign-out'
@@ -861,214 +609,7 @@ const LiveFamilyReport: React.FC = () => {
         </section>
       ) : null}
 
-      {driftGate ? (
-        <ModalDialog
-          label="Evidence drift acknowledgement required"
-          className="modal-surface surface-card report-qc-ack-modal"
-          closeOnBackdrop={false}
-          discardMessage="Discard the reason you have typed?"
-          onClose={() => {
-            setDriftGate(null);
-            setDriftReason('');
-          }}
-        >
-            <h2 className="report-paragraph">
-              <strong>Evidence drift — acknowledgement required</strong>
-            </h2>
-            <p className="report-paragraph">{driftGate.message}</p>
-            <p className="report-paragraph">
-              To sign out anyway you must record a reason — it is frozen into the signed record.
-            </p>
-            <label className="report-footer-label" htmlFor="drift-ack-reason">
-              Reason for signing out despite the evidence drift (required)
-            </label>
-            <textarea
-              id="drift-ack-reason"
-              className="variant-review-textarea"
-              rows={3}
-              value={driftReason}
-              onChange={(event) => setDriftReason(event.target.value)}
-            />
-            <div className="inline-actions modal-actions">
-              <button
-                type="button"
-                className="form-button"
-                onClick={() => {
-                  setDriftGate(null);
-                  setDriftReason('');
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="form-button"
-                disabled={!driftReason.trim() || signOut.isPending}
-                onClick={submitDriftAcknowledgement}
-              >
-                Sign out anyway
-              </button>
-            </div>
-        </ModalDialog>
-      ) : null}
-
-      {qcGate ? (
-        <ModalDialog
-          label="Sample-integrity QC acknowledgement required"
-          className="modal-surface surface-card report-qc-ack-modal"
-          closeOnBackdrop={false}
-          discardMessage="Discard the reason you have typed?"
-          onClose={() => {
-            setQcGate(null);
-            setQcReason('');
-          }}
-        >
-            <h2 className="report-paragraph">
-              <strong>Sample-integrity QC — acknowledgement required</strong>
-            </h2>
-            {/* The backend message describes the specific concern — a detected mismatch
-                (fail) OR an asserted relationship that could not be verified (missing
-                data). Render it verbatim so the reviewer attests to the right thing. */}
-            <p className="report-paragraph">{qcGate.message}</p>
-            <p className="report-paragraph">
-              To sign out anyway you must record a reason — it is frozen into the signed record.
-            </p>
-            {qcGate.summary?.messages?.length ? (
-              <ul>
-                {qcGate.summary.messages.map((message, index) => (
-                  <li key={index}>{message}</li>
-                ))}
-              </ul>
-            ) : null}
-            <label className="report-footer-label" htmlFor="qc-ack-reason">
-              Reason for signing out despite the QC concern (required)
-            </label>
-            <textarea
-              id="qc-ack-reason"
-              className="variant-review-textarea"
-              rows={3}
-              value={qcReason}
-              onChange={(event) => setQcReason(event.target.value)}
-            />
-            <div className="inline-actions modal-actions">
-              <button
-                type="button"
-                className="form-button"
-                onClick={() => {
-                  setQcGate(null);
-                  setQcReason('');
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="form-button"
-                disabled={!qcReason.trim() || signOut.isPending}
-                onClick={submitQcAcknowledgement}
-              >
-                Sign out anyway
-              </button>
-            </div>
-        </ModalDialog>
-      ) : null}
-
-      {importGate ? (
-        <ModalDialog
-          label="Incomplete import acknowledgement required"
-          className="modal-surface surface-card report-qc-ack-modal"
-          closeOnBackdrop={false}
-          discardMessage="Discard the reason you have typed?"
-          onClose={() => {
-            setImportGate(null);
-            setImportReason('');
-          }}
-        >
-            <h2 className="report-paragraph">
-              <strong>Incomplete import — acknowledgement required</strong>
-            </h2>
-            {/* The backend message names what the import left out. Render it verbatim so
-                the signer attests to the right thing. */}
-            <p className="report-paragraph">{importGate.message}</p>
-            <p className="report-paragraph">
-              To sign out anyway you must record a reason — it is frozen into the signed record.
-            </p>
-            {importGate.failed.length ||
-            importGate.imported.length ||
-            importGate.jobId ||
-            importGate.unfinished.length ? (
-              <ul>
-                {importGate.failed.length ? (
-                  <li>Failed to import: {importGate.failed.join(', ')}</li>
-                ) : null}
-                {importGate.imported.length ? (
-                  <li>Imported: {importGate.imported.join(', ')}</li>
-                ) : null}
-                {/* Its record holds each dataset's error; an earlier failure kept with a
-                    later one is in its own job. */}
-                {importGate.failedByJob ? (
-                  importGate.failedByJob.map(([job, names]) => (
-                    <li key={job}>
-                      Import job {job}: {names.join(', ')}
-                    </li>
-                  ))
-                ) : importGate.jobId ? (
-                  <li>Import job: {importGate.jobId}</li>
-                ) : null}
-                {/* An import that stopped part-way: its record shows how far it got. A
-                    single-file upload's or a deletion's mark has no job: its writer is named. */}
-                {importGate.unfinished.map((entry) => (
-                  <li key={entry.key}>
-                    Not finished
-                    {unfinishedWriter(entry.key) === 'upload'
-                      ? ' (single-file upload)'
-                      : unfinishedWriter(entry.key) === 'deletion'
-                        ? ' (deletion of a sample’s data)'
-                        : entry.jobId
-                          ? ` (import job ${entry.jobId})`
-                          : ''}
-                    :{' '}
-                    {pendingDatasets(entry).length
-                      ? `${pendingDatasets(entry).join(', ')} may be partly written or missing`
-                      : entry.datasets.length
-                        ? 'it had finished each of its datasets'
-                        : 'what it was importing was not recorded'}
-                  </li>
-                ))}
-              </ul>
-            ) : null}
-            <label className="report-footer-label" htmlFor="import-ack-reason">
-              Reason for signing out despite the incomplete import (required)
-            </label>
-            <textarea
-              id="import-ack-reason"
-              className="variant-review-textarea"
-              rows={3}
-              value={importReason}
-              onChange={(event) => setImportReason(event.target.value)}
-            />
-            <div className="inline-actions modal-actions">
-              <button
-                type="button"
-                className="form-button"
-                onClick={() => {
-                  setImportGate(null);
-                  setImportReason('');
-                }}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="form-button"
-                disabled={!importReason.trim() || signOut.isPending}
-                onClick={submitImportAcknowledgement}
-              >
-                Sign out anyway
-              </button>
-            </div>
-        </ModalDialog>
-      ) : null}
+      {signOutDialogs}
 
       {signoutsFailed ? (
         <section className="surface-card report-signout report-signout-unknown" role="alert">
