@@ -32,8 +32,11 @@ and refers to exactly one signed version: the one it rests on.
   has not finished: it is still running, or it stopped part-way (for example the server restarted).
   It names the datasets that failed, or that the import had not finished, and the import job. A
   single upload that has not finished, or that failed and could not put back what it deleted, is
-  named the same way, as a single-file upload. The same warning shows on every family page until an
-  import, or an upload, has brought those datasets again.
+  named the same way, as a single-file upload, and so is a deletion of the family's data that has
+  not finished (an administrator's deletion of a sample or of the family, a PED upload that replaces
+  the family, a structure change that clears its data), as a deletion of this family's data. The
+  same warning shows on every family page until an import, or an upload, has brought those datasets
+  again.
 
 ### Signing out
 
@@ -65,8 +68,9 @@ its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
    update skips data that is already there, partly written data too. After a failed overwrite that
    could not put the family's data back, import the whole family again with **overwrite**, every
    dataset the warning names and not only those that failed, and upload again with **overwrite**
-   what an upload brought. After a single upload that did not finish, upload again with
-   **overwrite** what the warning names.
+   what an upload brought. After a single upload or a deletion that did not finish, upload or import
+   again with **overwrite** what the warning names; after an administrator's deletion of a sample
+   that did not finish, deleting the sample again also removes what the warning names of it.
 
 A PGT embryo call whose phasing QC does not meet its thresholds (*⚠ phasing QC* on the family page)
 does not stop the sign-out: the call stands, you decide on it, and the signed version records the

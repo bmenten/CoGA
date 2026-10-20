@@ -1824,10 +1824,14 @@ def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:
 # import recorded (SAFE-23), or, where it recorded none, the one its file reads as.
 
 
-def _snv_store(monkeypatch, *, held=None, fail=False):
+def _snv_store(monkeypatch, *, held=None, fail=False, refuse=False):
     """The family's small variants at the SNV importer's edge: ``held`` rows of each callset,
     counted by source; the loader stores the file as it is told, or with ``fail`` fails after
-    it began. Records what is counted, stored and deleted, each by callset."""
+    it began writing, or with ``refuse`` refuses the file before it began (as it refuses an
+    annotation table it cannot read: SAFE-32). Records what is counted, stored and deleted,
+    each by callset."""
+    from fastapi import HTTPException
+
     from app.services import family_package_datasets
 
     store = SimpleNamespace(counted=[], stored=[], deleted=[])
@@ -1836,8 +1840,12 @@ def _snv_store(monkeypatch, *, held=None, fail=False):
         store.counted.append(source)
         return (held or {}).get(source, 0)
 
-    async def load(_session, *, format_hint, **_kwargs):
+    async def load(_session, *, format_hint, write_state=None, **_kwargs):
         store.stored.append(format_hint)
+        if refuse:
+            raise HTTPException(status_code=400, detail="VEP TSV annotation file is missing a header row")
+        if write_state is not None:
+            write_state.began = True
         if fail:
             raise RuntimeError("insert failed")
         return {"inserted": 1, "source_format": format_hint}
@@ -1940,6 +1948,111 @@ async def test_an_snv_file_whose_callset_cannot_be_told_is_refused_before_anythi
     with pytest.raises(family_package_datasets.SnvCallsetChanged, match="it read as when its dataset began"):
         await importer(_snv_job(tmp_path, _IMPUTED_VCF, scope=_UNRESOLVED))
     assert store.stored == store.deleted == []
+
+
+# --- a file the loader refused costs no callset (SAFE-32) -------------------------------------
+#
+# With overwrite the loader deletes the callset it replaces before it reads the file once
+# (check_before_replacing=False), and the import's snapshot puts the family back when the
+# dataset fails. When the snapshot could not be taken there is nothing to put it back from, and
+# the importer's clean-up deleted the callset after any failure, even one of a file the loader
+# refused before it replaced anything (an annotation table it cannot read): the callset the
+# family held was lost. Now the loader says when it begins writing (SmallVariantWriteState), and
+# the clean-up deletes nothing before that.
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["overwrite", "update"])
+async def test_an_snv_file_the_loader_refuses_before_it_writes_costs_no_callset(monkeypatch, tmp_path, mode) -> None:
+    import dataclasses
+
+    from fastapi import HTTPException
+
+    from app.services import family_package_datasets
+
+    store = _snv_store(monkeypatch, refuse=True)
+    job = dataclasses.replace(_snv_job(tmp_path, _DIRECT_VCF, scope=_CLAIR3), conflict_mode=mode)
+
+    with pytest.raises(HTTPException, match="missing a header row"):
+        await family_package_datasets.DATASET_IMPORTERS["snv"](job)
+    # Before: the clean-up deleted the direct calls the family held.
+    assert store.stored == ["clair3"] and store.deleted == []
+
+
+def _haplotypes_store(monkeypatch, *, refuse=False, fail=False):
+    """The imputed genotypes and their haplotype blocks at the haplotypes importer's edge: the
+    loader refuses the file before it began writing (``refuse``), or fails after it began
+    (``fail``). Records what is deleted: the glimpse2 rows, the blocks, their records."""
+    from fastapi import HTTPException
+
+    from app.services import family_package_datasets
+
+    deleted: list[str] = []
+
+    async def load(_session, *, write_state=None, **_kwargs):
+        if refuse:
+            raise HTTPException(status_code=400, detail="Sample 'S9' not found in family")
+        if write_state is not None:
+            write_state.began = True
+        if fail:
+            raise RuntimeError("insert failed")
+        return {"inserted": 1}
+
+    def recorder(name: str):
+        async def record(*_args, **_kwargs) -> None:
+            deleted.append(name)
+
+        return record
+
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", load)
+    monkeypatch.setattr(family_package_datasets, "delete_family_small_variants", recorder("glimpse2 rows"))
+    monkeypatch.setattr(family_package_datasets, "delete_interval_tracks", recorder("haplotype blocks"))
+    monkeypatch.setattr(family_package_datasets, "delete_interval_track_sources", recorder("block records"))
+    return deleted
+
+
+def _haplotypes_job(tmp_path):
+    """The haplotypes importer's job, with overwrite, for a phased family VCF."""
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+
+    job = _snv_job(tmp_path, _IMPUTED_VCF)
+    return family_package_datasets.DatasetImportJob(
+        session=job.session,
+        bundle=job.bundle,
+        dataset=job.dataset,
+        summary=FamilyImportDatasetSummary(dataset_type="haplotypes", status="valid"),
+        family_context=job.family_context,
+        sample_contexts=job.sample_contexts,
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_phased_vcf_the_loader_refuses_before_it_writes_costs_no_imputed_genotypes(
+    monkeypatch, tmp_path
+) -> None:
+    from fastapi import HTTPException
+
+    from app.services import family_package_datasets
+
+    deleted = _haplotypes_store(monkeypatch, refuse=True)
+
+    with pytest.raises(HTTPException, match="not found in family"):
+        await family_package_datasets.DATASET_IMPORTERS["haplotypes"](_haplotypes_job(tmp_path))
+    # Before: the clean-up deleted the imputed genotypes, the blocks and their records.
+    assert deleted == []
+
+
+@pytest.mark.asyncio
+async def test_a_phased_vcf_whose_load_fails_after_it_began_is_cleaned_up(monkeypatch, tmp_path) -> None:
+    from app.services import family_package_datasets
+
+    deleted = _haplotypes_store(monkeypatch, fail=True)
+
+    with pytest.raises(RuntimeError, match="insert failed"):
+        await family_package_datasets.DATASET_IMPORTERS["haplotypes"](_haplotypes_job(tmp_path))
+    # What the load may have replaced or partly written goes, as before.
+    assert deleted == ["glimpse2 rows", "haplotype blocks", "block records"]
 
 
 # --- a dataset registered with nothing to bring, or imported with warnings, counts (SAFE-17) -

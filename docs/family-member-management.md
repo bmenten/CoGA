@@ -136,7 +136,12 @@ ClickHouse has no transactions, so the variants and tracks it holds go last: onc
 write of the edit is done (the Postgres-held data, the members, the relationships, the
 pedigree, the structure version), just before the commit. An edit that fails before then rolls
 back with the family's variants and tracks still stored; before, they were deleted first, and a
-failure brought the family back without them.
+failure brought the family back without them. Before the edit locks the family row, the family
+is marked for each of its datasets held there (`deletion-` and an id in
+`metadata.import_unfinished`, SAFE-31): a commit that fails, or a process that stops, after the
+deletes brings the family back without its variants and tracks, and marked, so its sign-out is
+gated until they have been imported again with overwrite. The commit removes the mark, and so
+does an edit that fails before the deletes ([data-import.md](data-import.md#the-mark-of-an-upload-that-did-not-finish)).
 
 When it deleted data, the stale marker records `raw_datasets_preserved: false` and the
 sample-data scope, and the response warns that the data was cleared, also when the request

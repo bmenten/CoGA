@@ -285,10 +285,13 @@ A single upload of small variants, structural variants or a track marks the fami
 before it first writes to the variant store, and removes the mark when it has finished. If the server
 stops in the middle of it, or it fails and cannot put back what it had deleted, the warning names "a
 single-file upload" and what may be partly written or missing; so does the refusal at sign-out, and
-a version signed over it records the upload. An administrator's deletion of a sample's structural
-variants that cannot put the family's other calls back marks it too ("a deletion of a sample's data").
-Upload again, or import again, with **overwrite** what the warning names: each part goes as it is
-brought again.
+a version signed over it records the upload. A deletion of the family's data marks it the same way
+before it first writes to the variant store ("a deletion of this family's data"): an administrator's
+deletion of a sample, of a sample's structural variants or of the family, a PED upload or a family
+built by hand that replaces the family, and a structure change that clears its data. If it fails or
+the server stops, the warning names exactly what may be partly written or missing. Upload again, or
+import again, with **overwrite** what the warning names: each part goes as it is brought again. A
+sample's items also go once the sample is deleted: nothing of a sample that is gone can be missing.
 
 ### Who may sign out
 

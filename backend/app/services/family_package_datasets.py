@@ -54,6 +54,7 @@ from .upload_safety import read_path_text_bounded
 from .annotation_table_parser import parse_mutserve_annotation_path
 from .variant_upload_service import (
     NIPT_SMALL_VARIANT_SOURCE,
+    SmallVariantWriteState,
     _detect_small_variant_format_from_upload,
     upload_family_small_variant_file,
 )
@@ -494,6 +495,11 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     # where its check above did not count them (haplotype blocks stored without the
     # imputed genotypes they were made from), and then reads the file whole first.
     check_before_replacing = conflict_mode != "overwrite"
+    # Whether the loader began writing ClickHouse: the clean-up below deletes the callset
+    # only then. A file the loader refused before it replaced anything (an annotation table
+    # it cannot read, say) leaves the stored callset as it was, which an overwrite whose
+    # snapshot could not be taken has nothing else to put back from (SAFE-32).
+    write_state = SmallVariantWriteState()
 
     async def run_upload() -> dict[str, Any]:
         async with _local_upload(vcf_path) as upload:
@@ -521,6 +527,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                         sample_aliases=sample_aliases,
                         exclude_filters=exclude_filters,
                         check_before_replacing=check_before_replacing,
+                        write_state=write_state,
                     )
             return await upload_family_small_variant_file(
                 session,
@@ -533,6 +540,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 sample_aliases=sample_aliases,
                 exclude_filters=exclude_filters,
                 check_before_replacing=check_before_replacing,
+                write_state=write_state,
             )
 
     try:
@@ -551,13 +559,15 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         # loader's own clean-up removes the haplotype blocks of imputed genotypes it was
         # writing): a failed import of imputed genotypes leaves the direct calls, and one of
         # direct calls the imputed genotypes (SAFE-27). The flag the import leaves names
-        # this callset, the dataset's scope.
-        with suppress(Exception):
-            await delete_family_small_variants(
-                family_context.assembly_name,
-                family_context.family_uuid,
-                source=snv_source,
-            )
+        # this callset, the dataset's scope. And only once the loader began writing it
+        # (SAFE-32): before that it replaced nothing.
+        if write_state.began:
+            with suppress(Exception):
+                await delete_family_small_variants(
+                    family_context.assembly_name,
+                    family_context.family_uuid,
+                    source=snv_source,
+                )
         raise
     return summary.model_copy(
         update={
@@ -625,7 +635,10 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
             )
 
     # With overwrite read once, as the SNV dataset's VCF: the import's snapshot puts an
-    # existing family back when a dataset fails (check_before_replacing).
+    # existing family back when a dataset fails (check_before_replacing). The clean-up
+    # below runs once the loader began writing, as the SNV dataset's (SAFE-32).
+    write_state = SmallVariantWriteState()
+
     async def run_upload() -> dict[str, Any]:
         async with _local_upload(vcf_path) as upload:
             return await upload_family_small_variant_file(
@@ -638,6 +651,7 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
                 format_hint="glimpse2",
                 progress=report_haplotype_progress,
                 check_before_replacing=conflict_mode != "overwrite",
+                write_state=write_state,
             )
 
     try:
@@ -650,27 +664,29 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
         # The glimpse2 loader owns the imputed small-variant source and the haplotype
         # interval tracks, so scope the small-variant cleanup to glimpse2 (leaving the
         # annotated clair3 SNVs intact) while still clearing its own haplotype blocks,
-        # of its own source as every track loader's (SAFE-22).
-        with suppress(Exception):
-            await delete_family_small_variants(
-                family_context.assembly_name,
-                family_context.family_uuid,
-                source="glimpse2",
-            )
-        with suppress(Exception):
-            await delete_interval_tracks(
-                family_context.assembly_name,
-                family_uuid=family_context.family_uuid,
-                track_type="haplotype",
-                source="glimpse2",
-            )
-        with suppress(Exception):
-            await delete_interval_track_sources(
-                session,
-                family_uuid=family_context.family_uuid,
-                track_type="haplotype",
-                source="glimpse2",
-            )
+        # of its own source as every track loader's (SAFE-22). Only once the loader began
+        # writing: a file it refused before that replaced nothing (SAFE-32).
+        if write_state.began:
+            with suppress(Exception):
+                await delete_family_small_variants(
+                    family_context.assembly_name,
+                    family_context.family_uuid,
+                    source="glimpse2",
+                )
+            with suppress(Exception):
+                await delete_interval_tracks(
+                    family_context.assembly_name,
+                    family_uuid=family_context.family_uuid,
+                    track_type="haplotype",
+                    source="glimpse2",
+                )
+            with suppress(Exception):
+                await delete_interval_track_sources(
+                    session,
+                    family_uuid=family_context.family_uuid,
+                    track_type="haplotype",
+                    source="glimpse2",
+                )
         raise
     haplotype_origin = await _record_pipeline_haplotype_origin(job)
     return summary.model_copy(

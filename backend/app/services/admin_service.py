@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import logging
 from typing import Any
 
 from fastapi import HTTPException
@@ -30,7 +31,7 @@ from .clickhouse_interval_tracks import (
     interval_counts_by_sample,
 )
 from .clickhouse_variant_storage import (
-    StructuralVariantsNotRestored,
+    SmallVariantsNotRestored,
     count_family_small_variants,
     count_family_small_variants_by_family,
     count_family_structural_variants,
@@ -53,7 +54,14 @@ from .clickhouse_variant_storage import (
 from .clickhouse_variant_records import StoredStructuralVariantRow
 from .access_control import CurrentUser
 from .family_metadata_context import FamilyMetadataContext
-from .family_package_registration import mark_family_deletion_not_restored
+from .family_package_registration import (
+    INTERVAL_TRACK_DATA,
+    SMALL_VARIANT_DATA,
+    STRUCTURAL_VARIANT_DATA,
+    DataReach,
+    FamilyDeletion,
+    end_failed_deletions,
+)
 from .family_structure_audit import (
     ADMIN_DELETE,
     SAMPLE_DELETED,
@@ -74,6 +82,16 @@ from .raw_import_files_pg import (
     purge_family_managed_files,
     purge_sample_managed_files,
     verify_raw_import_file as _verify_raw_import_file,
+)
+
+logger = logging.getLogger(__name__)
+
+# What a deletion of the family's whole data reaches: every sample's data in each ClickHouse
+# store (SAFE-31).
+_EVERY_CLICKHOUSE_STORE = (
+    DataReach(SMALL_VARIANT_DATA),
+    DataReach(STRUCTURAL_VARIANT_DATA),
+    DataReach(INTERVAL_TRACK_DATA),
 )
 
 BED_TRACK_TYPES = ("coverage", "segments", "apcad", "apcad_pcf", "haplotype", "target_coverage")
@@ -365,29 +383,59 @@ async def _structural_sample_counts(
 async def _small_variant_entries_without_sample(
     contexts: list[FamilyMetadataContext],
     sample_row: dict[str, Any],
-) -> list[tuple[FamilyMetadataContext, list[dict[str, Any]]]]:
-    """Every stored small-variant entry row of each family context, minus the sample's calls.
+) -> list[tuple[FamilyMetadataContext, list[dict[str, Any]], list[dict[str, Any]]]]:
+    """Every stored small-variant entry row of each family context as read, and the rows
+    minus the sample's calls.
 
     Read from storage, not the family view, with exactly the scope of the family-wide
     delete that follows, so every row and call that delete removes and this change does not
     touch is written back as stored: the imputed callsets the view never reads, inactive
     members' calls, rows under projects the family has left, and every stored field (the
     annotation version, the genotype as stored, the allele fractions). A stored call names
-    its sample by id or by uuid; a row left with no call is dropped.
+    its sample by id or by uuid; a row left with no call is dropped. The rows as read are
+    put back when the rewrite fails after its delete (``_rewrite_small_variants_without_sample``).
     """
     sample_ids = {str(sample_row[key]) for key in ("sample_id", "sample_uuid") if sample_row.get(key)}
-    replacements: list[tuple[FamilyMetadataContext, list[dict[str, Any]]]] = []
+    replacements: list[tuple[FamilyMetadataContext, list[dict[str, Any]], list[dict[str, Any]]]] = []
     for context in contexts:
         if not context.assembly_name:
-            replacements.append((context, []))
+            replacements.append((context, [], []))
             continue
+        stored = await fetch_family_small_variant_entries(context.assembly_name, context.family_uuid)
         kept: list[dict[str, Any]] = []
-        for entry in await fetch_family_small_variant_entries(context.assembly_name, context.family_uuid):
+        for entry in stored:
             remaining = small_variant_entry_without_samples(entry, sample_ids)
             if remaining is not None:
                 kept.append(remaining)
-        replacements.append((context, kept))
+        replacements.append((context, stored, kept))
     return replacements
+
+
+async def _rewrite_small_variants_without_sample(
+    context: FamilyMetadataContext,
+    *,
+    stored: list[dict[str, Any]],
+    kept: list[dict[str, Any]],
+) -> None:
+    """Rewrite the family's small variants (every source's) as ``kept``, the rows without the
+    sample's calls. ClickHouse has no transactions: a rewrite that fails after its delete, or
+    in it, writes the rows as they were read (``stored``) back and raises its own error
+    (SAFE-31); when they cannot be put back either, ``SmallVariantsNotRestored`` is raised
+    from that error, and every small variant of the family may be partly written or
+    missing."""
+    assembly_name = context.assembly_name or ""
+    try:
+        await rewrite_family_small_variant_entries(assembly_name, context.family_uuid, kept)
+    except Exception as write_error:
+        try:
+            await rewrite_family_small_variant_entries(assembly_name, context.family_uuid, stored)
+        except Exception:
+            logger.warning(
+                "A failed rewrite of a family's small variants could not put back the rows it deleted",
+                exc_info=True,
+            )
+            raise SmallVariantsNotRestored(source=None) from write_error
+        raise
 
 
 async def _structural_variant_rows_without_sample(
@@ -423,34 +471,6 @@ async def _structural_variant_rows_without_sample(
                 kept.append(replace(row, record=replace(row.record, calls=remaining_calls)))
         replacements.append((context, stored, kept))
     return replacements
-
-
-async def _rewrite_without_sample(
-    session: AsyncSession,
-    context: FamilyMetadataContext,
-    *,
-    assembly_name: str,
-    stored: list[StoredStructuralVariantRow],
-    kept: list[StoredStructuralVariantRow],
-    sample_row: dict[str, Any],
-) -> None:
-    """Rewrite the family's structural variants without the sample's calls. A rewrite that
-    fails after its delete puts ``stored`` back and raises (SAFE-28); one that could not put
-    them back leaves the family marked for the structural-variant datasets it holds, the
-    sample's own excepted, before the error is raised: they may be partly written or
-    missing (``mark_family_deletion_not_restored``)."""
-    try:
-        await rewrite_family_structural_variants(
-            assembly_name, context.family_uuid, kept, stored=stored
-        )
-    except StructuralVariantsNotRestored:
-        await mark_family_deletion_not_restored(
-            session,
-            family_uuid=context.family_uuid,
-            family_id=context.family_id,
-            removed_samples=[str(sample_row["sample_id"])],
-        )
-        raise
 
 
 def _build_family_inventory_summary(
@@ -884,33 +904,45 @@ async def delete_sample_data_by_type(
         # write of the family's SVs runs between the read and the rewrite.
         await lock_family_variant_writes(session, sample_row["family_uuid"], [STRUCTURAL_VARIANTS])
         replacements = await _structural_variant_rows_without_sample(contexts, sample_row)
-        before = 0
-        for context, stored, rows in replacements:
-            if not context.assembly_name:
-                continue
-            before += await count_family_structural_variants(
-                context.assembly_name,
-                context.family_uuid,
-                project_ids=context.project_ids,
-            )
-            await _rewrite_without_sample(
-                session,
-                context,
-                assembly_name=context.assembly_name,
-                stored=stored,
-                kept=rows,
-                sample_row=sample_row,
-            )
-        after = 0
-        for context, _stored, _records in replacements:
-            if not context.assembly_name:
-                continue
-            after += await count_family_structural_variants(
-                context.assembly_name,
-                context.family_uuid,
-                project_ids=context.project_ids,
-            )
-        await session.commit()
+        # The rewrite deletes every source's SVs and writes them back without the sample's
+        # calls, putting them back when it fails (SAFE-28). Before it, the family is marked for
+        # every SV dataset but the sample's own, whose calls were to go: a deletion that stops
+        # in the rewrite, or whose rows cannot be put back, leaves them marked (SAFE-31).
+        every_sv = DataReach(STRUCTURAL_VARIANT_DATA, but=str(sample_row["sample_id"]))
+        deletion = await FamilyDeletion.begin(
+            session,
+            family_uuid=sample_row["family_uuid"],
+            family_id=sample_row["family_id"],
+            reaches=[every_sv],
+        )
+        try:
+            before = 0
+            for context, stored, rows in replacements:
+                if not context.assembly_name:
+                    continue
+                before += await count_family_structural_variants(
+                    context.assembly_name,
+                    context.family_uuid,
+                    project_ids=context.project_ids,
+                )
+                async with deletion.rewrite(failed=every_sv):
+                    await rewrite_family_structural_variants(
+                        context.assembly_name, context.family_uuid, rows, stored=stored
+                    )
+            after = 0
+            for context, _stored, _records in replacements:
+                if not context.assembly_name:
+                    continue
+                after += await count_family_structural_variants(
+                    context.assembly_name,
+                    context.family_uuid,
+                    project_ids=context.project_ids,
+                )
+            await deletion.finished(session)
+            await session.commit()
+        except Exception:
+            await deletion.failed(session)
+            raise
         return {"deleted": max(before - after, 0)}
     raise HTTPException(status_code=400, detail="Invalid data type")
 
@@ -958,7 +990,33 @@ async def delete_sample_with_data(
 ) -> dict[str, Any]:
     """Delete a sample with every dataset of it. The member leaves its family's pedigree:
     that is stored as the family's next structure version and recorded on its clinical
-    audit trail as made by ``user`` (SEC-7)."""
+    audit trail as made by ``user`` (SEC-7).
+
+    ClickHouse has no transactions: the sample's tracks are deleted, and the family's small
+    and structural variants rewritten without the sample's calls, before the sample's
+    Postgres rows go. So the family is marked before the first of those writes, for every
+    small and structural variant of it and the sample's tracks (``FamilyDeletion``,
+    SAFE-31): a deletion that stops after it leaves the family marked, sign-out gated, while
+    the sample may be back without its data. Its commit removes the mark, and the sample's
+    items from every mark (nothing of a sample that is gone can be missing); one that fails
+    leaves it listing what it may have left partly written or missing, given how far it
+    got, or removes it."""
+    deletions: list[FamilyDeletion] = []
+    try:
+        return await _delete_sample_with_data(session, sample_id, confirm, user=user, deletions=deletions)
+    except Exception:
+        await end_failed_deletions(session, deletions)
+        raise
+
+
+async def _delete_sample_with_data(
+    session: AsyncSession,
+    sample_id: str,
+    confirm: bool,
+    *,
+    user: CurrentUser | None,
+    deletions: list[FamilyDeletion],
+) -> dict[str, Any]:
     sample_row = await _sample_row_or_404(session, sample_id)
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
@@ -973,7 +1031,21 @@ async def delete_sample_with_data(
     # the family's variants runs between them and the rewrites, nor after them, before the
     # sample is gone.
     await lock_family_variant_writes(session, sample_row["family_uuid"], VARIANT_TYPES)
+    sample_name = str(sample_row["sample_id"])
+    # Before the first ClickHouse write, committed on a connection of its own (SAFE-31).
+    deletion = await FamilyDeletion.begin(
+        session,
+        family_uuid=sample_row["family_uuid"],
+        family_id=sample_row["family_id"],
+        reaches=[
+            DataReach(SMALL_VARIANT_DATA),
+            DataReach(STRUCTURAL_VARIANT_DATA),
+            DataReach(INTERVAL_TRACK_DATA, sample=sample_name),
+        ],
+    )
+    deletions.append(deletion)
 
+    deletion.reach(DataReach(INTERVAL_TRACK_DATA, sample=sample_name))
     for context in contexts:
         if not context.assembly_name:
             continue
@@ -1000,7 +1072,10 @@ async def delete_sample_with_data(
     structural_replacements = await _structural_variant_rows_without_sample(contexts, sample_row)
     small_before = 0
     structural_before = 0
-    for context, entries in small_replacements:
+    # Each rewrite deletes every sample's rows and writes them back without the sample's
+    # calls, putting them back when it fails: until it ends, and when they cannot be put back,
+    # every sample's may be missing; once it completes, the sample's.
+    for context, small_stored, entries in small_replacements:
         if not context.assembly_name:
             continue
         small_before += await count_family_small_variants(
@@ -1008,7 +1083,10 @@ async def delete_sample_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
-        await rewrite_family_small_variant_entries(context.assembly_name, context.family_uuid, entries)
+        async with deletion.rewrite(
+            failed=DataReach(SMALL_VARIANT_DATA), done=DataReach(SMALL_VARIANT_DATA, sample=sample_name)
+        ):
+            await _rewrite_small_variants_without_sample(context, stored=small_stored, kept=entries)
     for context, structural_stored, structural_rows in structural_replacements:
         if not context.assembly_name:
             continue
@@ -1017,14 +1095,13 @@ async def delete_sample_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
-        await _rewrite_without_sample(
-            session,
-            context,
-            assembly_name=context.assembly_name,
-            stored=structural_stored,
-            kept=structural_rows,
-            sample_row=sample_row,
-        )
+        async with deletion.rewrite(
+            failed=DataReach(STRUCTURAL_VARIANT_DATA),
+            done=DataReach(STRUCTURAL_VARIANT_DATA, sample=sample_name),
+        ):
+            await rewrite_family_structural_variants(
+                context.assembly_name, context.family_uuid, structural_rows, stored=structural_stored
+            )
     small_after = 0
     structural_after = 0
     for context in contexts:
@@ -1058,6 +1135,7 @@ async def delete_sample_with_data(
         source=SAMPLE_DELETED,
         metadata={"sample_id": sample_row["sample_id"]},
     )
+    await deletion.finished(session, deleted_sample=sample_name)
     await session.commit()
     return {
         "deleted": {
@@ -1079,7 +1157,29 @@ async def delete_family_with_data(
 ) -> dict[str, Any]:
     """Delete a family with every dataset of it. Its deletion is the last event of its
     clinical audit trail, written in this transaction before anything of the family is
-    deleted, as made by ``user`` (SEC-7)."""
+    deleted, as made by ``user`` (SEC-7).
+
+    ClickHouse has no transactions: the family's variants and tracks are deleted before its
+    Postgres rows. So the family is marked before the first of those deletes, for each of its
+    datasets held there (``FamilyDeletion``, SAFE-31): a deletion that fails or stops after
+    it brings the family back, without what it deleted, marked; its commit removes the
+    family, and the mark with it."""
+    deletions: list[FamilyDeletion] = []
+    try:
+        return await _delete_family_with_data(session, family_id, confirm, user=user, deletions=deletions)
+    except Exception:
+        await end_failed_deletions(session, deletions)
+        raise
+
+
+async def _delete_family_with_data(
+    session: AsyncSession,
+    family_id: str,
+    confirm: bool,
+    *,
+    user: CurrentUser | None,
+    deletions: list[FamilyDeletion],
+) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
     family_uuid = await _resolve_family_uuid(session, family_id)
@@ -1093,6 +1193,11 @@ async def delete_family_with_data(
     # Until the family is gone (the commit below): a write that waits for it then finds no
     # family and writes nothing.
     await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
+    # Before the first ClickHouse delete, committed on a connection of its own (SAFE-31).
+    deletion = await FamilyDeletion.begin(
+        session, family_uuid=family_uuid, family_id=family_id, reaches=_EVERY_CLICKHOUSE_STORE
+    )
+    deletions.append(deletion)
 
     small_deleted = 0
     structural_deleted = 0
@@ -1122,8 +1227,11 @@ async def delete_family_with_data(
     for context in contexts:
         if not context.assembly_name:
             continue
+        deletion.reach(DataReach(SMALL_VARIANT_DATA))
         await delete_family_small_variants(context.assembly_name, context.family_uuid)
+        deletion.reach(DataReach(STRUCTURAL_VARIANT_DATA))
         await delete_family_structural_variants(context.assembly_name, context.family_uuid)
+        deletion.reach(DataReach(INTERVAL_TRACK_DATA))
         await delete_interval_tracks(
             context.assembly_name,
             family_uuid=family_uuid,

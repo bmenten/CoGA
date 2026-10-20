@@ -182,15 +182,15 @@ def _still_not_restored_message(family_id: str, remaining: Mapping[str, Any]) ->
 
 def _still_unwritten_message(family_id: str, remaining: Mapping[str, Any]) -> str:
     """The log line of an import that completed while the family stays marked by a
-    single-file upload, or an admin's deletion of a sample's data, that did not finish (its
-    mark in ``import_unfinished``, SAFE-28): what of it no import, or upload, has brought
+    single-file upload (SAFE-28), or a deletion of the family's data (SAFE-31), that did not
+    finish (its mark in ``import_unfinished``): what of it no import, or upload, has brought
     again with overwrite since."""
     writes: list[str] = []
     for key, entry in sorted(remaining.items()):
         name = (
             "a single-file upload"
             if unfinished_entry_writer(key) == "upload"
-            else "a deletion of a sample's data"
+            else "a deletion of this family's data"
         )
         pending = sorted(pending_datasets(entry) or ())
         writes.append(f"{name}, still to bring again: {', '.join(pending)}" if pending else name)

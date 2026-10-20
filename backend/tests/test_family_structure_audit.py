@@ -42,6 +42,7 @@ from app.services import family_structure_audit as audit
 from app.services import family_structure_service as structure
 from app.services import integrity_anchor_service
 from app.services.access_control import CurrentUser
+from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 FAMILY = "FAM-SEC7"
 
@@ -849,6 +850,8 @@ async def test_deleting_a_sample_with_its_data_records_the_pedigree_change(monke
         "purge_sample_managed_files": nothing,
         "read_structure_snapshot": snapshot,
         "record_structure_change": structure_change,
+        # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+        "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(admin_service, name, fake)
 
@@ -981,6 +984,8 @@ def _admin_family_delete(monkeypatch, steps: list[str], *, failing: str | None =
         "delete_interval_tracks": step("ClickHouse: delete interval tracks"),
         "delete_interval_track_sources": step("delete interval track sources", 0),
         "purge_family_managed_files": step("purge raw files", 0),
+        # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+        "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(admin_service, name, fake)
 

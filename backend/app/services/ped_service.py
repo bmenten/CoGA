@@ -419,6 +419,7 @@ async def _replace_existing_families(
     *,
     via: str,
     source: str | None = None,
+    deletions: list[Any] | None = None,
 ) -> list[tuple[str, str]]:
     """Delete the stored families of these IDs (with ``overwrite``; else refuse, 409), in
     the caller's transaction, and return their variants in ClickHouse, (assembly, family
@@ -426,6 +427,13 @@ async def _replace_existing_families(
     of the replacement is written, just before it commits. ClickHouse has no transactions:
     deleted here, the variants were gone when a check after this refused the upload, while
     the rollback brought the family back (SAFE-25).
+
+    Under the family's variant-write locks, before its row is touched, each family is marked
+    for its small and structural variants (``FamilyDeletion``, added to ``deletions``,
+    SAFE-31): a commit that fails, or a process that stops, after their delete brings the
+    family back without them, and marked. The commit removes the family, and its mark with
+    it; a replacement that fails removes the mark, or leaves it listing what the deletes it
+    began may have left missing (``_end_replacement``).
 
     Before each family goes, the phenotypes it goes with are recorded as removed on its
     clinical audit trail, then its deletion (SEC-7), as made by ``user`` through ``via`` (a PED
@@ -452,6 +460,24 @@ async def _replace_existing_families(
     # Taken family by family in one order, so two replacements never wait for each other.
     for family_uuid in sorted(family_uuid_by_id.values()):
         await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
+    if deletions is not None:
+        # Imported here: family_package_registration imports this module.
+        from .family_package_registration import (
+            SMALL_VARIANT_DATA,
+            STRUCTURAL_VARIANT_DATA,
+            DataReach,
+            FamilyDeletion,
+        )
+
+        for family_id, family_uuid in sorted(family_uuid_by_id.items(), key=lambda item: item[1]):
+            deletions.append(
+                await FamilyDeletion.begin(
+                    session,
+                    family_uuid=family_uuid,
+                    family_id=family_id,
+                    reaches=[DataReach(SMALL_VARIANT_DATA), DataReach(STRUCTURAL_VARIANT_DATA)],
+                )
+            )
     replaced: list[tuple[str, str]] = []
     replaced_by = PhenotypeImport(user=user, via=via, source=source)
     for family_id, family_uuid in family_uuid_by_id.items():
@@ -483,15 +509,35 @@ async def _replace_existing_families(
     return replaced
 
 
-async def _delete_replaced_family_variants(replaced: list[tuple[str, str]] | None) -> None:
+async def _delete_replaced_family_variants(
+    replaced: list[tuple[str, str]] | None, deletions: list[Any] | None = None
+) -> None:
     """Delete the small variants and structural variants of the families a PED upload or a
     manual family replaced (``_replace_existing_families``), last, after everything else of
     the replacement is written and just before its commit: a check that refuses the upload
     leaves them, with the family the rollback brings back. The variant-write locks taken
-    with the replacement are still held."""
+    with the replacement are still held. Each delete is recorded on its family's
+    ``FamilyDeletion`` (``deletions``) as it begins (SAFE-31)."""
+    from .family_package_registration import SMALL_VARIANT_DATA, STRUCTURAL_VARIANT_DATA, DataReach
+
+    by_family = {deletion.family_uuid: deletion for deletion in deletions or ()}
     for assembly_name, family_uuid in replaced or ():
+        deletion = by_family.get(family_uuid)
+        if deletion is not None:
+            deletion.reach(DataReach(SMALL_VARIANT_DATA))
         await delete_family_small_variants(assembly_name, family_uuid)
+        if deletion is not None:
+            deletion.reach(DataReach(STRUCTURAL_VARIANT_DATA))
         await delete_family_structural_variants(assembly_name, family_uuid)
+
+
+async def _end_replacement(session: AsyncSession, deletions: list[Any]) -> None:
+    """After a PED upload or a manual family that failed once it had marked the families it
+    replaces: the transaction is rolled back, which brings them back, and each one's mark goes,
+    or lists what the deletes it began may have left partly written or missing (SAFE-31)."""
+    from .family_package_registration import end_failed_deletions
+
+    await end_failed_deletions(session, deletions)
 
 
 async def _ensure_sample_ids_are_available(
@@ -863,11 +909,50 @@ async def upload_ped_data(
     obligate_carriers: str | None = None,
     proven_carriers: str | None = None,
 ) -> PedUploadResult:
+    # The families the upload replaces, each marked before its variants go (SAFE-31).
+    deletions: list[Any] = []
+    try:
+        return await _upload_ped_data(
+            session,
+            file,
+            overwrite,
+            user,
+            project_id,
+            roi_query=roi_query,
+            inheritance_model=inheritance_model,
+            obligate_carriers=obligate_carriers,
+            proven_carriers=proven_carriers,
+            deletions=deletions,
+        )
+    except Exception:
+        await _end_replacement(session, deletions)
+        raise
+
+
+async def _upload_ped_data(
+    session: AsyncSession,
+    file: UploadFile,
+    overwrite: bool,
+    user: CurrentUser,
+    project_id: str | None,
+    *,
+    roi_query: str | None,
+    inheritance_model: str | None,
+    obligate_carriers: str | None,
+    proven_carriers: str | None,
+    deletions: list[Any],
+) -> PedUploadResult:
     resolved_project_id = await _resolve_accessible_project_id(session, user, project_id)
     text_value = await decode_upload_text(file, kind="PED")
     families = _parse_ped_text(text_value)
     replaced = await _replace_existing_families(
-        session, list(families.keys()), overwrite, user, via=PED_UPLOAD, source=file.filename
+        session,
+        list(families.keys()),
+        overwrite,
+        user,
+        via=PED_UPLOAD,
+        source=file.filename,
+        deletions=deletions,
     )
     sample_ids = sorted({member["iid"] for members in families.values() for member in members})
     await _ensure_sample_ids_are_available(session, sample_ids)
@@ -971,7 +1056,7 @@ async def upload_ped_data(
                 actor=audit_actor(user),
             )
         )
-    await _delete_replaced_family_variants(replaced)
+    await _delete_replaced_family_variants(replaced, deletions)
     await session.commit()
     return PedUploadResult(families=inserted)
 
@@ -982,12 +1067,29 @@ async def create_manual_family_data(
     overwrite: bool,
     user: CurrentUser,
 ) -> PedUploadResult:
+    # The family it replaces, marked before its variants go (SAFE-31).
+    deletions: list[Any] = []
+    try:
+        return await _create_manual_family_data(session, family, overwrite, user, deletions=deletions)
+    except Exception:
+        await _end_replacement(session, deletions)
+        raise
+
+
+async def _create_manual_family_data(
+    session: AsyncSession,
+    family: ManualPedFamilyCreate,
+    overwrite: bool,
+    user: CurrentUser,
+    *,
+    deletions: list[Any],
+) -> PedUploadResult:
     # The family ID, read as its members' IDs are: without the whitespace around it.
     family = family.model_copy(update={"family_id": family.family_id.strip()})
     resolved_project_id = await _resolve_accessible_project_id(session, user, family.project_id)
     normalized_members = _validate_manual_family(family)
     replaced = await _replace_existing_families(
-        session, [family.family_id], overwrite, user, via=FAMILY_BUILDER
+        session, [family.family_id], overwrite, user, via=FAMILY_BUILDER, deletions=deletions
     )
     await _ensure_sample_ids_are_available(
         session,
@@ -1038,6 +1140,6 @@ async def create_manual_family_data(
         created_by=user.id,
         actor=audit_actor(user),
     )
-    await _delete_replaced_family_variants(replaced)
+    await _delete_replaced_family_variants(replaced, deletions)
     await session.commit()
     return PedUploadResult(families=[inserted])

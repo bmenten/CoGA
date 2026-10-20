@@ -483,13 +483,17 @@ Five gates run first, in this order:
    completes with `overwrite` and imports again the datasets a stopped import had not
    finished, for that scope, removes that import's entry. A single-file upload that writes
    ClickHouse marks the family the same way before its first write there, an entry with no
-   job keyed `upload-…`, and an admin's delete of a sample's structural variants that could
-   not put the family's other calls back leaves one keyed `deletion-…`
+   job keyed `upload-…`, and so does a deletion of the family's data that deletes or rewrites
+   rows there (an admin's deletion of a sample, of its structural variants or of the family,
+   a PED upload or manual family that replaces it, a structure change that clears its data:
+   keyed `deletion-…`, SAFE-31), which a failure leaves listing exactly what it may have left
+   partly written or missing
    ([The mark of an upload that did not finish](data-import.md#the-mark-of-an-upload-that-did-not-finish)):
-   it gates in the same 409, whose message names "a single-file upload" or "a deletion of a
-   sample's data" that "did not finish" and what may be partly written or missing, and is
+   it gates in the same 409, whose message names "a single-file upload" or "a deletion of this
+   family's data" that "did not finish" and what may be partly written or missing, and is
    frozen with its key, from which the signed record names what wrote it. Each upload or
-   import with overwrite removes from it what it brought again.
+   import with overwrite removes from it what it brought again; the deletion of a sample
+   removes that sample's items.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

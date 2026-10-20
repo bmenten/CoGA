@@ -1429,6 +1429,21 @@ class StructuralVariantsNotRestored(RuntimeError):
         self.source = source
 
 
+class SmallVariantsNotRestored(RuntimeError):
+    """A rewrite of the family's small variants failed after its delete, and the rows it
+    deleted could not be written back either: the family's small-variant rows of ``source``
+    (of every source when None) may be partly written or missing (SAFE-31). Raised from the
+    rewrite's own error by a caller that puts the rows back itself (the admin's deletion of
+    a sample); the caller marks the family for what may be missing."""
+
+    def __init__(self, *, source: str | None) -> None:
+        super().__init__(
+            "A failed write of the family's small variants could not put back the rows it had "
+            "deleted: they may be partly written or missing"
+        )
+        self.source = source
+
+
 async def _write_family_structural_variant_rows(
     assembly_name: str,
     family_uuid: str,

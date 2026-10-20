@@ -25,6 +25,7 @@ import pytest
 from backend.app.schemas import FamilyOut, FamilyStructureUpdate
 from backend.app.services import family_structure_service as service
 from backend.app.services.access_control import CurrentUser
+from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 DATA = {"small_variants": 120, "structural_variants": 4, "coverage": 2}
 
@@ -129,6 +130,8 @@ def events(monkeypatch) -> list[str]:
         "_record_family_structure_version": record("record structure version"),
         "_pedigree_text_from_target": lambda **_kwargs: "",
         "get_family_record": family_record,
+        # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+        "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(service, name, value)
     return recorded

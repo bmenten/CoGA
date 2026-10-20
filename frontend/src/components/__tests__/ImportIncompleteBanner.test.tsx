@@ -64,7 +64,7 @@ const WHOLE_FAMILY = {
 
 // As family_package_registration.FamilyWriteMark records them (SAFE-28): a structural-variant
 // upload's mark, written before its rewrite, naming each sample whose Sniffles calls the
-// rewrite deletes; and a deletion's, left when its rewrite could not put the SVs back.
+// rewrite deletes; and a deletion's, written before its first ClickHouse write (SAFE-31).
 const UPLOAD_KEY = 'upload-0a1b2c3d4e5f60718293a4b5c6d7e8f9';
 const UPLOAD_MARK = {
   [UPLOAD_KEY]: {
@@ -111,14 +111,16 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).toHaveTextContent(/Sign-out needs this acknowledged with a reason/);
   });
 
-  it('names a deletion that could not put the family’s structural variants back', () => {
+  it('names a deletion of the family’s data that has not finished', () => {
     render(<ImportIncompleteBanner metadata={{ import_unfinished: DELETION_MARK }} />);
 
     const banner = screen.getByRole('alert');
+    // Written before the deletion's first ClickHouse write (SAFE-31): one that is running,
+    // stopped or failed part-way; not only one whose rewrite could not put the SVs back.
     expect(banner).toHaveTextContent(
-      'A deletion of a sample’s data (2026-10-14 09:00 UTC) failed, and putting this family’s structural variants back as they were did not finish. cnv and sv_needlr may be partly written or missing.',
+      'A deletion of this family’s data (2026-10-14 09:00 UTC) began and has not finished: it is still running, or it stopped or failed part-way. cnv and sv_needlr may be partly written or missing.',
     );
-    expect(banner).not.toHaveTextContent(/still running/);
+    expect(banner).not.toHaveTextContent(/import job/);
     expect(banner).toHaveTextContent(/Upload or import again, with overwrite, what a single-file upload or a deletion did not finish/);
   });
 

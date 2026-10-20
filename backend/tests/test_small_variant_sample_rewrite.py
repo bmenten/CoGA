@@ -34,7 +34,7 @@ from backend.app.services.clickhouse_variant_storage import (
     small_variant_entry_without_samples,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services.family_package_common import ManifestDataset, VcfSampleColumnError
+from backend.app.services.family_package_common import DatasetLeftMissing, ManifestDataset, VcfSampleColumnError
 from backend.app.services.family_package_datasets import DatasetImportJob
 from backend.app.services.variant_upload_service import _entries_with_uploaded_calls
 
@@ -313,6 +313,22 @@ async def test_a_failed_rewrite_puts_the_stored_rows_back_and_never_clears_the_s
     # The upload's own cleanup deletes its whole source; for one sample's file that
     # would be every other sample's calls.
     assert storage["deletes"] == []
+
+
+@pytest.mark.asyncio
+async def test_a_rewrite_whose_rows_cannot_be_put_back_names_every_sample_they_held(storage) -> None:
+    # The rewrite fails after its delete, and so does the write of the rows as they were:
+    # the mother's calls may be gone too, not only the proband's the file brought.
+    storage["fail_rewrites"] = 2
+    with pytest.raises(DatasetLeftMissing) as raised:
+        await _upload(_PROBAND_VCF, overwrite=True)
+
+    # Before: the failed restore was only logged, and the import flagged the dataset for the
+    # samples it names alone (SAFE-31). Now its error names each sample whose calls the rows
+    # held, and the import flags the dataset for them too (scope_with_samples).
+    assert raised.value.samples == ["MOTHER", "PROBAND"]
+    assert str(raised.value.__cause__) == "ClickHouse went away"
+    assert len(storage["rewrites"]) == 2 and storage["deletes"] == []
 
 
 @pytest.mark.asyncio

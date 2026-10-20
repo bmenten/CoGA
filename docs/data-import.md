@@ -434,8 +434,10 @@ import. An import whose process stops during its restore leaves the same entry. 
 puts the family back, or that refuses to start, removes the entry as before.
 
 A single-file upload marks the family the same way before its first write to ClickHouse, and
-so does an admin's delete of a sample's structural variants that could not put the family's
-other calls back ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)).
+so does a deletion of the family's data that deletes or rewrites rows there: an admin's
+deletion of a sample, of a sample's structural variants or of the family, a PED upload or a
+manual family that replaces the family, and a structure change that clears its data
+([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)).
 
 While the flag or an entry is set, every family page shows *Import incomplete*, and sign-out
 needs the signer to acknowledge it with a reason ([clinical-traceability.md](clinical-traceability.md)).
@@ -464,6 +466,14 @@ cannot read is refused, as the loader refuses it, before anything is counted, wr
 removed. Before, both read the direct calls (`clair3`) whatever the file held: an update of
 imputed genotypes was skipped when the family held direct calls, and a failed import of
 imputed genotypes whose overwrite had no backup removed the direct calls.
+
+The clean-up of the `snv` and `haplotypes` datasets (for the latter, the imputed genotypes and
+their haplotype blocks) runs only once the loader began writing ClickHouse: its delete of the
+callset it replaces, or with none stored its first insert (SAFE-32). A file the loader refuses
+before that -- a VEP table without its header row, a lock it cannot take -- replaced nothing,
+and the callset the family held stays; the dataset still fails, and the flag names it. Before,
+the clean-up ran after any failure, so such a refusal, in an overwrite whose backup could not be
+taken, cost the family its callset.
 
 A record whose callset reads `auto` names no callset, and no import or upload completes it,
 whatever callset it stores: one written before imports recorded the callset they stored (such
@@ -796,7 +806,11 @@ another, and two callers' rows of one variant stay two rows in storage
 ([database.md](database.md#row-identity)). The `mito` dataset has one file per sample, and
 each file replaces only that sample's calls. The other samples' mitochondrial calls stay as
 they are, one row per variant with every sample's call, so the mtDNA analysis can set the
-mother's calls beside the children's. A chrM VCF without a variant record fails the dataset
+mother's calls beside the children's. To merge a file the import rewrites the callset's rows
+of every sample; a write that fails after the rewrite's delete puts the stored rows back, and
+one that cannot put them back either flags the dataset failed for every sample whose calls the
+rows held, not only for the samples it names (SAFE-31; a monogenic NIPT pair's files are merged
+the same way). A chrM VCF without a variant record fails the dataset
 before any sample's calls are replaced ([below](#where-each-dataset-lands)). The chrM SV files
 follow the same rule: one deletion called in the mother and the child is one
 SV with both calls, and a sample's new SV file replaces only that sample's calls. The import
@@ -1097,6 +1111,12 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
   or `2`, carriers the PED does not name, the inheritance model or the region of interest
   (400 or 404), and the database's own constraints (500). A header line of six fields, such as
   `#FID IID PAT MAT SEX PHENOTYPE`, is read as a family, and refused for its phenotype.
+  Before its row is touched, the replaced family is marked for its small and structural
+  variants (`deletion-` and an id, SAFE-31): a commit that fails, or a process that stops,
+  after their delete brings the family back without them, and marked
+  ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)).
+  The commit removes the replaced family and its mark; a replacement refused before the
+  delete removes the mark.
 - Both refuse (400), before anything is written, a family or sample ID (a PED's parent IDs
   too) that is not printable text without spaces, as a package import does
   ([Validation](#validation)); the whitespace around a typed-in ID is stripped.
@@ -1350,9 +1370,11 @@ Deleting a sample's structural variants on **Admin → Family & Sample Data** re
 from every source, and so does deleting the sample with its data. Both these deletes and an
 upload rewrite the stored rows, and write every call they do not change back as stored: with
 its phase set and breakend end, in its project, an inactive member's included. A delete whose
-rewrite fails after its delete writes the rows it deleted back and answers 500; one that cannot
-put them back either leaves the family marked for each SV dataset it holds, the deleted
-sample's excepted ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)).
+rewrite fails after its delete writes the rows it deleted back and answers 500. Each marks the
+family before its first write to ClickHouse: one that cannot put the rows back either, or whose
+process stops, leaves the family marked for each SV dataset it holds, the deleted sample's
+excepted (for the deletion of a sample with its data, for what else it reached too:
+[The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)).
 
 ### What an upload records
 
@@ -1425,20 +1447,57 @@ An upload that cannot write its mark writes nothing. The repeat-expansion upload
 alone, in the transaction that deletes what it replaces, so a stop rolls its delete back; it
 writes no mark.
 
-An admin's delete of a sample's structural variants, or of a sample with its data, whose rewrite
-could not put the family's other calls back leaves such a mark too (`deletion-` and an id): it
-lists each structural-variant dataset the family holds (`imported_scopes`: an SV upload's, a
-package's `sv_needlr`, `cnv` and `mito`), one sample at a time, but the deleted sample's.
+A deletion of the family's data that deletes or rewrites rows in ClickHouse marks the family the
+same way before its first write there (`deletion-` and an id, SAFE-31), under the family's
+write locks and before its own transaction touches the family row. It lists each dataset the
+family holds (`imported_scopes`) whose data the deletion may leave partly written or missing,
+one sample at a time; a sample that is no longer the family's is left out, as nothing can bring
+its data again. Which stores hold a dataset's data is fixed per dataset: the small variants
+(`snv`, `haplotypes`, `mito`), the structural variants (an SV upload's, `sv_needlr`, `cnv`,
+`mito`) and the interval tracks (a BED upload's, `haplotypes`, `wisecondorx`, `qdnaseq`,
+`apcad`, `pcf`, `coverage`, `cnv`); the repeat calls, paraphase results, QC, run record and
+phenotypes are held in Postgres alone, where the deletion's transaction rolls them back.
+
+- An admin's deletion of a sample with its data deletes the sample's tracks, then rewrites the
+  family's small variants and structural variants without the sample's calls, before the
+  sample's Postgres rows go. Its mark lists every small-variant and structural-variant dataset
+  of the family, which it rewrites, and the sample's tracks. Each rewrite puts the rows it
+  deleted back when it fails (the small variants' as the structural variants' do,
+  [above](#6-single-file-uploads)).
+- An admin's deletion of a sample's structural variants rewrites every source's SVs without the
+  sample's calls: its mark lists each SV dataset of the family but the sample's own, whose calls
+  were to go.
+- An admin's deletion of a family, a PED upload or a manual family that replaces it (with
+  `overwrite`), and a structure change that clears its data delete its variants (and, but for
+  the replacement, its tracks) before their commit: their mark lists each dataset held in
+  those stores.
+
+The deletion's commit removes the mark; a deletion of the family, or a replacement, removes the
+family and the mark with it. A deletion of a sample also removes the sample's items from every
+mark and every entry a restore left: nothing of a sample that is gone can be missing. A
+deletion that fails rolls its transaction back and leaves the mark listing exactly what its
+writes may have left partly written or missing, given how far it got: what a delete that began
+may have removed, what a rewrite that could not put its rows back may have removed (every
+sample's), and what a rewrite that completed removed (the sample's: its own items, and its
+part of a dataset held in one family-level file, such as the direct calls of a family VCF, an
+item that names the sample). A rewrite that put its rows back leaves nothing; a deletion that
+failed before its first ClickHouse write removes the mark. A process that stops leaves the mark
+as it was written, listing all it may reach. A deletion that cannot write its mark deletes
+nothing. The admin's deletions of a sample's tracks of one type, and of a family's small
+variants, delete exactly what they were asked to delete and touch nothing else: they write no
+mark.
 
 A mark gates sign-out as an import's entry does, and is frozen into the signed record with its
 key, which says what wrote it. Every family page's *Import incomplete* banner names it ("A
 single-file upload (…) began rewriting this family's data and has not finished: it is still
-running, or it stopped or failed part-way. … may be partly written or missing"; "A deletion of a
-sample's data (…) failed, and putting this family's structural variants back as they were did
-not finish"), and asks to upload or import again, with overwrite, what it did not finish. The
+running, or it stopped or failed part-way. … may be partly written or missing"; "A deletion of
+this family's data (…) began and has not finished: it is still running, or it stopped or failed
+part-way"), and asks to upload or import again, with overwrite, what it did not finish. The
 sign-out refusal says "a single-file upload (…) did not finish, so … may be partly written or
-missing" and lists it as *Not finished (single-file upload)*; a signed record reads "A
-single-file upload (begun …) had not finished: …". Each upload with `overwrite` removes from a
+missing" (or "a deletion of this family's data (…) did not finish") and lists it as *Not finished
+(single-file upload)* or *Not finished (deletion of this family's data)*; a signed record reads
+"A single-file upload (begun …) had not finished: …" or "A deletion of this family's data (begun
+…) had not finished: …". Each upload with `overwrite` removes from a
 mark what it brought again (the same dataset, for the same sample and, for the small variants,
 the same callset), as does an import that completes with `overwrite`; the mark goes with the
 last. One without `overwrite` removes nothing, as an `update` removes nothing. The import job's
@@ -1516,7 +1575,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "VCF file must be plain text or gzipped" (small-variant upload, 400) | The file is neither text nor whole gzip: a `.vcf.gz` cut short in a copy, or damaged. Copy it again; a refused upload with `overwrite` kept the stored callset. |
 | *Import incomplete* for `snv` or `haplotypes`, with no import job | A small-variant upload with `overwrite` failed after it had deleted the callset it replaced ([section 6](#6-single-file-uploads)). Upload the callset again, or import it. |
 | *Import incomplete*: "A single-file upload … began rewriting this family's data and has not finished" | An upload is still running, or one stopped (a restart, a crash, running out of memory) or failed after its first write to ClickHouse, and could not put back what it deleted ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once no upload of the family runs, upload again with `overwrite` each dataset and sample the banner names (or import it again with overwrite); each goes from the mark as it is brought again. |
-| *Import incomplete*: "A deletion of a sample's data … failed" | An admin's delete of a sample's structural variants could not put the family's other calls back. Upload or import again, with `overwrite`, each structural-variant dataset the banner names. |
+| *Import incomplete*: "A deletion of this family's data … began and has not finished" | A deletion of the family's data (an admin's deletion of a sample, of its structural variants or of the family, a PED upload or manual family that replaced it, a structure change that cleared its data) is still running, or stopped or failed after its first write to ClickHouse ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once it no longer runs, upload or import again, with `overwrite`, each dataset and sample the banner names; or, for a sample's deletion, delete the sample again: once it is gone its own items go. |
 | "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
 | "… holds no record of the … track", "… holds no interval on a primary chromosome …", "… holds no segment", "… holds no APCAD value for …" | A package's track file holds nothing its reader can store: an empty or truncated pipeline output, or another file than the manifest means. Its dataset failed before the track was deleted ([Where each dataset lands](#where-each-dataset-lands)). Correct the file and import again. |
 | "Paraphase JSON for … holds no gene result", "The NeedlR file of … holds no structural variant", "The SNV file of … holds no record" | That sample's file holds no result; its dataset failed before the sample's data was replaced. |
