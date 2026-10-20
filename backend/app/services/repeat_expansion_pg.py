@@ -2,15 +2,19 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
 import json
+import logging
 from pathlib import Path
+import re
 from typing import Any, Iterable
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
+from ..core.coga_logging import scrub_log
+from ..core.config import STRCHIVE_PINNED_LOCI_SHA256, settings
 from ..core.sql import uuid_list_bindparam, uuid_values
 from ..schemas import (
     FamilyRepeatExpansionTableOut,
@@ -33,6 +37,8 @@ from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI, PREMUTATION_MIN_BY_GE
 from .sex_chromosomes import hemizygous_chromosome
 from .vcf_header_provenance import extract_header_provenance
 
+
+logger = logging.getLogger(__name__)
 
 REPO_STRCHIVE_LOCI_PATH = Path(__file__).resolve().parents[3] / "data" / "ref-data" / "STRchive-loci.json"
 
@@ -158,12 +164,7 @@ def _normalize_strchive_repeat_locus(entry: dict[str, Any]) -> dict[str, Any] | 
     }
 
 
-def load_strchive_repeat_loci(path: str | Path) -> list[dict[str, Any]]:
-    path = Path(path)
-    if not path.exists():
-        return []
-    with path.open() as handle:
-        payload = json.load(handle)
+def _strchive_repeat_loci_from_payload(payload: Any) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]]
     if isinstance(payload, list):
         entries = [entry for entry in payload if isinstance(entry, dict)]
@@ -176,6 +177,13 @@ def load_strchive_repeat_loci(path: str | Path) -> list[dict[str, Any]]:
         for entry in entries
         if (normalized := _normalize_strchive_repeat_locus(entry)) is not None
     ]
+
+
+def load_strchive_repeat_loci(path: str | Path) -> list[dict[str, Any]]:
+    path = Path(path)
+    if not path.exists():
+        return []
+    return _strchive_repeat_loci_from_payload(json.loads(path.read_bytes()))
 
 
 def _configured_strchive_loci_paths() -> list[Path]:
@@ -192,12 +200,84 @@ def _configured_strchive_loci_paths() -> list[Path]:
     return paths
 
 
+class StrchiveReleaseRefused(RuntimeError):
+    """The STRchive file a start would read is not the shipped release, or there is none.
+
+    The built-in loci carry the shipped release's thresholds (CLIN-22), so a call reads the
+    same whichever catalogue row its TRID finds only while the STRchive rows are that release
+    too. A start that would seed another file is refused before anything is written (CLIN-31).
+    """
+
+
+_STRCHIVE_RELEASE_REMEDY = (
+    "Copy the repository's data/ref-data/STRchive-loci.json there unchanged (on Cloud Run: "
+    "gcloud storage cp data/ref-data/STRchive-loci.json gs://<reference-data bucket>/), or set "
+    "TRGT_STRCHIVE_LOCI_PATH to such a copy. Another STRchive release needs a reviewed change "
+    "that moves STRCHIVE_PINNED_LOCI_SHA256 with the file (docs/data-import.md, "
+    '"The STRchive release").'
+)
+
+
+def _refuse_strchive_release(message: str) -> StrchiveReleaseRefused:
+    # Logged as well as raised: the log writes a failed start's traceback without the
+    # exception's message (coga_logging), and the operator needs this one.
+    logger.error("%s", message)
+    return StrchiveReleaseRefused(message)
+
+
+def read_shipped_strchive_release(path: Path) -> bytes:
+    """The STRchive file's bytes, if it is the shipped release byte for byte (CLIN-31).
+
+    The file states no release of its own, so its SHA-256 names it: the pin
+    ``STRCHIVE_PINNED_LOCI_SHA256``. An identical copy passes wherever it lies; any other
+    file, and one that cannot be read, raises ``StrchiveReleaseRefused``. The bytes checked
+    are the bytes returned, so the catalogue is built from exactly what was checked."""
+    shown = scrub_log(path)
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise _refuse_strchive_release(
+            f"The STRchive file {shown} cannot be read ({type(exc).__name__}), so it cannot be "
+            f"checked against the shipped release (SHA-256 {STRCHIVE_PINNED_LOCI_SHA256}). The "
+            f"backend does not start. {_STRCHIVE_RELEASE_REMEDY}"
+        ) from exc
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != STRCHIVE_PINNED_LOCI_SHA256:
+        raise _refuse_strchive_release(
+            f"The STRchive file {shown} is not the shipped, validated STRchive release: its "
+            f"SHA-256 is {digest}, the shipped release's is {STRCHIVE_PINNED_LOCI_SHA256}. The "
+            "backend does not start, because the built-in repeat loci carry the shipped "
+            "release's thresholds and calls would be read against two releases. "
+            f"{_STRCHIVE_RELEASE_REMEDY}"
+        )
+    return payload
+
+
 def _load_configured_strchive_repeat_loci() -> list[dict[str, Any]]:
-    for path in _configured_strchive_loci_paths():
-        entries = load_strchive_repeat_loci(path)
-        if entries:
-            return entries
-    return []
+    """The shipped STRchive release's loci, from the first configured file that exists:
+    ``TRGT_STRCHIVE_LOCI_PATH``, else the repository's copy.
+
+    That file must be the shipped release (``read_shipped_strchive_release``), and one must
+    exist: without one, a start would keep whatever STRchive rows an earlier start left, which
+    nothing checks, beside built-in rows that carry the shipped release's thresholds. Either
+    way the start is refused (``StrchiveReleaseRefused``) before anything is written."""
+    paths = _configured_strchive_loci_paths()
+    for path in paths:
+        if not path.exists():
+            continue
+        entries = _strchive_repeat_loci_from_payload(json.loads(read_shipped_strchive_release(path)))
+        if not entries:  # the shipped release has 75 loci: reading none is a defect here
+            raise _refuse_strchive_release(
+                f"No locus was read from the STRchive file {scrub_log(path)}, although it is the "
+                "shipped release. The backend does not start."
+            )
+        return entries
+    searched = ", ".join(scrub_log(path) for path in paths)
+    raise _refuse_strchive_release(
+        f"No STRchive file was found (looked for {searched}), so the repeat catalogue cannot be "
+        f"built from the shipped release (SHA-256 {STRCHIVE_PINNED_LOCI_SHA256}). The backend "
+        f"does not start. {_STRCHIVE_RELEASE_REMEDY}"
+    )
 
 
 async def _seed_repeat_catalog_entries(
@@ -282,9 +362,33 @@ async def _seed_repeat_catalog_entries(
         )
 
 
+# STRchive rows a start did not read from the shipped release: loci of another release an
+# earlier start seeded, or of the release before a reviewed change moved the pin.
+_DELETE_STRCHIVE_LOCI_OUTSIDE_RELEASE_SQL = text(
+    """
+    DELETE FROM repeat_loci
+    WHERE metadata ->> 'source' = 'STRchive'
+      AND NOT (locus_id = ANY(CAST(:locus_ids AS text[])))
+    """
+)
+
+
 async def seed_builtin_repeat_catalog(session: AsyncSession) -> None:
+    """Write the repeat catalogue every start: the built-in loci and the shipped STRchive
+    release, upserted by ``locus_id``, in one transaction.
+
+    The STRchive file is checked first (``_load_configured_strchive_repeat_loci``): a file
+    that is not the shipped release, or none, refuses the start before anything is written.
+    The STRchive rows then become exactly that release's: a STRchive row it does not list,
+    left by an earlier start, is removed, so no TRID can find another release's thresholds
+    (CLIN-31)."""
+    strchive_loci = _load_configured_strchive_repeat_loci()
     await _seed_repeat_catalog_entries(session, BUILTIN_REPEAT_LOCI)
-    await _seed_repeat_catalog_entries(session, _load_configured_strchive_repeat_loci())
+    await _seed_repeat_catalog_entries(session, strchive_loci)
+    await session.execute(
+        _DELETE_STRCHIVE_LOCI_OUTSIDE_RELEASE_SQL,
+        {"locus_ids": [str(entry["locus_id"]) for entry in strchive_loci]},
+    )
     await session.commit()
 
 
@@ -684,7 +788,36 @@ def _coerce_locus_aliases(value: Any) -> list[str]:
     return []
 
 
-async def _build_repeat_locus_lookup(session: AsyncSession) -> dict[str, dict[str, Any]]:
+class RepeatLocusLookup(dict[str, dict[str, Any]]):
+    """The repeat catalogue for TRGT ingest: each lowercased locus_id, gene, display name and
+    alias maps to the row it names (``_build_repeat_locus_lookup``).
+
+    A name that names several STRchive loci -- the gene of a locus with several repeat tracts
+    (ARX, HOXA13), or a tag several loci share -- maps to none of them. ``tracts`` lists them
+    instead, and the import picks one by the call's position (``_resolve_repeat_locus``).
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.tracts: dict[str, list[dict[str, Any]]] = {}
+
+
+def _row_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    """A catalogue row's metadata as a dict (a JSON string, depending on the driver)."""
+    metadata = row.get("metadata")
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except ValueError:
+            return {}
+    return metadata if isinstance(metadata, dict) else {}
+
+
+def _is_strchive_row(row: dict[str, Any]) -> bool:
+    return _row_metadata(row).get("source") == "STRchive"
+
+
+async def _build_repeat_locus_lookup(session: AsyncSession) -> RepeatLocusLookup:
     """Load the (small, static) repeat catalog once and index it by lowercased
     locus_id / gene / display_name / alias so TRGT ingest can resolve a locus in
     memory instead of issuing a sequential-scan SELECT per VCF line.
@@ -693,10 +826,18 @@ async def _build_repeat_locus_lookup(session: AsyncSession) -> dict[str, dict[st
     locus_id > gene > display_name > alias; within a field the first locus in
     catalog order keeps the key. This is at least as precise as the previous
     per-row ``OR ... LIMIT 1`` query, which returned an arbitrary matching row.
+
+    Except where the rows a key names in its best field include several STRchive loci: the
+    tracts of ARX or HOXA13 under the gene's name, or the loci a tag names. The first of those
+    by locus_id is one tract among several, with thresholds of its own, so such a key names
+    no row; its loci are in ``tracts``, for the call's position to choose (CLIN-31). A
+    built-in row and its STRchive row (``HD``: HTT and HD_HTT) are one locus, with the same
+    thresholds, and keep the rule above.
     """
     result = await session.execute(_REPEAT_LOCI_LOOKUP_SQL)
-    lookup: dict[str, dict[str, Any]] = {}
+    lookup = RepeatLocusLookup()
     best_priority: dict[str, int] = {}
+    named: dict[str, list[dict[str, Any]]] = {}
 
     def _register(value: Any, priority: int, row: dict[str, Any]) -> None:
         if not isinstance(value, str) or not value:
@@ -705,6 +846,9 @@ async def _build_repeat_locus_lookup(session: AsyncSession) -> dict[str, dict[st
         if key not in best_priority or priority < best_priority[key]:
             best_priority[key] = priority
             lookup[key] = row
+            named[key] = [row]
+        elif priority == best_priority[key] and all(other is not row for other in named[key]):
+            named[key].append(row)
 
     for row in result.mappings().all():
         row_dict = dict(row)
@@ -713,15 +857,99 @@ async def _build_repeat_locus_lookup(session: AsyncSession) -> dict[str, dict[st
         _register(row_dict.get("display_name"), 2, row_dict)
         for alias in _coerce_locus_aliases(row_dict.get("aliases")):
             _register(alias, 3, row_dict)
+    for key, rows in named.items():
+        strchive_loci = [row for row in rows if _is_strchive_row(row)]
+        if len(strchive_loci) > 1:
+            del lookup[key]
+            lookup.tracts[key] = strchive_loci
     return lookup
 
 
-def _lookup_repeat_locus(
-    locus_lookup: dict[str, dict[str, Any]], trid: str | None
-) -> dict[str, Any] | None:
-    if not trid:
+# STRchive places each locus on three assemblies: GRCh38 (start_hg38/stop_hg38), GRCh37
+# (_hg19) and T2T-CHM13 (_t2t). Another assembly has no STRchive coordinates.
+_ASSEMBLY_PATCH_SUFFIX = re.compile(r"\.p\d+$")
+
+
+def _strchive_coordinates_of(assembly_name: str | None) -> str | None:
+    """The suffix of STRchive's coordinates on this assembly, or None."""
+    name = _ASSEMBLY_PATCH_SUFFIX.sub("", str(assembly_name or "").strip().lower())
+    if name in {"grch38", "hg38"}:
+        return "hg38"
+    if name in {"grch37", "hg19"}:
+        return "hg19"
+    if "chm13" in name or name == "hs1":
+        return "t2t"
+    return None
+
+
+def _strchive_locus_span(row: dict[str, Any], suffix: str) -> tuple[str, int, int] | None:
+    """A STRchive locus's chromosome, start and stop on an assembly, or None."""
+    metadata = _row_metadata(row)
+    raw = metadata.get("raw")
+    entry = raw if isinstance(raw, dict) else metadata
+    chrom = _as_text(entry.get("chrom"))
+    start = _as_int(entry.get(f"start_{suffix}"))
+    stop = _as_int(entry.get(f"stop_{suffix}"))
+    if not chrom or start is None or stop is None:
         return None
-    return locus_lookup.get(trid.lower())
+    return normalize_chromosome(chrom).upper(), start, stop
+
+
+def _resolve_repeat_locus(
+    locus_lookup: dict[str, dict[str, Any]],
+    trid: str | None,
+    *,
+    chrom: str,
+    start: int,
+    end: int,
+    assembly_name: str | None,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """The catalogue row that classifies a call, or None; and why none, where its TRID names
+    several STRchive loci.
+
+    A TRID names one row, or none. The gene of a locus with several repeat tracts (ARX,
+    HOXA13) names each tract (``RepeatLocusLookup.tracts``): the call's region picks the one
+    it overlaps on the family's assembly (the owner's decision of 2026-10-14, CLIN-31). If it
+    overlaps none of them, or several, or the assembly has no STRchive coordinates, no row
+    classifies the call: it reads *not assessed*, never by another tract's thresholds, and
+    the reason says why.
+    """
+    if not trid:
+        return None, None
+    tracts = getattr(locus_lookup, "tracts", {}).get(trid.lower())
+    if not tracts:
+        return locus_lookup.get(trid.lower()), None
+
+    named = (
+        f"TRID {trid} names {len(tracts)} STRchive loci "
+        f"({', '.join(str(row.get('locus_id')) for row in tracts)})"
+    )
+    suffix = _strchive_coordinates_of(assembly_name)
+    if suffix is None:
+        where = f"on {assembly_name}" if assembly_name else "without the family's assembly"
+        return None, f"{named}, and STRchive gives no coordinates {where}, so none of their thresholds applies."
+    call_chrom = normalize_chromosome(chrom).upper()
+    overlapping = [
+        row
+        for row in tracts
+        if (span := _strchive_locus_span(row, suffix)) is not None
+        and span[0] == call_chrom
+        and span[1] <= end
+        and start <= span[2]
+    ]
+    if len(overlapping) == 1:
+        return overlapping[0], None
+    region = f"{chrom}:{start}-{end}"
+    if not overlapping:
+        return None, (
+            f"{named}, and the call's region, {region}, overlaps none of them, so none of their "
+            "thresholds applies."
+        )
+    return None, (
+        f"{named}, and the call's region, {region}, overlaps {len(overlapping)} of them "
+        f"({', '.join(str(row.get('locus_id')) for row in overlapping)}), so none of their "
+        "thresholds applies."
+    )
 
 
 def _fallback_locus_document(trid: str, motifs: list[str]) -> dict[str, Any]:
@@ -847,7 +1075,14 @@ def _build_trgt_insert_params(
     trid = info.get("TRID") or header_sample
     end = int(info.get("END", int(pos) + len(ref) - 1))
     motifs = [item for item in info.get("MOTIFS", "").split(",") if item]
-    locus_document = _lookup_repeat_locus(locus_lookup, trid)
+    locus_document, locus_not_resolved = _resolve_repeat_locus(
+        locus_lookup,
+        trid,
+        chrom=chrom,
+        start=int(pos),
+        end=end,
+        assembly_name=sample_context.assembly_name,
+    )
     if locus_document is None:
         locus_document = _fallback_locus_document(trid, motifs)
 
@@ -988,6 +1223,9 @@ def _build_trgt_insert_params(
                 "motifs": motifs,
                 "vcf_sample": header_sample,
                 "raw_format": sample_values,
+                # Why the call's TRID, naming several STRchive loci, classified it by none
+                # (CLIN-31): the family table shows it with the call.
+                **({"locus_not_resolved": locus_not_resolved} if locus_not_resolved else {}),
             }
         ),
         "uploaded_at": datetime.now(timezone.utc),
@@ -1364,8 +1602,34 @@ async def get_family_repeat_expansion_table_response(
                 repeat_expansions.status,
                 repeat_expansions.genotype,
                 repeat_expansions.allele_count,
-                repeat_expansions.alleles
+                repeat_expansions.alleles,
+                -- Why the import classified the call by no catalogue locus, where its TRID
+                -- names several (CLIN-31); shown while no row matches it.
+                CASE WHEN catalog.locus_id IS NULL
+                     THEN repeat_expansions.metadata ->> 'locus_not_resolved' END AS locus_not_resolved
             FROM repeat_expansions
+            -- The STRchive loci the call's names reach, as the catalogue join below matches
+            -- them: its locus_id, gene, display name and TRID.
+            LEFT JOIN LATERAL (
+                SELECT count(*) AS loci
+                FROM repeat_loci AS named
+                WHERE named.metadata ->> 'source' = 'STRchive'
+                  AND (
+                       lower(named.locus_id) = lower(repeat_expansions.locus_id)
+                    OR lower(named.gene) = lower(repeat_expansions.gene)
+                    OR lower(named.display_name) = lower(repeat_expansions.display_name)
+                    OR EXISTS (
+                         SELECT 1
+                         FROM jsonb_array_elements_text(named.aliases) AS alias(value)
+                         WHERE lower(alias.value) IN (
+                             lower(repeat_expansions.locus_id),
+                             lower(repeat_expansions.gene),
+                             lower(repeat_expansions.display_name),
+                             lower(repeat_expansions.metadata ->> 'trid')
+                         )
+                    )
+                  )
+            ) AS strchive_named ON TRUE
             LEFT JOIN LATERAL (
                 SELECT
                     repeat_loci.locus_id,
@@ -1382,19 +1646,29 @@ async def get_family_repeat_expansion_table_response(
                     (repeat_loci.metadata ->> 'pathogenic_max')::int AS pathogenic_max,
                     (repeat_loci.metadata ->> 'premutation_min')::int AS premutation_min
                 FROM repeat_loci
-                WHERE lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id)
-                   OR lower(repeat_loci.gene) = lower(repeat_expansions.gene)
-                   OR lower(repeat_loci.display_name) = lower(repeat_expansions.display_name)
-                   OR EXISTS (
-                        SELECT 1
-                        FROM jsonb_array_elements_text(repeat_loci.aliases) AS alias(value)
-                        WHERE lower(alias.value) IN (
-                            lower(repeat_expansions.locus_id),
-                            lower(repeat_expansions.gene),
-                            lower(repeat_expansions.display_name),
-                            lower(repeat_expansions.metadata ->> 'trid')
-                        )
-                   )
+                WHERE (
+                       lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id)
+                    OR lower(repeat_loci.gene) = lower(repeat_expansions.gene)
+                    OR lower(repeat_loci.display_name) = lower(repeat_expansions.display_name)
+                    OR EXISTS (
+                         SELECT 1
+                         FROM jsonb_array_elements_text(repeat_loci.aliases) AS alias(value)
+                         WHERE lower(alias.value) IN (
+                             lower(repeat_expansions.locus_id),
+                             lower(repeat_expansions.gene),
+                             lower(repeat_expansions.display_name),
+                             lower(repeat_expansions.metadata ->> 'trid')
+                         )
+                    )
+                  )
+                  -- Names that reach several STRchive loci (ARX's or HOXA13's tracts, a
+                  -- shared tag) choose none of them: only the locus the call was stored
+                  -- under classifies it. The import chose that tract by the call's position,
+                  -- which a name cannot do (CLIN-31).
+                  AND (
+                       lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id)
+                    OR strchive_named.loci <= 1
+                  )
                 ORDER BY
                     CASE
                         WHEN lower(repeat_loci.locus_id) = lower(repeat_expansions.locus_id) THEN 0
@@ -1464,6 +1738,9 @@ async def get_family_repeat_expansion_table_response(
         row_status = _call_status(alleles, note=note)
         if row_status == "unknown":
             row_status = row.get("status", "unknown")
+        # Why no catalogue locus classifies the call, where its TRID names several (CLIN-31).
+        # It explains the status the alleles already have, so it does not raise it.
+        call_note = " ".join(part for part in (note, row.get("locus_not_resolved")) if part) or None
         key = str(row.get("locus_id") or f'{row.get("chr")}:{row.get("start")}')
         locus = grouped.setdefault(
             key,
@@ -1500,7 +1777,7 @@ async def get_family_repeat_expansion_table_response(
             allele_count=int(row.get("allele_count", 0)),
             alleles=alleles,
             status=row_status,
-            note=note,
+            note=call_note,
         )
 
     ordered_rows = [RepeatExpansionRowOut(**row) for row in grouped.values()]

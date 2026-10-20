@@ -585,6 +585,21 @@ If the HPO ontology is missing there, the startup bootstrap downloads the same p
 release to a temporary directory, and imports it only if its SHA-256 is the vendored
 file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
 
+The repeat catalogue's `STRchive-loci.json` must be the repository's file of the version
+being deployed, byte for byte. If the bucket holds another file, or none, the backend does
+not start, and its log names the file, both SHA-256 digests and the fix
+([data-import.md](data-import.md#the-strchive-release)); a new revision that cannot start never
+receives traffic. Copying the file again is always safe:
+
+```bash
+gcloud storage cp data/ref-data/STRchive-loci.json "gs://${REFDATA}/"
+```
+
+A version that moves to another STRchive release ships its file and says so in its change
+record. Copy that file to the bucket just before you deploy the version: from then on an
+instance of the running version that starts (a scale-out or a restart) is refused, until the
+new revision serves.
+
 ---
 
 ## 12. Day-2 operations
