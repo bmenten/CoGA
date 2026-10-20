@@ -19,7 +19,8 @@ are also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 - **P1** — blocks the first release candidate (RC): wrong behaviour or records with
   clinical or audit impact, or a step the RC needs.
 - **P2** — to be done before the RC.
-- **P3** — after the RC, or nice to have.
+- **P3** — after the RC. Ideas and enhancements that are not defects are in
+  [ROADMAP.md](ROADMAP.md).
 
 **Owners:** *Eng* engineering · *Owner* a decision of the device owner · *QA* the quality
 manager · *LD* the laboratory director · *Ops* the operator or organisation admin · *DPO*
@@ -582,79 +583,85 @@ per-change approval, and records the first review before the RC tag.
 
 ### Data integrity and import
 
-- **SAFE-3 ·** Per-sample TRGT and HiFiCNV files are checked one at a time, and a failed `cnv`
-  or `repeats_trgt` dataset can leave part of its rows (only `snv` and `haplotypes` clean up
-  after themselves); the `import_incomplete` gate covers sign-out. Check every column up
-  front, as the mito dataset does.
-- **SAFE-4 ·** A long-read SNV file out of position order is found only while streaming,
-  after an overwrite has deleted the stored callset; the overwrite snapshot restores it, so
-  it is lost only if that restore fails too (since #807 and #829 that flags every dataset of
-  the import and keeps the family marked until it is imported again in full).
+- **SAFE-3 ·** Data files are checked only as they are written (was SAFE-4 and SAFE-33).
+  Per-sample TRGT and HiFiCNV files are checked one at a time, so a failed `cnv` or
+  `repeats_trgt` dataset can leave part of its rows, and a per-sample dataset writes its
+  earlier samples before it finds a later sample's empty file (only `snv` and `haplotypes`
+  clean up after themselves; the `import_incomplete` gate covers sign-out): check every
+  column up front, as the mito dataset does. A long-read SNV file out of position order is
+  found only while streaming, after an overwrite has deleted the stored callset; the
+  overwrite snapshot restores it, so it is lost only if that restore fails too (since #807
+  and #829 that flags every dataset of the import and keeps the family marked until it is
+  imported again in full) or if no snapshot could be taken (SAFE-32's case). Files after
+  #872: a dry run does not report an empty data file; a chrM SV file whose records all lie
+  on other chromosomes reads as "no call", which removes the earlier chrM SV calls; an
+  unreadable chrM SV file fails the mito dataset after its SNV files were written; a
+  malformed TRGT value still answers 500, though before any delete (DATA-7); a HiFiCNV CNV
+  file without calls counts as "no CNV called", but when no sample has a call the earlier
+  calls are kept.
 - **SAFE-5 ·** A NUL in a manifest path raises an uncaught `ValueError` in path resolution:
-  500 on validate, Discover and *Write manifest.yaml*, and a job failure with a raw message.
-- **SAFE-6 ·** The cfDNA sample lookup at import ignores manifest `samples` entries keyed `id`,
-  which registration accepts.
-- **SAFE-7 ·** `families.metadata.unresolved_roi` is written and never read, and never cleared
-  when a later import resolves the ROI.
-- **SAFE-8 ·** An API client can store a malformed pedigree row through the Family Builder: a
-  whitespace-only parent ID gives a five-field PED row, and the drawing then shifts its columns
-  (the UI trims, so only direct API calls).
-- **SAFE-9 ·** `FamilyMemberUpdate.clear_existing_genomic_data` is accepted and ignored.
-  Removing it changes the API: owner decision.
-- **SAFE-10 ·** A 200 answer with a body that is not JSON from PanelApp or a reference source
-  gives a 500 instead of a 502.
-- **SAFE-12 ·** The annotation manifest falls back to `families.metadata.annotation_manifest`,
-  which nothing in the backend writes (only tests feed it); the QC-threshold `reason` is
-  nullable only for edits made before it was required (making it `NOT NULL` is a schema and
-  API change for the owner).
+  500 on validate, Discover and *Write manifest.yaml* (which has written the file by then),
+  and a job failure with a raw message.
+- **SAFE-6 ·** The cfDNA sample lookup at import ignores manifest `samples` entries keyed
+  `id`, which registration accepts.
+- **SAFE-8 ·** The stored PED text can disagree with the stored pedigree (was DATA-8). An
+  API client can store a malformed pedigree row through the Family Builder: a
+  whitespace-only parent ID gives a five-field PED row, and the drawing then shifts its
+  columns (the UI trims, so only direct API calls). A package re-import overwrites the
+  stored PED text but not the stored relationships or sexes (#893). Building the PED text
+  from the stored structure would close both.
+- **SAFE-12 ·** The Family Builder (`POST /ped/manual`) stores a request's free-form family
+  and member `metadata` as sent, so an API client creating a family can write keys that the
+  backend otherwise writes itself and trusts. `families.metadata.annotation_manifest`, which
+  no import writes, is the annotation manifest's fallback: until an import records the
+  family's own manifest, the annotation page and a signed record show the client's as the
+  pipeline's (source `manifest`), without the clinical audit event the manual route
+  (`PUT …/annotation-manifest`) records. A sample's `sequencing_qc` is what its QC chip and
+  the signed record evaluate; the import-state keys (`import_incomplete`) err on the safe
+  side. (Corrected in the P3 triage: the entry said nothing writes the key. Its QC-threshold
+  point is in ENG-6.)
 - **SAFE-15 ·** What #801 left of #746 (ROADMAP): nothing stops an import before its
   heartbeat is ten minutes old; an import whose heartbeat never reaches the database again
   keeps running; nothing checks the connection that holds the variant-write locks.
-- **SAFE-18 ·** Import bookkeeping (#807; its one scope per failed dataset was SAFE-26,
-  fixed by #873): the job record's dataset table shows each loader's own status while the
-  flag names the dataset failed; `_flag_family_import_incomplete`'s docstring still says the
-  import takes no snapshot. Found by #873: when an upload's failure sits beside an import's,
-  the banner and the sign-out name the upload's dataset under the import's job (since #859),
-  and the job log calls an upload's failure "an import"; `merged_import_failure` drops a
-  stored flag that is not in its shape (`true`) when a later import fails.
-- **DATA-4 ·** Downloads (#817): a bgzip file cut exactly at a block boundary still reads as
-  complete (requiring BGZF's end-of-file block would catch it: owner); a Monarch refresh
-  whose download is corrupt answers 500, as its router catches only `httpx.HTTPError`. Nor
-  does the refresh guard against a download that parses to zero rows (#859).
+- **SAFE-18 ·** Import bookkeeping (was SAFE-21 and SAFE-24). After #807 (its one scope per
+  failed dataset was SAFE-26, fixed by #873): the job record's dataset table shows each
+  loader's own status while the flag names the dataset failed;
+  `_flag_family_import_incomplete`'s docstring still says the import takes no snapshot.
+  Found by #873: when an upload's failure sits beside an import's, the banner and the
+  sign-out name the upload's dataset under the import's job (since #859), and the job log
+  calls an upload's failure "an import"; `merged_import_failure` drops a stored flag that is
+  not in its shape (`true`) when a later import fails. #829's whole-family entry: the
+  sign-out 409, its dialog and the signed record describe it as an import that "stopped
+  before it finished" (the frozen snapshot has no marker for it), and the Postgres-only
+  datasets (repeats, Paraphase, phenotypes, QC) must be imported again too, which is
+  stricter than needed. After #838 and #843: the haplotype blocks' update check still reads
+  the registry (it reports `skipped`, so it clears nothing); a CNV dataset with no parsed
+  calls ends `registered` even after importing its tracks, so they are not recorded in
+  `imported_scopes`; deletes and structure-change clears never shrink `imported_scopes` (the
+  safe side); the admin deletes of tracks and repeats take no variant-write lock;
+  `scripts/load_demo_quartet.py` writes through the upload services without recording what
+  it loads; `_import_interval_track_unless_present` with overwrite clears a source's track
+  only when Postgres records it, so that source's rows without a record survive next to the
+  new ones; a BED upload whose ClickHouse insert fails after its delete leaves the rows gone
+  while Postgres keeps the record (#846). `snv` stored as glimpse2 and the `haplotypes`
+  dataset replace the same rows but never complete each other (the conservative side, #856).
+  An SNV update of imputed genotypes counts the stored small variants only, not the
+  haplotype blocks (#873).
+- **DATA-4 ·** Downloads (#817; was SAFE-10): a bgzip file cut exactly at a block boundary
+  still reads as complete (requiring BGZF's end-of-file block would catch it: owner); a
+  Monarch refresh whose download is corrupt answers 500, as its router catches only
+  `httpx.HTTPError`, and so does a 200 answer from PanelApp or a reference source whose body
+  is not JSON (a 502 would fit). Nor does the refresh guard against a download that parses
+  to zero rows (#859).
 - **TRACE-8 ·** Header versions (#814): of several versions of one tool in a header the
   first is kept, where the pipeline-record parser joins them; `##SnpEffVersion` keeps the
   last; the keys glimpsephase, generatesvcandidates and dragensnv are not folded into
   glimpse, manta and dragen; TF-08 B.1 says HiFiCNV's version comes from `##source=hificnv`,
   but HiFiCNV VCFs are not header-parsed.
-- **SAFE-21 ·** #829's whole-family entry: the sign-out 409, its dialog and the signed
-  record describe it as an import that "stopped before it finished" (the frozen snapshot has
-  no marker for it); Postgres-only datasets (repeats, Paraphase, phenotypes, QC) must be
-  imported again too, which is stricter than needed; `_write_import_failure` has a mypy
-  error (the module is not in the gated list).
-- **SAFE-24 ·** Import bookkeeping after #838 and #843: the haplotype blocks' update check
-  still reads the registry (it reports `skipped`, so it clears nothing); a CNV dataset with
-  no parsed calls ends `registered` even after importing its tracks, so they are not
-  recorded in `imported_scopes`; deletes and structure-change clears never shrink
-  `imported_scopes` (the safe side); the admin deletes of tracks and repeats take no
-  variant-write lock; `scripts/load_demo_quartet.py` writes through the upload services
-  without recording what it loads; `_import_interval_track_unless_present` with overwrite
-  clears a source's track only when Postgres records it, so that source's rows without a
-  record survive next to the new ones; a BED upload whose ClickHouse insert fails after its
-  delete leaves the rows gone while Postgres keeps the record (#846). `snv` stored as
-  glimpse2 and the `haplotypes` dataset replace the same rows but never complete each other
-  (the conservative side, #856). An SNV update of imputed genotypes counts the stored small
-  variants only, not the haplotype blocks (#873).
 - **DATA-6 ·** Lookups that still bind one Postgres parameter per item (a panel save's gene
   terms in `_resolve_gene_regions`, families or samples in other services) fail above 32,767
   items, as the export lookups did before #835 and the panel filter's gene lookup before
   #858; no realistic request reaches that.
-- **SAFE-33 ·** Files after #872: a dry run does not report an empty data file; a per-sample
-  dataset writes its earlier samples before it finds a later sample's empty file (SAFE-3);
-  a chrM SV file whose records all lie on other chromosomes reads as "no call", which
-  removes the earlier chrM SV calls; an unreadable chrM SV file fails the mito dataset after
-  its SNV files were written; a malformed TRGT value still answers 500, though before any
-  delete; a HiFiCNV CNV file without calls counts as "no CNV called", but when no sample has
-  a call the earlier calls are kept.
 - **SAFE-34 ·** An import's clean-up counts only datasets that ended `imported`, so a new
   family whose phenotypes ended with warnings while every other dataset failed is deleted
   with the phenotypes it did import (#909).
@@ -662,9 +669,7 @@ per-change approval, and records the first review before the RC tag.
   which shifts the later alleles' fractions; `is_gnomad_gt_5_percent` is computed from the
   raw value, so an absurd frequency still marks a variant as common for the NIPT artifact
   seed; Postgres integer columns filled from files (Paraphase copy numbers, TRGT) are not
-  checked for overflow.
-- **DATA-8 ·** A package re-import overwrites the stored PED text but not the stored
-  relationships or sexes, so the two can disagree (#893).
+  checked for overflow (a malformed TRGT value: SAFE-3).
 
 ### Security and audit
 
@@ -672,89 +677,83 @@ per-change approval, and records the first review before the RC tag.
   decision of 2026-10-14, TF-13 §3, #892): made only on an admin's request, nothing
   schedules them, `export_anchor()` is an empty hook (so deleting the newest anchors goes
   unnoticed while the API connects as the owner), verification trusts one key, no HSM
-  (REQ-TRACE-008 🔲). QA approves the residual and decides whether the laboratory's
-  procedure sets how often anchors are made; the owner re-evaluates it after the RC.
+  (REQ-TRACE-008 is ◐, its action 🔲). QA approves the residual and decides whether the
+  laboratory's procedure sets how often anchors are made; the owner re-evaluates it after
+  the RC.
 - **SEC-9 ·** Residuals of #785: a taken family or sample ID answers 409 on create and on
   `POST /ped/manual`, and a non-admin PED upload with overwrite answers 403 "Only admins can
-  overwrite…", each telling a user that the ID exists elsewhere (documented as a residual; the
-  owner has not accepted it yet); deleting another user's filter preset answers 403 where an
-  unknown one answers 404; `build_gene_profile` takes the family's first project, which may be
-  one the caller cannot see.
+  overwrite…", each telling a user that the ID exists elsewhere (documented as a residual;
+  the owner has not accepted it yet); deleting another user's filter preset answers 403
+  where an unknown one answers 404, and so does reading another user's import job
+  (`family_package_jobs.py`); `build_gene_profile` takes the family's first project, which
+  may be one the caller cannot see.
 - **SEC-10 ·** TF-09a REQ-SEC-001 and TF-13 do not say that a record outside your projects,
   an id that is no UUID and a body id that names nothing all answer like an unknown record
   (#785, #777, #787); TF-13 also omits a query parameter's name from the control-character
   rule. Requirement text is the owner's.
-- **SEC-11 ·** The sign-up notification logs the new user's address at INFO and the SMTP
-  error text at ERROR, on the root logger (`routers/auth.py`). Log `describe_error` and no
-  address. (Sign-ups exist only without Microsoft sign-in, #895.)
+- **SEC-11 ·** The account log lines of `routers/auth.py` (was SEC-34). The sign-up
+  notification logs the new user's address at INFO and the SMTP error text at ERROR, on the
+  root logger: log `describe_error` and no address (sign-ups exist only without Microsoft
+  sign-in, #895). CodeQL alert 51 (`py/log-injection`) flags the account-change log line of
+  `PATCH /api/auth/users/{id}` (#895), which logs account IDs, a role from a fixed list and
+  a boolean; the owner dismisses it, as the gh token cannot, or the line logs less.
 - **SEC-12 ·** The `ALGORITHM` environment variable silently changes the JWT algorithm
   (`config.py`), undocumented and unchecked. Make it a constant.
 - **SEC-14 ·** Blocking calls on the event loop: the QC-report routes call `object_exists`
   and `presigned_get_url` directly, and the admin raw-file list checks each row's file there
   (#864). (Since #895 the Microsoft sign-in fetches its signing keys asynchronously.)
 - **SEC-15 ·** The ID rule accepts C1 controls, bidi and zero-width characters, `/` and `..`
-  (owner's call; see SEC-2 and SEC-3).
-- **SEC-16 ·** `/api/health/ready` is polled by nothing (the probes and the uptime check use
-  `/api/health`), and nothing carries a request ID from a log line to its audit row.
-- **SEC-17 ·** `audit_log_events` is append-only but not hash-chained; segment hashing was
-  deferred.
-- **SEC-18 ·** Two copies of the list of secret-looking keys the logs mask (`ui_events.py`,
-  `request_logging.py`), and a stale migration-era 503 in `routers/families.py` that names
-  tables.
+  (owner's call; see SEC-2 and SEC-3), and IDs it accepts still break elsewhere (was SEC-22
+  and SEC-28): about 70 client-route links in some 26 files put IDs raw into the URL
+  (`Link to`, `navigate`, breadcrumbs), so an ID with `?`, `#`, `%` or `/` breaks in-app
+  navigation; a signed URL's `Content-Disposition` filename is built from the sample ID
+  unescaped (#805); on a case-insensitive file system (a macOS bind mount) family IDs that
+  differ only in case share one folder, for every folder named after an ID (#836).
+- **SEC-17 ·** The request audit (was SEC-24): `audit_log_events` is append-only but not
+  hash-chained, a choice `security-posture.md` explains (a request row shows access and use,
+  not a clinical decision); a row naming a user deleted while it waited in the queue is
+  still lost (a foreign key; operator SQL only), and a retry after a commit with an unknown
+  outcome can duplicate rows (no idempotency key, #820). The UI-event log (`ui_events`) has
+  the same two gaps.
 - **SEC-19 ·** Terraform residuals to accept in TF-13: ClickHouse graceful shutdown is
   best-effort, bucket grants are bucket-wide, secret rotation is manual. When Terraform
   replaces a ClickHouse TLS secret version it destroys the old one before it creates the new
   one, so a VM booting in between cannot fetch its key, and since #892 the VM must be
   restarted right after any certificate reissue.
-- **SEC-22 ·** About 70 client-route links in some 45 files put IDs raw into the URL (`Link
-  to`, `navigate`, breadcrumbs), so an ID with `?`, `#`, `%` or `/` breaks in-app
-  navigation; a signed URL's `Content-Disposition` filename is built from the sample ID
-  unescaped (#805).
 - **SEC-23 ·** HSTS details (#815): Compose passes one `ENABLE_HSTS` to both containers, and
   the frontend takes only exactly `true` where the backend also takes `1`, `True`, `yes` or
   `on`; the frontend's Cloud Run service sets no `BACKEND_URL` (harmless while the load
   balancer routes `/api`); answers from Google's infrastructure and the backend's bare 500s
   carry no HSTS.
-- **SEC-24 ·** Request audit (#820): a row naming a user deleted while it waited in the
-  queue is still lost (a foreign key; operator SQL only); a retry after a commit with an
-  unknown outcome can duplicate rows (no idempotency key).
-- **SEC-27 ·** Package paths after #842: a directory named `*.ped` is taken for the PED by
-  Discover (500, IsADirectoryError); Write manifest checks the link and then writes, so a
-  concurrent swap to a symlink in between could still redirect the write (`O_NOFOLLOW` would
-  refuse in-package links too). A sub-folder link inside a listed package (`ped/`, a
-  long-read sample folder) is still followed: it counts towards listing the package, and
-  Discover proposes a member from such a folder, all of whose files count as absent (a
-  warning may be better: owner); a typed path into the staging root, or a root entry linking
-  there, reads another import's staged copy (#850).
-- **SEC-28 ·** On a case-insensitive file system (a macOS bind mount) family IDs that differ
-  only in case share one folder, for every folder named after an ID (#836);
-  `routers/cram.py` has two mypy arg-type errors in `_resolve_alignment_manifest_entry` and
-  `routers/signal_tracks.py` one, each a `format` read as `str` (the modules are outside the
-  gate).
-- **SEC-30 ·** Remote storage after #851: a recorded signal-track or alignment URI is
-  checked against the import area, not the family's folder (the documented design: scoping
-  it needs the family's source folder recorded at import);
+- **SEC-27 ·** Package paths and file containment (was SEC-30 and SEC-31). After #842: a
+  directory named `*.ped` is taken for the PED by Discover (500, IsADirectoryError); Write
+  manifest checks the link and then writes, so a concurrent swap to a symlink in between
+  could still redirect the write (`O_NOFOLLOW` would refuse in-package links too). A
+  sub-folder link inside a listed package (`ped/`, a long-read sample folder) is still
+  followed: it counts towards listing the package, and Discover proposes a member from such
+  a folder, all of whose files count as absent (a warning may be better: owner); a typed
+  path into the staging root, or a root entry linking there, reads another import's staged
+  copy (#850), and `_staging_root()` takes `<tmp>/coga-family-imports` as it finds it, so a
+  link planted on a shared `/tmp` would widen the rule (the container's `/tmp` is private).
+  After #851: a recorded signal-track or alignment URI is checked against the import area,
+  not the family's folder (scoping it needs every source folder recorded at import; only the
+  latest package import's is, in `families.metadata.package_import` since #653);
   `family_qc_reports._stored_report_key` and the CRAM remote probe check no path segments
-  (object keys are literal, so a key cannot climb).
-- **SEC-31 ·** Raw files after #864: the admin page shows a refused Verify as
-  `Could not verify <file>.` without its reason, and lists a remote row outside the roots
-  as "kept in the object store"; `_staging_root()` takes `<tmp>/coga-family-imports` as it
-  finds it, so a link planted on a shared `/tmp` would widen the rule (the container's
-  `/tmp` is private).
+  (object keys are literal, so a key cannot climb). After #864: the admin raw-file page
+  shows a refused Verify as `Could not verify <file>.` without its reason, and lists a
+  remote row outside the roots as "kept in the object store".
 - **SEC-32 ·** Sign-in after #895: the import job finds its requester by e-mail
   (`family_package_import.py`), so a Microsoft account whose e-mail changes between the
-  request and the run is not found; the IGV viewer reads the stored token once, so a long
-  IGV session can outlive its token (a Microsoft token lasts about an hour); an
+  request and the run is not found, and the change also hides the user's earlier import
+  jobs, listed by e-mail (`family_package_jobs.py`), and their review presets, kept by user
+  name, as a Microsoft sign-in rewrites both; the IGV viewer reads the stored token once, so
+  a long IGV session can outlive its token (a Microsoft token lasts about an hour); an
   administrator can deactivate their own account. The HPO download follows a redirect from
   HTTPS to plain HTTP (harmless while its digest is checked, #863).
 - **SEC-33 ·** `GET /api/users` still gives every signed-in user the names and e-mail
   addresses of all active accounts (the accepted staff-roster residual,
-  `security-posture.md`), though no screen calls it since #909; removing the route would
-  end it (owner).
-- **SEC-34 ·** CodeQL alert 51 (`py/log-injection`) flags the account-change log line of
-  `PATCH /api/auth/users/{id}` (`routers/auth.py`, #895), which logs account IDs, a role
-  from a fixed list and a boolean; the owner dismisses it, as the gh token cannot, or the
-  line logs less.
+  `security-posture.md`), though no screen calls it since #909; removing the route would end
+  it (owner).
 - **TRACE-16 ·** The phenotypes that go with a sample, a member or a family an administrator
   deletes are recorded as no `phenotype` event (the `pedigree` and `family_deleted` events
   do not name them; `clinical-traceability.md` says so), and a family deletion records no
@@ -764,96 +763,92 @@ per-change approval, and records the first review before the RC tag.
 
 - **CLIN-11 ·** Sample QC: no warning in code for a callset that covers only part of the
   genome; the site sample includes indels.
-- **CLIN-12 ·** A relative's lineage on a male's X is greyed out (TODO in
-  `haplotype_lineage_service.py`), which fails safe.
-- **CLIN-13 ·** The NIPT per-sample SNV file binds its one column unchecked, on purpose: NIPT
-  manifests map verified tubes to files named after other tubes. Guarding it needs the owner's
-  decision and `vcf_sample` on remapped entries.
-- **CLIN-14 ·** The repeat genome track shows the status stored at import, while the table
-  reclassifies against the current catalogue (premutation, the male-X note): the two can
-  disagree after the catalogue is reseeded. #799 is such a reseed: an FMR1 call of exactly
-  200 repeats stored under the built-in row before it reads *pathogenic* on the track until
-  its TRGT calls are imported again, as do the calls at the thresholds #806 moved (the
-  demo's ATXN2 34 and ATXN8OS 74). So do #826's: a call stored as normal at a locus without
-  thresholds reads not assessed in the table but normal on the track.
-- **CLIN-15 ·** The API and signed snapshot fields `cat7_transmitted` and `cat8_absent`, and
-  the NIPT profile summary's "categories 7/8", are named after the old paternity logic; the UI
-  shows neither. Renaming changes a stored format: owner decision.
+- **CLIN-12 ·** On chrX, chrY and chrM every relative's lineage is greyed out, whatever
+  their sex, and in a one-parent (donor) family so is every embryo's; the TODO in
+  `haplotype_lineage_service.py` asks for hemizygous-X handling. It fails safe. (#914
+  counted a man's one X in the phasing QC, CLIN-60, not in the lineage.)
+- **CLIN-13 ·** The NIPT per-sample SNV file binds its one column unchecked, on purpose:
+  NIPT manifests map verified tubes to files named after other tubes. Guarding it needs the
+  owner's decision and `vcf_sample` on remapped entries.
+- **CLIN-14 ·** Repeat calls (was CLIN-32, CLIN-38 and CLIN-64). The repeat genome track
+  shows the status stored at import, while the table reclassifies against the current
+  catalogue (premutation, the male-X note): the two can disagree after the catalogue is
+  reseeded. #799 is such a reseed: an FMR1 call of exactly 200 repeats stored under the
+  built-in row before it reads *pathogenic* on the track until its TRGT calls are imported
+  again, as do the calls at the thresholds #806 moved (the demo's ATXN2 34 and ATXN8OS 74).
+  So do #826's: a call stored as normal at a locus without thresholds reads not assessed in
+  the table but normal on the track. Since #889 the track's near-boundary mark mixes the
+  stored thresholds with the current row's ranges, and finds the row by the stored
+  `locus_id` only. The classifier (#826): at a pathogenic-only locus a count between the
+  benign maximum and the threshold reads normal (no grey zone); the male chrX note at a
+  catalogued locus says "outside catalogued ranges", the wrong reason. STRchive's own gaps
+  and overlaps, for QA (#806): ATXN7 36 reads intermediate, PPP2R2B 33–39 normal and 50
+  intermediate, ATXN10 800–850 pathogenic; the built-in and STRchive rows differ in motif
+  orientation at nine loci (it matters only where TRGT reports several motifs); whether
+  PABPN1's `GCN` matches the pipeline's TRGT BED is unchecked (the BED is not in the
+  repository). The catalogue after #888 and #905: STRchive and disease tags (`anticipation`)
+  are registered as TRID aliases (they resolve by position, the safe side, but name no
+  locus); moving the pin later leaves a window in which a cold start of the old version is
+  refused until the new revision serves (documented); STRchive v2.28.0 (2026-10-08) is out,
+  and moving to it is a reviewed change of the file and the pin, after the per-locus checks
+  (CLIN-57).
 - **CLIN-16 ·** Genotype words outside VCF ("HET", "HETEROZYGOUS") are read three different
   ways by three helpers. Only a malformed VCF stores them: reject them at import (owner).
 - **CLIN-17 ·** Neither CNV scorer caps section totals; QA confirms against Riggs et al.
   2020 whether a section maximum applies.
 - **CLIN-18 ·** The APCAD glossary entry awaits the laboratory's definition; the Sample QC
   pages say they catch contamination, which they do only indirectly (owner wording).
-- **CLIN-20 ·** Display differences between pages: the small-variant card and table show the
-  stored classification word as typed while the SV pages normalise it; the NIPT report prints
-  raw tokens (fetal sex, chrY profile, paternity, plasma status) where the screen's QC panel
-  uses readable text; the live report says "no longer present in the dataset" where the
-  signed version says "in the data".
-- **CLIN-21 ·** Filter-form details: the SV form's active *Gene panel* chip names the draft
-  panel, not the applied one; an SV preset's rule count includes one sample template per
-  member; the small-variant form's active review- and exclude-tag chips do not mark a deleted
-  tag "(deleted)", unlike the other chips since #776.
-- **CLIN-24 ·** The sign-out QC prompt (`_qc_failure_summary`) lists the warning and failure
-  messages but no check that could not run (the unverifiable asserted checks come in a list
-  of their own: CLIN-58); since #800 the Sample QC page names the samples whose sex was not
-  checked. Its wording after #869: `_qc_gate_message` says "could not be verified for an
-  asserted pedigree relationship" for a lone sex check too; the joined reasons read
-  "…inference.; Sample …"; a warning can appear twice in a dialog without a failure; one
-  sentence has two colons ("Sample X: sex could not be checked: …").
-- **CLIN-32 ·** STRchive's own gaps and overlaps, for QA (#806): ATXN7 36 reads intermediate,
-  PPP2R2B 33–39 normal, ATXN10 800–850 pathogenic; the built-in and STRchive rows differ in
-  motif orientation at nine loci (it matters only where TRGT reports several motifs); whether
-  PABPN1's `GCN` matches the pipeline's TRGT BED is unchecked.
-- **CLIN-38 ·** Repeat details (#826): at a pathogenic-only locus a count between the benign
-  maximum and the threshold reads normal (no grey zone); the male chrX note at a catalogued
-  locus says "outside catalogued ranges", the wrong reason; *review* calls have no chip
-  style of their own.
-- **CLIN-39 ·** SV details (#827): a translocation shows as 0 or 1 bp (the report sentence
-  reads "A 0 bp breakend"); a symbolic call with neither END nor SVLEN is 1 bp from NeedlR
-  and HiFiCNV and 0 bp elsewhere (since #871 a call written as its sequence is measured by
-  its alleles); a negative exact length (the list writes deletions with a minus sign)
-  silently matches nothing. And a call without END: the package's NeedlR, HiFiCNV and chrM
-  Sniffles2 readers end it at POS + SVLEN, its sign dropped, whatever its type (without
-  SVLEN at POS + 1, chrM at POS), so an insertion or a breakend spans bases after it there,
-  while the uploads put it on its POS as VCF 4.4 does (#831).
-- **CLIN-42 ·** SV records (#831): a symbolic deletion, duplication, inversion or CNV with
-  neither END nor SVLEN stays on its POS and is stored without a word (the upload could
-  count or refuse it); an SVTYPE written in lower case (`bnd`) gets no mate from the
-  uploads, which compare `BND` exactly (the NeedlR reader takes any capitals since #834). A
-  legacy TRA record whose END lies on the partner chromosome is stored without its
-  `remote_chr`, as only a BND reads a mate, so the tracks and Circos place its end on the
-  wrong chromosome (#865).
-- **CLIN-49 ·** SV details after #834 and #840: the chrM Sniffles2 and HiFiCNV readers store
-  a breakend without its mate; the Sniffles/Spectre upload ignores FORMAT/CN, so an
-  SVTYPE=CNV record loaded that way has no direction and counts as a possible deletion in
-  the second-hit badge and, since #854, ranks as a loss; in per-sample files the same SV
-  split across two affected siblings' records gets two second-hit verdicts, so one sibling's
-  cis does not veto the other's trans (errs towards flagging). The live report's SV footer
-  line does not show a breakend's mate, though the sentence above it does, and the signed
-  report shows an SV only by its id (changing it changes the signed-record format, #849).
-- **CLIN-50 ·** Variant Explorer after #841: its excluded ClinVar statuses are only
-  lowercased, so an API value `Likely_benign` excludes nothing (the UI sends "Likely
-  benign"); it matches a variant against any annotation set stored for its key, the family
-  page against its own row's (different only when one variant was imported with different
-  annotations in different families). Its rows take the most severe impact over the
-  transcripts but the first distinct consequence and HGVS (`_fetch_annotation_display`), so
-  a row can pair one transcript's consequence with another's HGVS (#855); its gene filter
-  (`gene=`) reads the annotation index only, so it misses a symbol the record carries
-  outside its annotation (the chrM genes of the package import's MT gene map), which the
-  family page finds (#857). Nor does it trim the rsID it filters on (#877).
-- **CLIN-52 ·** In-silico details after #844: the report draft (`reportNarrative.ts`) prints
-  the raw value ("SIFT deleterious_low_confidence(0.03)") where the cards print "deleterious
-  low confidence (0.03)"; the VEP TSV parser does not read the `Extra` column, so a file in
-  VEP's default format (not `--tab`) would import without SIFT and PolyPhen (read in the
-  code); `annotation_index.sift_terms` and `polyphen_terms` are written but never read; an
-  export lists a variant that sits in two compound-het pairs twice (#845).
-- **CLIN-53 ·** SV ids after #847: the HiFiCNV reader still takes a record's ID as its SV id
+- **CLIN-21 ·** The SV filter form's active *Gene panel* chip names the draft panel, not the
+  applied one. (Its two cosmetic points are in ENG-10.)
+- **CLIN-39 ·** SV records (was CLIN-42, CLIN-49 and CLIN-53). Lengths (#827, #831): a
+  translocation shows as 0 or 1 bp (the report sentence reads "A 0 bp breakend"); a symbolic
+  call with neither END nor SVLEN is 1 bp from NeedlR and HiFiCNV and 0 bp elsewhere (since
+  #871 a call written as its sequence is measured by its alleles), and a symbolic deletion,
+  duplication, inversion or CNV without either stays on its POS and is stored without a word
+  (the upload could count or refuse it); a negative exact length (the list writes deletions
+  with a minus sign) silently matches nothing. Ends: for a call without END the package's
+  NeedlR, HiFiCNV and chrM Sniffles2 readers end it at POS + SVLEN, its sign dropped,
+  whatever its type (without SVLEN at POS + 1, chrM at POS), so an insertion or a breakend
+  spans bases after it there, while the uploads put it on its POS as VCF 4.4 does (#831);
+  NeedlR and the uploads therefore give such a call different ids. Mates (#834, #865): an
+  SVTYPE written in lower case (`bnd`) gets no mate from the uploads, which compare `BND`
+  exactly (the NeedlR reader takes any capitals since #834); the chrM Sniffles2 and HiFiCNV
+  readers store a breakend without its mate; a legacy TRA record whose END lies on the
+  partner chromosome is stored without its `remote_chr`, as only a BND reads a mate, so the
+  tracks and Circos place its end on the wrong chromosome; the live report's SV footer line
+  does not show a breakend's mate, though the sentence above it does. Copy number (#840,
+  #854): the Sniffles/Spectre upload ignores FORMAT/CN, so an SVTYPE=CNV record loaded that
+  way has no direction, counts as a possible deletion in the second-hit badge and ranks as a
+  loss; in per-sample files the same SV split across two affected siblings' records gets two
+  second-hit verdicts, so one sibling's cis does not veto the other's trans (errs towards
+  flagging). Ids (#847, #871): the HiFiCNV reader still takes a record's ID as its SV id
   (its IDs carry coordinates in practice); a discriminated NeedlR id depends on line and
-  file order, so a changed input can move a review to the other clashing event; NeedlR and
-  the uploads end an insertion or breakend written without END differently (CLIN-39), so
-  they give it different ids. Two insertions at one position in one upload become one SV,
-  with the first one's length, as the uploads have no discriminator (#871).
+  file order, so a changed input can move a review to the other clashing event; two
+  insertions at one position in one upload become one SV, with the first one's length, as
+  the uploads have no discriminator.
+- **CLIN-50 ·** Filter parity between the views (was CLIN-63). The Variant Explorer after
+  #841: its excluded ClinVar statuses are only lowercased, so an API value `Likely_benign`
+  excludes nothing (the UI sends "Likely benign"); it matches a variant against any
+  annotation set stored for its key, the family page against its own row's (different only
+  when one variant was imported with different annotations in different families). Its rows
+  take the most severe impact over the transcripts but the first distinct consequence and
+  HGVS (`_fetch_annotation_display`), so a row can pair one transcript's consequence with
+  another's HGVS (#855); its gene filter (`gene=`) reads the annotation index only, where
+  the family page also reads the record's own gene symbols (no current writer makes the two
+  differ, #857). Nor does it trim the rsID it filters on (#877). The filters after #877 and
+  #906: the API accepts a NaN threshold, on which the SQL and the Python paths then differ;
+  the SV list's Python chromosome filter compares names as written (MT against M) where its
+  SQL uses aliases; the carrier-screening SQL prefilter needs a gene symbol, so a variant
+  with only an Ensembl gene ID never reaches the couple rule; the SQL rsID check also reads
+  the shared annotation index, whose rsID another family's VCF may have set; the Python
+  gene-filter overlap (`_variant_overlaps_regions`) does not swap reversed region
+  coordinates where the SQL does (no writer stores them).
+- **CLIN-52 ·** In-silico and export details after #844 and #845: the VEP TSV parser does
+  not read the `Extra` column, so a file in VEP's default format (not `--tab`) would import
+  without every field VEP writes there, SIFT and PolyPhen as well as SYMBOL, IMPACT,
+  CANONICAL, MANE, HGVS, CLIN_SIG and the frequencies (read in the code); an export lists a
+  variant that sits in two compound-het pairs twice (#845). (The report draft's raw SIFT
+  text is in ENG-10, the unread `annotation_index` columns in ENG-6.)
 - **CLIN-56 ·** mtDNA coverage (#852): `_coverage_from_rows` counts each half-open interval
   one base too wide and names `coverage.source` after the first rows' record ids (not
   displayed); the cap of 50,000 chrM coverage rows, which applied to the whole family, now
@@ -862,29 +857,13 @@ per-change approval, and records the first review before the RC tag.
   name the caller of a `variant_missing` entry, so an SV another caller still lists reads as
   gone; the CNV dialog's header does not show its row's caller, and the SV table hides the
   Source column by default.
-- **CLIN-63 ·** Filter details after #877 and #906: the API accepts a NaN threshold, on
-  which the SQL and the Python paths then differ; the SV list's Python chromosome filter
-  compares names as written (MT against M) where its SQL uses aliases; the carrier-screening
-  SQL prefilter needs a gene symbol, so a variant with only an Ensembl gene ID never reaches
-  the couple rule; the SQL rsID check also reads the shared annotation index, whose rsID
-  another family's VCF may have set; the Python gene-filter overlap
-  (`_variant_overlaps_regions`) does not swap reversed region coordinates where the SQL does
-  (no writer stores them).
-- **CLIN-64 ·** Repeat catalogue after #888 and #905: STRchive and disease tags
-  (`anticipation`) are registered as TRID aliases (they resolve by position, the safe side,
-  but name no locus); moving the pin later leaves a window in which a cold start of the old
-  version is refused until the new revision serves (documented); STRchive v2.28.0
-  (2026-10-08) is out, and moving to it is a reviewed change of the file and the pin, after
-  the per-locus checks (CLIN-57).
-- **CLIN-65 ·** Gene page after #878: the *GenCC details* subsection now holds the ClinGen
-  counts and the ACMG row; the *Dosage sensitivity* count stays 1 when dbNSFP and ClinGen
-  both give an item; the page's type has a `cpic_pharmgkb` key no source writes.
 - **TRACE-15 ·** Evidence snapshots after #870 and #902: the gene lookup matches a symbol
   case-sensitively after a case-insensitive database read, and takes the newest profile of
   any assembly; an *ambiguous* AlphaMissense class reads as "No in-silico predictions
-  available."; a VCF's own `MISSENSE_Z` is stored but never read;
-  `evaluate_classification_drift` skips a stored snapshot that is not a JSON object, which
-  the sign-out does not count as `no_snapshot` (the writer always stores an object).
+  available."; a VCF's own `MISSENSE_Z` reaches the card only as a raw "gene missense z"
+  line, read by no logic; `evaluate_classification_drift` skips a stored snapshot that is
+  not a JSON object, which the sign-out does not count as `no_snapshot` (the writer always
+  stores an object).
 - **TRACE-17 ·** Coverage records after #911: the package's APCAD BED fallback and the
   per-target coverage tables record no `uploaded_from`; the notes of the NIPT
   coverage-over-tracks check are frozen nowhere; a malformed list inside a recorded section
@@ -897,96 +876,111 @@ per-change approval, and records the first review before the RC tag.
 
 - **DOC-1 ·** TF-09b: REQ-SEC-006 does not cite its log-masking tests; REQ-DATA-007,
   REQ-DATA-009 and REQ-MITO-002 do not cite the #762 and #759 tests; REQ-CARR-002's hazards
-  differ between TF-09a (H2) and TF-09b/TF-06 (H1, H2); REQ-NIPT-005 was deleted (#700)
-  instead of marked deprecated as TF-09a §5 requires.
+  differ in all three documents (TF-09a gives H2, TF-09b H1 and H2, TF-06 cites it under H1
+  only); REQ-NIPT-005 was deleted (#700) instead of marked deprecated as TF-09a §5 requires.
 - **DOC-2 ·** TF-02 §8 lists the sign-out gates without the incomplete-import gate and the
-  refusal while data is written (TF-06 has both); TF-09c names 28 of the 75 e2e suites; the
+  refusal while data is written (TF-06 has both); TF-09c names 29 of the 78 e2e suites; the
   ACMG posterior ticks (#765) are in neither REQ-UI-003 nor TF-12.
-- **DOC-3 ·** The in-app docs do not describe Paraphase's *changes only* filter (#756); the
-  handleiding does. (#826 added the repeat statuses and the male chrX flag to the user
-  guide.)
-- **DOC-4 ·** `RUN_INTEGRATION=1` before the seed scripts does nothing (only the pytest
-  conftests read it), yet `docs/testing.md`, TF-09d, `playwright.config.ts`, the stylediff
-  README and two seed scripts set it.
-- **DOC-5 ·** Stale comments in the schema baselines (`02_reference.sql` names
-  `01_core.sql`; a note in `04_traceability.sql`): schema files are edited only with a schema
-  change.
-- **DOC-7 ·** `docs/security-posture.md` lists neither the sign-in redirect check (#833) nor
-  the package path guards (#842).
-- **DOC-8 ·** Wording after #866 and #904: "signed clinical report" remains in
-  `monarch_ingest.py` and `scripts/check-release-version.sh`, and the user guide's section
-  "Clinical report and sign-out" keeps its title (#866); RELEASING.md says a tag on its own
-  does nothing, "see Known limitations", which do not say why (#904).
+- **DOC-3 ·** Minor documentation gaps (was DOC-4, DOC-5, DOC-7 and DOC-8): the in-app docs
+  do not describe Paraphase's *changes only* filter (#756), which the handleiding does;
+  `RUN_INTEGRATION=1` before the seed scripts does nothing (only the pytest conftests read
+  it), yet `docs/testing.md`, TF-09d, `playwright.config.ts`, the stylediff README and two
+  seed scripts set it; stale comments in the schema baselines, to correct with the next
+  schema change (`02_reference.sql` names `01_core.sql`; `04_traceability.sql` says no
+  comment may contain a semicolon, though the splitter drops comments first, and that
+  anchors are recorded "periodically", which nothing schedules, OPS-7);
+  `docs/security-posture.md` lists neither the sign-in redirect check (#833) nor the package
+  path guards (#842); "signed clinical report" remains in `monarch_ingest.py` and
+  `scripts/check-release-version.sh`, and the user guide's section "Clinical report and
+  sign-out" keeps its title, though its text states the device boundary (#866); RELEASING.md
+  says a tag on its own does nothing, "see Known limitations", which do not say why (#904).
 
 ### Operations, CI and infrastructure
 
-- **OPS-11 ·** Coverage gate: `ci.yml` passes `--cov-fail-under=70` while
-  `check-coverage-floor.py` enforces 74 in the same job (a workflow edit for the owner);
-  several module floors lie far below what CI measures; ten floored modules are outside the
-  mypy gate (`family_package_import` would pass now). Modules outside the gate carry mypy
-  errors: five in `hpo_service.py` (#863), one in `family_service.py` (#898), and
-  `get_current_user`'s `request: Request = None` and `UserRead(id=str)` (#895).
-- **OPS-12 ·** Dependabot does not track the CI service images, `fake-gcs-server`, the
-  Terraform image defaults and providers, the Cloud Build builder image, the `pip-audit` and
+- **OPS-11 ·** CI gates and workflow edits for the owner (was OPS-13). Coverage gate:
+  `ci.yml` passes `--cov-fail-under=70` while `check-coverage-floor.py` enforces 74 in the
+  same job (a workflow edit for the owner); several module floors lie far below what CI
+  measures; ten floored modules are outside the mypy gate (`family_package_import` would
+  pass now). Modules outside the gate carry mypy errors, among them five in `hpo_service.py`
+  (#863), one in `family_service.py` (#898), `get_current_user`'s `request: Request = None`
+  and `UserRead(id=str)` (#895), one in `_write_import_failure`
+  (`family_package_registration.py`; from SAFE-21), and `routers/cram.py`'s two arg-type
+  errors in `_resolve_alignment_manifest_entry` and `routers/signal_tracks.py`'s one, each a
+  `format` read as `str` (from SEC-28). Workflow tidy-ups (edits for the owner): an
+  unreachable branch-tag case in `build.yml` (#904 found its unused branch-build path too),
+  stale comments in `build.yml` and `ci.yml`, seventeen environment lines repeated across
+  three jobs, the coverage job installing the full dev lock.
+- **OPS-12 ·** Dependency updates (was OPS-19). Dependabot does not track the CI service
+  images (a test, `test_deployment_config.py`, holds them to the Compose images Dependabot
+  does track, so each Compose image bump needs its `ci.yml` change by hand),
+  `fake-gcs-server`, the Terraform image defaults and providers, the Cloud Build builder
+  image (`gcr.io/cloud-builders/docker`, with no tag or digest at all), the `pip-audit` and
   `markdown` pins in the workflows, or the image tags in `scripts/*.sh`; Terraform's own
   version is pinned in CI since #892 (1.16.6), but nothing updates it, and its provider lock
-  file is not committed.
-- **OPS-13 ·** Workflow tidy-ups (edits for the owner): an unreachable branch-tag case in
-  `build.yml` (#904 found its unused branch-build path too), stale comments in `build.yml`
-  and `ci.yml`, sixteen environment lines repeated across three jobs, the coverage job
-  installing the full dev lock.
+  file is not committed. Dependabot holds back eslint 10 until eslint-plugin-react and
+  eslint-plugin-jsx-a11y accept it, and TypeScript from 6.1 until typescript-eslint does
+  (`dependabot.yml`, #674).
 - **OPS-14 ·** The ClickHouse memory guards (`clickhouse/users.d`) are not deployed to the
   Google Cloud VM, so the 4 GB per-query cap exists only locally.
-- **OPS-15 ·** The dev compose file runs the backend without `--proxy-headers`, unlike the
-  Dockerfile; `.dockerignore` patterns match only at the root; `package.json` allows Node
-  22.22.0 while jsdom needs 22.22.2.
-- **OPS-16 ·** The clinical build passes no `VITE_GITHUB_*` values, so the footer's GitHub
-  links fall back to the owner's repository, and the footer's *Contact* is the owner's own
-  address (allowed for now; a role mailbox or a build variable would fit the roles-not-names
-  rule).
-- **OPS-17 ·** `REFERENCE_CLINICAL_CNVS_PATH` defaults to a
-  `clinical_cnv_syndromes_hg38_combined.tsv` that was never shipped, so the startup bootstrap
-  of clinical CNVs never runs (the knowledgebase rebuild fills that table); drop the default
-  or the bootstrap. Without UCSC, GRCh38 has no cytobands and T2T one band per chromosome.
-- **OPS-18 ·** Rebuild the clinical CNV knowledgebase for both assemblies on each database
-  after #721.
-- **OPS-19 ·** eslint 10 and TypeScript 7 are blocked upstream (eslint-plugin-react,
-  eslint-plugin-jsx-a11y, typescript-eslint); Dependabot ignores them.
-- **OPS-20 ·** Terraform's `storage_backend` accepts `s3`, but nothing sets `S3_BUCKET`, so
-  the API refuses to start with it (`config.py`); only `gcs` is wired. Drop `s3` from the
-  variable or wire the bucket.
-- **OPS-21 ·** The Postgres connection and admin settings are written twice, in
-  `cloudrun.tf` and `migrate.tf` (#794 shared only `APP_ENV` and the cross-origin settings);
-  fold them into the shared local, or test that the two copies agree.
+- **OPS-15 ·** Minor build and configuration points (was OPS-16, OPS-20 and OPS-21). The dev
+  compose file runs the backend without `--proxy-headers`, unlike the Dockerfile;
+  `.dockerignore` patterns match only at the root; `package.json` allows Node 22.22.0 while
+  jsdom needs 22.22.2. The clinical build passes no `VITE_GITHUB_*` values, so the footer's
+  GitHub links fall back to the owner's repository, and the footer's *Contact* is the
+  owner's own address (allowed for now; a role mailbox or a build variable would fit the
+  roles-not-names rule). Terraform's `storage_backend` accepts `s3`, but nothing sets
+  `S3_BUCKET`, so the API refuses to start with it (`config.py`); only `gcs` is wired: drop
+  `s3` from the variable or wire the bucket. The Postgres connection and admin settings are
+  written twice, in `cloudrun.tf` and `migrate.tf` (#794 shared only `APP_ENV` and the
+  cross-origin settings): fold them into the shared local, or test that the two copies
+  agree.
+- **OPS-17 ·** Reference-data defaults (was OPS-18). `REFERENCE_CLINICAL_CNVS_PATH` defaults
+  to a `clinical_cnv_syndromes_hg38_combined.tsv` that was never shipped, so the startup
+  bootstrap of clinical CNVs never runs (the knowledgebase rebuild fills that table): drop
+  the default or the bootstrap. Rebuild the clinical CNV knowledgebase for both assemblies
+  on each database after #721. Without UCSC, GRCh38 has no cytobands and T2T none; with it,
+  T2T gets one band per chromosome, as UCSC has no T2T cytoband table.
 - **OPS-22 ·** `main` no longer requires a branch to be up to date before it merges, so two
   pull requests that each pass alone can fail together: #857 and #858 left a unit test
   failing on `main` until #860. A merge queue would test each against the one merged before
   it (owner).
 - **OPS-25 ·** TF-13 S-7 says the backend lockfiles are reproduced in Docker; #894 compiled
   its change with pip-compile under Python 3.13 outside Docker, keeping the Python 3.12
-  annotations by hand. Run `./scripts/compile-requirements.sh` in Docker and expect no
-  diff, or correct S-7.
+  annotations by hand, and no workflow runs `./scripts/compile-requirements.sh`. Run it in
+  Docker and expect no diff, or correct S-7.
 
 ### Engineering debt
 
-- **ENG-4 ·** API leftovers whose removal changes the OpenAPI schema (owner decision):
-  response fields never set (`GeneHomologOut.percent_id/percent_coverage`) or always the
-  default (`ReferenceImportSourceAssemblyOut.cytobands_available/genes_available`);
-  duplicate models (`FamilyStructureCoupleUpdate` = `ManualPedCoupleCreate`,
-  `MonarchPhenotypeMatchOut` = `PhenotypeTermRefOut`); the CNV route's string-typed `end`.
-  The SV review route's request model inherits `acmg` and `compound_het`, which the route
-  ignores (#853).
-- **ENG-5 ·** Routes no screen calls (kept, or dropped by the owner): `GET /assemblies/{species_id}`,
-  `GET /families/{id}/hpo/query`, `PUT /families/{id}/hpo/{annotation_id}`,
-  `GET /hpo/{hpo_id}`, `DELETE /families/{id}/small-variant-filter-presets/{preset_id}`,
+- **ENG-4 ·** API leftovers whose removal or renaming changes the OpenAPI schema (owner
+  decision; was SAFE-9 and CLIN-15): response fields never set
+  (`GeneHomologOut.percent_id/percent_coverage`) or always the default
+  (`ReferenceImportSourceAssemblyOut.cytobands_available/genes_available`); duplicate models
+  (`FamilyStructureCoupleUpdate` = `ManualPedCoupleCreate`, `MonarchPhenotypeMatchOut` =
+  `PhenotypeTermRefOut`); the CNV route's string-typed `end`;
+  `FamilyMemberUpdate.clear_existing_genomic_data`, accepted and ignored. The SV review
+  route's request model inherits `acmg` and `compound_het`, which the route ignores (#853).
+  The NIPT fields `cat7_transmitted` and `cat8_absent` and the profile summary's "categories
+  7/8" are named after the old paternity logic; the Sample QC page prints that summary and
+  signed records store it (`application_summary`), so renaming changes a stored text too
+  (the two fields are in no record signed since #749).
+- **ENG-5 ·** Routes no screen calls (kept, or dropped by the owner):
+  `GET /assemblies/{species_id}`, `GET /families/{id}/hpo/query`,
+  `PUT /families/{id}/hpo/{annotation_id}`, `GET /hpo/{hpo_id}`,
+  `DELETE /families/{id}/small-variant-filter-presets/{preset_id}`,
   `DELETE /families/{id}/structural-variant-filter-presets/{preset_id}`, the BED endpoints'
-  text format. Admin, traceability and ops routes without a screen stay by the owner's choice.
-- **ENG-6 ·** Schema leftovers (owner decision): Postgres columns never read or written
-  (`auth_login_attempts.last_success_at`,
+  text format. Admin, traceability and ops routes without a screen stay by the owner's
+  choice. (Screens for the SV preset delete and the phenotype `PUT` are PROD-3 and PROD-8 in
+  ROADMAP.md.)
+- **ENG-6 ·** Schema and stored-key leftovers (owner decision; was SAFE-7): Postgres columns
+  never read or written (`auth_login_attempts.last_success_at`,
   `small_variant_reviews.compound_het_partner_variant_keys`); ClickHouse columns always
   empty or constant and never read (`liftedOverChrom/Pos`, `sample_type`) or written and
-  never read (`annotation_index.transcript_ids`). `structural_variant_reviews.variant_key`
-  is never written (#853), nor is the SV table's `calls.gq` (#868).
+  never read (`annotation_index.transcript_ids`, and its `sift_terms` and `polyphen_terms`,
+  from CLIN-52). `structural_variant_reviews.variant_key` is never written (#853), nor is
+  the SV table's `calls.gq` (#868). `families.metadata.unresolved_roi` is written and never
+  read, and never cleared when a later import resolves the ROI. The QC-threshold `reason` is
+  nullable only for edits made before it was required; making it `NOT NULL` is a schema and
+  API change (from SAFE-12).
 - **ENG-7 ·** Frontend: about 40 responses read through hand-written types where a generated
   type exists (most visualisation tracks, the admin, gene, reference and import pages,
   `apiTypes.ts` types without a contract check, the Mendeliome response read untyped); eight
@@ -997,37 +991,59 @@ per-change approval, and records the first review before the RC tag.
   offers `MT`; wheel-zoom leftovers (#489: a shift scale always 1, a `[data-panning]` rule
   that never matches, so no grabbing cursor during a pan).
   `buildStructuralVariantReviewPath` builds its path with `encodeURIComponent`, not
-  `apiPath` (#853), and `ChromosomeViewWorkspace.tsx` puts `source=` into BED URLs
-  unencoded (#898); `GenomeOverviewPage.tsx` sends the SV route `qual`, `read_support` and
-  `filter`, which it never took (#896); `lib/cnvAcmg/evaluate.ts` keeps its own copy of
-  `svKind`, identical to `svTypes.svKind` (#865).
-- **ENG-8 ·** Backend leftovers: gene-info keys one side reads and nothing writes, or writes and
-  nothing reads (`mane_select_transcript`, `ensembl_canonical_transcript`, `hgnc_vega_id`).
-  Duplication left for a later refactor: the audit and UI-event queue
-  workers, the bounded download helper (Monarch, gene-info), several VCF INFO/FORMAT parsers
-  with different flag handling, the interval-track tuple, small exact-copy helpers in the
-  mito, repeat and Paraphase services, and parameters no caller sets.
-- **ENG-9 ·** The ranking's comments promised a re-sort by the raw variant score (corrected
-  in the code comments); the UI could offer that sort for novel-gene candidates.
-- **ENG-10 ·** UI details: a failed saved-filter delete on *Settings* leaves the button at
-  "Removing…"; two column headings in the data-inventory detail sit over the wrong columns;
-  the admin presets page's loading text mentions family-linked presets; an empty transcript
-  row spans 7 of 8 columns; several pages show a loading state without a spinner; in the
-  members table's edit mode a long QC chip overlaps the Remove button (#867).
-- **ENG-11 ·** Sentence case is incomplete after #754: headings (*Gene Explorer*,
-  *Variant Explorer*, *Package Import*, *Family Builder*), the Family Builder and sample-upload
-  tabs and buttons, the sign-up and login forms, the gene-panel page, the admin dashboard's
-  groups and tiles, and several kickers; the docs quote some of them, so change both together.
-- **ENG-12 ·** Round 2's small leftovers: a Warning or Fail QC chip that opens a report
-  turns dark grey on hover (`button:hover` outranks the tone classes), and its tooltip is
-  not linked for screen readers; the signed report's `describeBreachedMetric` writes the raw
-  value ("18.57 x" where the chip writes "18.6x", #867); the workspace, NIPT, NIPT coverage
-  and ROI pages do not wait for the project list, so the scope banner can appear a moment
-  after the data; the ROI page says "could not be loaded" for a 404; Sample QC's own failure
-  has no retry; saving project access on the Projects page leaves the Users page's account
-  list stale for up to 30 s; a limit on a metric that has left the catalogue cannot be
-  removed (REQ-QC-003); route tests that leave the request audit on write to whatever
-  Postgres listens on localhost:5432.
+  `apiPath` (#853), and `ChromosomeViewWorkspace.tsx` puts `source=` into BED URLs unencoded
+  (#898); `GenomeOverviewPage.tsx` sends the SV route `qual`, `read_support` and `filter`,
+  which it never took (#896); `lib/cnvAcmg/evaluate.ts` keeps its own copy of `svKind`,
+  identical to `svTypes.svKind` (#865); the gene page's type has a `cpic_pharmgkb` key no
+  source writes (from CLIN-65).
+- **ENG-8 ·** Backend leftovers (was SEC-18): gene-info keys one side reads and nothing
+  writes, or writes and nothing reads (`mane_select_transcript`,
+  `ensembl_canonical_transcript`, `hgnc_vega_id`); a stale migration-era 503 in
+  `routers/families.py` that names tables. Duplication left for a later refactor: the audit
+  and UI-event queue workers, the two copies of the list of secret-looking keys the logs
+  mask (`ui_events.py`, `request_logging.py`), the bounded download helper (Monarch,
+  gene-info), several VCF INFO/FORMAT parsers with different flag handling, the
+  interval-track tuple, small exact-copy helpers in the mito, repeat and Paraphase services,
+  and parameters no caller sets.
+- **ENG-10 ·** Minor UI wording and layout (was ENG-11, CLIN-20 and CLIN-24, with the
+  cosmetic points of ENG-12, CLIN-21, CLIN-38, CLIN-52 and CLIN-65):
+  - Pages: a failed saved-filter delete on *Settings* leaves the button at "Removing…"; two
+    column headings in the data-inventory detail sit over the wrong columns; the admin
+    presets page's loading text mentions family-linked presets; an empty transcript row
+    spans 7 of 8 columns; several pages show a loading state without a spinner; in the
+    members table's edit mode a long QC chip overlaps the Remove button (#867); the ROI page
+    says "could not be loaded" for a 404; Sample QC's own failure has no retry; saving
+    project access on the Projects page leaves the Users page's account list stale for up to
+    30 s.
+  - Sentence case is incomplete after #754 (was ENG-11): headings (*Gene Explorer*, *Variant
+    Explorer*, *Package Import*, *Family Builder*), the Family Builder and sample-upload
+    tabs and buttons, the sign-up form ("First Name", "Last Name", "Sign Up"), the
+    gene-panel page, the admin dashboard's groups and tiles, and several kickers; the docs
+    quote some of them, so change both together.
+  - The QC chip (#867): a Warning or Fail chip that opens a report turns dark grey on hover
+    (`button:hover` outranks the tone classes), and its tooltip is not linked for screen
+    readers; the signed report's `describeBreachedMetric` writes the raw value ("18.57 x"
+    where the chip writes "18.6x").
+  - Raw and readable text (was CLIN-20): the small-variant card and table show the stored
+    classification word as typed while the SV pages normalise it; the NIPT report prints raw
+    tokens (fetal sex, chrY profile, paternity, plasma status) where the screen's QC panel
+    uses readable text; the live report says "no longer present in the dataset" where the
+    signed version says "in the data"; the report draft (`reportNarrative.ts`) prints "SIFT
+    deleterious_low_confidence(0.03)" where the cards print "deleterious low confidence
+    (0.03)".
+  - The sign-out QC prompt (was CLIN-24, whose other points #916 fixed): a sex check that
+    could not run is listed with two colons ("Sample X: sex could not be checked: the
+    genotypes could not be loaded.").
+  - Chips and counts: an SV preset's rule count includes one sample template per member; the
+    small-variant form's active review- and exclude-tag chips do not mark a deleted tag
+    "(deleted)", unlike the other chips since #776; *review* repeat calls have no chip style
+    of their own (#826); on the gene page after #878 the *GenCC details* subsection holds
+    the ClinGen counts and the ACMG row, and the *Dosage sensitivity* count stays 1 when
+    dbNSFP and ClinGen both give an item.
+- **ENG-12 ·** Round 2's leftovers: the workspace, NIPT, NIPT coverage and ROI pages do not
+  wait for the project list, so the scope banner can appear a moment after the data; a limit
+  on a metric that has left the catalogue cannot be removed (REQ-QC-003). (Its cosmetic
+  points are in ENG-10, its test point in ENG-16.)
 - **ENG-13 ·** Ranking cache (#828): the background warm still computes queries without
   their intervals and exclusions, which takes one of six cache slots per family; the
   pedigree is read before the structure hash, so an edit in between can store a ranking on
@@ -1043,35 +1059,38 @@ per-change approval, and records the first review before the RC tag.
 - **TRACE-10 ·** Coverage tracks after #837: the BED endpoints (`GET /bed/{sample}/coverage`
   and `/batch`) without `source` merge every caller's rows, averaging them in a window (the
   UI always names the source, #852), and their text format labels the value column `ratio`
-  whatever the track holds; a HiFiCNV coverage import stopped between its rows and its
-  record leaves rows drawn as a log2 ratio (the family is flagged import-unfinished). A
-  segments BED declares nothing of what it holds (#898).
-- **ENG-16 ·** `integration/test_variant_explorer_keyset_integration.py` fails when run
-  alone: it relies on an earlier test creating the Postgres schema (#857).
+  whatever the track holds. A segments BED declares nothing of what it holds (#898, a choice
+  REG-12 lists).
+- **ENG-16 ·** Test isolation and fixtures (was ENG-18):
+  `integration/test_variant_explorer_keyset_integration.py` fails when run alone, as it
+  relies on an earlier test creating the Postgres schema (#857); route tests that leave the
+  request audit on write to whatever Postgres listens on localhost:5432 (from ENG-12); the
+  e2e stack's HPO terms carry no release, so every e2e sign-out records an "HPO release not
+  recorded" gap (#879).
 - **ENG-17 ·** The panel's window join reads the family's table a second time within its
   query, as the annotation and sample subqueries do, so a write landing between the two
   reads could make one request miss a row (#874).
-- **ENG-18 ·** The e2e stack's HPO terms carry no release, so every e2e sign-out records an
-  "HPO release not recorded" gap (#879).
 
-### Product gaps
+### Product gaps and enhancements
 
-- **PROD-1 ·** Small-variant summary statistics per individual and family (#1).
-- **PROD-2 ·** Variant Explorer: gene, transcript and cohort-frequency views.
-- **PROD-3 ·** SV presets: no screen saves a reusable SV preset or deletes one; the API
-  supports both.
-- **PROD-4 ·** Long-read packages: a multi-sample family needs an annotated joint VCF; no
-  dataset type reads a plain multi-sample Sniffles2 VCF; QDNAseq-style raw-bin CNV files are
-  not importable.
-- **PROD-5 ·** Per-sample GLIMPSE2 BCF haplotypes are registered but not imported.
-- **PROD-6 ·** Single-parent recessive risk reads "uninformative" by design; a later version
-  could say "carries the known parent's risk allele, donor unknown".
-- **PROD-7 ·** REQ-MITO-003: no automated haplogroup comparison (owner to decide).
-- **PROD-8 ·** The UI can add or delete a phenotype term but not edit one.
-- **PROD-9 ·** A PGT family has one ROI: the signed record's PGT section holds one, so two
-  loci need its format extended after the RC (#899).
+Moved to [ROADMAP.md](ROADMAP.md#product) on 2026-10-20, as ideas rather than defects:
+PROD-1 to PROD-9 and ENG-9 under *Product*, SEC-16 under *Engineering*.
 
 ## Closed since the last review
+
+Closed in the P3 triage of 2026-10-20: no P3 entry was fixed whole. Checking each against
+the code at `be5e09a7`, and against #913 to #919 since, found these parts fixed, now
+dropped: TRACE-10's HiFiCNV coverage import stopped between its rows and its record (#898
+reads such a track's content as unknown and draws it on its own range), CLIN-49's signed
+report that showed an SV only by its id (#879 freezes each reported SV's description),
+CLIN-15's fields in the signed snapshot (stored by no record since #749), PROD-4's joint VCF
+for a multi-sample long-read family (per-sample SNV files since #763), ENG-11's login form,
+already in sentence case, and all but one of CLIN-24's points about the sign-out QC prompt
+(#916, CLIN-58's fix: the dialog lists each concern once, under its heading, and its message
+no longer calls a lone sex check an asserted pedigree relationship). The triage also merged
+duplicates into the entry with the lowest ID, which names the IDs it took in ("was …"),
+bundled the wording, layout, documentation and configuration points into ENG-10, DOC-3 and
+OPS-15, and moved the product ideas to ROADMAP.md: the 113 P3 entries are now 64.
 
 Fixed on 2026-10-14 to 10-20, wave 8: the CNV dialog's suggestions per kind (CLIN-55, #862),
 the HPO download pinned to the shipped release (OPS-6's HPO part, #863, #890), raw-file
