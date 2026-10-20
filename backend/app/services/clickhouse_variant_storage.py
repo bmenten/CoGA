@@ -763,7 +763,10 @@ async def insert_small_variant_records(
     a caller that writes the family's rows itself (a per-sample rewrite, which merges them
     into the stored rows: see :func:`small_variant_record_entries`)."""
     await ensure_clickhouse_variant_tables(assembly_name)
-    detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows = _small_variant_entry_rows(
+    # Building a batch's rows is CPU work, more than parsing its VCF lines: it runs in a
+    # worker thread, so the event loop serves other requests meanwhile (OPS-9).
+    detail_rows, entry_rows, annotation_rows, annotation_index_rows, annotation_gene_index_rows = await asyncio.to_thread(
+        _small_variant_entry_rows,
         assembly_name,
         family_uuid,
         project_ids,

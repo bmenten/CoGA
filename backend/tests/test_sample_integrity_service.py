@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
 import random
 import types
@@ -13,6 +14,7 @@ from backend.app.services import sample_integrity_service
 from backend.app.services.nipt_analysis import PaternalTransmissionEvidence
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.report_signout_service import _canonical_sample_qc
+from backend.tests._event_loop_probe import LoopProbe, longest_stall
 
 SAMPLES = ["FATHER", "MOTHER", "CHILD"]
 
@@ -801,3 +803,147 @@ def test_vaf_genotype() -> None:
     assert vaf_genotype([280, 20], "0/1") == "0/0"  # 7%: noise, not a genotype
     assert vaf_genotype([3, 2], "0/1") == "./."  # too few reads
     assert vaf_genotype([], "1|1") == "1|1"  # no allele depths: the GT
+
+
+# --- Off the event loop (OPS-9) ---------------------------------------------------------
+#
+# The Sample QC of ten samples held the event loop, and with it every other request, for
+# about 2.3 s: over a million genotypes parsed, relatedness over every pair of samples and
+# the Mendelian checks, all on the loop. They run in worker threads now, the queries on
+# the loop.
+
+_TEN = ["FATHER", "MOTHER", *(f"E{index}" for index in range(1, 9))]
+
+
+def _ten_sample_context() -> FamilyMetadataContext:
+    """Two parents and eight embryos: ten samples, 45 pairs."""
+    sample_rows = [
+        {"sample_id": "FATHER", "role": "father", "sex": "male"},
+        {"sample_id": "MOTHER", "role": "mother", "sex": "female"},
+        *(
+            {"sample_id": embryo, "role": "embryo", "sex": "female" if index % 2 else "male"}
+            for index, embryo in enumerate(_TEN[2:])
+        ),
+    ]
+    relationship_rows = [
+        {"relationship_type": "parent_child", "sample_id_a": parent, "sample_id_b": embryo, "role_a": role}
+        for embryo in _TEN[2:]
+        for parent, role in (("FATHER", "father"), ("MOTHER", "mother"))
+    ]
+    return FamilyMetadataContext(
+        family_uuid="fam-ten",
+        family_id="TEN1",
+        project_ids=[],
+        sample_rows=sample_rows,
+        sample_uuid_to_name={f"uuid-{s}": s for s in _TEN},
+        sample_name_to_uuid={s: f"uuid-{s}" for s in _TEN},
+        affected_sample_names=[],
+        assembly_id="asm",
+        assembly_name="GRCh38",
+        relationship_rows=relationship_rows,
+    )
+
+
+@functools.lru_cache(maxsize=None)
+def _ten_sample_rows(sites: int, *, swapped: bool) -> tuple[list, list]:
+    """Each embryo inherits an allele of each parent at every site. With ``swapped``, E3's
+    sample is a stranger's, and E5 misses a call now and then."""
+    rng = random.Random(41)
+    phased = {(a, b): f"{a}|{b}" for a in (0, 1) for b in (0, 1)}
+    autosomal = []
+    for i in range(sites):
+        f = (rng.getrandbits(1), rng.getrandbits(1))
+        m = (rng.getrandbits(1), rng.getrandbits(1))
+        gts = [phased[f], phased[m]]
+        for embryo in _TEN[2:]:
+            child = (f[rng.getrandbits(1)], m[rng.getrandbits(1)])
+            if swapped and embryo == "E3":
+                child = (rng.getrandbits(1), rng.getrandbits(1))
+            gts.append("./." if swapped and embryo == "E5" and i % 97 == 0 else phased[child])
+        autosomal.append((str(i % 22 + 1), 1_000 + i, "A", "G", list(_TEN), gts))
+    x_rows = []
+    for i in range(sites // 5):
+        fx = rng.getrandbits(1)
+        m = (rng.getrandbits(1), rng.getrandbits(1))
+        gts = [phased[(fx, fx)], phased[m]]
+        for index, _embryo in enumerate(_TEN[2:]):
+            maternal = m[rng.getrandbits(1)]
+            gts.append(phased[(fx, maternal)] if index % 2 else phased[(maternal, maternal)])
+        x_rows.append(("X", 3_000_000 + i, "A", "G", list(_TEN), gts))
+    return autosomal, x_rows
+
+
+def _patch_ten(monkeypatch, *, sites: int = 3_000, swapped: bool = False) -> None:
+    autosomal, x_rows = _ten_sample_rows(sites, swapped=swapped)
+
+    async def _fake_context(session, *, family_identifier, user, project_id=None):
+        return _ten_sample_context()
+
+    async def _fake_get_family(session, family_id, user):
+        return types.SimpleNamespace(metadata={})
+
+    async def _fake_sources(context):
+        return ["clair3"]
+
+    async def _fake_sample(context, *, scope, limit, source):
+        return list(x_rows if scope == "chrX" else autosomal)
+
+    monkeypatch.setattr(sample_integrity_service, "build_family_metadata_context", _fake_context)
+    monkeypatch.setattr(sample_integrity_service, "get_family_record", _fake_get_family)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _fake_sources)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _fake_sample)
+
+
+def _ten_sample_qc():
+    return sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="TEN1", user=None)
+
+
+@pytest.mark.parametrize(
+    "stage",
+    [
+        "_parse_genotype",  # a genotype per sample and site
+        "evaluate_sample_integrity",  # relatedness over every pair, the Mendelian checks
+    ],
+)
+def test_service_parses_and_evaluates_the_genotypes_off_the_event_loop(monkeypatch, stage) -> None:
+    # The stage's first call waits for another coroutine to run on the loop meanwhile: it
+    # can only when the stage runs in a worker thread.
+    _patch_ten(monkeypatch)
+    probe = LoopProbe()
+    monkeypatch.setattr(sample_integrity_service, stage, probe.wrap(getattr(sample_integrity_service, stage)))
+
+    report = asyncio.run(probe.run(_ten_sample_qc()))
+
+    assert not probe.held, f"{stage} held the event loop"
+    assert report.overall_status == "pass"
+    assert len(report.relatedness_checks) == 45
+
+
+def test_service_keeps_the_event_loop_serving_while_it_reads_ten_samples(monkeypatch) -> None:
+    # Another coroutine is served while the Sample QC of ten samples runs: it waits at most
+    # a fraction of the QC's time (on the event loop, it waited all of it).
+    _patch_ten(monkeypatch, sites=30_000)
+
+    report, stall, duration = asyncio.run(longest_stall(_ten_sample_qc()))
+
+    assert report.autosomal_sites == 30_000
+    assert stall < max(0.25, duration / 4), f"the loop was held {stall:.3f} s of {duration:.3f} s"
+
+
+@pytest.mark.parametrize("swapped", [False, True])
+def test_service_reads_the_same_qc_off_the_event_loop_as_on_it(monkeypatch, swapped) -> None:
+    # The Sample QC frozen into a signed record is the one the checks made on the loop, each
+    # genotype parsed anew: every check, verdict and note.
+    _patch_ten(monkeypatch, swapped=swapped)
+    threaded = asyncio.run(_ten_sample_qc())
+
+    async def _on_the_loop(function, /, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    parse = sample_integrity_service._parse_genotype
+    monkeypatch.setattr(asyncio, "to_thread", _on_the_loop)
+    monkeypatch.setattr(sample_integrity_service, "_parse_genotype", getattr(parse, "__wrapped__", parse))
+    inline = asyncio.run(_ten_sample_qc())
+
+    assert _frozen(threaded) == _frozen(inline)
+    assert threaded.overall_status == ("fail" if swapped else "pass")

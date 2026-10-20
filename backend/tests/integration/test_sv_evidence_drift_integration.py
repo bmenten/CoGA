@@ -228,7 +228,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
     async def _ctx(session, *, family_identifier, user, project_id=None):
         return _ctx_now()
 
-    async def _qc(session, *, family_id, user, project_id=None):
+    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
         return SampleIntegrityReport(overall_status="pass")
 
     async def _sequencing_qc(session, context):

@@ -81,6 +81,7 @@ from .coverage_content import COVERAGE_CONTENT_KEY
 from .coverage_read_depth import COVERAGE_TRACK_TYPE, coverage_track_content
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
+from .nipt_service import SharedNiptAnalysis
 from .panel_use_audit import applied_gene_panels
 from .pgt_analysis import family_pgt_analysis, is_pgt_family
 from .paraphase_pg import (
@@ -877,10 +878,12 @@ async def build_record_sections(
     context: FamilyMetadataContext,
     reported: Sequence[Mapping[str, Any]],
     reported_structural: Sequence[Mapping[str, Any]],
+    shared_nipt: SharedNiptAnalysis | None = None,
 ) -> dict[str, Any]:
     """Every section of ``RECORD_SECTIONS`` the family's record holds, keyed by its snapshot
     key: each one without an application, the PGT section of a PGT family and the NIPT
-    section of a monogenic NIPT family."""
+    section of a monogenic NIPT family (from ``shared_nipt``'s analysis, when the sign-out's
+    Sample QC has read it)."""
     descriptions = await _guarded(
         session,
         VARIANT_DESCRIPTIONS.unavailable,
@@ -925,6 +928,7 @@ async def build_record_sections(
                 session,
                 context,
                 reported_ids=[str(entry.get("variant_id") or "") for entry in reported],
+                shared_nipt=shared_nipt,
             ),
         )
     return sections

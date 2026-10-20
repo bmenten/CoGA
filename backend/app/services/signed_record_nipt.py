@@ -24,7 +24,8 @@ backend (``nipt_service``, ``nipt_quality_checks``), not by the browser:
   (its validation, constants and quality filter).
 
 The Sample QC's NIPT checks (paternity, fetal sex from the paternal X, the category
-distribution, the parents' sex) and their notes are in the record's ``sample_qc``. A family
+distribution, the parents' sex) and their notes are in the record's ``sample_qc``, read from
+the same run of the analysis as this section (``nipt_service.SharedNiptAnalysis``). A family
 that is no monogenic NIPT family holds no ``nipt`` key, so its record is as it was. A NIPT
 quality check that failed gates the sign-out like a failed Sample QC check
 (``nipt_signout_concerns``).
@@ -63,7 +64,12 @@ from .nipt_analysis import (
     NiptQualityThresholds,
 )
 from .nipt_quality_checks import NiptQualityChecks, nipt_quality_checks
-from .nipt_service import NiptClassifiedVariant, NiptFamilyRecord, get_family_nipt_record
+from .nipt_service import (
+    NiptClassifiedVariant,
+    NiptFamilyRecord,
+    SharedNiptAnalysis,
+    get_family_nipt_record,
+)
 from .nipt_target_coverage import TARGET_COVERAGE_TRACK_TYPE, TargetCoverageSummary
 from .nipt_triage import RecessiveAllele, RecessiveGeneRisk
 
@@ -419,9 +425,11 @@ async def nipt_results(
     context: FamilyMetadataContext,
     *,
     reported_ids: Iterable[str],
+    shared_nipt: SharedNiptAnalysis | None = None,
 ) -> dict[str, Any]:
     """The NIPT section of a monogenic NIPT family's record: its analysis as the NIPT page
-    computes it now, the reported variants (``reported_ids``) among it."""
+    computes it now, the reported variants (``reported_ids``) among it. With ``shared_nipt``,
+    the analysis the sign-out's Sample QC read, so the two report the same values."""
     resolved = nipt_trio_of(context)
     if resolved is None:
         return {"unavailable": TRIO_UNRESOLVED}
@@ -434,6 +442,7 @@ async def nipt_results(
         assay_key=assay_key,
         variant_ids=reported_ids,
         qc=qc,
+        shared_nipt=shared_nipt,
     )
     target_tables = await _target_tables(session, context, trio)
     return nipt_section(

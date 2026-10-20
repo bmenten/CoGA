@@ -15,6 +15,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import math
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from types import SimpleNamespace
 from typing import Any
@@ -23,11 +24,16 @@ import pytest
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut
 from backend.app.services import nipt_service
+from backend.app.services import report_signout_service as rss
+from backend.app.services import sample_integrity_service
 from backend.app.services import signed_record_nipt as srn
+from backend.app.services import signed_record_sections as srs
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.hash_chain import canonical_hash
 from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQualityThresholds
 from backend.app.services.nipt_target_coverage import TargetCoverageRow
+from backend.app.services.sample_integrity_qc import evaluate_nipt_category_qc
 
 FATHER = "FATHER1"
 PLASMA = "CFDNA1"
@@ -588,3 +594,178 @@ def test_a_failed_check_without_its_message_still_gives_a_reason() -> None:
         "the two signals disagree.",
         "this sample cannot be maternal plasma.",
     ]
+
+
+# --- One analysis for the sign-out's Sample QC and its record (#900, OPS-9) ----------------
+#
+# The analysis reads the family's whole callset. A sign-out ran it twice, for the Sample QC's
+# NIPT checks (paternity, the fetal sex from the father's X, the category distribution),
+# which the sign-out gates on, and for the record's NIPT section, and the two could read
+# different inputs: the assay's artifact list is curated apart from the family's data.
+
+
+class _SignOutSession(_Session):
+    """The sign-out's session: each record section reads in a savepoint of its own."""
+
+    @asynccontextmanager
+    async def _savepoint(self):
+        yield
+
+    def begin_nested(self):
+        return self._savepoint()
+
+
+def _sign_out_context() -> FamilyMetadataContext:
+    """The family as the sign-out reads it, for its Sample QC and its record alike."""
+    return FamilyMetadataContext(
+        family_uuid=FAMILY_UUID,
+        family_id="NIPTFAM1",
+        project_ids=["project-uuid"],
+        sample_rows=[
+            {**row, "sex": {"father": "male", "mother": "female"}.get(row["role"], "")}
+            for row in _sample_rows()
+        ],
+        sample_uuid_to_name={"father-uuid": FATHER, "cfdna-uuid": PLASMA},
+        sample_name_to_uuid={FATHER: "father-uuid", PLASMA: "cfdna-uuid"},
+        affected_sample_names=[],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+
+
+def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Everything a sign-out snapshot reads besides the NIPT analysis (``_wire``) and the
+    record's NIPT section: nothing to report on, the other sections empty."""
+
+    async def context(_session, *, family_identifier, user, project_id=None):
+        return _sign_out_context()
+
+    async def family(_session, _family_id, _user):
+        return _family()
+
+    async def nipt_callset(_context):
+        return ["nipt"]
+
+    async def no_sites(_context, *, scope, limit, source):
+        return []
+
+    async def manifest(_session, *, family_id, user, project_id=None):
+        return {"assembly": "GRCh38", "modules": []}
+
+    async def no_drift(_session, *, family_id, user, project_id=None):
+        nothing = {"checked": 0, "drifted_count": 0, "drifted": []}
+        return {**nothing, "structural": dict(nothing)}
+
+    async def reported(_session, _family_uuid):
+        return [{"variant_id": "7-100-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
+
+    async def nothing_reported(_session, _family_uuid):
+        return []
+
+    async def sequencing_qc(_session, _context):
+        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+
+    async def complete(_session, _family_uuid):
+        return None
+
+    async def unfinished(_session, _family_uuid):
+        return {}
+
+    async def section(*_args, **_kwargs):
+        return {}
+
+    for module in (nipt_service, sample_integrity_service, rss):
+        monkeypatch.setattr(module, "build_family_metadata_context", context)
+    monkeypatch.setattr(sample_integrity_service, "get_family_record", family)
+    monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", nipt_callset)
+    monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", no_sites)
+    monkeypatch.setattr(rss, "get_family_annotation_manifest", manifest)
+    monkeypatch.setattr(rss, "evaluate_classification_drift", no_drift)
+    monkeypatch.setattr(rss, "_reported_reviews", reported)
+    monkeypatch.setattr(rss, "_reported_structural_reviews", nothing_reported)
+    monkeypatch.setattr(rss, "_canonical_sequencing_qc", sequencing_qc)
+    monkeypatch.setattr(rss, "_import_incomplete_state", complete)
+    monkeypatch.setattr(rss, "_import_unfinished_state", unfinished)
+    for name in ("variant_descriptions", "_gene_panels", "reference_data", "repeat_expansion_calls",
+                 "paraphase_results", "coverage_tracks", "pgt_embryo_results"):
+        monkeypatch.setattr(srs, name, section)
+
+
+@pytest.mark.asyncio
+async def test_a_sign_out_reads_one_nipt_analysis_for_its_sample_qc_and_its_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The lab takes one of the father's transmitted alleles (1-1000-A-G) off the artifact
+    # list while the sign-out runs. Computed once, the Sample QC frozen in the record, which
+    # the sign-out gates on, and the record's NIPT section read the same list and say the
+    # same: run twice, the second read had the allele back and counted it.
+    _wire(monkeypatch)
+    _wire_sign_out(monkeypatch)
+    list_reads: list[str] = []
+
+    async def curated_meanwhile(_session, *, assembly_id, assay_key):
+        list_reads.append(assay_key)
+        return {"1-1000-A-G"} if len(list_reads) == 1 else set()
+
+    analyses: list[str] = []
+    analyse = nipt_service._analyse_family_sites
+
+    def counted(data, trio, qc, artifact_lookup):
+        analyses.append(trio.father_sample_id)
+        return analyse(data, trio, qc, artifact_lookup)
+
+    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", curated_meanwhile)
+    monkeypatch.setattr(nipt_service, "_analyse_family_sites", counted)
+
+    snapshot = await rss.build_report_snapshot(_SignOutSession(), family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+
+    # One read of the list, one analysis of the family's callset.
+    assert (list_reads, analyses) == (["panel-v2"], [FATHER])
+    qc, section = snapshot["sample_qc"], snapshot["nipt"]
+    assert qc["application"] == "nipt" and "NIPT cfDNA analysis could not run." not in qc["notes"]
+    paternity = section["checks"]["paternity"]
+    counts = ("hom_alt_transmitted", "hom_alt_not_transmitted", "het_transmitted", "het_not_transmitted")
+    assert qc["paternity_check"] == {
+        "father": FATHER,
+        **{key: paternity[key] for key in (*counts, "status", "message")},
+    }
+    # The allele the list held when the analysis read it is left out of both.
+    assert (paternity["het_transmitted"], section["inputs"]["artifact_list"]["entries"]) == (60, 1)
+    fetal_sex = section["checks"]["fetal_sex"]
+    assert (
+        qc["fetal_sex_check"]["inferred_sex"],
+        qc["fetal_sex_check"]["x_transmitted"],
+        qc["fetal_sex_check"]["x_not_transmitted"],
+        qc["fetal_sex_check"]["informative_sites"],
+    ) == (
+        fetal_sex["paternal_x"],
+        fetal_sex["x_transmitted"],
+        fetal_sex["x_not_transmitted"],
+        fetal_sex["informative_sites"],
+    )
+    category_counts = {int(category): count for category, count in section["category_counts"].items()}
+    assert qc["category_qc_check"] == dataclasses.asdict(evaluate_nipt_category_qc(category_counts))
+
+
+@pytest.mark.asyncio
+async def test_a_nipt_analysis_that_failed_in_a_sign_out_is_read_as_failed_by_its_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The Sample QC could not run the analysis: the record's NIPT section does not run it
+    # again and report what the Sample QC, which the sign-out gates on, could not read.
+    _wire(monkeypatch)
+    _wire_sign_out(monkeypatch)
+    loads: list[str] = []
+
+    async def unreadable(_context, _filters, *, limit=None, **_kwargs):
+        loads.append("records")
+        raise RuntimeError("ClickHouse is not answering")
+
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", unreadable)
+
+    snapshot = await rss.build_report_snapshot(_SignOutSession(), family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+
+    assert loads == ["records"]
+    assert "NIPT cfDNA analysis could not run." in snapshot["sample_qc"]["notes"]
+    assert snapshot["sample_qc"]["paternity_check"] is None
+    assert snapshot["nipt"] == {"unavailable": "The NIPT results could not be read."}

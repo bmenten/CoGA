@@ -21,7 +21,7 @@ See docs/monogenic-nipt.md.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass, field
+from dataclasses import astuple, dataclass, field
 
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -664,6 +664,95 @@ def _family_sites(
     )
 
 
+@dataclass(slots=True)
+class _FamilyAnalysis:
+    """A family's NIPT callset loaded and analysed: the assay's artifact list, the family's
+    data, what the list removed from the analysis and what the family's annotation kept in
+    (variant id -> reason), and the summary."""
+
+    listed: set[str]
+    data: _FamilyData
+    removed: set[str]
+    protected: dict[str, str]
+    summary: NiptFamilySummary
+
+
+async def _analyse_family(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    trio: NiptTrio,
+    assay_key: str,
+    qc: NiptQualityThresholds,
+) -> _FamilyAnalysis:
+    listed = await _load_listed_artifacts(session, context, assay_key)
+    data = await _load_family_data(context, trio)
+    removed, protected = family_artifact_ids(data.records, listed)
+    summary = await _summarize_family(data, trio, qc, removed)
+    return _FamilyAnalysis(
+        listed=listed, data=data, removed=removed, protected=protected, summary=summary
+    )
+
+
+class SharedNiptAnalysis:
+    """A family's NIPT analysis computed once for everything one sign-out builds: the Sample
+    QC's NIPT checks and the signed record's NIPT section (#900, OPS-9).
+
+    The analysis reads the family's whole callset. Computed for each, it ran twice per
+    sign-out, and the two could read different inputs: the assay's artifact list is curated
+    apart from the family's data, and a change between the two reads made the Sample QC and
+    the NIPT section of one record disagree. Shared, they read the same values. An analysis
+    is shared only with a caller asking for the same one (the family's data scope, trio,
+    artifact-list scope and thresholds); one that failed fails for both, so neither reports
+    what the other could not read.
+    """
+
+    def __init__(self) -> None:
+        self._outcomes: dict[tuple[Any, ...], _FamilyAnalysis | Exception] = {}
+
+    async def analysis(
+        self,
+        session: AsyncSession,
+        context: FamilyMetadataContext,
+        trio: NiptTrio,
+        assay_key: str,
+        qc: NiptQualityThresholds,
+    ) -> _FamilyAnalysis:
+        # What the analysis reads: the family's data, the father's and the plasma's calls
+        # and targets, the artifact list and the thresholds (not the fetus: no data).
+        key = (
+            context.family_uuid,
+            context.assembly_id,
+            tuple(sorted(context.project_ids)),
+            trio.father_sample_id,
+            trio.cfdna_sample_id,
+            assay_key,
+            astuple(qc),
+        )
+        outcome = self._outcomes.get(key)
+        if outcome is None:
+            try:
+                outcome = await _analyse_family(session, context, trio, assay_key, qc)
+            except Exception as exc:  # noqa: BLE001 — kept and raised again, to each caller
+                outcome = exc
+            self._outcomes[key] = outcome
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+async def _family_analysis(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    trio: NiptTrio,
+    assay_key: str,
+    qc: NiptQualityThresholds,
+    shared: SharedNiptAnalysis | None,
+) -> _FamilyAnalysis:
+    if shared is None:
+        return await _analyse_family(session, context, trio, assay_key, qc)
+    return await shared.analysis(session, context, trio, assay_key, qc)
+
+
 async def run_family_nipt_analysis(
     session: AsyncSession,
     *,
@@ -671,9 +760,10 @@ async def run_family_nipt_analysis(
     user: CurrentUser,
     project_id: str | None = None,
     qc: NiptQualityThresholds | None = None,
+    shared_nipt: SharedNiptAnalysis | None = None,
 ) -> NiptAnalysisResult:
     summary = await get_family_nipt_summary(
-        session, family_id=family_id, user=user, project_id=project_id, qc=qc
+        session, family_id=family_id, user=user, project_id=project_id, qc=qc, shared_nipt=shared_nipt
     )
     return summary.analysis
 
@@ -685,16 +775,17 @@ async def get_family_nipt_summary(
     user: CurrentUser,
     project_id: str | None = None,
     qc: NiptQualityThresholds | None = None,
+    shared_nipt: SharedNiptAnalysis | None = None,
 ) -> NiptFamilySummary:
     """The NIPT analysis of the whole family callset, with the plasma's target coverage QC
-    and sex-chromosome profile."""
+    and sex-chromosome profile; ``shared_nipt``'s, when it holds this analysis."""
     trio, context, assay_key = await _resolve_trio_and_context(
         session, family_id=family_id, user=user, project_id=project_id
     )
-    listed = await _load_listed_artifacts(session, context, assay_key)
-    data = await _load_family_data(context, trio)
-    removed, _protected = family_artifact_ids(data.records, listed)
-    return await _summarize_family(data, trio, qc or NiptQualityThresholds(), removed)
+    analysis = await _family_analysis(
+        session, context, trio, assay_key, qc or NiptQualityThresholds(), shared_nipt
+    )
+    return analysis.summary
 
 
 async def _summarize_family(
@@ -1206,18 +1297,24 @@ async def get_family_nipt_record(
     assay_key: str,
     variant_ids: Iterable[str],
     qc: NiptQualityThresholds | None = None,
+    shared_nipt: SharedNiptAnalysis | None = None,
 ) -> NiptFamilyRecord:
     """The family's NIPT analysis as the NIPT page computes it, for the signed record: the
     summary (``get_family_nipt_summary``) and each of ``variant_ids`` classified as the
     NIPT variant list classifies it (``get_family_nipt_variants``), against the one fetal
     fraction, with its de novo triage when it is a candidate in the fetal window, and the
     recessive fetal risk of the genes they make both parents carriers in. One load of the
-    family's data serves every part."""
+    family's data serves every part: ``shared_nipt``'s, when the sign-out's Sample QC has
+    read it."""
     qc = qc or NiptQualityThresholds()
-    listed = await _load_listed_artifacts(session, context, assay_key)
-    data = await _load_family_data(context, trio)
-    removed, protected = family_artifact_ids(data.records, listed)
-    summary = await _summarize_family(data, trio, qc, removed)
+    analysis = await _family_analysis(session, context, trio, assay_key, qc, shared_nipt)
+    listed, data, removed, protected = (
+        analysis.listed,
+        analysis.data,
+        analysis.removed,
+        analysis.protected,
+    )
+    summary = analysis.summary
     wanted = {str(variant_id) for variant_id in variant_ids if variant_id}
     records = [record for record in data.records if record.variant_id in wanted]
     classified = await asyncio.to_thread(

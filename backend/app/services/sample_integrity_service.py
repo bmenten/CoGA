@@ -11,8 +11,11 @@ cfDNA classification instead of genotype relatedness. The QC maths is in the pur
 
 from __future__ import annotations
 
+import asyncio
+import functools
 import logging
 import re
+from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -46,6 +49,10 @@ from .sample_integrity_qc import (
     resolve_application,
 )
 
+if TYPE_CHECKING:
+    # Imported lazily where it runs: nipt_service pulls in the heavy analysis stack.
+    from .nipt_service import SharedNiptAnalysis
+
 logger = logging.getLogger(__name__)
 
 # The genotypes the checks read: a fixed sample of up to QC_AUTOSOMAL_SITES sites spread
@@ -61,6 +68,10 @@ QC_X_SITES = 20_000
 _SOURCE_PREFERENCE = ("clair3", "glimpse2")
 
 
+# A family's genotype strings are a handful of distinct values ("0|1", "1/1", "./."), read
+# over a million times for ten samples: each is parsed once, and its (immutable) genotype
+# shared (OPS-9).
+@functools.lru_cache(maxsize=1024)
 def _parse_genotype(gt: str | None) -> Genotype | None:
     """Parse a phased (``0|1``), unphased (``0/1``) or haploid (``1``) GT; None unless
     every allele is called.
@@ -103,8 +114,22 @@ async def _load_genotype_sample(
 ) -> dict[str, list[Genotype | None]]:
     """Each sample's genotypes at the sampled sites. ``read_as_reference``, when given,
     is told for each sample how many sites it was read as reference at without a call of
-    its own (see below)."""
+    its own (see ``_genotype_arrays``).
+
+    The query runs on the event loop; the parse, a genotype per sample and site (over a
+    million for ten samples), runs in a worker thread, so the loop serves other requests
+    meanwhile (OPS-9)."""
     rows = await fetch_genotype_site_sample(context, scope=scope, limit=limit, source=source)
+    return await asyncio.to_thread(_genotype_arrays, rows, samples, read_as_reference)
+
+
+def _genotype_arrays(
+    rows: list[tuple[str, int, str, str, list[str], list[str]]],
+    samples: list[str],
+    read_as_reference: dict[str, int] | None,
+) -> dict[str, list[Genotype | None]]:
+    """Each sample's genotypes at the sites of ``rows`` (``fetch_genotype_site_sample``'s),
+    in their order."""
     # A sample without a call at a site of a callset stored one file per sample (a
     # monogenic NIPT's, or the long-read pipeline's per-sample callsets read as one) had no
     # alt read there that its caller reported: reference, as a joint VCF would have called
@@ -211,6 +236,7 @@ async def _nipt_checks(
     project_id: str | None,
     context: FamilyMetadataContext,
     notes: list[str],
+    shared_nipt: SharedNiptAnalysis | None = None,
 ) -> tuple[PaternityCheck | None, FetalSexCheck | None, NiptCategoryQc | None, list[SexCheck]]:
     """NIPT cfDNA integrity: paternity (cat 7/8), fetal sex (paternal X), category
     distribution QC, and germline parent sex (X zygosity). ``notes`` is given the note
@@ -222,7 +248,7 @@ async def _nipt_checks(
     from .nipt_service import run_family_nipt_analysis
 
     result = await run_family_nipt_analysis(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, shared_nipt=shared_nipt
     )
     # Only sites with a confident father call, where the mother does not carry the
     # allele and a transmitted allele could not have been missed, count.
@@ -253,7 +279,11 @@ async def get_family_sample_integrity_qc(
     family_id: str,
     user: CurrentUser,
     project_id: str | None = None,
+    shared_nipt: SharedNiptAnalysis | None = None,
 ) -> SampleIntegrityReport:
+    """The family's sample-integrity QC. A monogenic NIPT family's NIPT checks read
+    ``shared_nipt``'s analysis when given one: a sign-out's, which its record's NIPT section
+    reads too (#900)."""
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
@@ -292,6 +322,7 @@ async def get_family_sample_integrity_qc(
                     project_id=project_id,
                     context=context,
                     notes=service_notes,
+                    shared_nipt=shared_nipt,
                 )
             )
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
@@ -333,7 +364,11 @@ async def get_family_sample_integrity_qc(
             autosomal = {sample: [] for sample in samples}
             x_genotypes = {sample: [] for sample in samples}
 
-    return evaluate_sample_integrity(
+    # Relatedness over every pair of samples and the Mendelian checks are pure CPU work over
+    # the genotypes: they run in a worker thread, so the event loop serves other requests
+    # meanwhile (OPS-9).
+    return await asyncio.to_thread(
+        evaluate_sample_integrity,
         autosomal,
         x_genotypes,
         spec,

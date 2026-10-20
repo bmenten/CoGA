@@ -2872,3 +2872,36 @@ async def test_genotype_site_sample_without_an_assembly_reads_nothing(
     )
     context = dataclasses.replace(_family_context(), assembly_name=None)
     assert await fetch_genotype_site_sample(context, scope="autosomes", limit=10, source=None) == []
+
+
+@pytest.mark.asyncio
+async def test_genotype_site_sample_reads_its_rows_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Up to 90,000 rows, each with every sample's genotype, are read in a worker thread
+    # (OPS-9); a per-sample callset's genotypes from their allele depths. The first genotype
+    # read waits for another coroutine to run on the loop meanwhile: it can only off the loop.
+    from backend.app.services import clickhouse_family_variants
+    from backend.tests._event_loop_probe import LoopProbe
+
+    async def fake_execute_clickhouse(query: str, params: dict[str, object]):
+        return [
+            (1, "X", 3_000_100, "A", "G", ["PROBAND", "MOM"], ["0/1", "0/1"], [[1, 299], [150, 150]]),
+            (2, "X", 3_000_200, "C", "T", ["MOM"], ["0/1"], [[280, 20]]),
+        ]
+
+    monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", fake_execute_clickhouse)
+    probe = LoopProbe()
+    monkeypatch.setattr(
+        clickhouse_family_variants, "vaf_genotype", probe.wrap(clickhouse_family_variants.vaf_genotype)
+    )
+
+    rows = await probe.run(
+        fetch_genotype_site_sample(_family_context(), scope="chrX", limit=20_000, source="nipt")
+    )
+
+    assert not probe.held, "the genotypes were read on the event loop"
+    assert rows == [
+        ("X", 3_000_100, "A", "G", ["PROBAND", "MOM"], ["1/1", "0/1"]),
+        ("X", 3_000_200, "C", "T", ["MOM"], ["0/0"]),
+    ]
