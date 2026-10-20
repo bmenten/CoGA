@@ -1383,6 +1383,164 @@ describe('FamilyReportPage', () => {
       );
     });
 
+    // A monogenic NIPT family's record holds its NIPT results (signed_record_nipt); no other
+    // family's does.
+    const NIPT_SAMPLE_QC = {
+      ...SIGNED_SNAPSHOT.sample_qc,
+      application: 'nipt',
+      application_label: 'Monogenic NIPT (cfDNA)',
+    };
+    const SIGNED_NIPT = {
+      samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetus: 'FETUS1' },
+      fetal_fraction: {
+        ff: 0.12,
+        ff_computed: 0.12,
+        ff_median: 0.118,
+        ci_low: 0.109,
+        ci_high: 0.131,
+        n_sites: 40,
+        method: 'category7_pooled',
+        low_confidence: false,
+        vaf_q05: 0.04,
+        vaf_q95: 0.08,
+        status: 'pass',
+        message: '12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites.',
+      },
+      de_novo_window: { strict_min: 0.04, strict_max: 0.08, loose_min: 0.03, loose_max: 0.1 },
+      category_counts: { '1': 1, '3': 1, '7': 40, '8': 0 },
+      filter_counts: { total_in: 48, failed_quality: 1, failed_artifact: 1, passed: 46, paternal_only: 1 },
+      quality_failures: { low_quality: 1 },
+      checks: {
+        paternity: { status: 'pass', message: 'Paternity supported (36 of 40 (90%) of his homozygous alleles seen).' },
+        fetal_sex: {
+          call: 'discordant',
+          status: 'fail',
+          message:
+            "The father's X alleles read female and the plasma's chrY coverage reads male: the two signals disagree; check the samples.",
+          paternal_x: 'female',
+          chry: 'male',
+        },
+        plasma_sample: { status: 'unknown', message: 'The panel has no chrY target: no sex profile.', profile: 'no_chrY_targets' },
+      },
+      target_coverage: {
+        targets: 3,
+        median_mean: 1500,
+        q05_mean: 300,
+        below_critical: 1,
+        below_advisory: 1,
+        zero_mean: 0,
+        incomplete: 0,
+        critical_mean_depth: 300,
+        advisory_mean_depth: 1000,
+        genes: [{ gene: 'GENEA', targets: 1, weak_targets: 1, min_mean: 250, mean_of_means: 250 }],
+      },
+      variants: [
+        {
+          variant_id: '1-1001-A-G',
+          source: 'nipt',
+          genes: ['GENE_DENOVO'],
+          category: 1,
+          category_label: 'de novo in fetus',
+          maternal_state: 'hom_ref',
+          fetal_inheritance: 'de_novo',
+          expected_vaf: 0.06,
+          observed_vaf: 0.06,
+          confidence: 0.98,
+          paternal_transmission_probability: null,
+          maternal_allele_probability: null,
+          fetal_hom_alt_probability: null,
+          flags: ['father_no_call'],
+          plasma: { alt_reads: 30, depth: 500, depth_estimated: false },
+          father: { state: 'hom_ref', vaf: 0, depth: 50 },
+          de_novo: { window: 'strict', score: 14, label: 'high', reasons: ['novel'], other_cfdna_carriers: 0 },
+        },
+      ],
+      not_classified: [{ variant_id: '9-999-A-G', reason: 'not_in_data' }],
+      recessive_genes: [
+        {
+          gene: 'GENE_RECESS',
+          risk: 0.86,
+          risk_uses_prior: false,
+          maternal_variant_id: '1-3001-A-G',
+          paternal_variant_id: '1-10000-A-G',
+          maternal: [],
+          paternal: [],
+        },
+      ],
+      inputs: {
+        target_tables: [{ sample: 'CFDNA1', file: 'cfdna.targets.tsv', targets: 3, loaded_at: '2026-10-01T09:00:00+00:00' }],
+        artifact_list: { assay_key: 'nipt_cfdna', entries: 2, digest: 'abcdef01'.repeat(2), removed: 1, kept: [] },
+      },
+      model: { reference: 'R NIPT-M v0.5.1 validation (6 families with trio exomes)' },
+    };
+
+    it('shows a NIPT family’s NIPT results as the record froze them, in print too', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: NIPT_SAMPLE_QC, nipt: SIGNED_NIPT } });
+      renderPage();
+
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt.closest('.no-print')).toBeNull();
+      expect(nipt).toHaveTextContent(
+        'The monogenic NIPT analysis of the maternal plasma CFDNA1 against the father FATHER1, for fetus FETUS1',
+      );
+      expect(nipt).toHaveTextContent(
+        'Fetal fraction: 12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites; per-site median 11.8% — Pass; fetal window for de novo alleles 4.0%–8.0%',
+      );
+      expect(nipt).toHaveTextContent('Paternity: Pass — Paternity supported');
+      expect(nipt).toHaveTextContent(
+        "Fetal sex: Discordant (the father's X alleles read female; the plasma's chrY coverage reads male) — Fail — The father's X alleles read female",
+      );
+      expect(nipt).toHaveTextContent('Maternal plasma sample: Not run — The panel has no chrY target: no sex profile.');
+      expect(nipt).toHaveTextContent(
+        'Target coverage: median 1500x over 3 targets; 1 below 300x, 0 with uncovered bases; genes with a weak target: GENEA (1 of 1, lowest mean 250x)',
+      );
+      expect(nipt).toHaveTextContent(
+        'Filters: 48 cfDNA calls: 1 quality-filtered, 1 artifact-filtered, 46 analysed; 1 paternal allele without a plasma call of its own; quality-filter failures: 1 quality (TLOD) below the minimum',
+      );
+      expect(nipt).toHaveTextContent('Categories: De novo in fetus: 1; Maternal het, inherited: 1; Paternal, transmitted: 40');
+      // Each reported variant as the NIPT analysis classified it, with its de novo triage.
+      expect(nipt).toHaveTextContent(
+        '1-1001-A-G (GENE_DENOVO): Category 1 (de novo in fetus), confidence 0.98: maternal hom_ref, fetal de_novo; VAF 6.0% (expected 6.0%); plasma reads 30 of 500; father reference · 0.0% · 50×. de novo: high priority (14). Flags: father_no_call.',
+      );
+      expect(nipt).toHaveTextContent('9-999-A-G: not classified — it was not in the family’s NIPT data.');
+      expect(nipt).toHaveTextContent('GENE_RECESS: 86.0% (maternal 1-3001-A-G, paternal 1-10000-A-G)');
+      expect(nipt).toHaveTextContent('Per-target coverage: CFDNA1: cfdna.targets.tsv, 3 targets, loaded 2026-10-01 09:00 UTC');
+      expect(nipt).toHaveTextContent('Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis');
+      expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
+    });
+
+    it('says a NIPT family’s record signed before CoGA froze the NIPT results does not hold them', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, sample_qc: NIPT_SAMPLE_QC } });
+      renderPage();
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the NIPT results.',
+      );
+    });
+
+    it('says when a NIPT family’s NIPT results could not be captured', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          sample_qc: NIPT_SAMPLE_QC,
+          nipt: { unavailable: 'The NIPT results could not be read.' },
+        },
+      });
+      renderPage();
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt).toHaveTextContent(
+        'Not captured: the NIPT results could not be read when version 2 was signed (The NIPT results could not be read.).',
+      );
+    });
+
+    it('says nothing of NIPT results in the record of a family that is no NIPT family', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      renderPage();
+      await screen.findByRole('heading', { name: 'Gene panels applied' });
+      expect(screen.queryByRole('heading', { name: 'NIPT results' })).not.toBeInTheDocument();
+      expect(screen.queryByText(/NIPT/)).not.toBeInTheDocument();
+    });
+
     it('says when the record holds no description of a reported variant', async () => {
       mockSignedCase({
         snapshot: {

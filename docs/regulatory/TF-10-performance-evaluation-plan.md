@@ -243,8 +243,10 @@ pull request updates this list only when it adds clinical behaviour that no area
   software, annotation, reference, HPO and QC-limit versions it binds; what the analysis
   looked at, frozen with it (each reported variant's description and genotypes, the gene-panel
   versions the family's searches applied, the reference-data releases, the repeat-expansion
-  and Paraphase calls with their status, and in a PGT family each embryo's call at the ROI as
-  the family page shows it); the report code the EPD report quotes, its check
+  and Paraphase calls with their status, in a PGT family each embryo's call at the ROI as
+  the family page shows it, and a monogenic NIPT family's NIPT results as the NIPT page
+  computes them, signed out from the NIPT page too, a failed NIPT quality check gating the
+  sign-out with the Sample QC); the report code the EPD report quotes, its check
   symbol and its lookup; the device label and the build identity; every review,
   classification and phenotype change on the clinical audit trail,
   a compound-het pair review, every change of a family's pedigree and members and a family's

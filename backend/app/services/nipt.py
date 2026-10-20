@@ -15,6 +15,7 @@ the full design.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Iterable, Mapping
 
 from ..schemas import FamilyMemberOut, FamilyOut
 
@@ -54,10 +55,14 @@ def is_monogenic_nipt_family(family: FamilyOut) -> bool:
     return metadata.get(FAMILY_ANALYSIS_TYPE_KEY) == MONOGENIC_NIPT_ANALYSIS_TYPE
 
 
+def is_cfdna_sample_metadata(metadata: Mapping[str, Any] | None) -> bool:
+    """True when a sample's metadata tags it as the maternal-plasma cfDNA."""
+    return (metadata or {}).get(SAMPLE_ASSAY_KEY) == NIPT_CFDNA_ASSAY
+
+
 def is_cfdna_member(member: FamilyMemberOut) -> bool:
     """True when the member's sample is tagged as the maternal-plasma cfDNA."""
-    metadata = member.sample_metadata or {}
-    return metadata.get(SAMPLE_ASSAY_KEY) == NIPT_CFDNA_ASSAY
+    return is_cfdna_sample_metadata(member.sample_metadata)
 
 
 def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
@@ -75,26 +80,38 @@ def resolve_nipt_trio(family: FamilyOut) -> NiptTrio | None:
     """
     if not is_monogenic_nipt_family(family):
         return None
+    return resolve_nipt_trio_from_members(
+        (member.sample_id, member.role, member.sample_metadata)
+        for member in family.members
+        if member.active
+    )
 
+
+def resolve_nipt_trio_from_members(
+    members: Iterable[tuple[str, str | None, Mapping[str, Any] | None]],
+) -> NiptTrio | None:
+    """The trio of a monogenic NIPT family from its active members, each as
+    ``(sample_id, role, sample_metadata)``, by the rules of ``resolve_nipt_trio``; None
+    when the father and the cfDNA sample cannot both be identified. The signed record
+    resolves the trio from the family's metadata context with it (``signed_record_nipt``).
+    """
     father_sample_id: str | None = None
     cfdna_sample_id: str | None = None
     mother_sample_id: str | None = None
     fetus_sample_id: str | None = None
 
-    for member in family.members:
-        if not member.active:
+    for sample_id, role, sample_metadata in members:
+        if is_cfdna_sample_metadata(sample_metadata):
+            cfdna_sample_id = sample_id
             continue
-        if is_cfdna_member(member):
-            cfdna_sample_id = member.sample_id
-            continue
-        if member.role == "father":
-            father_sample_id = member.sample_id
-        elif member.role == "mother":
-            mother_sample_id = member.sample_id
-        elif member.role == "embryo":
-            fetus_sample_id = member.sample_id
-        elif member.role == "proband" and fetus_sample_id is None:
-            fetus_sample_id = member.sample_id
+        if role == "father":
+            father_sample_id = sample_id
+        elif role == "mother":
+            mother_sample_id = sample_id
+        elif role == "embryo":
+            fetus_sample_id = sample_id
+        elif role == "proband" and fetus_sample_id is None:
+            fetus_sample_id = sample_id
 
     if cfdna_sample_id is None:
         cfdna_sample_id = mother_sample_id
