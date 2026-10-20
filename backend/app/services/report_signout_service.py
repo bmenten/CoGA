@@ -51,6 +51,7 @@ from .assembly_scope import is_validated_assembly, off_scope_message, validated_
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
+from .family_package_registration import unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible
@@ -448,6 +449,12 @@ async def _import_unfinished_state(
     it only by importing those again with overwrite. Frozen into the snapshot beside
     ``import_incomplete`` and gating sign-out with it, as one gate.
 
+    A single-file upload marks the family the same way before its first ClickHouse write,
+    and an admin's deletion of a sample's data whose rewrite could not put the family's
+    structural variants back leaves a mark (``family_package_registration.FamilyWriteMark``,
+    SAFE-28): an entry under a key that says which (``unfinished_entry_writer``), with no
+    job, listing what may be partly written or missing. It reads and gates as an import's.
+
     Fails safe like that flag: a value that is set but not in the shape an import writes
     still counts, with nothing to name. Dataset lists are frozen sorted, for a stable hash.
     """
@@ -482,11 +489,21 @@ async def _import_unfinished_state(
     return state
 
 
-def _unfinished_import_clause(entry: Mapping[str, Any]) -> str:
-    """One unfinished import, as the gate message names it."""
+def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
+    """One unfinished import, as the gate message names it. An entry a single-file upload,
+    or an admin's deletion of a sample's data, left (SAFE-28) is named for what wrote it,
+    which its key says (``family_package_registration.unfinished_entry_writer``): the
+    snapshot freezes the key with the entry."""
     when = f" ({entry['at']})" if entry.get("at") else ""
     finished = list(entry.get("finished_datasets") or [])
     pending = [name for name in entry.get("datasets") or [] if name not in finished]
+    writer = unfinished_entry_writer(key)
+    if writer != "import":
+        what = "a single-file upload" if writer == "upload" else "a deletion of a sample's data"
+        what += f"{when} did not finish"
+        if pending:
+            what += f", so {', '.join(pending)} may be partly written or missing"
+        return f"{what}."
     what = f"an import{when} stopped before it finished"
     if pending:
         what += f", so {', '.join(pending)} may be partly written or missing"
@@ -505,8 +522,8 @@ def _import_gate_message(
     unfinished: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> str:
     stopped = sorted(
-        (unfinished or {}).values(),
-        key=lambda entry: (str(entry.get("at") or ""), str(entry.get("job_id") or "")),
+        (unfinished or {}).items(),
+        key=lambda item: (str(item[1].get("at") or ""), str(item[1].get("job_id") or "")),
     )
     findings: list[str] = []
     if state is not None:
@@ -539,13 +556,24 @@ def _import_gate_message(
         else:
             job = ""
         findings.append(f"{what}. The report may lack data from what failed.{job}")
-    findings.extend(_unfinished_import_clause(entry) for entry in stopped)
-    if stopped:
+    findings.extend(_unfinished_import_clause(entry, str(key)) for key, entry in stopped)
+    writers = {unfinished_entry_writer(str(key)) for key, _entry in stopped}
+    remedies: list[str] = []
+    if "import" in writers:
         # An update skips a dataset that already holds data, partly written data included.
-        complete = (
+        remedies.append(
             "Import again, with overwrite, what an import that stopped did not finish (an "
             "update keeps the data already there)"
         )
+    if writers - {"import"}:
+        # A single-file upload's or a deletion's mark goes item by item as each dataset is
+        # brought again with overwrite (SAFE-28).
+        remedies.append(
+            "Upload or import again, with overwrite, what a single-file upload or a "
+            "deletion did not finish"
+        )
+    if stopped:
+        complete = ". ".join(remedies)
         if state is not None:
             complete = f"Re-run the import to complete it. {complete}"
     else:

@@ -71,6 +71,7 @@ import {
   importIncompleteFromMetadata,
   importUnfinishedFromMetadata,
   pendingDatasets,
+  unfinishedWriter,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
@@ -1002,10 +1003,19 @@ const LiveFamilyReport: React.FC = () => {
                 ) : importGate.jobId ? (
                   <li>Import job: {importGate.jobId}</li>
                 ) : null}
-                {/* An import that stopped part-way: its record shows how far it got. */}
+                {/* An import that stopped part-way: its record shows how far it got. A
+                    single-file upload's or a deletion's mark has no job: its writer is named. */}
                 {importGate.unfinished.map((entry) => (
                   <li key={entry.key}>
-                    Not finished{entry.jobId ? ` (import job ${entry.jobId})` : ''}:{' '}
+                    Not finished
+                    {unfinishedWriter(entry.key) === 'upload'
+                      ? ' (single-file upload)'
+                      : unfinishedWriter(entry.key) === 'deletion'
+                        ? ' (deletion of a sample’s data)'
+                        : entry.jobId
+                          ? ` (import job ${entry.jobId})`
+                          : ''}
+                    :{' '}
                     {pendingDatasets(entry).length
                       ? `${pendingDatasets(entry).join(', ')} may be partly written or missing`
                       : entry.datasets.length

@@ -182,7 +182,8 @@ in the EPD refers to the signed version by its report code (*The report code* be
   and the imports that stopped part-way (`import_unfinished`): empty when there are none,
   otherwise for each its import job, when it began, its datasets and those it finished (for
   a failed overwrite whose restore did not finish, every dataset of the family still to
-  import again, none finished);
+  import again, none finished; for a single-file upload or a deletion that did not finish, no
+  job, under its `upload-…` or `deletion-…` key);
 - what the analysis looked at (`services/signed_record_sections.py`, one section each):
   - `variant_descriptions` (REQ-TRACE-007): each reported variant as the analyst reviewed it,
     read from the family's variant lists as the report page reads them (`review_tag=report`),
@@ -311,7 +312,15 @@ Five gates run first, in this order:
    that completes with overwrite, and each upload with overwrite, removes from the entry what
    it brought again, for that scope, and an update removes nothing. Only an import that
    completes with `overwrite` and imports again the datasets a stopped import had not
-   finished, for that scope, removes that import's entry.
+   finished, for that scope, removes that import's entry. A single-file upload that writes
+   ClickHouse marks the family the same way before its first write there, an entry with no
+   job keyed `upload-…`, and an admin's delete of a sample's structural variants that could
+   not put the family's other calls back leaves one keyed `deletion-…`
+   ([The mark of an upload that did not finish](data-import.md#the-mark-of-an-upload-that-did-not-finish)):
+   it gates in the same 409, whose message names "a single-file upload" or "a deletion of a
+   sample's data" that "did not finish" and what may be partly written or missing, and is
+   frozen with its key, from which the signed record names what wrote it. Each upload or
+   import with overwrite removes from it what it brought again.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

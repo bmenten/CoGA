@@ -18,6 +18,7 @@ from ..core.object_storage import (
     join_remote_uri,
     remote_object_identity,
 )
+from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import (
     FamilyImportDatasetSummary,
     FamilyImportValidationIssue,
@@ -805,6 +806,18 @@ def imported_dataset_scopes(
     return result
 
 
+def scope_with_samples(scope: Any, samples: Iterable[str]) -> Any:
+    """``scope`` (as ``dataset_scopes`` gives it) with ``samples`` added to the samples it
+    names: what a failed dataset is flagged for when its failure may have removed the data
+    of samples it does not name (``DatasetLeftMissing``), so that the flag holds until the
+    dataset has been imported again for them too. A family-level scope (no samples) covers
+    every sample already, and a scope not in that shape is kept as it is."""
+    if not isinstance(scope, Mapping) or not isinstance(scope.get("samples"), list):
+        return scope
+    named = {str(sample) for sample in scope["samples"] if sample}
+    return {**scope, "samples": sorted(named | {str(sample) for sample in samples if sample})}
+
+
 def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) -> bool:
     """Whether a failure of a dataset was imported again: an import that imported the
     dataset (in any mode -- the failing loader's rows were rolled back or cleaned up, so an
@@ -1243,6 +1256,23 @@ async def _mark_family_import_unfinished(
     """Write this import's entry into ``import_unfinished`` (created if the map or the
     entry is missing), and commit: ``mark``'s entry with ``finished``, or ``entry`` as
     given. Raises: the caller decides whether the import may go on without it."""
+    await _write_unfinished_entry(
+        session,
+        family_uuid=family_uuid,
+        key=mark.key,
+        entry=dict(entry) if entry is not None else mark.entry(finished),
+    )
+
+
+async def _write_unfinished_entry(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    key: str,
+    entry: Mapping[str, Any],
+) -> None:
+    """Write ``entry`` under ``key`` into the family's ``import_unfinished`` (created if the
+    map or the entry is missing), and commit. Raises."""
     await session.execute(
         text(
             """
@@ -1266,8 +1296,8 @@ async def _mark_family_import_unfinished(
         ),
         {
             "family_uuid": family_uuid,
-            "import_key": mark.key,
-            "entry": json.dumps(dict(entry) if entry is not None else mark.entry(finished)),
+            "import_key": key,
+            "entry": json.dumps(dict(entry)),
         },
     )
     await session.commit()
@@ -1981,6 +2011,190 @@ def interval_track_upload_scope(bed_type: str, sample_id: str) -> tuple[str, dic
     return f"bed_{bed_type}", {"source": None, "samples": [sample_id]}
 
 
+# A write of the family's data made outside a package import marks the family as an import
+# does (SAFE-28). ClickHouse has no transactions, and such a write deletes rows before it
+# writes them again: a process that stops in between -- a restart, a crash, running out of
+# memory -- runs no clean-up, and a failure that cannot put back what it deleted leaves it
+# missing. So the write leaves an entry in ``import_unfinished`` (``FamilyWriteMark``), under
+# a key of its own whose prefix says what wrote it, listing each dataset it may leave partly
+# written or missing, with its scope, one sample at a time, in the shape of the whole-family
+# entry a restore that did not finish leaves (``WHOLE_FAMILY_KEY``): sign-out is gated as for
+# an import that stopped, and each item goes once an import or an upload with overwrite has
+# brought it again (``whole_family_left``), the entry with the last. A later restore lists
+# its items among the family's (``whole_family_entry``).
+#
+# A single-file upload that writes ClickHouse -- the small-variant, structural-variant and
+# interval-track uploads; the repeat-expansion upload writes Postgres alone, in the
+# transaction that deletes what it replaces -- writes its mark before its first ClickHouse
+# write, committed on a connection of its own (``mark_family_upload``). The upload's commit
+# removes it (``record_family_upload``), and so does a failure that left nothing missing
+# (``end_family_write_mark``); an upload that flags its failure turns it into the flag
+# (``record_family_upload_failure``). An admin's deletion of a sample's data whose rewrite of
+# the family's structural variants could not put them back leaves one too
+# (``mark_family_deletion_not_restored``).
+UPLOAD_MARK_PREFIX = "upload-"
+DELETION_MARK_PREFIX = "deletion-"
+
+
+def unfinished_entry_writer(key: Any) -> str:
+    """What wrote an ``import_unfinished`` entry, read from its key: ``upload`` (a
+    single-file upload, ``UPLOAD_MARK_PREFIX``), ``deletion`` (an admin's deletion of a
+    sample's data, ``DELETION_MARK_PREFIX``), or else ``import`` (a package import, keyed by
+    its job or by a run of its own)."""
+    if isinstance(key, str):
+        if key.startswith(UPLOAD_MARK_PREFIX):
+            return "upload"
+        if key.startswith(DELETION_MARK_PREFIX):
+            return "deletion"
+    return "import"
+
+
+@dataclass(frozen=True)
+class FamilyWriteMark:
+    """The ``import_unfinished`` entry of a write of the family's data made outside a
+    package import: its key (``UPLOAD_MARK_PREFIX`` or ``DELETION_MARK_PREFIX``, and an id
+    of its own), when it was written, and what the write may leave partly written or
+    missing (``items``), each dataset with its scope, one sample at a time."""
+
+    key: str
+    at: str
+    items: tuple[Mapping[str, Any], ...]
+
+    @classmethod
+    def begin(cls, prefix: str, items: Iterable[tuple[str, Any]]) -> "FamilyWriteMark":
+        listed: dict[str, dict[str, Any]] = {}
+        for dataset, scope in items:
+            for item in _scope_items(str(dataset), scope):
+                listed[_canonical(item)] = item
+        return cls(
+            key=f"{prefix}{uuid4().hex}",
+            at=datetime.now(timezone.utc).isoformat(),
+            items=tuple(listed[key] for key in sorted(listed)),
+        )
+
+    def entry(self) -> dict[str, Any]:
+        return {
+            "job_id": None,
+            "at": self.at,
+            "datasets": sorted({str(item["dataset"]) for item in self.items}),
+            "finished_datasets": [],
+            WHOLE_FAMILY_KEY: [dict(item) for item in self.items],
+        }
+
+
+async def mark_family_upload(
+    *, family_uuid: str, items: Iterable[tuple[str, Any]]
+) -> FamilyWriteMark:
+    """Mark the family before a single-file upload's first ClickHouse write, with what the
+    upload may leave partly written or missing if it stops or fails after that write
+    (``items``: each dataset with its scope, as ``small_variant_upload_scope`` and the
+    functions after it give them).
+
+    Written and committed on a connection of its own, so that it stands whatever becomes of
+    the upload's transaction, which holds the family's variant-write locks until it commits.
+    Call it before that transaction locks the family row (``record_family_upload``): this
+    write would wait for that lock. Raises: an upload that cannot mark the family writes
+    nothing."""
+    mark = FamilyWriteMark.begin(UPLOAD_MARK_PREFIX, items)
+    async with get_postgres_sessionmaker()() as session:
+        await _write_unfinished_entry(
+            session, family_uuid=family_uuid, key=mark.key, entry=mark.entry()
+        )
+    return mark
+
+
+async def end_family_write_mark(
+    session: AsyncSession, *, family_uuid: str, family_id: str, mark: FamilyWriteMark
+) -> None:
+    """Remove the mark of a write that failed leaving nothing missing: what it deleted was
+    put back, or it deleted nothing and what it wrote was removed again, or it failed before
+    its first ClickHouse write. The caller's transaction, which failed, is rolled back first.
+    Best-effort: a mark left in place keeps the family marked, the safe side."""
+    try:
+        await session.rollback()
+        await session.execute(
+            text(
+                f"""
+                UPDATE families
+                SET metadata = {_WITHOUT_IMPORT_ENTRY}
+                WHERE id = CAST(:family_uuid AS uuid)
+                """
+            ),
+            {"family_uuid": family_uuid, "import_key": mark.key},
+        )
+        await session.commit()
+    except Exception:  # the mark stays: the family stays marked
+        logger.warning(
+            "Failed to remove the mark of a failed write of family %s", family_id, exc_info=True
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+
+
+def _bears_structural_variants(dataset: str) -> bool:
+    """Whether a dataset's data, as ``imported_scopes`` records it, is held in part by the
+    family's structural-variant rows: an SV upload's (``sv_<caller>``), and a package's
+    NeedlR (``sv_needlr``), HiFiCNV (``cnv``) and mitochondrial (``mito``: its chrM SVs)
+    datasets."""
+    return dataset.startswith("sv_") or dataset in {"cnv", "mito"}
+
+
+async def mark_family_deletion_not_restored(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family_id: str,
+    removed_samples: Collection[str],
+) -> None:
+    """Mark the family after an admin's deletion of a sample's data whose rewrite of the
+    family's structural variants failed and could not put back the rows it had deleted
+    (``StructuralVariantsNotRestored``): every source's structural variants may be partly
+    written or missing. The mark lists each dataset the family holds that they hold
+    (``imported_scopes``; ``_bears_structural_variants``), with its scope, one sample at a
+    time, but for the samples the deletion removed (``removed_samples``, sample ids): their
+    calls were to go.
+
+    The deletion's transaction is rolled back first; the mark is written, and committed, in
+    a transaction of its own under the family row's lock. Best-effort: the deletion's own
+    error is what the caller raises."""
+    removed = {str(sample) for sample in removed_samples}
+    try:
+        await session.rollback()
+        row = (
+            await session.execute(text(_FAILURE_ROW_BY_UUID), {"family_uuid": family_uuid})
+        ).mappings().first()
+        if row is None:  # the family is gone, and with it what the deletion rewrote
+            await session.rollback()
+            return
+        items = [
+            (dataset, scope)
+            for dataset, scopes in merged_imported_scopes(row.get("imported_scopes"), ()).items()
+            if _bears_structural_variants(dataset)
+            for scope in scopes
+            if not (
+                isinstance(scope, Mapping)
+                and isinstance(scope.get("samples"), list)
+                and {str(sample) for sample in scope["samples"]} <= removed
+            )
+        ]
+        mark = FamilyWriteMark.begin(DELETION_MARK_PREFIX, items)
+        await _write_unfinished_entry(
+            session, family_uuid=family_uuid, key=mark.key, entry=mark.entry()
+        )
+    except Exception:  # the deletion's own error is what the caller raises
+        logger.warning(
+            "Failed to mark family %s after a deletion could not put its structural variants back",
+            family_id,
+            exc_info=True,
+        )
+        try:
+            await session.rollback()
+        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+            pass
+
+
 # The family row an upload's bookkeeping reads, locked as an UPDATE of its metadata locks
 # it: every other writer of the family's metadata waits for it, and it for them (a package
 # import's bookkeeping reads the row FOR UPDATE). Unlike FOR UPDATE, it does not wait for
@@ -2027,14 +2241,17 @@ async def record_family_upload(
     dataset: str,
     scope: Mapping[str, Any],
     overwrite: bool,
+    mark: FamilyWriteMark | None = None,
 ) -> None:
     """A single-file upload's bookkeeping, as an import's: add what it brought
     (``dataset``, with its ``scope``, as ``small_variant_upload_scope`` and the functions
     after it give them) to the family's ``imported_scopes``, so that the whole-family entry
     of a restore that fails part-way later names it; and, with ``overwrite``, remove it
     from each whole-family entry already there (``whole_family_left``), which goes once
-    nothing is left on it. An upload without ``overwrite`` removes nothing, as an import's
-    ``update`` removes nothing.
+    nothing is left on it -- the marks other uploads that stopped or failed left included
+    (``FamilyWriteMark``). An upload without ``overwrite`` removes nothing, as an import's
+    ``update`` removes nothing. The upload's own mark (``mark``, written before its first
+    ClickHouse write: ``mark_family_upload``) goes in either mode, with its commit.
 
     In either mode it also removes from the ``import_incomplete`` flag each failure it
     brought again, for the scope the failure records (``failures_left_after``), as an
@@ -2065,6 +2282,10 @@ async def record_family_upload(
     }
     entries = _unfinished_entries(row["unfinished"])
     struck = False
+    if mark is not None and mark.key in entries:
+        # The upload is about to commit what it wrote: nothing of it is left to mark.
+        del entries[mark.key]
+        struck = True
     if overwrite:
         for key, entry in list(entries.items()):
             if not is_whole_family_entry(entry):
@@ -2107,6 +2328,7 @@ async def record_family_upload_failure(
     family_id: str,
     dataset: str,
     scope: Mapping[str, Any],
+    mark: FamilyWriteMark | None = None,
 ) -> None:
     """A single-file upload that failed after it had begun deleting the rows it replaces
     (SAFE-25): ClickHouse has no transactions, so what it was to bring (``dataset``, with
@@ -2114,12 +2336,14 @@ async def record_family_upload_failure(
     The family is flagged import-incomplete for it, as an import that failed for a dataset
     flags it (``_write_import_failure``): merged with a flag already there, under no import
     job, as an upload runs in none. The flag clears once the dataset has been brought
-    again, by an upload (``record_family_upload``) or an import.
+    again, by an upload (``record_family_upload``) or an import. The upload's mark
+    (``mark``: ``mark_family_upload``) goes in the same transaction, as an import's entry
+    goes with its flag: the family is never without one or the other.
 
     The upload's own transaction is rolled back first: it failed, and nothing of it is to
     commit. The flag is written, and committed, in a transaction of its own under the
-    family row's lock. Best-effort: a flag that cannot be written is logged, and the caller
-    raises the upload's own error."""
+    family row's lock. Best-effort: a flag that cannot be written is logged, the mark
+    stays and still marks the family, and the caller raises the upload's own error."""
     try:
         await session.rollback()
         await _write_import_failure(
@@ -2128,7 +2352,7 @@ async def record_family_upload_failure(
             failed_datasets=[dataset],
             imported_datasets=(),
             job_id=None,
-            import_key=None,
+            import_key=mark.key if mark is not None else None,
             scopes={dataset: dict(scope)},
             imported_scopes={},
         )
