@@ -194,8 +194,8 @@ symbol of an overlapping gene). The owner decided that large panels match by pos
 every panel now keeps a variant in one of its regions or annotated with one of its genes,
 whatever its size, on the family page, in its record filter and in the Variant Explorer.
 `_ALGORITHM_VERSION` 6 retires the rankings computed before, which lack those variants. The
-structural-variant search keeps its own rule: above 1,000 regions it matches a gene panel on the
-genes an SV's annotation names.
+structural-variant search follows the same rule since 2026-10-20 (see
+[Structural variants](#structural-variants) below).
 
 In a gene reference of one row per transcript the Mendeliome resolves to some 42,000 loci. Bound
 one by one, they made each query that applies the panel 1.2 MB (0.13 MB on gene symbols alone)
@@ -227,6 +227,64 @@ Mendeliome gene under another symbol; two families of 190,000 and 1,000,000 rows
 Each locus bound and the merged loci keep the same variants (the same keys). The record filter
 over a ranked window of 5,001 candidates takes 0.037 s instead of 0.023 s: it builds the lookup of
 the panel's loci once, for the candidates none of its genes names.
+
+### Structural variants
+
+Until 2026-10-20 the structural-variant search kept a rule of its own: a gene panel of more than
+1,000 regions (`_PANEL_REGION_INLINE_LIMIT`), the Mendeliome among them, was matched on the genes
+an SV's annotation names alone, and only in Python, after the candidate read had stopped at
+50,000 SVs; a smaller panel was matched on its regions alone. The Mendeliome, the SV page's
+default, missed an SV in one of its genes whose annotation names the gene otherwise, and a
+smaller panel an SV whose annotation names one of its genes without overlapping it (a gene the
+annotation lists beside the SV, as VEP lists the genes up to 5 kb away). The owner decided that
+the SV page follows the small-variant rule: a gene panel of any size keeps an SV whose annotation
+names one of its genes (the SV's gene symbols, in any capitals) or that overlaps one of its
+regions (on the same chromosome, the SV's start at or before the region's end and its end at or
+after the region's start; its breakend mate is not read). The SV list, ranked or not, its CSV
+export, the genome track and the track availability apply it, in SQL
+(`_structural_panel_filter_condition`) and in the record filter (`_StructuralPanelMatch`) alike,
+and `_PANEL_REGION_INLINE_LIMIT` is gone. SV rankings are not cached, so none has to be retired.
+
+In SQL the panel's regions are joined to the family's own SV rows on 64-kb windows, as the
+family page joins its small variants (`_structural_family_region_condition`): each SV is listed
+under every window its span touches, from the lower of its start and end to the higher. A
+search of one chromosome, as a genome track's is, binds only that chromosome's regions. The
+regions are bound with those that lie inside another left out (`_structural_region_bounds`),
+not merged where they share a base as the small-variant searches merge them: an SV stored with
+its END before its POS (an END a caller wrote so is stored as written) overlaps by the rule a
+region that holds both, and a chain of regions merged into one can hold both where none of them
+does. Leaving out a region that lies inside another keeps every answer, and the record filter
+reads the same regions. The panel now narrows the candidate read in SQL, so the 50,000-SV cap
+counts the panel's SVs: before, a family of more than 50,000 SV rows had its Mendeliome view
+read from the first 50,000 SVs of its callset in genome order, and flagged as incomplete.
+
+Measured as above (`clickhouse local` 26.3, 4 threads, a shared machine; best of 7, in seconds),
+each query built and bound by the app's own code, on a synthetic cohort: the same 20,000 genes,
+5,300 of them the Mendeliome (42,400 loci; 13,746 once those inside another are left out, 4,874
+merged); SVs spread over the genome, 85 % of 50 bp to 10 kb, 10 % breakends and 5 % CNVs of
+10 kb to 10 Mb, each annotated with the genes it overlaps and those within 5 kb, 2 % of the
+Mendeliome genes it overlaps under another symbol; two families of 60,000 and 200,000 SVs. The
+candidate read is the list's (at most 50,001 SVs, with their annotations); the track reads one
+member's SVs over 10 Mb of chromosome 1.
+
+| Request with the Mendeliome | Gene symbols alone (before) | Each locus bound | Merged | Inside another left out (now) |
+| --- | --- | --- | --- | --- |
+| 60,000 SVs: the candidate read | 0.24 | 0.22 | 0.10 | 0.13 |
+| SVs read / kept by the panel | 50,001 / 5,792 | 7,040 / 7,040 | 7,040 / 7,040 | 7,040 / 7,040 |
+| a member's track over 10 Mb | 0.011 | 0.045 | 0.036 | 0.038 |
+| 200,000 SVs: the candidate read | 0.44 | 0.31 | 0.18 | 0.17 |
+| SVs read / kept by the panel | 50,001 / 5,837 | 23,685 / 23,685 | 23,685 / 23,685 | 23,685 / 23,685 |
+| a member's track over 10 Mb | 0.017 | 0.056 | 0.039 | 0.038 |
+| Size of the candidate read / the track's read | 1.2 / 1.3 KB | 1.17 / 0.15 MB | 0.19 / 0.08 MB | 0.42 / 0.09 MB |
+
+Before, the candidate read stopped at the first 50,001 SVs of either family, so the panel kept
+5,792 and 5,837 SVs where the gene names alone reach 6,934 and 23,372; it now reads the panel's
+SVs only, 106 and 313 of them reached by position alone. Every way of binding the loci keeps the
+same SVs (the cohort holds no SV with its END before its POS). The record filter over the SVs
+read takes 0.026 s and 0.036 s (0.008 s over 50,001 SVs on gene names alone), and the app now
+decodes the annotations of 7,040 and 23,685 SVs instead of 50,001. A track's read takes 0.02 to
+0.03 s longer than on gene symbols alone. Bound merged, the candidate read would take up to 0.03 s
+less and the track's about the same; each locus bound, 0.09 to 0.14 s and up to 0.02 s more.
 
 ## Serving a narrower panel from a broader one
 
@@ -376,5 +434,9 @@ computed.
   (`_small_panel_filter_condition`); its regions, merged where they share a base
   (`_small_region_bounds`), joined to the family's rows (`_small_family_region_condition`), and
   the panel as the record filter applies it (`_SmallPanelMatch`), see
-  [Applying a panel](#applying-a-panel)
+  [Applying a panel](#applying-a-panel); for structural variants
+  `_structural_panel_filter_condition`, its regions with those inside another left out
+  (`_structural_region_bounds`), joined to the family's SV rows
+  (`_structural_family_region_condition`), and `_StructuralPanelMatch`, see
+  [Structural variants](#structural-variants)
 - Warming hooks: `backend/app/routers/families.py`, `backend/app/routers/ped.py`
