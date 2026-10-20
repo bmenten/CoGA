@@ -233,6 +233,17 @@ class NiptRecessiveGeneOut(BaseModel):
     risk_uses_prior: bool = False
 
 
+class NiptNotClassifiedOut(BaseModel):
+    """A variant the review-tag filter selects that the NIPT analysis does not classify, so
+    that no variant list shows it, and why: ``not_in_data`` (it is not in the family's
+    NIPT data), ``artifact_list`` (it is on the assay's recurrent-artifact list, which the
+    analysis leaves out) or ``no_plasma_call`` (the plasma has no call of it). The signed
+    record's ``nipt`` section names a reported variant the same way (``not_classified``)."""
+
+    variant_id: str
+    reason: Literal["not_in_data", "artifact_list", "no_plasma_call"]
+
+
 class NiptVariantPage(BaseModel):
     """A page of classified cfDNA variants plus the family's fetal fraction."""
 
@@ -248,6 +259,9 @@ class NiptVariantPage(BaseModel):
     variants: List["NiptVariantOut"]
     # The recessive view: the genes where both parents carry an allele, highest risk first.
     recessive_genes: List[NiptRecessiveGeneOut] = Field(default_factory=list)
+    # The variants the review-tag filter selects that the analysis does not classify,
+    # whatever the other filters, by variant id; [] without a review-tag filter.
+    not_classified: List[NiptNotClassifiedOut] = Field(default_factory=list)
 
 
 class NiptCoverageRegionOut(BaseModel):

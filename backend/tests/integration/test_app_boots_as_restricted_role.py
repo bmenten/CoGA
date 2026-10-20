@@ -16,6 +16,9 @@ It then asserts, on a **real ``coga_app`` login connection** (stronger than the 
 check in ``test_app_role_privileges``), that the runtime role may append an audit row but may
 not update it — i.e. the append-only revoke is enforced against the actual app credential.
 
+The same start refuses a database its migration has not reached (OPS-23): with the ledger one
+revision back, the real lifespan, logged in as ``coga_app``, stops at the schema-revision check.
+
 Skipped unless RUN_INTEGRATION=1 (see conftest.py); the CI ``smoke`` job sets it.
 """
 
@@ -27,6 +30,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError
+from sqlalchemy.ext.asyncio import create_async_engine
 
 pytestmark = pytest.mark.integration
 
@@ -94,3 +98,57 @@ def test_app_boots_and_serves_as_restricted_coga_app_role(monkeypatch) -> None:
             await close_postgres_engine()
 
     asyncio.run(_probe_runtime_privileges())
+
+
+def test_the_app_as_coga_app_refuses_a_database_its_migration_has_not_reached(monkeypatch) -> None:
+    from backend.app import main as app_main
+    from backend.app.core.config import settings
+    from backend.app.core.postgres import close_postgres_engine
+    from backend.app.core.postgres_migrations import (
+        SchemaRevisionMismatch,
+        head_revision,
+        migration_script,
+    )
+    from backend.app.db_migrate import run_schema_migrations
+
+    monkeypatch.setattr(settings, "postgres_app_password", _APP_ROLE_PASSWORD)
+    asyncio.run(run_schema_migrations())
+    owner_dsn, connect_args = settings.postgres_dsn, settings.postgres_connect_args
+    previous = migration_script().get_revision(head_revision()).down_revision
+    assert isinstance(previous, str)
+
+    async def _set_ledger(revision: str) -> None:
+        # As the owner: coga_app may only read the ledger.
+        engine = create_async_engine(owner_dsn, connect_args=connect_args)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = :r"), {"r": revision})
+        finally:
+            await engine.dispose()
+
+    class _App:
+        class state:  # FastAPI's app.state, as the lifespan reads it
+            skip_startup_tasks = False
+
+    async def _start_as_coga_app() -> None:
+        try:
+            async with app_main.lifespan(_App()):
+                pytest.fail("the app must not serve on a database its migration has not reached")
+        finally:
+            await close_postgres_engine()
+
+    # A database the migration job has not brought to this version: one revision back.
+    asyncio.run(_set_ledger(previous))
+    try:
+        monkeypatch.setattr(settings, "postgres_user", "coga_app")
+        monkeypatch.setattr(settings, "postgres_password", _APP_ROLE_PASSWORD)
+        monkeypatch.setattr(settings, "postgres_run_schema_migrations_on_startup", False)
+        with pytest.raises(SchemaRevisionMismatch) as refused:
+            asyncio.run(_start_as_coga_app())
+    finally:
+        asyncio.run(_set_ledger(head_revision()))
+
+    assert f"at schema revision {previous}, and this version of CoGA needs revision {head_revision()}" in str(
+        refused.value
+    )
+    assert "Run the migration job first" in str(refused.value)

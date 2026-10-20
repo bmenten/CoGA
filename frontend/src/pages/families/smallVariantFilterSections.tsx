@@ -1605,10 +1605,12 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
     summarizeSection,
     toggleDraftFilterListValue,
   } = form;
+  // A search without the classification filter (the NIPT list) offers the review tags only.
+  const offersClassification = offers('classification');
   const reviewFilterCount =
-    parseCommaSeparatedValues(draftFilters.classification).length +
+    (offersClassification ? parseCommaSeparatedValues(draftFilters.classification).length : 0) +
     parseCommaSeparatedValues(draftFilters.review_tags).length +
-    (draftFilters.has_notes === 'true' ? 1 : 0);
+    (offers('has_notes') && draftFilters.has_notes === 'true' ? 1 : 0);
 
   const selectedClassificationValues = parseCommaSeparatedValues(draftFilters.classification);
   const selectedReviewTagValues = parseCommaSeparatedValues(draftFilters.review_tags);
@@ -1677,7 +1679,7 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
               onChange={(event) => applyReviewQuickFilter(event.target.value)}
             >
               <option value="all">All</option>
-              <option value="pathogenic_vus">P/LP/VUS</option>
+              {offersClassification ? <option value="pathogenic_vus">P/LP/VUS</option> : null}
               <option value="review_tag">Review tag</option>
               <option value="custom">Custom</option>
             </select>
@@ -1687,23 +1689,25 @@ export const ReviewFilterSection = ({ form }: { form: FilterSectionForm }) => {
     >
       <div className="variant-filter-dropdown-content">
         <div className="variant-review-curation-columns">
-          <div>
-            <p className="variant-annotation-impact-title">Classification</p>
-            <div className="variant-checkbox-grid variant-checkbox-grid--small">
-              {classificationOptions.map((option) => (
-                <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
-                  <input
-                    type="checkbox"
-                    checked={selectedClassificationValues.includes(option.value)}
-                    onChange={() =>
-                      toggleDraftFilterListValue('classification', option.value)
-                    }
-                  />
-                  {option.label}
-                </label>
-              ))}
+          {offersClassification ? (
+            <div>
+              <p className="variant-annotation-impact-title">Classification</p>
+              <div className="variant-checkbox-grid variant-checkbox-grid--small">
+                {classificationOptions.map((option) => (
+                  <label key={option.value} className="analysis-checkbox variant-compact-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedClassificationValues.includes(option.value)}
+                      onChange={() =>
+                        toggleDraftFilterListValue('classification', option.value)
+                      }
+                    />
+                    {option.label}
+                  </label>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
           <div>
             <p className="variant-annotation-impact-title">Standard tags</p>
             <div className="variant-checkbox-grid variant-checkbox-grid--small">

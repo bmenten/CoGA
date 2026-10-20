@@ -9,7 +9,7 @@ import { MemoryRouter } from 'react-router';
 import { expect, test, vi } from 'vitest';
 
 import SmallVariantFilterForm from '../SmallVariantFilterForm';
-import { createEmptySmallFilters, type SmallFilterState } from '../smallVariantSearch';
+import { createEmptySmallFilters, NIPT_UNSUPPORTED_FILTERS, type SmallFilterState } from '../smallVariantSearch';
 import { GLOBAL_UNSUPPORTED_FILTERS } from '../../variant-explorer/globalSmallVariantSearch';
 
 const MEMBERS = [
@@ -79,10 +79,13 @@ test('renders the Global Small Variant Explorer form as recorded', () => {
   expect(markup({ familyAware: false, unsupportedFilters: GLOBAL_UNSUPPORTED_FILTERS, members: [] })).toMatchSnapshot();
 });
 
+// With the review tags the NIPT list takes (UI-4), and no classification or saved-notes
+// filter, which it does not.
 test('renders the monogenic NIPT form as recorded', () => {
   expect(
     markup({
       mode: 'nipt',
+      unsupportedFilters: NIPT_UNSUPPORTED_FILTERS,
       categoryCounts: { '1': 2, '3': 5, '7': 1 },
       categoryLabels: { 1: 'De novo', 3: 'Maternal dominant', 7: 'Paternal dominant' },
       niptInheritancePresets: [

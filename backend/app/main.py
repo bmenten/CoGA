@@ -17,6 +17,7 @@ from .core.postgres import (
     close_postgres_engine,
     get_postgres_sessionmaker,
     init_postgres_schema,
+    verify_postgres_schema_revision,
     wait_for_postgres,
 )
 from .core.coga_logging import (
@@ -82,6 +83,10 @@ async def lifespan(app: FastAPI):
     if settings.postgres_run_schema_migrations_on_startup:
         await init_postgres_schema()
         await init_postgres_admin_user()
+    else:
+        # The migration ran before this rollout, or did not: refuse to serve on a database at
+        # another schema revision than this version's (docs/database.md, "Schema Migrations").
+        await verify_postgres_schema_revision()
     await start_audit_log_worker()
     await start_ui_event_worker()
     session_factory = get_postgres_sessionmaker()

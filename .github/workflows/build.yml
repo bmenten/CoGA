@@ -319,7 +319,10 @@ jobs:
         # by a tag, which can be pushed again: the revision Cloud Run deploys is exactly the
         # image built in this run. Every build is a new digest, so every deploy changes the
         # image, Cloud Run rolls out, and the db-migrate job, keyed on the backend image,
-        # runs again. A missing or malformed digest stops the deploy before the plan.
+        # runs again. Before that migration (or, in owner mode, before the rollout whose start
+        # migrates) the apply takes an on-demand Cloud SQL backup with gcloud, and stops when
+        # it fails (terraform/migrate.tf). A missing or malformed digest stops the deploy
+        # before the plan.
         env:
           BACKEND_DIGEST: ${{ needs.build-backend.outputs.digest }}
           FRONTEND_DIGEST: ${{ needs.build-frontend.outputs.digest }}

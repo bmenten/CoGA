@@ -161,7 +161,7 @@ Understanding this makes everything else click:
 
 | Tool | Why | Install |
 |------|-----|---------|
-| `gcloud` | Talk to GCP from the CLI | <https://cloud.google.com/sdk/docs/install> |
+| `gcloud` | Talk to GCP from the CLI; `terraform apply` runs it too, for the backup before each schema migration (12.1) and the migration job (12.8) | <https://cloud.google.com/sdk/docs/install> |
 | `terraform` (or `tofu`), at the version `terraform/versions.tf` requires: 1.11 or later | Run the deployment | <https://developer.hashicorp.com/terraform/install> |
 | `git` | Get the code | your package manager |
 | `openssl` | Generate strong secrets | usually preinstalled |
@@ -192,8 +192,9 @@ bootstrap section (next) shows how to create them in a standalone project:
 - Control over **DNS** for your domain (e.g. `coga.cmgg.be`).
 - The **project APIs, the runtime service accounts and their roles**, the key grants to
   Google's service agents and the bucket data-access audit log, from the central infra
-  repo ([terraform/main-repo-reference/](../terraform/main-repo-reference/coga-prerequisites.tf.example)).
-  The go-live switches in 12.8 and 12.10 need two more things from it: the
+  repo ([terraform/main-repo-reference/](../terraform/main-repo-reference/coga-prerequisites.tf.example)),
+  with the role that lets the deploy account take the backup before each schema migration
+  (12.1). The go-live switches in 12.8 and 12.10 need two more things from it: the
   `coga-db-migrate` account, and the Cloud DNS API with Artifact Registry read access for
   the ClickHouse VM.
 
@@ -433,6 +434,8 @@ terraform apply tfplan
 
 Terraform creates the network, databases, secrets wiring, Cloud Run, the load
 balancer and Cloud Armor. The first apply takes a while; Cloud SQL takes the longest.
+Before the backend starts, the apply takes an on-demand backup of the database with your
+`gcloud` login (12.1), as it does before every schema migration.
 
 > **Tip:** if a step needs the secret values (it reads the Postgres password to set
 > the DB user), make sure you completed Section 5.5 first.
@@ -517,7 +520,9 @@ Day-to-day you don't run Terraform by hand — GitHub Actions does it. The workf
   tag, and Terraform gets each image by the digest its build pushed (`…@sha256:…`), so the
   revision Cloud Run runs is exactly the image that run built. Every build is a new digest,
   so every deploy carries a new image: Cloud Run rolls out new revisions, and with the
-  restricted database role (12.8) the migration job runs again. Only **one** trigger
+  restricted database role (12.8) the migration job runs again. Before the schema migration
+  that a new image brings, the apply takes an on-demand Cloud SQL backup, and a backup that
+  fails stops the deploy (12.1). Only **one** trigger
   applies: pushes to `main` by default, or published releases when the repository variable
   `COGA_DEPLOY_TRIGGER` is `release`. There is one environment and one state, so a later
   `main` push must not overwrite a release deployment.
@@ -656,12 +661,19 @@ traffic stays on the old revision.
 
 **A Postgres schema change** reaches the database with the new version: in owner mode its
 first start migrates the schema, and with the restricted role (12.8) the migration job does so
-before the rollout ([database.md](database.md#schema-migrations)). The migration is one
+before the rollout ([database.md](database.md#schema-migrations)). Before either, the apply
+takes an on-demand backup of `coga-postgres` and waits until it is done: the restore point of
+the upgrade, described as `Before the schema migration of coga-backend@sha256:<digest>`, the
+image the deploy runs ([terraform/migrate.tf](../terraform/migrate.tf)). It takes one for every
+new backend image, because the machine that applies cannot reach the database to read its
+revision, and until the release candidate a migration can change the schema without a new
+revision; an apply that changes no image takes none. When the backup fails, the apply stops
+before the migration, and the running revision keeps serving (15). The migration is one
 transaction: when it fails, nothing of it is kept, the new revision does not start, and traffic
-stays on the old one. Before rolling out a version that adds a schema revision, take an
-on-demand backup, the restore point of the upgrade: `gcloud sql backups create --instance
-coga-postgres`. Revisions do not run backwards, and a version older than the database's
-revision refuses to start, so going back across a revision means restoring that backup (12.3).
+stays on the old one. With the restricted role the API, which does not migrate, also checks at
+its start that the database is at exactly its own revision, and refuses to start otherwise.
+Revisions do not run backwards, and a version older than the database's revision refuses to
+start, so going back across a revision means restoring the backup taken before it (12.3).
 
 ### 12.2 Rotate a secret
 
@@ -701,6 +713,36 @@ gcloud sql backups list --instance coga-postgres
 # Restore into a NEW instance (safest — never overwrite the live one blindly):
 gcloud sql backups restore <BACKUP_ID> --restore-instance=coga-postgres-restored --backup-instance=coga-postgres
 ```
+
+**The backup before each schema migration** (12.1) is an on-demand backup. Unlike the
+automated ones it stays until someone deletes it, so delete those you no longer need as a
+restore point, keeping at least the one taken before the running version's migration:
+
+```bash
+gcloud sql backups list --instance coga-postgres --filter='type=ON_DEMAND' \
+  --format='table(id,windowStartTime,status,description)'
+gcloud sql backups delete <BACKUP_ID> --instance coga-postgres
+```
+
+**Going back across a schema migration** (a rollback to a version older than the database's
+revision, [RELEASING.md](../RELEASING.md#rollback)) restores that backup onto the live
+instance: everything written after it is lost, so do it announced, at a quiet time, and record
+it as a change (TF-18).
+
+1. Find the backup taken before the migration of the version you leave: its description names
+   that version's image, `Before the schema migration of coga-backend@sha256:<digest>` (the
+   digest is in its deploy's run summary).
+2. Keep what that version wrote: `gcloud sql backups create --instance coga-postgres
+   --description="Before the rollback restore"`.
+3. Restore: `gcloud sql backups restore <BACKUP_ID> --restore-instance=coga-postgres`. The
+   instance is unavailable while it restores.
+4. Right away, deploy the previous release by its digests (RELEASING.md, Rollback). Its apply
+   takes a new backup, and its migration finds the database at its own revision.
+
+Until step 4 finishes, the newer version still serves, on the older schema, and its requests
+may fail. In owner mode an instance of it that starts in that time (a scale-out or a restart)
+migrates the database forward again, and the previous release then refuses to start on it:
+restore once more and deploy. With the restricted role such an instance refuses to start.
 
 **ClickHouse** data disk is snapshotted daily (retained `clickhouse_snapshot_retention_days`,
 default 14).
@@ -827,10 +869,12 @@ change-controlled deployment; the full procedure, verification and rollback are 
 3. Set `db_runtime_role = "coga_app"` (in CI: the `COGA_TFVARS` environment variable) and
    deploy.
 
-Terraform then runs the `coga-db-migrate` Cloud Run job as the owner. It migrates the
-schema (12.1), seeds the admin user and enables `coga_app`'s login, and only then does the
-backend roll out, connecting as `coga_app`. The job runs again with every new backend
-image. The API's service account loses access to the owner's password.
+Terraform then takes an on-demand backup of the database (12.1) and runs the
+`coga-db-migrate` Cloud Run job as the owner. It migrates the schema (12.1), seeds the admin
+user and enables `coga_app`'s login, and only then does the backend roll out, connecting as
+`coga_app`. The backup and the job run again with every new backend image. The API, which no
+longer migrates, refuses to start unless the database is at its own schema revision. The
+API's service account loses access to the owner's password.
 
 ### 12.9 Restrict the app to institutional networks
 
@@ -1055,8 +1099,10 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 | `terraform apply` fails reading the Postgres password | The `coga-postgres-password` secret version doesn't exist yet — complete the secret bootstrap (5.5) before the full apply. |
 | ClickHouse VM has no data / won't start the container | No Cloud NAT egress to pull the image, or the data disk didn't mount. With the egress lockdown (12.10): the image is not in Artifact Registry, or the VM's account cannot read it. Check the VM serial console: `gcloud compute instances get-serial-port-output coga-clickhouse-vm --zone "$REGION-b"`. |
 | Deploy job fails at "Refuse to deploy without required reviewers" | The `gcp-deploy` environment has no required reviewer. Add one (Section 10) and re-run the job. |
+| `terraform apply` fails in `terraform_data.pre_migration_backup` or `terraform_data.db_migrate` with "The backup of coga-postgres before the schema migration failed: …" | The backup before the schema migration did not succeed (12.1), so the migration did not run and the running revision keeps serving. "gcloud could not start it": the account that applies lacks `cloudsql.backupRuns.create` (the deploy account's `cogaPreMigrationBackup` role, [rollout-checklist.md](../terraform/main-repo-reference/rollout-checklist.md) Part C), or another operation on the instance is running. "Not done within 3600s": the backup may still finish (`gcloud sql operations list --instance coga-postgres`). Fix the cause and run the apply again: it takes a new backup. |
 | `terraform apply` fails in `terraform_data.db_migrate` | The schema migration job failed (12.8); the running revision keeps serving. Read its logs: `gcloud run jobs executions list --job coga-db-migrate --region "$REGION"`, then `gcloud logging read 'resource.type="cloud_run_job" resource.labels.job_name="coga-db-migrate"' --limit 50`. The job loads the backend's settings first, so a "Refusing to start outside development/test…" line in its log has the cause given for that message above; once that is fixed, run the apply again. |
 | "The database is at schema revision …, which this version of CoGA does not have" | A newer version migrated the database, and an older one was rolled out on it. Roll the newer version out again, or restore the backup taken before that upgrade (12.1, 12.3). |
+| "The database is at schema revision …, and this version of CoGA needs revision …" | The API does not migrate at start (the restricted role, 12.8), and the migration job has not brought the database to this version. Run it (`gcloud run jobs execute coga-db-migrate --region "$REGION" --wait`, or deploy again) and roll the backend (12.2). |
 | "The schema migration runs as the owner of the tables, not as coga_app…" | The API connects as `coga_app` (`POSTGRES_USER`) with `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` on, and only the owner migrates. `db_runtime_role = "coga_app"` sets both together and runs the migration job as the owner (12.8): remove any hand-set override of either and roll the backend. |
 | Postgres connector errors | The backend's service account lacks `roles/cloudsql.client`, or the Cloud SQL Admin API is off. Both come from the central infra repo (5.4), not from this configuration. |
 | Legitimate requests blocked | If you enabled `cloud_armor_waf_enforce`, review the WAF logs (12.6) and tune; revert to `false` to log-only. |

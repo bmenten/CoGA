@@ -161,10 +161,14 @@ _LOADED = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
 
 
 class _Session:
-    """Answers the family's analysis type and its target-table sources."""
+    """Answers the family's analysis type, its target-table sources and its small-variant
+    reviews (variant id -> tags)."""
 
-    def __init__(self, *, analysis_type: str | None = "monogenic_nipt") -> None:
+    def __init__(
+        self, *, analysis_type: str | None = "monogenic_nipt", reviews: dict[str, list[str]] | None = None
+    ) -> None:
         self.analysis_type = analysis_type
+        self.reviews = reviews or {}
         self.executed: list[tuple[str, Any]] = []
 
     async def execute(self, statement: Any, params: Any = None) -> _Result:
@@ -174,6 +178,14 @@ class _Session:
             return _Result([{"sample_id": PLASMA, "filename": "cfdna.targets.tsv", "row_count": 5, "uploaded_at": _LOADED}])
         if "FROM families" in sql:
             return _Result([{"analysis_type": self.analysis_type}])
+        if "FROM small_variant_reviews" in sql:
+            return _Result(
+                [
+                    {"variant_id": variant_id, "classification": None, "tags": tags, "note": None,
+                     "compound_het_classification": None, "compound_het_tags": [], "compound_het_note": None}
+                    for variant_id, tags in self.reviews.items()
+                ]
+            )
         return _Result([])
 
 
@@ -196,8 +208,15 @@ def _wire(
     async def fake_context(_session, *, family_identifier, user, project_id=None):
         return _context()
 
-    async def fake_fetch(_context, filters, *, limit=None, **_kwargs):
-        return cohort if filters.gene is None else filtered
+    async def fake_fetch(_context, filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), **_kwargs):
+        # The review selection's ids, kept or left out in the load, as ClickHouse does.
+        rows = cohort if filters.gene is None else filtered
+        return [
+            record
+            for record in rows
+            if (include_variant_ids is None or record.variant_id in include_variant_ids)
+            and record.variant_id not in exclude_variant_ids
+        ]
 
     async def fake_tracks(_assembly, *, sample_uuid=None, track_type=None, include_metadata=False, record_ids=None, **_kw):
         assert track_type == "target_coverage"
@@ -378,6 +397,48 @@ async def test_a_reported_variant_the_analysis_does_not_classify_says_why(monkey
     ]
     artifacts = section["inputs"]["artifact_list"]
     assert (artifacts["assay_key"], artifacts["entries"], artifacts["removed"], artifacts["kept"]) == ("panel-v2", 1, 1, [])
+
+
+@pytest.mark.asyncio
+async def test_the_variant_lists_reported_view_is_what_a_sign_out_freezes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # UI-4: the NIPT page lists the variants tagged report (review_tag=report, no other
+    # filter), so the analyst sees before signing out what the record will hold: each
+    # classified one as frozen, and each the analysis does not classify, with the same why.
+    joint_without_plasma = _record("7-600-T-C", [_call(FATHER, [150, 150])], genes=["GENED"], source="clair3")
+    _wire(monkeypatch, sites=[*_gene_sites(), joint_without_plasma], artifacts={"7-300-A-G"})
+    # The sign-out freezes the variants whose review holds the report tag.
+    reported = ["7-100-A-G", "7-200-C-T", "7-300-A-G", "7-500-G-A", "7-600-T-C", "9-999-A-G"]
+    reviews = {variant_id: ["report"] for variant_id in reported}
+    reviews.update({"7-400-C-T": ["review"], "1-1000-A-G": ["excluded"]})
+
+    section = await _section(reported)
+    listed = await nipt_service.get_family_nipt_variants(
+        session=_Session(reviews=reviews),  # type: ignore[arg-type]
+        family_id="NIPTFAM1",
+        user=None,  # type: ignore[arg-type]
+        review_tags=["report"],
+        page_size=500,
+    )
+
+    frozen = {entry["variant_id"]: entry for entry in section["variants"]}
+    shown = {item.record.variant_id: item for item in listed.variants}
+    assert set(shown) == set(frozen) == {"7-100-A-G", "7-200-C-T", "7-500-G-A"}
+    assert listed.total == len(frozen)
+    for variant_id, entry in frozen.items():
+        classification = shown[variant_id].classification
+        for field in (
+            "category", "maternal_state", "fetal_inheritance", "expected_vaf", "observed_vaf", "confidence",
+            "paternal_transmission_probability", "maternal_allele_probability", "fetal_hom_alt_probability",
+        ):
+            assert entry[field] == getattr(classification, field), (variant_id, field)
+        assert entry["flags"] == classification.flags
+    assert [
+        {"variant_id": variant_id, "reason": reason} for variant_id, reason in sorted(listed.not_classified.items())
+    ] == section["not_classified"] == [
+        {"variant_id": "7-300-A-G", "reason": "artifact_list"},
+        {"variant_id": "7-600-T-C", "reason": "no_plasma_call"},
+        {"variant_id": "9-999-A-G", "reason": "not_in_data"},
+    ]
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ import type { NavigateFunction } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import type {
   NiptDeNovoTriageOut,
+  NiptNotClassifiedOut,
   NiptRecessiveGeneOut,
   SmallVariantFilterTranscriptOut,
   SvSecondHitSvOut,
@@ -277,6 +278,9 @@ export interface SmallVariantPage {
   small_variant_summary?: SmallVariantSummary | null;
   // Monogenic NIPT, recessive view: the genes where both parents carry an allele.
   recessive_genes?: NiptRecessiveGeneOut[];
+  // Monogenic NIPT: the variants the review-tag filter selects that the analysis does not
+  // classify, so that no list shows them, with why.
+  not_classified?: NiptNotClassifiedOut[];
 }
 
 export interface SmallVariantSampleSummary {
@@ -619,6 +623,15 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
       'Genes where both parents carry a rare, high/moderate variant (ClinVar P/LP overrides frequency), with the probability that the fetus inherited each allele and both.',
   },
 ];
+
+/**
+ * Filters of the shared form that the NIPT variant list does not apply: of the review
+ * filters it takes the review tags and the excluded tags, as the small-variant list does,
+ * but not the classification or the saved notes. The form offers them no control.
+ */
+export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
+  keyof SmallFilterState
+>(['classification', 'has_notes']);
 
 // The inheritance views of the NIPT variant list, as chips name them.
 export const NIPT_INHERITANCE_LABELS: Record<string, string> = {
@@ -1794,6 +1807,24 @@ export const useSmallVariantSearchState = ({
     setSampleDraftFilters(cloneSampleFilters(nextSampleFilters));
   };
 
+  // Record the deliberate variant query (the substantive search intent) in the UI
+  // telemetry. Keys/counts only — no filter values — so it stays PHI-free.
+  const logSearch = (
+    searchFilters: SmallFilterState,
+    searchSampleFilters: Record<string, SmallVariantSampleFilter>,
+  ) => {
+    logUiEvent({
+      event_type: 'query',
+      category: 'small-variant-filter',
+      detail: {
+        // A comma-separated string: the event store keeps scalars only, and stored an
+        // array as the placeholder "[list]" (#521).
+        filter_keys: activeFilterKeys(searchFilters).join(','),
+        active_filter_count: countActiveFilters(searchFilters, searchSampleFilters),
+      },
+    });
+  };
+
   const handleApply = (event: FormEvent) => {
     event.preventDefault();
     const locationProblems = smallVariantLocationProblems(draftFilters);
@@ -1803,19 +1834,18 @@ export const useSmallVariantSearchState = ({
     }
     setDraftLocationProblems(null);
     const nextSampleFilters = cloneSampleFilters(sampleDraftFilters);
-    // Record the deliberate variant query (the substantive search intent) in the UI
-    // telemetry. Keys/counts only — no filter values — so it stays PHI-free.
-    logUiEvent({
-      event_type: 'query',
-      category: 'small-variant-filter',
-      detail: {
-        // A comma-separated string: the event store keeps scalars only, and stored an
-        // array as the placeholder "[list]" (#521).
-        filter_keys: activeFilterKeys(draftFilters).join(','),
-        active_filter_count: countActiveFilters(draftFilters, nextSampleFilters),
-      },
-    });
+    logSearch(draftFilters, nextSampleFilters);
     applySearchState(draftFilters, nextSampleFilters, 1);
+  };
+
+  // Search on these filters at once, every per-sample filter at its default: a page's own
+  // quick view, such as the NIPT page's "Show reported". Logged as "Apply filters" is.
+  const runSearch = (nextFilters: SmallFilterState) => {
+    if (!family) return;
+    setDraftLocationProblems(null);
+    const nextSampleFilters = buildDefaultSampleFilters(family.members);
+    logSearch(nextFilters, nextSampleFilters);
+    applySearchState(nextFilters, nextSampleFilters, 1);
   };
 
   const handleReset = () => {
@@ -1909,6 +1939,7 @@ export const useSmallVariantSearchState = ({
     page,
     removeActiveFilterChip,
     requestQueryString,
+    runSearch,
     sampleDraftFilters,
     sampleFilters,
     searchReady,

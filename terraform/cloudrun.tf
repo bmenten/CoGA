@@ -384,6 +384,8 @@ resource "google_cloud_run_v2_service" "backend" {
     google_secret_manager_secret_iam_member.backend_metrics_token,
     # With the restricted DB role, a new image serves only after its schema is applied.
     terraform_data.db_migrate,
+    # In owner mode a new image migrates at its first start: only after the backup (migrate.tf).
+    terraform_data.pre_migration_backup,
   ]
 
   lifecycle {

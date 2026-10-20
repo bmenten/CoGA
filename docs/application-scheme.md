@@ -107,7 +107,9 @@ On start the backend (`backend/app/main.py`):
    lacks) and makes sure the admin user exists. With
    `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` it skips this, so that the schema can be
    applied separately and the API can run as the restricted database role
-   ([db-runtime-role-runbook.md](db-runtime-role-runbook.md));
+   ([db-runtime-role-runbook.md](db-runtime-role-runbook.md)), and only reads the ledger: it
+   refuses to start unless the database is at its own schema revision
+   ([database.md](database.md#schema-migrations));
 2. starts the writers for the audit log and the UI events;
 3. seeds the built-in repeat catalogue; makes sure GRCh38 exists, with its cytobands (from
    UCSC) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot be fetched);

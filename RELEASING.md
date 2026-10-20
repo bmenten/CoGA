@@ -90,7 +90,7 @@ a commit that passed `main`'s required checks and that QA's four-eyes review cov
 | `tf-validate` | `terraform fmt -check` and `terraform validate`, without cloud credentials | The other jobs do not wait for it, so the build still runs; fix the Terraform before you rely on a deploy |
 | `prepare` | Asserts the tag is on `main` (with `main`'s whole history) and matches `VERSION`, then computes build metadata: the release's version for the image | **Nothing was built.** Fix `VERSION`, or tag the right commit on `main`; delete the tag and release (`gh release delete <tag> --cleanup-tag`), start again at step 1 |
 | `build-backend` / `build-frontend` | Cloud Build → Artifact Registry, stamped with `APP_VERSION` + `GIT_SHA`; each writes the digest of the image it pushed in the run's summary | Images may be partially pushed; safe to re-run. A build that reports no digest fails, and nothing deploys |
-| `deploy` | `terraform plan` then `apply` against the `gcp-deploy` environment, each image by the digest its build pushed — on a release only when `COGA_DEPLOY_TRIGGER` is `release` (see [Known limitations](#known-limitations)) | Infrastructure may be partly applied — read the plan output before re-running |
+| `deploy` | `terraform plan` then `apply` against the `gcp-deploy` environment, each image by the digest its build pushed — on a release only when `COGA_DEPLOY_TRIGGER` is `release` (see [Known limitations](#known-limitations)). Before the schema migration the new backend image brings, the apply takes an on-demand Cloud SQL backup, described as `Before the schema migration of coga-backend@sha256:<digest>` ([deployment-gcp.md](docs/deployment-gcp.md), 12.1) | Infrastructure may be partly applied — read the plan output before re-running. A failed backup stops the apply before the migration, and the running version keeps serving; re-running takes a new one |
 | `release-sbom` | Generates the CycloneDX SBOMs from the release commit, as `ci.yml`'s `sbom` job does, and attaches them with their SHA-256 sums (`sbom-sha256sums.txt`) to the release. Runs whether or not GCP is configured | Nothing deploys from it; re-run it. Once the files are attached a re-run fails on them, and the attached files stay as they are |
 
 ## 4. Capture the evidence
@@ -158,9 +158,10 @@ new images. Record the rollback as a change under TF-18 — a rollback is a rele
 > Rolling back the **application** does not roll back a **database migration**. Schema
 > revisions run forward only, and a version older than the database's revision (the ledger
 > `alembic_version`) refuses to start on it. Rolling back across a schema revision therefore
-> means restoring the Postgres backup taken just before the upgrade
-> ([deployment-gcp.md](docs/deployment-gcp.md), 12.1 and 12.3), which loses what was written
-> since; otherwise go forward with a fix
+> means restoring the Postgres backup the deploy took just before the upgrade (its description
+> names the image it preceded), then deploying the previous release at once, as
+> [deployment-gcp.md](docs/deployment-gcp.md), 12.3, describes. The restore loses what was
+> written since, so record it with the rollback; otherwise go forward with a fix
 > ([database.md](docs/database.md#schema-migrations)).
 
 ---
