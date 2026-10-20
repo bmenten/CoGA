@@ -223,8 +223,9 @@ def test_a_bootstrap_import_names_the_file_it_loaded(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
     _patch_lookups(monkeypatch)
+    # A copy of the shipped file: the startup loads no other (TRACE-14).
     segdups = tmp_path / "ClinGen_recurrent_CNV_V2.1-hg38.bed"
-    segdups.write_text("chr1\t100\t200\tBP1\t0\t.\t100\t200\t0,0,0\n", encoding="utf-8")
+    segdups.write_bytes(rms.REPO_SEGMENTAL_DUPLICATIONS_PATH.read_bytes())
     monkeypatch.setattr(settings, "reference_bootstrap_enabled", True)
     monkeypatch.setattr(settings, "reference_bootstrap_assembly_name", "GRCh38")
     monkeypatch.setattr(settings, "reference_segmental_duplications_path", str(segdups))

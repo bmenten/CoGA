@@ -251,8 +251,9 @@ in the EPD refers to the signed version by its report code (*The report code* be
   - `reference_data` (TRACE-5), beside the manifest's modules: the gene reference's releases
     for the reported variants' genes (for each source, the release and checksum of the file
     that answered for each gene, and the genes it has no record of) and the clinical CNV
-    knowledgebase loaded for the assembly (its source, the release its source states, none for
-    a rebuild, and when it was loaded). PanelApp gives each panel a version of its own, which
+    knowledgebase loaded for the assembly (its source, the release its source states, for a
+    rebuild the ClinGen recurrent CNV file it read, by release and SHA-256 (TRACE-14), and when
+    it was loaded). PanelApp gives each panel a version of its own, which
     `gene_panels` holds;
   - `repeat_expansions`: every TRGT call of the family's samples, with the status CoGA gives it
     at sign-out (as the repeat page classifies it), its alleles, and the thresholds behind it,
@@ -737,8 +738,10 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   (named in its footer).
 - The gene reference is frozen for the reported variants' genes only: a record without a reported
   variant names no gene-reference release. The gene loci the panel filters read are in the
-  manifest (`gene_loci`). The clinical CNV knowledgebase states no release, so the record dates it
-  by its load.
+  manifest (`gene_loci`). The clinical CNV knowledgebase states no release of its own: the record
+  names the one pinned file a rebuild read, ClinGen's recurrent CNV file, by release and SHA-256,
+  and dates the rest (the ClinGen dosage curation, ClinVar and the cytobands as they were that day)
+  by its load. A rebuild loaded before the pin (TRACE-14) reads `not stated`.
 - A panel version is recorded the first time a search of the family applies it, not at each search,
   and a panel applied in the variant explorer, which searches across families, is recorded for no
   family. Searches made before the `panel_applied` event existed recorded nothing, so a record

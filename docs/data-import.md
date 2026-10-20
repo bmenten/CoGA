@@ -38,9 +38,9 @@ for the assembly is left alone.
 | GRCh38 cytobands | UCSC `hg38` download | |
 | GRCh38 gene loci | GENCODE GTF (see below); the UCSC gene table if GENCODE fails | `REFERENCE_GENCODE_GTF_URL`, `REFERENCE_GENCODE_REFSEQ_METADATA_URL` |
 | T2T-CHM13v2.0 (off by default) | UCSC `hs1` RefSeq GTF | `REFERENCE_BOOTSTRAP_T2T`, `REFERENCE_T2T_GTF_URL` |
-| Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/`: ClinGen's V2.1 GRCh38 file, unchanged ([checked against ClinGen by SHA-256](../data/ref-data/clinical_cnv_syndromes_hg38_bundle/COGA-PROVENANCE.md)) | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` |
+| Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/`: ClinGen's V2.1 GRCh38 file, unchanged ([checked against ClinGen by SHA-256](../data/ref-data/clinical_cnv_syndromes_hg38_bundle/COGA-PROVENANCE.md)). The file read (the setting's, else the repository's) must be that file byte for byte, SHA-256 `e6a7428f58b0…` (`SEGMENTAL_DUPLICATIONS_PINNED_SHA256`, which no setting overrides): another file is not loaded, and the log names it, both SHA-256 digests and the fix (copy the repository's file there unchanged). The start goes on without the track | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` |
 | Clinical CNV syndromes | Only if the file exists; it is not shipped | `REFERENCE_CLINICAL_CNVS_PATH` |
-| HPO ontology | `data/ref-data/hpo/hp.obo`. If no ontology file is found, the same release is downloaded over HTTPS from its versioned URL and imported only if its SHA-256 is the vendored file's; another file is refused and logged. The URL and the SHA-256 are fixed in the code, not settings ([the pin](../data/ref-data/hpo/README.md#the-download-fallback)): the removed `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if still set | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_DOWNLOAD_IF_MISSING` |
+| HPO ontology | `data/ref-data/hpo/hp.obo`, imported only if its SHA-256 is the vendored file's: an ontology file found in place that is not, such as another release, is refused and logged (the file, both digests and the fix), and nothing is imported or downloaded instead. If no ontology file is found, the same release is downloaded over HTTPS from its versioned URL and imported only if its SHA-256 is the vendored file's; another file is refused and logged. The URL and the SHA-256 are fixed in the code, not settings ([the pin](../data/ref-data/hpo/README.md#the-download-fallback)): the removed `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if still set | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_DOWNLOAD_IF_MISSING` |
 | TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start. The STRchive file must be that release byte for byte, or the backend does not start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. The name of a gene with several STRchive loci (ARX, HOXA13) picks the locus the call's region overlaps. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal, except a count inside the benign range such a row states, which is normal (POLG: exactly 10; MUC1 states none). The count is TRGT's count of the catalogue motif across the locus, flanking copies included: in the TRGT catalogue in use (TRID `CPEO_POLG`, chr15:89333579-89333629, motifs GCT and GTT), POLG's common allele of 10 repeats counts 14 and stays not assessed. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
@@ -68,6 +68,18 @@ CNVs, and nothing warns about it. Build them with the clinical CNV knowledgebase
 `POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below). A rebuild whose ClinGen dosage
 curation or recurrent CNV regions cannot be loaded fails, says why on that page, and leaves the
 clinical CNVs as they were.
+
+ClinGen's recurrent CNV file is pinned per assembly by its SHA-256
+(`CLINGEN_RECURRENT_CNV_SHA256` in `scripts/clinical_cnv_knowledgebase.py`): the rebuild reads
+the file only if its SHA-256 is the pinned one, and fails on any other file, naming it, both
+digests and the fix. GRCh38's pin is ClinGen's V2.1 file, the one the repository ships as the
+segmental-duplication file (`e6a7428f58b0…`). GRCh37 has no pin yet, so a GRCh37 rebuild fails
+before it downloads the file, until a checked copy's SHA-256 is pinned in a reviewed change.
+The import record of a rebuild names the file it read as its release, e.g.
+`ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 e6a7428f…` with the
+digest in full, and the signed analysis record freezes it. A build that does not record the
+file it read is not loaded. The ClinGen dosage curation, ClinVar and the UCSC cytobands are read
+as they are on the day of the rebuild and are not pinned.
 
 **Gene loci.** GRCh38 gene loci come from the GENCODE basic annotation, pinned by the release
 in `REFERENCE_GENCODE_GTF_URL`. That is the annotation the variant pipeline uses, so the
@@ -99,7 +111,8 @@ Admins manage reference data on **Admin → Species & Assemblies**
   holds that dataset, the upload is refused unless `overwrite=true`, which replaces it.
 
 Every import and upload is recorded with who ran it, the source, and the release the source
-states: a GENCODE import its version and date, every other import `not stated` (see
+states: a GENCODE import its version and date, a clinical CNV knowledgebase rebuild the ClinGen
+recurrent CNV file it read (above), every other import `not stated` (see
 [database.md](database.md)). The imports show under "Recent reference activity".
 
 | `dataset_type` | File format |
@@ -120,8 +133,9 @@ backend container with `scripts/import_dgv.py`, which inserts in batches (see
 To move to a newer HPO release, put the new `hp.obo` in `/data/ref-data/hpo/` and run the sync
 on **Admin → HPO Terminology** (`POST /admin/hpo/sync`). The page starts from the file the
 backend is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the changes first.
-It only reads files inside the configured ontology folders. The startup download stays
-pinned to the vendored release; moving the pin and the vendored file is a code change
+It only reads files inside the configured ontology folders. The startup import, of a file in
+place or downloaded, stays pinned to the vendored release: on a database without HPO terms, a
+start refuses any other file. Moving the pin and the vendored file is a code change
 ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#updating-controlled-change)).
 
 ### The STRchive release

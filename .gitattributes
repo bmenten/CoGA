@@ -1,4 +1,9 @@
 # Files pinned by their SHA-256 must reach every checkout byte for byte: no line-ending
 # conversion. The STRchive release (STRCHIVE_PINNED_LOCI_SHA256, CLIN-31) is checked at every
-# start, and a copy with other line endings refuses it.
+# start, and a copy with other line endings refuses it. The HPO ontology
+# (HPO_PINNED_ONTOLOGY_SHA256) and the segmental-duplication file, ClinGen's recurrent CNV file
+# with its CRLF line ends (SEGMENTAL_DUPLICATIONS_PINNED_SHA256), are checked before a start
+# loads them (TRACE-14), and the reference-data bucket takes its copies from a checkout.
 data/ref-data/STRchive-loci.json -text
+data/ref-data/hpo/hp.obo -text
+data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed -text

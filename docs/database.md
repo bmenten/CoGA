@@ -85,11 +85,14 @@ the CGG copies) are not stored yet: they belong in this table, applied to the co
 is classified, and until then a locus whose count needs a correction stays not validated.
 
 `reference_dataset_imports.source_version` and `source_release_date` hold the release the
-source states about itself. A GENCODE gene import takes both from its GTF header. No other
-source states one: UCSC tables, a GTF without that header, the clinical-CNV knowledgebase
-(built from the sources as they are on the day), uploads, the built-in reference files and
-the DGV script. Their `source_version` is `not stated` and their `source_release_date` is
-NULL. `source` is the label the readers show, such as `gencode v50 (Ensembl 116)`; a
+source states about itself. A GENCODE gene import takes both from its GTF header. A
+clinical-CNV knowledgebase rebuild, built from the sources as they are on the day, records in
+`source_version` the one pinned file it read: ClinGen's recurrent CNV file, by release, file
+name and SHA-256 (`ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 …`;
+[data-import.md](data-import.md)). No other source states one: UCSC tables, a GTF without that
+header, uploads, the built-in reference files and the DGV script. Their `source_version` is
+`not stated`, as is a knowledgebase rebuild's from before the pin, and `source_release_date`
+is NULL. `source` is the label the readers show, such as `gencode v50 (Ensembl 116)`; a
 built-in reference file is recorded under its file name.
 
 ### 03_assay.sql: families, samples, assay data and review

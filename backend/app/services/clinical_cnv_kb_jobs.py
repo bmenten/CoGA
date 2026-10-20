@@ -3,7 +3,9 @@
 Runs the knowledgebase build script (``scripts/clinical_cnv_knowledgebase.py``)
 as an isolated subprocess so its heavy/optional dependencies and external
 network fetches never touch the API process, then loads the resulting TSV into
-``clinical_cnvs`` for the target assembly via the standard reference loader.
+``clinical_cnvs`` for the target assembly via the standard reference loader. The build reads
+ClinGen's recurrent CNV file only if its SHA-256 is the pinned one, and the load records that
+file's release and SHA-256 as the knowledgebase's release (TRACE-14).
 
 Progress is tracked in ``clinical_cnv_kb_jobs``; the build runs as an in-process
 background task and the admin UI polls the status endpoint. One job may be active (queued
@@ -26,6 +28,7 @@ guarded by its worker id.
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -65,6 +68,14 @@ _STALE_ERROR = (
 )
 _SCRIPT_MISSING = "The clinical CNV knowledgebase build script is not available on the server."
 _FAILED = "status = 'failed', worker_id = NULL, completed_at = now(), error = :error"
+# The build writes the pinned source files it checked to this file in its temporary folder
+# (--sources-out), and the load records them (TRACE-14).
+_SOURCES_FILE = "clinical_cnv_knowledgebase.sources.json"
+_SOURCES_UNRECORDED = (
+    "The build did not record the SHA-256 of the ClinGen recurrent CNV file it read, so the "
+    "knowledgebase was not loaded; the one loaded before stays as it was."
+)
+_SHA256_HEX = re.compile(r"[0-9a-f]{64}")
 
 
 # What the knowledgebase build script needs from the environment, and nothing else: it
@@ -98,6 +109,37 @@ def _failure_reason(stderr_tail: str) -> str:
         return ""
     reason = lines[-1].removeprefix(_BUILD_LOG_PREFIX)
     return reason[:_REASON_CHARS]
+
+
+def checked_files_release(sources_json: str) -> str:
+    """What the load records as the knowledgebase's release: each pinned file the build read,
+    by source, release, file name and SHA-256 (TRACE-14), e.g. ``ClinGen recurrent CNV V2.1:
+    ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 …``.
+
+    The build checked each file against its pin before reading it (``--sources-out``). A
+    record that names no file, or a file without its full SHA-256, raises ``ValueError``: the
+    knowledgebase is then not loaded, as the digests could not be recorded with it."""
+    payload = json.loads(sources_json)
+    entries = payload.get("checked_files") if isinstance(payload, dict) else None
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("the build recorded no checked source file")
+    described: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise ValueError("a checked source file is not described")
+        source, release, url, digest = (entry.get(name) for name in ("source", "release", "url", "sha256"))
+        texts = (source, release, url)
+        if not all(isinstance(value, str) and value.strip() for value in texts):
+            raise ValueError("a checked source file lacks its source, release or URL")
+        if not isinstance(digest, str) or not _SHA256_HEX.fullmatch(digest):
+            raise ValueError("a checked source file lacks its SHA-256")
+        file_name = str(url).rstrip("/").rsplit("/", 1)[-1]
+        described.append(f"{str(source).strip()} {str(release).strip()}: {file_name}, SHA-256 {digest}")
+    return "; ".join(described)
+
+
+def _read_checked_files_release(path: str) -> str:
+    return checked_files_release(Path(path).read_text(encoding="utf-8"))
 
 
 def _script_path() -> Path | None:
@@ -374,7 +416,17 @@ async def _run_job(job_id: str) -> None:
 
         tmp_dir = tempfile.mkdtemp(prefix="cnv-kb-")
         out_path = os.path.join(tmp_dir, "clinical_cnv_knowledgebase.tsv")
-        cmd = [sys.executable, str(script), "--assembly", row["assembly_name"], "--out", out_path]
+        sources_path = os.path.join(tmp_dir, _SOURCES_FILE)
+        cmd = [
+            sys.executable,
+            str(script),
+            "--assembly",
+            row["assembly_name"],
+            "--out",
+            out_path,
+            "--sources-out",
+            sources_path,
+        ]
         if row["skip_clinvar"]:
             cmd.append("--skip-clinvar")
 
@@ -401,14 +453,33 @@ async def _run_job(job_id: str) -> None:
             return
 
         tsv_text = await asyncio.to_thread(Path(out_path).read_text, encoding="utf-8")
+        # The pinned files the build read are recorded with the load (TRACE-14): without that
+        # record nothing is loaded, before anything is replaced.
+        try:
+            release = await asyncio.to_thread(_read_checked_files_release, sources_path)
+        except (OSError, ValueError) as exc:
+            logger.error(
+                "Clinical CNV knowledgebase rebuild %s not loaded: the build's record of the "
+                "files it checked could not be read (%s)",
+                job_id,
+                type(exc).__name__,
+            )
+            await _update_job(
+                job_id,
+                owner,
+                "status = 'failed', worker_id = NULL, completed_at = now(), error = :error, log = :log",
+                {"error": _SOURCES_UNRECORDED, "log": log_tail},
+            )
+            return
         # Replace the knowledgebase only while the job is still this worker's.
         if not await _update_job(job_id, owner, "heartbeat_at = now()", {}):
             raise _JobClosed()
         sessionmaker = get_postgres_sessionmaker()
         async with sessionmaker() as session:
-            # The knowledgebase has no release of its own: it is built from the ClinGen,
-            # ClinVar and UCSC data current on the day, so the import is recorded as one
-            # whose source states no release, dated by when it was loaded.
+            # The knowledgebase states no release of its own: it is built from the ClinGen
+            # curation, ClinVar and UCSC data current on the day, dated by when it was loaded.
+            # Its one pinned source, ClinGen's recurrent CNV file, is recorded as its release:
+            # the release, file name and SHA-256 of the file the build checked and read.
             result = await apply_reference_dataset_text(
                 session,
                 assembly_id=row["assembly_id"],
@@ -417,6 +488,7 @@ async def _run_job(job_id: str) -> None:
                 overwrite=True,
                 performed_by=row.get("requested_by"),
                 source="clinical-cnv-kb",
+                source_version=release,
             )
         await _update_job(
             job_id,

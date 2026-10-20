@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
 import io
 import json
 import logging
@@ -13,7 +14,8 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
+from ..core.coga_logging import scrub_log
+from ..core.config import SEGMENTAL_DUPLICATIONS_PINNED_SHA256, settings
 from ..core.html_sanitize import sanitize_reference_html
 from ..core.sql import require_uuid
 from ..schemas import (
@@ -302,12 +304,57 @@ def _configured_reference_path(primary: str | None, fallback: Path) -> Path | No
     return None
 
 
-def _read_reference_text(path: Path) -> str:
-    raw = path.read_bytes()
+def _reference_text(raw: bytes) -> str:
     try:
         return raw.decode()
     except UnicodeDecodeError:
         return gzip.decompress(raw).decode()
+
+
+class ReferenceFileRefused(RuntimeError):
+    """A reference file the startup would load is not the shipped file, so it was not loaded.
+
+    The message names the file, both SHA-256 digests and the fix (TRACE-14)."""
+
+
+_SEGMENTAL_DUPLICATIONS_REMEDY = (
+    "Copy the repository's "
+    "data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed there "
+    "unchanged (on Cloud Run: gcloud storage cp "
+    "data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed "
+    "gs://<reference-data bucket>/clinical_cnv_syndromes_hg38_bundle/), or set "
+    "REFERENCE_SEGMENTAL_DUPLICATIONS_PATH to such a copy. Another file needs a reviewed change "
+    "that moves SEGMENTAL_DUPLICATIONS_PINNED_SHA256 with the shipped file "
+    "(COGA-PROVENANCE.md beside it)."
+)
+
+
+def read_shipped_segmental_duplications(path: Path) -> bytes:
+    """The segmental-duplication file's bytes, if it is the shipped file byte for byte (TRACE-14).
+
+    The shipped file is ClinGen's V2.1 recurrent-CNV file for GRCh38, pinned by its SHA-256
+    (``SEGMENTAL_DUPLICATIONS_PINNED_SHA256``). An identical copy passes wherever it lies; any
+    other file, and one that cannot be read, raises ``ReferenceFileRefused``. The bytes checked
+    are the bytes returned, so the track is loaded from exactly what was checked."""
+    shown = scrub_log(path)
+    try:
+        payload = path.read_bytes()
+    except OSError as exc:
+        raise ReferenceFileRefused(
+            f"The segmental-duplication file {shown} cannot be read ({type(exc).__name__}), so it "
+            "cannot be checked against the shipped file (SHA-256 "
+            f"{SEGMENTAL_DUPLICATIONS_PINNED_SHA256}). The segmental duplications were not "
+            f"loaded; the start goes on without them. {_SEGMENTAL_DUPLICATIONS_REMEDY}"
+        ) from exc
+    digest = hashlib.sha256(payload).hexdigest()
+    if digest != SEGMENTAL_DUPLICATIONS_PINNED_SHA256:
+        raise ReferenceFileRefused(
+            f"The segmental-duplication file {shown} is not the shipped file, ClinGen's V2.1 "
+            f"recurrent-CNV file for GRCh38: its SHA-256 is {digest}, the shipped file's is "
+            f"{SEGMENTAL_DUPLICATIONS_PINNED_SHA256}. The segmental duplications were not "
+            f"loaded; the start goes on without them. {_SEGMENTAL_DUPLICATIONS_REMEDY}"
+        )
+    return payload
 
 
 # Per-dataset row-count queries by assembly — single source of truth shared by
@@ -336,10 +383,12 @@ async def _assembly_dataset_count(
 
 
 # What `reference_dataset_imports.source_version` holds when the source states no release
-# of its own: a UCSC table dump, a GTF without a preamble, the clinical-CNV knowledgebase
-# (built from the current ClinGen, ClinVar and UCSC data on the day it is rebuilt), a file
-# uploaded or loaded by script. `source_release_date` is then NULL. The row still says
-# where the data came from (`source`, `source_url`) and when it was loaded (`performed_at`).
+# of its own: a UCSC table dump, a GTF without a preamble, a file uploaded or loaded by
+# script. `source_release_date` is then NULL. The row still says where the data came from
+# (`source`, `source_url`) and when it was loaded (`performed_at`). A clinical-CNV
+# knowledgebase rebuild, built from the ClinGen curation, ClinVar and UCSC data current on the
+# day, records the one pinned file it read instead: ClinGen's recurrent CNV file, by release
+# and SHA-256 (clinical_cnv_kb_jobs, TRACE-14).
 SOURCE_VERSION_NOT_STATED = "not stated"
 
 
@@ -534,6 +583,14 @@ async def list_recent_reference_imports(
 
 
 async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
+    """Load the clinical CNVs and the segmental duplications of the bootstrap assembly from
+    their files, each only while the assembly holds none.
+
+    The segmental-duplication file is loaded only if it is the shipped file, byte for byte
+    (``read_shipped_segmental_duplications``, TRACE-14). Another file is refused before
+    anything is written, with one logged error that names the file, both digests and the fix;
+    that import is skipped and the start goes on: the track is shown for orientation, no
+    classification reads it, and the rows an earlier start loaded are never replaced here."""
     if not settings.reference_bootstrap_enabled:
         return
 
@@ -579,7 +636,11 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
         if existing > 0:
             continue
         try:
-            text_value = _read_reference_text(path)
+            if dataset_type == "segmental_duplications":
+                raw = read_shipped_segmental_duplications(path)
+            else:
+                raw = path.read_bytes()
+            text_value = _reference_text(raw)
             result = await apply_reference_dataset_text(
                 session,
                 assembly_id=assembly_id,
@@ -598,6 +659,9 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
                 path,
                 result.inserted,
             )
+        except ReferenceFileRefused as exc:
+            # An expected refusal, logged once without a traceback: its message is the fix.
+            logger.error("%s", exc)
         except Exception:
             logger.exception(
                 "Failed to bootstrap %s for assembly %s from %s",

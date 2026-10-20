@@ -210,7 +210,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   and `HPO_ONTOLOGY_SHA256` are ignored if still set. An accepted file is written atomically
   ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
   The clinical-CNV knowledgebase script runs with an allowlisted environment: no database
-  passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential.
+  passwords, signing keys or cloud credentials; `OMIM_API_KEY` is its one credential. It reads
+  ClinGen's recurrent CNV file only if its SHA-256 is pinned for the assembly, and stops
+  otherwise (TRACE-14, [data-import.md](data-import.md)).
 - 🟡 **QC-report links** carry a 5-minute token, scoped to the family and sample, in the query
   string, because a browser navigation cannot send a bearer token. The report is served with
   `Referrer-Policy: no-referrer`, `Cache-Control: no-store` and a sandbox CSP; the token is

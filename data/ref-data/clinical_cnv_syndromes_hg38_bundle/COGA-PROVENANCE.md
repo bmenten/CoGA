@@ -22,6 +22,14 @@ catalogue's *Recent reference activity* list shows `ClinGen_recurrent_CNV_V2.1-h
 Nothing in CoGA shows the V2.0 track name. The clinical CNV knowledgebase build does not read
 this file: it downloads ClinGen's V2.1 files itself.
 
+Both read only this release (TRACE-14). The startup loads a segmental-duplication file only if
+its SHA-256 is this file's (`SEGMENTAL_DUPLICATIONS_PINNED_SHA256` in
+`backend/app/core/config.py`); another file, such as an edited copy in the reference-data
+bucket, is not loaded, and the log names it, both digests and the fix. The knowledgebase build
+reads ClinGen's GRCh38 download only if its SHA-256 is this file's too
+(`CLINGEN_RECURRENT_CNV_SHA256` in `scripts/clinical_cnv_knowledgebase.py`), and records it with
+the load.
+
 ## Updating (controlled change)
 
 Replacing the file is a TF-18 controlled change. Download ClinGen's file and keep it byte for
@@ -29,6 +37,11 @@ byte under ClinGen's file name, which carries the release (the default of
 `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` and `REPO_SEGMENTAL_DUPLICATIONS_PATH` in
 `reference_metadata_service.py` name it). Record the release, its SHA-256
 (`shasum -a 256`), the date and how it was checked, here and in
-[TF-08](../../../docs/regulatory/TF-08-soup-register.md).
+[TF-08](../../../docs/regulatory/TF-08-soup-register.md), and move both pins
+(`SEGMENTAL_DUPLICATIONS_PINNED_SHA256` and the GRCh38 entry of `CLINGEN_RECURRENT_CNV_SHA256`)
+to the new SHA-256.
 [`test_clingen_recurrent_cnv_bundle.py`](../../../backend/tests/test_clingen_recurrent_cnv_bundle.py)
-pins the SHA-256 and fails until the file, this note and TF-08 agree.
+and [`test_reference_file_pins.py`](../../../backend/tests/test_reference_file_pins.py) fail
+until the file, the pins, this note and TF-08 agree. A deployment needs the new file in its
+reference data (on Cloud Run the bucket) when the new version starts, or the track is not
+loaded on a database that has none.

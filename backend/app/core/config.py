@@ -61,8 +61,9 @@ _AZURE_API_SCOPE_PATTERN = re.compile(r"(?:api|https)://[^\s/]+(?:/[^\s/]+)*/[A-
 # The scope IT exposes on CoGA's app registration (docs/deployment-gcp.md), when
 # AZURE_API_SCOPE names none.
 AZURE_DEFAULT_SCOPE_NAME = "access_as_user"
-# The HPO release the startup download is pinned to (OPS-6): the release of the vendored
+# The HPO release the startup imports, pinned (OPS-6, TRACE-14): the release of the vendored
 # data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. The startup
+# imports an ontology file it finds only if its SHA-256 is this one, and refuses any other. It
 # downloads only when it finds no ontology file. It then fetches this release from its own
 # PURL, which never floats, and uses the file only if its SHA-256 is this one. These two values
 # are the pin, and the URL is built from the release. No setting overrides them: the release
@@ -86,6 +87,18 @@ STRCHIVE_PINNED_LOCI_SHA256 = "a0295e1fe3e25a9f375db25fa27c403c217c74047ec3fa4b4
 # STRchive published with release v2.18.0 (2026-04-28), found on 2026-10-20 by comparing the
 # SHA-256 with the loci file of every published STRchive release. It moves with the pin.
 STRCHIVE_PINNED_RELEASE = "v2.18.0"
+# The segmental-duplication file the startup loads (TRACE-14): the shipped
+# data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed, ClinGen's
+# V2.1 recurrent-CNV file for GRCh38, checked byte-identical with ClinGen's download on 2026-10-14
+# (TRACE-3, TF-08). While the assembly holds no segmental duplications, the startup reads the
+# file REFERENCE_SEGMENTAL_DUPLICATIONS_PATH names (on Cloud Run the reference-data bucket's
+# copy), else the repository's, and loads it only if its SHA-256 is this one: another file is
+# refused with a logged error, and the start goes on without it. No setting overrides the pin;
+# it moves only with the file, in a reviewed change (COGA-PROVENANCE.md beside the file), and
+# test_reference_file_pins.py fails until the file, the pin and TF-08 agree. The clinical CNV
+# knowledgebase build pins the same file for GRCh38 (CLINGEN_RECURRENT_CNV_SHA256 in
+# scripts/clinical_cnv_knowledgebase.py).
+SEGMENTAL_DUPLICATIONS_PINNED_SHA256 = "e6a7428f58b055e51a956941da85cdc984d9519ea7839c365c9b557ccc76a763"
 
 
 def _read_version_file() -> str:
@@ -461,6 +474,8 @@ class Settings(BaseSettings):
         alias="GENE_REFERENCE_BOOTSTRAP_ON_STARTUP",
     )
     hpo_bootstrap_on_startup: bool = Field(default=True, alias="HPO_BOOTSTRAP_ON_STARTUP")
+    # The ontology file the startup imports first. Whichever file it imports must be the
+    # pinned release, byte for byte (HPO_PINNED_ONTOLOGY_SHA256 above), or nothing is imported.
     hpo_ontology_path: str | None = Field(
         default="/data/ref-data/hpo/hp.obo",
         alias="HPO_ONTOLOGY_PATH",
@@ -536,6 +551,9 @@ class Settings(BaseSettings):
         default="/data/ref-data/clinical_cnv_syndromes_hg38_combined.tsv",
         alias="REFERENCE_CLINICAL_CNVS_PATH",
     )
+    # The segmental-duplication file the startup reads first; the repository's copy when this
+    # one does not exist. Whichever is read must be the shipped file, byte for byte
+    # (SEGMENTAL_DUPLICATIONS_PINNED_SHA256 above), or it is not loaded (TRACE-14).
     reference_segmental_duplications_path: str | None = Field(
         default="/data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed",
         alias="REFERENCE_SEGMENTAL_DUPLICATIONS_PATH",

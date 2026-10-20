@@ -50,7 +50,9 @@ for the assembly is missing. Load it before you load a family.
   the assembly is created empty, to be filled later.
 - **Clinical CNVs and segmental duplications** are loaded at start-up only when their source files are
   present on the server. Otherwise an administrator loads them. An empty *Clinical CNV explorer* means
-  they are not loaded for that assembly.
+  they are not loaded for that assembly. The segmental-duplication file, and the HPO ontology, must be
+  the files CoGA ships, recognized by their SHA-256: another file is not loaded, and the server log says
+  which file and how to fix it.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
   downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
   segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
@@ -62,7 +64,10 @@ pathogenic ClinVar copy-number variants (losses and gains) that overlap it by at
 the **ClinVar P/LP** column of the Clinical CNV explorer. A knowledgebase built without ClinVar shows
 "—" there, which means *not recorded*, not zero. A rebuild whose ClinGen dosage curation or recurrent
 CNV regions cannot be loaded fails: the Reference catalogue says why, and the clinical CNVs stay as
-they were.
+they were. The recurrent CNV regions come from ClinGen's recurrent CNV file of release V2.1, recognized
+by its SHA-256: another file fails the rebuild the same way, as does a GRCh37 rebuild, for which no
+file has been checked yet. A rebuild records that file's release and SHA-256 as the knowledgebase's
+release, which a signed analysis freezes.
 
 **Gene reference refresh.** From the Reference catalogue an administrator can refresh the cached gene
 information for all human genes. The refresh reads a local dbNSFP gene file, the ACMG secondary-findings
