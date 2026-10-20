@@ -2016,21 +2016,17 @@ async def test_small_variant_track_mode_samples_across_filtered_region(
     assert [str(variant.id) for variant in page.variants] == ["v0", "v2", "v4", "v6", "v9"]
 
 
-def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
-    """A large gene panel (e.g. the Mendeliome) must not inline thousands of region
-    triples into the query — gene-symbol + gene-index matching covers it."""
-    from backend.app.services.clickhouse_variant_queries import (
-        _PANEL_REGION_INLINE_LIMIT,
-        _small_panel_filter_condition,
-    )
+def test_small_panel_filter_keeps_the_regions_of_large_gene_panels():
+    """A large gene panel (e.g. the Mendeliome) keeps a variant in one of its regions as
+    well as one annotated with one of its genes (owner decision 2026-10-14): it was matched
+    on gene symbols alone above 1,000 regions. Its regions go in as one array per bound,
+    bound once, not one parameter or condition per region."""
+    from backend.app.services.clickhouse_variant_queries import _small_panel_filter_condition
     from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, Region
 
     context = _family_context()
     filters = SmallVariantQueryFilters(page=1, page_size=100)
-    regions = tuple(
-        Region(chr="chr1", start=i * 100, end=i * 100 + 50)
-        for i in range(_PANEL_REGION_INLINE_LIMIT + 5)
-    )
+    regions = tuple(Region(chr="chr1", start=i * 100, end=i * 100 + 50) for i in range(1_005))
     params: dict = {}
     condition = _small_panel_filter_condition(
         context,
@@ -2039,8 +2035,9 @@ def test_small_panel_filter_skips_region_inlining_for_large_gene_panels():
         params=params,
     )
     assert condition is not None
-    # No region arrays were inlined (the expensive, query-bloating part).
-    assert not any(key.startswith("panel_region") for key in params)
+    assert condition.count("%(panel_region_chromosomes)s") == 1
+    assert len(params["panel_region_chromosomes"]) == 1_005
+    assert not any(key.startswith("panel_region_chromosomes_") for key in params)
     # Gene matching is still present.
     assert any(key.startswith("panel_gene") for key in params)
 

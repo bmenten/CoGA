@@ -325,26 +325,6 @@ async def test_samples_scope_refuses_a_file_that_names_no_sample(storage) -> Non
 
 
 @pytest.mark.asyncio
-async def test_removing_a_samples_calls_keeps_every_other_call(storage) -> None:
-    removed = await variant_upload_service.remove_family_small_variant_sample_calls(
-        _FakeSession(), _context(), [_sample_contexts()["PROBAND"]], source="mito"  # type: ignore[arg-type]
-    )
-    assert removed == 1
-    [(source, rows)] = storage["rewrites"]
-    assert source == "mito"
-    assert [_calls(row) for row in rows] == [{"MOTHER": ("1/1", 1.0)}, {"MOTHER": ("1/1", 1.0)}]
-
-    storage["rewrites"].clear()
-    storage["stored"] = [_entry("p1", 16519, {"MOTHER": ("1/1", 1.0)})]
-    removed = await variant_upload_service.remove_family_small_variant_sample_calls(
-        _FakeSession(), _context(), [_sample_contexts()["PROBAND"]], source="mito"  # type: ignore[arg-type]
-    )
-    # Nothing of the sample's is stored: no write, so the family's data version stays.
-    assert removed == 0
-    assert storage["rewrites"] == []
-
-
-@pytest.mark.asyncio
 async def test_source_scoped_rewrite_reads_and_writes_only_that_callset(monkeypatch: pytest.MonkeyPatch) -> None:
     queries: list[tuple[str, Any]] = []
 
@@ -523,16 +503,63 @@ async def test_the_mito_import_records_the_samples_haplogroup_and_removes_its_lo
     assert list(scratch.iterdir()) == []
 
 
+_HEADER = "\n".join(_PROBAND_VCF.splitlines()[:2]) + "\n"
+
+
 @pytest.mark.asyncio
-async def test_a_sample_with_no_chrm_call_leaves_no_lookup(storage, scratch: Path, recorded_mtdna, tmp_path: Path) -> None:
-    no_calls = "\n".join(_PROBAND_VCF.splitlines()[:2]) + "\n"
+@pytest.mark.parametrize(
+    "vcf",
+    [
+        # A header alone ...
+        _HEADER,
+        # ... or records none of which the loader can store: a POS that is no position, a
+        # line cut short, a line without the sample's column.
+        _HEADER
+        + "chrM\t-3\t.\tA\tG\t50\tPASS\t.\tGT\t1/1\n"
+        + "chrM\t73\t.\tA\n"
+        + "chrM\t150\t.\tC\tT\t50\tPASS\t.\tGT\n",
+    ],
+    ids=["header-alone", "no-readable-record"],
+)
+async def test_a_chrm_vcf_without_a_record_fails_the_dataset_with_the_calls_as_they_were(
+    storage, scratch: Path, recorded_mtdna, tmp_path: Path, vcf: str
+) -> None:
+    # The owner's decision (SAFE-29): a mitochondrial SNV file without a variant record is a
+    # failed analysis. Before, it was read as "no chrM variants called": the proband's stored
+    # call was removed and the dataset ended imported.
+    with pytest.raises(RuntimeError, match=r"the chrM VCF of PROBAND \(PROBAND\.vcf\) holds no variant record"):
+        await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", vcf))
 
-    summary = await family_package_datasets._import_mito_dataset(_mito_job(tmp_path / "package", no_calls))
-
-    assert summary.summary["PROBAND"]["message"] == "No chrM variants called"
-    assert summary.summary["PROBAND"]["removed"] == 1
+    assert storage["rewrites"] == [] and storage["deletes"] == []
     assert recorded_mtdna == {}
     assert list(scratch.iterdir()) == []
+
+
+@pytest.mark.asyncio
+async def test_a_chrm_vcf_without_a_record_fails_the_dataset_before_any_samples_calls_are_replaced(
+    storage, scratch: Path, recorded_mtdna, tmp_path: Path
+) -> None:
+    # The mother's file holds her calls, the proband's none: every file is read up to its
+    # first record before any sample's calls are replaced, so the mother's stay as stored too.
+    root = tmp_path / "package"
+    root.mkdir()
+    (root / "MOTHER.vcf").write_text(_PROBAND_VCF.replace("FORMAT\tPROBAND", "FORMAT\tMOTHER"), encoding="utf-8")
+    (root / "PROBAND.vcf").write_text(_HEADER, encoding="utf-8")
+    job = DatasetImportJob(
+        session=_FakeSession(),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=root),  # type: ignore[arg-type]
+        dataset=ManifestDataset(per_sample={"MOTHER": {"vcf": "MOTHER.vcf"}, "PROBAND": {"vcf": "PROBAND.vcf"}}),
+        summary=FamilyImportDatasetSummary(dataset_type="mito", status="valid"),
+        family_context=_context(),
+        sample_contexts=_sample_contexts(),
+    )
+
+    with pytest.raises(RuntimeError, match="No mitochondrial call was replaced"):
+        await family_package_datasets._import_mito_dataset(job)
+
+    # Before: the mother's file replaced her calls, and the proband's removed his.
+    assert storage["rewrites"] == [] and storage["shared_writes"] == []
+    assert recorded_mtdna == {}
 
 
 @pytest.mark.asyncio

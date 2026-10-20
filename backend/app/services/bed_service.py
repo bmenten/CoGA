@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..schemas import HaplotypeResponse
 from .upload_safety import decode_upload_text
 from .clickhouse_column_bounds import UINT64, column_int
+from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
 from .clickhouse_interval_tracks import (
     count_interval_track_rows,
     delete_interval_track_sources,
@@ -74,15 +75,18 @@ async def _decode_bed_upload(file: UploadFile) -> str:
     return await decode_upload_text(file, kind="BED")
 
 
-def _upload_metadata(track_type: str, file: UploadFile, *, source: str) -> str:
-    return json.dumps(
-        {
-            "track_type": track_type,
-            "source": source,
-            "filename": file.filename,
-            "uploaded_at": datetime.now(timezone.utc).isoformat(),
-        }
-    )
+def _upload_metadata(
+    track_type: str, file: UploadFile, *, source: str, content: str | None = None
+) -> str:
+    metadata: dict[str, Any] = {
+        "track_type": track_type,
+        "source": source,
+        "filename": file.filename,
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if content is not None:
+        metadata[COVERAGE_CONTENT_KEY] = content
+    return json.dumps(metadata)
 
 
 def _storable_coordinates(start: int, end: int) -> bool:
@@ -215,6 +219,7 @@ async def upload_bed_data(
     overwrite: bool,
     record_upload: bool = False,
     source: str = BED_UPLOAD_SOURCE,
+    content: str | None = None,
 ) -> dict[str, int]:
     """Store one sample's ``bed_type`` track from a BED file under ``source``, replacing
     (with ``overwrite``) the track of that type the sample has from that source. The tracks
@@ -232,6 +237,15 @@ async def upload_bed_data(
     which reads a file its own reader finds no record in as a BED, into its own track
     (``APCAD_SOURCE``).
 
+    ``content`` is what a coverage BED declares it holds (TRACE-9): ``read_depth`` or
+    ``log2_ratio``, which the single-file upload requires (``routers/bed.py``) and a package's
+    coverage entry gives as its ``content`` key. Its track's record keeps it, as ``unknown``
+    when the BED declares neither (``declared_coverage_content``): such a track is drawn
+    without a depth or log2-ratio axis and never read as depth (``coverage_read_depth``). It
+    used to record nothing, and was read as depth while the views drew it as a log2 ratio.
+    What the upload brought is recorded with it (``interval_track_upload_scope``). The other
+    track types declare nothing.
+
     ``record_upload`` is for the single-file upload, which holds the family's variant-write
     locks in this transaction before it calls this (``routers/bed.py``), as a package import
     holds them for the datasets that call it: what the upload brought is recorded for the
@@ -245,6 +259,7 @@ async def upload_bed_data(
     which gates its sign-out until the track has been uploaded again with ``overwrite``. The
     upload's commit removes the mark, and so does a failure before that write."""
     validate_bed_type(bed_type)
+    declared = declared_coverage_content(content) if bed_type == "coverage" else None
     if not sample_context.assembly_name:
         raise HTTPException(
             status_code=400,
@@ -262,12 +277,14 @@ async def upload_bed_data(
             detail="BED data already exists for this sample",
         )
     text_value = await _decode_bed_upload(file)
-    metadata_json = _upload_metadata(bed_type, file, source=source)
+    metadata_json = _upload_metadata(bed_type, file, source=source, content=declared)
     rows = _bed_rows(sample_context, bed_type, text_value, source=source, metadata_json=metadata_json)
     if not rows:
         raise HTTPException(status_code=400, detail="No valid BED records found")
     if record_upload:
-        dataset, scope = interval_track_upload_scope(bed_type, sample_context.sample_id)
+        dataset, scope = interval_track_upload_scope(
+            bed_type, sample_context.sample_id, content=declared
+        )
         # Before the first ClickHouse write, committed whatever becomes of this transaction
         # (SAFE-28); before the record below too, which locks the family row this write
         # needs. An upload that cannot mark the family writes nothing.

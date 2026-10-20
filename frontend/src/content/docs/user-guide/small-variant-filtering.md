@@ -97,9 +97,9 @@ each import of the HPO ontology, gene constraint, and the gene positions a panel
 uses).
 Narrowing from the Mendeliome to a smaller panel is served from the broader ranking, ranked from 1
 within the smaller panel, as long as the Mendeliome's genes and regions are the same as when that
-ranking was computed. A smaller panel that reaches a variant the broader ranking lacks (one it
-matches by position only), or that keeps one variant of a compound-het pair without the other, is
-computed for itself instead.
+ranking was computed. A smaller panel that reaches a variant the broader ranking lacks (through a
+region of its own, such as the position PanelApp gives for a gene), or that keeps one variant of a
+compound-het pair without the other, is computed for itself instead.
 
 **Download CSV** exports the list, with *Priority* and *Rank* columns when the ranking is on.
 

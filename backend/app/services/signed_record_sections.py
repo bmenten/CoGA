@@ -19,7 +19,10 @@ of its own:
 * ``repeat_expansions`` — each TRGT call of the family's samples, with its status as CoGA
   classifies it at sign-out and the thresholds and catalogue behind it;
 * ``paraphase`` — each Paraphase result of the family's samples, with its status as CoGA
-  classifies it at sign-out and the catalogue rule behind it.
+  classifies it at sign-out and the catalogue rule behind it;
+* ``pgt_analysis`` — in a PGT family (one with an embryo) only: the PGT analysis at the ROI,
+  each embryo's call with what it rests on, as the family page shows it (``pgt_analysis``,
+  REQ-PGT-005). A family without an embryo has no such key, so its record is as before.
 
 Every section is built inside a savepoint. A section that cannot be read is frozen as
 ``{"unavailable": <a fixed sentence>}``, never as an empty one that would read as "nothing
@@ -27,13 +30,15 @@ there" (#514), and ``report_signout_service.snapshot_gaps`` names it. A record s
 CoGA recorded a section does not hold it: the sign-out check lists it as not compared, and
 the signed view says the record does not hold it.
 
-Adding a section (the NIPT and PGT results follow this pattern):
+Adding a section (the NIPT results follow this pattern):
 
 1. write its builder here: ``async (session, inputs) -> dict``, JSON-safe and deterministic
    (lists sorted, no clock, no random order), reading what the analysis showed the analyst;
 2. add it to ``RECORD_SECTIONS`` and to ``build_record_sections``. It is then hashed with
    the record, compared by the sign-out check (``REPORT_CONTENT_SECTIONS`` includes every
-   key here) and named in ``not_captured`` when it could not be read;
+   key here) and named in ``not_captured`` when it could not be read. A section of one
+   application (``pgt_analysis``) is added only for a family of it: the check compares it
+   only where the record or the family's current data has it;
 3. read it in ``frontend/src/pages/families/signedReportRecord.ts`` (``parseRecordSection``
    gives the absent / unavailable / recorded states) and render it in
    ``SignedFamilyReport.tsx`` (``RecordSectionBlock``), with its label in
@@ -63,6 +68,7 @@ from .clickhouse_family_variants import (
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
 from .panel_use_audit import applied_gene_panels
+from .pgt_analysis import family_pgt_analysis, is_pgt_family
 from .paraphase_pg import (
     _paraphase_region_for_gene,
     get_family_paraphase_table_response,
@@ -84,6 +90,8 @@ class RecordSection:
     key: str
     label: str
     unavailable: str
+    # The application whose families alone hold the section ("pgt"); None: every family.
+    application: str | None = None
 
 
 VARIANT_DESCRIPTIONS = RecordSection(
@@ -107,6 +115,13 @@ REPEAT_EXPANSIONS = RecordSection(
 PARAPHASE = RecordSection(
     "paraphase", "Paraphase results", "The Paraphase results could not be read."
 )
+# In a PGT family only (``is_pgt_family``).
+PGT_ANALYSIS = RecordSection(
+    "pgt_analysis",
+    "PGT embryo results",
+    "The PGT analysis's embryo results could not be read.",
+    application="pgt",
+)
 
 RECORD_SECTIONS: tuple[RecordSection, ...] = (
     VARIANT_DESCRIPTIONS,
@@ -114,6 +129,7 @@ RECORD_SECTIONS: tuple[RecordSection, ...] = (
     REFERENCE_DATA,
     REPEAT_EXPANSIONS,
     PARAPHASE,
+    PGT_ANALYSIS,
 )
 
 # The parts of ``reference_data``, each frozen as unavailable on its own.
@@ -603,7 +619,7 @@ async def build_record_sections(
             structural_ids=[str(entry.get("variant_id") or "") for entry in reported_structural],
         ),
     )
-    return {
+    sections = {
         VARIANT_DESCRIPTIONS.key: descriptions,
         GENE_PANELS.key: await _guarded(
             session,
@@ -620,10 +636,20 @@ async def build_record_sections(
             session, PARAPHASE.unavailable, lambda: paraphase_results(session, context)
         ),
     }
+    if is_pgt_family(context):
+        sections[PGT_ANALYSIS.key] = await _guarded(
+            session, PGT_ANALYSIS.unavailable, lambda: pgt_embryo_results(session, context)
+        )
+    return sections
 
 
 async def _gene_panels(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
     return {"applied": await applied_gene_panels(session, context.family_uuid)}
+
+
+async def pgt_embryo_results(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:
+    """The PGT analysis as the family page shows it: the same object, from the same code."""
+    return (await family_pgt_analysis(session, context)).model_dump(mode="json")
 
 
 def record_section_gaps(snapshot: Mapping[str, Any]) -> list[dict[str, str]]:

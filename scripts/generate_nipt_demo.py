@@ -192,6 +192,8 @@ def render_manifest() -> str:
         "    per_sample:\n"
         f"      {CFDNA_SAMPLE}:\n"
         "        bed: nipt_coverage.bed\n"
+        # What the coverage BED holds (TRACE-9): its values are read depths.
+        "        content: read_depth\n"
         "metadata:\n"
         "  description: Synthetic monogenic NIPT demo (fetal fraction 12%)\n"
     )

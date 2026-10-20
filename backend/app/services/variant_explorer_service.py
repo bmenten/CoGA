@@ -751,10 +751,11 @@ def _panel_condition(
 ) -> str | None:
     """The family page's panel condition (``_small_panel_filter_condition``) on the
     explorer's entry rows (alias ``e``): a variant in one of the panel's regions, or
-    annotated with one of its genes in the row's own gene symbols or in the gene index. A
-    panel of genes with more than ``_PANEL_REGION_INLINE_LIMIT`` regions, such as the
-    Mendeliome, is matched on gene symbols alone, as on the family page. Only the regions
-    are tested another way, with the same answer (:func:`_region_key_condition`)."""
+    annotated with one of its genes in the row's own gene symbols or in the gene index.
+    Every panel is matched both ways, whatever its size, as on the family page: a panel of
+    more than 1,000 regions, such as the Mendeliome, was matched on gene symbols alone
+    (owner decision 2026-10-14). Only the regions are tested another way, with the same
+    answer (:func:`_region_key_condition`)."""
 
     def region_condition(
         regions: Sequence[Region], *, prefix: str, params: dict[str, Any]

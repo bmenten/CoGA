@@ -42,8 +42,17 @@ CREATE TABLE IF NOT EXISTS users (
     affiliation TEXT NOT NULL DEFAULT '',
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now())
+    created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
+    -- The Microsoft Entra ID (Azure AD) object id (`oid`) of an account made at its first
+    -- Microsoft sign-in (SEC-4): such an account is found by it, never by its e-mail address,
+    -- and has no password (hashed_password holds a marker no password matches). NULL for a
+    -- local account: the emergency administrator, and every account without Azure AD.
+    azure_object_id UUID UNIQUE
 );
+
+-- A database made before Microsoft sign-in gains the column here; a no-op on a database the
+-- CREATE TABLE above made (the same column, with the same users_azure_object_id_key).
+ALTER TABLE users ADD COLUMN IF NOT EXISTS azure_object_id UUID UNIQUE;
 
 CREATE TABLE IF NOT EXISTS projects (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

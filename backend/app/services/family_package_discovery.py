@@ -721,6 +721,8 @@ _NON_PATH_MANIFEST_KEYS = frozenset(
         "vcf_sample",
         "exclude_filters",
         "track_type",
+        # What a coverage BED holds, read_depth or log2_ratio (TRACE-9).
+        "content",
     }
 )
 

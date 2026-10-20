@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import type { ComponentProps } from 'react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi, type Mock } from 'vitest';
@@ -83,9 +83,10 @@ vi.mock('../ViewerMemberSection', () => ({
 }));
 
 vi.mock('../ViewerTrackBlock', () => ({
-  default: ({ children, label }: { children: React.ReactNode; label: string }) => (
-    <section>
+  default: ({ children, label, meta }: { children: React.ReactNode; label: string; meta?: React.ReactNode }) => (
+    <section aria-label={label}>
       <h2>{label}</h2>
+      {meta}
       {children}
     </section>
   ),
@@ -258,6 +259,7 @@ describe('ChromosomeViewWorkspace', () => {
                 coverage: true,
                 coverageSources: ['hificnv'],
                 coverageNormalizations: { hificnv: ['log2_ratio_to_autosomal_median'] },
+                coverageContents: { hificnv: 'log2_ratio' },
                 apcadSources: [],
                 apcad: false,
                 apcadPcf: false,
@@ -299,10 +301,11 @@ describe('ChromosomeViewWorkspace', () => {
     expect(props.segmentsUrls?.[0]).toContain('end=2000000');
   });
 
-  // TRACE-7 — a HiFiCNV depth file without a usable autosomal median is stored as read, and
-  // its record says so. Drawn on the chart's log2-ratio axis, the raw depths sat above its
-  // top and read as a gain along the chromosome.
-  it('leaves a coverage track whose values are not a log2 ratio off the axis, and says why', () => {
+  // TRACE-7, TRACE-9 — each coverage track is drawn on the axis of what it holds: HiFiCNV's
+  // depths stored as read, which were left off the chart, on a depth axis; a coverage BED that
+  // does not declare what it holds on its own range, without an axis, and never with the
+  // segments, which are log2 ratios.
+  it('draws each coverage track on the axis of what it holds, and says why where that is not a log2 ratio', () => {
     const member = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
     coverageSegmentsChartMock.mockClear();
 
@@ -313,8 +316,9 @@ describe('ChromosomeViewWorkspace', () => {
       availability: {
         S1: {
           coverage: true,
-          coverageSources: ['wisecondorx', 'hificnv'],
+          coverageSources: ['web', 'wisecondorx', 'hificnv'],
           coverageNormalizations: { hificnv: ['none'] },
+          coverageContents: { hificnv: 'read_depth', web: 'unknown', wisecondorx: 'log2_ratio' },
           apcadSources: [],
           apcad: false,
           apcadPcf: false,
@@ -335,22 +339,37 @@ describe('ChromosomeViewWorkspace', () => {
       },
     });
 
-    // Both callers keep their row, in display order ...
+    // Every caller keeps its row, in display order, and is drawn ...
     const labels = screen
       .getAllByRole('heading')
       .map((node) => node.textContent)
       .filter((text) => text?.startsWith('Coverage'));
-    expect(labels).toEqual(['Coverage · HiFiCNV', 'Coverage · WisecondorX']);
-    // ... only WisecondorX's log2 ratios are drawn: HiFiCNV's raw depths are not fetched ...
-    expect(screen.getAllByTestId('coverage-chart')).toHaveLength(1);
-    const drawnUrls = coverageSegmentsChartMock.mock.calls.map(
-      ([props]) => (props as { coverageUrls: string[] }).coverageUrls[0],
+    expect(labels).toEqual(['Coverage · HiFiCNV', 'Coverage · WisecondorX', 'Coverage · web']);
+    expect(screen.getAllByTestId('coverage-chart')).toHaveLength(3);
+    // ... each on the axis of what it holds, the segments beside the log2 ratio only.
+    const drawn = Object.fromEntries(
+      coverageSegmentsChartMock.mock.calls.map(([props]) => {
+        const { coverageUrls, scale, segmentsUrls } = props as {
+          coverageUrls: string[];
+          scale?: string;
+          segmentsUrls?: string[];
+        };
+        const source = new URL(coverageUrls[0], 'http://test').searchParams.get('source');
+        return [source, { scale, segments: segmentsUrls !== undefined }];
+      }),
     );
-    expect(drawnUrls.length).toBeGreaterThan(0);
-    expect(drawnUrls.every((url) => url.includes('source=wisecondorx'))).toBe(true);
-    // ... and the HiFiCNV track's place says why.
-    expect(screen.getByRole('note')).toHaveTextContent(
-      'Not drawn: no usable autosomal median, so these depths are stored as read, not as a log2 ratio. IGV shows the depth file.',
+    expect(drawn).toEqual({
+      hificnv: { scale: 'read_depth', segments: false },
+      wisecondorx: { scale: 'log2_ratio', segments: true },
+      web: { scale: 'unknown', segments: false },
+    });
+    // Each head says why, where the track is not on the log2-ratio axis.
+    expect(within(screen.getByRole('region', { name: 'Coverage · WisecondorX' })).queryByRole('note')).toBeNull();
+    expect(within(screen.getByRole('region', { name: 'Coverage · HiFiCNV' })).getByRole('note')).toHaveTextContent(
+      'Read depth, stored as read: the sample had no usable autosomal median to normalise it by.',
+    );
+    expect(within(screen.getByRole('region', { name: 'Coverage · web' })).getByRole('note')).toHaveTextContent(
+      'This coverage BED does not declare whether it holds read depth or a log2 ratio',
     );
   });
 

@@ -103,6 +103,10 @@ describe('FamilyNiptPage', () => {
                 reason: 'low_depth',
               },
             ],
+            // A track of the plasma's the check did not read as depth, and why (TRACE-9).
+            coverage_notes: [
+              'CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.',
+            ],
           },
         });
       }
@@ -190,6 +194,10 @@ describe('FamilyNiptPage', () => {
     expect(screen.getByRole('link', { name: 'Coverage details' })).toHaveAttribute(
       'href',
       '/families/NIPT001/nipt/coverage',
+    );
+    // Each of the plasma's coverage tracks the check did not read as depth is named, with why.
+    expect(screen.getByRole('note', { name: 'Coverage tracks not read as depth' })).toHaveTextContent(
+      'CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.',
     );
 
     // The variant renders through the reused small-variant card (≤100 results →

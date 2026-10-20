@@ -9,7 +9,7 @@ import SignupPage from '../SignupPage';
 import api from '../../../lib/api';
 
 vi.mock('../../../lib/api', () => ({
-  default: { post: vi.fn(), defaults: { baseURL: '/api' } },
+  default: { post: vi.fn(), get: vi.fn(), defaults: { baseURL: '/api' } },
 }));
 
 const mockedPost = vi.mocked(api.post);
@@ -296,5 +296,27 @@ describe('SignupPage', () => {
     expect(errorSpy).toHaveBeenCalledWith('Sign up failed:', RATE_LIMITED_DETAIL);
     const logged = errorSpy.mock.calls.flat().map(stringify);
     expect(logged.filter((line) => line.includes(PASSWORD))).toEqual([]);
+  });
+
+  // SEC-4: with Microsoft sign-in the first sign-in makes the account, and there is no sign-up.
+  it('says there is no sign-up, and shows no form, with Microsoft sign-in', async () => {
+    vi.mocked(api.get).mockResolvedValue({
+      data: {
+        microsoft: {
+          client_id: 'coga-application',
+          authority: 'https://login.microsoftonline.com/coga-directory',
+          api_scope: 'api://coga-application/access_as_user',
+        },
+      },
+    });
+    renderPage();
+
+    expect(
+      await screen.findByText(/There is no sign-up: your first sign-in with the Microsoft account of your hospital or university makes your CoGA account\./),
+    ).toBeInTheDocument();
+    expect(vi.mocked(api.get)).toHaveBeenCalledWith('/auth/config');
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign Up' })).not.toBeInTheDocument();
+    expect(mockedPost).not.toHaveBeenCalled();
   });
 });
