@@ -16,6 +16,7 @@ import {
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
   post: vi.fn(),
+  put: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -697,6 +698,210 @@ describe('FamilyNiptPage', () => {
       const sign = await screen.findByRole('button', { name: 'Sign out NIPT analysis' });
       await waitFor(() => expect(sign).toBeDisabled());
       expect(sign).toHaveAttribute('title', 'Not validated for clinical use — this analysis cannot be signed out');
+    });
+  });
+
+  // UI-4: a NIPT sign-out freezes the variants tagged report, and the NIPT page could not list
+  // them. It takes the small-variant list's review-tag filter, and "Show reported" lists what a
+  // sign-out freezes.
+  describe('the review-tag filter and the reported variants', () => {
+    const TAGS = [
+      { key: 'excluded', label: 'Excluded', group: 'collaboration', color: '#6b7280', sort_order: 20, scope: 'system', is_custom: false },
+      { key: 'report', label: 'Report', group: 'collaboration', color: '#16a34a', sort_order: 30, scope: 'system', is_custom: false },
+    ];
+    const REPORTED = {
+      _id: '1-1001-A-G',
+      chr: '1',
+      start: 1001,
+      end: 1001,
+      type: 'SNV',
+      ref: 'A',
+      alt: 'G',
+      gene: 'GENEDN',
+      genotypes: [],
+      review: { variant_id: '1-1001-A-G', classification: null, tags: ['report'], note: null, updated_at: '2026-10-20T09:00:00Z' },
+      nipt: {
+        category: 1,
+        category_label: 'de novo in fetus',
+        maternal_state: 'hom_ref',
+        fetal_inheritance: 'de_novo',
+        expected_vaf: 0.06,
+        observed_vaf: 0.06,
+        confidence: 0.98,
+        flags: [],
+      },
+    };
+    const ARTIFACT = { variant_id: '1-9501-A-G', reason: 'artifact_list' };
+
+    const serve = ({ reported = 2 }: { reported?: number } = {}) => {
+      apiMock.get.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+        if (url === '/families/NIPT001') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              members: [
+                { sample_id: 'CFDNA', role: 'mother', active: true },
+                { sample_id: 'FATHER', role: 'father', active: true },
+              ],
+              metadata: { analysis_type: 'monogenic_nipt' },
+            },
+          });
+        }
+        if (url === '/families/NIPT001/nipt/summary') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              fetal_fraction: FETAL_FRACTION,
+              category_counts: { '1': 1 },
+              filter_counts: { total_in: 10, failed_quality: 0, failed_artifact: 1, passed: 9 },
+            },
+          });
+        }
+        if (url === '/families/NIPT001/small-variant-tags') return Promise.resolve({ data: TAGS });
+        if (url === '/families/NIPT001/small-variant-review-summary') {
+          return Promise.resolve({
+            data: { reviewed_variant_count: 3, note_count: 0, tag_counts: { report: reported, excluded: 1 } },
+          });
+        }
+        if (url === '/families/NIPT001/nipt/variants') {
+          const tags = (config?.params?.review_tag as string[] | undefined) ?? [];
+          const reportedView = tags.includes('report');
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              total: reportedView ? 1 : 0,
+              fetal_fraction: FETAL_FRACTION,
+              variants: reportedView ? [REPORTED] : [],
+              not_classified: reportedView ? [ARTIFACT] : [],
+            },
+          });
+        }
+        return Promise.resolve({ data: [] });
+      });
+    };
+
+    const renderAt = (path: string) =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/families/:familyId/nipt" element={<FamilyNiptPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    const variantSearches = () =>
+      apiMock.get.mock.calls
+        .filter(([url]) => url === '/families/NIPT001/nipt/variants')
+        .map(([, config]) => (config?.params ?? {}) as Record<string, unknown>);
+
+    const reviewSection = async () =>
+      (await screen.findByText('Review and curation')).closest('details') as HTMLElement;
+
+    it('sends the review tags and the excluded tags, by the small-variant list’s names', async () => {
+      serve();
+      renderAt('/families/NIPT001/nipt?review_tag=report&exclude_review_tag=excluded');
+
+      await waitFor(() => expect(variantSearches().length).toBeGreaterThan(0));
+      const [params] = variantSearches();
+      expect(params.review_tag).toEqual(['report']);
+      expect(params.exclude_review_tag).toEqual(['excluded']);
+      // Chipped as the small-variant page chips them, and now applied.
+      expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Exclude review tags: Excluded' })).toBeInTheDocument();
+    });
+
+    it('offers the review tags, but no classification or saved-notes filter the list does not apply', async () => {
+      serve();
+      renderAt('/families/NIPT001/nipt');
+
+      const section = await reviewSection();
+      expect(within(section).getByRole('checkbox', { name: 'Report' })).toBeInTheDocument();
+      expect(within(section).queryByText('Classification')).not.toBeInTheDocument();
+      expect(within(section).queryByRole('checkbox', { name: 'Pathogenic - class 5' })).not.toBeInTheDocument();
+      expect(within(section).queryByRole('option', { name: 'P/LP/VUS' })).not.toBeInTheDocument();
+      expect(within(section).queryByText('Only show variants with saved notes')).not.toBeInTheDocument();
+
+      // Within the view it opened on: the reported de novo candidates.
+      fireEvent.click(within(section).getByRole('checkbox', { name: 'Report' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+      await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
+      expect(variantSearches().at(-1)?.inheritance).toBe('de_novo');
+    });
+
+    it('lists what a sign-out freezes with Show reported, and names what the analysis does not classify', async () => {
+      serve();
+      renderAt('/families/NIPT001/nipt');
+
+      const signOut = await screen.findByRole('region', { name: 'Sign-out' });
+      const show = await within(signOut).findByRole('button', { name: 'Show reported (2)' });
+      expect(signOut).toHaveTextContent(
+        'Show reported (2) lists the variants tagged report, with every other filter cleared: those a sign-out would freeze.',
+      );
+      // The page opened on the De novo preset.
+      expect(variantSearches()[0].inheritance).toBe('de_novo');
+
+      fireEvent.click(show);
+
+      await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
+      // Every other filter cleared: no view, no category, no consequence or frequency filter.
+      const params = variantSearches().at(-1) ?? {};
+      for (const key of ['inheritance', 'category', 'min_confidence', 'impact', 'max_gnomad_af', 'max_gnomad_popmax_af', 'exclude_review_tag']) {
+        expect(params).not.toHaveProperty(key);
+      }
+      expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
+      expect(screen.getByLabelText('NIPT inheritance preset')).toHaveValue('');
+      // The reported variant, and the reported artifact the analysis leaves out, named with
+      // the reason the signed record gives.
+      expect((await screen.findAllByText('GENEDN')).length).toBeGreaterThan(0);
+      const notClassified = screen.getByRole('status', { name: 'Tagged variants not classified' });
+      expect(notClassified).toHaveTextContent(
+        '1 variant with the selected review tags is not in this list: the analysis does not classify it. ' +
+          'A sign-out names a reported one as not classified, with why.',
+      );
+      expect(notClassified).toHaveTextContent(
+        '1-9501-A-G: not classified — it is on the assay’s recurrent-artifact list, which the analysis leaves out.',
+      );
+    });
+
+    it('counts the reported variants again once a tag is saved', async () => {
+      serve();
+      apiMock.put.mockResolvedValue({
+        data: { ...REPORTED.review, tags: [] },
+      });
+      renderAt('/families/NIPT001/nipt?review_tag=report');
+
+      await screen.findByRole('button', { name: 'Show reported (2)' });
+      const summaryReads = () =>
+        apiMock.get.mock.calls.filter(([url]) => url === '/families/NIPT001/small-variant-review-summary').length;
+      const before = summaryReads();
+      serve({ reported: 1 });
+      const [untag] = (await screen.findAllByRole('button', { name: 'Report' })).filter(
+        (button) => button.getAttribute('aria-pressed') === 'true',
+      );
+      fireEvent.click(untag);
+
+      expect(await screen.findByRole('button', { name: 'Show reported (1)' })).toBeInTheDocument();
+      expect(summaryReads()).toBeGreaterThan(before);
+      expect(apiMock.put).toHaveBeenCalledWith(
+        '/families/NIPT001/small-variants/1-1001-A-G/review',
+        expect.objectContaining({ tags: [] }),
+      );
+    });
+
+    it('says the count is unknown, not zero, while the review summary is not in', async () => {
+      serve();
+      const served = apiMock.get.getMockImplementation();
+      apiMock.get.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) =>
+        url === '/families/NIPT001/small-variant-review-summary'
+          ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+          : served?.(url, config),
+      );
+      renderAt('/families/NIPT001/nipt');
+
+      expect(await screen.findByRole('button', { name: 'Show reported' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /Show reported \(/ })).not.toBeInTheDocument();
     });
   });
 

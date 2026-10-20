@@ -14,6 +14,7 @@ from ..schemas import (
     NiptFetalSexOut,
     NiptGeneTargetsOut,
     NiptModelOut,
+    NiptNotClassifiedOut,
     NiptPaternityOut,
     NiptQcOut,
     NiptRecessiveAlleleOut,
@@ -316,6 +317,12 @@ async def get_family_nipt_variants_page(
     canonical_only: bool = False,
     mane_only: bool = False,
     lof_only: bool = False,
+    # The review tags, by the family small-variant list's names and rules: the variants
+    # with one of these tags (a variant's own or its compound-het pair's), and without
+    # one of the excluded ones. review_tag=report with no other filter lists what a
+    # sign-out freezes.
+    review_tags: list[str] = Query(default_factory=list, alias="review_tag"),
+    exclude_review_tags: list[str] = Query(default_factory=list, alias="exclude_review_tag"),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
 ) -> NiptVariantPage:
@@ -369,6 +376,8 @@ async def get_family_nipt_variants_page(
         de_novo_priority=de_novo_priority,
         page=page,
         page_size=page_size,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
     )
     return NiptVariantPage(
         family_id=family_id,
@@ -378,6 +387,10 @@ async def get_family_nipt_variants_page(
         fetal_fraction=_nipt_fetal_fraction_out(result.fetal_fraction),
         variants=[_nipt_variant_out(item) for item in result.variants],
         recessive_genes=[_recessive_gene_out(gene) for gene in result.recessive_genes],
+        not_classified=[
+            NiptNotClassifiedOut(variant_id=variant_id, reason=reason)  # type: ignore[arg-type]
+            for variant_id, reason in sorted(result.not_classified.items())
+        ],
     )
 
 

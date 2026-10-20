@@ -2882,6 +2882,58 @@ async def _small_item_outs(
     return singles, groups
 
 
+@dataclass(frozen=True, slots=True)
+class ReviewSelection:
+    """What a list's review filters select, by variant id: ``include``, the variants a
+    review filter keeps (None when no such filter is set: every variant), and ``exclude``,
+    the variants an excluded review tag leaves out."""
+
+    include: set[str] | None
+    exclude: set[str]
+
+    @property
+    def matches_nothing(self) -> bool:
+        """A review filter is set, and no variant has what it asks for."""
+        return self.include is not None and not self.include
+
+
+async def resolve_review_selection(
+    session: AsyncSession,
+    family_uuid: str,
+    *,
+    classifications: list[str] | None = None,
+    tags: list[str] | None = None,
+    exclude_tags: list[str] | None = None,
+    has_notes: bool = False,
+) -> ReviewSelection:
+    """The review filters of a family's variant list, read from its reviews
+    (``list_matching_small_variant_review_ids``): the classifications, the review tags (a
+    variant's own or its compound-het pair's) and the saved notes it keeps, and the review
+    tags it leaves out. A filter sent with blank values only still counts as set, and
+    matches nothing. The small-variant list and the NIPT variant list select by it alike."""
+    include: set[str] | None = None
+    if classifications or tags or has_notes:
+        include = await list_matching_small_variant_review_ids(
+            session,
+            family_uuid=family_uuid,
+            classifications=classifications,
+            tags=tags,
+            has_notes=has_notes,
+        )
+        if not include:
+            return ReviewSelection(include=set(), exclude=set())
+    exclude = (
+        await list_matching_small_variant_review_ids(
+            session,
+            family_uuid=family_uuid,
+            tags=exclude_tags,
+        )
+        if exclude_tags
+        else set()
+    )
+    return ReviewSelection(include=include, exclude=exclude)
+
+
 async def _resolve_small_variant_scope(
     session: AsyncSession,
     context: FamilyMetadataContext,
@@ -2905,27 +2957,16 @@ async def _resolve_small_variant_scope(
         if not panel_constraints.genes and not panel_constraints.regions:
             return None
 
-    include_review_filter_active = bool(review_classifications or review_tags or has_notes)
-    review_variant_ids: set[str] | None = None
-    if include_review_filter_active:
-        review_variant_ids = await list_matching_small_variant_review_ids(
-            session,
-            family_uuid=context.family_uuid,
-            classifications=review_classifications,
-            tags=review_tags,
-            has_notes=has_notes,
-        )
-        if not review_variant_ids:
-            return None
-    excluded_review_variant_ids = (
-        await list_matching_small_variant_review_ids(
-            session,
-            family_uuid=context.family_uuid,
-            tags=exclude_review_tags,
-        )
-        if exclude_review_tags
-        else set()
+    review = await resolve_review_selection(
+        session,
+        context.family_uuid,
+        classifications=review_classifications,
+        tags=review_tags,
+        exclude_tags=exclude_review_tags,
+        has_notes=has_notes,
     )
+    if review.matches_nothing:
+        return None
 
     include_regions = _parse_interval_regions(filters.intervals)
     exclude_regions = _parse_interval_regions(filters.exclude_intervals, label="Excluded interval")
@@ -2936,9 +2977,9 @@ async def _resolve_small_variant_scope(
     )
     return _SmallVariantScope(
         panel_constraints=panel_constraints,
-        review_variant_ids=review_variant_ids,
-        excluded_review_variant_ids=excluded_review_variant_ids,
-        include_review_filter_active=include_review_filter_active,
+        review_variant_ids=review.include,
+        excluded_review_variant_ids=review.exclude,
+        include_review_filter_active=review.include is not None,
         include_regions=include_regions,
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,

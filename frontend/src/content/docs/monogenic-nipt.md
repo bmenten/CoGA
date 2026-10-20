@@ -418,6 +418,15 @@ until you record a reason: no fetal-fraction estimate, a fetal sex whose two sig
 DNA given as the maternal plasma. Tag the variants you report before you sign out: a variant without
 the *report* tag is not frozen with its classification.
 
+**Show reported (N)**, in the page's *Sign-out* section, lists what a sign-out would freeze: the
+variants tagged *report*, with every other filter cleared (the inheritance view, the categories and
+the minimum confidence too), each as this analysis classifies it. N counts the variants tagged
+*report*. A tagged variant the analysis does not classify is in no list: not in the family's NIPT
+data, on the assay's artifact list, or without a call in the plasma. The page names it above the
+list with that reason, as the signed record does. The review tags are a filter like any other, as
+on the small-variant page (*Review and curation*, its tags only; *Exclude* for the excluded tags),
+so they also narrow a view: the reported de novo candidates, for one.
+
 ---
 
 ## Artifact list

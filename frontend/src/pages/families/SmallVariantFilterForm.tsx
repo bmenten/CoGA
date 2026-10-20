@@ -79,10 +79,10 @@ type SmallVariantFilterFormProps = Pick<
   unsupportedFilters?: ReadonlySet<keyof SmallFilterState>;
   /**
    * Monogenic NIPT mode. When 'nipt', the genotype/inheritance subsection is
-   * replaced by a maternal/fetal Categories subsection and the review-state
-   * subsection is hidden (it does not apply to inferred cfDNA calls). Defaults
-   * to 'small-variant' so the small-variant and global-explorer pages are
-   * untouched.
+   * replaced by a maternal/fetal Categories subsection. The NIPT page passes the review
+   * filters its list does not apply as `unsupportedFilters` (NIPT_UNSUPPORTED_FILTERS):
+   * its review subsection offers the review tags only. Defaults to 'small-variant' so the
+   * small-variant and global-explorer pages are untouched.
    */
   mode?: 'small-variant' | 'nipt';
   /** NIPT: per-category variant counts, shown next to each category option; null when
@@ -469,9 +469,7 @@ const SmallVariantFilterForm = ({
 
           <ExcludeFilterSection form={form} />
 
-          {mode !== 'nipt' && (
           <ReviewFilterSection form={form} />
-          )}
         </div>
       </section>
     </form>

@@ -1805,6 +1805,18 @@ export interface NiptModelOut {
 }
 
 /**
+ * A variant the review-tag filter selects that the NIPT analysis does not classify, so
+ * that no variant list shows it, and why: ``not_in_data`` (it is not in the family's
+ * NIPT data), ``artifact_list`` (it is on the assay's recurrent-artifact list, which the
+ * analysis leaves out) or ``no_plasma_call`` (the plasma has no call of it). The signed
+ * record's ``nipt`` section names a reported variant the same way (``not_classified``).
+ */
+export interface NiptNotClassifiedOut {
+  variant_id: string;
+  reason: "not_in_data" | "artifact_list" | "no_plasma_call";
+}
+
+/**
  * Whether the fetus inherited the father's alleles: at the autosomal sites where he
  * carries one and the mother does not, with enough plasma depth to see it. The fetus
  * inherits every allele he is homozygous for and half of his het ones.
@@ -2004,6 +2016,7 @@ export interface NiptVariantPage {
   fetal_fraction: NiptFetalFractionOut;
   variants: NiptVariantOut[];
   recessive_genes: NiptRecessiveGeneOut[];
+  not_classified: NiptNotClassifiedOut[];
 }
 
 export interface PanelAppImportRequest {

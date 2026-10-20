@@ -8,13 +8,17 @@ API, this:
 
 * reads the NIPT page's summary and variant list, which serve the verdicts and the
   classifications the record freezes;
-* tags a de novo candidate and a paternal allele for the report and signs the family out, the
-  drift and Sample QC gates acknowledged (the demo's paternity rests on too few sites, so the
-  Sample QC gate holds; no NIPT quality check fails, and the 409 says so);
+* tags a de novo candidate, a paternal allele and the listed artifact for the report, and
+  reads the NIPT page's reported view before signing out (UI-4: the review-tag filter
+  ``review_tag=report`` with no other filter, and ``exclude_review_tag``);
+* signs the family out, the drift and Sample QC gates acknowledged (the demo's paternity rests
+  on too few sites, so the Sample QC gate holds; no NIPT quality check fails, and the 409 says
+  so);
 * reads the signed record back: the NIPT results as the page served them (the fetal fraction,
   the quality checks with their verdicts, each reported variant as the variant list
-  classifies it, the de novo candidate's triage, the inputs), a verified content hash and
-  chain, and a check that matches with nothing it does not compare;
+  classifies it, the artifact as not classified, the de novo candidate's triage, the inputs),
+  the variants the reported view listed and named, a verified content hash and chain, and a
+  check that matches with nothing it does not compare;
 * signs out once more as a build from before the NIPT section (its key left out) and shows
   that record still verifies and reads, and that the check names ``nipt`` as not compared;
 * asks the sign-out as a reader in the family's project (SEC-1), the account made for the run
@@ -245,11 +249,22 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     r["variants"] = _cap(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
     r["de_novo_view"] = _cap(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
 
-    # Two variants for the report, from the NIPT page's list.
-    for variant_id in (DE_NOVO, PATERNAL):
+    # Two variants for the report, from the NIPT page's list, and the artifact the analysis
+    # leaves out (tagged from the family's small-variant list: the NIPT list never shows it).
+    for variant_id in (DE_NOVO, PATERNAL, ARTIFACT):
         r[f"review_{variant_id}"] = _cap(
             await ac.put(f"{family}/small-variants/{variant_id}/review", json={"tags": ["report"]})
         )
+
+    # What the NIPT page lists before the sign-out (UI-4): "Show reported", the review tag
+    # report with no other filter; within a view; the list without them; a tag none holds.
+    nipt_variants = f"{family}/nipt/variants"
+    r["reported_view"] = _cap(await ac.get(nipt_variants, params={"review_tag": "report", "page_size": 500}))
+    r["reported_de_novo_view"] = _cap(
+        await ac.get(nipt_variants, params={"review_tag": "report", "inheritance": "de_novo"})
+    )
+    r["without_reported"] = _cap(await ac.get(nipt_variants, params={"exclude_review_tag": "report", "page_size": 500}))
+    r["unheld_tag_view"] = _cap(await ac.get(nipt_variants, params={"review_tag": "e2e-no-such-tag"}))
 
     # The gates, one by one: the drift of the unclassified reported variants, then the
     # Sample QC (the demo's paternity cannot be verified).
@@ -341,7 +356,7 @@ def test_the_nipt_page_serves_the_verdicts_the_record_freezes(signed) -> None:
 
 
 def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
-    for variant_id in (DE_NOVO, PATERNAL):
+    for variant_id in (DE_NOVO, PATERNAL, ARTIFACT):
         _ok(signed, f"review_{variant_id}")
     assert signed["responses"]["refused_drift"]["status"] == 409
     refused = signed["responses"]["refused_qc"]
@@ -439,7 +454,42 @@ def test_each_reported_variant_is_frozen_as_the_nipt_variant_list_classifies_it(
     assert frozen[DE_NOVO]["de_novo"]["label"] == candidate["nipt"]["de_novo"]["label"] == "high"
     assert frozen[DE_NOVO]["de_novo"]["score"] == candidate["nipt"]["de_novo"]["score"]
     assert frozen[PATERNAL]["de_novo"] is None
-    assert _nipt(signed)["not_classified"] == []
+    # The reported artifact: on the run's artifact list, so not classified, and said why.
+    assert _nipt(signed)["not_classified"] == [{"variant_id": ARTIFACT, "reason": "artifact_list"}]
+
+
+# ------------------------------------------------- the NIPT page's reported view (UI-4)
+
+
+def test_the_nipt_page_listed_what_the_sign_out_froze(signed) -> None:
+    # "Show reported": the review tag report and no other filter, read before the sign-out.
+    reported = _ok(signed, "reported_view")
+    nipt = _nipt(signed)
+    listed = {variant["_id"]: variant for variant in reported["variants"]}
+    frozen = {entry["variant_id"]: entry for entry in nipt["variants"]}
+    assert set(listed) == set(frozen) == {DE_NOVO, PATERNAL}
+    assert reported["total"] == len(frozen)
+    for variant_id, entry in frozen.items():
+        assert "report" in listed[variant_id]["review"]["tags"]
+        for field in ("category", "maternal_state", "fetal_inheritance", "confidence", "observed_vaf", "expected_vaf"):
+            assert entry[field] == listed[variant_id]["nipt"][field], (variant_id, field)
+    # The one the analysis does not classify: named with the record's reason, not left out.
+    assert reported["not_classified"] == nipt["not_classified"] == [{"variant_id": ARTIFACT, "reason": "artifact_list"}]
+
+
+def test_the_review_tag_filter_keeps_and_leaves_out_exactly_the_tagged_variants(signed) -> None:
+    # Within a view: the reported de novo candidate alone.
+    [candidate] = _ok(signed, "reported_de_novo_view")["variants"]
+    assert candidate["_id"] == DE_NOVO
+    # Without the reported variants: every other variant the list held before they were tagged.
+    every = {variant["_id"] for variant in _ok(signed, "variants")["variants"]}
+    without = _ok(signed, "without_reported")
+    assert {variant["_id"] for variant in without["variants"]} == every - {DE_NOVO, PATERNAL}
+    assert without["total"] == len(every) - 2
+    assert without["not_classified"] == []
+    # A tag no review holds selects nothing.
+    unheld = _ok(signed, "unheld_tag_view")
+    assert (unheld["total"], unheld["variants"], unheld["not_classified"]) == (0, [], [])
 
 
 def test_the_record_verifies_and_still_matches_right_after_it_was_signed(signed) -> None:

@@ -27,7 +27,8 @@ must carry FORMAT/AD.
   plasma sample, the coverage of the capture targets and why cfDNA calls failed the quality filter. A
   failed paternity check means another father or a sample mix-up: do not read the variants.
 - **The filters** are the small-variant page's *Pathogenicity*, *Annotations*, *In Silico*, *Frequency*,
-  *Locations* and *Exclude* filters, plus **Maternal/fetal categories** (tick any of the eight; each
+  *Locations* and *Exclude* filters and its review tags (*Review and curation*: the tags, not the
+  classification or saved notes), plus **Maternal/fetal categories** (tick any of the eight; each
   shows its count), a minimum classification confidence and an **Inheritance** view:
   - *De novo in the fetus*: calls in the fetal window without a supported call in the father, triaged
     and ranked by score. **List de novo candidates of priority** picks high, high and medium, or every
@@ -76,7 +77,11 @@ the family's signed record, which the EPD report refers to by its report code. I
 sign-out, with the same checks and report code, so the family has one signed record whether you sign
 out here or from the family report. The record holds the NIPT results as CoGA computed them: the fetal
 fraction and the quality checks, the coverage, and each variant tagged *report* with its category,
-reads and probabilities. Tag the variants you report first. Besides the Sample QC, a NIPT quality
+reads and probabilities. Tag the variants you report first. **Show reported (N)**, under the sign-out
+status, lists them before you sign out: the variants tagged *report*, with every other filter
+cleared. A tagged variant the analysis does not classify (not in the family's NIPT data, on the
+assay's artifact list, or without a call in the plasma) is in no list: the page names it above the
+list with the reason, as the signed record does. Besides the Sample QC, a NIPT quality
 check that failed (no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA as the
 maternal plasma) stops the sign-out until you record a reason. Afterwards the signed version opens,
 with its report code; the NIPT page then shows **Amend sign-out** and says whether the data still

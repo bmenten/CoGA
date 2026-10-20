@@ -155,6 +155,13 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   skipping artifact-list sites, then `min_confidence`, the view (`inheritance`: `de_novo`,
   `paternal_dominant`, `maternal_dominant`, `recessive_at_risk`, with `include_not_inherited` and
   `de_novo_priority`), the category filter, and paging. The recessive view returns `recessive_genes`.
+  The review tags (`review_tag`, `exclude_review_tag`) select as on the family small-variant list
+  (`clickhouse_family_variants.resolve_review_selection`: a variant's own tags or its compound-het
+  pair's) and go into the load as variant ids, so the 5,000 limit never cuts a tagged variant off. A
+  selected variant the analysis does not classify comes back in `not_classified`, with the reason
+  the signed record gives a reported one (`not_in_data`, `artifact_list`, `no_plasma_call`), from
+  the same code (`_classify_selected`, which `get_family_nipt_record` uses). `review_tag=report`
+  with no other filter is the page's **Show reported**: what a sign-out freezes (UI-4).
 
 Endpoints (`routers/families_nipt.py`, under `/api`): `GET /families/{id}/nipt/summary`,
 `/nipt/variants`, `/nipt/coverage` (with `targets` from the target table; `all_genes=true` lists the
