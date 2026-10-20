@@ -42,7 +42,8 @@ Adding a section (as the PGT and NIPT results were added):
    the record, compared by the sign-out check (``REPORT_CONTENT_SECTIONS`` includes every
    key here) and named in ``not_captured`` when it could not be read. A section of one
    application (``pgt_analysis``, ``nipt``) is added only for a family of it: the check
-   compares it only where the family's current data has it;
+   compares it where the record holds it, names it not compared where only the family's
+   current data does, and says nothing of it where neither does;
 3. read it in ``frontend/src/pages/families/signedReportRecord.ts`` (``parseRecordSection``
    gives the absent / unavailable / recorded states) and render it in
    ``SignedFamilyReport.tsx`` (``RecordSectionBlock``), with its label in
