@@ -77,6 +77,10 @@ HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}
 # (docs/data-import.md, "The STRchive release"); test_strchive_release_pin.py fails until
 # the file, the pin and that section agree.
 STRCHIVE_PINNED_LOCI_SHA256 = "a0295e1fe3e25a9f375db25fa27c403c217c74047ec3fa4b4f8060d4868399e9"
+# The upstream STRchive release that file is: byte-identical to the `STRchive-loci-v2.18.0.json`
+# STRchive published with release v2.18.0 (2026-04-28), found on 2026-10-20 by comparing the
+# SHA-256 with the loci file of every published STRchive release. It moves with the pin.
+STRCHIVE_PINNED_RELEASE = "v2.18.0"
 
 
 def _read_version_file() -> str:
