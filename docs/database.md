@@ -43,7 +43,7 @@ the revision a database is at ([Schema Migrations](#schema-migrations)).
 | `gene_panel_versions` | a snapshot of every version of a panel: genes, regions, source, external version and author. Version 1 is archived when a panel is created by hand, built (the Mendeliome) or first imported from PanelApp, and the next version at each hand edit of a local panel (its genes or description), each Mendeliome rebuild that changes its genes (or is forced) and each PanelApp import that changes the panel's genes or regions. The app never rewrites a snapshot, and `UNIQUE (panel_id, version)` refuses a second one under the same number, but no trigger makes the table append-only, and deleting a panel deletes its versions (`ON DELETE CASCADE`). The panel page lists the versions; no screen shows one version's genes: `GET /api/panels/{id}/versions/{version}` returns them, to look up the panel version a report names |
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
-| `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs) |
+| `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs): the built-in loci and the shipped STRchive release's, rewritten at every start, which removes STRchive loci the release does not list ([data-import.md](data-import.md#the-strchive-release)) |
 | `reference_dataset_imports` | every reference import and upload: dataset, rows inserted, whether it replaced data, source, the release the source states (below), who and when |
 
 `clinical_cnvs` carries the knowledgebase's ClinVar support per region:
@@ -112,6 +112,9 @@ normal there at once and on the tracks once imported again. A `CHECK`
 `not_assessed` was in the list (#826) kept the old check, on which a TRGT import with a call at
 a locus without thresholds failed, with the whole repeat dataset; revision `0002` gives it the
 current check at its next start ([Schema Migrations](#schema-migrations)).
+A call whose TRID names several STRchive loci (the gene of ARX or HOXA13) and whose region
+picks none of them is stored without thresholds, and `repeat_expansions.metadata` holds the
+reason under `locus_not_resolved` (CLIN-31), which the repeat page shows with the call.
 
 JSON keys that package import writes into the `metadata` columns:
 
