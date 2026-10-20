@@ -29,11 +29,11 @@ mother's, so he is checked against her alone (his father, or a donor, gives him 
 father–son pair is neither informative nor a Mendelian error), and a call of two
 different alleles, which a son cannot carry there, is a Mendelian error. A daughter
 receives her father's one X. A member whose sex is not recorded is read as two copies, as
-everywhere else, and so is everyone on an assembly whose PARs CoGA does not know.
+everywhere else, and so is everyone on an assembly whose PARs CoGA does not know. The
+haplotype block builder reads chrX by the same rule, with the same helpers.
 """
 from __future__ import annotations
 
-import re
 from typing import Any, Mapping
 
 from ..schemas import (
@@ -49,12 +49,16 @@ from .family_metadata_context import FamilyMetadataContext
 from .haplotype_lineage_service import _allele_int, build_pedigree, founder_shade_map
 from .haplotype_phase_correction import corrected_genotype_rows
 from .haplotype_block_builder import (
+    _call_alleles,
+    _one_copy_alleles,
     _parent_sample_names,
     _phased_haplotype_alleles,
     _transmitted_parent_haplotype,
+    _transmitted_single_parent_haplotype,
+    is_one_copy_x_site,
 )
 from .pgt_embryo_calls import normalize_sex
-from .sex_chromosomes import hemizygous_chromosome, pseudoautosomal_regions, sex_chromosome
+from .sex_chromosomes import pseudoautosomal_regions, sex_chromosome
 
 # Fetch ceiling — covers a whole (largest) chromosome of family-scoped imputed
 # sites with headroom (~275k on chr2 here); truncation only affects the tail of
@@ -87,38 +91,6 @@ def _shares_allele(a: tuple[str, str], b: tuple[str, str]) -> bool:
     return bool({a[0], a[1]} & {b[0], b[1]})
 
 
-def _transmitted_single_parent_haplotype(
-    parent_alleles: tuple[str, str] | None,
-    child_alleles: tuple[str, str] | None,
-) -> str | None:
-    """With only ONE known parent (donor family), which parent homolog (0/1) the
-    child inherited is resolvable only where the parent is heterozygous AND the child
-    is homozygous: the child's duplicated allele is the transmitted one and exactly
-    one parent homolog carries it. Parent-homozygous or child-heterozygous sites are
-    ambiguous — the absent/donor parent could supply either allele — so they yield
-    ``None``."""
-    if parent_alleles is None or child_alleles is None:
-        return None
-    p0, p1 = parent_alleles
-    c0, c1 = child_alleles
-    if p0 == p1 or c0 != c1:
-        return None
-    allele = c0
-    if p0 == allele and p1 != allele:
-        return "0"
-    if p1 == allele and p0 != allele:
-        return "1"
-    return None
-
-
-def is_one_copy_x_site(assembly_name: str | None, chrom: str | None, pos: int) -> bool:
-    """Is this site on chrX outside the pseudo-autosomal regions of the assembly, where a
-    male carries one copy of the X? False in a PAR, off chrX, and on an assembly whose PAR
-    bounds ``sex_chromosomes`` does not list (T2T-CHM13): every member is then read as two
-    copies, as the haplotype blocks are (``hemizygous_in_males``)."""
-    return hemizygous_chromosome(assembly_name, chrom, pos) == "X"
-
-
 def hemizygous_x_ranges(assembly_name: str | None, chrom: str | None, start: int, end: int) -> list[list[int]]:
     """The parts of ``[start, end]`` where ``is_one_copy_x_site`` holds, as ``[first, last]``
     pairs (inclusive), so that the ROI marker review checks its sites by the same rule."""
@@ -138,26 +110,6 @@ def hemizygous_x_ranges(assembly_name: str | None, chrom: str | None, start: int
     if first <= end:
         ranges.append([first, end])
     return ranges
-
-
-def _call_alleles(gt_value: str | None) -> tuple[str, ...] | None:
-    """The alleles of a call written with one allele (``1``) or two (``0|1``, ``0/1``); None
-    for a no-call, a half call (``0|.``) or anything else."""
-    alleles = tuple(re.split(r"[|/]", (gt_value or "").strip()))
-    if len(alleles) > 2 or not all(allele.isdigit() for allele in alleles):
-        return None
-    return alleles
-
-
-def _one_copy_alleles(gt_value: str | None) -> tuple[str, str] | None:
-    """A male's call where he has one X, as the pair the Mendelian rules read: one allele
-    written alone (``1``) or twice (``1|1``, ``1/1``) is that allele, read as ``(1, 1)``.
-    None for a no-call and for a call of two different alleles, which a male cannot
-    carry there (``_two_different_alleles``)."""
-    alleles = _call_alleles(gt_value)
-    if alleles is None or len(set(alleles)) != 1:
-        return None
-    return alleles[0], alleles[0]
 
 
 def _two_different_alleles(gt_value: str | None) -> bool:

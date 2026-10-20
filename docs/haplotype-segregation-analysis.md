@@ -130,7 +130,8 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
 - **Raw phased markers and per-child QC** — `backend/app/services/phased_marker_service.py`
   (`compute_phased_markers`: per-site lane values for the couple's children, trio and single-parent
   modes, the informative-site count and Mendel-error rate, the fetch cap). On chrX outside the PARs
-  of the family's assembly (`is_one_copy_x_site`, from `sex_chromosomes.hemizygous_chromosome`) a
+  of the family's assembly (`is_one_copy_x_site`, from `sex_chromosomes.hemizygous_chromosome`;
+  defined with the block builder, which reads chrX by the same rule) a
   member recorded as male is read as one copy: a call of one allele (`1`) or of one allele twice
   (`1|1`) is `(1, 1)`, a call of two different alleles is no genotype he can have. A son is counted
   against his mother alone (his father, or a donor, passes him a Y; with no known mother he is not
@@ -174,8 +175,27 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   them, via `FamilyMetadataContext.phase_corrections`. The precompute fingerprint includes them.
 - **One copy in males** — `bed_service._mark_hemizygous_blocks` marks each block `hemizygous_in_males`
   with `sex_chromosomes.hemizygous_interval`, the PAR table the variant queries use; `haplotypeRisk.ts`
-  reads a male on one lane only on such blocks, so in a PAR he is read on both. The per-child QC reads
-  the same table site by site (`phased_marker_service.is_one_copy_x_site`).
+  reads a male on one lane only on such blocks, so in a PAR he is read on both. The per-child QC and
+  the block builder read the same table site by site (`is_one_copy_x_site`).
+- **chrX in the blocks** — `haplotype_block_builder.py` reads chrX outside the PARs by the phasing
+  QC's rule, with its helpers (`_one_copy_alleles`, `_transmitted_single_parent_haplotype`, moved
+  there from `phased_marker_service.py`, which imports them back). A parent recorded as male is one
+  allele, written once or twice, a call of two different alleles no call (`_parent_alleles`, which
+  keeps his own blocks there whichever way his calls are written). A son's maternal homolog is read
+  against his mother alone, where she is heterozygous, and he has no paternal side; a daughter's
+  maternal homolog is read with her father's one allele, and her paternal side is his one X
+  (`_FATHER_ONE_X`, his `hap1`, set in `_enter_stretch` rather than read, so it does not count
+  towards orienting his labels by the affected child). Unrecorded sex is read as two copies. Every
+  block lies in one stretch of chrX (`_x_stretches`: before PAR1, PAR1, between the PARs, PAR2,
+  after PAR2): at a PAR edge a member's open block ends with its stretch (`end_limit`, also at the
+  chromosome's end) and a child's segregation states start afresh, so no homolog read in a PAR runs
+  over the X and `hemizygous_in_males` marks exactly the blocks between the PARs. No stretch is cut
+  on an assembly without PAR bounds (T2T-CHM13). Before this (CLIN-60's follow-up), with men's calls
+  written as one allele no child had a transmission outside the PARs, and with PAR1 in the callset
+  the PAR1 blocks ran over the X, so an embryo at an X-linked ROI read *Uninformative* or was called
+  from its PAR1 homologs. The blocks are built at import with the sexes recorded then: a sex
+  recorded or corrected later, and a family imported before this change, need the phased genotypes
+  imported again (a package import also refreshes the genome-overview precompute).
 
 ## Known issues
 

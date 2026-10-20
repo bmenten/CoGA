@@ -11,11 +11,28 @@ With segregation haplotypes, a chromosome's transmissions are kept until the chr
 ends, so that a switch in a parent's phase, which every child of the couple shows at the
 same place, is read and undone before the children's blocks are built (see
 ``haplotype_phase_correction``).
+
+On chrX outside the pseudo-autosomal regions of the family's assembly a male has one X, and
+the segregation haplotypes read it by the rule of the phasing QC (``phased_marker_service``,
+CLIN-60), with the same helpers. A member recorded as male is read as one copy there: his
+call written as one allele (``1``) or as the same allele twice (``1|1``) is that allele, and
+a call of two different alleles is no call. A son's X is his mother's: the homolog he
+inherited from her is read where she is heterozygous, and he has no paternal side (his
+father gives him a Y). A daughter's maternal homolog is read where her father's one allele is
+known, and her paternal side is her father's one X: every daughter receives the same one, so
+it carries no segregation information and is set rather than read. A member whose sex is not
+recorded is read as two copies, as everywhere else. Each block lies in one stretch of chrX:
+PAR1, the X between the PARs, or PAR2. A child's homologs are read afresh in each stretch, so
+none read in a PAR is carried over the X, and a man's block outside the PARs is marked one
+copy (``bed_service._mark_hemizygous_blocks``). On an assembly whose PAR bounds
+``sex_chromosomes`` does not list (T2T-CHM13) every member is read as two copies and no block
+is cut.
 """
 
 from __future__ import annotations
 
 import bisect
+import re
 from array import array
 from typing import Any
 
@@ -23,6 +40,8 @@ from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .haplotype_lineage_service import build_pedigree, identify_core
 from .haplotype_phase_correction import PhaseCorrection, find_phase_switches, is_autosome
+from .pgt_embryo_calls import normalize_sex
+from .sex_chromosomes import hemizygous_chromosome, pseudoautosomal_regions, sex_chromosome
 
 
 # A child's inherited homolog switches only after this many consecutive markers over at
@@ -35,6 +54,12 @@ PHASE_SWITCH_MIN_CHILD_MARKERS = 2 * SEGREGATION_HAPLOTYPE_SWITCH_MIN_MARKERS
 
 # The bytearray code of a site where no homolog was read on a side.
 _NO_HAPLOTYPE = 2
+
+# A daughter's paternal side outside the PARs: her father's one X, the homolog his own blocks
+# show there (``pgt_embryo_calls.renderable_lanes`` reads a father's one X on ``hap1``).
+_FATHER_ONE_X = "0"
+# The end of the stretch of chrX after PAR2, which no position reaches.
+_LAST_POSITION = 2**32 - 1
 
 
 class _ChildTransmissions:
@@ -69,11 +94,19 @@ def _haplotype_state_end(
     state_last_pos = int(state["last_pos"] or state_start)
     state_chrom = normalize_chromosome(str(state["chr"]))
     if next_chrom is not None and normalize_chromosome(next_chrom) == state_chrom:
-        return max(int(next_start or state_start), state_start + 1)
-    chrom_size = chromosome_sizes.get(state_chrom)
-    if chrom_size is not None:
-        return max(chrom_size, state_last_pos + 1)
-    return max(state_last_pos + 1, state_start + 1)
+        end = max(int(next_start or state_start), state_start + 1)
+    else:
+        chrom_size = chromosome_sizes.get(state_chrom)
+        if chrom_size is not None:
+            end = max(chrom_size, state_last_pos + 1)
+        else:
+            end = max(state_last_pos + 1, state_start + 1)
+    end_limit = state.get("end_limit")
+    if end_limit is not None:
+        # A block on chrX ends with its stretch (PAR1, the X between the PARs, PAR2), so it
+        # is marked one copy in males exactly where it lies outside the PARs.
+        end = max(min(end, int(end_limit)), state_start)
+    return end
 
 
 def _phased_haplotype_alleles(gt_value: str | None) -> tuple[str, str] | None:
@@ -85,6 +118,52 @@ def _phased_haplotype_alleles(gt_value: str | None) -> tuple[str, str] | None:
     return hap1, hap2
 
 
+def _call_alleles(gt_value: str | None) -> tuple[str, ...] | None:
+    """The alleles of a call written with one allele (``1``) or two (``0|1``, ``0/1``); None
+    for a no-call, a half call (``0|.``) or anything else."""
+    alleles = tuple(re.split(r"[|/]", (gt_value or "").strip()))
+    if len(alleles) > 2 or not all(allele.isdigit() for allele in alleles):
+        return None
+    return alleles
+
+
+def _one_copy_alleles(gt_value: str | None) -> tuple[str, str] | None:
+    """A male's call where he has one X, as the pair the Mendelian rules read: one allele
+    written alone (``1``) or twice (``1|1``, ``1/1``) is that allele, read as ``(1, 1)``.
+    None for a no-call and for a call of two different alleles, which a male cannot
+    carry there (``phased_marker_service._two_different_alleles``)."""
+    alleles = _call_alleles(gt_value)
+    if alleles is None or len(set(alleles)) != 1:
+        return None
+    return alleles[0], alleles[0]
+
+
+def is_one_copy_x_site(assembly_name: str | None, chrom: str | None, pos: int) -> bool:
+    """Is this site on chrX outside the pseudo-autosomal regions of the assembly, where a
+    male carries one copy of the X? False in a PAR, off chrX, and on an assembly whose PAR
+    bounds ``sex_chromosomes`` does not list (T2T-CHM13): every member is then read as two
+    copies, by the haplotype blocks and the phasing QC alike."""
+    return hemizygous_chromosome(assembly_name, chrom, pos) == "X"
+
+
+def _x_stretches(assembly_name: str | None, chrom: str | None) -> tuple[tuple[int, int], ...] | None:
+    """chrX cut at the PAR edges of the assembly into stretches ``(first, last)``, inclusive
+    and in order: before PAR1, PAR1, the X between the PARs, PAR2 and after PAR2. None off
+    chrX and on an assembly whose PAR bounds ``sex_chromosomes`` does not list."""
+    regions = pseudoautosomal_regions(assembly_name)
+    if regions is None or sex_chromosome(chrom) != "X":
+        return None
+    stretches: list[tuple[int, int]] = []
+    first = 1
+    for par_start, par_end in sorted(regions["X"]):
+        if par_start > first:
+            stretches.append((first, par_start - 1))
+        stretches.append((par_start, par_end))
+        first = par_end + 1
+    stretches.append((first, _LAST_POSITION))
+    return tuple(stretches)
+
+
 def _new_haplotype_state(
     *,
     chrom: str,
@@ -92,6 +171,7 @@ def _new_haplotype_state(
     hap1: str,
     hap2: str,
     ps: int | None,
+    end_limit: int | None = None,
 ) -> dict[str, Any]:
     return {
         "start": start,
@@ -100,6 +180,8 @@ def _new_haplotype_state(
         "ps": ps,
         "chr": chrom,
         "last_pos": start,
+        # The last position the block may reach: the end of its stretch of chrX.
+        "end_limit": end_limit,
     }
 
 
@@ -111,6 +193,7 @@ def _empty_haplotype_state() -> dict[str, Any]:
         "ps": None,
         "chr": None,
         "last_pos": None,
+        "end_limit": None,
     }
 
 
@@ -254,6 +337,7 @@ def _update_haplotype_state(
     chromosome_sizes: dict[str, int],
     metadata_json: str,
     split_on_haplotype_change: bool,
+    end_limit: int | None = None,
 ) -> None:
     state = states[sample_name]
     if state["start"] is None:
@@ -263,6 +347,7 @@ def _update_haplotype_state(
             hap1=hap1,
             hap2=hap2,
             ps=ps,
+            end_limit=end_limit,
         )
         return
     if split_on_haplotype_change:
@@ -293,6 +378,7 @@ def _update_haplotype_state(
         hap1=hap1,
         hap2=hap2,
         ps=ps,
+        end_limit=end_limit,
     )
 
 
@@ -384,6 +470,30 @@ def _transmitted_parent_haplotype(
     if len(possible) != 1:
         return None
     return str(next(iter(possible)))
+
+
+def _transmitted_single_parent_haplotype(
+    parent_alleles: tuple[str, str] | None,
+    child_alleles: tuple[str, str] | None,
+) -> str | None:
+    """With only ONE known parent (donor family), which parent homolog (0/1) the
+    child inherited is resolvable only where the parent is heterozygous AND the child
+    is homozygous: the child's duplicated allele is the transmitted one and exactly
+    one parent homolog carries it. Parent-homozygous or child-heterozygous sites are
+    ambiguous — the absent/donor parent could supply either allele — so they yield
+    ``None``. A son's one X, read as ``(1, 1)``, is read against his mother so."""
+    if parent_alleles is None or child_alleles is None:
+        return None
+    p0, p1 = parent_alleles
+    c0, c1 = child_alleles
+    if p0 == p1 or c0 != c1:
+        return None
+    allele = c0
+    if p0 == allele and p1 != allele:
+        return "0"
+    if p1 == allele and p0 != allele:
+        return "1"
+    return None
 
 
 def _flip_parent_haplotype(value: str, *, flip: bool) -> str:
@@ -496,6 +606,54 @@ class HaplotypeBlockBuilder:
         # Per chromosome, where each parent's phase is swapped back: a chromosome an
         # unsorted file splits keeps the swaps its first part found, as the views do.
         self.phase_flips_by_chrom: dict[str, dict[str, list[int]]] = {}
+        # chrX outside the PARs: the members recorded as male have one X there, and a
+        # daughter (recorded as female) receives her father's. A member whose sex is not
+        # recorded is read as two copies.
+        self.assembly_name = context.assembly_name
+        sexes = {str(row.get("sample_id")): normalize_sex(row.get("sex")) for row in context.sample_rows}
+        self.males = {name for name, sex in sexes.items() if sex == "male"}
+        self.females = {name for name, sex in sexes.items() if sex == "female"}
+        self._stretches_by_chrom: dict[str, tuple[tuple[int, int], ...] | None] = {}
+
+    def _stretch(self, chrom: str, pos: int) -> tuple[int, int] | None:
+        """The stretch of chrX (``_x_stretches``) that holds ``pos``; None off chrX and on an
+        assembly whose PAR bounds are not known, where no block is cut."""
+        if chrom not in self._stretches_by_chrom:
+            self._stretches_by_chrom[chrom] = _x_stretches(self.assembly_name, chrom)
+        stretches = self._stretches_by_chrom[chrom]
+        if stretches is None:
+            return None
+        index = bisect.bisect_right(stretches, (pos, _LAST_POSITION)) - 1
+        return stretches[max(index, 0)]
+
+    def _close_block_outside(self, sample_name: str, *, chrom: str, stretch: tuple[int, int]) -> bool:
+        """End ``sample_name``'s open block on ``chrom`` when it lies in another stretch of
+        chrX than ``stretch``: it ends with its own. Whether a block was ended."""
+        state = self.states.get(sample_name)
+        if state is None or state["start"] is None or state["chr"] != chrom:
+            return False
+        if self._stretch(chrom, int(state["start"])) == stretch:
+            return False
+        _close_haplotype_state(
+            states=self.states,
+            rows=self.rows,
+            sample_contexts=self.sample_contexts,
+            sample_name=sample_name,
+            next_chrom=chrom,
+            next_start=stretch[0],
+            chromosome_sizes=self.chromosome_sizes,
+            metadata_json=self.metadata_json,
+        )
+        return True
+
+    def _parent_alleles(self, name: str | None, call: Any, *, one_copy: bool) -> tuple[str, str] | None:
+        """A parent's genotype as the transmissions read it: where a male has one X, a
+        parent recorded as male is one allele, written once or twice (a call of two
+        different alleles is no call); otherwise two phased copies."""
+        gt_value = call.gt if call is not None else None
+        if one_copy and name in self.males:
+            return _one_copy_alleles(gt_value)
+        return _phased_haplotype_alleles(gt_value)
 
     def add_sample(self, name: str) -> None:
         self.states[name] = _empty_haplotype_state()
@@ -570,39 +728,37 @@ class HaplotypeBlockBuilder:
         father_name, mother_name = self.father_name, self.mother_name
         father_call = calls_by_sample.get(father_name)
         mother_call = calls_by_sample.get(mother_name)
-        father_alleles = _phased_haplotype_alleles(father_call.gt if father_call else None)
-        mother_alleles = _phased_haplotype_alleles(mother_call.gt if mother_call else None)
+        # On chrX each block lies in one stretch, and outside the PARs a male has one X.
+        stretch = self._stretch(chrom, start)
+        one_copy = stretch is not None and is_one_copy_x_site(self.assembly_name, chrom, start)
+        end_limit = stretch[1] if stretch is not None else None
+        father_alleles = self._parent_alleles(father_name, father_call, one_copy=one_copy)
+        mother_alleles = self._parent_alleles(mother_name, mother_call, one_copy=one_copy)
 
-        if father_call is not None and father_alleles is not None:
-            _update_haplotype_state(
-                states=self.states,
-                rows=self.rows,
-                sample_contexts=self.sample_contexts,
-                sample_name=father_name,
-                chrom=chrom,
-                start=start,
-                hap1="0",
-                hap2="1",
-                ps=father_call.ps,
-                chromosome_sizes=self.chromosome_sizes,
-                metadata_json=self.metadata_json,
-                split_on_haplotype_change=True,
-            )
-        if mother_call is not None and mother_alleles is not None:
-            _update_haplotype_state(
-                states=self.states,
-                rows=self.rows,
-                sample_contexts=self.sample_contexts,
-                sample_name=mother_name,
-                chrom=chrom,
-                start=start,
-                hap1="0",
-                hap2="1",
-                ps=mother_call.ps,
-                chromosome_sizes=self.chromosome_sizes,
-                metadata_json=self.metadata_json,
-                split_on_haplotype_change=True,
-            )
+        for parent_name, parent_call, parent_alleles in (
+            (father_name, father_call, father_alleles),
+            (mother_name, mother_call, mother_alleles),
+        ):
+            if parent_name is None:
+                continue
+            if stretch is not None:
+                self._close_block_outside(parent_name, chrom=chrom, stretch=stretch)
+            if parent_call is not None and parent_alleles is not None:
+                _update_haplotype_state(
+                    states=self.states,
+                    rows=self.rows,
+                    sample_contexts=self.sample_contexts,
+                    sample_name=parent_name,
+                    chrom=chrom,
+                    start=start,
+                    hap1="0",
+                    hap2="1",
+                    ps=parent_call.ps,
+                    chromosome_sizes=self.chromosome_sizes,
+                    metadata_json=self.metadata_json,
+                    split_on_haplotype_change=True,
+                    end_limit=end_limit,
+                )
 
         if chrom != self.transmission_chrom:
             self._build_child_blocks()
@@ -611,17 +767,26 @@ class HaplotypeBlockBuilder:
             if sample_name in {father_name, mother_name}:
                 continue
             child_call = calls_by_sample.get(sample_name)
-            child_alleles = _phased_haplotype_alleles(child_call.gt if child_call else None)
-            paternal_hap = _transmitted_parent_haplotype(
-                father_alleles,
-                mother_alleles,
-                child_alleles,
-            )
-            maternal_hap = _transmitted_parent_haplotype(
-                mother_alleles,
-                father_alleles,
-                child_alleles,
-            )
+            child_gt = child_call.gt if child_call else None
+            if one_copy and sample_name in self.males:
+                # A son's one X is his mother's: the homolog he inherited from her is read
+                # where she is heterozygous. His father gives him a Y: no paternal side.
+                paternal_hap = None
+                maternal_hap = _transmitted_single_parent_haplotype(mother_alleles, _one_copy_alleles(child_gt))
+            else:
+                # Two copies: where a daughter's father has one X, his one allele makes her
+                # maternal homolog readable, and no homolog of his is told apart.
+                child_alleles = _phased_haplotype_alleles(child_gt)
+                paternal_hap = _transmitted_parent_haplotype(
+                    father_alleles,
+                    mother_alleles,
+                    child_alleles,
+                )
+                maternal_hap = _transmitted_parent_haplotype(
+                    mother_alleles,
+                    father_alleles,
+                    child_alleles,
+                )
             if paternal_hap is None and maternal_hap is None:
                 continue
             self.transmissions.setdefault(sample_name, _ChildTransmissions()).append(
@@ -661,8 +826,16 @@ class HaplotypeBlockBuilder:
                     )
         self.phase_flips_by_chrom[chrom_key] = flips
         father_flips, mother_flips = sorted(flips["father"]), sorted(flips["mother"])
+        # chrX of an assembly with known PAR bounds is read one stretch at a time.
+        on_x = self._stretch(chrom, 1) is not None
         for sample_name, record in transmissions.items():
+            stretch: tuple[int, int] | None = None
             for index, pos in enumerate(record.positions):
+                if on_x:
+                    site_stretch = self._stretch(chrom, pos)
+                    if site_stretch != stretch and site_stretch is not None:
+                        self._enter_stretch(sample_name, chrom=chrom, stretch=site_stretch)
+                        stretch = site_stretch
                 # Swapped where an odd number of the parent's corrections lie at or before
                 # the site, as corrected_genotype_rows swaps the parent's alleles.
                 father_flip = bisect.bisect_right(father_flips, pos) % 2
@@ -676,7 +849,33 @@ class HaplotypeBlockBuilder:
                     paternal_hap=None if paternal == _NO_HAPLOTYPE else str(paternal ^ father_flip),
                     maternal_hap=None if maternal == _NO_HAPLOTYPE else str(maternal ^ mother_flip),
                     ps=record.phase_sets.get(index),
+                    end_limit=stretch[1] if stretch is not None else None,
                 )
+
+    def _enter_stretch(self, sample_name: str, *, chrom: str, stretch: tuple[int, int]) -> None:
+        """A child's transmissions reach another stretch of chrX: its open block ends with
+        its own stretch, and its homologs are read afresh, as on a new chromosome, so none
+        read in a PAR is carried over the X. Outside the PARs a daughter's paternal side is
+        her father's one X: every daughter receives the same one, so it is set, not read,
+        and it does not orient his labels."""
+        state = self.states[sample_name]
+        if (
+            state["chr"] == chrom
+            and state["start"] is not None
+            and self._stretch(chrom, int(state["start"])) == stretch
+        ):
+            return  # its block in this stretch goes on (an unsorted file split the chromosome)
+        self._close_block_outside(sample_name, chrom=chrom, stretch=stretch)
+        side_states = self.side_states[sample_name]
+        side_states["father"] = _empty_segregation_side_state()
+        side_states["mother"] = _empty_segregation_side_state()
+        if (
+            sample_name in self.females
+            and self.father_name in self.males
+            and is_one_copy_x_site(self.assembly_name, chrom, stretch[0])
+        ):
+            side_states["father"]["chr"] = chrom
+            side_states["father"]["hap"] = _FATHER_ONE_X
 
     def _child_switches(
         self, chrom: str, transmissions: dict[str, _ChildTransmissions], side: str
@@ -719,6 +918,7 @@ class HaplotypeBlockBuilder:
         paternal_hap: str | None,
         maternal_hap: str | None,
         ps: int | None,
+        end_limit: int | None = None,
     ) -> None:
         if paternal_hap is None and maternal_hap is None:
             return
@@ -779,6 +979,7 @@ class HaplotypeBlockBuilder:
                 chromosome_sizes=self.chromosome_sizes,
                 metadata_json=self.metadata_json,
                 split_on_haplotype_change=True,
+                end_limit=end_limit,
             )
         state = self.states[sample_name]
         if (

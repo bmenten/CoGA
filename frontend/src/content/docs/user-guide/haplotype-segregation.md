@@ -6,6 +6,9 @@ disease allele, and calls each embryo from it.
 
 - Phased imputed genotypes (GLIMPSE2) for the couple, the embryos and the relatives you want coloured.
 - A correct pedigree, including the grandparents, who anchor the disease haplotype.
+- Every member's sex, recorded before the phased genotypes are imported. On chrX a man has one X
+  outside the pseudo-autosomal regions, and the haplotypes there are built with the sexes recorded
+  at the import: after recording or correcting a sex, import the phased genotypes again.
 - Affected and carrier status on the members that define the disease haplotype.
 - An **inheritance model** (if none is set, CoGA assumes recessive when a member is marked as a carrier,
   otherwise dominant) and a **region of interest** at the disease locus. Without an ROI there are no
