@@ -25,12 +25,12 @@ are also tracked in issue [#518](https://github.com/bmenten/CoGA/issues/518).
 manager · *LD* the laboratory director · *Ops* the operator or organisation admin · *DPO*
 the data protection officer · *RA* regulatory affairs.
 
-**The repository on that date:** 3 open issues (#1, #364, #518) and one open pull request
-besides the one that updates this page, #889 (CLIN-57's warning); no open Dependabot alert
-and one open code-scanning alert, CodeQL's log-injection rule on the account-change log line
-of `routers/auth.py` (SEC-34); twelve required checks on `main`, which requires no approving
-review and no branch to be up to date before it merges; CI green on `main`; no image pushed,
-nothing deployed, no release tagged.
+**The repository on that date:** 3 open issues (#1, #364, #518) and no open pull request
+besides the one that updates this page; no open Dependabot alert and one open code-scanning
+alert, CodeQL's log-injection rule on the account-change log line of `routers/auth.py`
+(SEC-34); twelve required checks on `main`, which requires no approving review and no branch
+to be up to date before it merges; CI green on `main`; no image pushed, nothing deployed, no
+release tagged.
 
 ## Ranked list: P1 and P2
 
@@ -105,8 +105,8 @@ TRGT output and the laboratory's long-read files FMR1 leaves out the AGG interru
 allele reads 1–3 repeats low, so a premutation of 55 can read 53, grey zone), HTT counts one
 CAG more and POLG four flanking GCT copies (its common 10-repeat allele reads 14, #875). The
 owner decided on 2026-10-14 that QA and the laboratory director validate each catalogue
-locus, and that CoGA warns until they have: #889, still open, marks a count within three
-repeats of a boundary at a locus not yet validated, and adds the *Repeat Catalogue* admin
+locus, and that CoGA warns until they have: #889 marks a count within three repeats of a
+boundary at a locus not yet validated, and adds the *Repeat Catalogue* admin
 page that records each locus's validation, audited. **Next:** QA and the laboratory director
 compare CoGA's count with the clinical repeat number on reference samples around every
 boundary and record each locus; CoGA applies the corrections FMR1, HTT and POLG need (no
@@ -474,7 +474,7 @@ per-change approval, and records the first review before the RC tag.
     file stops the backend; every start removes the loci the release does not list; a call
     over no tract or several of a gene reads *not assessed*; REQ-DIAG-004's ✅; whether TF-10
     §8 names the release.
-  - #889 (count units, open): the three-repeat margin at every locus; a validation per
+  - #889 (count units): the three-repeat margin at every locus; a validation per
     catalogue row, recorded by any admin; the FMR1, HTT and POLG texts (CLIN-57).
   - #890 (reference pins): the removed HPO settings are ignored without a warning; no mirror
     can stand in for purl.obolibrary.org; the TF-08 wording and its record of the ClinGen
