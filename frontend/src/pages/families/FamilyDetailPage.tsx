@@ -108,6 +108,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       queryClient.invalidateQueries({ queryKey: ['haplotypes', familyId] }),
       queryClient.invalidateQueries({ queryKey: ['phased-markers', familyId] }),
       queryClient.invalidateQueries({ queryKey: ['genome-haplotypes'] }),
+      queryClient.invalidateQueries({ queryKey: ['pgt-analysis', familyId] }),
     ]);
   const [roiInput, setRoiInput] = useState('');
   const [roiBusy, setRoiBusy] = useState(false);
@@ -396,8 +397,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
       ),
     [data?.members],
   );
-  // Derived embryo segregation at the ROI (carrier/affected/unaffected), shown per
-  // embryo in the Family members table below. Derived from the haplotype analysis.
+  // The embryo calls at the ROI (carrier/affected/unaffected), shown per embryo in the
+  // Family members table below: made by the backend from the haplotype analysis, the calls
+  // a sign-out of the family freezes.
   const phaseCorrections = useMemo(
     () => phaseCorrectionsFromMetadata(data?.metadata as Record<string, unknown> | undefined),
     [data?.metadata],
@@ -1417,10 +1419,10 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           </div>
         )}
         {/* No derived segregation is not "no warnings": the embryos' recombination and
-            uninformative flags come from the same haplotypes (#607, TF-12 U2). */}
+            uninformative flags come with the calls (#607, TF-12 U2). */}
         {segregationFailed ? (
           <QueryFailure
-            what="the haplotypes at the ROI"
+            what="the embryo calls at the ROI"
             onRetry={retrySegregation}
             consequence="The embryos' segregation, and any recombination or uninformative warning, are not shown."
           />
@@ -1709,7 +1711,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                           {segregationFailed && String(displayMember.role || '').toLowerCase() === 'embryo' && (
                             <InfoTip
                               className="segregation-warning"
-                              label="The haplotypes at the ROI could not be loaded: this embryo's segregation, and any recombination or uninformative warning, are unknown."
+                              label="The embryo calls at the ROI could not be loaded: this embryo's segregation, and any recombination or uninformative warning, are unknown."
                             >
                               ⚠ segregation not derived
                             </InfoTip>

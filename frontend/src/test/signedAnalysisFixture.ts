@@ -160,3 +160,73 @@ export const SIGNED_ANALYSIS = {
     ],
   },
 };
+
+// A PGT family's embryo calls at the ROI, as its record freezes them since 2026-10-20
+// (backend/app/services/pgt_analysis.py, the snapshot key pgt_analysis).
+export const SIGNED_PGT_ANALYSIS = {
+  region_of_interest: { query: 'GENE1', label: 'GENE1', source: 'gene', chrom: '7', start: 30500000, end: 30600000 },
+  window: { chrom: '7', start: 29500000, end: 31600000 },
+  inheritance_model: { recorded: null, applied: 'AD', mode: 'dominant' },
+  members: [
+    { sample: 'E1', role: 'embryo', sex: 'female', affected: false, clinical_status: 'unknown', carrier_status: 'unknown', carrier_type: null },
+    { sample: 'E2', role: 'embryo', sex: 'und', affected: false, clinical_status: 'unknown', carrier_status: 'unknown', carrier_type: null },
+    { sample: 'E3', role: 'embryo', sex: 'female', affected: false, clinical_status: 'unknown', carrier_status: 'unknown', carrier_type: null },
+    { sample: 'FATHER', role: 'father', sex: 'male', affected: true, clinical_status: 'affected', carrier_status: 'unknown', carrier_type: null },
+    { sample: 'INDEX', role: 'proband', sex: 'female', affected: true, clinical_status: 'affected', carrier_status: 'unknown', carrier_type: null },
+    { sample: 'MOTHER', role: 'mother', sex: 'female', affected: false, clinical_status: 'unaffected', carrier_status: 'not_carrier', carrier_type: null },
+  ],
+  disease_haplotype_resolved: true,
+  disease_haplotypes: [{ origin: 'paternal', homolog: '1', kind: 'dominant' }],
+  phase_corrections: [
+    { parent: 'FATHER', side: 'father', chr: '7', position: 30400000, end: 30450000, children_switching: 3, children: 3 },
+  ],
+  embryos: [
+    {
+      sample: 'E1',
+      sex: 'female',
+      call: 'affected_or_at_risk',
+      roi_not_covered: false,
+      sex_dependent: null,
+      inherited: [
+        { origin: 'maternal', homolog: '0', start: 29000000, end: 32000000 },
+        { origin: 'paternal', homolog: '1', start: 29000000, end: 32000000 },
+      ],
+      recombinations: [],
+      qc: { informative_sites: 40, mendel_errors: 1, mendel_rate: 0.025, paternal_markers: 22, maternal_markers: 18 },
+    },
+    {
+      sample: 'E2',
+      sex: 'und',
+      call: 'uninformative',
+      roi_not_covered: true,
+      sex_dependent: null,
+      inherited: [],
+      recombinations: [30550000],
+      qc: null,
+    },
+    {
+      sample: 'E3',
+      sex: 'female',
+      call: 'unaffected_non_carrier',
+      roi_not_covered: false,
+      sex_dependent: null,
+      inherited: [
+        { origin: 'maternal', homolog: '1', start: 29000000, end: 32000000 },
+        { origin: 'paternal', homolog: '0', start: 29000000, end: 32000000 },
+      ],
+      recombinations: [],
+      qc: { informative_sites: 38, mendel_errors: 0, mendel_rate: 0, paternal_markers: 20, maternal_markers: 17 },
+    },
+    { call: 'not a call' },
+  ],
+  inputs: {
+    haplotype_sources: [
+      { sample: 'E1', source: 'glimpse2', filename: 'family.vcf.gz', blocks: 30, loaded_at: '2026-10-01T09:00:00+00:00' },
+      { sample: 'FATHER', source: 'glimpse2', filename: 'family.vcf.gz', blocks: 12, loaded_at: '2026-10-01T09:00:00+00:00' },
+    ],
+    blocks_read: 6,
+    blocks_digest: 'abcdef0123456789',
+    markers_truncated: false,
+  },
+  rules: { window_flank: 1000000, recombination_flank: 250000, phase_switch_uncertainty: 2000000 },
+};

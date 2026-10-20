@@ -2129,6 +2129,132 @@ export interface PedUploadResult {
   families: PedFamilyResult[];
 }
 
+/** The PGT analysis at the family's ROI: the disease haplotype and each embryo's call. */
+export interface PgtAnalysisOut {
+  region_of_interest: PgtRegionOfInterestOut | null;
+  window: PgtWindowOut | null;
+  inheritance_model: PgtInheritanceModelOut;
+  members: PgtMemberOut[];
+  disease_haplotype_resolved: boolean;
+  disease_haplotypes: PgtDiseaseHaplotypeOut[];
+  phase_corrections: PgtPhaseCorrectionOut[];
+  embryos: PgtEmbryoOut[];
+  inputs: PgtInputsOut;
+  rules: PgtRulesOut;
+}
+
+/**
+ * A disease haplotype at the ROI: one parental homolog (the track's P1/P2, M1/M2 for
+ * labels 0/1) and the kind of risk it carries.
+ */
+export interface PgtDiseaseHaplotypeOut {
+  origin: "paternal" | "maternal";
+  homolog: string;
+  kind: "dominant" | "recessive-paternal" | "recessive-maternal" | "x-linked";
+}
+
+export interface PgtEmbryoOut {
+  sample: string;
+  sex: string | null;
+  call: "affected_or_at_risk" | "carrier" | "unaffected_non_carrier" | "uninformative" | null;
+  roi_not_covered: boolean;
+  sex_dependent: PgtSexDependentCallOut | null;
+  inherited: PgtInheritedHaplotypeOut[];
+  recombinations: number[];
+  qc: PgtEmbryoQcOut | null;
+}
+
+/** The embryo's phasing QC at the ROI, as the ROI marker review counts it (REQ-PGT-004). */
+export interface PgtEmbryoQcOut {
+  informative_sites: number;
+  mendel_errors: number;
+  mendel_rate: number;
+  paternal_markers: number;
+  maternal_markers: number;
+}
+
+/** A member's stored haplotype blocks: the file they were built from and when. */
+export interface PgtHaplotypeSourceOut {
+  sample: string;
+  source: string;
+  filename: string;
+  blocks: number;
+  loaded_at: string | null;
+}
+
+export interface PgtInheritanceModelOut {
+  recorded: string | null;
+  applied: string;
+  mode: "dominant" | "recessive" | "x_linked_dominant" | "x_linked_recessive" | "unknown";
+}
+
+/** A parental homolog an embryo carries at the ROI, with the extent of its block. */
+export interface PgtInheritedHaplotypeOut {
+  origin: "paternal" | "maternal";
+  homolog: string;
+  start: number;
+  end: number;
+}
+
+export interface PgtInputsOut {
+  haplotype_sources: PgtHaplotypeSourceOut[];
+  blocks_read: number;
+  blocks_digest: string | null;
+  markers_truncated: boolean;
+}
+
+/** A member as the disease-haplotype inference read it: its role, sex and statuses. */
+export interface PgtMemberOut {
+  sample: string;
+  role: string | null;
+  sex: string | null;
+  affected: boolean;
+  clinical_status: string | null;
+  carrier_status: string | null;
+  carrier_type: string | null;
+}
+
+/** A parent's phase switch the haplotype blocks undid, inside or close to the ROI. */
+export interface PgtPhaseCorrectionOut {
+  parent: string;
+  side: "father" | "mother";
+  chr: string;
+  position: number;
+  end: number;
+  children_switching: number;
+  children: number;
+}
+
+/** The family's region of interest, as set on the family page: the embryos are called there. */
+export interface PgtRegionOfInterestOut {
+  query: string;
+  label: string;
+  source: string | null;
+  chrom: string;
+  start: number;
+  end: number;
+}
+
+/** The distances the calls and their warnings were read with (``pgt_embryo_calls``). */
+export interface PgtRulesOut {
+  window_flank: number;
+  recombination_flank: number;
+  phase_switch_uncertainty: number;
+}
+
+/** X-linked recessive, the embryo's sex not recorded: the call a son and a daughter would get. */
+export interface PgtSexDependentCallOut {
+  if_male: "affected_or_at_risk" | "carrier" | "unaffected_non_carrier" | "uninformative";
+  if_female: "affected_or_at_risk" | "carrier" | "unaffected_non_carrier" | "uninformative";
+}
+
+/** The span whose haplotype blocks were read: the ROI and 1 Mb on each side. */
+export interface PgtWindowOut {
+  chrom: string;
+  start: number;
+  end: number;
+}
+
 /**
  * One informative imputed marker (raw call), with the value drawn on each
  * haplotype lane (0/1, null = uninformative):
