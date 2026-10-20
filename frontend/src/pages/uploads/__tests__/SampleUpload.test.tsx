@@ -217,4 +217,104 @@ describe('SampleUpload', () => {
 
     expect(await screen.findByText(/imported 21 trgt repeat loci/i)).toBeInTheDocument();
   });
+
+  // TRACE-9 — a coverage BED declares what it holds. The form asks, with no default that would
+  // pick one: an undeclared BED used to be read as depth while the chart drew it as a log2 ratio.
+  const fillBedUpload = (trackType?: string) => {
+    fireEvent.change(screen.getAllByLabelText(/sample id/i)[1], { target: { value: 'S1' } });
+    if (trackType) fireEvent.change(screen.getByLabelText(/track type/i), { target: { value: trackType } });
+    fireEvent.change(screen.getByLabelText(/bed file/i), {
+      target: { files: [new File(['chrM\t0\t16569\t400\n'], 'S1.coverage.bed', { type: 'text/plain' })] },
+    });
+  };
+
+  it('asks what a coverage BED holds, and uploads nothing until it is chosen', async () => {
+    render(
+      <MemoryRouter>
+        <SampleUpload />
+      </MemoryRouter>,
+    );
+
+    const holds = screen.getByLabelText(/coverage bed holds/i);
+    expect(holds).toHaveValue('');
+    expect(holds).toBeRequired();
+    expect(
+      Array.from((holds as HTMLSelectElement).options).map((option) => [option.value, option.textContent]),
+    ).toEqual([
+      ['', 'Choose…'],
+      ['read_depth', 'Read depth'],
+      ['log2_ratio', 'Log2 ratio'],
+    ]);
+    fillBedUpload();
+    fireEvent.submit(screen.getByRole('button', { name: /upload bed track/i }).closest('form') as HTMLFormElement);
+
+    expect(await screen.findByText('Choose what the coverage BED holds: read depth or log2 ratio.')).toBeInTheDocument();
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  it('uploads a coverage BED with what it holds', async () => {
+    mockedPost.mockResolvedValue({ data: { inserted: 120 } });
+    render(
+      <MemoryRouter>
+        <SampleUpload />
+      </MemoryRouter>,
+    );
+
+    fillBedUpload();
+    fireEvent.change(screen.getByLabelText(/coverage bed holds/i), { target: { value: 'read_depth' } });
+    fireEvent.click(screen.getByRole('button', { name: /upload bed track/i }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/bed/upload/S1/coverage',
+        expect.any(FormData),
+        expect.objectContaining({ params: { overwrite: false, content: 'read_depth' } }),
+      ),
+    );
+    expect(await screen.findByText('Uploaded 120 coverage record(s) declared as read depth.')).toBeInTheDocument();
+  });
+
+  it('replaces a coverage BED on confirm, with what it holds', async () => {
+    mockedPost
+      .mockRejectedValueOnce({ response: { status: 409, data: { detail: 'BED data already exists for this sample' } } })
+      .mockResolvedValueOnce({ data: { inserted: 120 } });
+    render(
+      <MemoryRouter>
+        <SampleUpload />
+      </MemoryRouter>,
+    );
+
+    fillBedUpload();
+    fireEvent.change(screen.getByLabelText(/coverage bed holds/i), { target: { value: 'log2_ratio' } });
+    fireEvent.click(screen.getByRole('button', { name: /upload bed track/i }));
+
+    expect(await screen.findByText('Replaced 120 coverage record(s) declared as log2 ratio.')).toBeInTheDocument();
+    expect(mockedPost).toHaveBeenLastCalledWith(
+      '/bed/upload/S1/coverage',
+      expect.any(FormData),
+      expect.objectContaining({ params: { overwrite: true, content: 'log2_ratio' } }),
+    );
+  });
+
+  it('asks nothing of another track type, and sends no content for it', async () => {
+    mockedPost.mockResolvedValue({ data: { inserted: 4 } });
+    render(
+      <MemoryRouter>
+        <SampleUpload />
+      </MemoryRouter>,
+    );
+
+    fillBedUpload('segments');
+    expect(screen.queryByLabelText(/coverage bed holds/i)).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /upload bed track/i }));
+
+    await waitFor(() =>
+      expect(api.post).toHaveBeenCalledWith(
+        '/bed/upload/S1/segments',
+        expect.any(FormData),
+        expect.objectContaining({ params: { overwrite: false } }),
+      ),
+    );
+    expect(await screen.findByText('Uploaded 4 segments record(s).')).toBeInTheDocument();
+  });
 });

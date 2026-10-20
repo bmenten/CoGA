@@ -253,9 +253,11 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
         async def upload(name: str, bed_type: str, body: bytes, *, overwrite: bool) -> None:
+            # A coverage BED declares what it holds (TRACE-9): these hold log2 ratios.
+            declared = {"content": "log2_ratio"} if bed_type == "coverage" else {}
             response = await ac.post(
                 f"/api/bed/upload/{sample}/{bed_type}",
-                params={"overwrite": str(overwrite).lower()},
+                params={"overwrite": str(overwrite).lower(), **declared},
                 files={"file": (f"{name}.bed", body, "text/plain")},
             )
             out["steps"][name] = {

@@ -151,9 +151,17 @@ class TrackAvailabilityOut(BaseModel):
     # the import put them through (`sample_interval_track_sources.metadata.normalization`):
     # `log2_ratio_to_autosomal_median`, or `none` for HiFiCNV depths stored as read because
     # the sample had no usable autosomal median. A caller whose records name none is not
-    # listed: its values are its file's. The views draw a coverage track on their
-    # log2-ratio axis only when its values are a log2 ratio.
+    # listed: its values are its file's.
     coverage_normalizations: Dict[str, List[str]] = Field(default_factory=dict)
+    # What each caller's coverage track holds, by the rule the depth readers read it by
+    # (`coverage_read_depth.coverage_track_content`, TRACE-9): `read_depth`, `log2_ratio` or
+    # `unknown`. A coverage BED (`web`) holds what it declared when it was loaded (its
+    # record's `content`), `unknown` when it declared nothing; another caller's track what
+    # its transform made of its file. The views draw a track of read depth on a depth axis,
+    # a log2 ratio on their log2-ratio axis, and an unknown one on neither, with a note.
+    coverage_contents: Dict[str, Literal["read_depth", "log2_ratio", "unknown"]] = Field(
+        default_factory=dict
+    )
     # Which callers wrote the APCAD track. It holds parent-of-origin markers (0-1)
     # for a phased trio and folded minor allele fraction (0-0.5) from a depth
     # caller's bigWig; the two need different axes.

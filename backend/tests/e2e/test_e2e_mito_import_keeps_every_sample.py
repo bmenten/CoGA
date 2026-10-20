@@ -17,8 +17,15 @@ The family here is its own (a new id each run), so the golden trio is never touc
   (the maternal-lineage check of the Sample QC review compares them; the import used to
   close the annotation before it read the haplogroup, so none was ever shown);
 * a second import in ``overwrite`` mode brings a new proband file and an empty father
-  file: the proband's calls are replaced, the father's are removed (his new callset has
-  none) and the mother's stay exactly as stored.
+  file (its header alone). A chrM VCF without a variant record is a failed analysis (the
+  owner's decision, SAFE-29): the dataset fails before any call is replaced, and every
+  sample's calls and chrM SVs stay as stored (before: the father's calls were removed, the
+  dataset imported);
+* a third import in ``overwrite`` mode brings the new proband file alone: the proband's calls
+  are replaced and the mother's and the father's stay exactly as stored;
+* a new family's package with the mother's chrM VCF, the father's empty one and the mother's
+  coverage BED: the mito dataset fails, with none of its calls stored, the coverage imports,
+  and the family is flagged import-incomplete for ``mito``.
 
 Everything runs in ONE event loop, with an in-process ``httpx.ASGITransport`` client for
 the API (see test_e2e_api_contract.py for why).
@@ -126,9 +133,11 @@ def _write_package(
     files: dict[str, str],
     annotations: dict[str, str] | None = None,
     sv_files: dict[str, str] | None = None,
+    coverage: dict[str, str] | None = None,
 ) -> None:
     """A package with the trio's PED and a ``mito`` dataset of ``files`` (sample -> VCF),
-    with the mutserve ``annotations`` given (sample -> TSV)."""
+    with the mutserve ``annotations`` given (sample -> TSV), and a ``coverage`` dataset of
+    the BEDs of read depth given (sample -> BED)."""
     father, mother, proband = (f"{role}_{family_id}" for role in ("FATHER", "MOTHER", "PROBAND"))
     root.mkdir(parents=True)
     (root / "family.ped").write_text(
@@ -156,6 +165,12 @@ def _write_package(
             (root / "mito" / f"{sample_id}_sv.vcf").write_text(sv_files[sample_id], encoding="utf-8")
             entry += f", sv_vcf: mito/{sample_id}_sv.vcf"
         lines.append(f"      {sample_id}: {{{entry}}}")
+    if coverage:
+        (root / "coverage").mkdir()
+        lines += ["  coverage:", "    per_sample:"]
+        for sample_id, bed in coverage.items():
+            (root / "coverage" / f"{sample_id}.bed").write_text(bed, encoding="utf-8")
+            lines.append(f"      {sample_id}: {{bed: coverage/{sample_id}.bed, content: read_depth}}")
     (root / "manifest.yaml").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -245,8 +260,24 @@ async def _exercise(base: Path, family_id: str) -> dict:
             "completed": result.completed,
             "error": result.error,
             "mito_status": mito.status if mito else None,
+            "mito_message": mito.message if mito else None,
             "mito_summary": mito.summary if mito else None,
+            "statuses": {d.dataset_type: d.status for d in result.datasets},
         }
+
+    async def family_state(family_id: str) -> dict:
+        """The family's id and its import-incomplete flag, or {} when it was not stored."""
+        async with sessionmaker() as session:
+            row = (
+                await session.execute(
+                    text(
+                        "SELECT id::text AS uuid, metadata -> 'import_incomplete' AS flag "
+                        "FROM families WHERE family_id = :f"
+                    ),
+                    {"f": family_id},
+                )
+            ).mappings().first()
+        return dict(row) if row is not None else {}
 
     out: dict = {"samples": {"father": father, "mother": mother, "proband": proband}}
 
@@ -287,8 +318,32 @@ async def _exercise(base: Path, family_id: str) -> dict:
     out["second"] = await run_import(second, "overwrite")
     out["rows_after_second"] = await _mito_rows(family_uuid)
     out["sv_after_second"] = await _mito_sv_calls(family_uuid)
+    out["state_after_second"] = await family_state(family_id)
+
+    third = base / "third" / family_id
+    _write_package(third, family_id, {proband: _PROBAND_V2}, sv_files={proband: _PROBAND_SV_V2})
+    out["third"] = await run_import(third, "overwrite")
+    out["rows_after_third"] = await _mito_rows(family_uuid)
+    out["sv_after_third"] = await _mito_sv_calls(family_uuid)
     await _merge_parts()
-    out["rows_after_second_merge"] = await _mito_rows(family_uuid)
+    out["rows_after_third_merge"] = await _mito_rows(family_uuid)
+
+    # A new family: the mother's calls, the father's empty file, and the mother's coverage BED.
+    other_id = f"{family_id}_NEW"
+    other_father, other_mother = (f"{role}_{other_id}" for role in ("FATHER", "MOTHER"))
+    fourth = base / "fourth" / other_id
+    _write_package(
+        fourth,
+        other_id,
+        {other_mother: _MOTHER, other_father: _EMPTY},
+        coverage={other_mother: "chrM\t0\t16569\t480\n"},
+    )
+    out["fourth"] = await run_import(fourth, "cancel")
+    out["new_family"] = await family_state(other_id)
+    out["new_family_rows"] = (
+        await _mito_rows(out["new_family"]["uuid"]) if out["new_family"] else None
+    )
+    out["new_family_samples"] = {"father": other_father, "mother": other_mother}
     return out
 
 
@@ -299,7 +354,11 @@ def run(tmp_path_factory) -> dict:
 
     base = tmp_path_factory.mktemp("mito_import")
     mp = pytest.MonkeyPatch()
-    mp.setattr(settings, "family_import_roots", [str(base / "first"), str(base / "second")])
+    mp.setattr(
+        settings,
+        "family_import_roots",
+        [str(base / folder) for folder in ("first", "second", "third", "fourth")],
+    )
     try:
         return _harness.run_async(lambda: _exercise(base, f"MITO_{uuid4().hex[:8].upper()}"))
     finally:
@@ -369,26 +428,48 @@ def test_mtdna_workspace_shows_each_samples_haplogroup(run) -> None:
     assert "No per-sample mtDNA haplogroup metadata is available." not in mtdna["json"]["qc_notes"]
 
 
-def test_reimport_replaces_only_the_imported_samples_calls(run) -> None:
+def test_an_empty_chrm_vcf_fails_the_dataset_and_keeps_every_samples_calls(run) -> None:
     second = run["second"]
-    assert second["completed"] is True, second
-    assert second["mito_status"] == "imported", second
+    father = run["samples"]["father"]
+    # The owner's decision (SAFE-29): a chrM VCF without a variant record is a failed analysis.
+    # Before: the import completed, the father's two stored calls were removed ("No chrM
+    # variants called") and the proband's replaced.
+    assert second["completed"] is False, second
+    assert second["mito_status"] == "failed", second
+    assert f"the chrM VCF of {father} ({father}.vcf) holds no variant record" in second["mito_message"]
+    assert "No mitochondrial call was replaced" in second["mito_message"]
+    # Read before any sample's calls were replaced: every call and chrM SV as stored.
+    assert _duplicate_keys(run["rows_after_second"]) == []
+    assert _calls(run["rows_after_second"]) == _after_first(run["samples"])
+    assert run["sv_after_second"] == run["sv_after_first"]
+
+
+def test_reimport_replaces_only_the_imported_samples_calls(run) -> None:
+    third = run["third"]
+    assert third["completed"] is True, third
+    assert third["mito_status"] == "imported", third
     mother, proband, father = (run["samples"][role] for role in ("mother", "proband", "father"))
-    # The father's new file holds no call: his two stored calls are removed.
-    assert second["mito_summary"][father] == {
-        "inserted": 0,
-        "removed": 2,
-        "message": "No chrM variants called",
-    }
+    # The proband's new file replaces his calls; the mother's and the father's stay as stored.
     expected = {
-        "M-73-A-G": {mother: ("1/1", 1.0), proband: ("1/1", 1.0)},
+        "M-73-A-G": {mother: ("1/1", 1.0), proband: ("1/1", 1.0), father: ("1/1", 1.0)},
+        "M-263-A-G": {father: ("1/1", 1.0)},
         "M-3243-A-G": {mother: ("0/1", 0.15), proband: ("0/1", 0.5)},
         "M-10000-G-A": {proband: ("0/1", 0.2)},
         "M-16519-T-C": {mother: ("1/1", 1.0)},
     }
-    for rows in (run["rows_after_second"], run["rows_after_second_merge"]):
+    for rows in (run["rows_after_third"], run["rows_after_third_merge"]):
         assert _duplicate_keys(rows) == []
         assert _calls(rows) == expected
+
+
+def test_an_empty_chrm_vcf_flags_the_family_import_incomplete_for_mito(run) -> None:
+    fourth = run["fourth"]
+    # The mito dataset failed and the coverage imported: the family is kept, flagged for mito.
+    assert fourth["completed"] is False, fourth
+    assert fourth["statuses"]["mito"] == "failed" and fourth["statuses"]["coverage"] == "imported", fourth
+    assert run["new_family"]["flag"]["failed_datasets"] == ["mito"], run["new_family"]
+    # Refused before any of its files was written: not even the mother's calls are stored.
+    assert run["new_family_rows"] == []
 
 
 # The chrM SV files were found and validated but never read: a large heteroplasmic mtDNA
@@ -414,4 +495,4 @@ def test_mtdna_workspace_shows_the_chrm_deletion_with_each_heteroplasmy(run) -> 
 
 def test_a_chrm_sv_reimport_replaces_only_the_samples_it_brings(run) -> None:
     mother, proband = run["samples"]["mother"], run["samples"]["proband"]
-    assert run["sv_after_second"] == {(8470, 13447): {mother}, (10000, 12000): {proband}}
+    assert run["sv_after_third"] == {(8470, 13447): {mother}, (10000, 12000): {proband}}
