@@ -16,7 +16,11 @@ API, this:
   classifies it, the de novo candidate's triage, the inputs), a verified content hash and
   chain, and a check that matches with nothing it does not compare;
 * signs out once more as a build from before the NIPT section (its key left out) and shows
-  that record still verifies and reads, and that the check names ``nipt`` as not compared.
+  that record still verifies and reads, and that the check names ``nipt`` as not compared;
+* asks the sign-out as a reader in the family's project (SEC-1), the account made for the run
+  and removed at its end: the family reads as read-only to them, which both pages that sign it
+  out (the NIPT page and the report) disable the sign-out by, and the server refuses theirs
+  with 403, signing nothing.
 
 CI runs every e2e module in one process on one database. The artifact list and the de novo
 recurrence are shared by every cfDNA sample of an assay, and other modules import the same
@@ -49,6 +53,11 @@ _TOKENS = ("FAM_NIPT_DEMO", "FATHER_NIPT", "CFDNA_NIPT", "FETUS_NIPT")
 DE_NOVO = "1-1001-A-G"  # GENE_DENOVO, category 1, in the fetal window
 PATERNAL = "1-10000-A-G"  # a paternal allele the fetus inherited, category 7
 ARTIFACT = "1-9501-A-G"  # the demo's recurrent artifact (EXP_CAT=ARTIFACT), in the plasma only
+# What the server answers a reader's change (SEC-1, access_control.require_change_access).
+READ_ONLY = (
+    "Read-only access: you are a reader in this project, so you can view and export its records "
+    "but not change them."
+)
 SIGN_OUT_BODY = {
     "acknowledge_drift": True,
     "drift_acknowledgement_reason": "e2e: the reported variants hold no ACMG classification",
@@ -93,7 +102,74 @@ async def _import_demo(root: Path) -> dict:
         "error": result.error,
         "dataset_status": {dataset.dataset_type: dataset.status for dataset in result.datasets},
         "assembly_id": assembly_id,
+        "project_id": project_id,
     }
+
+
+async def _add_reader(project_id: str, email: str) -> tuple[str, str]:
+    """An account that reads the family's project only (SEC-1): its id, and a bearer the app
+    issues for it. It signs in with no password: the bearer is made as a sign-in makes one."""
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.dependencies import create_access_token
+
+    async with get_postgres_sessionmaker()() as session:
+        user_id = (
+            await session.execute(
+                text(
+                    """
+                    INSERT INTO users (username, hashed_password, role, email)
+                    VALUES (:email, :marker, 'viewer', :email)
+                    RETURNING id::text
+                    """
+                ),
+                # No bcrypt hash: no password signs this account in.
+                {"email": email, "marker": "!e2e-no-local-sign-in"},
+            )
+        ).scalar_one()
+        await session.execute(
+            text(
+                """
+                INSERT INTO project_users (project_id, user_id, access_level)
+                VALUES (CAST(:project_id AS uuid), CAST(:user_id AS uuid), 'reader')
+                """
+            ),
+            {"project_id": project_id, "user_id": user_id},
+        )
+        await session.commit()
+    return user_id, create_access_token({"sub": email})
+
+
+async def _remove_user(user_id: str) -> None:
+    """The run's reader removed, with their membership (ON DELETE CASCADE)."""
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker
+
+    async with get_postgres_sessionmaker()() as session:
+        await session.execute(text("DELETE FROM users WHERE id = CAST(:id AS uuid)"), {"id": user_id})
+        await session.commit()
+
+
+async def _signed_versions(family_id: str) -> int:
+    from sqlalchemy import text
+
+    from backend.app.core.postgres import get_postgres_sessionmaker
+
+    async with get_postgres_sessionmaker()() as session:
+        return (
+            await session.execute(
+                text(
+                    """
+                    SELECT count(*) FROM report_signouts s
+                    JOIN families f ON f.id = s.family_id
+                    WHERE f.family_id = :family_id
+                    """
+                ),
+                {"family_id": family_id},
+            )
+        ).scalar_one()
 
 
 def _prepare_copy(parent: Path) -> dict[str, str]:
@@ -140,14 +216,24 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
             await ac.post("/api/admin/nipt/artifacts", json={**scope, "variant_id": ARTIFACT, "label": "e2e recurrent artifact"})
         )
         artifact_id = (r["artifact_added"]["json"] or {}).get("id")
+        reader_id = None
         try:
             r["artifacts"] = _cap(await ac.get("/api/admin/nipt/artifacts", params=scope))
             await _sign_out_and_read(ac, r, family, family_id, rss)
+
+            # A reader in the family's project: the same sign-out, the one the NIPT page sends.
+            reader_id, bearer = await _add_reader(out["import"]["project_id"], f"{panel}-reader@example.org")
+            as_reader = {"Authorization": f"Bearer {bearer}"}
+            r["reader_family"] = _cap(await ac.get(family, headers=as_reader))
+            r["reader_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY, headers=as_reader))
+            out["versions_after_reader"] = await _signed_versions(family_id)
         finally:
-            # Nothing left in a scope another module could read.
+            # Nothing left in a scope another module could read, and no account.
             if artifact_id:
                 r["artifact_deleted"] = _cap(await ac.delete(f"/api/admin/nipt/artifacts/{artifact_id}"))
             r["artifacts_after"] = _cap(await ac.get("/api/admin/nipt/artifacts", params=scope))
+            if reader_id:
+                await _remove_user(reader_id)
     return out
 
 
@@ -309,6 +395,16 @@ def test_the_record_holds_the_artifact_list_the_analysis_applied(signed) -> None
     # and the family's annotation protects none of it.
     assert frozen["removed"] == _ok(signed, "summary")["filter_counts"]["failed_artifact"] == 1
     assert frozen["kept"] == []
+
+
+def test_a_reader_is_refused_the_nipt_sign_out(signed) -> None:
+    # The family reads as read-only to them: what the NIPT page and the report disable the
+    # sign-out by (SEC-1).
+    assert _ok(signed, "reader_family")["read_only"] is True
+    refused = signed["responses"]["reader_signout"]
+    assert (refused["status"], refused["json"]) == (403, {"detail": READ_ONLY}), refused["text"]
+    # Nothing signed: the family holds the analyst's versions only.
+    assert signed["versions_after_reader"] == _ok(signed, "final_signout")["version"]
 
 
 def test_the_run_leaves_no_artifact_behind(signed) -> None:

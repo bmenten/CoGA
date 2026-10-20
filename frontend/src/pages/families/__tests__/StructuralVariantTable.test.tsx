@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import StructuralVariantTable, { formatStructuralLength } from '../StructuralVariantTable';
+import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type { StructuralVariant } from '../structuralVariantSearch';
 import type { SmallVariantTagDefinition } from '../smallVariantSearch';
 
@@ -202,6 +203,37 @@ describe('StructuralVariantTable', () => {
       </MemoryRouter>,
     );
     expect(screen.getByRole('button', { name: 'Review' })).toBeDisabled();
+  });
+
+  it('leaves the quick tags off for a reader in the family’s projects (SEC-1)', () => {
+    const onToggleReviewTag = vi.fn(async () => undefined);
+    render(
+      <FamilyReadOnlyContext.Provider value>
+        <MemoryRouter>
+          <StructuralVariantTable
+            familyId="F1"
+            linkSearch=""
+            members={[]}
+            variants={[sv({ review: { tags: ['report'] } as StructuralVariant['review'] })]}
+            sortKey="start"
+            sortAsc
+            visible={ALL_COLUMNS}
+            tags={TAGS}
+            onSort={vi.fn()}
+            onToggleReviewTag={onToggleReviewTag}
+          />
+        </MemoryRouter>
+      </FamilyReadOnlyContext.Provider>,
+    );
+    for (const name of ['Review', 'Exclude', 'Report']) {
+      const button = screen.getByRole('button', { name });
+      expect(button).toBeDisabled();
+      expect(button).toHaveAttribute('title', expect.stringMatching(/you are a reader in this family/));
+    }
+    // What the review holds is still shown.
+    expect(screen.getByRole('button', { name: 'Report' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Exclude' }));
+    expect(onToggleReviewTag).not.toHaveBeenCalled();
   });
 
   it('greys out an excluded SV and shows its other tags, classification and note', () => {

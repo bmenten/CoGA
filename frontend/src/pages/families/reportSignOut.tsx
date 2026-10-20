@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
+import { READ_ONLY_HINT } from '../../lib/familyAccess';
 import ModalDialog from '../../components/ModalDialog';
 import {
   failuresByJob,
@@ -25,17 +26,48 @@ export interface ReportSignOut {
   dialogs: React.ReactNode;
 }
 
+/** What decides whether a page offers the sign-out (`signOutRefusal`). */
+export interface SignOutOffer {
+  /** The family is read-only for the signed-in user: a reader in its project (SEC-1). */
+  readOnly: boolean;
+  /** False off the validated assembly scope; null or undefined while it is not known. */
+  assemblyValidated: boolean | null | undefined;
+  signoutsFailed: boolean;
+  signoutsPending: boolean;
+}
+
+/**
+ * Why a page does not offer the sign-out, or null when it does; the button is disabled with
+ * this as its reason. The live report and the NIPT page both read it, so a family is offered
+ * the sign-out alike on both: never to a reader in its project, who signs nothing out (SEC-1;
+ * the server refuses them with 403); never off the validated assembly scope, which the server
+ * refuses anyway (#515); and not while the sign-out record is unknown, as the analysis may be
+ * signed already (#605). ``subject`` names what is signed out: the report, or the NIPT
+ * analysis.
+ */
+export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysis'): string | null => {
+  if (offer.readOnly) return READ_ONLY_HINT;
+  if (offer.assemblyValidated === false) {
+    return `Not validated for clinical use — this ${subject} cannot be signed out`;
+  }
+  if (offer.signoutsFailed) return 'The sign-out record could not be loaded';
+  if (offer.signoutsPending) return 'The sign-out record is still loading';
+  return null;
+};
+
 /**
  * The family sign-out (`POST /families/{family_id}/report/sign-out`) with its gates: the
  * live report signs a family out with it, and the NIPT page a monogenic NIPT family, so both
  * sign out through one flow, one record per analysis. A gate that refuses opens its dialog,
  * acknowledged with a reason that is frozen into the signed record; one that cannot be
  * acknowledged (the assembly scope, data being written) is said in `error`. ``onSigned`` is
- * given the new version.
+ * given the new version. For a reader in the family's project (``readOnly``) it sends
+ * nothing, whatever calls it: a reader signs nothing out (SEC-1).
  */
 export const useReportSignOut = (
   familyId: string | undefined,
   onSigned: (version: number) => void,
+  { readOnly }: { readOnly: boolean },
 ): ReportSignOut => {
   const queryClient = useQueryClient();
 
@@ -209,12 +241,16 @@ export const useReportSignOut = (
     }
   };
 
-  const handleSignOut = () =>
-    attemptSignOut({
+  const handleSignOut = () => {
+    if (readOnly) {
+      return;
+    }
+    void attemptSignOut({
       acknowledgeDrift: false,
       acknowledgeQc: false,
       acknowledgeImportIncomplete: false,
     });
+  };
 
   const submitDriftAcknowledgement = async () => {
     const reason = driftReason.trim();

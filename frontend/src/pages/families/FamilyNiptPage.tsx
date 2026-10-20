@@ -50,7 +50,7 @@ import NiptTargetCoverage from './NiptTargetCoverage';
 import VariantResultsLoading from './VariantResultsLoading';
 import { apiPath } from '../../lib/apiPath';
 import NiptCoverageNotes from './NiptCoverageNotes';
-import { useReportSignOut } from './reportSignOut';
+import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import { useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
 import {
   describeReportSections,
@@ -413,8 +413,11 @@ const FamilyNiptPage: React.FC = () => {
     isPending: signOutPending,
     error: signOutError,
     dialogs: signOutDialogs,
-  } = useReportSignOut(familyId, (version) =>
-    navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
+  } = useReportSignOut(
+    familyId,
+    (version) => navigate(signedVersionLink(version), { state: { signedOut: { version } } }),
+    // A reader in the family's project signs nothing out (SEC-1).
+    { readOnly: Boolean(family?.read_only) },
   );
 
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
@@ -495,6 +498,10 @@ const FamilyNiptPage: React.FC = () => {
   const coverageLinkState = { from: `${location.pathname}${location.search}` };
   // Whether the family's data still matches the latest signed version (sign-out-check), read
   // as the live reports read it.
+  const signOutBlocked = signOutRefusal(
+    { readOnly: Boolean(family?.read_only), assemblyValidated, signoutsFailed, signoutsPending },
+    'analysis',
+  );
   const signoutCheckState = liveReportSignedState({
     signoutsFailed,
     signoutsPending,
@@ -558,20 +565,10 @@ const FamilyNiptPage: React.FC = () => {
                   type="button"
                   className="form-button"
                   onClick={signOut}
-                  // Off the validated scope the server refuses anyway; nor is it offered while
-                  // the sign-out record is unknown: the analysis may be signed already.
-                  disabled={
-                    signOutPending || assemblyValidated === false || signoutsFailed || signoutsPending
-                  }
-                  title={
-                    assemblyValidated === false
-                      ? 'Not validated for clinical use — this analysis cannot be signed out'
-                      : signoutsFailed
-                        ? 'The sign-out record could not be loaded'
-                        : signoutsPending
-                          ? 'The sign-out record is still loading'
-                          : undefined
-                  }
+                  // As on the report page: not to a reader (SEC-1), nor off the validated scope,
+                  // nor while the sign-out record is unknown (the analysis may be signed already).
+                  disabled={signOutPending || signOutBlocked !== null}
+                  title={signOutBlocked ?? undefined}
                 >
                   {signOutPending
                     ? 'Signing out…'
@@ -763,6 +760,7 @@ const FamilyNiptPage: React.FC = () => {
           totalPages={pageCount}
           tags={tags}
           showCsvExport={false}
+          readOnly={Boolean(family?.read_only)}
           reviewIsPending={reviewMutation.isPending}
           reviewError={
             reviewMutation.isError

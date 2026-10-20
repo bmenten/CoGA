@@ -4,6 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import FamilyNiptPage from '../FamilyNiptPage';
+import { READ_ONLY_HINT } from '../../../lib/familyAccess';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import {
   INCOMPLETE_IMPORT_METADATA,
@@ -442,10 +443,12 @@ describe('FamilyNiptPage', () => {
       latest = null,
       changed = null,
       projects,
+      readOnly = false,
     }: {
       latest?: typeof LATEST | null;
       changed?: string[] | null;
       projects?: unknown[];
+      readOnly?: boolean;
     } = {}) =>
       apiMock.get.mockImplementation((url: string) => {
         if (url === '/families/NIPT001') {
@@ -455,6 +458,7 @@ describe('FamilyNiptPage', () => {
               members: [],
               projects: projects ? ['p1'] : [],
               metadata: { analysis_type: 'monogenic_nipt' },
+              read_only: readOnly,
             },
           });
         }
@@ -592,6 +596,22 @@ describe('FamilyNiptPage', () => {
         'href',
         '/families/NIPT001/report?version=2',
       );
+    });
+
+    // SEC-1: a reader in the family's project reads the NIPT analysis and whether it was signed
+    // out, but signs nothing out: the button is disabled with the reason the report page gives.
+    it('offers a reader no sign-out, says why, and sends none', async () => {
+      serve({ readOnly: true });
+      renderWithReport();
+
+      const sign = await screen.findByRole('button', { name: 'Sign out NIPT analysis' });
+      await waitFor(() => expect(sign).toBeDisabled());
+      expect(sign).toHaveAttribute('title', READ_ONLY_HINT);
+      fireEvent.click(sign);
+      expect(screen.getByRole('region', { name: 'Sign-out' })).toHaveTextContent(
+        'This NIPT analysis has not been signed out.',
+      );
+      expect(apiMock.post).not.toHaveBeenCalled();
     });
 
     it('offers no sign-out off the validated assembly scope', async () => {

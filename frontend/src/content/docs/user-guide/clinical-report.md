@@ -20,8 +20,9 @@ and refers to exactly one signed version: the one it rests on.
   a new ClinVar significance, a new REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), a new
   consequence or LoF call (*LoF LC → HC*), a new missense Z for a missense variant's gene, or a
   structural variant that now overlaps other genes. Re-review those variants.
-- The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can
-  never be changed or deleted. It opens on the 200 most recent entries; when there are more, it says
+- The **Classification audit trail**: who classified, tagged or annotated what, and who changed the
+  family's phenotypes, and when. Entries can never be changed or deleted. It is for analysts and
+  administrators: a reader of the family's project sees, on screen and in print, that it is not shown. It opens on the 200 most recent entries; when there are more, it says
   how many it shows, and **Show older events** loads the next 200. A printout that shows only part of
   the trail says so.
 - The **Analysis pipeline settings** recorded at import.
@@ -67,8 +68,8 @@ the version you signed and its report code: quote that code in the EPD report. A
 refused as a typo, never taken for another record's. **Report codes** in the main menu finds the
 signed version a code names.
 
-> **Only people the laboratory authorises sign out.** CoGA lets any project member press **Sign out
-> report** and does not check that authority. The laboratory decides who may sign out an analysis;
+> **Only people the laboratory authorises sign out.** CoGA lets any analyst of the family's project
+> press **Sign out report**, not a reader, and does not check that authority further. The laboratory decides who may sign out an analysis;
 > CoGA records who did. The medical sign-off is given in the EPD.
 
 ### Is this the signed report?

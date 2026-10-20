@@ -14,6 +14,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { formatShortDate } from '../../lib/format';
 import { apiPath } from '../../lib/apiPath';
 import { userAccountsQuery } from '../../lib/users';
+import { memberAccessLevel, type ProjectAccessLevel } from '../../lib/familyAccess';
 import QueryFailure from '../../components/QueryFailure';
 
 type Project = ApiProjectRecord<ApiFamilyBase<ApiFamilyMemberRef>>;
@@ -27,6 +28,8 @@ interface ProjectFormState {
   speciesId: string;
   assemblyId: string;
   userIds: string[];
+  // The members among userIds who are readers; the others are analysts (SEC-1).
+  readerIds: string[];
 }
 
 interface PageStatus {
@@ -42,6 +45,7 @@ const EMPTY_FORM: ProjectFormState = {
   speciesId: '',
   assemblyId: '',
   userIds: [],
+  readerIds: [],
 };
 
 const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
@@ -76,6 +80,55 @@ const getUserLabel = (user: User) => {
   const displayName = `${user.first_name ?? ''} ${user.last_name ?? ''}`.trim();
   return displayName ? `${displayName} · ${user.email}` : user.email;
 };
+
+// "3", or "3 (1 reader)" when some members only read the project's records.
+const memberCountLabel = (project: Project) => {
+  const members = project.user_ids?.length ?? 0;
+  const readers = project.reader_user_ids?.length ?? 0;
+  return readers ? `${members} (${pluralize(readers, 'reader')})` : `${members}`;
+};
+
+// What the project body says of a member's level.
+const memberLevels = (form: ProjectFormState) => ({
+  user_ids: form.userIds,
+  reader_user_ids: form.readerIds.filter((userId) => form.userIds.includes(userId)),
+});
+
+/**
+ * Who may open the project, and what each member may do in it (SEC-1): an analyst reads and
+ * changes its records, a reader only reads them. An administrator has every right in every
+ * project and needs no membership.
+ */
+const ProjectMemberPicker: React.FC<{
+  users: User[];
+  form: ProjectFormState;
+  onToggle: (userId: string) => void;
+  onLevel: (userId: string, level: ProjectAccessLevel) => void;
+}> = ({ users, form, onToggle, onLevel }) => (
+  <div className="table-checkbox-grid project-access-grid">
+    {users.map((user) => {
+      const member = form.userIds.includes(user.id);
+      return (
+        <div key={user.id} className="project-member-row">
+          <label className="admin-project-chip">
+            <input type="checkbox" checked={member} onChange={() => onToggle(user.id)} />
+            <span>{getUserLabel(user)}</span>
+          </label>
+          {member ? (
+            <select
+              aria-label={`Access level of ${user.email}`}
+              value={memberAccessLevel(form.readerIds, user.id)}
+              onChange={(event) => onLevel(user.id, event.target.value as ProjectAccessLevel)}
+            >
+              <option value="analyst">Analyst (read and change)</option>
+              <option value="reader">Reader (read only)</option>
+            </select>
+          ) : null}
+        </div>
+      );
+    })}
+  </div>
+);
 
 const uploadedDateMs = (family: Project['families'][number]) => {
   const timestamp = family.created_at ? Date.parse(family.created_at) : 0;
@@ -216,6 +269,7 @@ const ProjectsPage: React.FC = () => {
       speciesId: selectedProject.species_id ?? '',
       assemblyId: selectedProject.assembly_id ?? '',
       userIds: selectedProject.user_ids ?? [],
+      readerIds: selectedProject.reader_user_ids ?? [],
     });
   }, [selectedProject]);
 
@@ -255,6 +309,22 @@ const ProjectsPage: React.FC = () => {
       userIds: current.userIds.includes(userId)
         ? current.userIds.filter((value) => value !== userId)
         : [...current.userIds, userId],
+      // A member removed is no reader; one added starts as an analyst.
+      readerIds: current.readerIds.filter((value) => value !== userId),
+    }));
+  };
+
+  const setUserLevel = (
+    setForm: React.Dispatch<React.SetStateAction<ProjectFormState>>,
+    userId: string,
+    level: ProjectAccessLevel,
+  ) => {
+    setForm((current) => ({
+      ...current,
+      readerIds:
+        level === 'reader'
+          ? Array.from(new Set([...current.readerIds, userId]))
+          : current.readerIds.filter((value) => value !== userId),
     }));
   };
 
@@ -268,7 +338,7 @@ const ProjectsPage: React.FC = () => {
         description: createForm.description,
         species_id: createForm.speciesId,
         assembly_id: createForm.assemblyId,
-        user_ids: createForm.userIds,
+        ...memberLevels(createForm),
       });
       setCreateForm(EMPTY_FORM);
       setCreateFormOpen(false);
@@ -291,7 +361,7 @@ const ProjectsPage: React.FC = () => {
         description: editForm.description,
         species_id: editForm.speciesId,
         assembly_id: editForm.assemblyId,
-        user_ids: editForm.userIds,
+        ...memberLevels(editForm),
       });
       await refetchProjects();
       setStatus({ tone: 'success', message: `Saved ${selectedProject.name}.` });
@@ -452,20 +522,16 @@ const ProjectsPage: React.FC = () => {
                   <p className="eyebrow-label">Initial access</p>
                   <p className="catalog-card-copy">
                     Leave this empty if the project should not start with a restricted user list.
+                    An analyst reads and changes the project&rsquo;s records; a reader only reads
+                    them.
                   </p>
                 </div>
-                <div className="table-checkbox-grid project-access-grid">
-                  {users.map((user) => (
-                    <label key={user.id} className="admin-project-chip">
-                      <input
-                        type="checkbox"
-                        checked={createForm.userIds.includes(user.id)}
-                        onChange={() => toggleUserId(setCreateForm, user.id)}
-                      />
-                      <span>{getUserLabel(user)}</span>
-                    </label>
-                  ))}
-                </div>
+                <ProjectMemberPicker
+                  users={users}
+                  form={createForm}
+                  onToggle={(userId) => toggleUserId(setCreateForm, userId)}
+                  onLevel={(userId, level) => setUserLevel(setCreateForm, userId, level)}
+                />
               </div>
             )}
 
@@ -558,7 +624,7 @@ const ProjectsPage: React.FC = () => {
                       <td>{getAssemblyLabel(project, assemblyById)}</td>
                       <td>{project.families.length}</td>
                       <td>{getProjectSampleCount(project)}</td>
-                      <td>{project.user_ids?.length ?? 0}</td>
+                      <td>{memberCountLabel(project)}</td>
                       <td className="project-catalog-note-cell">{truncateText(project.description)}</td>
                     </tr>
                   );
@@ -651,6 +717,12 @@ const ProjectsPage: React.FC = () => {
                       <span className="stat-label">Restricted users</span>
                       <strong className="family-workspace-stat-value">
                         {selectedProject.user_ids?.length ?? 0}
+                      </strong>
+                    </div>
+                    <div className="project-stat-card">
+                      <span className="stat-label">Readers</span>
+                      <strong className="family-workspace-stat-value">
+                        {selectedProject.reader_user_ids?.length ?? 0}
                       </strong>
                     </div>
                   </div>
@@ -785,22 +857,17 @@ const ProjectsPage: React.FC = () => {
 
                 <div className="surface-card-muted space-y-4">
                   <h3 className="section-title">User access</h3>
+                  <p className="catalog-card-copy">
+                    An analyst reads and changes the project&rsquo;s records; a reader only reads
+                    them. Administrators have every right in every project.
+                  </p>
                   {users.length > 0 ? (
-                    <div className="table-checkbox-grid project-access-grid">
-                      {users.map((user) => {
-                        const checked = editForm.userIds.includes(user.id);
-                        return (
-                          <label key={user.id} className="admin-project-chip">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={() => toggleUserId(setEditForm, user.id)}
-                            />
-                            <span>{getUserLabel(user)}</span>
-                          </label>
-                        );
-                      })}
-                    </div>
+                    <ProjectMemberPicker
+                      users={users}
+                      form={editForm}
+                      onToggle={(userId) => toggleUserId(setEditForm, userId)}
+                      onLevel={(userId, level) => setUserLevel(setEditForm, userId, level)}
+                    />
                   ) : (
                     <p className="table-empty">No users are available for project assignment.</p>
                   )}

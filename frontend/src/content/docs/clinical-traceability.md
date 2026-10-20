@@ -99,7 +99,8 @@ and needs an acknowledgement (see *The sign-out checks*).
 
 The **Classification audit trail** lists, most recent first, every clinical action on the family's
 small variants, structural variants and CNVs: who classified, tagged or annotated which variant, when,
-and what changed (before → after), including each sign-out and each replacement of the pipeline versions. A change to
+and what changed (before → after), including each sign-out, each replacement of the pipeline versions
+and each change to the family's phenotypes (an HPO term added, changed or removed). A change to
 the criteria behind a class is listed too, even when the class stays the same: a criterion accepted or
 rejected, its strength (for a CNV, its points) or its evidence changed, a suggestion that appeared or
 went. Clearing a review is listed too.
@@ -109,6 +110,7 @@ went. Clearing a review is listed too.
 - *CNV classification VUS - class 3 → Pathogenic - class 5*
 - *Tags added report*
 - *Annotation manifest replaced (was vcf_header, now manual): VEP 110 → 112*
+- *Phenotype changed for S1: HP:0001250 Seizure: status present → absent*
 - *Gene panel Epilepsy version 2 (PanelApp panel 402, version 3.1) first applied to the small-variant search*
 - *Report signed out (v2, report code 7KQM2X-2-4PHT) — 3 reported variant(s)*
 
@@ -120,8 +122,9 @@ applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
 This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
-separate. Changes to the pedigree, the family members or their phenotypes, and the review of a
-compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them.
+separate. Changes to the pedigree or the family members, and the review of a
+compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them. The trail is
+for analysts and administrators: a reader of the family's project does not see it.
 
 The trail opens on its 200 most recent entries. When it holds more, it says how many it shows
 (*Showing the 200 most recent of 450 events; the older ones are not shown.*), and **Show older
@@ -260,8 +263,8 @@ brought again.
 
 ### Who may sign out
 
-Only people the laboratory has authorised to sign out an analysis. CoGA lets any member of the project
-press **Sign out report** and does not check that authority itself. It records who signed each version,
+Only people the laboratory has authorised to sign out an analysis. CoGA lets any analyst of the
+family's project press **Sign out report** (a reader cannot) and does not check that authority itself. It records who signed each version,
 in the signed record and in the audit trail. The medical sign-off of the clinical report is given in
 the EPD, under its own signing rights.
 

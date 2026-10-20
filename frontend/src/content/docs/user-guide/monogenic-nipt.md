@@ -80,7 +80,8 @@ reads and probabilities. Tag the variants you report first. Besides the Sample Q
 check that failed (no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA as the
 maternal plasma) stops the sign-out until you record a reason. Afterwards the signed version opens,
 with its report code; the NIPT page then shows **Amend sign-out** and says whether the data still
-matches the signed version.
+matches the signed version. A reader of the family's project cannot sign out, here or on the report:
+the button says why.
 
 > **Screening, not diagnosis.** A NIPT call must be confirmed by an invasive diagnostic test. Check the
 > fetal fraction and the quality checks before you read any variant, and a de novo candidate's absence

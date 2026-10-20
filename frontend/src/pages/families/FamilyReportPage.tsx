@@ -18,7 +18,7 @@ import {
   useReportSignouts,
   useSignedVersionDownload,
 } from './reportSignoutQueries';
-import { useReportSignOut } from './reportSignOut';
+import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import {
   describeModuleVersions,
   describeReportSections,
@@ -198,6 +198,9 @@ const LiveFamilyReport: React.FC = () => {
       return res.data as SmallVariantFamily;
     },
   });
+  // A reader in the family's projects reads and prints the report and its signed versions,
+  // but signs nothing out and does not see the audit trail (SEC-1).
+  const readOnly = Boolean(family?.read_only);
 
   const members = useMemo<FamilyMember[]>(
     () => ((family?.members as FamilyMember[] | undefined) ?? []).filter((m) => m.active !== false),
@@ -341,7 +344,8 @@ const LiveFamilyReport: React.FC = () => {
   // events, on screen and in print, and reads the older ones on request.
   const auditQuery = useInfiniteQuery({
     queryKey: ['family', familyId, 'clinical-audit'],
-    enabled: Boolean(familyId),
+    // Read once the family says whose it is: the server refuses the trail to a reader.
+    enabled: Boolean(familyId && family && !readOnly),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) =>
       (
@@ -438,11 +442,18 @@ const LiveFamilyReport: React.FC = () => {
     isPending: signOutPending,
     error: signOutError,
     dialogs: signOutDialogs,
-  } = useReportSignOut(familyId, (version) =>
-    navigate(
-      { search: reportViewSearch(location.search, { version }) },
-      { state: { signedOut: { version } } },
-    ),
+  } = useReportSignOut(
+    familyId,
+    (version) =>
+      navigate(
+        { search: reportViewSearch(location.search, { version }) },
+        { state: { signedOut: { version } } },
+      ),
+    { readOnly },
+  );
+  const signOutBlocked = signOutRefusal(
+    { readOnly, assemblyValidated, signoutsFailed, signoutsPending },
+    'report',
   );
 
   // The frozen record itself, as stored at sign-out.
@@ -573,20 +584,10 @@ const LiveFamilyReport: React.FC = () => {
               type="button"
               className="form-button"
               onClick={handleSignOut}
-              // Off the validated scope the server refuses anyway; do not offer it (#515).
-              // Nor while the sign-out record is unknown: this may already be signed (#605).
-              disabled={
-                signOutPending || assemblyValidated === false || signoutsFailed || signoutsPending
-              }
-              title={
-                assemblyValidated === false
-                  ? 'Not validated for clinical use — this report cannot be signed out'
-                  : signoutsFailed
-                    ? 'The sign-out record could not be loaded'
-                    : signoutsPending
-                      ? 'The sign-out record is still loading'
-                      : undefined
-              }
+              // Not to a reader (SEC-1), nor off the validated scope (#515), nor while the
+              // sign-out record is unknown (#605): the rule the NIPT page offers it by too.
+              disabled={signOutPending || signOutBlocked !== null}
+              title={signOutBlocked ?? undefined}
             >
               {signOutPending
                 ? 'Signing out…'
@@ -1049,7 +1050,17 @@ const LiveFamilyReport: React.FC = () => {
         </>
       )}
 
-      {auditFailed ? (
+      {readOnly ? (
+        // Said on screen and in print, so a reader's printout is not read as a report whose
+        // trail holds no events.
+        <section className="surface-card report-audit">
+          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <p className="report-paragraph report-audit-lead">
+            Not shown: the audit trail is for analysts and administrators, and you have
+            read-only access (reader) to this family&rsquo;s project.
+          </p>
+        </section>
+      ) : auditFailed ? (
         <section className="surface-card report-audit" role="alert">
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">The audit trail could not be loaded.</p>
@@ -1058,7 +1069,8 @@ const LiveFamilyReport: React.FC = () => {
         <section className="surface-card report-audit">
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">
-            An immutable record of who classified, tagged or annotated each variant.
+            An immutable record of who classified, tagged or annotated each variant, and who
+            changed the family&rsquo;s phenotypes.
           </p>
           {auditShownNotice ? (
             // Printed with the list, as the notice at the top of the page is.

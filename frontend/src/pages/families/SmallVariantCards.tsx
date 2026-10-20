@@ -39,6 +39,7 @@ import ReviewTagChip from './ReviewTagChip';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
+import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 interface SmallVariantCardsProps {
   variants: SmallVariant[];
@@ -623,6 +624,8 @@ export default function SmallVariantCards({
   onAcmgClassify,
   onToggleReviewTag,
 }: SmallVariantCardsProps) {
+  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  const readOnly = useFamilyReadOnly();
   const tagMap = getTagDefinitionMap(tags);
   const [transcriptPopupVariant, setTranscriptPopupVariant] = useState<SmallVariant | null>(null);
   // Tracks which cards have the "More annotations" disclosure open, so the heavy
@@ -1082,7 +1085,8 @@ export default function SmallVariantCards({
                   type="button"
                   className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
                   aria-pressed={hasReviewTag}
-                  disabled={reviewIsPending}
+                  disabled={readOnly || reviewIsPending}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                   onClick={() => {
                     void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.review);
                   }}
@@ -1093,7 +1097,8 @@ export default function SmallVariantCards({
                   type="button"
                   className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
                   aria-pressed={isExcluded}
-                  disabled={reviewIsPending}
+                  disabled={readOnly || reviewIsPending}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                   onClick={() => {
                     void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
                   }}
@@ -1104,7 +1109,8 @@ export default function SmallVariantCards({
                   type="button"
                   className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
                   aria-pressed={isReported}
-                  disabled={reviewIsPending}
+                  disabled={readOnly || reviewIsPending}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                   onClick={() => {
                     void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.report);
                   }}
