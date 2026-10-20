@@ -143,6 +143,13 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
   (`docker compose down -v`). An older local database needs nothing: the next start brings it
   to the current schema and logs `Postgres schema migrated from revision … to …`
   ([database.md](database.md#schema-migrations)).
+- **"report_signouts holds … family ID(s) with a sign-out version taken twice"** — a family
+  in your local Postgres was deleted, made again under its ID and signed out in both, before
+  sign-out versions were numbered per family ID (TRACE-13). Its sign-out chain holds two records
+  under one version and does not verify reliably, and the database cannot take the index that
+  keeps a family ID's versions unique, so the migration stops and keeps everything as it was. The local data is synthetic: reset
+  (`docker compose down -v`) and load it again
+  ([database.md](database.md#04_traceabilitysql-provenance-audit-and-integrity)).
 - **The web app cannot reach the API** — the backend is still starting or keeps restarting;
   read its log.
 - **Families, samples or users look wrong** — that data is in Postgres; look for schema

@@ -23,6 +23,10 @@ the CI ``smoke`` job sets it.
 - A database at revision 0004 from before SEC-1 gets the project memberships' access level
   (revision 0005), each stored membership an analyst's, with the baseline's check, and ends at
   the same fingerprint.
+- A database at revision 0006 from before TRACE-13 gets a family ID's sign-out versions unique
+  (revision 0007: a unique index, which replaces the chain's plain one), keeps every sign-out,
+  a deleted family's too, and ends at the same fingerprint; one where a family ID already holds
+  a version twice is refused with a message that names no family, and nothing changes.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -1015,3 +1019,159 @@ def test_a_database_from_before_sec4_gets_the_microsoft_object_id_with_its_accou
     assert "users_azure_object_id_key" in refused
     # The schema is the baselines': the column with its type and its unique constraint.
     assert actual == expected, _differences(expected, actual)
+
+
+# The sign-outs as a database had them before TRACE-13 (revision 0007): a family ID's versions
+# not unique, its chain read through a plain index.
+_BEFORE_0007 = (
+    "DROP INDEX IF EXISTS uq_report_signouts_family_identifier_version",
+    "CREATE INDEX IF NOT EXISTS idx_report_signouts_chain ON report_signouts (family_identifier, version DESC)",
+)
+_TRACE13_FAMILY = "FAM-TRACE13"
+
+
+async def _family_signed_out(conn: AsyncConnection, versions: tuple[int, ...]) -> str:
+    """A family made under ``_TRACE13_FAMILY`` and signed out as ``versions``: its id."""
+
+    family = (
+        await conn.execute(
+            text("INSERT INTO families (family_id) VALUES (:f) RETURNING id::text"), {"f": _TRACE13_FAMILY}
+        )
+    ).scalar_one()
+    for version in versions:
+        await conn.execute(
+            text(
+                "INSERT INTO report_signouts (family_id, family_identifier, version, signed_out_by, "
+                "content_hash, snapshot) VALUES (CAST(:f AS uuid), :l, :v, 'trace13', :h, '{}'::jsonb)"
+            ),
+            {"f": family, "l": _TRACE13_FAMILY, "v": version, "h": f"stored-{family}-{version}"},
+        )
+    return family
+
+
+async def _indexes_of_the_sign_outs(conn: AsyncConnection) -> list[str]:
+    return [
+        str(row[0])
+        for row in (
+            await conn.execute(
+                text("SELECT indexname FROM pg_indexes WHERE tablename = 'report_signouts' ORDER BY 1")
+            )
+        ).all()
+    ]
+
+
+@_MODES
+def test_a_database_from_before_trace13_gets_a_family_ids_sign_out_versions_unique(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0006 from before TRACE-13: a family signed out twice and
+            # deleted, and the family made again under its ID, signed out as version 3.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0006'"))
+                for statement in _BEFORE_0007:
+                    await conn.exec_driver_sql(statement)
+                first = await _family_signed_out(conn, (1, 2))
+                await conn.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": first})
+                await _family_signed_out(conn, (3,))
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+                indexes = await _indexes_of_the_sign_outs(conn)
+            kept = await _table_contents(database)
+            # A version the family ID holds is refused, also one the deleted family signed.
+            refused = ""
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO report_signouts (family_identifier, version, signed_out_by, "
+                            "content_hash, snapshot) VALUES (:l, 2, 'trace13', 'again', '{}'::jsonb)"
+                        ),
+                        {"l": _TRACE13_FAMILY},
+                    )
+            except DBAPIError as exc:
+                refused = str(exc)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, contents, kept, indexes, refused, fingerprints
+
+    revision, contents, kept, indexes, refused, (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0006", head_revision())
+    # Every stored row stays as it was, the sign-outs of both families among them; only the
+    # ledger moves on.
+    assert {table: rows for table, rows in kept.items() if table != "alembic_version"} == {
+        table: rows for table, rows in contents.items() if table != "alembic_version"
+    }
+    assert kept["report_signouts"][0] == 3
+    # The unique index replaces the plain one.
+    assert "uq_report_signouts_family_identifier_version" in indexes
+    assert "idx_report_signouts_chain" not in indexes
+    assert "uq_report_signouts_family_identifier_version" in refused
+    # The schema is the baselines'.
+    assert actual == expected, _differences(expected, actual)
+
+
+@_MODES
+def test_a_database_where_a_family_id_holds_a_sign_out_version_twice_is_refused_and_kept(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0006 where a family made again under its ID signed
+            # version 1 again, as the sign-out numbered per family row before TRACE-13.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0006'"))
+                for statement in _BEFORE_0007:
+                    await conn.exec_driver_sql(statement)
+                first = await _family_signed_out(conn, (1,))
+                await conn.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": first})
+                await _family_signed_out(conn, (1,))
+            contents = await _table_contents(database)
+            with pytest.raises(DBAPIError) as stopped:
+                async with engine.begin() as conn:
+                    await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                indexes = await _indexes_of_the_sign_outs(conn)
+            return str(stopped.value), contents, await _table_contents(database), indexes, await _ledger(database)
+        finally:
+            await engine.dispose()
+
+    message, contents, kept, indexes, ledger = _run(_body)
+
+    # The migration stops with a message that counts the family IDs and names none.
+    assert "report_signouts holds 1 family ID(s) with a sign-out version taken twice" in message
+    assert _TRACE13_FAMILY not in message
+    # Nothing changed: the rows, the plain index, and the ledger at 0006.
+    assert kept == contents
+    assert "idx_report_signouts_chain" in indexes
+    assert "uq_report_signouts_family_identifier_version" not in indexes
+    assert ledger == ["0006"]

@@ -172,6 +172,38 @@ def test_revision_0006_runs_the_access_baselines_own_upgrade_of_the_accounts() -
         module.selected_statements(lambda _name: [])
 
 
+def test_revision_0007_runs_the_traceability_baselines_own_statements_for_the_sign_out_versions() -> None:
+    # TRACE-13: a family ID's sign-out versions unique, across every family made under it,
+    # brought to a database made before it by the statements 04_traceability.sql makes it with.
+    from backend.app.core.postgres_migrations import baseline_statements
+
+    module = migration_script().get_revision("0007").module
+    selected = module.selected_statements(baseline_statements)
+
+    statements = _statements("04_traceability.sql")
+    assert len(selected) == 3 and all(statement in statements for statement in selected)
+    check, index, drop = (" ".join(statement.split()) for statement in selected)
+    # The check first: a family ID that holds one version twice stops the migration, and the
+    # message counts the family IDs instead of naming one.
+    assert check.startswith("DO $$") and "RAISE EXCEPTION" in check
+    assert "FROM report_signouts WHERE family_identifier IS NOT NULL GROUP BY family_identifier, version" in check
+    assert "HAVING count(*) > 1" in check and "|| repeated ||" in check
+    assert index == (
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_report_signouts_family_identifier_version "
+        "ON report_signouts (family_identifier, version)"
+    )
+    assert drop == "DROP INDEX IF EXISTS idx_report_signouts_chain"
+    assert [statements.index(statement) for statement in selected] == sorted(
+        statements.index(statement) for statement in selected
+    )
+    # Nothing in the baselines makes the plain index it replaces again.
+    every = [statement for path in _schema_files() for statement in _statements(path.name)]
+    assert not [statement for statement in every if "CREATE INDEX IF NOT EXISTS idx_report_signouts_chain" in statement]
+    # A baseline that no longer holds them stops the revision.
+    with pytest.raises(RuntimeError, match="the baseline changed under it"):
+        module.selected_statements(lambda _name: [])
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

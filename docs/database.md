@@ -190,7 +190,7 @@ was.
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below); an uploaded coverage BED's `metadata.content` says what it was declared to hold (TRACE-9) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
 | `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, phenotype changes, compound-het pair reviews, pedigree changes, a family's deletion (its last event), the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after; one chain per family, and chains of their own for the NIPT artifact list (`system:nipt-artifacts`) and the repeat loci's counting-unit record (`system:repeat-loci`) |
-| `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot; its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)) |
+| `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot; its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)). Versions are numbered per family identifier, on across every family made under it, and unique per identifier (`uq_report_signouts_family_identifier_version`, TRACE-13) |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
 
 **Files from a bucket.** For a package imported from a bucket, `storage_path` is the
@@ -271,6 +271,17 @@ the nullable `family_id` and the `ON DELETE SET NULL` link from upgrade statemen
 frozen ([Schema Migrations](#schema-migrations)). A family's deletion writes its last clinical
 audit event (`family_deleted`) before the family row goes, so the chains it leaves end with it.
 
+**A family made again under its ID (TRACE-13).** The three chains are a family identifier's, not
+a family row's: a family deleted and made again under its ID writes on them after the deletion.
+The structure versions and the clinical audit events are ordered by time, which runs on across
+the two. The sign-outs are ordered by version, so their versions are numbered per family
+identifier: the new family's first sign-out is the version after the deleted family's last, and
+`uq_report_signouts_family_identifier_version` makes a version unique per identifier, where
+`UNIQUE (family_id, version)` cannot, as the deletion nulls `family_id`. A database where an
+identifier already holds a version twice (a family made again and signed out in both, before
+this rule) cannot take that index: the check before it in `04_traceability.sql` stops the
+migration with a message that counts the identifiers and names none.
+
 **Why `ui_events` is not chained.** A UI event is what the browser reports of itself (any signed
 in user can send any event), not the device's record of a clinical action, so a chain would
 prove only that nobody changed what a client claimed. The HTTP audit log beside it is
@@ -314,6 +325,7 @@ its start instead (below). The step is one transaction, so it applies whole or n
 | `0004` | gives `family_structure_versions` its hash chain (`family_identifier`, `row_hash`, `prev_hash` and the chain's index), a nullable `family_id` that the family's deletion nulls, and with `ui_events` its append-only trigger and REVOKE (SEC-7), by running those statements of the baselines |
 | `0005` | gives `project_users` its `access_level` (`analyst` or `reader`, with its check), each stored membership an analyst's (SEC-1), by running the statement `01_access.sql` adds it with |
 | `0006` | gives `users` its `azure_object_id` (a unique UUID, empty for a password account) for Microsoft sign-in (SEC-4), each stored account kept without one, by running the statement `01_access.sql` adds it with |
+| `0007` | makes a family identifier's sign-out versions unique (`uq_report_signouts_family_identifier_version`, replacing the plain `idx_report_signouts_chain`; TRACE-13), after a check that stops it where an identifier holds a version twice, by running those statements of `04_traceability.sql`; every stored sign-out stays |
 
 A database the baselines created before the ledger existed has an empty one, so its first start
 with the ledger runs every revision. Each revision ends at the baseline's definition whatever
