@@ -243,7 +243,7 @@ variable "allowed_ingress_cidrs" {
 # ---------------------------------------------------------------------------
 
 variable "db_runtime_role" {
-  description = "Postgres login the API runs as. \"owner\" = the table owner (coga_admin), which also applies the schema on startup: the single-login mode every deployment starts in. \"coga_app\" = the restricted runtime role, which cannot run DDL or change the append-only audit tables (TF-09b REQ-TRACE-008). The db-migrate Cloud Run job (migrate.tf) then applies the schema as the owner before each backend rollout and enables coga_app's login from the coga-postgres-app-password secret, and the API no longer receives the owner's password. Needs a version in that secret and the db-migrate service account: docs/db-runtime-role-runbook.md, \"Google Cloud\"."
+  description = "Postgres login the API runs as. \"owner\" = the table owner (coga_admin), which also applies the schema on startup: the single-login mode every deployment starts in. \"coga_app\" = the restricted runtime role, which cannot run DDL or change the append-only audit tables (TF-09b REQ-TRACE-008). The db-migrate Cloud Run job (migrate.tf) then applies the schema as the owner before each backend rollout, after an on-demand backup of the database, and enables coga_app's login from the coga-postgres-app-password secret, and the API no longer receives the owner's password. Needs a version in that secret and the db-migrate service account: docs/db-runtime-role-runbook.md, \"Google Cloud\"."
   type        = string
   default     = "owner"
 
@@ -254,7 +254,7 @@ variable "db_runtime_role" {
 }
 
 variable "run_db_schema_migrations_on_startup" {
-  description = "Whether the API applies Postgres schema DDL + admin seed on startup, when it runs as the owner (db_runtime_role = \"owner\"). false = something else runs 'python -m app.db_migrate' as the owner before each rollout. Ignored with db_runtime_role = \"coga_app\": that role cannot run DDL, so the db-migrate job always does it (migrate.tf)."
+  description = "Whether the API applies Postgres schema DDL + admin seed on startup, when it runs as the owner (db_runtime_role = \"owner\"). false = something else runs 'python -m app.db_migrate' as the owner before each rollout, after taking a backup (the apply takes none in this mode), and the API refuses to start unless the database is at its own schema revision. Ignored with db_runtime_role = \"coga_app\": that role cannot run DDL, so the db-migrate job always does it (migrate.tf)."
   type        = bool
   default     = true
 }

@@ -1,10 +1,10 @@
 # Central-infra-repo prerequisites for CoGA
 
 `coga-prerequisites.tf.example` is a ready-to-lift template. Copy it into the central
-repo, drop the `.example` suffix, wire the two variables (`project_id`,
-`cmek_key_self_link`), and apply it **before** the CoGA repo's `terraform apply`. The
-CoGA pipeline holds no project-IAM-admin or service-account-admin rights, so everything
-that needs them lives here.
+repo, drop the `.example` suffix, wire the three variables (`project_id`,
+`cmek_key_self_link`, `deploy_sa_email`), and apply it **before** the CoGA repo's
+`terraform apply`. The CoGA pipeline holds no project-IAM-admin or service-account-admin
+rights, so everything that needs them lives here.
 
 **Operator runbook:** [`rollout-checklist.md`](rollout-checklist.md): the central-repo PR,
 the `gcloud` verifications, the grants the template does not make, the first CoGA apply and
@@ -23,7 +23,11 @@ the go-live switches.
    If you use different names, pass the emails to the CoGA configuration through
    `backend_service_account_email`, `frontend_service_account_email`,
    `clickhouse_vm_service_account_email` and `db_migrate_service_account_email`.
-3. **Project-level role grants** to those accounts (least privilege; see the template).
+3. **Project-level role grants** to those accounts (least privilege; see the template), and
+   to the deploy pipeline's account the custom role `cogaPreMigrationBackup`
+   (`cloudsql.backupRuns.create`, `cloudsql.instances.get`): the CoGA apply takes an
+   on-demand Cloud SQL backup before each schema migration it starts, and stops when it
+   cannot.
 4. **CMEK key grants**: the Cloud SQL, Compute and Cloud Storage service agents each need
    `roles/cloudkms.cryptoKeyEncrypterDecrypter` on the CMEK key. The key itself is managed
    centrally.

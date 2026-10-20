@@ -4,11 +4,14 @@ The integration tests (``integration/test_postgres_migrations.py``) run the migr
 Postgres; these pin what can be read without one: the revisions form one forward-only line,
 each revision's check is the baseline's, the ledger table and its REVOKE are where Alembic and
 05_grants.sql need them, Alembic refuses to run outside CoGA's migration step, and the step
-refuses the runtime role and a newer ledger before anything runs.
+refuses the runtime role and a newer ledger before anything runs. A start that does not migrate
+checks the ledger instead, and starts only on this version's own revision (OPS-23).
 """
 
 from __future__ import annotations
 
+import asyncio
+import logging
 import re
 from pathlib import Path
 
@@ -25,7 +28,9 @@ from backend.app.core.postgres_migrations import (
     MIGRATIONS_DIR,
     SchemaMigrationRefused,
     SchemaRevision,
+    SchemaRevisionMismatch,
     apply_postgres_schema,
+    check_schema_revision,
     head_revision,
     migration_script,
 )
@@ -312,3 +317,150 @@ def test_a_ledger_from_a_newer_version_is_refused_before_the_baselines_run(_reco
         postgres_migrations._migrate(object())  # type: ignore[arg-type]
 
     assert _recorded == []
+
+
+# ---- A start that does not migrate (OPS-23) -----------------------------------------------------
+#
+# With POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false (the restricted runtime role) the migration
+# job runs before the rollout, and the API starts only on a database whose ledger names exactly
+# its own newest revision.
+
+
+def _check_with_ledger(monkeypatch, ledger) -> str:
+    """check_schema_revision on a ledger that names ``ledger`` (or, an exception, raises it)."""
+
+    def _read(connection):
+        if isinstance(ledger, Exception):
+            raise ledger
+        return ledger
+
+    monkeypatch.setattr(postgres_migrations, "ledger_revision", _read)
+    return check_schema_revision(object())  # type: ignore[arg-type]
+
+
+def _logged_errors(caplog) -> list[str]:
+    return [record.getMessage() for record in caplog.records if record.levelno >= logging.ERROR]
+
+
+def test_a_start_that_does_not_migrate_accepts_its_own_revision(monkeypatch, caplog) -> None:
+    with caplog.at_level(logging.INFO, logger=postgres_migrations.__name__):
+        assert _check_with_ledger(monkeypatch, head_revision()) == head_revision()
+
+    assert _logged_errors(caplog) == []
+    assert f"Postgres schema at revision {head_revision()}" in caplog.text
+
+
+@pytest.mark.parametrize("behind", ["none", "first", "previous"])
+def test_a_start_that_does_not_migrate_refuses_a_database_the_migration_job_has_not_brought_to_it(
+    monkeypatch, caplog, behind: str
+) -> None:
+    revisions = [revision.revision for revision in _revisions()]
+    ledger = {"none": None, "first": revisions[0], "previous": revisions[-2]}[behind]
+
+    with caplog.at_level(logging.ERROR, logger=postgres_migrations.__name__):
+        with pytest.raises(SchemaRevisionMismatch) as refused:
+            _check_with_ledger(monkeypatch, ledger)
+
+    message = str(refused.value)
+    assert (
+        f"at schema revision {ledger or 'none (no ledger)'}, and this version of CoGA needs revision "
+        f"{head_revision()}" in message
+    )
+    assert "the backend does not start" in message
+    assert "Run the migration job first, python -m app.db_migrate as the owner" in message
+    assert "gcloud run jobs execute coga-db-migrate" in message
+    # Logged whole, because a failed start's traceback is logged without the message.
+    assert _logged_errors(caplog) == [message]
+
+
+def test_a_start_that_does_not_migrate_refuses_a_database_a_newer_version_migrated(monkeypatch, caplog) -> None:
+    with caplog.at_level(logging.ERROR, logger=postgres_migrations.__name__):
+        with pytest.raises(SchemaRevisionMismatch) as refused:
+            _check_with_ledger(monkeypatch, "9999")
+
+    message = str(refused.value)
+    assert "at schema revision 9999, which this version of CoGA does not have" in message
+    assert f"(its newest is {head_revision()})" in message
+    assert "this version is older than the database" in message
+    assert "restore the database from the backup taken before that migration" in message
+    assert "migration job" not in message
+    assert _logged_errors(caplog) == [message]
+
+
+def test_a_start_that_does_not_migrate_refuses_a_ledger_of_two_revisions(monkeypatch, caplog) -> None:
+    two = SchemaMigrationRefused("The schema ledger (alembic_version) names more than one revision: 0005, 0006.")
+
+    with caplog.at_level(logging.ERROR, logger=postgres_migrations.__name__):
+        with pytest.raises(SchemaRevisionMismatch, match="more than one revision: 0005, 0006. The backend does not"):
+            _check_with_ledger(monkeypatch, two)
+
+    assert len(_logged_errors(caplog)) == 1
+
+
+class _StopHere(Exception):
+    """Raised by the step after the Postgres schema, so a test runs the lifespan up to there."""
+
+
+def _start_until_the_audit_writer(monkeypatch, *, migrates: bool, revision_error: Exception | None = None) -> list[str]:
+    """The Postgres steps the backend's start ran, in order, up to the audit-log writer."""
+
+    from backend.app import main as app_main
+
+    calls: list[str] = []
+
+    def _step(name: str, error: Exception | None = None):
+        async def _run(*_args, **_kwargs):
+            calls.append(name)
+            if error is not None:
+                raise error
+
+        return _run
+
+    for name in ("wait_for_postgres", "init_postgres_schema", "init_postgres_admin_user"):
+        monkeypatch.setattr(app_main, name, _step(name))
+    monkeypatch.setattr(
+        app_main, "verify_postgres_schema_revision", _step("verify_postgres_schema_revision", revision_error)
+    )
+    monkeypatch.setattr(app_main, "start_audit_log_worker", _step("start_audit_log_worker", _StopHere()))
+    monkeypatch.setattr(app_main.settings, "postgres_run_schema_migrations_on_startup", migrates)
+
+    class _App:
+        class state:  # FastAPI's app.state, as the lifespan reads it
+            skip_startup_tasks = False
+
+    async def _start() -> None:
+        async with app_main.lifespan(_App()):
+            pytest.fail("the start must stop before the app serves")  # pragma: no cover
+
+    with pytest.raises((_StopHere, SchemaRevisionMismatch)) as stopped:
+        asyncio.run(_start())
+    if revision_error is not None:
+        assert stopped.value is revision_error
+    return calls
+
+
+def test_a_start_that_does_not_migrate_checks_the_schema_revision_instead(monkeypatch) -> None:
+    assert _start_until_the_audit_writer(monkeypatch, migrates=False) == [
+        "wait_for_postgres",
+        "verify_postgres_schema_revision",
+        "start_audit_log_worker",
+    ]
+
+
+def test_a_start_on_another_schema_revision_stops_before_anything_else_runs(monkeypatch) -> None:
+    refused = SchemaRevisionMismatch("The database is at schema revision 0005")
+
+    calls = _start_until_the_audit_writer(monkeypatch, migrates=False, revision_error=refused)
+
+    # No audit writer, seed, worker or ClickHouse step runs on it.
+    assert calls == ["wait_for_postgres", "verify_postgres_schema_revision"]
+
+
+def test_a_start_that_migrates_leaves_the_revision_to_the_migration(monkeypatch) -> None:
+    # The owner's start migrates to this version's revision, or refuses a newer ledger itself.
+    assert _start_until_the_audit_writer(monkeypatch, migrates=True) == [
+        "wait_for_postgres",
+        "init_postgres_schema",
+        "init_postgres_admin_user",
+        "start_audit_log_worker",
+    ]

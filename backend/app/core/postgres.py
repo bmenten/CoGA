@@ -156,6 +156,21 @@ async def init_postgres_schema() -> None:
         await apply_postgres_schema(conn)
 
 
+async def verify_postgres_schema_revision() -> str:
+    """Refuse to start unless the database is at this version's newest schema revision.
+
+    For a start that does not migrate (``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false``): the
+    migration step ran before the rollout, as the owner, and this only reads the ledger, which
+    the restricted role may (``check_schema_revision`` in core/postgres_migrations.py).
+    """
+
+    from .postgres_migrations import check_schema_revision
+
+    engine = get_postgres_engine()
+    async with engine.connect() as conn:
+        return await conn.run_sync(check_schema_revision)
+
+
 async def close_postgres_engine() -> None:
     global _engine, _sessionmaker, _connector
     if _engine is not None:

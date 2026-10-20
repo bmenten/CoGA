@@ -27,14 +27,17 @@ DEPLOY_SA   = coga-<env>-<region_short>-gh-actions@${PROJECT_ID}.iam.gserviceacc
 >
 > Creates on the CoGA runtime project (`PROJECT_ID`): the APIs CoGA needs; four runtime
 > service accounts (`coga-backend-run`, `coga-frontend-run`, `coga-clickhouse-vm`,
-> `coga-db-migrate`) with least-privilege project roles; the CMEK grants on `KMS_KEY` for the
-> Cloud SQL, Compute and GCS service agents; and project-wide GCS data-access logging (S-4).
+> `coga-db-migrate`) with least-privilege project roles; a custom role that lets the CoGA
+> deploy pipeline's account take an on-demand Cloud SQL backup before each schema migration;
+> the CMEK grants on `KMS_KEY` for the Cloud SQL, Compute and GCS service agents; and
+> project-wide GCS data-access logging (S-4).
 >
 > **Hand-off contract:** after this applies, the CoGA apply references the accounts by
 > email and creates only its own resources and their resource-level IAM. Apply this first.
 
-**Wire the two variables** (`project_id`, `cmek_key_self_link`) per your landing-zone
-convention, and drop the `.example` suffix when you copy the file in.
+**Wire the three variables** (`project_id`, `cmek_key_self_link`, and `deploy_sa_email` =
+`DEPLOY_SA`) per your landing-zone convention, and drop the `.example` suffix when you copy
+the file in.
 
 ## Part B — apply the central repo
 
@@ -55,6 +58,9 @@ gcloud kms keys get-iam-policy KMS_KEY --location REGION --keyring coga \
   --format='value(bindings.members)' | grep -E 'gcp-sa-cloud-sql|compute-system|gs-project-accounts'
 gcloud projects get-iam-policy PROJECT_ID --format=json \
   | jq '.auditConfigs[] | select(.service=="storage.googleapis.com")'   # DATA_READ + DATA_WRITE
+gcloud projects get-iam-policy PROJECT_ID --flatten='bindings[].members' \
+  --filter="bindings.members:$DEPLOY_SA" --format='value(bindings.role)' \
+  | grep cogaPreMigrationBackup   # the backup before each schema migration
 ```
 
 **The deploy pipeline must be able to act as the runtime accounts** (the CoGA apply sets
@@ -93,8 +99,8 @@ another project (the shared registry), give Cloud Run's service agent,
 
 ## Part D — the first CoGA apply
 
-- [ ] Part C passes: APIs, accounts, roles, key grants, audit config, `actAs` and
-      `run.jobs.run` all present.
+- [ ] Part C passes: APIs, accounts, roles, key grants, audit config, `actAs`,
+      `run.jobs.run` and the deploy account's `cogaPreMigrationBackup` all present.
 - [ ] `cmek_key_self_link` set for CoGA (required: CMEK is mandatory), and the secret values
       added, `coga-metrics-token` included ([deployment-gcp.md §5.5](../../docs/deployment-gcp.md)).
 - [ ] `alert_notification_emails` set to who answers CoGA's alerts

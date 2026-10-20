@@ -7,6 +7,7 @@ diff does not always catch a port that is published again or a mount that is wri
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -21,7 +22,7 @@ from pydantic import ValidationError
 from app.core.config import Settings, _development_version
 from backend.tests._release_repo import GIT_ENV as _GIT_ENV
 from backend.tests._release_repo import commit as _commit
-from backend.tests._release_repo import init_release_repo
+from backend.tests._release_repo import fake_command, init_release_repo
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -915,3 +916,229 @@ def test_the_rollback_to_the_owner_role_can_still_remove_the_migration_job() -> 
     job = _attributes(_top_level_blocks("resource")["google_cloud_run_v2_job.db_migrate"])
     assert job["count"] == "local.restricted_db_role ? 1 : 0"
     assert job.get("deletion_protection") == "false"
+
+
+# ---- The backup before each schema migration (OPS-23) ---------------------------------------
+#
+# Every new backend image migrates the Postgres schema: the db-migrate job with the restricted
+# role, the API's first start in owner mode. Before either, the apply takes an on-demand Cloud
+# SQL backup, the restore point of that migration, and a backup that fails stops the apply
+# before the migration runs. The script runs here as Terraform's local-exec runs it, from the
+# configuration's own command and environment, with a gcloud that records what it is given.
+
+
+def _local_exec_provisioners(body: str) -> list[dict[str, str]]:
+    """The attributes of each local-exec provisioner of a resource's ``body``, in order."""
+    return [_attributes(_block_body(body, match.end() - 1)) for match in re.finditer(r'provisioner "local-exec" \{', body)]
+
+
+def _depends_on(body: str) -> set[str]:
+    listed = re.search(r"^  depends_on = \[(.*?)^  \]", body, re.S | re.M)
+    assert listed, "no depends_on"
+    return set(re.findall(r"^\s*([\w.]+),", listed.group(1), re.M))
+
+
+_RUNS_THE_BACKUP = {
+    "command": "local.pre_migration_backup.command",
+    "environment": "local.pre_migration_backup.environment",
+}
+
+
+def test_every_schema_migration_the_apply_starts_comes_after_a_backup() -> None:
+    resources = _top_level_blocks("resource")
+    backup = _attributes(_local("pre_migration_backup")[1:-1])
+    assert backup["command"] == '"bash ${path.module}/scripts/backup-postgres-before-migration.sh"'
+    assert _attributes(backup["environment"][1:-1]) == {
+        "INSTANCE": "google_sql_database_instance.postgres.name",
+        "PROJECT": "var.project_id",
+        "IMAGE": "var.backend_image",
+    }
+
+    # With the restricted role: in the resource that runs the job, before the job, for every new
+    # image. A failed backup or migration taints the resource, so the next apply takes a new one.
+    migrate = resources["terraform_data.db_migrate"]
+    assert _attributes(migrate)["count"] == "local.restricted_db_role ? 1 : 0"
+    assert _attributes(migrate)["triggers_replace"] == "[var.backend_image]"
+    provisioners = _local_exec_provisioners(migrate)
+    assert len(provisioners) == 2
+    assert provisioners[0] == _RUNS_THE_BACKUP
+    assert provisioners[1]["command"].startswith('"gcloud run jobs execute ')
+
+    # In owner mode the API migrates at its first start, so the backup comes before the backend
+    # rolls out, for every new image.
+    owner = resources["terraform_data.pre_migration_backup"]
+    assert _attributes(owner)["count"] == "local.app_runs_migrations ? 1 : 0"
+    assert _attributes(owner)["triggers_replace"] == "[var.backend_image]"
+    assert _local_exec_provisioners(owner) == [_RUNS_THE_BACKUP]
+    assert {"terraform_data.db_migrate", "terraform_data.pre_migration_backup"} <= _depends_on(
+        resources["google_cloud_run_v2_service.backend"]
+    )
+    # Cloud SQL refuses an operation while another runs on the instance, so the backup comes after
+    # the database and the owner's login, which the apply may create or change: in owner mode by
+    # depends_on, with the restricted role through the job the resource runs, which uses both.
+    assert {"google_sql_database.coga", "google_sql_user.coga"} <= _depends_on(owner)
+    assert "google_cloud_run_v2_job.db_migrate[0].name" in provisioners[1]["environment"]
+    job = resources["google_cloud_run_v2_job.db_migrate"]
+    assert "google_sql_database.coga.name" in job and "google_sql_user.coga.name" in job
+    # The two never both run: the restricted role never migrates at start.
+    assert _local("app_runs_migrations") == "local.restricted_db_role ? false : var.run_db_schema_migrations_on_startup"
+
+    # The deploy job installs and authenticates gcloud before the apply runs the script.
+    steps = _build_workflow()["jobs"]["deploy"]["steps"]
+    position = {
+        name: next(i for i, step in enumerate(steps) if name in step.get("uses", "") or step.get("name") == name)
+        for name in ("google-github-actions/auth", "google-github-actions/setup-gcloud", "Terraform Apply")
+    }
+    assert position["google-github-actions/auth"] < position["google-github-actions/setup-gcloud"] < position["Terraform Apply"]
+
+
+def test_the_deploy_account_may_take_the_backup_and_no_more() -> None:
+    # Project IAM lives in the central infra repo (the CoGA pipeline cannot grant itself roles):
+    # the template gives the deploy pipeline's account a custom role with the two permissions the
+    # script needs, rather than roles/cloudsql.editor or roles/cloudsql.admin.
+    template = (REPO / "terraform" / "main-repo-reference" / "coga-prerequisites.tf.example").read_text()
+
+    def block(address: str) -> str:
+        kind, name = address.split(".")
+        match = re.search(rf'^resource "{kind}" "{name}" \{{', template, re.M)
+        assert match, address
+        return _block_body(template, match.end() - 1)
+
+    role = block("google_project_iam_custom_role.deploy_pre_migration_backup")
+    assert _attributes(role)["role_id"] == '"cogaPreMigrationBackup"'
+    listed = re.search(r"permissions = \[(.*?)\]", role, re.S)
+    assert listed and sorted(_items(listed.group(1))) == ['"cloudsql.backupRuns.create"', '"cloudsql.instances.get"']
+    grant = _attributes(block("google_project_iam_member.deploy_pre_migration_backup"))
+    assert grant["role"] == "google_project_iam_custom_role.deploy_pre_migration_backup.id"
+    assert grant["member"] == '"serviceAccount:${var.deploy_sa_email}"'
+    assert re.search(r'^variable "deploy_sa_email" \{', template, re.M)
+
+
+_BACKEND_IMAGE = "europe-west1-docker.pkg.dev/registry-project/images/coga-backend@sha256:" + hashlib.sha256(b"backend").hexdigest()
+
+# What Terraform gives the backup's command and environment, for this test.
+_BACKUP_VALUES = {
+    "path.module": ".",
+    "var.project_id": "coga-project",
+    "var.backend_image": _BACKEND_IMAGE,
+    "google_sql_database_instance.postgres.name": "coga-postgres",
+}
+
+# What `gcloud sql backups create` prints and how each call ends, unless a test says otherwise.
+_GCLOUD_ANSWERS = {"OPERATION": "operation-1", "CREATE_EXIT": "0", "WAIT_EXIT": "0", "STATUS": "DONE", "ERROR": ""}
+
+
+def _run_backup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **answers: str) -> tuple[subprocess.CompletedProcess[str], list[list[str]]]:
+    """The backup as local-exec runs it (``/bin/sh -c`` in the configuration's directory), with a
+    gcloud that records each call and answers as ``answers`` say; the result and the calls."""
+    for name, value in _BACKUP_VALUES.items():
+        monkeypatch.setitem(_COMPUTED, name, value)
+    backup = _attributes(_local("pre_migration_backup")[1:-1])
+    environment = {name: _env_string(_evaluate(value)) for name, value in _attributes(backup["environment"][1:-1]).items()}
+    bin_dir, recorded = tmp_path / "bin", tmp_path / "gcloud-calls"
+    fake_command(
+        bin_dir,
+        "gcloud",
+        'printf \'%s\\n\' "$@" -- >> "$RECORDED_CALLS"\n'
+        'case "$1 $2 $3" in\n'
+        '  "sql backups create") printf \'%s\\n\' "$FAKE_OPERATION"; exit "$FAKE_CREATE_EXIT" ;;\n'
+        '  "sql operations wait") exit "$FAKE_WAIT_EXIT" ;;\n'
+        '  "sql operations describe")\n'
+        '    case "$*" in\n'
+        "      *'value(status)'*) printf '%s\\n' \"$FAKE_STATUS\" ;;\n"
+        "      *) printf '%s\\n' \"$FAKE_ERROR\" ;;\n"
+        "    esac ;;\n"
+        "  *) exit 64 ;;\n"
+        "esac\n",
+    )
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "RECORDED_CALLS": str(recorded),
+        **{f"FAKE_{name}": value for name, value in {**_GCLOUD_ANSWERS, **answers}.items()},
+        **environment,
+    }
+    result = subprocess.run(
+        ["/bin/sh", "-c", str(_evaluate(backup["command"]))],
+        cwd=REPO / "terraform",
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    calls: list[list[str]] = [[]]
+    for line in recorded.read_text().splitlines() if recorded.exists() else []:
+        if line == "--":
+            calls.append([])
+        else:
+            calls[-1].append(line)
+    return result, calls[:-1]
+
+
+def test_the_backup_is_taken_and_followed_until_it_is_done(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    result, calls = _run_backup(tmp_path, monkeypatch)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert calls == [
+        [
+            "sql",
+            "backups",
+            "create",
+            "--instance=coga-postgres",
+            "--project=coga-project",
+            f"--description=Before the schema migration of {_BACKEND_IMAGE.rsplit('/', 1)[1]}",
+            "--async",
+            "--format=value(name)",
+        ],
+        # gcloud waits 300 s by default: long enough for a small database only.
+        ["sql", "operations", "wait", "operation-1", "--project=coga-project", "--timeout=3600"],
+        ["sql", "operations", "describe", "operation-1", "--project=coga-project", "--format=value(status)"],
+        ["sql", "operations", "describe", "operation-1", "--project=coga-project", "--format=value(error.errors[0].code)"],
+    ]
+    assert "operation-1" in result.stdout
+
+
+@pytest.mark.parametrize(
+    ("answers", "calls_made", "reason"),
+    [
+        ({"CREATE_EXIT": "1"}, 1, "gcloud could not start it"),
+        ({"OPERATION": ""}, 1, "gcloud named no operation for it"),
+        ({"WAIT_EXIT": "1"}, 2, "it ended with an error, or was not done within 3600s"),
+        ({"STATUS": "RUNNING"}, 4, "operation operation-1 ended RUNNING"),
+        ({"STATUS": ""}, 4, "operation operation-1 ended in no known state"),
+        ({"ERROR": "INTERNAL_ERROR"}, 4, "operation operation-1 ended DONE with error INTERNAL_ERROR"),
+    ],
+    ids=["not started", "no operation", "failed or too slow", "still running", "no status", "ended with an error"],
+)
+def test_a_backup_that_fails_stops_the_apply_before_the_migration(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, answers: dict[str, str], calls_made: int, reason: str
+) -> None:
+    result, calls = _run_backup(tmp_path, monkeypatch, **answers)
+
+    # A non-zero exit fails the local-exec provisioner, so Terraform runs neither the job nor the
+    # backend rollout that depends on it.
+    assert result.returncode != 0
+    assert len(calls) == calls_made
+    assert f"The backup of coga-postgres before the schema migration failed: {reason}" in result.stderr
+    assert "The migration does not run." in result.stderr
+
+
+@pytest.mark.parametrize("missing", ["INSTANCE", "PROJECT", "IMAGE"])
+def test_the_backup_script_runs_nothing_without_its_instance_project_and_image(tmp_path: Path, missing: str) -> None:
+    recorded = tmp_path / "gcloud-calls"
+    bin_dir = tmp_path / "bin"
+    fake_command(bin_dir, "gcloud", 'printf \'%s\\n\' "$@" >> "$RECORDED_CALLS"\n')
+    env = {
+        "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}",
+        "RECORDED_CALLS": str(recorded),
+        "INSTANCE": "coga-postgres",
+        "PROJECT": "coga-project",
+        "IMAGE": _BACKEND_IMAGE,
+    }
+    del env[missing]
+
+    result = subprocess.run(
+        ["bash", "scripts/backup-postgres-before-migration.sh"], cwd=REPO / "terraform", env=env, capture_output=True, text=True
+    )
+
+    assert result.returncode != 0
+    assert missing in result.stderr
+    assert not recorded.exists()
