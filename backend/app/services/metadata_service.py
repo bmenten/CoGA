@@ -25,10 +25,14 @@ from ..schemas import (
     UserRefOut,
 )
 from .access_control import (
+    ANALYST,
+    READER,
     CurrentUser,
     RecordNotVisible,
     is_admin_user,
+    require_change_access,
     user_can_access_metadata_projects,
+    user_can_change_metadata_projects,
     user_metadata_project_ids,
     visible_metadata_project_ids,
 )
@@ -93,6 +97,7 @@ def _user_read_from_mapping(mapping: dict[str, Any]) -> UserRead:
         is_active=bool(mapping["is_active"]),
         role=mapping["role"],
         projects=_string_list(mapping.get("metadata_project_ids")),
+        reader_projects=_string_list(mapping.get("reader_project_ids")),
         created_at=mapping["created_at"],
     )
 
@@ -124,6 +129,7 @@ def _project_out_from_mapping(mapping: dict[str, Any]) -> ProjectOut:
         species_id=str(mapping["species_id"]),
         assembly_id=str(mapping["assembly_id"]),
         user_ids=_string_list(mapping.get("user_ids")),
+        reader_user_ids=_string_list(mapping.get("reader_user_ids")),
         metadata=_normalize_metadata(mapping.get("metadata")),
     )
 
@@ -157,6 +163,8 @@ def _family_out_from_mapping(
     project_ids: list[str],
     relationships: list[FamilyRelationshipOut] | None = None,
     structure_version: FamilyStructureVersionOut | None = None,
+    *,
+    read_only: bool = False,
 ) -> FamilyOut:
     roi = None
     if family_mapping.get("roi_query"):
@@ -188,6 +196,7 @@ def _family_out_from_mapping(
         assigned_to=_user_ref_from_mapping(family_mapping, "assigned_to_"),
         reviewed_by=_user_ref_from_mapping(family_mapping, "reviewed_by_"),
         metadata=_normalize_metadata(family_mapping.get("metadata")),
+        read_only=read_only,
     )
 
 
@@ -211,7 +220,12 @@ async def _fetch_user_mapping_by_email(session: AsyncSession, email: str) -> dic
                     ARRAY_AGG(DISTINCT pu.project_id::text)
                     FILTER (WHERE pu.project_id IS NOT NULL),
                     '{}'::text[]
-                ) AS metadata_project_ids
+                ) AS metadata_project_ids,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT pu.project_id::text)
+                    FILTER (WHERE pu.project_id IS NOT NULL AND pu.access_level = 'reader'),
+                    '{}'::text[]
+                ) AS reader_project_ids
             FROM users u
             LEFT JOIN project_users pu ON pu.user_id = u.id
             WHERE u.email = :email
@@ -244,7 +258,12 @@ async def _fetch_user_mapping_by_id(session: AsyncSession, user_id: str) -> dict
                     ARRAY_AGG(DISTINCT pu.project_id::text)
                     FILTER (WHERE pu.project_id IS NOT NULL),
                     '{}'::text[]
-                ) AS metadata_project_ids
+                ) AS metadata_project_ids,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT pu.project_id::text)
+                    FILTER (WHERE pu.project_id IS NOT NULL AND pu.access_level = 'reader'),
+                    '{}'::text[]
+                ) AS reader_project_ids
             FROM users u
             LEFT JOIN project_users pu ON pu.user_id = u.id
             WHERE u.id = CAST(:user_id AS uuid)
@@ -276,7 +295,12 @@ async def _fetch_all_user_mappings(session: AsyncSession) -> list[dict[str, Any]
                     ARRAY_AGG(DISTINCT pu.project_id::text)
                     FILTER (WHERE pu.project_id IS NOT NULL),
                     '{}'::text[]
-                ) AS metadata_project_ids
+                ) AS metadata_project_ids,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT pu.project_id::text)
+                    FILTER (WHERE pu.project_id IS NOT NULL AND pu.access_level = 'reader'),
+                    '{}'::text[]
+                ) AS reader_project_ids
             FROM users u
             LEFT JOIN project_users pu ON pu.user_id = u.id
             GROUP BY u.id
@@ -304,6 +328,7 @@ async def get_current_user_by_email(session: AsyncSession, email: str) -> Curren
         role=mapping["role"],
         projects=metadata_project_ids,
         metadata_project_ids=metadata_project_ids,
+        reader_project_ids=_string_list(mapping.get("reader_project_ids")),
         created_at=mapping["created_at"],
     )
 
@@ -636,11 +661,27 @@ async def _validate_species_and_assembly(
     return species, assembly
 
 
+def _project_reader_ids(user_ids: list[str], reader_user_ids: list[str]) -> list[str]:
+    """The readers among a project's members, refused unless each one is a member (SEC-1)."""
+    readers = list(dict.fromkeys(reader_user_ids))
+    outsiders = [user_id for user_id in readers if user_id not in set(user_ids)]
+    if outsiders:
+        raise HTTPException(
+            status_code=400,
+            detail="A reader must be a member of the project: add them to its users too",
+        )
+    return readers
+
+
 async def _set_project_user_links(
     session: AsyncSession,
     project_id: str,
     user_ids: list[str],
+    reader_user_ids: list[str],
 ) -> None:
+    """Make these users the project's members: the readers among them read its records, the
+    others are analysts, who read and change them (SEC-1)."""
+    readers = set(_project_reader_ids(user_ids, reader_user_ids))
     await session.execute(
         text("DELETE FROM project_users WHERE project_id = CAST(:project_id AS uuid)"),
         {"project_id": project_id},
@@ -651,12 +692,16 @@ async def _set_project_user_links(
         await session.execute(
             text(
                 """
-                INSERT INTO project_users (project_id, user_id)
-                VALUES (CAST(:project_id AS uuid), CAST(:user_id AS uuid))
+                INSERT INTO project_users (project_id, user_id, access_level)
+                VALUES (CAST(:project_id AS uuid), CAST(:user_id AS uuid), :access_level)
                 ON CONFLICT DO NOTHING
                 """
             ),
-            {"project_id": project_id, "user_id": user_id},
+            {
+                "project_id": project_id,
+                "user_id": user_id,
+                "access_level": READER if user_id in readers else ANALYST,
+            },
         )
 
 
@@ -683,7 +728,12 @@ async def _fetch_project_mappings(
                         ARRAY_AGG(DISTINCT pu.user_id::text)
                         FILTER (WHERE pu.user_id IS NOT NULL),
                         '{}'::text[]
-                    ) AS user_ids
+                    ) AS user_ids,
+                    COALESCE(
+                        ARRAY_AGG(DISTINCT pu.user_id::text)
+                        FILTER (WHERE pu.user_id IS NOT NULL AND pu.access_level = 'reader'),
+                        '{}'::text[]
+                    ) AS reader_user_ids
                 FROM projects p
                 JOIN species s ON s.id = p.species_id
                 JOIN assemblies a ON a.id = p.assembly_id
@@ -712,7 +762,12 @@ async def _fetch_project_mappings(
                     ARRAY_AGG(DISTINCT pu.user_id::text)
                     FILTER (WHERE pu.user_id IS NOT NULL),
                     '{}'::text[]
-                ) AS user_ids
+                ) AS user_ids,
+                COALESCE(
+                    ARRAY_AGG(DISTINCT pu.user_id::text)
+                    FILTER (WHERE pu.user_id IS NOT NULL AND pu.access_level = 'reader'),
+                    '{}'::text[]
+                ) AS reader_user_ids
             FROM projects p
             JOIN species s ON s.id = p.species_id
             JOIN assemblies a ON a.id = p.assembly_id
@@ -736,6 +791,7 @@ async def _fetch_project_mapping(session: AsyncSession, project_id: str) -> dict
 async def _fetch_project_family_rows(
     session: AsyncSession,
     project_ids: list[str],
+    user: CurrentUser,
 ) -> tuple[dict[str, FamilyOut], dict[str, list[str]]]:
     if not project_ids:
         return {}, {}
@@ -830,6 +886,7 @@ async def _fetch_project_family_rows(
             _string_list(family_project_ids.get(family_uuid)),
             relationships_by_family.get(family_uuid, []),
             structure_versions_by_family.get(family_uuid),
+            read_only=not user_can_change_metadata_projects(family_project_ids.get(family_uuid), user),
         )
 
     families_by_project: dict[str, list[str]] = defaultdict(list)
@@ -847,9 +904,11 @@ async def create_project_record(
     species_id: str,
     assembly_id: str,
     user_ids: list[str],
+    reader_user_ids: list[str],
 ) -> ProjectOut:
     await _validate_species_and_assembly(session, species_id, assembly_id)
     validated_user_ids = await _validate_project_user_ids(session, user_ids)
+    reader_ids = _project_reader_ids(validated_user_ids, reader_user_ids)
 
     existing = await session.execute(
         text("SELECT id FROM projects WHERE name = :name"),
@@ -874,7 +933,7 @@ async def create_project_record(
         },
     )
     project_id = str(created.scalar_one())
-    await _set_project_user_links(session, project_id, validated_user_ids)
+    await _set_project_user_links(session, project_id, validated_user_ids, reader_ids)
     await session.commit()
     return _project_out_from_mapping(await _fetch_project_mapping(session, project_id))
 
@@ -888,6 +947,7 @@ async def update_project_record(
     species_id: str | None,
     assembly_id: str | None,
     user_ids: list[str] | None,
+    reader_user_ids: list[str] | None,
 ) -> ProjectOut:
     existing = await _fetch_project_mapping(session, project_id)
 
@@ -933,7 +993,17 @@ async def update_project_record(
         if user_ids is not None
         else _string_list(existing.get("user_ids"))
     )
-    await _set_project_user_links(session, project_id, validated_user_ids)
+    # Without a reader list, each member keeps their level and one added is an analyst.
+    reader_ids = (
+        _project_reader_ids(validated_user_ids, reader_user_ids)
+        if reader_user_ids is not None
+        else [
+            user_id
+            for user_id in _string_list(existing.get("reader_user_ids"))
+            if user_id in set(validated_user_ids)
+        ]
+    )
+    await _set_project_user_links(session, project_id, validated_user_ids, reader_ids)
     await session.commit()
     return _project_out_from_mapping(await _fetch_project_mapping(session, project_id))
 
@@ -950,6 +1020,7 @@ async def list_project_dashboards(
     family_out_by_id, families_by_project = await _fetch_project_family_rows(
         session,
         [row["id"] for row in project_rows],
+        user,
     )
 
     dashboards: list[ProjectDashboardOut] = []
@@ -971,6 +1042,8 @@ async def list_project_dashboards(
                 species_id=row["species_id"],
                 assembly_id=row["assembly_id"],
                 user_ids=_string_list(row.get("user_ids")),
+                reader_user_ids=_string_list(row.get("reader_user_ids")),
+                read_only=not user_can_change_metadata_projects([row["id"]], user),
                 metadata=_normalize_metadata(row.get("metadata")),
                 species_name=row.get("species_name"),
                 assembly_name=row.get("assembly_name"),
@@ -1181,6 +1254,7 @@ def _family_out_from_rows(
     family_row: dict[str, Any],
     sample_rows: list[dict[str, Any]],
     project_ids: list[str],
+    user: CurrentUser,
 ) -> FamilyOut:
     members: list[FamilyMemberOut] = []
     for row in sample_rows:
@@ -1191,6 +1265,7 @@ def _family_out_from_rows(
         _string_list(project_ids),
         family_row.get("relationships", []),
         family_row.get("structure_version"),
+        read_only=not user_can_change_metadata_projects(project_ids, user),
     )
 
 
@@ -1215,6 +1290,7 @@ async def list_family_records(
             },
             sample_rows_by_family.get(row["id"], []),
             visible_metadata_project_ids(row.get("project_ids"), user),
+            user,
         )
         for row in family_rows
     ]
@@ -1232,6 +1308,9 @@ async def get_accessible_family_mapping(
     # tells nobody whether a family they may not see exists (REQ-SEC-001).
     if not user_can_access_metadata_projects(rows[0].get("project_ids"), user):
         raise RecordNotVisible("family", "Family not found")
+    # Every family route passes here, so a reader's change to the family is refused here and
+    # no route can leave the check out (SEC-1).
+    require_change_access(rows[0].get("project_ids"), user)
     return rows[0]
 
 
@@ -1252,6 +1331,7 @@ async def get_family_record(
         },
         sample_rows_by_family.get(family_row["id"], []),
         visible_metadata_project_ids(family_row.get("project_ids"), user),
+        user,
     )
     await _attach_sequencing_qc_verdicts(session, family_uuid=str(family_row["id"]), family=family_out)
     return family_out
@@ -1428,6 +1508,8 @@ async def get_accessible_sample_mapping(
     # exactly like an unknown one (REQ-SEC-001).
     if not user_can_access_metadata_projects(mapping.get("family_project_ids"), user):
         raise RecordNotVisible("sample", "Sample not found")
+    # As for a family: a reader's change to the sample is refused at its checkpoint (SEC-1).
+    require_change_access(mapping.get("family_project_ids"), user)
     return mapping
 
 

@@ -76,6 +76,7 @@ import {
 } from '../../components/ImportIncompleteBanner';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
 import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
+import { READ_ONLY_HINT } from '../../lib/familyAccess';
 
 // The report's SV list: its variants, and what the page says about its completeness.
 type StructuralReportPage = Omit<ReportedListPage, 'variants'> & { variants: StructuralVariant[] };
@@ -222,6 +223,9 @@ const LiveFamilyReport: React.FC = () => {
       return res.data as SmallVariantFamily;
     },
   });
+  // A reader in the family's projects reads and prints the report and its signed versions,
+  // but signs nothing out and does not see the audit trail (SEC-1).
+  const readOnly = Boolean(family?.read_only);
 
   const members = useMemo<FamilyMember[]>(
     () => ((family?.members as FamilyMember[] | undefined) ?? []).filter((m) => m.active !== false),
@@ -365,7 +369,8 @@ const LiveFamilyReport: React.FC = () => {
   // events, on screen and in print, and reads the older ones on request.
   const auditQuery = useInfiniteQuery({
     queryKey: ['family', familyId, 'clinical-audit'],
-    enabled: Boolean(familyId),
+    // Read once the family says whose it is: the server refuses the trail to a reader.
+    enabled: Boolean(familyId && family && !readOnly),
     initialPageParam: null as string | null,
     queryFn: async ({ pageParam }) =>
       (
@@ -818,16 +823,22 @@ const LiveFamilyReport: React.FC = () => {
               // Off the validated scope the server refuses anyway; do not offer it (#515).
               // Nor while the sign-out record is unknown: this may already be signed (#605).
               disabled={
-                signOut.isPending || assemblyValidated === false || signoutsFailed || signoutsPending
+                readOnly ||
+                signOut.isPending ||
+                assemblyValidated === false ||
+                signoutsFailed ||
+                signoutsPending
               }
               title={
-                assemblyValidated === false
-                  ? 'Not validated for clinical use — this report cannot be signed out'
-                  : signoutsFailed
-                    ? 'The sign-out record could not be loaded'
-                    : signoutsPending
-                      ? 'The sign-out record is still loading'
-                      : undefined
+                readOnly
+                  ? READ_ONLY_HINT
+                  : assemblyValidated === false
+                    ? 'Not validated for clinical use — this report cannot be signed out'
+                    : signoutsFailed
+                      ? 'The sign-out record could not be loaded'
+                      : signoutsPending
+                        ? 'The sign-out record is still loading'
+                        : undefined
               }
             >
               {signOut.isPending
@@ -1498,7 +1509,17 @@ const LiveFamilyReport: React.FC = () => {
         </>
       )}
 
-      {auditFailed ? (
+      {readOnly ? (
+        // Said on screen and in print, so a reader's printout is not read as a report whose
+        // trail holds no events.
+        <section className="surface-card report-audit">
+          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <p className="report-paragraph report-audit-lead">
+            Not shown: the audit trail is for analysts and administrators, and you have
+            read-only access (reader) to this family&rsquo;s project.
+          </p>
+        </section>
+      ) : auditFailed ? (
         <section className="surface-card report-audit" role="alert">
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">The audit trail could not be loaded.</p>
@@ -1507,7 +1528,8 @@ const LiveFamilyReport: React.FC = () => {
         <section className="surface-card report-audit">
           <h2 className="report-audit-heading">Classification audit trail</h2>
           <p className="report-paragraph report-audit-lead">
-            An immutable record of who classified, tagged or annotated each variant.
+            An immutable record of who classified, tagged or annotated each variant, and who
+            changed the family&rsquo;s phenotypes.
           </p>
           {auditShownNotice ? (
             // Printed with the list, as the notice at the top of the page is.

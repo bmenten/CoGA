@@ -572,11 +572,12 @@ class _TrailSession:
 
 def _list_trail(monkeypatch, session: _TrailSession, **kwargs) -> dict:
     async def _context(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid=_FAMILY_UUID, family_id=family_identifier)
+        return types.SimpleNamespace(family_uuid=_FAMILY_UUID, family_id=family_identifier, project_ids=[])
 
     monkeypatch.setattr(cas, "build_family_metadata_context", _context)
+    # An admin: the trail is an analyst's or an admin's (see test_project_access_levels.py).
     return asyncio.run(
-        cas.list_clinical_audit(session, family_id="FAM1", user=types.SimpleNamespace(), **kwargs)
+        cas.list_clinical_audit(session, family_id="FAM1", user=types.SimpleNamespace(role="admin"), **kwargs)
     )
 
 

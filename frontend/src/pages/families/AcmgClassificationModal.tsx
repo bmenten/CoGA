@@ -43,6 +43,8 @@ import type { AcmgFamilyContext } from '../../lib/acmg';
 import { apiPath } from '../../lib/apiPath';
 import type { ApiFamilyRelationship } from '../../lib/apiTypes';
 import QueryFailure from '../../components/QueryFailure';
+import ReadOnlyNote from '../../components/ReadOnlyNote';
+import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 type AcmgClassificationModalProps = {
   familyId?: string;
@@ -129,6 +131,8 @@ export default function AcmgClassificationModal({
   isPending = false,
   errorMessage = null,
 }: AcmgClassificationModalProps) {
+  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  const readOnly = useFamilyReadOnly();
   // Working selection state keyed by criterion code. A criterion absent from the
   // map renders as an unaccepted default; toggling/strength-editing upserts it.
   const [selections, setSelections] = useState<Record<string, AcmgSelection>>({});
@@ -520,6 +524,7 @@ export default function AcmgClassificationModal({
           />
         </div>
 
+        {readOnly ? <ReadOnlyNote /> : null}
         <div className="variant-search-actions variant-review-modal-actions">
           <button
             type="button"
@@ -537,7 +542,8 @@ export default function AcmgClassificationModal({
             onClick={() => {
               void handleSave();
             }}
-            disabled={isPending}
+            disabled={readOnly || isPending}
+            title={readOnly ? READ_ONLY_HINT : undefined}
           >
             {isPending ? 'Saving…' : 'Save classification'}
           </button>

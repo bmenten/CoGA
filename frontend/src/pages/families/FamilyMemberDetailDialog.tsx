@@ -40,6 +40,11 @@ interface FamilyMemberDetailDialogProps {
   memberId: string;
   orderedMembers: ApiFamilyRecord['members'];
   userIsAdmin: boolean;
+  /**
+   * May add, change and remove the member's phenotypes: an analyst of the family's project or
+   * an admin, not a reader (SEC-1). Each change is on the family's clinical audit trail.
+   */
+  canEditPhenotypes: boolean;
   /** This member's edits already waiting in the page's pending batch, if any. */
   pendingDraft?: MemberDetailDraft;
   /** Put the member's edits into the page's pending batch. */
@@ -61,6 +66,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
   memberId,
   orderedMembers,
   userIsAdmin,
+  canEditPhenotypes,
   pendingDraft,
   onQueue,
   onRemoved,
@@ -228,6 +234,8 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
       await queryClient.invalidateQueries({
         queryKey: ['family', familyId, 'member', selectedMemberDetail.member.sample_id],
       });
+      // Each phenotype change is an event on the family's clinical audit trail.
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
       setHpoNote('');
       setHpoSearchInput('');
       setSelectedHpoTerm(null);
@@ -250,6 +258,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
       await api.delete(apiPath`/families/${familyId}/hpo/${annotationId}`);
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'member'] });
+      await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'clinical-audit'] });
       setHpoStatus({ tone: 'success', message: 'Phenotype annotation removed.' });
     } catch (error) {
       setHpoStatus({
@@ -476,7 +485,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
                           <span>{annotation.hpo_id}</span>
                           <strong>{annotation.label}</strong>
                           <em>{annotation.status}</em>
-                          {userIsAdmin && (
+                          {canEditPhenotypes && (
                             <button
                               type="button"
                               className="button-ghost"
@@ -493,7 +502,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
                     <p className="dashboard-link-note">No HPO phenotypes linked.</p>
                   )}
 
-                  {userIsAdmin && (
+                  {canEditPhenotypes && (
                     <>
                       <div className="family-hpo-controls">
                         <label className="field-label family-hpo-term-field">

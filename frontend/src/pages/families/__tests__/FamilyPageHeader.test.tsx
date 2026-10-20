@@ -144,4 +144,15 @@ describe('FamilyPageHeader', () => {
       false,
     );
   });
+
+  it('tells a reader in the family’s projects that their access is read-only (SEC-1)', () => {
+    renderHeader({ family: { ...family, read_only: true } });
+    const chip = screen.getByText('Read-only access (reader)');
+    expect(chip).toHaveAttribute('title', expect.stringMatching(/view and export it but not change it/));
+  });
+
+  it('says nothing of access to an analyst or an administrator', () => {
+    renderHeader({ family: { ...family, read_only: false } });
+    expect(screen.queryByText('Read-only access (reader)')).not.toBeInTheDocument();
+  });
 });

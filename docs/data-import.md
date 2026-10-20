@@ -1052,7 +1052,8 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
 
 ## 5. Pedigrees and phenotypes
 
-- `POST /ped/manual`: any signed-in user creates a family from typed-in members.
+- `POST /ped/manual`: an analyst of the project, or an admin, creates a family from typed-in
+  members; a reader of the project is refused (403).
 - `POST /ped/upload`: admins upload a PED file, with an optional region of interest,
   inheritance model and carrier lists.
 - Only admins can replace an existing family or sample (`overwrite=true`).

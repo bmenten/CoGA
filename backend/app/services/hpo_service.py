@@ -23,6 +23,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.config import HPO_PINNED_ONTOLOGY_SHA256, HPO_PINNED_ONTOLOGY_URL, settings
 from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid
+from .access_control import CurrentUser
+from .clinical_audit_service import record_clinical_event
 
 HPO_ID_PATTERN = re.compile(r"^HP:[0-9]{7}$", re.IGNORECASE)
 HPO_ID_SEARCH_PATTERN = re.compile(r"(?:HP[:_])([0-9]{7})", re.IGNORECASE)
@@ -1782,14 +1784,105 @@ async def sync_hpo_ontology(
     }
 
 
+# What a phenotype's clinical audit event records of the annotation: the member, the term and
+# every field an edit can change. The label is the term's name in the loaded HPO release.
+_PHENOTYPE_AUDIT_FIELDS = ("sample_id", "hpo_id", "label", "status", "onset", "evidence", "source", "note")
+# The free-text fields, which a summary names without quoting them.
+_PHENOTYPE_TEXT_FIELDS = ("onset", "evidence", "source", "note")
+
+
+async def _lock_family_phenotypes(session: AsyncSession, family_uuid: str) -> None:
+    """One phenotype change of a family at a time until this transaction ends, so the state an
+    audit event records as before is the one the change replaced."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
+        {"k": f"hpo:{family_uuid}"},
+    )
+
+
+def phenotype_audit_state(annotation: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The audited content of a phenotype annotation, each field as text or None; None is no
+    annotation."""
+    if annotation is None:
+        return None
+    state: dict[str, Any] = {}
+    for name in _PHENOTYPE_AUDIT_FIELDS:
+        value = annotation.get(name)
+        text_value = str(value).strip() if value is not None else ""
+        state[name] = text_value or None
+    return state
+
+
+def _phenotype_term(state: Mapping[str, Any]) -> str:
+    label = state.get("label")
+    return f"{state['hpo_id']} {label}" if label and label != state["hpo_id"] else str(state["hpo_id"])
+
+
+def phenotype_change_summary(before: Mapping[str, Any] | None, after: Mapping[str, Any] | None) -> str:
+    """The one-line summary of a phenotype change on the audit trail."""
+    if before is None and after is not None:
+        return f"Phenotype added for {after['sample_id']}: {_phenotype_term(after)} ({after['status']})"
+    if after is None and before is not None:
+        return f"Phenotype removed for {before['sample_id']}: {_phenotype_term(before)} ({before['status']})"
+    assert before is not None and after is not None
+    changes: list[str] = []
+    if before["hpo_id"] != after["hpo_id"]:
+        changes.append(f"term {_phenotype_term(before)} → {_phenotype_term(after)}")
+    if before["status"] != after["status"]:
+        changes.append(f"status {before['status']} → {after['status']}")
+    for name in _PHENOTYPE_TEXT_FIELDS:
+        was, now = before.get(name), after.get(name)
+        if was != now:
+            changes.append(f"{name} {'added' if not was else 'removed' if not now else 'edited'}")
+    return f"Phenotype changed for {after['sample_id']}: {_phenotype_term(after)}: {'; '.join(changes)}"
+
+
+async def _record_phenotype_change(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family_identifier: str,
+    annotation_id: str,
+    before: Mapping[str, Any] | None,
+    after: Mapping[str, Any] | None,
+    user: CurrentUser,
+) -> None:
+    """Record a phenotype change on the family's hash-chained clinical audit trail, in the
+    transaction of the change (SEC-1): what it was and what it is, and a summary that names
+    the fields that changed. A save that changes nothing records nothing."""
+    before_state, after_state = phenotype_audit_state(before), phenotype_audit_state(after)
+    if before_state == after_state:
+        return
+    changed = after_state or before_state
+    assert changed is not None
+    await record_clinical_event(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        variant_id=None,
+        actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+        actor_id=getattr(user, "id", None),
+        action="phenotype",
+        summary=phenotype_change_summary(before_state, after_state),
+        before=before_state,
+        after=after_state,
+        metadata={"sample_id": changed["sample_id"], "annotation_id": annotation_id},
+    )
+
+
 async def create_individual_hpo_annotation(
     session: AsyncSession,
     *,
     family_uuid: str,
+    family_identifier: str,
     sample_id: str,
     payload: Any,
+    user: CurrentUser,
 ) -> dict[str, Any]:
+    """Add a phenotype to a family member, or update the one of that term and status they
+    have, and record the change on the family's clinical audit trail."""
     await _ensure_hpo_schema_available(session)
+    await _lock_family_phenotypes(session, family_uuid)
     sample_uuid = await _sample_uuid_for(session, family_uuid=family_uuid, sample_id=sample_id)
     hpo_id = normalize_hpo_id(str(getattr(payload, "hpo_id", None) or ""))
     if not hpo_id:
@@ -1797,6 +1890,26 @@ async def create_individual_hpo_annotation(
     if hpo_id not in await _existing_hpo_terms(session, [hpo_id]):
         raise HTTPException(status_code=404, detail="HPO term was not found")
     status = normalize_annotation_status(getattr(payload, "status", None)) or "present"
+    # The member's annotation of this term and status, which the insert below updates.
+    held = await session.execute(
+        text(
+            """
+            SELECT id::text
+            FROM individual_hpo
+            WHERE family_id = CAST(:family_uuid AS uuid)
+              AND sample_id = CAST(:sample_uuid AS uuid)
+              AND hpo_id = :hpo_id
+              AND status = :status
+            """
+        ),
+        {"family_uuid": family_uuid, "sample_uuid": sample_uuid, "hpo_id": hpo_id, "status": status},
+    )
+    held_id = held.scalar_one_or_none()
+    before = (
+        await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=str(held_id))
+        if held_id is not None
+        else None
+    )
     result = await session.execute(
         text(
             """
@@ -1834,9 +1947,18 @@ async def create_individual_hpo_annotation(
         sample_id=sample_id,
         reason="hpo_annotation_created",
     )
-    await session.commit()
     annotation = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
     assert annotation is not None
+    await _record_phenotype_change(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        annotation_id=annotation_id,
+        before=before,
+        after=annotation,
+        user=user,
+    )
+    await session.commit()
     return annotation
 
 
@@ -1844,10 +1966,15 @@ async def update_individual_hpo_annotation(
     session: AsyncSession,
     *,
     family_uuid: str,
+    family_identifier: str,
     annotation_id: str,
     payload: Any,
+    user: CurrentUser,
 ) -> dict[str, Any]:
+    """Change a family member's phenotype and record the change on the family's clinical
+    audit trail."""
     await _ensure_hpo_schema_available(session)
+    await _lock_family_phenotypes(session, family_uuid)
     existing = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=_ANNOTATION_NOT_FOUND)
@@ -1909,9 +2036,18 @@ async def update_individual_hpo_annotation(
         sample_id=str(existing["sample_id"]),
         reason="hpo_annotation_updated",
     )
-    await session.commit()
     updated = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_id)
     assert updated is not None
+    await _record_phenotype_change(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        annotation_id=annotation_id,
+        before=existing,
+        after=updated,
+        user=user,
+    )
+    await session.commit()
     return updated
 
 
@@ -1919,9 +2055,17 @@ async def delete_individual_hpo_annotation(
     session: AsyncSession,
     *,
     family_uuid: str,
+    family_identifier: str,
     annotation_id: str,
+    user: CurrentUser,
 ) -> None:
+    """Remove a family member's phenotype and record the removal on the family's clinical
+    audit trail."""
     annotation_uuid = require_uuid(annotation_id, _ANNOTATION_NOT_FOUND, status_code=404)
+    await _lock_family_phenotypes(session, family_uuid)
+    existing = await _annotation_by_id(session, family_uuid=family_uuid, annotation_id=annotation_uuid)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=_ANNOTATION_NOT_FOUND)
     result = await session.execute(
         text(
             """
@@ -1939,6 +2083,15 @@ async def delete_individual_hpo_annotation(
         family_uuid=family_uuid,
         sample_id=None,
         reason="hpo_annotation_deleted",
+    )
+    await _record_phenotype_change(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        annotation_id=annotation_uuid,
+        before=existing,
+        after=None,
+        user=user,
     )
     await session.commit()
 

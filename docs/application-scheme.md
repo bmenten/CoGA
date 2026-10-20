@@ -134,7 +134,8 @@ Backend, under `backend/app/`:
   sign-in, logging, object storage, and timeouts and retries for outbound requests.
 - `routers/` — the API, registered in `routers/__init__.py`.
 - `services/access_control.py`, `services/family_metadata_context.py` — the project-scoped
-  access check that every family and sample request passes.
+  access check that every family and sample request passes, with each member's level there
+  (an analyst reads and changes the project's records, a reader only reads them).
 - `services/metadata_service.py` — families, samples and projects.
 - `services/clickhouse_family_variants.py`, `services/clickhouse_variant_queries.py` —
   family-scoped variant queries and filters; `services/variant_explorer_service.py` — the

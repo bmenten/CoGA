@@ -19,6 +19,7 @@ import SmallVariantTable from './SmallVariantTable';
 import { formatVariantTotal } from './smallVariantResultUtils';
 import { apiPath, raw } from '../../lib/apiPath';
 import type { ApiFamilyRelationship } from '../../lib/apiTypes';
+import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 
 type ResultViewMode = 'auto' | 'table' | 'cards';
 
@@ -59,6 +60,9 @@ type SmallVariantResultsProps = {
   // The CSV export hits the small-variant export endpoint; callers without one
   // (e.g. the NIPT page) hide the button by passing false.
   showCsvExport?: boolean;
+  // The caller is a reader in the family's projects (SEC-1): the review controls inside are
+  // disabled, and the reviews stay readable.
+  readOnly?: boolean;
 };
 
 export default function SmallVariantResults({
@@ -82,6 +86,7 @@ export default function SmallVariantResults({
   reviewIsPending = false,
   reviewError = null,
   showCsvExport = true,
+  readOnly = false,
 }: SmallVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<SmallVariant | null>(null);
@@ -124,7 +129,7 @@ export default function SmallVariantResults({
         : viewMode;
 
   return (
-    <>
+    <FamilyReadOnlyContext.Provider value={readOnly}>
       <section className="surface-card space-y-4">
         <div className="variant-results-toolbar">
           <div className="space-y-1">
@@ -318,6 +323,6 @@ export default function SmallVariantResults({
           }}
         />
       ) : null}
-    </>
+    </FamilyReadOnlyContext.Provider>
   );
 }

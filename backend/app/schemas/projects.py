@@ -18,7 +18,10 @@ class ProjectCreate(BaseModel):
     description: Optional[str] = None
     species_id: str
     assembly_id: str
+    # The project's members. Each is an analyst, who reads and changes the project's
+    # records, unless reader_user_ids names them: a reader only reads them (SEC-1).
     user_ids: List[str] = Field(default_factory=list)
+    reader_user_ids: List[str] = Field(default_factory=list)
 
 
 class ProjectUpdate(BaseModel):
@@ -27,6 +30,9 @@ class ProjectUpdate(BaseModel):
     species_id: Optional[str] = None
     assembly_id: Optional[str] = None
     user_ids: Optional[List[str]] = None
+    # The readers among the members; omitted, each member keeps their level and a member
+    # added is an analyst.
+    reader_user_ids: Optional[List[str]] = None
 
 
 class ProjectOut(ApiDocumentModel):
@@ -35,6 +41,11 @@ class ProjectOut(ApiDocumentModel):
     species_id: ApiId
     assembly_id: ApiId
     user_ids: List[ApiId] = Field(default_factory=list)
+    # The members who are readers in the project; the other members are analysts (SEC-1).
+    reader_user_ids: List[ApiId] = Field(default_factory=list)
+    # The caller's own access: True when they are a reader in the project, so they may read
+    # its records but change none.
+    read_only: bool = False
     metadata: Dict[str, Any] = Field(default_factory=dict)
 
 

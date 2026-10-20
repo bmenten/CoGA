@@ -245,8 +245,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   versions the family's searches applied, the reference-data releases, the repeat-expansion
   and Paraphase calls with their status, and in a PGT family each embryo's call at the ROI as
   the family page shows it); the report code the EPD report quotes, its check
-  symbol and its lookup; the device label and the build identity; every review and
-  classification change on the clinical audit trail.
+  symbol and its lookup; the device label and the build identity; every review,
+  classification and phenotype change on the clinical audit trail.
 - **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),
   dbNSFP 5.4, HPO releases, and T2T-CHM13v2.0 as an optional assembly outside the validated
   scope.

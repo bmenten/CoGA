@@ -2,7 +2,8 @@ Every case starts on its family page.
 
 ### The header
 
-**Status**, **Assigned to** and **Reviewed by** track the case's workflow; any user can change them. The
+**Status**, **Assigned to** and **Reviewed by** track the case's workflow; an analyst of the family's
+project can change them, a reader only sees them. The
 header also shows the assembly and the projects, and a *Not validated for clinical use* banner when the
 family is outside the validated scope.
 
@@ -39,7 +40,7 @@ haplotype they share; elsewhere such a relative stays grey.
 
 Only an administrator edits a member: click the sample name to open **Family member details**, change
 the fields, press **Apply to pending**, then **Save pending updates** on the family page. HPO terms are
-added in the same dialog. Affected status and carrier status are separate: an unaffected person can be a
+added and removed in the same dialog, by an analyst of the family's project or an administrator. Affected status and carrier status are separate: an unaffected person can be a
 carrier. **Remove member** in the dialog takes the person out of the family at once, after you confirm.
 Members are added in **Admin → Family & Sample Data**.
 

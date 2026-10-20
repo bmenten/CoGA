@@ -216,7 +216,7 @@ def admin_client(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, 
         return _admin()
 
     async def family_context(_session: Any, **_kwargs: Any) -> SimpleNamespace:
-        return SimpleNamespace(family_uuid="00000000-0000-4000-8000-0000000000f1")
+        return SimpleNamespace(family_uuid="00000000-0000-4000-8000-0000000000f1", family_id="FAM1")
 
     async def hpo_tables_available(_session: Any, _tables: Any) -> bool:
         return True

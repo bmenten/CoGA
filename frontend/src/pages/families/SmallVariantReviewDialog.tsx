@@ -15,6 +15,8 @@ import {
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import { formatLocus, SEGREGATION_MODE_LABELS } from './smallVariantResultUtils';
+import ReadOnlyNote from '../../components/ReadOnlyNote';
+import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 type ReviewableVariant = {
   _id: string;
@@ -138,6 +140,8 @@ export default function SmallVariantReviewDialog({
   isPending = false,
   errorMessage = null,
 }: SmallVariantReviewDialogProps) {
+  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  const readOnly = useFamilyReadOnly();
   const [classificationTagKey, setClassificationTagKey] = useState('');
   // The class shown when the dialog opened, to tell a classification left alone from one
   // the user changed.
@@ -337,6 +341,7 @@ export default function SmallVariantReviewDialog({
           </section>
         </div>
 
+        {readOnly ? <ReadOnlyNote /> : null}
         <div className="variant-search-actions variant-review-modal-actions">
           <button
             type="button"
@@ -355,7 +360,8 @@ export default function SmallVariantReviewDialog({
             onClick={() => {
               void handleSave();
             }}
-            disabled={isPending}
+            disabled={readOnly || isPending}
+            title={readOnly ? READ_ONLY_HINT : undefined}
           >
             {isPending ? 'Saving…' : 'Save review'}
           </button>
