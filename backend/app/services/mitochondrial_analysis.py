@@ -28,7 +28,12 @@ from .clickhouse_variant_records import (
 )
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .clickhouse_variant_queries import _parent_child_links
-from .coverage_read_depth import COVERAGE_TRACK_TYPE, read_depth_sources_by_sample
+from .coverage_read_depth import (
+    COVERAGE_TRACK_TYPE,
+    SampleCoverageTracks,
+    coverage_tracks_by_sample,
+    not_read_as_depth_note,
+)
 from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import SmallVariantQueryFilters, StructuralVariantQueryFilters
 from .genotypes import HET, HOM_ALT, NO_CALL, classify_genotype
@@ -651,24 +656,47 @@ def _coverage_from_rows(rows: Sequence[dict[str, Any]]) -> MitoDNACoverageOut:
     )
 
 
-async def _mt_depth_sources(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, str]:
-    """Sample name → its chrM coverage track whose values are read depth (CLIN-46).
+async def _mt_coverage_tracks(
+    session: AsyncSession, context: FamilyMetadataContext
+) -> dict[str, SampleCoverageTracks]:
+    """Sample name → its chrM coverage tracks and what each holds (CLIN-46, TRACE-9).
 
     A sample's coverage can come from several callers, and only some hold read depth
-    (``coverage_read_depth``): the coverage BED, and a HiFiCNV depth track stored as read.
-    WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth are log2 ratios, and
-    merged with depths they gave a mean chrM depth that was neither. A sample without a
-    depth track is left out, and its coverage is its calls' depth, as without any track.
+    (``coverage_read_depth``): a coverage BED declared as read depth, and a HiFiCNV depth
+    track stored as read. WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth
+    are log2 ratios, and merged with depths they gave a mean chrM depth that was neither; a
+    coverage BED that does not declare what it holds is of unknown kind. A sample without a
+    depth track has its calls' depth as its coverage, as without any track.
     """
     if not context.assembly_name or not context.sample_uuid_to_name:
         return {}
-    return await read_depth_sources_by_sample(
+    return await coverage_tracks_by_sample(
         session,
         assembly_name=context.assembly_name,
         family_uuid=context.family_uuid,
         sample_uuid_to_name=context.sample_uuid_to_name,
         chromosomes=MT_CHROMOSOMES,
     )
+
+
+def _mt_depth_sources(tracks: dict[str, SampleCoverageTracks]) -> dict[str, str]:
+    """Sample name → its chrM coverage track of read depth; a sample without one is left out."""
+    return {
+        sample_name: source
+        for sample_name, sample_tracks in tracks.items()
+        if (source := sample_tracks.depth_source) is not None
+    }
+
+
+def _not_read_as_depth_notes(tracks: dict[str, SampleCoverageTracks]) -> list[str]:
+    """A note for each chrM coverage track not read as depth, with the reason (TRACE-9): a
+    log2 ratio, or a coverage BED that does not declare what it holds. The page shows them
+    with the family's QC notes, so a mean depth from the calls, or none, says why."""
+    return [
+        not_read_as_depth_note(sample_name, source, content)
+        for sample_name, sample_tracks in sorted(tracks.items())
+        for source, content in sample_tracks.not_read_as_depth()
+    ]
 
 
 async def _has_mt_coverage(session: AsyncSession, context: FamilyMetadataContext) -> bool:
@@ -680,17 +708,20 @@ async def _has_mt_coverage(session: AsyncSession, context: FamilyMetadataContext
     It counts the tracks the full response reads (``_coverage_by_sample``), so the two
     agree on whether a family has coverage.
     """
-    return bool(await _mt_depth_sources(session, context))
+    return bool(_mt_depth_sources(await _mt_coverage_tracks(session, context)))
 
 
 async def _coverage_by_sample(
     session: AsyncSession, context: FamilyMetadataContext
-) -> dict[str, MitoDNACoverageOut]:
+) -> tuple[dict[str, MitoDNACoverageOut], list[str]]:
     """Each sample's chrM coverage from its one coverage track of read depth
-    (``_mt_depth_sources``); a sample without one is left out."""
-    depth_sources = await _mt_depth_sources(session, context)
+    (``_mt_depth_sources``), a sample without one left out; and a note for each chrM coverage
+    track not read as depth, with the reason (``_not_read_as_depth_notes``)."""
+    tracks = await _mt_coverage_tracks(session, context)
+    notes = _not_read_as_depth_notes(tracks)
+    depth_sources = _mt_depth_sources(tracks)
     if not depth_sources or not context.assembly_name:
-        return {}
+        return {}, notes
     assembly_name = context.assembly_name
     samples = [
         (sample_name, context.sample_name_to_uuid[sample_name], source)
@@ -715,7 +746,7 @@ async def _coverage_by_sample(
         sample_name: _coverage_from_rows(rows)
         for (sample_name, _sample_uuid, _source), rows in zip(samples, fetched)
         if rows
-    }
+    }, notes
 
 
 def _sample_variant_depth_coverage(records: Sequence[SmallVariantRecord]) -> dict[str, MitoDNACoverageOut]:
@@ -916,18 +947,26 @@ def _sample_outs(
     return samples
 
 
-def _family_qc_notes(samples: Sequence[MitoDNASampleOut], variants: Sequence[MitoDNAVariantOut]) -> list[str]:
+def _family_qc_notes(
+    samples: Sequence[MitoDNASampleOut],
+    variants: Sequence[MitoDNAVariantOut],
+    coverage_notes: Sequence[str] = (),
+) -> list[str]:
     notes: list[str] = []
     if not variants:
         notes.append("No MT/chrM small variants are loaded for this family.")
     if not any(sample.haplogroup for sample in samples):
         notes.append("No per-sample mtDNA haplogroup metadata is available.")
     if not any(sample.coverage.mean_depth is not None for sample in samples):
-        # A track of log2 ratios (WisecondorX or QDNAseq bins, HiFiCNV's normalised depth)
-        # is not read as depth (_mt_depth_sources), so "no track" would not be true of it.
+        # A track of log2 ratios (WisecondorX or QDNAseq bins, HiFiCNV's normalised depth),
+        # or a coverage BED that does not declare what it holds, is not read as depth
+        # (_mt_depth_sources), so "no track" would not be true of it.
         notes.append(
             "No MT coverage track with read depth was found; variant-call depth is used when available."
         )
+    # Each chrM coverage track not read as depth, and why (TRACE-9): a sample's mean depth
+    # then comes from its calls, or there is none.
+    notes.extend(coverage_notes)
     if any(sample.qc.status in {"warn", "fail"} for sample in samples):
         notes.append("One or more samples have mtDNA QC warnings.")
     return notes
@@ -980,7 +1019,7 @@ async def get_family_mitochondrial_analysis_response(
             homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
         )
     member_by_sample = _member_meta(context)
-    coverage_map = await _coverage_by_sample(session, context)
+    coverage_map, coverage_notes = await _coverage_by_sample(session, context)
     # Resolved once per request, not per sample: every member of a family shares its
     # threshold profile.
     resolved_thresholds = await resolve_family_qc_thresholds(
@@ -1027,7 +1066,7 @@ async def get_family_mitochondrial_analysis_response(
         structural_variants=structural_variants,
         variant_count=len(variant_rows),
         has_coverage=has_coverage,
-        qc_notes=_family_qc_notes(samples, variant_rows),
+        qc_notes=_family_qc_notes(samples, variant_rows, coverage_notes),
         heteroplasmy_threshold=HETEROPLASMY_THRESHOLD,
         homoplasmy_threshold=HOMOPLASMY_THRESHOLD,
     )

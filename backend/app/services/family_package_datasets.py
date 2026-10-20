@@ -9,7 +9,7 @@ from math import log2
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Mapping, Sequence
 
-from fastapi import HTTPException, UploadFile
+from fastapi import UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.object_storage import join_remote_uri, remote_object_exists
@@ -17,6 +17,8 @@ from ..schemas import (
     FamilyImportDatasetSummary,
 )
 from .bed_service import BED_UPLOAD_SOURCE, upload_bed_data
+from .clickhouse_column_bounds import UINT32, column_int
+from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
 from .clickhouse_interval_tracks import (
     count_interval_track_rows,
     count_interval_track_source_rows,
@@ -52,7 +54,6 @@ from .annotation_table_parser import parse_mutserve_annotation_path
 from .variant_upload_service import (
     NIPT_SMALL_VARIANT_SOURCE,
     _detect_small_variant_format_from_upload,
-    remove_family_small_variant_sample_calls,
     upload_family_small_variant_file,
 )
 
@@ -1394,13 +1395,17 @@ async def _import_target_coverage_table(
 
 @_dataset_importer("coverage")
 async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDatasetSummary:
-    """Import coverage: a BED of depths (``bed``) into the ``coverage`` track, or a capture
-    panel's per-target coverage table (``target_table``, monogenic NIPT) into the
+    """Import coverage: a BED (``bed``) into the ``coverage`` track, or a capture panel's
+    per-target coverage table (``target_table``, monogenic NIPT) into the
     ``target_coverage`` track.
 
     A BED is stored as a BED upload stores it (``upload_bed_data``), under source ``web``:
     it replaces that source's coverage of the sample, and no other caller's (the bins of
-    WisecondorX and QDNAseq, imported before it, and HiFiCNV's depth; SAFE-22).
+    WisecondorX and QDNAseq, imported before it, and HiFiCNV's depth; SAFE-22). The entry's
+    ``content`` declares what the BED holds, ``read_depth`` or ``log2_ratio``, and its
+    track's record keeps it; an entry without it is stored as ``unknown``, which is never
+    read as depth (TRACE-9). The sample's result names it. A BED of the coverage dataset
+    used to be read as depth whatever it held.
 
     With ``update`` a sample whose track from this dataset's source is stored is skipped, as
     the store holds it: not as Postgres records it, which a failed overwrite's restore that
@@ -1445,14 +1450,17 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
         if skip is not None:
             sample_results[sample_id] = skip
             continue
+        content = declared_coverage_content(raw_entry.get(COVERAGE_CONTENT_KEY))
         async with _local_upload(bed_path) as upload:
-            sample_results[sample_id] = await upload_bed_data(
+            stored = await upload_bed_data(
                 session,
                 sample_context=sample_context,
                 bed_type="coverage",
                 file=upload,
                 overwrite=True,
+                content=content,
             )
+        sample_results[sample_id] = {**stored, COVERAGE_CONTENT_KEY: content}
     return _sample_by_sample_outcome(
         summary,
         sample_results,
@@ -2084,7 +2092,13 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
 
     Each sample's file replaces that sample's calls only: every other sample's stay as
     stored, one row per variant holding every sample's call, which is what the maternal
-    transmission reads. A file with no chrM variant removes the sample's earlier calls.
+    transmission reads. A file without a variant record (a header alone, records none of
+    which can be read, nothing at all) is a failed analysis, not a sample without
+    mitochondrial variants: every sample's file is checked for a record before any call is
+    replaced, and one without fails the dataset with the family's mitochondrial calls as
+    they were (``_mito_files_without_a_record``). It used to remove the sample's
+    earlier calls and end ``imported``, which counts as importing the dataset again
+    (SAFE-29, the owner's decision).
 
     The chrM SV calls (``sv_vcf``, Sniffles2 ``--mosaic``) go into the structural-variant
     store under their own ``mito_sv`` source, where the mtDNA workspace and the SV views
@@ -2124,6 +2138,16 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     # checked before anything is written, so a refused file fails the dataset with none
     # of it stored (it used to be checked file by file, after the earlier files' writes).
     columns = await _mito_sample_columns(job)
+    # And that every chrM VCF holds a record: a file without one fails the dataset before
+    # any sample's calls are replaced (SAFE-29).
+    empty = _mito_files_without_a_record(job, columns)
+    if empty:
+        raise RuntimeError(
+            "No mitochondrial call was replaced: "
+            + "; ".join(
+                f"the chrM VCF of {sample_id} ({name}) holds no variant record" for sample_id, name in empty
+            )
+        )
     sample_results: dict[str, Any] = {}
     imported_any = False
     for sample_id, raw_entry in dataset.per_sample.items():
@@ -2143,6 +2167,8 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             parse_mutserve_annotation_path(annotation_path) if annotation_path is not None else None
         )
         try:
+            # A file whose records the check above passed but the loader stores none of
+            # (400) fails the dataset here, as any refused file does.
             async with _local_upload(vcf_path) as upload:
                 result = await upload_family_small_variant_file(
                     session,
@@ -2156,24 +2182,6 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                     vep_annotations=mutserve_annotations,
                     overwrite_scope="samples",
                 )
-        except HTTPException as exc:
-            # A run with no chrM variant is a normal outcome, not a dataset failure. The
-            # file's samples then have no mitochondrial call: their earlier ones go.
-            if exc.status_code == 400 and "No valid small-variant records" in str(exc.detail):
-                removed = await remove_family_small_variant_sample_calls(
-                    session,
-                    family_context,
-                    [sample_context],
-                    source=MITO_SOURCE,
-                )
-                sample_results[sample_id] = {
-                    "inserted": 0,
-                    "removed": removed,
-                    "message": "No chrM variants called",
-                }
-                continue
-            raise
-        else:
             imported_any = True
             sample_results[sample_id] = result
             await _record_mtdna_sample_metadata(
@@ -2210,6 +2218,52 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     return summary.model_copy(
         update={"status": "imported", "message": message, "summary": sample_results}
     )
+
+
+def _vcf_holds_a_record(text_value: str) -> bool:
+    """Whether a one-sample VCF's text holds a record the small-variant loader stores
+    (``upload_family_small_variant_file``): a data line with the nine fixed columns and a
+    sample column for each one its ``#CHROM`` line names, at a position the POS column holds.
+    The loader reads the same lines; this reads them up to the first such record."""
+    header_columns: int | None = None
+    for line in text_value.splitlines():
+        if line.startswith("#CHROM"):
+            header_columns = len(line.rstrip().split("\t")[9:])
+            continue
+        if not line or line.startswith("#"):
+            continue
+        fields = line.rstrip().split("\t")
+        if len(fields) < 10:
+            continue
+        if header_columns is not None and len(fields) - 9 != header_columns:
+            continue
+        if column_int(fields[1], UINT32) is None:
+            continue
+        return True
+    return False
+
+
+def _mito_files_without_a_record(
+    job: DatasetImportJob, columns: dict[str, dict[str, str | int]]
+) -> list[tuple[str, str]]:
+    """Each (sample, file name) of a ``mito`` entry whose chrM VCF holds no record the loader
+    stores (``_vcf_holds_a_record``), checked before any sample's calls are replaced; each file
+    is read whole, as a chrM VCF is small (the loader reads it again).
+
+    The chrM callers report every mitochondrial variant of a sample against the reference
+    (rCRS), and practically every person carries some, so a file without a record is an
+    analysis that failed or a file cut short, not a sample without mitochondrial variants
+    (the owner's decision, SAFE-29). Such a file used to remove the sample's earlier calls."""
+    empty: list[tuple[str, str]] = []
+    for sample_id, raw_entry in (job.dataset.per_sample or {}).items():
+        if sample_id not in columns or not isinstance(raw_entry, dict):
+            continue
+        vcf_path = _resolve_package_path(job.bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
+        if vcf_path is None:
+            continue
+        if not _vcf_holds_a_record(_read_package_text(vcf_path)):
+            empty.append((sample_id, vcf_path.name))
+    return empty
 
 
 async def _mito_sample_columns(job: DatasetImportJob) -> dict[str, dict[str, str | int]]:

@@ -14,6 +14,7 @@ from ..core.config import settings
 from ..core.sql import uuid_list_bindparam, uuid_values
 from .clickhouse_column_bounds import UINT64, column_int
 from .clickhouse_variant_ids import _require_clickhouse_identifier
+from .coverage_content import COVERAGE_CONTENT_KEY
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .family_metadata_context import SampleMetadataContext
 
@@ -879,6 +880,49 @@ async def interval_track_normalizations_by_sample(
     so two records that disagree are both named rather than one picked.
     """
 
+    return await _interval_track_record_values_by_sample(
+        session,
+        family_uuid=family_uuid,
+        sample_uuid_to_name=sample_uuid_to_name,
+        track_type=track_type,
+        metadata_key="normalization",
+    )
+
+
+async def interval_track_contents_by_sample(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    sample_uuid_to_name: dict[str, str],
+    track_type: str,
+) -> dict[str, dict[str, list[str]]]:
+    """Sample name → source → what its ``track_type`` records declare the values are
+    (``metadata.content``, TRACE-9): a coverage BED's ``read_depth``, ``log2_ratio`` or
+    ``unknown`` (``coverage_content``). A source whose records declare nothing is left out:
+    a coverage BED stored before BEDs declared what they hold, and every other caller's
+    track. Distinct and sorted, as ``interval_track_normalizations_by_sample``."""
+
+    return await _interval_track_record_values_by_sample(
+        session,
+        family_uuid=family_uuid,
+        sample_uuid_to_name=sample_uuid_to_name,
+        track_type=track_type,
+        metadata_key=COVERAGE_CONTENT_KEY,
+    )
+
+
+async def _interval_track_record_values_by_sample(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    sample_uuid_to_name: dict[str, str],
+    track_type: str,
+    metadata_key: str,
+) -> dict[str, dict[str, list[str]]]:
+    """Sample name → source → the distinct values, sorted, that its ``track_type`` records
+    hold under ``metadata_key`` in their metadata; a source whose records hold none is left
+    out."""
+
     if not sample_uuid_to_name:
         return {}
     result = await session.execute(
@@ -887,18 +931,19 @@ async def interval_track_normalizations_by_sample(
             SELECT DISTINCT
                 sample_id::text AS sample_uuid,
                 source,
-                metadata ->> 'normalization' AS normalization
+                metadata ->> CAST(:metadata_key AS text) AS value
             FROM sample_interval_track_sources
             WHERE family_id = CAST(:family_uuid AS uuid)
               AND sample_id IN :sample_uuids
               AND track_type = :track_type
-              AND metadata ->> 'normalization' IS NOT NULL
+              AND metadata ->> CAST(:metadata_key AS text) IS NOT NULL
             """
         ).bindparams(uuid_list_bindparam("sample_uuids")),
         {
             "family_uuid": family_uuid,
             "sample_uuids": uuid_values(list(sample_uuid_to_name)),
             "track_type": track_type,
+            "metadata_key": metadata_key,
         },
     )
     by_sample: dict[str, dict[str, set[str]]] = {}
@@ -906,9 +951,7 @@ async def interval_track_normalizations_by_sample(
         name = sample_uuid_to_name.get(str(row["sample_uuid"]))
         if name is None:
             continue
-        by_sample.setdefault(name, {}).setdefault(str(row["source"]), set()).add(
-            str(row["normalization"])
-        )
+        by_sample.setdefault(name, {}).setdefault(str(row["source"]), set()).add(str(row["value"]))
     return {
         name: {source: sorted(values) for source, values in sources.items()}
         for name, sources in by_sample.items()

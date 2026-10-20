@@ -3,7 +3,8 @@ import { Link } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
 import {
   apcadAxisMax,
-  coverageNotDrawnNote,
+  coverageScale,
+  coverageScaleNote,
   coverageTrackLabel,
   orderCoverageSources,
 } from '../../lib/coverageSources';
@@ -21,6 +22,7 @@ import FamilyPageBanners from '../../components/FamilyPageBanners';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
 import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
+import CoverageScaleNote from './CoverageScaleNote';
 import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock, { TrackMeta, type ViewerRoiRange } from './ViewerTrackBlock';
 import { formatRoiCoordinates } from './viewerShared';
@@ -39,8 +41,10 @@ interface GenomeTrackAvailability {
   segments: boolean;
   /** The CNV callers with data; each is drawn as its own stacked track. */
   coverageSources: string[];
-  /** The transforms each caller's coverage track records; decides whether it is drawn. */
+  /** The transforms each caller's coverage track records. */
   coverageNormalizations: Record<string, string[]>;
+  /** What each caller's coverage track holds (TRACE-9); decides the axis it is drawn on. */
+  coverageContents: Record<string, string>;
   segmentsSources: string[];
   /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
   apcadSources: string[];
@@ -328,31 +332,17 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
             <ViewerMemberSection key={member.sample_id} member={member}>
               <div className="overflow-x-auto">
                 {trackVisibility.coverage &&
-                  // One track per CNV caller. All are stored as a log2 ratio against
-                  // the sample's own baseline, so a loss sits at the same height in
-                  // each and they can be read down the column. A track whose record
-                  // says its values are not a log2 ratio is left off the axis, and its
-                  // place says why (TRACE-7).
+                  // One track per CNV caller. The callers' log2 ratios share one axis
+                  // against the sample's own baseline, so a loss sits at the same height
+                  // in each and they can be read down the column. A track of read depth
+                  // is drawn on a depth axis, and one whose values are of unknown kind
+                  // (a coverage BED that does not declare what it holds) on their own
+                  // range, without an axis; its head says why (TRACE-7, TRACE-9).
                   orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
                     (coverageSource, _index, allSources) => {
                       const label = coverageTrackLabel(coverageSource, allSources.length);
-                      const notDrawn = coverageNotDrawnNote(
-                        availability[member.sample_id]?.coverageNormalizations[coverageSource],
-                      );
-                      if (notDrawn) {
-                        return (
-                          <ViewerTrackBlock
-                            key={`coverage-${coverageSource}`}
-                            label={label}
-                            width={trackWidth}
-                            frameClassName="mb-2"
-                          >
-                            <p className="viz-not-drawn-note" role="note">
-                              {notDrawn}
-                            </p>
-                          </ViewerTrackBlock>
-                        );
-                      }
+                      const content = availability[member.sample_id]?.coverageContents[coverageSource];
+                      const scale = coverageScale(content);
                       const { coverageUrls, segmentsUrls } = urlMaps.coverageTrackUrls(
                         member.sample_id,
                         coverageSource,
@@ -361,6 +351,15 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                         <ViewerTrackBlock
                           key={`coverage-${coverageSource}`}
                           label={label}
+                          meta={
+                            <CoverageScaleNote
+                              note={coverageScaleNote(
+                                coverageSource,
+                                content,
+                                availability[member.sample_id]?.coverageNormalizations[coverageSource],
+                              )}
+                            />
+                          }
                           width={trackWidth}
                           frameClassName="mb-2 h-[120px] cursor-pointer"
                           roiRange={genomeRoiRange}
@@ -376,7 +375,10 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                             >
                               <CoverageSegmentsChart
                                 coverageUrls={coverageUrls}
+                                scale={scale}
+                                // Segments are log2 ratios: drawn on the log2-ratio axis only.
                                 segmentsUrls={
+                                  scale === 'log2_ratio' &&
                                   trackVisibility.segments &&
                                   (availability[member.sample_id]?.segmentsSources || []).includes(
                                     coverageSource,
