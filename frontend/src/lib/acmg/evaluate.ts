@@ -35,7 +35,9 @@ export interface AcmgVariantInput {
   gene_missense_z?: number;
   revel?: number;
   spliceai_max?: number;
-  annotation_extra?: Record<string, string | number | boolean | null> | null;
+  // The AlphaMissense class as the variant is served with it (likely_benign, ambiguous,
+  // likely_pathogenic): the value an ACMG classification's evidence snapshot freezes.
+  alpha_missense_class?: string | null;
   // The locus, for the sex-aware de novo rule (#621).
   chr?: string;
   hemizygous_in_males?: boolean;
@@ -615,7 +617,9 @@ function inSilicoSuggestions(variant: AcmgVariantInput): AcmgSuggestion[] {
     ];
   }
 
-  const amClass = String(variant.annotation_extra?.alphamissense_class ?? '').toLowerCase();
+  // The served field, not annotation_extra: that holds the annotation's own key
+  // (alpha_missense_class), so reading `alphamissense_class` there never found a class.
+  const amClass = String(variant.alpha_missense_class ?? '').toLowerCase();
   if (amClass.includes('pathogenic')) {
     return [{ code: 'PP3', strength: 'supporting', evidence: 'AlphaMissense class: likely pathogenic.', disposition: 'applies' }];
   }

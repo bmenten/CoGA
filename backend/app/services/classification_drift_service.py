@@ -9,11 +9,17 @@ classified this" (see docs/clinical-traceability.md).
 
 The annotation-set hash is the authoritative drift key (it changes whenever any
 annotation changes); the ClinVar significance is reported as the human-readable
-specific when it is what moved, and so is each population frequency and in-silico score
-the snapshot froze (CLIN-7): ``changed`` names what moved, ``evidence_from`` and
-``evidence_to`` hold the values. Only the fields a snapshot froze are compared, so a
-snapshot frozen before the frequencies were (it holds none) is compared by its hash and
-ClinVar significance alone.
+specific when it is what moved, and so is each value the snapshot froze: the consequence,
+impact and LoF call, each population frequency and in-silico score (CLIN-7), and, for a
+missense variant, the gene's missense Z, which is the gene profile's and so is not under
+the hash: ``changed`` names what moved, ``evidence_from`` and ``evidence_to`` hold the
+values. Only the fields a snapshot froze are compared, so a snapshot frozen before a field
+was (it holds none of its group) is never compared on it: one frozen before the
+frequencies were is compared by its hash and ClinVar significance alone, and one of a
+variant that is not a missense variant, which holds no missense Z, never drifts on its
+gene's profile. The current values are read as a classification saved now would freeze
+them, so a missense variant no longer called missense names its consequence and its
+missense Z as gone.
 
 Structural-variant / CNV classifications are checked the same way, under ``structural``:
 each CNV (ClinGen) scoring's frozen ``cnv_evidence_snapshot`` against the row of the
@@ -35,9 +41,12 @@ from .family_metadata_context import FamilyMetadataContext, build_family_metadat
 from .access_control import CurrentUser
 from .hash_chain import canonical_json
 from .small_variant_review_acmg import (
+    EVIDENCE_CONSEQUENCE_FIELDS,
     EVIDENCE_FREQUENCY_FIELDS,
+    EVIDENCE_GENE_CONSTRAINT_FIELDS,
     EVIDENCE_IN_SILICO_FIELDS,
     build_evidence_snapshot,
+    evidence_gene_missense_z,
 )
 from .structural_variant_evidence import (
     diff_structural_evidence,
@@ -46,32 +55,39 @@ from .structural_variant_evidence import (
 )
 
 # The snapshot's groups of values, each compared field by field.
-_EVIDENCE_GROUPS = ("frequencies", "in_silico")
-# The order a drift names the frozen values in: the transcript they are read from, the
-# frequencies, then the in-silico scores (``build_evidence_snapshot``).
+_EVIDENCE_GROUPS = ("consequence", "frequencies", "in_silico", "gene_constraint")
+# The order a drift names the frozen values in: the transcript they are read from, its
+# consequence, the frequencies, the in-silico scores, then the gene's missense Z
+# (``build_evidence_snapshot``).
 _EVIDENCE_ORDER = {
     field: index
     for index, field in enumerate(
-        ("transcript_id", *EVIDENCE_FREQUENCY_FIELDS, *EVIDENCE_IN_SILICO_FIELDS)
+        (
+            "transcript_id",
+            *EVIDENCE_CONSEQUENCE_FIELDS,
+            *EVIDENCE_FREQUENCY_FIELDS,
+            *EVIDENCE_IN_SILICO_FIELDS,
+            *EVIDENCE_GENE_CONSTRAINT_FIELDS,
+        )
     )
 }
 
 
-def _current_evidence(record: Any) -> dict[str, Any]:
+def _current_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str, Any]:
     # Reuse the snapshot builder so "current" is extracted exactly like "frozen".
     # captured_at is irrelevant here; pass a sentinel that we never read.
     from datetime import datetime, timezone
 
-    return build_evidence_snapshot(record, datetime.now(timezone.utc))
+    return build_evidence_snapshot(record, datetime.now(timezone.utc), gene_missense_z=gene_missense_z)
 
 
 def _evidence_values(snapshot: Mapping[str, Any]) -> tuple[dict[str, Any] | None, bool]:
-    """The transcript, frequencies and in-silico scores a snapshot froze, as one mapping of
-    field to value, and whether all of it can be read.
+    """The transcript and the consequence, frequencies, in-silico scores and gene missense
+    Z a snapshot froze, as one mapping of field to value, and whether all of it can be read.
 
-    None when the snapshot froze none of them, as one frozen before CLIN-7 did. A group
-    that is there but is not a mapping cannot be read: its values cannot be shown
-    unchanged.
+    None when the snapshot froze none of them, as one frozen before CLIN-7 did; a snapshot
+    frozen before a group was holds only the others. A group that is there but is not a
+    mapping cannot be read: its values cannot be shown unchanged.
     """
     values: dict[str, Any] = {}
     readable = True
@@ -114,12 +130,15 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
     """Compare a frozen snapshot against current evidence.
 
     status is one of: ``current`` (unchanged), ``drifted`` (the annotation set, the ClinVar
-    significance or a frozen frequency or in-silico score changed: ``changed`` names
+    significance or a frozen value changed: the consequence, impact or LoF call, a
+    frequency or in-silico score, or a missense variant's gene missense Z; ``changed`` names
     each, ``annotations`` for the annotation set), ``unknown`` (nothing is seen to have
     moved, but a hash is missing or a frozen group cannot be read, so the match cannot be
     verified) and ``variant_missing`` (the variant is no longer present in the dataset).
     Only what the snapshot froze is compared: a snapshot frozen before the frequencies and
-    in-silico scores were holds none, and its ``evidence_from`` is None.
+    in-silico scores were holds none, and its ``evidence_from`` is None; one frozen before
+    the consequence and the gene's missense Z were, or of a variant that is not a missense
+    variant (no missense Z), is compared on what it holds.
     """
     snap_hash = snapshot.get("annotation_set_hash")
     snap_clinvar = snapshot.get("clinvar")
@@ -202,13 +221,11 @@ async def evaluate_classification_drift(
         )
     ).mappings().all()
 
-    drifted: list[dict[str, Any]] = []
-    checked = 0
+    compared: list[tuple[Any, dict[str, Any], Any]] = []
     for row in rows:
         snapshot = row["acmg_evidence_snapshot"]
         if not isinstance(snapshot, dict):
             continue
-        checked += 1
         current_record = None
         if context.assembly_name:
             current_record = await get_small_variant_family_record(
@@ -216,7 +233,21 @@ async def evaluate_classification_drift(
                 family_guid=context.family_uuid,
                 variant_id=row["variant_id"],
             )
-        current = _current_evidence(current_record) if current_record is not None else None
+        compared.append((row, snapshot, current_record))
+    # The genes' missense Z as the variant list serves it now, read at once for every variant
+    # that is a missense variant now (no other variant's gene is looked up).
+    missense_z = await evidence_gene_missense_z(
+        session,
+        {str(row["variant_id"]): record for row, _snapshot, record in compared if record is not None},
+    )
+
+    drifted: list[dict[str, Any]] = []
+    for row, snapshot, current_record in compared:
+        current = (
+            _current_evidence(current_record, gene_missense_z=missense_z.get(str(row["variant_id"])))
+            if current_record is not None
+            else None
+        )
         diff = _diff(snapshot, current)
         if diff["status"] == "current":
             continue
@@ -232,7 +263,7 @@ async def evaluate_classification_drift(
 
     return {
         "family_id": context.family_id,
-        "checked": checked,
+        "checked": len(compared),
         "drifted_count": len(drifted),
         "drifted": drifted,
         "structural": await evaluate_structural_classification_drift(session, context),

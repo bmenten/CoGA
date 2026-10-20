@@ -17,7 +17,8 @@ and refers to exactly one signed version: the one it rests on.
   the manufacturer, and the versions behind the data: the pipeline tools, the assembly, the gene loci,
   the Monarch release and the HPO release. It prints with the report.
 - An **evidence-drift** banner when a classification's evidence changed after it was made: for example
-  a new ClinVar significance, a new REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), or a
+  a new ClinVar significance, a new REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), a new
+  consequence or LoF call (*LoF LC → HC*), a new missense Z for a missense variant's gene, or a
   structural variant that now overlaps other genes. Re-review those variants.
 - The **Clinical audit trail**: who classified, tagged or annotated what, who reviewed a
   compound-heterozygous pair or changed the pedigree, and when. Entries can

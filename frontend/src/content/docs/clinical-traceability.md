@@ -48,10 +48,12 @@ by*, the build that drew the page from its record. After a CoGA update the two c
 When you save a classification, CoGA freezes the evidence it rests on:
 
 - **ACMG classify** (a small variant): a fingerprint of the variant's annotation, its ClinVar
-  significance, and the population frequencies and in-silico scores the dialog read — the gnomAD
-  frequencies (overall, exomes, genomes, popmax), the TOPMed frequency, the gnomAD allele,
-  homozygote and hemizygote counts, CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense —
-  taken from the variant's primary transcript, as the dialog shows them;
+  significance, its consequence, impact and LoF call (LOFTEE), and the population frequencies and
+  in-silico scores the dialog read — the gnomAD frequencies (overall, exomes, genomes, popmax), the
+  TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts, CADD, REVEL, SpliceAI,
+  SIFT, PolyPhen and AlphaMissense — taken from the variant's primary transcript, as the dialog
+  shows them, and, for a missense variant, the gnomAD missense Z of its gene, from the gene's
+  profile, which PP2 reads (PP2 reads it for no other variant, so none is frozen for one);
 - **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
   event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
   position, a fingerprint of its annotation, and the annotation versions its genes came from. The
@@ -64,13 +66,20 @@ When you open the report, each frozen classification is compared with the curren
 banner lists every classification whose evidence changed:
 
 - the ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*);
-- a frozen frequency or in-silico score changed, or a value missing then is there now: each is
-  named with its value then and now (for example *REVEL 0.412 → 0.951* or *gnomAD AF 3.10e-5 →
-  0.012*), and so is a change of the primary transcript they are read from;
+- a frozen consequence, LoF call, frequency or in-silico score, or a missense variant's gene
+  missense Z, changed, or a value missing then is there now: each is named with its value then and
+  now (for example *REVEL 0.412 → 0.951*, *gnomAD AF 3.10e-5 → 0.012*, *LoF LC → HC* or *gnomAD
+  missense Z 2.95 → 3.52*), and so is a change of the primary transcript they are read from. The
+  missense Z can change when the gene profiles are refreshed, without any change to the variant's
+  annotation; such a refresh never prompts a re-review of a classification of any other variant
+  (a stop gained, for example). A missense variant no longer called one shows its missense Z as
+  gone (*gnomAD missense Z 2.95 → n/a*), beside its new consequence;
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
   (*annotation set changed*). A classification saved before CoGA froze the frequencies and
   in-silico scores is compared on its fingerprint and ClinVar significance alone, so its banner
-  line does not say which value moved;
+  line does not say which value moved. One saved before CoGA froze the consequence and the
+  missense Z is compared on the values it froze: a change of its consequence shows only as a
+  changed annotation, and a change of the gene's missense Z alone does not show;
 - for a structural variant, what moved in the row of the caller its evidence was frozen from: for
   example *genes TCF4, TXNL1 → TCF4* or *pLI 0.990 → 0.410*, and likewise its inheritance, type or
   position. It says *annotation changed* when only its other annotation changed, and *its frozen
@@ -279,8 +288,9 @@ It shows what the record holds:
 - each reported small variant, named by its variant ID, with its description as you reviewed it, its
   classification and points, the accepted ACMG criteria and their evidence, the evidence frozen when it
   was classified (the ClinVar significance and the annotation version and, for a classification saved
-  since CoGA froze them, the population frequencies and in-silico scores as they were then, read from
-  its primary transcript), its tags and its note;
+  since CoGA froze them, the consequence, impact and LoF call, the population frequencies and in-silico
+  scores as they were then, read from its primary transcript, and, for a missense variant, the gnomAD
+  missense Z of its gene), its tags and its note;
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
 - in a PGT family, the embryo calls (*PGT embryo results*): each embryo's call at the ROI, the
