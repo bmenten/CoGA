@@ -39,7 +39,9 @@ Only an admin can replace them, through the API, and the replacement is written 
 guessed. The footer prints with the report and is part of the signed record.
 
 The footer also names the software: *Software: CoGA X.Y.Z (commit)*, the build that produced the page,
-followed by the in-house IVD statement and the manufacturer. The report asks for the build each time it
+followed by the in-house IVD statement and the manufacturer. Only a release names a release's version: any
+other build adds `dev` to it (*CoGA 0.1.0-dev (commit)*, or *0.1.0-rc.1.dev* after the release
+candidate), so it is never taken for that release. The report asks for the build each time it
 opens. A signed version's footer names two builds: *Signed with*, the build that froze it, and *Rendered
 by*, the build that drew the page from its record. After a CoGA update the two can differ.
 
