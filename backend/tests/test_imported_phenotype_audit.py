@@ -23,11 +23,19 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
+from datetime import datetime, timezone
 from typing import Any
+from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 
+from backend.app.core.postgres import get_postgres_session
+from backend.app.main import app
+from backend.app.routers import families_reports
+from backend.app.schemas import ClinicalAuditOut
 from backend.app.services import hpo_service, postgres_family_snapshot
+from backend.app.services.access_control import CurrentUser
 from backend.app.services.hpo_service import (
     FAMILY_BUILDER,
     PACKAGE_IMPORT,
@@ -194,11 +202,15 @@ def test_an_import_writes_one_event_per_member_whose_phenotypes_it_changed(event
         "Phenotypes imported for S1 by a package import of FAM1_pkg (phenotypes.tsv): "
         "added HP:0001250 Seizure (present); added HP:0001263 Global developmental delay (absent)"
     )
-    assert first["before"] == []
-    assert first["after"] == [
-        _state("S1", "HP:0001250", note="since birth", source="family_package:phenotypes.tsv"),
-        _state("S1", "HP:0001263", "absent", source="family_package:phenotypes.tsv"),
-    ]
+    # Nothing there before, as an edit's event of a term added has no before.
+    assert first["before"] is None
+    assert first["after"] == {
+        "sample_id": "S1",
+        "phenotypes": [
+            _state("S1", "HP:0001250", note="since birth", source="family_package:phenotypes.tsv"),
+            _state("S1", "HP:0001263", "absent", source="family_package:phenotypes.tsv"),
+        ],
+    }
     assert first["metadata"] == {
         "sample_id": "S1",
         "source": "package_import",
@@ -234,10 +246,14 @@ def test_an_import_that_rewrites_an_annotation_names_each_field_it_changed(event
         "Phenotypes imported for S1 by a package import of FAM1_pkg (phenotypes.tsv): "
         "changed HP:0001250 Seizure (present): onset removed, source edited, note edited"
     )
-    assert event["before"] == [_state("S1", "HP:0001250", note="since birth", onset="infantile")]
-    assert event["after"] == [
-        _state("S1", "HP:0001250", note="since age 2", source="family_package:phenotypes.tsv")
-    ]
+    assert event["before"] == {
+        "sample_id": "S1",
+        "phenotypes": [_state("S1", "HP:0001250", note="since birth", onset="infantile")],
+    }
+    assert event["after"] == {
+        "sample_id": "S1",
+        "phenotypes": [_state("S1", "HP:0001250", note="since age 2", source="family_package:phenotypes.tsv")],
+    }
 
 
 def test_rows_the_import_skips_write_nothing_and_take_no_lock(events: list[dict[str, Any]]) -> None:
@@ -359,8 +375,8 @@ def test_the_phenotypes_a_family_goes_with_are_recorded_as_removed(events: list[
 
     assert written == 2
     assert [(event["before"], event["after"]) for event in events] == [
-        ([_state("S1", "HP:0001250")], []),
-        ([_state("S2", "HP:0001263", "absent", note="n")], []),
+        ({"sample_id": "S1", "phenotypes": [_state("S1", "HP:0001250")]}, None),
+        ({"sample_id": "S2", "phenotypes": [_state("S2", "HP:0001263", "absent", note="n")]}, None),
     ]
     assert events[0]["metadata"]["change"] == "rolled_back"
     # Under the family's phenotype lock; the caller deletes the family and commits.
@@ -426,8 +442,11 @@ def test_a_restore_records_the_phenotypes_it_puts_back(events: list[dict[str, An
         "Phenotypes put back for S1 after a failed package import of FAM1_pkg: "
         "removed HP:0000252 Microcephaly (present); changed HP:0001250 Seizure (present): note edited"
     )
-    assert event["before"] == [_state("S1", "HP:0000252"), _state("S1", "HP:0001250", note="since age 2")]
-    assert event["after"] == [_state("S1", "HP:0001250", note="since birth")]
+    assert event["before"] == {
+        "sample_id": "S1",
+        "phenotypes": [_state("S1", "HP:0000252"), _state("S1", "HP:0001250", note="since age 2")],
+    }
+    assert event["after"] == {"sample_id": "S1", "phenotypes": [_state("S1", "HP:0001250", note="since birth")]}
     assert event["metadata"]["change"] == "put_back"
     # What the restore replaces is read under the lock before its first delete, and the
     # event is written in the restore's transaction, before its commit.
@@ -452,3 +471,99 @@ def test_a_restore_that_puts_no_phenotype_back_writes_no_event(events: list[dict
     )
 
     assert events == [] and session.commits == 1
+
+
+# --------------------------------------------------------------------------- the trail serves them
+
+
+def _served(event: dict[str, Any], at: datetime) -> dict[str, Any]:
+    """An event as the trail's page reads it back (``list_clinical_audit``)."""
+    return {
+        "id": str(uuid4()),
+        "created_at": at,
+        "variant_id": event["variant_id"],
+        "actor": event["actor"],
+        "action": event["action"],
+        "summary": event["summary"],
+        "before": event["before"],
+        "after": event["after"],
+    }
+
+
+def test_the_trail_serves_every_kind_of_import_event(events: list[dict[str, Any]], monkeypatch: pytest.MonkeyPatch) -> None:
+    # Before: an import's before and after were lists, which the served schema
+    # (ClinicalAuditEventOut: an object or none) refused, so the family's trail answered 500.
+    session = _Session(_annotation("S1", "HP:0001250", note="since birth"))
+    _import(session, _row("S1", "HP:0001250", note="since age 2"), _row("S2", "HP:0001263", "absent"))
+    restore = _RestoreSession(
+        [_annotation("S1", "HP:0001250")],
+        _annotation("S1", "HP:0001250", note="since age 2"),
+        _annotation("S1", "HP:0000252"),
+    )
+    asyncio.run(
+        postgres_family_snapshot.restore_family_postgres_state(
+            restore,  # type: ignore[arg-type]
+            FamilyPostgresSnapshot(family_uuid=FAMILY_UUID, tables={"individual_hpo": "[]"}),
+            family_identifier="FAM1",
+            phenotype_import=ORIGIN,
+        )
+    )
+    for change in (PHENOTYPES_ROLLED_BACK, PHENOTYPES_REPLACED):
+        asyncio.run(
+            hpo_service.record_phenotypes_deleted_with_family(
+                _Session(_annotation("S1", "HP:0001250")),  # type: ignore[arg-type]
+                family_uuid=FAMILY_UUID,
+                family_identifier="FAM1",
+                origin=ORIGIN,
+                change=change,
+            )
+        )
+    assert [event["metadata"]["change"] for event in events] == [
+        "imported", "imported", "put_back", "rolled_back", "replaced"
+    ]
+    at = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    page = {"family_id": "FAM1", "total": len(events), "has_more": False, "events": [_served(e, at) for e in events]}
+
+    # The schema the route serves the page with takes each of them.
+    served = ClinicalAuditOut.model_validate(page)
+    assert [(event.before is None, event.after is None) for event in served.events] == [
+        (False, False),  # a note rewritten
+        (True, False),  # a term added
+        (False, False),  # one removed and one changed back
+        (False, True),  # removed with the family
+        (False, True),
+    ]
+
+    # And the route itself answers 200 with them.
+    user = CurrentUser(
+        id=IMPORTER.id, username=IMPORTER.username, email="importer@example.org", role="admin", created_at=at
+    )
+
+    async def page_of_trail(_session: Any, **_kwargs: Any) -> dict[str, Any]:
+        return page
+
+    async def no_session():
+        yield None
+
+    async def signed_in() -> CurrentUser:
+        return user
+
+    original = dict(app.dependency_overrides)
+    app.state.skip_startup_tasks = True
+    monkeypatch.setattr(families_reports, "list_clinical_audit", page_of_trail)
+    app.dependency_overrides[get_postgres_session] = no_session
+    app.dependency_overrides[families_reports.get_current_user] = signed_in
+    try:
+        with TestClient(app) as client:
+            response = client.get("/api/families/FAM1/clinical-audit")
+    finally:
+        app.dependency_overrides = original
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [event["after"]["phenotypes"][0]["hpo_id"] for event in body["events"] if event["after"]] == [
+        "HP:0001250",
+        "HP:0001263",
+        "HP:0001250",
+    ]
+    assert body["events"][3]["before"] == {"sample_id": "S1", "phenotypes": [_state("S1", "HP:0001250")]}
+

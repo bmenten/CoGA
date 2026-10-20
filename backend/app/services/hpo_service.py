@@ -2021,6 +2021,16 @@ def _imported_phenotypes_metadata(sample_id: str, origin: PhenotypeImport, chang
     return metadata
 
 
+def imported_phenotypes_side(sample_id: str, annotations: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """One side of an import's ``phenotype`` event, as the trail serves every event's before
+    and after (``ClinicalAuditEventOut``: an object, or none): the member and its annotations
+    the change touched (``phenotype_audit_state`` each). None when it touched none, as an
+    edit's event has no before for a term added and no after for one removed."""
+    if not annotations:
+        return None
+    return {"sample_id": sample_id, "phenotypes": annotations}
+
+
 async def record_imported_phenotype_changes(
     session: AsyncSession,
     *,
@@ -2033,8 +2043,10 @@ async def record_imported_phenotype_changes(
 ) -> int:
     """Record what an import changed of a family's phenotypes, ``before`` to ``after``, on the
     family's hash-chained clinical audit trail, in the import's transaction (no commit): one
-    ``phenotype`` event per member whose phenotypes it changed, as the user who ran it. Returns
-    how many events it wrote: an import that changed no phenotype writes none."""
+    ``phenotype`` event per member whose phenotypes it changed, as the user who ran it, its
+    before and after each the member with the annotations it altered or removed, as they were,
+    and those it added or altered, as they are (``imported_phenotypes_side``). Returns how many
+    events it wrote: an import that changed no phenotype writes none."""
     changes = imported_phenotype_changes(before, after)
     for sample_id, member in changes.items():
         await record_clinical_event(
@@ -2046,8 +2058,8 @@ async def record_imported_phenotype_changes(
             actor_id=getattr(origin.user, "id", None),
             action="phenotype",
             summary=imported_phenotypes_summary(sample_id, member["phrases"], origin, change),
-            before=member["before"],
-            after=member["after"],
+            before=imported_phenotypes_side(sample_id, member["before"]),
+            after=imported_phenotypes_side(sample_id, member["after"]),
             metadata=_imported_phenotypes_metadata(sample_id, origin, change),
         )
     return len(changes)

@@ -16,6 +16,9 @@ the entry the import job runs), the real PED upload and Postgres:
   its trail; the chain, on the family's ID, keeps them);
 * an import that fails on a family it created removes the family again, and records the
   phenotypes it had brought as removed;
+* the family's trail, served through the API (``GET /api/families/{id}/clinical-audit``), holds
+  the import's events as an edit's are served: before and after each an object (the member and
+  the annotations it touched) or none;
 * each family's chain verifies.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it. The values
@@ -57,7 +60,10 @@ def _write_pkg(root: Path, *, family_id: str, phenotypes: list[tuple[str, str, s
 
 async def _exercise(base: Path) -> dict[str, Any]:
     from fastapi import UploadFile
+    from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
+
+    from backend.app.main import app
 
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
@@ -171,6 +177,12 @@ async def _exercise(base: Path) -> dict[str, Any]:
         out["v3"] = (failed.completed, failed.error, any("restored" in line for line in failed.logs))
         out["held_after_v3"] = await stored_phenotypes(replaced_id)
         out["before_ped"] = await phenotype_events(replaced_id)
+        # The trail as the family's report reads it (before: an import's events were lists,
+        # which the served schema refused, and the trail answered 500).
+        async with AsyncClient(transport=ASGITransport(app=app, raise_app_exceptions=False), base_url="http://e2e") as client:
+            client.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(client)}"
+            served = await client.get(f"/api/families/{replaced_id}/clinical-audit")
+        out["served"] = (served.status_code, served.json())
 
         async with sessionmaker() as session:
             ped = UploadFile(
@@ -227,8 +239,9 @@ def test_a_package_brings_a_members_phenotypes_in_as_one_event(ran: dict[str, An
         f"added {_term(ran, SEIZURE)} (present)"
     )
     assert (event["actor"], event["actor_id"]) == ran["admin"]
-    assert event["before"] == []
-    assert [(state["hpo_id"], state["status"], state["note"]) for state in event["after"]] == [
+    assert event["before"] is None
+    assert event["after"]["sample_id"] == f"{family_id}_S1"
+    assert [(state["hpo_id"], state["status"], state["note"]) for state in event["after"]["phenotypes"]] == [
         (SEIZURE, "present", "since birth")
     ]
     assert event["metadata"]["source"] == "package_import"
@@ -250,8 +263,11 @@ def test_a_package_that_changes_a_note_and_adds_a_term_names_both(ran: dict[str,
         f"Phenotypes imported for {family_id}_S1 by a package import of v2 (phenotypes.tsv): "
         f"changed {_term(ran, SEIZURE)} (present): note edited; added {_term(ran, DELAY)} (absent)"
     )
-    assert [state["note"] for state in v2["before"]] == ["since birth"]
-    assert [(state["hpo_id"], state["note"]) for state in v2["after"]] == [(SEIZURE, "since age 2"), (DELAY, None)]
+    assert [state["note"] for state in v2["before"]["phenotypes"]] == ["since birth"]
+    assert [(state["hpo_id"], state["note"]) for state in v2["after"]["phenotypes"]] == [
+        (SEIZURE, "since age 2"),
+        (DELAY, None),
+    ]
     assert ran["held_after_v2"] == [(SEIZURE, "present", "since age 2"), (DELAY, "absent", None)]
 
 
@@ -269,7 +285,7 @@ def test_a_failed_overwrite_is_put_back_and_both_changes_are_on_the_trail(ran: d
         f"Phenotypes put back for {family_id}_S1 after a failed package import of v3: "
         f"removed {_term(ran, MICRO)} (present)"
     )
-    assert (put_back["before"], put_back["after"]) == (imported["after"], [])
+    assert (put_back["before"], put_back["after"]) == (imported["after"], None)
     assert put_back["metadata"]["change"] == "put_back"
     assert len(ran["before_ped"]) == 4
 
@@ -282,7 +298,8 @@ def test_a_ped_upload_that_replaces_the_family_records_the_phenotypes_it_goes_wi
         f"Phenotypes removed for {family_id}_S1: the family was replaced by a PED upload (replacement.ped): "
         f"removed {_term(ran, SEIZURE)} (present); removed {_term(ran, DELAY)} (absent)"
     )
-    assert [state["hpo_id"] for state in removed["before"]] == [SEIZURE, DELAY] and removed["after"] == []
+    assert [state["hpo_id"] for state in removed["before"]["phenotypes"]] == [SEIZURE, DELAY]
+    assert removed["after"] is None
     assert (removed["metadata"]["source"], removed["metadata"]["change"], removed["metadata"]["file"]) == (
         "ped_upload",
         "replaced",
@@ -303,10 +320,23 @@ def test_a_family_a_failed_import_created_goes_with_its_phenotypes_recorded(ran:
         f"Phenotypes removed for {family_id}_S1 with the family a failed package import of new had created: "
         f"removed {_term(ran, SEIZURE)} (present)"
     )
-    assert (removed["before"], removed["after"]) == (imported["after"], [])
+    assert (removed["before"], removed["after"]) == (imported["after"], None)
 
 
 def test_each_familys_chain_verifies(ran: dict[str, Any]) -> None:
     for family_id, (verified, rows_checked) in ran["chains"].items():
         assert verified is True, family_id
         assert rows_checked >= 2, family_id
+
+
+def test_the_familys_trail_serves_the_imports_events(ran: dict[str, Any]) -> None:
+    status, body = ran["served"]
+    assert status == 200, body
+    served = [event for event in body["events"] if event["action"] == "phenotype"]
+    # Most recent first, as the trail lists them: the restore's, then the three imports'.
+    assert [event["summary"] for event in served] == [event["summary"] for event in reversed(ran["before_ped"])]
+    for event in served:
+        assert event["variant_id"] is None
+        for side in (event["before"], event["after"]):
+            assert side is None or set(side) == {"sample_id", "phenotypes"}
+
