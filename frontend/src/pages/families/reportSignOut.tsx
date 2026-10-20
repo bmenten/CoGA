@@ -26,6 +26,33 @@ export interface ReportSignOut {
   dialogs: React.ReactNode;
 }
 
+/**
+ * The concerns a Sample-QC refusal names, each group as the 409 lists it (CLIN-58): the checks
+ * that failed, those that could not run, a NIPT family's NIPT quality checks that failed, and
+ * the warnings beside them. Each concern names its sample, pair or child (CLIN-8).
+ */
+interface QcConcerns {
+  failed: string[];
+  unverifiable: string[];
+  niptFailed: string[];
+  warnings: string[];
+}
+
+/** The dialog's groups, in its order, each under its heading; an empty group is not shown. */
+const QC_CONCERN_GROUPS: ReadonlyArray<{ key: keyof QcConcerns; id: string; heading: string }> = [
+  { key: 'failed', id: 'qc-concerns-failed', heading: 'Sample QC checks that failed' },
+  { key: 'unverifiable', id: 'qc-concerns-could-not-run', heading: 'Checks that could not run' },
+  { key: 'niptFailed', id: 'qc-concerns-nipt-failed', heading: 'NIPT quality checks that failed' },
+  {
+    key: 'warnings',
+    id: 'qc-concerns-warnings',
+    heading: 'Warnings, which do not stop the sign-out on their own',
+  },
+];
+
+const stringList = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
 /** What decides whether a page offers the sign-out (`signOutRefusal`). */
 export interface SignOutOffer {
   /** The family is read-only for the signed-in user: a reader in its project (SEC-1). */
@@ -90,7 +117,7 @@ export const useReportSignOut = (
   const [qcGate, setQcGate] = useState<{
     message: string;
     vars: SignOutVars;
-    summary?: { overall_status?: string; messages?: string[] };
+    concerns: QcConcerns;
   } | null>(null);
   const [qcReason, setQcReason] = useState('');
   const [importGate, setImportGate] = useState<{
@@ -176,16 +203,25 @@ export const useReportSignOut = (
         );
         return;
       }
-      // A failing Sample QC returns a structured detail (gate discriminator + a failure
-      // summary); it needs an acknowledge-WITH-REASON override, so open the dialog.
+      // A failing Sample QC returns a structured detail (gate discriminator + its concerns,
+      // in groups); it needs an acknowledge-WITH-REASON override, so open the dialog. The
+      // dialog shows every group, so a failure never hides a check that could not run.
       if (gate === 'sample_qc') {
         const qc = detail as {
           message?: string;
-          qc_summary?: { overall_status?: string; messages?: string[] };
+          failed_checks?: unknown;
+          unverifiable_checks?: unknown;
+          nipt_failed_checks?: unknown;
+          warning_checks?: unknown;
         };
         setQcGate({
           message: qc.message || 'Sample-integrity QC failed.',
-          summary: qc.qc_summary,
+          concerns: {
+            failed: stringList(qc.failed_checks),
+            unverifiable: stringList(qc.unverifiable_checks),
+            niptFailed: stringList(qc.nipt_failed_checks),
+            warnings: stringList(qc.warning_checks),
+          },
           vars,
         });
         return;
@@ -351,22 +387,31 @@ export const useReportSignOut = (
               <h2 className="report-paragraph">
                 <strong>Sample-integrity QC — acknowledgement required</strong>
               </h2>
-              {/* The backend message describes the specific concern — a detected mismatch
-                  (fail) OR an asserted relationship that could not be verified (missing
-                  data). Render it verbatim so the reviewer attests to the right thing. */}
+              {/* The backend message names each kind of concern the gate holds — a detected
+                  mismatch (fail), a check that could not run (missing data), a failed NIPT
+                  check. Render it verbatim so the reviewer attests to the right thing. */}
               <p className="report-paragraph">{qcGate.message}</p>
               <p className="report-paragraph">
                 To sign out anyway you must record a reason — it is frozen into the signed record.
               </p>
-              {qcGate.summary?.messages?.length ? (
-                <ul>
-                  {qcGate.summary.messages.map((message, index) => (
-                    <li key={index}>{message}</li>
-                  ))}
-                </ul>
-              ) : null}
+              {/* Every concern, each group under its heading, as the 409 lists them and the
+                  sign-out's audit event records them (CLIN-58). */}
+              {QC_CONCERN_GROUPS.map(({ key, id, heading }) =>
+                qcGate.concerns[key].length ? (
+                  <React.Fragment key={key}>
+                    <h3 className="report-subheading" id={id}>
+                      {heading}
+                    </h3>
+                    <ul aria-labelledby={id}>
+                      {qcGate.concerns[key].map((concern, index) => (
+                        <li key={index}>{concern}</li>
+                      ))}
+                    </ul>
+                  </React.Fragment>
+                ) : null,
+              )}
               <label className="report-footer-label" htmlFor="qc-ack-reason">
-                Reason for signing out despite the QC concern (required)
+                Reason for signing out despite the QC concerns listed (required)
               </label>
               <textarea
                 id="qc-ack-reason"

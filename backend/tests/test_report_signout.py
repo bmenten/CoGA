@@ -974,6 +974,18 @@ _PARTNERS_NAMED = [
     "Sample PARTNER_B: no chrX genotypes available for sex inference.",
 ]
 
+# The refusal's message: a sentence for each kind of concern the gate holds, then what to do
+# (CLIN-58). The concerns themselves are in the refusal's lists, one group each.
+_QC_FAILED = "Sample-integrity QC status is 'fail' (possible sample or pedigree swap — TF-06 H4)."
+_COULD_NOT_RUN = (
+    "A sample-integrity check that confirms the pedigree or a sample's identity could not run. "
+    "A sample swap can present as missing data rather than a mismatch."
+)
+_NIPT_CHECK_FAILED = "A NIPT quality check failed."
+_RESOLVE_OR_ACKNOWLEDGE = (
+    "Resolve each concern listed, or acknowledge them with a reason to sign out anyway."
+)
+
 
 def _couple_without_chrx() -> SampleIntegrityReport:
     """A carrier couple whose callset holds no chrX site: both sex checks could not run, with
@@ -1016,15 +1028,14 @@ def _qc_refusal(monkeypatch, report: SampleIntegrityReport) -> dict:
 def test_the_qc_refusal_names_the_sample_of_each_reason(monkeypatch) -> None:
     # Neither partner's sex could be checked: the refusal gave "No chrX genotypes available
     # for sex inference." twice and named neither. Each reason names its sample, in the
-    # list and in the message the report page shows.
+    # list the report page shows under the message (CLIN-58: the message names the kind of
+    # concern, the lists hold the concerns).
     detail = _qc_refusal(monkeypatch, _couple_without_chrx())
 
     assert detail["unverifiable_checks"] == _PARTNERS_NAMED
-    assert detail["message"] == (
-        "A swap-relevant sample-integrity check could not be verified for an asserted pedigree "
-        f"relationship ({'; '.join(_PARTNERS_NAMED)}). A sample swap can present as missing data "
-        "rather than a mismatch. Resolve it, or acknowledge with a reason to sign out anyway."
-    )
+    assert detail["failed_checks"] == []
+    assert detail["warning_checks"] == []
+    assert detail["message"] == f"{_COULD_NOT_RUN} {_RESOLVE_OR_ACKNOWLEDGE}"
 
 
 def test_the_qc_refusal_names_the_pair_and_the_child_with_its_parents(monkeypatch) -> None:
@@ -1046,6 +1057,11 @@ def test_the_qc_refusal_names_the_pair_and_the_child_with_its_parents(monkeypatc
     # The acknowledgement prompt lists every concerning check, named the same way; the sex
     # checks that could not run are not among them (they are not warnings or fails).
     assert detail["qc_summary"]["messages"] == [*pairs, child]
+    # In the groups the dialog shows, each concern is listed once: the parents' pair is a
+    # warning, which does not gate on its own; the checks that could not run are not
+    # listed again among the warnings (CLIN-58).
+    assert detail["warning_checks"] == [pairs[2]]
+    assert detail["failed_checks"] == []
 
 
 def test_the_qc_refusal_names_the_nipt_father(monkeypatch) -> None:
@@ -1078,6 +1094,11 @@ def test_the_qc_refusal_names_the_nipt_father(monkeypatch) -> None:
     ]
     assert detail["qc_summary"]["messages"] == [
         paternity,
+        "Fetal sex indeterminate — too few informative paternal-X sites (0 paternal-X "
+        "transmitted, 0 absent of 0 sites).",
+    ]
+    # The paternity that could not run is listed once, among the checks that could not run.
+    assert detail["warning_checks"] == [
         "Fetal sex indeterminate — too few informative paternal-X sites (0 paternal-X "
         "transmitted, 0 absent of 0 sites).",
     ]
@@ -1119,6 +1140,10 @@ def test_a_failed_qc_refusal_names_each_failing_check(monkeypatch) -> None:
         "Sample CHILD (child of FATHER): high Mendelian-error rate 600/5000 sites (12.00%) — "
         "likely swap or wrong parent.",
     ]
+    # Each is a failure, in the group of the checks that failed.
+    assert detail["failed_checks"] == detail["qc_summary"]["messages"]
+    assert detail["unverifiable_checks"] == [] and detail["warning_checks"] == []
+    assert detail["message"] == f"{_QC_FAILED} {_RESOLVE_OR_ACKNOWLEDGE}"
 
 
 def test_an_acknowledged_refusal_audits_the_named_reasons_and_freezes_the_checks_as_they_are(
@@ -1234,6 +1259,144 @@ def test_a_check_without_its_message_or_its_samples_still_gives_its_reason() -> 
         }
     )
     assert summary["messages"] == ["Paternal transmission off its expectation."]
+
+
+# ---------------------------------------------------------------------------
+# A failure does not hide a check that could not run: each group of concerns is listed,
+# and audited, on its own (CLIN-58)
+# ---------------------------------------------------------------------------
+
+_WRONG_FATHER = (
+    "Samples CHILD and FATHER: recorded parent-child but genotypes look unrelated (kinship "
+    "0.010, IBS0 4.00%, 5000 sites) — possible sample swap or wrong parent."
+)
+_RELATIVE_UNCHECKED = "Sample RELATIVE: no chrX genotypes available for sex inference."
+_PARENTS_RELATED = (
+    "Samples FATHER and MOTHER: parents look third-degree — possible consanguinity (kinship "
+    "0.060, IBS0 1.00%, 5000 sites)."
+)
+
+
+def _failed_trio_beside_an_unchecked_relative() -> SampleIntegrityReport:
+    """A trio whose child does not look like the recorded father's, and whose parents look
+    related, beside a relative of the family whose callset holds no chrX: her sex, the only
+    check of her identity (no relatedness check the pedigree asserts covers her), could not
+    run."""
+    return SampleIntegrityReport(
+        overall_status="fail",
+        application="wgs",
+        sex_checks=[
+            SexCheck(
+                "CHILD", "male", "male", 0.01, 500, "pass",
+                "Genotype-inferred sex matches the record (1.0% chrX het over 500 sites).",
+            ),
+            SexCheck("RELATIVE", "female", "indeterminate", None, 0, "skip", _NO_CHRX),
+        ],
+        relatedness_checks=[
+            RelatednessCheck(
+                "CHILD", "FATHER", "parent-child", "unrelated", 0.01, 0.04, 5000, "fail",
+                "Recorded parent-child but genotypes look unrelated (kinship 0.010, IBS0 4.00%, "
+                "5000 sites) — possible sample swap or wrong parent.",
+            ),
+            RelatednessCheck(
+                "CHILD", "MOTHER", "parent-child", "parent-child", 0.25, 0.0, 5000, "pass",
+                "Confirmed parent-child (kinship 0.250, IBS0 0.00%, 5000 sites).",
+            ),
+            RelatednessCheck(
+                "FATHER", "MOTHER", "unrelated", "third-degree", 0.06, 0.01, 5000, "warn",
+                "Parents look third-degree — possible consanguinity (kinship 0.060, IBS0 1.00%, "
+                "5000 sites).",
+            ),
+        ],
+    )
+
+
+def test_a_failed_qc_refusal_lists_the_check_that_could_not_run_beside_the_failure(
+    monkeypatch,
+) -> None:
+    # The refusal said only that the QC failed, and listed only the failure and the warning:
+    # the relative whose sex could not be checked, which gates on its own, reached the
+    # refusal's list of checks that could not run but not the dialog, so the reason written
+    # there might not cover it. The message now names both kinds of concern, and each
+    # concern is in its own group, once.
+    detail = _qc_refusal(monkeypatch, _failed_trio_beside_an_unchecked_relative())
+
+    assert detail["message"] == f"{_QC_FAILED} {_COULD_NOT_RUN} {_RESOLVE_OR_ACKNOWLEDGE}"
+    assert detail["failed_checks"] == [_WRONG_FATHER]
+    assert detail["unverifiable_checks"] == [_RELATIVE_UNCHECKED]
+    assert detail["nipt_failed_checks"] == []
+    assert detail["warning_checks"] == [_PARENTS_RELATED]
+    # The skipped sex check is no warning or failure of its own: the summary never held it.
+    assert _RELATIVE_UNCHECKED not in detail["qc_summary"]["messages"]
+
+
+def test_an_acknowledged_refusal_audits_each_group_its_dialog_listed(monkeypatch) -> None:
+    # The audit event records every group the refusal listed, as the dialog showed them, so
+    # the trail says what the acknowledgement covered: before, it held the QC status but not
+    # which checks failed, nor the warnings beside them.
+    detail = _qc_refusal(monkeypatch, _failed_trio_beside_an_unchecked_relative())
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(
+        rss.sign_out_report(
+            _Session(), family_id="FAM1", user=_user(), acknowledge_qc=True,
+            qc_acknowledgement_reason="Father re-sampled; the relative was sexed by karyotype.",
+        )
+    )
+
+    after = captured["after"]
+    assert after["qc_failed"] == detail["failed_checks"] == [_WRONG_FATHER]
+    assert after["qc_unverifiable"] == detail["unverifiable_checks"] == [_RELATIVE_UNCHECKED]
+    assert after["nipt_failed_checks"] == detail["nipt_failed_checks"] == []
+    assert after["qc_warnings"] == detail["warning_checks"] == [_PARENTS_RELATED]
+    assert after["qc_status"] == "fail" and after["acknowledged_qc"] is True
+    assert out["snapshot"]["qc_acknowledgement_reason"] == (
+        "Father re-sampled; the relative was sexed by karyotype."
+    )
+
+
+def test_a_sign_out_the_qc_does_not_gate_audits_its_warnings_and_no_other_concern(
+    monkeypatch,
+) -> None:
+    # Warnings alone do not gate: no dialog, no acknowledgement, and the event says which
+    # warnings the signed QC held.
+    report = SampleIntegrityReport(
+        overall_status="warn",
+        application="wgs",
+        relatedness_checks=[_failed_trio_beside_an_unchecked_relative().relatedness_checks[2]],
+    )
+    _patch_common(monkeypatch, drifted_count=0, qc_status="warn")
+    _patch_qc_report(monkeypatch, report)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    assert out["snapshot"]["acknowledged_qc"] is False
+    after = captured["after"]
+    assert (after["qc_failed"], after["qc_unverifiable"], after["nipt_failed_checks"]) == ([], [], [])
+    assert after["qc_warnings"] == [_PARENTS_RELATED]
+
+
+def test_a_failed_check_without_its_message_is_listed_by_what_it_is() -> None:
+    # No failure is left out of the list the dialog shows: one without a message of its own
+    # is named by what it is. A warning without one has nothing to say, as in the summary.
+    qc = {
+        "sex_checks": [{"sample_id": "CHILD", "status": "fail"}],
+        "relatedness_checks": [
+            {"sample_a": "CHILD", "sample_b": "FATHER", "status": "fail", "message": ""}
+        ],
+        "mendelian_checks": [{"child": "CHILD", "parents": ["FATHER", "MOTHER"], "status": "fail"}],
+        "paternity_check": {"father": "FATHER", "status": "fail"},
+        "fetal_sex_check": {"status": "warn"},
+        "category_qc_check": {"status": "fail"},
+    }
+
+    assert rss._failed_qc_checks(qc) == [
+        "Sample CHILD: sex check failed.",
+        "Samples CHILD and FATHER: relatedness check failed.",
+        "Sample CHILD (child of FATHER and MOTHER): Mendelian check failed.",
+        "Sample FATHER (father): NIPT paternity check failed.",
+        "NIPT category-distribution check failed.",
+    ]
+    assert rss._warning_qc_checks(qc, []) == []
 
 
 # ---------------------------------------------------------------------------
@@ -2925,10 +3088,8 @@ def test_a_failed_nipt_quality_check_gates_the_sign_out_like_a_failed_sample_qc(
     assert detail["nipt_failed_checks"] == _NIPT_REFUSED
     assert detail["qc_summary"]["messages"] == _NIPT_REFUSED
     assert detail["unverifiable_checks"] == []
-    assert detail["message"] == (
-        f"A NIPT quality check failed ({'; '.join(_NIPT_REFUSED)}). Resolve it, or acknowledge "
-        "with a reason to sign out anyway."
-    )
+    assert detail["failed_checks"] == [] and detail["warning_checks"] == []
+    assert detail["message"] == f"{_NIPT_CHECK_FAILED} {_RESOLVE_OR_ACKNOWLEDGE}"
     assert not _inserts(session)
 
 
@@ -2947,9 +3108,72 @@ def test_a_failed_nipt_check_is_named_beside_a_failed_sample_qc(monkeypatch) -> 
     _with_sections(monkeypatch, nipt=_nipt_section(plasma="fail"))
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    message = excinfo.value.detail["message"]
-    assert message.startswith("Sample-integrity QC status is 'fail'")
-    assert f"A NIPT quality check failed ({_NIPT_REFUSED[1]})." in message
+    detail = excinfo.value.detail
+    assert detail["message"] == f"{_QC_FAILED} {_NIPT_CHECK_FAILED} {_RESOLVE_OR_ACKNOWLEDGE}"
+    assert detail["nipt_failed_checks"] == [_NIPT_REFUSED[1]]
+
+
+def test_a_nipt_refusal_lists_each_group_of_concerns_beside_the_failures(monkeypatch) -> None:
+    # A NIPT family whose mother's sex check failed and whose maternal plasma is male DNA,
+    # while its paternity and maternal lineage could not run (too few informative sites):
+    # the refusal said only that the QC and a NIPT check failed, and its dialog never showed
+    # the maternal lineage. The message names each kind of concern, and each concern is in
+    # its own group, once (CLIN-58).
+    report = SampleIntegrityReport(
+        overall_status="fail",
+        application="nipt",
+        sex_checks=[
+            SexCheck(
+                "MOTHER1", "female", "male", 0.01, 500, "fail",
+                "Recorded female but genotypes indicate male (1.0% chrX het over 500 sites) — "
+                "possible sample swap or mislabel.",
+            ),
+        ],
+        paternity_check=evaluate_paternity(
+            "FATHER1",
+            hom_alt_transmitted=3,
+            hom_alt_not_transmitted=0,
+            het_transmitted=0,
+            het_not_transmitted=0,
+        ),
+        fetal_sex_check=evaluate_fetal_sex("indeterminate", 0, 0, 0),
+        category_qc_check=evaluate_nipt_category_qc({2: 3, 3: 1}),
+    )
+    _with_sections(monkeypatch, nipt=_nipt_section(plasma="fail"))
+    detail = _qc_refusal(monkeypatch, report)
+
+    assert detail["message"] == (
+        f"{_QC_FAILED} {_COULD_NOT_RUN} {_NIPT_CHECK_FAILED} {_RESOLVE_OR_ACKNOWLEDGE}"
+    )
+    assert detail["failed_checks"] == [
+        "Sample MOTHER1: recorded female but genotypes indicate male (1.0% chrX het over 500 "
+        "sites) — possible sample swap or mislabel."
+    ]
+    assert detail["unverifiable_checks"] == [
+        "Sample FATHER1 (father): too few paternal-informative sites (3 homozygous, 0 het) to "
+        "assess paternity.",
+        "NIPT maternal lineage could not be verified (too few maternal-informative sites) — "
+        "possible wrong mother.",
+    ]
+    assert detail["nipt_failed_checks"] == [_NIPT_REFUSED[1]]
+    assert detail["warning_checks"] == [
+        "Fetal sex indeterminate — too few informative paternal-X sites (0 paternal-X "
+        "transmitted, 0 absent of 0 sites).",
+    ]
+
+    # The acknowledged sign-out's audit event records the same groups.
+    captured = _capture_audit(monkeypatch)
+    asyncio.run(
+        rss.sign_out_report(
+            _Session(), family_id="FAM1", user=_user(), acknowledge_qc=True,
+            qc_acknowledgement_reason="Samples re-drawn and re-run; identities confirmed.",
+        )
+    )
+    after = captured["after"]
+    assert after["qc_failed"] == detail["failed_checks"]
+    assert after["qc_unverifiable"] == detail["unverifiable_checks"]
+    assert after["nipt_failed_checks"] == detail["nipt_failed_checks"]
+    assert after["qc_warnings"] == detail["warning_checks"]
 
 
 def test_an_acknowledged_nipt_check_is_frozen_and_audited(monkeypatch) -> None:

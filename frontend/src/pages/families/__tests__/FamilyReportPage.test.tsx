@@ -717,6 +717,10 @@ describe('FamilyReportPage', () => {
             overall_status: 'fail',
             messages: [QC_FAILED_PAIR],
           },
+          failed_checks: [QC_FAILED_PAIR],
+          unverifiable_checks: [],
+          nipt_failed_checks: [],
+          warning_checks: [],
         },
       },
     },
@@ -912,12 +916,14 @@ describe('FamilyReportPage', () => {
     // #330: a swap that manifests as missing data blocks with overall_status 'warn'
     // (not 'fail'); the dialog must still fire and show the specific reason. Two samples
     // whose sex could not be checked read the same but for the sample each reason names
-    // (CLIN-8); the dialog shows the message as the 409 gives it.
+    // (CLIN-8); the dialog shows the message as the 409 gives it, and each reason in the
+    // list of the checks that could not run.
     const unverifiable = [
       'Sample PARTNER_A: no chrX genotypes available for sex inference.',
       'Sample PARTNER_B: no chrX genotypes available for sex inference.',
     ];
-    const message = `A swap-relevant sample-integrity check could not be verified for an asserted pedigree relationship (${unverifiable.join('; ')}). A sample swap can present as missing data rather than a mismatch. Resolve it, or acknowledge with a reason to sign out anyway.`;
+    const message =
+      "A sample-integrity check that confirms the pedigree or a sample's identity could not run. A sample swap can present as missing data rather than a mismatch. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.";
     const UNVERIFIABLE_QC_409 = {
       response: {
         status: 409,
@@ -926,7 +932,10 @@ describe('FamilyReportPage', () => {
             gate: 'sample_qc',
             message,
             qc_summary: { overall_status: 'warn', messages: [] },
+            failed_checks: [],
             unverifiable_checks: unverifiable,
+            nipt_failed_checks: [],
+            warning_checks: [],
           },
         },
       },
@@ -944,6 +953,11 @@ describe('FamilyReportPage', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
     const dialog = await screen.findByRole('dialog', { name: /acknowledgement required/i });
     expect(within(dialog).getByText(message)).toBeInTheDocument();
+    expect(
+      within(within(dialog).getByRole('list', { name: 'Checks that could not run' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual(unverifiable);
 
     fireEvent.change(screen.getByLabelText(/Reason for signing out/), {
       target: { value: 'Both partners were sexed by karyotype.' },
@@ -952,6 +966,80 @@ describe('FamilyReportPage', () => {
 
     await waitFor(() => expect(posts).toHaveLength(2));
     expect(posts[1]).toMatchObject({ acknowledge_qc: true });
+  });
+
+  it('lists a check that could not run beside a failure, each group under its heading, before the reason (CLIN-58)', async () => {
+    // The Sample QC failed, and the sex of a relative whom no relatedness check covers could
+    // not be checked. The dialog listed only the failure and the warning (`qc_summary`): the
+    // check that could not run, which the 409 names, was not on the page, so the reason
+    // written there might not cover it. Each group the 409 names is listed under its heading,
+    // each concern naming its sample, before the reason is written.
+    const relativeUnchecked = 'Sample RELATIVE: no chrX genotypes available for sex inference.';
+    const parentsRelated =
+      'Samples FATHER and MOTHER: parents look third-degree — possible consanguinity (kinship 0.060, IBS0 1.00%, 5000 sites).';
+    const message =
+      "Sample-integrity QC status is 'fail' (possible sample or pedigree swap — TF-06 H4). A sample-integrity check that confirms the pedigree or a sample's identity could not run. A sample swap can present as missing data rather than a mismatch. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.";
+    mockUnsignedFamily();
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      return posts.length === 1
+        ? Promise.reject({
+            response: {
+              status: 409,
+              data: {
+                detail: {
+                  gate: 'sample_qc',
+                  message,
+                  qc_summary: { overall_status: 'fail', messages: [QC_FAILED_PAIR, parentsRelated] },
+                  failed_checks: [QC_FAILED_PAIR],
+                  unverifiable_checks: [relativeUnchecked],
+                  nipt_failed_checks: [],
+                  warning_checks: [parentsRelated],
+                },
+              },
+            },
+          })
+        : Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    const dialog = await screen.findByRole('dialog', {
+      name: 'Sample-integrity QC acknowledgement required',
+    });
+    expect(within(dialog).getByText(message)).toBeInTheDocument();
+    expect(within(dialog).getByText(relativeUnchecked)).toBeInTheDocument();
+    const group = (name: string) =>
+      within(within(dialog).getByRole('list', { name }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent);
+    expect(group('Sample QC checks that failed')).toEqual([QC_FAILED_PAIR]);
+    expect(group('Checks that could not run')).toEqual([relativeUnchecked]);
+    expect(group('Warnings, which do not stop the sign-out on their own')).toEqual([parentsRelated]);
+    // Each concern once; a group with nothing in it is not shown.
+    expect(within(dialog).getAllByRole('listitem')).toHaveLength(3);
+    expect(
+      within(dialog).queryByRole('list', { name: 'NIPT quality checks that failed' }),
+    ).not.toBeInTheDocument();
+    // Every group comes before the reason that acknowledges them.
+    const reason = within(dialog).getByLabelText(
+      'Reason for signing out despite the QC concerns listed (required)',
+    );
+    for (const list of within(dialog).getAllByRole('list')) {
+      expect(list.compareDocumentPosition(reason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+
+    fireEvent.change(reason, {
+      target: { value: 'Father re-sampled; the relative was sexed by karyotype.' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+
+    await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[1]).toMatchObject({
+      acknowledge_qc: true,
+      qc_acknowledgement_reason: 'Father re-sampled; the relative was sexed by karyotype.',
+    });
   });
 
   const checkResult = (overrides: Record<string, unknown>) =>
