@@ -12,11 +12,14 @@ WHERE (``_small_variant_where_clauses``): every chromosome spelling a store may 
 "chr1", "X", "M", "MT", "chrM", an unplaced contig), positions on each side of window
 boundaries, and REFs of one base to more than two windows; and #857's regions (spelled with and
 without "chr", reversed, repeated, of one base, ending or starting on a window boundary,
-spanning several windows, or without a chromosome). The family's rows lie in two projects,
-beside the same rows of another family, of a project the search does not read, and collapsed
-(``sign = -1``). Without a locus and within each of several loci, overlapping or not, the two
-keep exactly the same rows. The rows are a subquery in place of the entries table, so no table
-is written.
+spanning several windows, or without a chromosome), with regions that share bases, nested or
+in a chain across a window boundary, as a gene's transcript loci do. Those are merged into one
+before they are bound (``_small_region_bounds``), so that a panel as large as the Mendeliome,
+some 42,000 loci, binds about one region per gene; a third query tests each region on its own,
+unmerged. The family's rows lie in two projects, beside the same rows of another family, of a
+project the search does not read, and collapsed (``sign = -1``). Without a locus and within
+each of several loci, overlapping or not, the three keep exactly the same rows. The rows are a
+subquery in place of the entries table, so no table is written.
 
 Synthetic data only. Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke``
 job sets it.
@@ -89,7 +92,30 @@ def _regions() -> list[Any]:
         Region(chr="MT", start=_WINDOW - 1, end=_WINDOW - 1),
         Region(chr="GL000192.1", start=1, end=3 * _WINDOW + 5),  # several windows
         Region(chr="", start=1, end=10),  # no chromosome: left out
+        # Regions that share bases, as a gene's transcript loci do (a gene reference of one
+        # row per transcript): merged into one before they are bound.
+        Region(chr="1", start=900, end=1_200),
+        Region(chr="chr1", start=950, end=1_000),  # nested
+        Region(chr="1", start=1_150, end=1_100),  # nested, reversed
+        Region(chr="X", start=2 * _WINDOW - 6, end=2 * _WINDOW - 3),  # a chain across a boundary
+        Region(chr="x", start=2 * _WINDOW - 3, end=2 * _WINDOW + 1),
+        Region(chr="chrX", start=2 * _WINDOW + 1, end=2 * _WINDOW + 4),
+        Region(chr="MT", start=29_990, end=29_999),  # touching only: not merged
+        Region(chr="chrM", start=30_000, end=30_001),
     ]
+
+
+def _each_region_bounds(regions: Any) -> tuple[list[str], list[int], list[int]]:
+    """The regions each read on their own (match key, start and end in order, each once),
+    unmerged: the reference the merged regions must answer alike."""
+    from backend.app.services.clickhouse_variant_queries import _chromosome_match_key
+
+    kept = dict.fromkeys(
+        (_chromosome_match_key(region.chr), min(region.start, region.end), max(region.start, region.end))
+        for region in regions
+        if _chromosome_match_key(region.chr)
+    )
+    return [c for c, _s, _e in kept], [s for _c, s, _e in kept], [e for _c, _s, e in kept]
 
 
 def _rows_subquery(params: dict[str, Any]) -> str:
@@ -128,6 +154,7 @@ _SEARCHES: dict[str, dict[str, Any]] = {
 
 def test_the_family_region_join_keeps_exactly_what_the_per_row_test_keeps() -> None:
     from backend.app.core.clickhouse import close_clickhouse_client, execute_clickhouse, init_clickhouse_schema
+    from backend.app.services import clickhouse_variant_queries as queries
     from backend.app.services.clickhouse_variant_ids import _small_table_name
     from backend.app.services.clickhouse_variant_queries import (
         _small_family_region_condition,
@@ -151,7 +178,7 @@ def test_the_family_region_join_keeps_exactly_what_the_per_row_test_keeps() -> N
     entries = _small_table_name("GRCh38", "entries")
     rows_params: dict[str, Any] = {}
     rows = _rows_subquery(rows_params)
-    queries: dict[str, tuple[str, str, dict[str, Any]]] = {}
+    searches: dict[str, tuple[str, str, str, dict[str, Any]]] = {}
     for name, locus in _SEARCHES.items():
         filters = SmallVariantQueryFilters(page=1, page_size=100, **locus)
         clauses, params = _small_variant_where_clauses(context, filters)
@@ -162,43 +189,62 @@ def test_the_family_region_join_keeps_exactly_what_the_per_row_test_keeps() -> N
         joined = _small_family_region_condition(context, filters)(
             _regions(), prefix="panel_region", params=params
         )
-        assert per_row is not None and joined is not None
+        # The reference: each region tested on its own, not merged with those it shares bases with.
+        with pytest.MonkeyPatch.context() as each:
+            each.setattr(queries, "_small_region_bounds", _each_region_bounds)
+            each_region = _small_region_filter_condition(_regions(), prefix="each_region", params=params)
+        assert per_row is not None and joined is not None and each_region is not None
+        assert len(params["panel_region_starts"]) < len(params["each_region_starts"])
         # The same regions, read the same way; the join adds the family and its projects.
         assert {key: params[key] for key in region_params} == region_params
         assert f"FROM {entries} AS fe" in joined
         joined = joined.replace(f"FROM {entries} AS fe", f"FROM {rows} AS fe")
         where = " AND ".join(clauses)
-        queries[name] = (
+        searches[name] = (
             f"SELECT e.key FROM {rows} AS e WHERE {where} AND {per_row}",
             f"SELECT e.key FROM {rows} AS e WHERE {where} AND {joined}",
+            f"SELECT e.key FROM {rows} AS e WHERE {where} AND {each_region}",
             {**params, **rows_params},
         )
 
-    async def _run() -> dict[str, tuple[set[int], set[int]]]:
+    async def _run() -> dict[str, tuple[set[int], set[int], set[int]]]:
         try:
             await init_clickhouse_schema()
-            kept: dict[str, tuple[set[int], set[int]]] = {}
-            for name, (per_row_query, joined_query, params) in queries.items():
+            kept: dict[str, tuple[set[int], set[int], set[int]]] = {}
+            for name, (per_row_query, joined_query, each_region_query, params) in searches.items():
                 per_row_keys = await execute_clickhouse(per_row_query, params)
                 joined_keys = await execute_clickhouse(joined_query, params)
-                kept[name] = ({int(row[0]) for row in per_row_keys}, {int(row[0]) for row in joined_keys})
+                each_region_keys = await execute_clickhouse(each_region_query, params)
+                kept[name] = (
+                    {int(row[0]) for row in per_row_keys},
+                    {int(row[0]) for row in joined_keys},
+                    {int(row[0]) for row in each_region_keys},
+                )
             return kept
         finally:
             await close_clickhouse_client()
 
     kept = asyncio.run(_run())
     by_key = {row[0]: row for row in _rows()}
-    for name, (per_row_keys, joined_keys) in kept.items():
+    for name, (per_row_keys, joined_keys, each_region_keys) in kept.items():
         assert joined_keys == per_row_keys, name
+        # Merging the regions that share bases keeps what each of them kept.
+        assert per_row_keys == each_region_keys, name
         # Only the family's own rows, in its projects, are read.
         assert all(by_key[key][4:7] in {(_FAMILY, project, 1) for project in _PROJECTS} for key in per_row_keys), name
     # Not a vacuous comparison: without a locus some of the family's rows are kept, by every
     # chromosome spelling of a region and in both projects, and some are not; within each
     # locus some are kept.
-    everything, _joined = kept["no locus"]
+    everything, _joined, _each_region = kept["no locus"]
     family_rows = [row for row in _rows() if row[4] == _FAMILY and row[5] in _PROJECTS and row[6] == 1]
     assert 0 < len(everything) < len(family_rows)
     assert {by_key[key][1] for key in everything} == set(_CHROMOSOMES)
     assert {by_key[key][5] for key in everything} == set(_PROJECTS)
-    for name, (per_row_keys, _joined) in kept.items():
+    # The merged regions keep rows: chromosome 1 at 1,000, in the nested regions, and X on
+    # each side of the boundary the chain crosses.
+    assert {by_key[key][2] for key in everything if by_key[key][1] in ("1", "chr1")} >= {1000}
+    assert {by_key[key][2] for key in everything if by_key[key][1] in ("X", "chrX")} >= {
+        2 * _WINDOW - 6, 2 * _WINDOW, 2 * _WINDOW + 4,
+    }
+    for name, (per_row_keys, _joined, _each_region) in kept.items():
         assert per_row_keys, name

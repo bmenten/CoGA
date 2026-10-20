@@ -184,7 +184,10 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Variant filtering and genotypes** — one genotype classification for every filter,
   inheritance check and count, including haploid and multi-allelic calls; frequency presets
   that also bound popmax; the ClinVar P/LP frequency override; unreadable filter values and
-  location filters refused, not dropped; gene-panel regions per assembly.
+  location filters refused, not dropped; gene-panel regions per assembly; a gene panel of any
+  size, the Mendeliome included, keeping the variants in its regions as well as those
+  annotated with its genes, so the default view also lists a variant inside a Mendeliome gene
+  whose annotation names another gene.
 - **Inheritance** — de novo and hemizygous calls on a son's X and Y, and the sex-aware
   PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
   relatives; the SV second-hit index; expanded carrier screening, which keeps the genes in
