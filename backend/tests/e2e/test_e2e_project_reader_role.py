@@ -176,6 +176,31 @@ async def _family_status(session: Any, family_id: str) -> dict[str, Any]:
     return dict(row)
 
 
+# The family's records a change by a reader would write to, counted.
+_FAMILY_RECORDS = (
+    "individual_hpo",
+    "small_variant_reviews",
+    "structural_variant_reviews",
+    "report_signouts",
+    "clinical_audit_events",
+)
+
+
+async def _family_records(session: Any, family_id: str) -> dict[str, int]:
+    """How many rows the family has in each of ``_FAMILY_RECORDS``."""
+    from sqlalchemy import text
+
+    return {
+        table: (
+            await session.execute(
+                text(f"SELECT count(*) FROM {table} t JOIN families f ON f.id = t.family_id WHERE f.family_id = :f"),
+                {"f": family_id},
+            )
+        ).scalar_one()
+        for table in _FAMILY_RECORDS
+    }
+
+
 async def _exercise(run: str) -> dict[str, Any]:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
@@ -288,6 +313,7 @@ async def _exercise(run: str) -> dict[str, Any]:
             # --- every route that changes something, asked by R for B's records ----------
             async with sessionmaker() as session:
                 out["family_b_status_before"] = await _family_status(session, family_b)
+                out["family_b_records_before"] = await _family_records(session, family_b)
             spec = app.openapi()
             values = {
                 "family_id": family_b,
@@ -383,21 +409,7 @@ async def _exercise(run: str) -> dict[str, Any]:
                 await session.rollback()
                 out["levels"] = type(error).__name__
         async with sessionmaker() as session:
-            out["family_b_changes"] = {
-                table: (
-                    await session.execute(
-                        text(f"SELECT count(*) FROM {table} t JOIN families f ON f.id = t.family_id WHERE f.family_id = :f"),
-                        {"f": family_b},
-                    )
-                ).scalar_one()
-                for table in (
-                    "individual_hpo",
-                    "small_variant_reviews",
-                    "structural_variant_reviews",
-                    "report_signouts",
-                    "clinical_audit_events",
-                )
-            }
+            out["family_b_changes"] = await _family_records(session, family_b)
             out["family_b_status"] = await _family_status(session, family_b)
             out["families_in_b"] = (
                 await session.execute(
@@ -488,13 +500,16 @@ def test_every_route_that_changes_something_refuses_a_reader_with_the_reason(ran
 
 
 def test_nothing_of_the_readers_family_changed(ran: dict[str, Any]) -> None:
-    assert ran["family_b_changes"] == {
+    # Before the reader's requests the family held only its creation: the pedigree it was made
+    # with is the first event of its clinical audit trail (SEC-7).
+    assert ran["family_b_records_before"] == {
         "individual_hpo": 0,
         "small_variant_reviews": 0,
         "structural_variant_reviews": 0,
         "report_signouts": 0,
-        "clinical_audit_events": 0,
+        "clinical_audit_events": 1,
     }
+    assert ran["family_b_changes"] == ran["family_b_records_before"]
     assert ran["family_b_status"] == ran["family_b_status_before"]
     assert ran["families_in_b"] == 1
 
@@ -538,7 +553,9 @@ def test_an_analyst_changes_phenotypes_and_each_change_is_on_the_audit_trail(ran
     assert added["before"] is None and added["after"]["note"] == "since birth"
     assert (changed["before"]["status"], changed["after"]["status"]) == ("present", "absent")
     assert removed["after"] is None
-    assert ran["chain"] == (True, 3)
+    # The chain holds the family's creation (its pedigree, SEC-7) and the three phenotype events.
+    assert [event["action"] for event in trail["events"]] == ["phenotype", "phenotype", "phenotype", "pedigree"]
+    assert ran["chain"] == (True, 4)
 
 
 def test_a_reader_is_told_what_they_only_read_and_may_still_record_their_events(ran: dict[str, Any]) -> None:
