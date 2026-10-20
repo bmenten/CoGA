@@ -350,7 +350,7 @@ The variables you'll most likely set:
 | `region` / `zone` | Where to deploy | `europe-west1` / `europe-west1-b` |
 | `app_domain` | Public domain for the app | `coga.cmgg.be` |
 | `cmek_key_self_link` | Your KMS key (from 5.2) | *(required — CMEK is always on)* |
-| `backend_image` / `frontend_image` | Container images to run | *(required)* — CI sets these |
+| `backend_image` / `frontend_image` | Container images to run, by digest (`…@sha256:…`) | *(required)* — CI sets these |
 | `allowed_ingress_cidrs` | Source ranges allowed at the edge (UGent/UZ + VPN); empty = open | `[]` |
 | `*_service_account_email` | Override runtime SA emails (created in the central repo) | *(derived by default)* |
 | `db_tier` | Cloud SQL machine size | `db-custom-1-3840` (1 vCPU / 3.75 GB) |
@@ -382,20 +382,34 @@ You need container images first. Either let CI build them (Section 10), or build
 manually from the repo root:
 
 ```bash
-# From the repo root. Stamp the real version/SHA (frozen into signed reports).
+# From the repo root. Stamp the version and commit (frozen into signed reports). A manual
+# build is not a release, so it reports VERSION as a development build (e.g. 0.1.0-dev).
 export TAG="manual-$(git rev-parse --short=12 HEAD)"
 export IMG_BASE="europe-west1-docker.pkg.dev/${PROJECT}/gen-ghreg-shared-gbl/coga"
 export PROBLEM_REPORT_URL="<the CMGGMC probleemmelding route>"
 
 gcloud builds submit --config=ci/cloudbuild.backend.yaml \
-  --substitutions=_IMAGE=${IMG_BASE}-backend:${TAG},_APP_VERSION=$(cat VERSION),_GIT_SHA=$(git rev-parse --short=12 HEAD) .
+  --substitutions=_IMAGE=${IMG_BASE}-backend:${TAG},_APP_VERSION=$(./scripts/build-version.sh),_GIT_SHA=$(git rev-parse --short=12 HEAD) .
 
 gcloud builds submit --config=ci/cloudbuild.frontend.yaml \
   --substitutions=_IMAGE=${IMG_BASE}-frontend:${TAG},_PROBLEM_REPORT_URL=${PROBLEM_REPORT_URL} .
+
+# Each image as Terraform gets it: by the digest of what you just pushed.
+export BACKEND_IMAGE="${IMG_BASE}-backend@$(gcloud artifacts docker images describe \
+  "${IMG_BASE}-backend:${TAG}" --format='value(image_summary.digest)')"
+export FRONTEND_IMAGE="${IMG_BASE}-frontend@$(gcloud artifacts docker images describe \
+  "${IMG_BASE}-frontend:${TAG}" --format='value(image_summary.digest)')"
+echo "$BACKEND_IMAGE" "$FRONTEND_IMAGE"   # each ends in @sha256: and 64 hex digits
 ```
 
-Give every build a new tag, as above: Terraform deploys only when the image string
-changes, so an image pushed under a tag it already runs would never roll out.
+Give every build a new tag, as above, and deploy it by its digest (`…@sha256:…`), as CI
+does: the digest names exactly the image you built, whatever the tag is later pushed over,
+and a new build always changes the image string, which is what Terraform deploys on.
+
+`./scripts/build-version.sh` prints `VERSION` with the pre-release identifier `dev` added
+(`0.1.0` → `0.1.0-dev`, `0.1.0-rc.1` → `0.1.0-rc.1.dev`): only a release build, which
+`build.yml` makes from a published release, reports a release's version
+([RELEASING.md](../RELEASING.md)).
 
 `_PROBLEM_REPORT_URL` is where **Report a problem** in the app goes: the CMGGMC
 probleemmelding route, as an `https://` or `mailto:` address without commas. It is built
@@ -411,8 +425,8 @@ terraform init -backend-config="bucket=${STATE_BUCKET}" -backend-config="prefix=
 terraform plan -out=tfplan \
   -var="project_id=${PROJECT}" \
   -var="cmek_key_self_link=${CMEK_KEY}" \
-  -var="backend_image=${IMG_BASE}-backend:${TAG}" \
-  -var="frontend_image=${IMG_BASE}-frontend:${TAG}"
+  -var="backend_image=${BACKEND_IMAGE}" \
+  -var="frontend_image=${FRONTEND_IMAGE}"
 
 terraform apply tfplan
 ```
@@ -496,12 +510,19 @@ Day-to-day you don't run Terraform by hand — GitHub Actions does it. The workf
   `terraform/versions.tf` requires.
 - **On push to `main` (or a published release):** it builds both images (stamping
   `APP_VERSION`/`GIT_SHA`), pushes them to Artifact Registry, then runs `terraform
-  init/plan/apply` to deploy. A `main` build is tagged `main-<12-character commit>` and a
-  release build with its release tag, so every deploy carries a new image: Cloud Run rolls
-  out new revisions, and with the restricted database role (12.8) the migration job runs
-  again. Only **one** trigger applies: pushes to `main` by default, or published releases
-  when the repository variable `COGA_DEPLOY_TRIGGER` is `release`. There is one environment
-  and one state, so a later `main` push must not overwrite a release deployment.
+  init/plan/apply` to deploy. A release build stamps its release's version; a `main` build
+  stamps `VERSION` marked as a development build (`0.1.0-dev`, or `0.1.0-rc.1.dev` after the
+  release candidate), so `/api/version` and the reports never give it a release's version. A
+  `main` build is tagged `main-<12-character commit>` and a release build with its release
+  tag, and Terraform gets each image by the digest its build pushed (`…@sha256:…`), so the
+  revision Cloud Run runs is exactly the image that run built. Every build is a new digest,
+  so every deploy carries a new image: Cloud Run rolls out new revisions, and with the
+  restricted database role (12.8) the migration job runs again. Only **one** trigger
+  applies: pushes to `main` by default, or published releases when the repository variable
+  `COGA_DEPLOY_TRIGGER` is `release`. There is one environment and one state, so a later
+  `main` push must not overwrite a release deployment.
+- **On a published release** it also refuses a tag that is not on `main` before it builds
+  anything, and attaches the release's SBOMs to the release ([RELEASING.md](../RELEASING.md)).
 
 Set these **GitHub repository secrets** (Settings → Secrets and variables → Actions):
 
@@ -612,8 +633,8 @@ new revision serves.
 ### 12.1 Deploy a new version of the app
 
 - **Normal:** merge to `main` → CI builds new images, and after approval applies them.
-- **Manual:** build new images under a new tag (Section 7), then
-  `terraform apply -var="backend_image=...:newtag" -var="frontend_image=...:newtag"`.
+- **Manual:** build new images under a new tag (Section 7), then apply them by digest:
+  `terraform apply -var="backend_image=...@sha256:<digest>" -var="frontend_image=...@sha256:<digest>"`.
 
 Cloud Run rolls out a new revision with zero-downtime; if it fails its health check,
 traffic stays on the old revision.
