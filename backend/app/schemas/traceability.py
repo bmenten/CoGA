@@ -52,14 +52,17 @@ class ClassificationDriftItem(BaseModel):
     clinvar_from: Optional[str] = None
     clinvar_to: Optional[str] = None
     # What moved (CLIN-7): "clinvar"; "transcript_id" (the primary transcript the values
-    # are read from); a population frequency ("gnomad_af", "gnomad_exomes_af",
-    # "gnomad_genomes_af", "gnomad_popmax_af", "topmed_af", "gnomad_ac",
-    # "gnomad_hom_count", "gnomad_hemi_count"); an in-silico score ("cadd_phred", "revel",
-    # "spliceai_max", "sift", "polyphen", "alpha_missense_class",
-    # "alpha_missense_pathogenicity"); or "annotations", the annotation set.
+    # are read from); its consequence ("effect", "impact", "lof": the LOFTEE call); a
+    # population frequency ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af",
+    # "gnomad_popmax_af", "topmed_af", "gnomad_ac", "gnomad_hom_count",
+    # "gnomad_hemi_count"); an in-silico score ("cadd_phred", "revel", "spliceai_max",
+    # "sift", "polyphen", "alpha_missense_class", "alpha_missense_pathogenicity"); a
+    # missense variant's gene "gene_missense_z"; or "annotations", the annotation set.
     changed: List[str] = Field(default_factory=list)
-    # The transcript, frequencies and in-silico scores as frozen (None when the snapshot
-    # froze none, being older) and as they are now (None when the variant is gone).
+    # The transcript, consequence, frequencies, in-silico scores and (a missense variant's)
+    # gene missense Z as frozen (None when the snapshot froze none, being older; a snapshot
+    # frozen before the consequence and missense Z were holds the others) and as they are
+    # now (None when the variant is gone).
     evidence_from: Optional[Dict[str, Any]] = None
     evidence_to: Optional[Dict[str, Any]] = None
 

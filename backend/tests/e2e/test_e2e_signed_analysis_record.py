@@ -187,8 +187,17 @@ async def _collect(root: Path) -> dict:
         r["old_chain"] = _cap(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )
-        # The family ends on a record of today's build, for the modules that run after this one.
+        # The family ends on a record of today's build, for the modules that run after this one,
+        # and with nothing tagged for the report: the golden trio's database is shared by the
+        # modules of a run, and a module that lists the reported variants (as
+        # test_e2e_report_lists_complete does) would otherwise find these two as well.
         r["final_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["untag_small"] = _cap(
+            await ac.put(f"{family}/small-variants/{SMALL_VARIANT}/review", json={"tags": [], "note": None})
+        )
+        r["untag_sv"] = _cap(
+            await ac.put(f"{family}/structural-variants/{STRUCTURAL_VARIANT}/review", json={"tags": [], "note": None})
+        )
         r["panel_removed"] = _cap(await ac.delete(f"/api/panels/{panel_id}"))
     return out
 
@@ -224,6 +233,12 @@ def _snapshot(signed: dict) -> dict:
 
 
 # ------------------------------------------------------------------- the panel searches
+
+
+def test_the_module_leaves_nothing_tagged_for_the_report(signed) -> None:
+    # Run before another module of the same run, its reported variants would be that module's too.
+    assert signed["responses"]["untag_small"]["status"] == 200, signed["responses"]["untag_small"]
+    assert signed["responses"]["untag_sv"]["status"] == 200, signed["responses"]["untag_sv"]
 
 
 def test_each_panel_version_a_search_applied_is_on_the_clinical_audit_trail_once(signed) -> None:
