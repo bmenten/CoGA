@@ -220,7 +220,7 @@ counted) and the thresholds in force into the signed version.
 
 | Measure, at the ROI | Threshold | Why this value |
 | --- | --- | --- |
-| **Informative sites**: sites where both parents and the embryo have a phased genotype | at least 50 | With fewer, a single Mendelian error already puts the rate above 2%, so the rate cannot tell one genotyping error from a swap. With no error among 50 sites, a rate of 6% or more is ruled out with 95% confidence. |
+| **Informative sites**: sites where both parents and the embryo have a phased genotype (for a son on chrX outside the pseudo-autosomal regions: his mother and he) | at least 50 | With fewer, a single Mendelian error already puts the rate above 2%, so the rate cannot tell one genotyping error from a swap. With no error among 50 sites, a rate of 6% or more is ruled out with 95% confidence. |
 | **Mendelian error rate**: the share of those sites whose genotype the embryo cannot have from these parents | at most 2% | Where CoGA's Sample QC starts to warn, and what the haplotype track marks. A higher rate at the locus points to a sample swap, a wrong pedigree, contamination, or a deletion or a uniparental segment there. |
 | **Markers on each parent's side the call reads**: sites where the homolog inherited from that parent is read | at least 6 | The ESHRE PGT Consortium's good practice recommendations for monogenic disorders (2020) ask for at least six informative SNPs on each side of the locus when the embryo is read from linked markers alone. |
 
@@ -238,12 +238,18 @@ disease haplotype no side is read, and only the informative sites and the Mendel
 checked. The thresholds are set in `backend/app/services/pgt_embryo_qc.py`; a change there changes what
 the family page warns about and what a signed version freezes.
 
-**At an X-linked locus.** On chrX outside the pseudo-autosomal regions the QC counts read every
-member as having two copies, and a man's one-copy calls do not fit that. Written as a single allele,
-the father's calls leave no informative site for any embryo, and a son's leave none for him; written
-as two copies, a son shows a Mendelian error wherever his mother's allele is not his father's. So at
-an X-linked locus a call can carry *⚠ phasing QC* for that reason alone: check the embryo's maternal
-markers in the ROI markers before reading it as a swap.
+**At an X-linked locus.** On chrX outside the pseudo-autosomal regions a man has one X, and the QC
+counts read him so: his call, written as one allele (`1`) or as the same allele twice (`1|1`), is that
+one allele. A son's X is his mother's, so he is counted against her alone: his informative sites are
+those where she and he have a genotype, and a Mendelian error is an allele she does not carry, or a call
+of two different alleles, which a son cannot have on his one X (a sex mix-up or contamination). His
+father gives him a Y, so a father and son are neither informative nor an error. A daughter receives her
+father's one X and one of her mother's two; her father's one X tells none of his homologs apart, so it
+gives no marker on his side. A man's call of two different alleles is not read: at that site his
+daughters are not counted. A member whose sex is not recorded is read as having two copies, as on the
+autosomes: record the sex. CoGA takes the PAR bounds from the family's assembly (GRCh38 or GRCh37); on
+an assembly whose PAR bounds it does not have, every member is read as having two copies. The ROI
+markers shade an impossible transmission by the same rule.
 
 ---
 
@@ -265,7 +271,9 @@ parent's children). Relatives appear on the track but carry no marker dots.
 Per child, CoGA reports two numbers:
 
 - **Informative sites** — the number of sites where the child and the parents all have a phased
-  genotype. This counts every such site, not only the sites that tell the haplotypes apart.
+  genotype. This counts every such site, not only the sites that tell the haplotypes apart. On chrX
+  outside the pseudo-autosomal regions a son is counted against his mother alone (see [At an X-linked
+  locus](#phasing-qc-at-the-roi)).
 - **Mendelian error rate** — the share of those sites where the child's genotype cannot come from the
   parents. A clear rate points to a sample swap or a wrong pedigree: resolve it before trusting any
   call. (With one known parent, an error is a child that shares no allele with that parent.)

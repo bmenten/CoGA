@@ -35,8 +35,8 @@ its warnings, its QC at the ROI and that QC's verdict against the thresholds. Ne
   informative sites, a Mendelian error rate of at most 2%, and at least 6 markers on each parent's side
   the call reads. The tooltip names each measure, its value and its threshold. The call stands: check
   it in the ROI markers before you rely on it. These thresholds are provisional, to be confirmed by
-  the laboratory director and QA. At an X-linked locus an embryo can carry this warning because of
-  how a man's one X is counted; the reference explains it.
+  the laboratory director and QA. At an X-linked locus a man is counted with his one X: a son against
+  his mother alone.
 - **⚠ QC not counted** — no phasing QC was counted at the ROI, so the call was not checked against the
   thresholds; the tooltip says why.
 - **⚠ recombination** — a haplotype change inside the ROI or within 250 kb of it; the call may not hold
