@@ -6,7 +6,8 @@ Two records keep a family's pedigree, both append-only and hash-chained per fami
   pedigree as it then stood (``snapshot``) and its hash (``structure_hash``), which the
   ranking cache keys on;
 - the clinical audit trail (``clinical_audit_events``): each change is a ``pedigree``
-  event naming who made it, when, and what changed, before and after.
+  event naming who made it, when, and what changed, before and after; the family's deletion
+  is the trail's last event (``family_deleted``), written before the family row goes.
 
 The pedigree is what the segregation, the haplotypes, the carrier screen and the ranking
 rest on: the members with their sex, role, affected status and carrier status, whether each

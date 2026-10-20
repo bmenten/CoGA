@@ -24,7 +24,9 @@ the [admin dashboard](/admin), grouped in six areas.
 
 - **Family & Sample Data** — the inventory of families and samples: open a family's members and data,
   change its projects, download and verify the original import files, or delete a data layer, a sample
-  or a family (this cannot be undone and is recorded in the audit log). Deleting a sample takes out only
+  or a family (this cannot be undone and is recorded in the audit log; deleting a sample or a family
+  is also written to the family's **Clinical audit trail**, a family's deletion as its last entry).
+  Deleting a sample takes out only
   its own calls: the other members' small variants stay as they were, in every callset. A file kept in a
   storage bucket is not downloaded here; **Verify** checks it against the bucket's record of it instead of
   its SHA-256. A file recorded outside the import folders (`FAMILY_IMPORT_ROOTS`) and CoGA's upload folder

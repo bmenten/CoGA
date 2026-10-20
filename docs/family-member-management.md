@@ -34,8 +34,13 @@ hand or a package import: *Pedigree recorded with 3 members: …*), a package im
 existing family whose PED or manifest gives a member another affected or carrier status, and an
 admin's deletion of a sample with its data (Admin → Data). An edit that leaves the pedigree as
 it was (a clear of the imported data alone) adds a structure version and no event. A family's
-deletion keeps both records, unlinked from the family row and still verifiable by the family's
-ID. HPO terms are not part of the pedigree.
+deletion is the last event of its clinical audit trail (`family_deleted`: who deleted it, its
+samples, its latest structure version, and the variants and variant reviews that went with it),
+written in the deletion's transaction before the family row goes, whether an admin deletes the
+family with its data (Admin → Data), a PED upload or a family made by hand replaces it with
+overwrite, or a package import that created it imported nothing. A deletion that fails records
+nothing. Both records stay after it, unlinked from the family row and still verifiable by the
+family's ID. HPO terms are not part of the pedigree.
 
 Changes of one family's pedigree run one at a time: each writer holds the family's pedigree
 lock from before it reads the pedigree until it commits (a writer that also holds the family's

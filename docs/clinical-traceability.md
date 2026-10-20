@@ -102,12 +102,18 @@ changed, the couples and the links of unknown degree, as they were and as they a
 metadata names the structure version the change stored, with its hash and the change's reason;
 an edit that leaves the pedigree as it was writes none
 ([family-member-management.md](family-member-management.md#what-is-recorded-of-a-change)).
-`family_deleted` (SEC-7) is the last event of a family deleted with its data (Admin → Data): who
-deleted it and when, the reason when one was given, and what was deleted (the samples by ID and
-how many variants, tracks, repeat calls and files went). It is written in the deletion's
-transaction, before the family row goes, so a deletion that fails records nothing; the family's
-chains (its clinical audit events, sign-outs and structure versions) stay after it, unlinked from
-the family row and verifiable by the family's ID.
+`family_deleted` (SEC-7) is the last event of a deleted family: an admin's deletion with its
+data (Admin → Data), a PED upload or a family made by hand that replaces it with overwrite, or a
+package import that created it and imported nothing. It holds who deleted it and when, its
+samples by ID, its latest structure version, and what went with it: the variant reviews, repeat
+calls, Paraphase results, interval tracks and raw files Postgres held, and for an admin's
+deletion the small and structural variants counted in ClickHouse (*Family deleted with its
+data: 3 samples (F1, M1, P1), 1204 small variants, 3 structural variants, 5 variant reviews*);
+`metadata.source` says which deletion it was. The deletion asks no reason, so the event holds
+none. It is written in the deletion's transaction, before anything of the family is deleted (an
+admin's deletion) or before the family row goes, so a deletion that fails records nothing; the
+family's chains (its clinical audit events, sign-outs and structure versions) stay after it,
+unlinked from the family row and verifiable by the family's ID.
 
 **The gene panels a family's searches apply** (`services/panel_use_audit.py`, REQ-CARR-003). A
 search of the family's data that applies a gene panel writes a `panel_applied` event before it

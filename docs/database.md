@@ -163,7 +163,7 @@ was.
 | `ui_events` | **append-only** log of UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below). Not hash-chained (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
-| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, compound-het pair reviews, pedigree changes, the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after |
+| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, compound-het pair reviews, pedigree changes, a family's deletion (its last event), the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after |
 | `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot; its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)) |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
 
@@ -241,7 +241,9 @@ event of the clinical audit trail: `created_by` is a user link the account's del
 the chain does not bind it. Versions written before the chain have no `row_hash` and no
 `family_identifier`, and are not part of it. A database made before the chain gains its columns,
 the nullable `family_id` and the `ON DELETE SET NULL` link from upgrade statements in
-`03_assay.sql`, each a no-op on a new database.
+`03_assay.sql`, each a no-op on a new database, and from revision `0004` once the baselines are
+frozen ([Schema Migrations](#schema-migrations)). A family's deletion writes its last clinical
+audit event (`family_deleted`) before the family row goes, so the chains it leaves end with it.
 
 **Why `ui_events` is not chained.** A UI event is what the browser reports of itself (any signed
 in user can send any event), not the device's record of a clinical action, so a chain would
@@ -283,6 +285,7 @@ applies whole or not at all:
 | `0001` | applies the five baseline files |
 | `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (#763) and `not_assessed` (#826) |
 | `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (#747) and `target_coverage` (#749) |
+| `0004` | gives `family_structure_versions` its hash chain (`family_identifier`, `row_hash`, `prev_hash` and the chain's index), a nullable `family_id` that the family's deletion nulls, and with `ui_events` its append-only trigger and REVOKE (SEC-7), by running those statements of the baselines |
 
 A database the baselines created before the ledger existed has an empty one, so its first start
 with the ledger runs every revision. Each revision ends at the baseline's definition whatever

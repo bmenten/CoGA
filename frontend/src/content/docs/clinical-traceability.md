@@ -102,6 +102,8 @@ affected status, carrier status, parents, a new sample ID, a member made inactiv
 couple or relative link that changed. The family's creation is listed with its first pedigree, and so
 is a package import that changes a member's affected or carrier status. Each pedigree change is also
 kept as a numbered structure version of the family, which can never be changed or deleted either.
+Deleting the family is its last entry: who deleted it, its samples, and the variants and variant
+reviews that went with it. The trail and the structure versions stay after the family is gone.
 
 - *Classification VUS (class 3) → Likely pathogenic (class 4)*
 - *ACMG criteria updated (Likely pathogenic (class 4)): PM2 moderate → supporting; total 7 → 6*
