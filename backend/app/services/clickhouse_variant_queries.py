@@ -611,9 +611,10 @@ class _RegionLookup:
 class _SmallPanelMatch:
     """A gene panel as the record filter applies it (``_small_record_matches``), prepared
     once per search: a record annotated with one of the panel's genes, or in one of its
-    regions, is kept; a panel with neither keeps every record. A panel of genes with more
-    regions than the SQL inlines is matched on its genes alone, in SQL and here
-    (``_panel_regions_apply``, ENG-1).
+    regions, is kept; a panel with neither keeps every record. Every panel is matched both
+    ways, whatever its size, in SQL and here (``_small_panel_filter_condition``): a panel of
+    more than 1,000 regions, the Mendeliome among them, was matched on its genes alone
+    (CLIN-34's limit, reversed by the owner on 2026-10-14).
 
     The panel's gene names are casefolded once, not for every record, and its regions are
     read only for a record none of its genes names, through a lookup built on first use
@@ -622,12 +623,11 @@ class _SmallPanelMatch:
     for each) 1.5 to 4.4 s, which a compound-het, recessive or carrier-screening search paid
     on an exact cache hit too (ENG-15). The records kept are the same."""
 
-    __slots__ = ("constraints", "gene_terms", "regions_apply", "_regions")
+    __slots__ = ("constraints", "gene_terms", "_regions")
 
     def __init__(self, constraints: PanelFilterConstraints) -> None:
         self.constraints = constraints
         self.gene_terms = _gene_term_set(constraints.genes)
-        self.regions_apply = bool(constraints.regions) and _panel_regions_apply(constraints)
         self._regions: _RegionLookup | None = None
 
     def keeps(self, record: SmallVariantRecord) -> bool:
@@ -638,7 +638,7 @@ class _SmallPanelMatch:
             not self.gene_terms or not self.gene_terms.isdisjoint(_small_record_gene_terms(record))
         ):
             return True
-        if self.regions_apply:
+        if constraints.regions:
             if self._regions is None:
                 self._regions = _RegionLookup.of(constraints.regions)
             return self._regions.overlaps(record.chr, record.start, record.end)
@@ -2454,26 +2454,39 @@ def _small_gene_filter_condition(
 def _small_region_bounds(regions: Sequence[Region]) -> tuple[list[str], list[int], list[int]]:
     """The regions as the small-variant region condition reads them, as three parallel
     lists: each chromosome by its match key (``_chromosome_match_key``), each start and end
-    in order, each region once. A region without a chromosome is left out."""
-    region_chromosomes: list[str] = []
-    region_starts: list[int] = []
-    region_ends: list[int] = []
-    seen: set[tuple[str, int, int]] = set()
+    in order, and the regions of a chromosome that share a base merged into one, in order of
+    chromosome and start. A region without a chromosome is left out.
+
+    A variant overlaps a merged region by the rule of ``_small_region_filter_condition``
+    exactly when it overlaps one of the regions merged into it: each base of the merged
+    region lies in one of them. (A REF of no base, which no VCF record has, overlaps by the
+    rule a region holding the bases on both sides of its position; the merged region holds
+    both only when one of its regions does, as regions that merely touch stay apart.) A
+    panel lists each gene's locus once per transcript in a gene reference of one row per
+    transcript, some 42,000 loci for the Mendeliome's 5,300 genes, which merge into about one
+    region per gene: a query about five times smaller, and a join over about an eighth as many
+    regions (measured in docs/variant-ranking-cache.md, "Applying a panel")."""
+    by_chromosome: dict[str, list[tuple[int, int]]] = {}
     for region in regions:
         chrom = _chromosome_match_key(region.chr)
         if not chrom:
             continue
-        start = int(region.start)
-        end = int(region.end)
-        if end < start:
-            start, end = end, start
-        key = (chrom, start, end)
-        if key in seen:
-            continue
-        seen.add(key)
-        region_chromosomes.append(chrom)
-        region_starts.append(start)
-        region_ends.append(end)
+        start, end = sorted((int(region.start), int(region.end)))
+        by_chromosome.setdefault(chrom, []).append((start, end))
+    region_chromosomes: list[str] = []
+    region_starts: list[int] = []
+    region_ends: list[int] = []
+    for chrom in sorted(by_chromosome):
+        merged: list[list[int]] = []
+        for start, end in sorted(by_chromosome[chrom]):
+            if merged and start <= merged[-1][1]:
+                merged[-1][1] = max(merged[-1][1], end)
+            else:
+                merged.append([start, end])
+        for start, end in merged:
+            region_chromosomes.append(chrom)
+            region_starts.append(start)
+            region_ends.append(end)
     return region_chromosomes, region_starts, region_ends
 
 
@@ -2489,8 +2502,9 @@ def _small_region_filter_condition(
     without a region.
 
     This is the overlap rule of every small-variant region filter. The intervals and the
-    excluded genes and intervals are tested this way; a gene panel's regions, which can be a
-    thousand, are found by a join that keeps the same rows (``_small_region_window_rows``)."""
+    excluded genes and intervals are tested this way; a gene panel's regions, which can be
+    thousands (the Mendeliome's), are found by a join that keeps the same rows
+    (``_small_region_window_rows``)."""
     region_chromosomes, region_starts, region_ends = _small_region_bounds(regions)
     if not region_chromosomes:
         return None
@@ -2583,26 +2597,22 @@ _SMALL_REGION_WINDOW_MATCH = (
 )
 
 
-# Above this many panel regions, inlining the (chrom, start, end) arrays is big enough to
-# risk the ClickHouse query-size limit, and testing every row against every region was slow
-# too (the family page joins them on windows since ENG-15: _small_family_region_condition).
-# Large panels are gene panels (e.g. the ~5,300-gene Mendeliome), so the compact gene-symbol
-# + gene-index matching below covers them — skip the region expansion. Such a panel then
-# misses a variant a smaller panel reaches by position only (its symbol differs between the
-# gene reference and the annotation), so a smaller panel is served from its cached ranking
-# only when that ranking holds every variant the smaller panel reaches
-# (clickhouse_family_variants._serve_subpanel_from_superset, CLIN-34).
+# The structural-variant search's limit: above this many regions it matches a gene panel
+# (the ~5,300-gene Mendeliome) on the genes an SV's annotation names instead of its regions,
+# because its SQL tests each SV against every region (_structural_region_filter_condition)
+# and so does its record filter (clickhouse_family_variants).
+#
+# The small-variant searches have no such limit: a panel keeps a variant annotated with one
+# of its genes or in one of its regions, whatever its size, in SQL and in the record filter
+# alike (_small_panel_filter_condition, _SmallPanelMatch). Its regions are found by a join
+# on windows (the family page over the family's own rows, ENG-15; the Variant Explorer over
+# its annotation index, CLIN-48), with the region arrays bound once as parameters, and the
+# record filter looks them up by bisection. A gene panel of more than 1,000 regions, the
+# Mendeliome among them, used to be matched on gene symbols alone there too, and missed a
+# variant a smaller panel reaches by position only, one whose annotation names its gene
+# otherwise than the gene reference (CLIN-34); the owner decided on 2026-10-14 that large
+# panels match by position as well.
 _PANEL_REGION_INLINE_LIMIT = 1000
-
-
-def _panel_regions_apply(panel_constraints: PanelFilterConstraints) -> bool:
-    """Whether a panel filter keeps a variant in one of the panel's regions as well as one
-    of its genes: always, except for a panel of genes with more than
-    ``_PANEL_REGION_INLINE_LIMIT`` regions, which is matched on gene symbols alone."""
-    return not (
-        bool(panel_constraints.genes)
-        and len(panel_constraints.regions) > _PANEL_REGION_INLINE_LIMIT
-    )
 
 
 class _SmallRegionCondition(Protocol):
@@ -2672,19 +2682,22 @@ def _small_panel_filter_condition(
     params: dict[str, Any],
     region_condition: _SmallRegionCondition = _small_region_filter_condition,
 ) -> str | None:
-    """A variant in one of the panel's regions (``_panel_regions_apply``), or annotated
-    with one of its genes: in the entry row's own gene symbols or in the gene index.
+    """A variant in one of the panel's regions, or annotated with one of its genes: in the
+    entry row's own gene symbols or in the gene index. Every panel is matched both ways,
+    whatever its size: a panel of more than 1,000 regions, the Mendeliome among them, was
+    matched on gene symbols alone, and missed a variant a smaller panel reaches by position
+    only (owner decision 2026-10-14, reversing CLIN-34's limit).
 
     ``region_condition`` builds the regions' condition; by default, the overlap rule tested
     against each region (``_small_region_filter_condition``). The family page passes a join
     over the family's own rows that keeps the same rows (``_small_family_region_condition``,
     ENG-15), and the Variant Explorer one over the annotation index, for every family's
-    variants at once (``variant_explorer_service._region_key_condition``, CLIN-48)."""
+    variants at once (``variant_explorer_service._region_key_condition``, CLIN-48). Both
+    bind the region arrays once, as parameters of the join."""
     conditions: list[str] = []
-    if _panel_regions_apply(panel_constraints):
-        in_regions = region_condition(panel_constraints.regions, prefix="panel_region", params=params)
-        if in_regions:
-            conditions.append(in_regions)
+    in_regions = region_condition(panel_constraints.regions, prefix="panel_region", params=params)
+    if in_regions:
+        conditions.append(in_regions)
     gene_condition = _small_gene_filter_condition(
         panel_constraints.genes,
         prefix="panel_gene",

@@ -140,6 +140,11 @@ the clinical report in the EPD refers to:
   **reference-data releases** (the gene reference for the reported genes and the clinical CNV
   knowledgebase), and the family's **repeat expansions** (TRGT) and **Paraphase** results, each with
   its status as CoGA reads it at sign-out and the catalogue behind it;
+- in a PGT family, the **embryo calls** at the region of interest, the calls the family page shows: the
+  ROI, the inheritance model, the disease haplotype, and for each embryo its call, the haplotypes it
+  inherited at the ROI, its warnings (missing data, an unrecorded sex, a recombination or a parent's
+  phase correction near the ROI), its QC at the ROI (informative sites and Mendelian error rate), and
+  the haplotype file the calls were read from;
 - a sentence that says what the record is (the analytical sign-off, referred to by the EPD);
 - the CoGA software version that produced it.
 
@@ -266,6 +271,8 @@ It shows what the record holds:
   its primary transcript), its tags and its note;
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
+- in a PGT family, the embryo calls (*PGT embryo results*): each embryo's call at the ROI, the
+  haplotypes it inherited there as the track names them (P1, P2, M1, M2), its warnings and its QC;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
@@ -278,7 +285,7 @@ report and on each variant, and never fills them in from current data. A part th
 is marked *Not in the signed record*, never shown as empty: a version signed before CoGA recorded the
 variant description, the gene panels, the reference-data releases, the repeat expansions or the
 Paraphase results says so for each (*Not in the signed record: version 2 was signed before CoGA
-recorded …*).
+recorded …*), and so does a PGT family's version signed before CoGA recorded the embryo calls.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,

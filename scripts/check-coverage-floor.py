@@ -55,6 +55,10 @@ MODULE_FLOORS: dict[str, float] = {
     # (100.0 measured locally when it was added: the signed analysis record, the gene-panel
     # versions a family's searches applied)
     "backend/app/services/panel_use_audit.py": 97.0,
+    # (100.0 measured locally when they were added: the PGT embryo calls the family page
+    # shows and a sign-out freezes, REG-2)
+    "backend/app/services/pgt_analysis.py": 97.0,
+    "backend/app/services/pgt_embryo_calls.py": 97.0,
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
     # (97.6 measured locally when it was added: the repeat count-unit warning and QA's record)
     "backend/app/services/repeat_count_units.py": 94.0,

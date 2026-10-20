@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request,
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.azure import authority as azure_authority
 from ..core.config import settings
 from ..core.postgres import get_postgres_session
 from ..core.sql import require_uuid
@@ -19,6 +20,8 @@ from ..dependencies import (
     get_current_admin_user,
 )
 from ..schemas import (
+    MicrosoftSignInOut,
+    SignInConfigOut,
     SignupAck,
     SmallVariantFilterPresetOut,
     Token,
@@ -30,9 +33,11 @@ from ..schemas import (
 from ..services.metadata_service import (
     create_user_account,
     get_auth_user_mapping_by_email,
+    get_user_account_mapping,
     list_user_accounts,
     update_user_account,
 )
+from ..services.user_accounts import is_emergency_admin, is_emergency_admin_account
 from ..services.access_control import CurrentUser
 from ..services.auth_rate_limit_pg import (
     clear_login_failures,
@@ -47,12 +52,32 @@ from ..services.small_variant_review_presets import (
 )
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
 
 # A constant bcrypt hash used to equalize the cost of the login path when the
 # submitted email does not exist. Without it, only real accounts pay the bcrypt
 # verify cost, leaking account existence through a response-time side-channel.
 # Computed once at import so it matches the configured bcrypt work factor.
 _DUMMY_LOGIN_PASSWORD_HASH = get_password_hash("coga-login-timing-equalizer")
+
+# With Microsoft sign-in (SEC-4), the password sign-in serves the emergency administrator alone,
+# and only while AZURE_ADMIN_OVERRIDE is on; accounts come from the first Microsoft sign-in.
+PASSWORD_SIGN_IN_OFF_DETAIL = (
+    "Sign in with your Microsoft account: the password sign-in is switched off."
+)
+EMERGENCY_ONLY_DETAIL = (
+    "Only the emergency administrator signs in with a password. Sign in with your Microsoft "
+    "account."
+)
+SIGNUP_OFF_DETAIL = (
+    "Accounts are made at the first sign-in with a Microsoft account: there is no sign-up."
+)
+OWN_ROLE_DETAIL = "You cannot change your own role: ask another administrator."
+EMERGENCY_ROLE_DETAIL = "The emergency administrator's role cannot be changed."
+EMERGENCY_ACTIVE_DETAIL = (
+    "The emergency administrator cannot be deactivated: its sign-in is switched on and off "
+    "with AZURE_ADMIN_OVERRIDE."
+)
 
 
 def _request_remote_ip(request: Request) -> str | None:
@@ -84,8 +109,12 @@ async def _authenticate_and_issue_token(
     *,
     email: str,
     password: str,
-    remote_ip: str | None,
+    request: Request,
 ) -> Token:
+    remote_ip = _request_remote_ip(request)
+    if settings.azure_ad_enabled and not settings.azure_admin_override:
+        # Refused before any account is looked up: the answer says nothing about accounts.
+        raise HTTPException(status_code=403, detail=PASSWORD_SIGN_IN_OFF_DETAIL)
     throttle_state = await get_login_throttle_state(
         session,
         email=email,
@@ -128,12 +157,28 @@ async def _authenticate_and_issue_token(
         )
         await session.commit()
         raise HTTPException(status_code=403, detail="User not active")
+    if settings.azure_ad_enabled and not is_emergency_admin(user):
+        # Microsoft sign-in is the way in; the password one is the emergency administrator's.
+        await record_failed_login(
+            session,
+            email=email,
+            remote_ip=remote_ip,
+        )
+        await session.commit()
+        raise HTTPException(status_code=403, detail=EMERGENCY_ONLY_DETAIL)
     await clear_login_failures(
         session,
         email=email,
         remote_ip=remote_ip,
     )
     await session.commit()
+    if settings.azure_ad_enabled:
+        logger.warning(
+            "azure_admin_override: the emergency administrator %s signed in with its password "
+            "beside Microsoft sign-in",
+            user["id"],
+        )
+        request.state.emergency_sign_in = True
     access_token = create_access_token(data={"sub": user["email"]})
     return Token(access_token=access_token, token_type="bearer", role=user["role"])
 
@@ -149,6 +194,10 @@ async def signup(
     request: Request,
     session: AsyncSession = Depends(get_postgres_session),
 ):
+    if settings.azure_ad_enabled:
+        # Accounts come from the first Microsoft sign-in (SEC-4); refused before anything is
+        # read, so the answer says nothing about accounts either.
+        raise HTTPException(status_code=403, detail=SIGNUP_OFF_DETAIL)
     # Signup is unauthenticated; throttle per source IP so it cannot be used to
     # enumerate accounts, flood the admin-notification mailbox, or burn CPU on
     # password hashing. Every attempt (success or duplicate-email) counts toward
@@ -196,7 +245,7 @@ async def login(
         session,
         email=credentials.email,
         password=credentials.password,
-        remote_ip=_request_remote_ip(request),
+        request=request,
     )
 
 @router.post(
@@ -214,7 +263,28 @@ async def token(
         session,
         email=form_data.username,
         password=form_data.password,
-        remote_ip=_request_remote_ip(request),
+        request=request,
+    )
+
+
+@router.get(
+    "/config",
+    response_model=SignInConfigOut,
+    summary="How users sign in",
+    description=(
+        "With Microsoft sign-in configured, what the browser needs for it: the application "
+        "(client) ID, the directory's authority and CoGA's API scope. None of it is secret."
+    ),
+)
+async def sign_in_config() -> SignInConfigOut:
+    if not settings.azure_ad_enabled:
+        return SignInConfigOut(microsoft=None)
+    return SignInConfigOut(
+        microsoft=MicrosoftSignInOut(
+            client_id=str(settings.azure_client_id),
+            authority=azure_authority(str(settings.azure_tenant_id)),
+            api_scope=settings.azure_api_scope_value,
+        )
     )
 
 
@@ -227,6 +297,7 @@ async def read_me(user: CurrentUser = Depends(get_current_user)):
         first_name=user.first_name,
         last_name=user.last_name,
         affiliation=user.affiliation,
+        sign_in="microsoft" if user.azure_object_id else "password",
         is_active=user.is_active,
         role=user.role,
         projects=user.metadata_project_ids,
@@ -270,17 +341,45 @@ async def list_users(
 async def update_user(
     user_id: str,
     update: UserUpdate,
+    request: Request,
     current: CurrentUser = Depends(get_current_admin_user),
     session: AsyncSession = Depends(get_postgres_session),
 ):
+    """Activate or deactivate an account, or set its global role (SEC-4).
+
+    Nobody changes their own role, and the emergency administrator keeps its role and stays
+    active, so the break-glass sign-in works when it is switched on. What changed, each field
+    from and to, is recorded with the request in the audit log (``request_meta.account_change``).
+    """
     user_uuid = require_uuid(user_id, "Invalid user id")
     if update.projects is not None:
         raise HTTPException(
             status_code=400,
             detail="Project access is managed from project settings",
         )
-    return await update_user_account(
+    if update.role is not None or update.is_active is False:
+        target = await get_user_account_mapping(session, user_uuid)
+        if target is None:
+            raise HTTPException(status_code=404, detail="User not found")
+        if update.role is not None and target["role"] != update.role:
+            if str(target["id"]) == current.id:
+                raise HTTPException(status_code=403, detail=OWN_ROLE_DETAIL)
+            if is_emergency_admin_account(target):
+                raise HTTPException(status_code=403, detail=EMERGENCY_ROLE_DETAIL)
+        if update.is_active is False and target["is_active"] and is_emergency_admin_account(target):
+            raise HTTPException(status_code=403, detail=EMERGENCY_ACTIVE_DETAIL)
+    updated, changes = await update_user_account(
         session,
         user_id=user_uuid,
         is_active=update.is_active,
+        role=update.role,
     )
+    if changes:
+        request.state.account_change = {"user_id": updated.id, "email": updated.email, **changes}
+        logger.info(
+            "account %s changed by %s: %s",
+            updated.id,
+            current.id,
+            ", ".join(f"{field} {change['from']} -> {change['to']}" for field, change in changes.items()),
+        )
+    return updated

@@ -25,13 +25,13 @@ describe('LoginPage', () => {
     queryClient = createTestQueryClient();
   });
 
-  it('renders login form inputs and button', () => {
+  it('renders login form inputs and button', async () => {
     render(
       <MemoryRouter>
         <LoginPage />
       </MemoryRouter>
     );
-    expect(screen.getByPlaceholderText(/email/i)).toBeInTheDocument();
+    expect(await screen.findByPlaceholderText(/email/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/password/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /login/i })).toBeInTheDocument();
   });
@@ -60,6 +60,7 @@ describe('LoginPage', () => {
         <LoginPage />
       </MemoryRouter>
     );
+    await screen.findByPlaceholderText(/email/i);
     fireEvent.change(screen.getByPlaceholderText(/email/i), {
       target: { value: 'admin@example.com' },
     });
@@ -93,6 +94,7 @@ describe('LoginPage', () => {
         <LoginPage />
       </MemoryRouter>
     );
+    await screen.findByPlaceholderText(/email/i);
     fireEvent.change(screen.getByPlaceholderText(/email/i), {
       target: { value: 'admin@example.com' },
     });
@@ -117,6 +119,7 @@ describe('LoginPage', () => {
       </MemoryRouter>
     );
 
+    await screen.findByPlaceholderText(/email/i);
     fireEvent.change(screen.getByPlaceholderText(/email/i), {
       target: { value: 'admin@example.com' },
     });
@@ -152,6 +155,7 @@ describe('LoginPage', () => {
       </MemoryRouter>
     );
 
+    await screen.findByPlaceholderText(/email/i);
     fireEvent.change(screen.getByPlaceholderText(/email/i), {
       target: { value: 'admin@example.com' },
     });
@@ -182,6 +186,7 @@ describe('LoginPage', () => {
         <LoginPage />
       </MemoryRouter>
     );
+    await screen.findByPlaceholderText(/email/i);
     fireEvent.change(screen.getByPlaceholderText(/email/i), { target: { value: 'next@example.com' } });
     fireEvent.change(screen.getByPlaceholderText(/password/i), { target: { value: 'pw' } });
     fireEvent.click(screen.getByRole('button', { name: /login/i }));
@@ -224,6 +229,7 @@ describe('LoginPage', () => {
       screen.getByText(/sign in to continue to your requested page/i)
     ).toBeInTheDocument();
 
+    await screen.findByPlaceholderText(/email/i);
     fireEvent.change(screen.getByPlaceholderText(/email/i), {
       target: { value: 'viewer@example.com' },
     });
@@ -270,13 +276,14 @@ describe('LoginPage: the page `next` asks for', () => {
       </MemoryRouter>
     );
 
-  const signIn = (role: 'viewer' | 'admin' = 'viewer') => {
+  const signIn = async (role: 'viewer' | 'admin' = 'viewer') => {
     (api.post as unknown as Mock).mockResolvedValue({
       data: { access_token: 'token-123', role },
     });
     (api.get as unknown as Mock).mockResolvedValue({
       data: { email: `${role}@example.com`, role },
     });
+    await screen.findByPlaceholderText(/email/i);
     fireEvent.change(screen.getByPlaceholderText(/email/i), {
       target: { value: `${role}@example.com` },
     });
@@ -337,7 +344,7 @@ describe('LoginPage: the page `next` asks for', () => {
       screen.queryByText(/sign in to continue to your requested page/i)
     ).not.toBeInTheDocument();
 
-    signIn();
+    await signIn();
 
     expect(await screen.findByTestId('landed-on')).toHaveTextContent(/^\/dashboard$/);
     expect(localStorage.getItem('token')).toBe('token-123');
@@ -365,7 +372,7 @@ describe('LoginPage: the page `next` asks for', () => {
       screen.getByText(/sign in to continue to your requested page/i)
     ).toBeInTheDocument();
 
-    signIn();
+    await signIn();
 
     expect((await screen.findByTestId('landed-on')).textContent).toBe(next);
   });
@@ -393,7 +400,7 @@ describe('LoginPage: the page `next` asks for', () => {
         screen.getByText(/sign in to continue to your requested page/i)
       ).toBeInTheDocument();
 
-      signIn('admin');
+      await signIn('admin');
 
       expect((await screen.findByTestId('landed-on')).textContent).toBe(url);
     }
