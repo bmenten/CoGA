@@ -172,12 +172,17 @@ async def _seed_a_start(monkeypatch) -> _RecordingSession:
     return session
 
 
+def _upserts(session: _RecordingSession) -> list[tuple[str, dict]]:
+    """The seed's upserts; its last statement removes STRchive rows of another release (CLIN-31)."""
+    return [(sql, params) for sql, params in session.statements if "locus_id" in params]
+
+
 async def _catalogue_after_a_start(monkeypatch) -> dict[str, dict]:
     """The ``repeat_loci`` rows a start leaves, by locus_id, as the import's catalogue query
     returns them. The seed upserts by ``locus_id``, so the last write of a locus is its row."""
     session = await _seed_a_start(monkeypatch)
     rows: dict[str, dict] = {}
-    for _sql, params in session.statements:
+    for _sql, params in _upserts(session):
         rows[params["locus_id"]] = {
             **{
                 column: params[column]
@@ -263,7 +268,7 @@ async def test_each_start_writes_strchives_thresholds_over_those_an_earlier_star
     """A database seeded with the old built-in rows gets STRchive's thresholds on its next start:
     the upsert by locus_id sets both columns from the row, so BEAN1's NULL replaces a stored 300."""
     session = await _seed_a_start(monkeypatch)
-    upserts = {params["locus_id"]: (" ".join(sql.split()), params) for sql, params in session.statements}
+    upserts = {params["locus_id"]: (" ".join(sql.split()), params) for sql, params in _upserts(session)}
 
     for locus in CHANGED_LOCI:
         sql, params = upserts[locus.gene_trid]
