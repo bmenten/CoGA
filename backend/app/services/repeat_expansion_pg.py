@@ -530,12 +530,18 @@ def classify_repeat_count(
     A locus without thresholds -- no intermediate, premutation or pathogenic threshold:
     no catalogue row matches the call's TRID, or the row states none (STRchive's MUC1 and
     POLG) -- gives a called allele ``not_assessed``. Read as ``normal``, an expansion there
-    could not be seen (CLIN-26). A benign range alone is not a threshold: on such a locus
-    nothing says where harm starts. A row with one threshold keeps it: normal below it.
+    could not be seen (CLIN-26). Where such a row states a benign range, a count inside it
+    is ``normal``: the catalogue calls that count benign (STRchive's POLG, exactly 10; the
+    owner's decision of 2026-10-14, CLIN-36). Any other count there, above the range or
+    below it, stays ``not_assessed``: a benign range is not a threshold, and nothing says
+    where harm starts. A range is stated by both of its ends. A row with one threshold
+    keeps it: normal below it, its benign range not consulted.
     """
     if repeat_count is None:
         return "unknown"
     if warning_min is None and pathogenic_min is None and premutation_min is None:
+        if benign_min is not None and benign_max is not None and benign_min <= repeat_count <= benign_max:
+            return "normal"
         return "not_assessed"
 
     has_benign_range = benign_min is not None and benign_max is not None
@@ -561,10 +567,11 @@ def classify_repeat_count(
 
 # How much attention a status calls for; the row / locus shows its most severe allele.
 # "review" (a count the catalog cannot classify) outranks "normal" so it surfaces in the
-# aberrant-only view; "unknown" (no call) ranks lowest (#535). "not_assessed" (a locus
-# without thresholds, CLIN-26) outranks "normal" for the same reason, and "review" so that
-# a male's two chrX alleles at such a locus keep saying why it was not assessed (the note
-# still asks for review). A premutation ranks between the grey zone and a full mutation.
+# aberrant-only view; "unknown" (no call) ranks lowest (#535). "not_assessed" (a count at a
+# locus without thresholds, outside any benign range stated there: CLIN-26, CLIN-36) outranks
+# "normal" for the same reason, and "review" so that a male's two chrX alleles at such a locus
+# keep saying why it was not assessed (the note still asks for review). A premutation ranks
+# between the grey zone and a full mutation.
 REPEAT_STATUS_RANK = {
     "unknown": 0,
     "normal": 1,
@@ -597,8 +604,10 @@ def _reclassify_repeat_alleles(
     """Each called allele's status against the thresholds given, whatever it was stored with.
 
     Without any threshold an allele reads ``not_assessed``, so a call stored as ``normal`` at
-    a locus without thresholds (before CLIN-26) reads not assessed here at once. A no-call
-    keeps its stored status.
+    a locus without thresholds (before CLIN-26) reads not assessed here at once; a count
+    inside the benign range the catalogue row states there reads ``normal``, so one stored as
+    ``not_assessed`` (from CLIN-26 to CLIN-36) reads normal here at once. A no-call keeps its
+    stored status.
     """
     if not isinstance(alleles, list):
         return []
