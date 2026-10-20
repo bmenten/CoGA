@@ -147,6 +147,26 @@ def test_revision_0005_runs_the_access_baselines_own_upgrade_of_the_project_memb
         module.selected_statements(lambda _name: [])
 
 
+def test_revision_0006_runs_the_access_baselines_own_upgrade_of_the_accounts() -> None:
+    # SEC-4: the Microsoft object ID an account signs in with, brought to a database made
+    # before it by the statement 01_access.sql adds it with.
+    from backend.app.core.postgres_migrations import baseline_statements
+
+    module = migration_script().get_revision("0006").module
+    selected = module.selected_statements(baseline_statements)
+
+    upgrades = [statement for statement in _statements("01_access.sql") if statement.startswith("ALTER TABLE users")]
+    assert selected == upgrades
+    assert len(selected) == 1
+    assert " ".join(selected[0].split()) == "ALTER TABLE users ADD COLUMN IF NOT EXISTS azure_object_id UUID UNIQUE"
+    # The column a new database's CREATE TABLE gives, with the same type and uniqueness.
+    create = next(s for s in _statements("01_access.sql") if s.startswith("CREATE TABLE IF NOT EXISTS users"))
+    assert "azure_object_id UUID UNIQUE" in " ".join(create.split())
+    # A baseline that no longer holds it stops the revision.
+    with pytest.raises(RuntimeError, match="the baseline changed under it"):
+        module.selected_statements(lambda _name: [])
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

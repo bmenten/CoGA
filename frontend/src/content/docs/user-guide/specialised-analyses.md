@@ -13,6 +13,12 @@ the affected members as carriers. Its filters are **Phenotype**, **Inheritance a
 *Mendeliome*, *Dominant*, *Recessive-like* and *Any affected*. **Phenotype prioritization** ranks SVs by
 the same phenotype score as small variants. **Clear all filters** removes the default.
 
+A gene panel keeps an SV whose annotation names one of its genes or that overlaps one of its regions,
+whatever the panel's size, as on the small-variant page: the Mendeliome also keeps an SV in one of its
+genes whose annotation names that gene otherwise, and a small panel also keeps an SV whose annotation
+names one of its genes without overlapping it, such as a gene a few kilobases away. With a gene panel
+and a **Gene symbol** both filled in, an SV must meet both.
+
 **Min length** and **Exact length**, under **Class and Breakpoints**, measure an SV by the **Length**
 the list shows, without the minus sign of a deletion: the caller's SVLEN; for a call written as its
 sequence without an SVLEN (as VCF 4.4 writes one), the bases it inserts or deletes; otherwise the end
@@ -24,8 +30,10 @@ A filtered search reads at most 50,000 SVs of the callset before it applies the 
 **Phenotype prioritization** on (the default) it ranks at most 5,000 of the SVs that match. When a
 search reaches either limit, a warning says *"Results may be incomplete"* (*"Ranking may be incomplete"*
 when the list is ranked), the count shows a `+`, and an SV beyond the limit is not shown: narrow the
-search with a region, a gene panel or a gene. The family report's list of reported SVs is not cut by
-this cap: it reads the reported SVs themselves, not the first 50,000.
+search with a region, a gene panel or a gene. A gene panel of any size, the Mendeliome included, and a
+gene are applied before the 50,000 are read, so the limit counts only the SVs they keep. The family
+report's list of reported SVs is not cut by this cap: it reads the reported SVs themselves, not the
+first 50,000.
 
 **ACMG (CNV)** on a row opens the ClinGen copy-number classifier (Riggs et al. 2020): choose
 *Copy-number loss* or *Copy-number gain*, check the pre-selected criteria and add the rest.

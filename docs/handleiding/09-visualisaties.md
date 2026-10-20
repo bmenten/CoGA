@@ -14,7 +14,7 @@ Enkele begrippen:
 
 **Weergave per chromosoom** (`ChromosomeViewPage.tsx` met `ChromosomeViewWorkspace.tsx`). Bovenaan staat het volledige ideogram met het getoonde venster in het rood; daaronder per lid de sample-tracks (dekking, APCAD, SV's, small variants, haplotypes, repeats) en onderaan de referentietracks (genen, klinische CNV's, DGV, blacklist, segmentale duplicaties) en een uitvergroot ideogram van het venster. Er zijn knoppen om te zoomen en te schuiven, en een veld om naar een gen of locus te springen.
 
-Welke tracks een sample heeft, vraagt de frontend eerst op (`GET /api/families/{family_id}/track-availability`), zodat er geen lege strook verschijnt voor data die de familie niet heeft.
+Welke tracks een sample heeft, vraagt de frontend eerst op (`GET /api/families/{family_id}/track-availability`), zodat er geen lege strook verschijnt voor data die de familie niet heeft. Komt de weergave van de SV-pagina met een genpanel, dan heeft een lid een SV-track als het panel een van zijn SV's overhoudt, met de regel van de SV-lijst (hoofdstuk 8): een SV waarvan de annotatie een van de genen van het panel noemt of die een van zijn regio's overlapt. Vroeger telde de beschikbaarheid alleen de regio's van het panel, zodat de track van een lid wiens enige SV van het panel er alleen via zijn genen bij hoort, niet werd aangeboden.
 
 **Waar in de code:** `frontend/src/pages/genome/`; de beschikbaarheid in `backend/app/routers/families_tracks.py`.
 

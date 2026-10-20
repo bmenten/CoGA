@@ -859,3 +859,85 @@ def test_two_instances_starting_together_both_come_up() -> None:
         (head_revision(), head_revision()),
     }
     assert ledger == [head_revision()]
+
+
+# The accounts as a database had them before SEC-4 (revision 0006): no Microsoft object ID.
+_BEFORE_0006 = ("ALTER TABLE users DROP COLUMN azure_object_id",)
+
+
+@_MODES
+def test_a_database_from_before_sec4_gets_the_microsoft_object_id_with_its_accounts_kept(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    import uuid
+
+    from sqlalchemy.exc import DBAPIError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    object_id = str(uuid.uuid4())
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0005 from before SEC-4, with two password accounts.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0005'"))
+                for statement in _BEFORE_0006:
+                    await conn.exec_driver_sql(statement)
+                for name in ("first-sec4@example.org", "second-sec4@example.org"):
+                    await conn.execute(
+                        text(
+                            "INSERT INTO users (username, hashed_password, role, email) "
+                            "VALUES (:n, '', 'viewer', :n)"
+                        ),
+                        {"n": name},
+                    )
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                kept = sorted(
+                    (str(row[0]), row[1])
+                    for row in (
+                        await conn.execute(
+                            text("SELECT email, azure_object_id FROM users WHERE email LIKE '%-sec4@example.org'")
+                        )
+                    ).all()
+                )
+            async with engine.begin() as conn:
+                await conn.execute(
+                    text("UPDATE users SET azure_object_id = CAST(:o AS uuid) WHERE email = 'first-sec4@example.org'"),
+                    {"o": object_id},
+                )
+            refused = ""
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text("UPDATE users SET azure_object_id = CAST(:o AS uuid) WHERE email = 'second-sec4@example.org'"),
+                        {"o": object_id},
+                    )
+            except DBAPIError as exc:
+                refused = str(exc)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, kept, refused, fingerprints
+
+    revision, kept, refused, (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0005", head_revision())
+    # The accounts from before Microsoft sign-in are kept, without an object ID.
+    assert kept == [("first-sec4@example.org", None), ("second-sec4@example.org", None)]
+    # One object ID belongs to one account.
+    assert "users_azure_object_id_key" in refused
+    # The schema is the baselines': the column with its type and its unique constraint.
+    assert actual == expected, _differences(expected, actual)

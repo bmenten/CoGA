@@ -18,6 +18,7 @@ from ..schemas import (
 )
 from .clickhouse_variant_ids import (
     _small_table_name,
+    _structural_table_name,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
 from .variant_annotation_parser import _spliceai_delta
@@ -587,6 +588,19 @@ class _RegionLookup:
         bounds: dict[str, list[tuple[int, int]]] = {}
         for region in regions:
             bounds.setdefault(_chromosome_match_key(region.chr), []).append((region.start, region.end))
+        return cls._of_keyed(bounds)
+
+    @classmethod
+    def of_bounds(cls, chromosomes: Sequence[str], starts: Sequence[int], ends: Sequence[int]) -> _RegionLookup:
+        """The lookup of regions read as a region condition binds them: parallel lists of
+        chromosomes, already by their match key, and of starts and ends."""
+        bounds: dict[str, list[tuple[int, int]]] = {}
+        for chromosome, start, end in zip(chromosomes, starts, ends):
+            bounds.setdefault(chromosome, []).append((start, end))
+        return cls._of_keyed(bounds)
+
+    @classmethod
+    def _of_keyed(cls, bounds: dict[str, list[tuple[int, int]]]) -> _RegionLookup:
         starts: dict[str, list[int]] = {}
         furthest_ends: dict[str, list[int]] = {}
         for chromosome, chromosome_bounds in bounds.items():
@@ -643,6 +657,43 @@ class _SmallPanelMatch:
                 self._regions = _RegionLookup.of(constraints.regions)
             return self._regions.overlaps(record.chr, record.start, record.end)
         return not constraints.genes
+
+
+class _StructuralPanelMatch:
+    """A gene panel as the structural-variant record filter applies it
+    (``_structural_record_matches``), prepared once per search: an SV whose annotation names
+    one of the panel's genes (its entry's gene symbols, in any capitals), or that overlaps
+    one of its regions by the SV region rule (``_structural_region_filter_condition``), is
+    kept; a panel with neither keeps no SV. The SQL applies the same rule to the same
+    regions (``_structural_panel_filter_condition``), whatever the panel's size.
+
+    Until the owner's decision of 2026-10-20 a panel of more than 1,000 regions, the
+    Mendeliome among them, was matched on the genes an SV's annotation names alone, and a
+    smaller panel on its regions alone: the Mendeliome missed an SV in one of its genes whose
+    annotation names that gene otherwise, and a smaller panel an SV whose annotation names
+    one of its genes beside it (VEP's upstream and downstream genes).
+
+    The regions are read only for an SV none of the panel's genes names, through a lookup
+    built on first use from the regions the SQL binds (``_structural_region_bounds``), which
+    answers by bisection what testing each region answers."""
+
+    __slots__ = ("gene_terms", "_bounds", "_regions")
+
+    def __init__(self, constraints: PanelFilterConstraints) -> None:
+        self.gene_terms = _gene_term_set(constraints.genes)
+        self._bounds = constraints.regions
+        self._regions: _RegionLookup | None = None
+
+    def keeps(self, record: StructuralVariantRecord) -> bool:
+        if self.gene_terms and not self.gene_terms.isdisjoint(
+            _casefold(symbol) for symbol in record.gene_symbols
+        ):
+            return True
+        if not self._bounds:
+            return False
+        if self._regions is None:
+            self._regions = _RegionLookup.of_bounds(*_structural_region_bounds(self._bounds))
+        return self._regions.overlaps(record.chr, record.start, record.end)
 
 
 _STRUCTURAL_REGION_FLAG_KEYS = (
@@ -1127,8 +1178,10 @@ def _structural_record_matches(
     include_regions: Sequence[Region],
     selected_samples: Sequence[str],
     *,
-    panel_gene_terms: set[str] | None = None,
+    panel: _StructuralPanelMatch | None = None,
 ) -> bool:
+    """Whether the search's ``filters``, its regions (a gene filter's loci) and its gene
+    panel (``panel``, prepared once per search) keep ``record``."""
     if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
         return False
     if filters.overlap:
@@ -1164,11 +1217,8 @@ def _structural_record_matches(
         return False
     if include_regions and not _variant_overlaps_regions(record.chr, record.start, record.end, include_regions):
         return False
-    # Large gene panels (the Mendeliome) are matched by gene symbol rather than expanded
-    # to thousands of regions — a per-SV overlap over those would dominate the request.
-    if panel_gene_terms is not None:
-        if {gene.lower() for gene in (record.gene_symbols or [])}.isdisjoint(panel_gene_terms):
-            return False
+    if panel is not None and not panel.keeps(record):
+        return False
     if filters.gene and not _variant_hits_gene_symbols(record.gene_symbols, filters.gene):
         return False
     if selected_samples and not any(call.sample in set(selected_samples) for call in record.calls):
@@ -2545,7 +2595,18 @@ def _small_region_window_rows(
     so none is added. The Variant Explorer joins its annotation index this way
     (``variant_explorer_service._region_key_condition``, CLIN-48), and the family page its
     family's own rows (``_small_family_region_condition``, ENG-15)."""
-    chromosomes, starts, ends = _small_region_bounds(regions)
+    return _region_window_rows(_small_region_bounds(regions), prefix=prefix, params=params)
+
+
+def _region_window_rows(
+    bounds: tuple[list[str], list[int], list[int]], *, prefix: str, params: dict[str, Any]
+) -> str | None:
+    """Regions read as a region condition binds them (``_small_region_bounds``,
+    ``_structural_region_bounds``: chromosomes by match key, starts, ends), bound once as
+    three array parameters, as the rows a join on 64-kb windows reads: ``region_chrom``,
+    ``region_start``, ``region_end`` and ``region_window``, one row for each window a region
+    touches. None without a region."""
+    chromosomes, starts, ends = bounds
     if not chromosomes:
         return None
     chromosomes_param, starts_param, ends_param = (
@@ -2595,24 +2656,6 @@ _SMALL_REGION_WINDOW_MATCH = (
     "ON v.chrom_key = r.region_chrom AND v.variant_window = r.region_window"
     " WHERE v.pos <= r.region_end AND v.ref_end >= r.region_start"
 )
-
-
-# The structural-variant search's limit: above this many regions it matches a gene panel
-# (the ~5,300-gene Mendeliome) on the genes an SV's annotation names instead of its regions,
-# because its SQL tests each SV against every region (_structural_region_filter_condition)
-# and so does its record filter (clickhouse_family_variants).
-#
-# The small-variant searches have no such limit: a panel keeps a variant annotated with one
-# of its genes or in one of its regions, whatever its size, in SQL and in the record filter
-# alike (_small_panel_filter_condition, _SmallPanelMatch). Its regions are found by a join
-# on windows (the family page over the family's own rows, ENG-15; the Variant Explorer over
-# its annotation index, CLIN-48), with the region arrays bound once as parameters, and the
-# record filter looks them up by bisection. A gene panel of more than 1,000 regions, the
-# Mendeliome among them, used to be matched on gene symbols alone there too, and missed a
-# variant a smaller panel reaches by position only, one whose annotation names its gene
-# otherwise than the gene reference (CLIN-34); the owner decided on 2026-10-14 that large
-# panels match by position as well.
-_PANEL_REGION_INLINE_LIMIT = 1000
 
 
 class _SmallRegionCondition(Protocol):
@@ -3039,36 +3082,69 @@ def _small_native_sample_filter_clauses(
     return clauses, params
 
 
+def _structural_region_bounds(regions: Sequence[Region]) -> tuple[list[str], list[int], list[int]]:
+    """The regions as the structural-variant region condition reads them, as three parallel
+    lists: each chromosome by its match key (``_chromosome_match_key``), each start and end
+    in order, and of a chromosome's regions only those that lie inside no other, each once,
+    in order of chromosome and start. A region without a chromosome is left out.
+
+    An SV that overlaps a region by the rule of ``_structural_region_filter_condition`` (its
+    start at or before the region's end, its end at or after the region's start) overlaps
+    every region that holds that one, so the regions left keep every answer. They are the
+    regions whose ends rise with their starts: the furthest end of the regions up to each
+    start, as ``_RegionLookup`` reads them. A gene reference of one row per transcript
+    resolves the Mendeliome to some 42,000 loci; in the synthetic cohort of
+    docs/variant-ranking-cache.md ("Structural variants") about a third of them lie inside no
+    other.
+
+    Merging the regions that share a base, as the small-variant condition does
+    (``_small_region_bounds``), would leave fewer but change an answer: an SV stored with its
+    END two or more bases before its POS (an END a caller wrote so is stored as written)
+    overlaps by the rule a region that holds both, and a chain of merged regions can hold
+    both where none of its regions does."""
+    by_chromosome: dict[str, list[tuple[int, int]]] = {}
+    for region in regions:
+        chrom = _chromosome_match_key(region.chr)
+        if not chrom:
+            continue
+        start, end = sorted((int(region.start), int(region.end)))
+        by_chromosome.setdefault(chrom, []).append((start, end))
+    region_chromosomes: list[str] = []
+    region_starts: list[int] = []
+    region_ends: list[int] = []
+    for chrom in sorted(by_chromosome):
+        furthest: int | None = None
+        # By start, and at one start the furthest end first: a region is inside one before
+        # it exactly when its end reaches no further than the furthest end before it.
+        for start, end in sorted(by_chromosome[chrom], key=lambda bound: (bound[0], -bound[1])):
+            if furthest is not None and end <= furthest:
+                continue
+            furthest = end
+            region_chromosomes.append(chrom)
+            region_starts.append(start)
+            region_ends.append(end)
+    return region_chromosomes, region_starts, region_ends
+
+
 def _structural_region_filter_condition(
     regions: Sequence[Region],
     *,
     prefix: str,
     params: dict[str, Any],
 ) -> str | None:
-    """SQL for "this SV overlaps any of these regions".
+    """SQL for "this SV overlaps any of these regions", tested against each region
+    (``_structural_region_bounds``): on the same chromosome (by match key), with the SV's
+    start at or before the region's end and its end at or after the region's start. None
+    without a region.
 
+    This is the overlap rule of every structural-variant region filter. A gene filter's loci
+    are tested this way; a gene panel's regions, which can be thousands (the Mendeliome's),
+    are found by a join that keeps the same rows (``_structural_family_region_condition``).
     The small-variant equivalent works off ``e.pos``/``e.ref``; an SV carries an explicit
-    span, so the overlap is between ``e.start``/``e.end`` and the region.
+    span, so the overlap is between ``e.start``/``e.end`` and the region. An SV's breakend
+    mate (its remote locus) is not read.
     """
-    region_chromosomes: list[str] = []
-    region_starts: list[int] = []
-    region_ends: list[int] = []
-    seen: set[tuple[str, int, int]] = set()
-    for region in regions:
-        chrom = _chromosome_match_key(region.chr)
-        if not chrom:
-            continue
-        start = int(region.start)
-        end = int(region.end)
-        if end < start:
-            start, end = end, start
-        key = (chrom, start, end)
-        if key in seen:
-            continue
-        seen.add(key)
-        region_chromosomes.append(chrom)
-        region_starts.append(start)
-        region_ends.append(end)
+    region_chromosomes, region_starts, region_ends = _structural_region_bounds(regions)
     if not region_chromosomes:
         return None
 
@@ -3088,12 +3164,147 @@ def _structural_region_filter_condition(
     )
 
 
+def _structural_variant_windows(alias: str) -> tuple[str, str]:
+    """What a region join reads of the SV rows ``alias``: the columns (``chrom_key``, the
+    chromosome's match key; ``sv_start`` and ``sv_end``, all that the overlap rule reads of
+    the SV's span; ``variant_window``), and the ARRAY JOIN that lists each row under each
+    64-kb window its span touches, from the lower of its start and end to the higher (an END
+    stored before its POS included)."""
+    chromosome = _clickhouse_chromosome_match_expr(f"{alias}.chrom")
+    first = f"least(toInt64({alias}.start), toInt64({alias}.end))"
+    last = f"greatest(toInt64({alias}.start), toInt64({alias}.end))"
+    columns = f"{chromosome} AS chrom_key, {alias}.start AS sv_start, {alias}.end AS sv_end, variant_window"
+    windows = (
+        f"ARRAY JOIN range(intDiv({first}, {_REGION_WINDOW}), intDiv({last}, {_REGION_WINDOW}) + 1)"
+        " AS variant_window"
+    )
+    return columns, windows
+
+
+# The join of the SV rows (v, _structural_variant_windows) and the region rows (r,
+# _region_window_rows over _structural_region_bounds) that share a window, keeping a pair
+# that overlaps by the rule of _structural_region_filter_condition.
+_STRUCTURAL_REGION_WINDOW_MATCH = (
+    "ON v.chrom_key = r.region_chrom AND v.variant_window = r.region_window"
+    " WHERE v.sv_start <= r.region_end AND v.sv_end >= r.region_start"
+)
+
+
+def _structural_locus_clauses(
+    filters: StructuralVariantQueryFilters, *, alias: str, params: dict[str, Any]
+) -> list[str]:
+    """The search's chromosome and locus on the SV rows ``alias``: an SV on the chromosome,
+    and starting at or after the locus's start and ending at or before its end or, with
+    ``overlap`` and both given, overlapping the locus."""
+    clauses: list[str] = []
+    if filters.chromosome:
+        clauses.append(f"{alias}.chrom IN %(chromosomes)s")
+        params["chromosomes"] = _chromosome_options(filters.chromosome)
+    if filters.start is not None:
+        if filters.overlap and filters.end is not None:
+            clauses.append(f"({alias}.start <= %(end)s AND {alias}.end >= %(start)s)")
+            params["start"] = filters.start
+            params["end"] = filters.end
+        else:
+            clauses.append(f"{alias}.start >= %(start)s")
+            params["start"] = filters.start
+    if filters.end is not None and not (filters.overlap and filters.start is not None):
+        clauses.append(f"{alias}.end <= %(end)s")
+        params["end"] = filters.end
+    return clauses
+
+
+def _structural_family_region_condition(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+    regions: Sequence[Region],
+    *,
+    prefix: str,
+    params: dict[str, Any],
+) -> str | None:
+    """The SV search's condition for a gene panel's regions, on its entry rows (alias
+    ``e``): the rows that overlap a region by the rule of
+    ``_structural_region_filter_condition``, found by a join on 64-kb windows over the
+    family's own SV rows, as the small-variant family page finds its rows
+    (``_small_family_region_condition``, ENG-15). None without a region.
+
+    Tested against every region for each row (``arrayExists`` over the regions), the
+    Mendeliome's thousands of loci cost each SV row thousands of tests, and the region arrays,
+    repeated for every row ClickHouse reads, could run it out of memory. The join lists each
+    region under the windows it touches and each SV under the windows its span touches, and
+    keeps a pair that shares a window when the two overlap by the rule. An SV and a region
+    that overlap share a window: one of a base they share or, for an SV stored with its END
+    before its POS, every window from its END to its POS, all inside the region.
+
+    A row is kept when its chromosome, start and end, all that the rule reads of it, are
+    those of a row the join keeps. It is then kept exactly when it overlaps a region itself,
+    provided the join reads every row the search reads: it reads the family's rows (``sign =
+    1``) in the family's projects and within the search's chromosome and locus, each a clause
+    of the search's own WHERE (``_structural_variant_where_clauses``). A clause left out
+    would make the join read more rows, never keep another row. For the same reason a search
+    of one chromosome (a genome track's) binds only the regions on that chromosome: no other
+    can overlap a row it reads."""
+    if filters.chromosome:
+        keys = {_chromosome_match_key(option) for option in _chromosome_options(filters.chromosome)}
+        regions = [region for region in regions if _chromosome_match_key(region.chr) in keys]
+    if not context.assembly_name:
+        # No entries table to join without an assembly: the rule, tested per row.
+        return _structural_region_filter_condition(regions, prefix=prefix, params=params)
+    region_rows = _region_window_rows(_structural_region_bounds(regions), prefix=prefix, params=params)
+    if region_rows is None:
+        return None
+    family_param = f"{prefix}_family_guid"
+    params[family_param] = context.family_uuid
+    rows_where = [f"fe.family_guid = %({family_param})s", "fe.sign = 1"]
+    if context.project_ids:
+        projects_param = f"{prefix}_project_ids"
+        params[projects_param] = tuple(context.project_ids)
+        rows_where.append(f"fe.project_guid IN %({projects_param})s")
+    rows_where.extend(_structural_locus_clauses(filters, alias="fe", params=params))
+    columns, windows = _structural_variant_windows("fe")
+    entries_table = _structural_table_name(context.assembly_name, "entries")
+    return (
+        "(e.chrom, e.start, e.end) IN (SELECT v.chrom, v.sv_start, v.sv_end FROM ("
+        f"SELECT fe.chrom AS chrom, {columns}"
+        f" FROM {entries_table} AS fe {windows} WHERE {' AND '.join(rows_where)})"
+        f" AS v INNER JOIN ({region_rows}) AS r {_STRUCTURAL_REGION_WINDOW_MATCH})"
+    )
+
+
+def _structural_panel_filter_condition(
+    context: FamilyMetadataContext,
+    filters: StructuralVariantQueryFilters,
+    panel: PanelFilterConstraints,
+    *,
+    params: dict[str, Any],
+) -> str:
+    """An SV that overlaps one of the panel's regions (``_structural_family_region_condition``)
+    or whose annotation names one of its genes (the entry row's gene symbols, in any
+    capitals): the rule of ``_StructuralPanelMatch``, whatever the panel's size. A panel with
+    neither keeps no SV.
+
+    Until the owner's decision of 2026-10-20 a panel of more than 1,000 regions, the
+    Mendeliome among them, was matched on gene symbols alone, and in Python only, after the
+    candidate cap; a smaller panel on its regions alone."""
+    conditions: list[str] = []
+    in_regions = _structural_family_region_condition(
+        context, filters, panel.regions, prefix="sv_panel_region", params=params
+    )
+    if in_regions:
+        conditions.append(in_regions)
+    gene_condition = _small_gene_filter_condition(panel.genes, prefix="sv_panel_gene", params=params)
+    if gene_condition:
+        conditions.append(gene_condition)
+    return f"({' OR '.join(conditions)})" if conditions else "0"
+
+
 def _structural_variant_where_clauses(
     context: FamilyMetadataContext,
     filters: StructuralVariantQueryFilters,
     include_regions: Sequence[Region] = (),
     include_variant_ids: Collection[str] | None = None,
     exclude_variant_ids: Collection[str] = (),
+    panel: PanelFilterConstraints | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     where_clauses = ["e.family_guid = %(family_guid)s", "e.sign = 1"]
     params: dict[str, Any] = {"family_guid": context.family_uuid}
@@ -3106,28 +3317,17 @@ def _structural_variant_where_clauses(
         params["visible_sample_ids"] = visible_sample_ids
     else:
         where_clauses.append("0")
-    if filters.chromosome:
-        where_clauses.append("e.chrom IN %(chromosomes)s")
-        params["chromosomes"] = _chromosome_options(filters.chromosome)
-    if filters.start is not None:
-        if filters.overlap and filters.end is not None:
-            where_clauses.append("(e.start <= %(end)s AND e.end >= %(start)s)")
-            params["start"] = filters.start
-            params["end"] = filters.end
-        else:
-            where_clauses.append("e.start >= %(start)s")
-            params["start"] = filters.start
-    if filters.end is not None and not (filters.overlap and filters.start is not None):
-        where_clauses.append("e.end <= %(end)s")
-        params["end"] = filters.end
-    # Gene and panel filters resolve to regions. Pushing them into SQL is what makes a
-    # candidate cap safe: the cap then bounds the ranking of an already-narrowed set
-    # rather than deciding, before the filter runs, which rows the filter gets to see.
+    where_clauses.extend(_structural_locus_clauses(filters, alias="e", params=params))
+    # A gene filter's loci and a gene panel are applied in SQL. Pushing them into SQL is
+    # what makes a candidate cap safe: the cap then bounds the ranking of an already-narrowed
+    # set rather than deciding, before the filter runs, which rows the filter gets to see.
     region_condition = _structural_region_filter_condition(
         include_regions, prefix="sv_include_region", params=params
     )
     if region_condition:
         where_clauses.append(region_condition)
+    if panel is not None:
+        where_clauses.append(_structural_panel_filter_condition(context, filters, panel, params=params))
     # A review selection (the report's "report" tag, a classification, notes) resolves to
     # variant ids in Postgres. In SQL, like the regions, it narrows the rows before the
     # candidate cap, so the cap cannot decide which reviewed SVs the search sees: a
