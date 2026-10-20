@@ -86,9 +86,9 @@ is now.
 so its evidence cannot be checked. The banner does not list it, but sign-out does: it counts as drift
 and needs an acknowledgement (see *The sign-out checks*).
 
-## 3. Classification audit trail — who did what, when
+## 3. Clinical audit trail — who did what, when
 
-The **Classification audit trail** lists, most recent first, every clinical action on the family: who
+The **Clinical audit trail** lists, most recent first, every clinical action on the family: who
 classified, tagged or annotated which small variant, structural variant or CNV, who reviewed a
 compound-heterozygous pair, who changed the pedigree or its members, when, and what changed
 (before → after), including each sign-out and each replacement of the pipeline versions. A change to

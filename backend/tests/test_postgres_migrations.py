@@ -87,6 +87,40 @@ def test_the_revisions_give_the_tables_the_baselines_checks() -> None:
     )
 
 
+def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versions_and_the_ui_event_log() -> None:
+    # SEC-7: the structure versions' chain and both tables' append-only guards, brought to a
+    # database the baselines created before them by the baselines' own statements.
+    from backend.app.core.postgres_migrations import baseline_statements
+
+    module = migration_script().get_revision("0004").module
+    selected = module.selected_statements(baseline_statements)
+
+    every = [statement for name in ("03_assay.sql", "04_traceability.sql", "05_grants.sql") for statement in _statements(name)]
+    assert all(statement in every for statement in selected)
+    prefixes = [
+        "ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS family_identifier ",
+        "ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS row_hash ",
+        "ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS prev_hash ",
+        "ALTER TABLE family_structure_versions ALTER COLUMN family_id DROP NOT NULL",
+        "DO $$",
+        "CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ",
+        "CREATE OR REPLACE FUNCTION ui_events_block_mutation() ",
+        "DROP TRIGGER IF EXISTS ui_events_immutable ON ui_events",
+        "CREATE TRIGGER ui_events_immutable",
+        "CREATE OR REPLACE FUNCTION family_structure_versions_block_mutation() ",
+        "DROP TRIGGER IF EXISTS family_structure_versions_immutable ON family_structure_versions",
+        "CREATE TRIGGER family_structure_versions_immutable",
+        "REVOKE UPDATE, DELETE, TRUNCATE ON",
+    ]
+    assert len(selected) == len(prefixes)
+    assert [statement for statement, prefix in zip(selected, prefixes) if not statement.startswith(prefix)] == []
+    assert "family_structure_versions_family_id_fkey" in selected[4]
+    assert "family_structure_versions, ui_events" in " ".join(selected[-1].split())
+    # A baseline that no longer holds one of them stops the revision.
+    with pytest.raises(RuntimeError, match="the baseline changed under it"):
+        module.selected_statements(lambda _name: [])
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

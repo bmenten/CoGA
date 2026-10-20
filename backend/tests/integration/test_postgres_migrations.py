@@ -16,6 +16,10 @@ the CI ``smoke`` job sets it.
 - Both hold until the release candidate, when every run re-applies the baselines first, and
   after its freeze, when only the revisions run and revision 0001 applies the baselines.
 - A database at an older revision gets only the revisions it lacks.
+- A database at revision 0003 from before SEC-7 gets the structure versions' chain columns and
+  index, the family link a deletion nulls, and both tables' append-only guards and REVOKE
+  (revision 0004), keeps its structure version (outside the chain), and ends at the same
+  fingerprint.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -545,13 +549,128 @@ def test_a_database_at_an_older_revision_gets_only_the_revisions_it_lacks(caplog
     revision, checks, messages = _run(_body)
 
     assert (revision.before, revision.after) == ("0002", head_revision())
-    assert [message for message in messages if message.startswith("Running upgrade")] == [
-        message for message in messages if message.startswith("Running upgrade 0002 -> 0003")
+    # Each revision after 0002, in order, and none before it.
+    from backend.app.core.postgres_migrations import migration_script
+
+    line = [script.revision for script in reversed(list(migration_script().walk_revisions()))]
+    after_0002 = line[line.index("0002") :]
+    assert [message.split(",")[0] for message in messages if message.startswith("Running upgrade")] == [
+        f"Running upgrade {earlier} -> {later}" for earlier, later in zip(after_0002, after_0002[1:])
     ]
     assert any(message.startswith("Running upgrade 0002 -> 0003") for message in messages)
     assert "'relative'::text" in checks["family_relationships_relationship_type_check"]
     assert "'target_coverage'::text" in checks["sample_interval_track_sources_track_type_check"]
     assert "'not_assessed'::text" in checks["repeat_expansions_status_check"]
+
+
+# The structure versions and the UI-event log as a database had them before SEC-7 (revision
+# 0004): no chain columns or index, family_id NOT NULL and deleted with its family, neither
+# table guarded by a trigger, and coga_app still holding UPDATE and DELETE on both.
+_BEFORE_0004 = (
+    "DROP TRIGGER IF EXISTS family_structure_versions_immutable ON family_structure_versions",
+    "DROP FUNCTION IF EXISTS family_structure_versions_block_mutation()",
+    "DROP TRIGGER IF EXISTS ui_events_immutable ON ui_events",
+    "DROP FUNCTION IF EXISTS ui_events_block_mutation()",
+    "GRANT UPDATE, DELETE ON family_structure_versions, ui_events TO coga_app",
+    "DROP INDEX IF EXISTS idx_family_structure_versions_chain",
+    "ALTER TABLE family_structure_versions DROP COLUMN family_identifier, DROP COLUMN row_hash, "
+    "DROP COLUMN prev_hash",
+    "ALTER TABLE family_structure_versions DROP CONSTRAINT family_structure_versions_family_id_fkey, "
+    "ADD CONSTRAINT family_structure_versions_family_id_fkey FOREIGN KEY (family_id) "
+    "REFERENCES families(id) ON DELETE CASCADE",
+    "ALTER TABLE family_structure_versions ALTER COLUMN family_id SET NOT NULL",
+)
+
+
+@_MODES
+def test_a_database_from_before_sec7_gets_the_structure_versions_chain_and_the_append_only_logs(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0003 from before SEC-7, holding a structure version.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0003'"))
+                for statement in _BEFORE_0004:
+                    await conn.exec_driver_sql(statement)
+                family = (
+                    await conn.execute(
+                        text("INSERT INTO families (family_id) VALUES ('FAM-SEC7') RETURNING id::text")
+                    )
+                ).scalar_one()
+                await conn.execute(
+                    text(
+                        "INSERT INTO family_structure_versions (family_id, version, structure_hash, snapshot) "
+                        "VALUES (CAST(:f AS uuid), 1, 'stored-before', '{}'::jsonb)"
+                    ),
+                    {"f": family},
+                )
+                await conn.execute(text("INSERT INTO ui_events (event_type, label) VALUES ('click', 'stored-before')"))
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                kept = [
+                    tuple(row)
+                    for row in (
+                        await conn.execute(
+                            text(
+                                "SELECT version, structure_hash, family_identifier, row_hash "
+                                "FROM family_structure_versions WHERE family_id = CAST(:f AS uuid)"
+                            ),
+                            {"f": family},
+                        )
+                    ).all()
+                ]
+            refusals = []
+            for statement in (
+                "UPDATE family_structure_versions SET structure_hash = 'edited'",
+                "DELETE FROM ui_events",
+            ):
+                try:
+                    async with engine.begin() as conn:
+                        await conn.exec_driver_sql(statement)
+                except DBAPIError as exc:
+                    refusals.append(str(exc))
+            # The family's deletion keeps its version now, unlinked from it.
+            async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": family})
+            async with engine.connect() as conn:
+                unlinked = (
+                    await conn.execute(
+                        text("SELECT count(*) FROM family_structure_versions WHERE structure_hash = 'stored-before' AND family_id IS NULL")
+                    )
+                ).scalar_one()
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, kept, refusals, unlinked, fingerprints
+
+    revision, kept, refusals, unlinked, (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0003", head_revision())
+    # The version stored before stays, outside the chain (no identifier, no hash).
+    assert kept == [(1, "stored-before", None, None)]
+    assert len(refusals) == 2
+    assert "family_structure_versions is append-only; UPDATE is not permitted" in refusals[0]
+    assert "ui_events is append-only; DELETE is not permitted" in refusals[1]
+    assert unlinked == 1
+    # The schema is the baselines': columns, foreign key, index, triggers, functions, grants.
+    assert actual == expected, _differences(expected, actual)
 
 
 def test_a_ledger_from_a_newer_version_is_refused_and_nothing_changes() -> None:

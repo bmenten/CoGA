@@ -1499,12 +1499,12 @@ const LiveFamilyReport: React.FC = () => {
 
       {auditFailed ? (
         <section className="surface-card report-audit" role="alert">
-          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <h2 className="report-audit-heading">Clinical audit trail</h2>
           <p className="report-paragraph report-audit-lead">The audit trail could not be loaded.</p>
         </section>
       ) : auditTrail.events.length ? (
         <section className="surface-card report-audit">
-          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <h2 className="report-audit-heading">Clinical audit trail</h2>
           <p className="report-paragraph report-audit-lead">
             An immutable record of who classified, tagged or annotated each variant, reviewed a
             compound-heterozygous pair or changed the pedigree, and when.
