@@ -79,8 +79,9 @@ EMERGENCY_ACTIVE_DETAIL = (
     "with AZURE_ADMIN_OVERRIDE."
 )
 # The account fields an administrator changes, in the order the log line names them. The log
-# names a changed field only: what it changed from and to is in the request audit
-# (``request_meta.account_change``), so no value of the request reaches the application log.
+# names the account and its changed fields only: who changed them is the request audit row's
+# user, and what each changed from and to is in its ``request_meta.account_change``, so no value
+# of the request, its token included, reaches the application log.
 ACCOUNT_CHANGE_FIELDS = ("role", "is_active")
 
 
@@ -383,9 +384,8 @@ async def update_user(
     if changes:
         request.state.account_change = {"user_id": updated.id, "email": updated.email, **changes}
         logger.info(
-            "account %s changed by %s: %s (from and to in the request audit)",
+            "account %s changed: %s (who changed it, and from and to, in the request audit)",
             updated.id,
-            current.id,
             ", ".join(field for field in ACCOUNT_CHANGE_FIELDS if field in changes),
         )
     return updated

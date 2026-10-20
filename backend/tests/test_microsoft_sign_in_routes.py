@@ -396,10 +396,12 @@ def test_an_admin_sets_an_accounts_role_and_the_audit_row_says_from_what_to_what
         "email": VIEWER["email"],
         "role": {"from": "viewer", "to": "admin"},
     }
-    # The application log names the changed field; the values stay in the request audit above,
-    # so nothing the request sent reaches the log line (CodeQL py/log-injection).
-    (line,) = [record.getMessage() for record in caplog.records if " changed by " in record.getMessage()]
-    assert line == f"account {VIEWER['id']} changed by {LOCAL_ADMIN['id']}: role (from and to in the request audit)"
+    # The application log names the account and the changed field; who changed it and the values
+    # stay in the request audit above, so nothing the request sent, its token included, reaches
+    # the log line (CodeQL py/log-injection).
+    (line,) = [record.getMessage() for record in caplog.records if " changed: " in record.getMessage()]
+    assert line == f"account {VIEWER['id']} changed: role (who changed it, and from and to, in the request audit)"
+    assert LOCAL_ADMIN["id"] not in line
     assert "viewer" not in line and "admin" not in line
 
 
