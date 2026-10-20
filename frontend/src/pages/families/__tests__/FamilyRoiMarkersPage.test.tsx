@@ -418,4 +418,84 @@ describe('FamilyRoiMarkersPage', () => {
     root.style.removeProperty('--color-haplotype-mother-light');
     root.style.removeProperty('--color-haplotype-unknown');
   });
+
+  // CLIN-60: on chrX outside the pseudo-autosomal regions a man has one X. The QC counts read
+  // him as one copy, and the per-cell check reads him the same way.
+  describe('at an X-linked ROI', () => {
+    const members = ['FATHER', 'MOTHER', 'SON', 'DAUGHTER', 'UNRECORDED'];
+    const xFamily = {
+      ...family,
+      members: [
+        { sample_id: 'FATHER', role: 'father', affected: false, sex: 'male' },
+        { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
+        { sample_id: 'SON', role: 'embryo', affected: false, sex: 'male' },
+        { sample_id: 'DAUGHTER', role: 'embryo', affected: false, sex: 'female' },
+        { sample_id: 'UNRECORDED', role: 'embryo', affected: false, sex: 'und' },
+      ],
+      relationships: ['SON', 'DAUGHTER', 'UNRECORDED'].flatMap((child) => [
+        { id: `f-${child}`, relationship_type: 'parent_child', sample_id_a: 'FATHER', sample_id_b: child, role_a: 'father' },
+        { id: `m-${child}`, relationship_type: 'parent_child', sample_id_a: 'MOTHER', sample_id_b: child, role_a: 'mother' },
+      ]),
+      roi: { chr: 'X', start: 31_000_000, end: 31_001_000, label: 'DMD', source: 'gene', query: 'DMD' },
+      metadata: { pgt: { inheritance_model: 'XLR' } },
+    };
+    // Genotypes per site, in member order. The men's calls are written as one allele or twice.
+    const xSites = [
+      // The son carries his mother's homolog 1, the daughter her father's 0 and her mother's 1;
+      // read as two copies, the child whose sex is not recorded cannot have 1|1 from a 0 father.
+      { pos: 31_000_100, gts: ['0', '0|1', '1', '0|1', '1|1'] },
+      // Written twice, the son's one X: no error, though his father's allele is not his.
+      { pos: 31_000_200, gts: ['0|0', '0|1', '1|1', '0|0', '0|1'] },
+      // Two different alleles in the son; the daughter lacks her father's one allele.
+      { pos: 31_000_300, gts: ['1', '0|0', '0|1', '0|0', '0|0'] },
+      // The son's allele is his mother's, not his father's: a father-son pair is not checked.
+      { pos: 31_000_400, gts: ['1|1', '0|0', '0', '1|0', '1|0'] },
+    ];
+    const xPhased = (ranges: number[][]) => ({
+      samples: members.map((sample) => ({
+        sample,
+        // Each embryo has a marker at each site, so the review shows every site.
+        markers: ['FATHER', 'MOTHER'].includes(sample) ? [] : xSites.map((site) => ({ pos: site.pos, hap1: null, hap2: 1 })),
+        reference: ['FATHER', 'MOTHER'].includes(sample),
+        qc: null,
+      })),
+      sites: xSites.map((site) => ({ ...site, ref: 'A', alt: 'G' })),
+      truncated: false,
+      hemizygous_x_ranges: ranges,
+    });
+    const mockX = (ranges: number[][]) =>
+      (api.get as Mock).mockImplementation((url: string) => {
+        if (url === '/families/co1') return Promise.resolve({ data: xFamily });
+        if (url.endsWith('/phased-markers')) return Promise.resolve({ data: xPhased(ranges) });
+        if (url.endsWith('/haplotypes')) return Promise.resolve({ data: { samples: [] } });
+        return Promise.resolve({ data: {} });
+      });
+    const flagged = (sample: string) =>
+      xSites.map((site) => site.pos).filter((pos) => bandCell(sample, 1, pos)?.dataset.mendel === '1');
+
+    it('checks a son on his mother X alone and a daughter against her father one X', async () => {
+      mockX([[31_000_000, 31_001_000]]);
+      renderPage();
+      await waitFor(() => expect(bandCell('SON', 1, 31_000_100)).toBeTruthy());
+
+      expect(flagged('SON')).toEqual([31_000_300]);
+      expect(flagged('DAUGHTER')).toEqual([31_000_300]);
+      // A member whose sex is not recorded is read as two copies, as before.
+      expect(flagged('UNRECORDED')).toEqual([31_000_100, 31_000_300]);
+      expect(flagged('FATHER')).toEqual([]);
+    });
+
+    it('reads every member as two copies where a man is not known to have one X', async () => {
+      // In a PAR, or on an assembly whose PAR bounds are not known, the backend serves no range.
+      mockX([]);
+      renderPage();
+      await waitFor(() => expect(bandCell('SON', 1, 31_000_100)).toBeTruthy());
+
+      // The son as two copies: 1|1 from a 0|0 father, 0|1 from a 0|0 mother. Calls written as
+      // one allele are not read.
+      expect(flagged('SON')).toEqual([31_000_200]);
+      expect(flagged('DAUGHTER')).toEqual([]);
+      expect(flagged('UNRECORDED')).toEqual([]);
+    });
+  });
 });

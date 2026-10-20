@@ -22,7 +22,7 @@ from backend.app.schemas import (
     PhasedMarkerSample,
     PhasedSampleQc,
 )
-from backend.app.services import pgt_analysis
+from backend.app.services import pgt_analysis, phased_marker_service
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 
 
@@ -417,3 +417,96 @@ def test_a_family_is_a_pgt_family_when_a_member_is_an_embryo() -> None:
     assert pgt_analysis.is_pgt_family(_context()) is True
     assert pgt_analysis.is_pgt_family(_context(sample_rows=[MEMBERS[1], MEMBERS[3]])) is False
     assert pgt_analysis.is_pgt_family(object()) is False
+
+
+# --- An X-linked ROI: the QC counts a man's one X (CLIN-60) --------------------------------
+
+X_MEMBERS = [
+    {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": False, "clinical_status": "unaffected",
+     "carrier_status": "unknown", "carrier_type": None},
+    {"sample_id": "MOTHER", "role": "mother", "sex": "female", "affected": False, "clinical_status": "unaffected",
+     "carrier_status": "carrier", "carrier_type": "obligate"},
+    {"sample_id": "INDEX", "role": "proband", "sex": "male", "affected": True, "clinical_status": "affected",
+     "carrier_status": "unknown", "carrier_type": None},
+    {"sample_id": "E_SON", "role": "embryo", "sex": "male", "affected": False, "clinical_status": "unknown",
+     "carrier_status": "unknown", "carrier_type": None},
+    {"sample_id": "E_DAUGHTER", "role": "embryo", "sex": "female", "affected": False, "clinical_status": "unknown",
+     "carrier_status": "unknown", "carrier_type": None},
+]
+X_ROI = {"roi_query": "DMD", "roi_label": "DMD", "roi_source": "gene", "roi_chr": "X", "roi_start": 31_000_000,
+         "roi_end": 31_100_000}
+
+
+def _x_context() -> FamilyMetadataContext:
+    return _context(
+        sample_rows=X_MEMBERS,
+        sample_uuid_to_name={f"u-{row['sample_id']}": row["sample_id"] for row in X_MEMBERS},
+        sample_name_to_uuid={row["sample_id"]: f"u-{row['sample_id']}" for row in X_MEMBERS},
+        affected_sample_names=["INDEX"],
+        phase_corrections=[],
+        relationship_rows=[
+            {"relationship_type": "parent_child", "sample_id_a": parent, "sample_id_b": child, "role_a": role}
+            for child in ("INDEX", "E_SON", "E_DAUGHTER")
+            for parent, role in (("FATHER", "father"), ("MOTHER", "mother"))
+        ],
+    )
+
+
+def _x_block(hap1: str, hap2: str, lineage: tuple[str, str]) -> dict[str, Any]:
+    # chrX outside the PARs: a male's block is one-copy, as the haplotype endpoint marks it.
+    return {"chr": "X", "start": 30_000_000, "end": 32_000_000, "hap1": hap1, "hap2": hap2, "ps": None,
+            "hap1_lineage": lineage[0], "hap2_lineage": lineage[1], "hemizygous_in_males": True}
+
+
+def _x_haplotypes() -> HaplotypeResponse:
+    # The affected brother and the son carry their mother's homolog 1; the daughter her homolog 0.
+    samples = [
+        {"sample": "FATHER", "segments": [_x_block("0", "1", ("paternal", "paternal"))]},
+        {"sample": "MOTHER", "segments": [_x_block("0", "1", ("maternal", "maternal"))]},
+        {"sample": "INDEX", "segments": [_x_block("0", "1", ("paternal", "maternal"))]},
+        {"sample": "E_SON", "segments": [_x_block("0", "1", ("paternal", "maternal"))]},
+        {"sample": "E_DAUGHTER", "segments": [_x_block("0", "0", ("paternal", "maternal"))]},
+    ]
+    return HaplotypeResponse.model_validate({"chr": "X", "start": 30_000_000, "end": 32_100_000, "samples": samples})
+
+
+@pytest.mark.parametrize("written", ["one allele", "twice"])
+def test_at_an_x_linked_roi_a_man_one_x_raises_no_qc_warning(monkeypatch, written) -> None:
+    # 60 sites in the ROI. The mother is heterozygous at each (homolog 1 carries the ALT); the
+    # father's one X carries the REF at half of them and the ALT at the other half. The son
+    # and his affected brother carry her homolog 1, the daughter her father's X and her
+    # mother's homolog 0. Read as two copies, the men's calls written once left no site, and
+    # written twice made the son's every site where his father's allele is not his an error.
+    def man(allele: str) -> str:
+        return allele if written == "one allele" else f"{allele}|{allele}"
+
+    members = ["FATHER", "MOTHER", "INDEX", "E_SON", "E_DAUGHTER"]
+    rows = [
+        (31_000_000 + 1_000 * i, "A", "G", members, [man(f), "0|1", man("1"), man("1"), f"{f}|0"])
+        for i, f in enumerate(["0", "1"] * 30)
+    ]
+
+    async def _haplotype_read(session, *, context, chr, start=None, end=None):
+        return _x_haplotypes()
+
+    async def _fetch(context, *, chrom, start, end, limit):
+        return rows
+
+    async def _shade_maps(context, *, chr, father, mother, start, end):
+        return {}, {}
+
+    # The marker counting runs for real on these genotypes, as the ROI marker review reads them.
+    monkeypatch.setattr(pgt_analysis, "get_family_haplotypes_response", _haplotype_read)
+    monkeypatch.setattr(phased_marker_service, "fetch_imputed_phased_genotypes", _fetch)
+    monkeypatch.setattr(phased_marker_service, "_parent_block_shade_maps", _shade_maps)
+    out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(X_ROI, {"inheritance_model": "XLR"}), _x_context()))
+
+    daughter, son = out.embryos
+    assert (son.sample, son.call, daughter.sample, daughter.call) == (
+        "E_SON", "affected_or_at_risk", "E_DAUGHTER", "unaffected_non_carrier")
+    for embryo in (son, daughter):
+        assert embryo.qc is not None
+        assert (embryo.qc.informative_sites, embryo.qc.mendel_errors, embryo.qc.mendel_rate) == (60, 0, 0.0)
+        # Each reads its mother's homolog at every site; no father's homolog is told apart.
+        assert (embryo.qc.paternal_markers, embryo.qc.maternal_markers) == (0, 60)
+        assert _verdict(embryo) == ("pass", ["maternal"], [])

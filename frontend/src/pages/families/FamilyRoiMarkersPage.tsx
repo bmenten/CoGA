@@ -10,6 +10,7 @@ import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
+import { normalizeSex } from '../../lib/haplotypeRisk';
 import { alleleBase, nucleotideColor } from '../../lib/phasedMarkers';
 import { useFamilyReference } from '../../lib/reference';
 
@@ -39,6 +40,8 @@ interface PhasedMarkerResponse {
   sites: PhasedSite[];
   truncated?: boolean;
   covered?: [number, number] | null;
+  // Where in the window a man has one X: chrX outside the PARs of the family's assembly.
+  hemizygous_x_ranges?: number[][];
 }
 interface HapSegment {
   start: number;
@@ -109,6 +112,25 @@ const parseAlleleIndices = (gt: string): number[] | null => {
   return alleles.some((n) => Number.isNaN(n)) ? null : alleles;
 };
 
+// On chrX outside the PARs a man has one X (CLIN-60), as the backend's QC counts read it:
+// his call written as one allele ('1') or twice ('1|1') is that allele, read as a pair; a
+// call of two different alleles is one he cannot have.
+const callAlleles = (gt: string): number[] | null => {
+  const parts = gt.trim().split(/[|/]/);
+  if (parts.length > 2 || parts.some((part) => !/^\d+$/.test(part))) return null;
+  return parts.map((part) => parseInt(part, 10));
+};
+const oneCopyAlleles = (gt: string): number[] | null => {
+  const alleles = callAlleles(gt);
+  return alleles && new Set(alleles).size === 1 ? [alleles[0], alleles[0]] : null;
+};
+const twoDifferentAlleles = (gt: string): boolean => {
+  const alleles = callAlleles(gt);
+  return !!alleles && alleles.length === 2 && alleles[0] !== alleles[1];
+};
+const inRanges = (ranges: number[][], pos: number): boolean =>
+  ranges.some(([first, last]) => first <= pos && pos <= last);
+
 // Mirrors the backend Mendelian check: the child genotype must form from one
 // allele of each parent (two parents), or share an allele with the lone parent.
 const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
@@ -127,6 +149,7 @@ const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
 
 // One empty list, so the memos below see a stable value before data arrive.
 const NO_SITES: PhasedSite[] = [];
+const NO_RANGES: number[][] = [];
 
 const FamilyRoiMarkersPage: React.FC = () => {
   const { familyId = '' } = useParams();
@@ -256,43 +279,72 @@ const FamilyRoiMarkersPage: React.FC = () => {
     return map;
   }, [phased?.samples]);
 
-  // child sample -> its parents' samples (sample_id_a = parent, sample_id_b = child).
+  // child sample -> its parents' samples (sample_id_a = parent, sample_id_b = child), with
+  // the parent's role in that relationship (role_a: father or mother).
   const parentsOf = useMemo(() => {
-    const map = new Map<string, string[]>();
+    const map = new Map<string, { sample: string; role: string }[]>();
     (family?.relationships ?? []).forEach((rel) => {
       if (rel.relationship_type !== 'parent_child') return;
       const parents = map.get(rel.sample_id_b) ?? [];
-      if (!parents.includes(rel.sample_id_a)) parents.push(rel.sample_id_a);
+      if (!parents.some((parent) => parent.sample === rel.sample_id_a)) {
+        parents.push({ sample: rel.sample_id_a, role: String(rel.role_a || '').toLowerCase() });
+      }
       map.set(rel.sample_id_b, parents);
     });
     return map;
   }, [family?.relationships]);
 
+  const sexBySample = useMemo(() => {
+    const map = new Map<string, 'male' | 'female' | 'unknown'>();
+    (family?.members ?? []).forEach((m) => map.set(m.sample_id, normalizeSex(m.sex)));
+    return map;
+  }, [family?.members]);
+  const hemizygousRanges = phased?.hemizygous_x_ranges ?? NO_RANGES;
+
   // Per child, the shown positions whose genotype can't be inherited from its
-  // (genotyped) parents — a Mendelian error, highlighted for emphasis.
+  // (genotyped) parents — a Mendelian error, highlighted for emphasis. Where a man has one X
+  // (chrX outside the PARs), a man's call is one copy, and a son is checked against his
+  // mother alone, as the QC counts; a member whose sex is not recorded has two copies.
   const mendelErrorPosBySample = useMemo(() => {
     const map = new Map<string, Set<number>>();
     const idxBySample = new Map(sampleOrder.map((sample, index) => [sample, index]));
     parentsOf.forEach((parents, child) => {
       const childIdx = idxBySample.get(child);
-      const parentIdxs = parents
-        .map((p) => idxBySample.get(p))
-        .filter((i): i is number => i !== undefined);
-      if (childIdx === undefined || parentIdxs.length === 0) return;
+      const genotyped = parents.filter((parent) => idxBySample.has(parent.sample));
+      if (childIdx === undefined || genotyped.length === 0) return;
+      // A son's one X is his mother's: the parent who is his mother, or else recorded female.
+      const mother =
+        genotyped.find((parent) => parent.role === 'mother') ??
+        genotyped.find((parent) => parent.role !== 'father' && sexBySample.get(parent.sample) === 'female');
+      const male = (sample: string) => sexBySample.get(sample) === 'male';
       const errors = new Set<number>();
       shownSites.forEach((site) => {
-        const childAlleles = parseAlleleIndices(site.gts[childIdx] ?? '');
+        const gtOf = (sample: string) => site.gts[idxBySample.get(sample) ?? -1] ?? '';
+        const oneCopy = inRanges(hemizygousRanges, site.pos);
+        if (oneCopy && male(child)) {
+          // His father gives him a Y: a father-son pair is neither checked nor an error.
+          const motherAlleles = mother ? parseAlleleIndices(gtOf(mother.sample)) : null;
+          if (!motherAlleles) return;
+          if (twoDifferentAlleles(gtOf(child))) {
+            errors.add(site.pos); // two different alleles: a genotype a son cannot have
+            return;
+          }
+          const son = oneCopyAlleles(gtOf(child));
+          if (son && !motherAlleles.includes(son[0])) errors.add(site.pos);
+          return;
+        }
+        const childAlleles = parseAlleleIndices(gtOf(child));
         if (!childAlleles) return;
-        const parentAlleles = parentIdxs
-          .map((i) => parseAlleleIndices(site.gts[i] ?? ''))
+        const parentAlleles = genotyped
+          .map((parent) => (oneCopy && male(parent.sample) ? oneCopyAlleles : parseAlleleIndices)(gtOf(parent.sample)))
           .filter((a): a is number[] => a !== null);
-        if (parentAlleles.length < parentIdxs.length) return; // need every parent genotyped
+        if (parentAlleles.length < genotyped.length) return; // need every parent genotyped
         if (!mendelianConsistent(parentAlleles, childAlleles)) errors.add(site.pos);
       });
       if (errors.size) map.set(child, errors);
     });
     return map;
-  }, [parentsOf, shownSites, sampleOrder]);
+  }, [parentsOf, shownSites, sampleOrder, sexBySample, hemizygousRanges]);
 
   if (familyLoading || phasedLoading) {
     return <PageState title="Loading ROI markers…" />;

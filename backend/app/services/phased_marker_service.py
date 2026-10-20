@@ -21,10 +21,20 @@ are then mapped to displayed shades via each parent's STORED-block shade map
 (``founder_shade_map``), exactly as the lineage service colours relatives. This
 makes the markers agree with the blocks genome-wide — with no region-local
 affected-child recount, and no dependence on current affected status.
+
+On chrX outside the pseudo-autosomal regions of the family's assembly a male has one X
+(CLIN-60). There a member recorded as male is read as one copy: his call written as one
+allele (``1``) or as the same allele twice (``1|1``) is that allele. A son's X is his
+mother's, so he is checked against her alone (his father, or a donor, gives him a Y: a
+father–son pair is neither informative nor a Mendelian error), and a call of two
+different alleles, which a son cannot carry there, is a Mendelian error. A daughter
+receives her father's one X. A member whose sex is not recorded is read as two copies, as
+everywhere else, and so is everyone on an assembly whose PARs CoGA does not know.
 """
 from __future__ import annotations
 
-from typing import Any
+import re
+from typing import Any, Mapping
 
 from ..schemas import (
     PhasedMarker,
@@ -43,6 +53,8 @@ from .haplotype_block_builder import (
     _phased_haplotype_alleles,
     _transmitted_parent_haplotype,
 )
+from .pgt_embryo_calls import normalize_sex
+from .sex_chromosomes import hemizygous_chromosome, pseudoautosomal_regions, sex_chromosome
 
 # Fetch ceiling — covers a whole (largest) chromosome of family-scoped imputed
 # sites with headroom (~275k on chr2 here); truncation only affects the tail of
@@ -99,6 +111,62 @@ def _transmitted_single_parent_haplotype(
     return None
 
 
+def is_one_copy_x_site(assembly_name: str | None, chrom: str | None, pos: int) -> bool:
+    """Is this site on chrX outside the pseudo-autosomal regions of the assembly, where a
+    male carries one copy of the X? False in a PAR, off chrX, and on an assembly whose PAR
+    bounds ``sex_chromosomes`` does not list (T2T-CHM13): every member is then read as two
+    copies, as the haplotype blocks are (``hemizygous_in_males``)."""
+    return hemizygous_chromosome(assembly_name, chrom, pos) == "X"
+
+
+def hemizygous_x_ranges(assembly_name: str | None, chrom: str | None, start: int, end: int) -> list[list[int]]:
+    """The parts of ``[start, end]`` where ``is_one_copy_x_site`` holds, as ``[first, last]``
+    pairs (inclusive), so that the ROI marker review checks its sites by the same rule."""
+    regions = pseudoautosomal_regions(assembly_name)
+    if sex_chromosome(chrom) != "X" or regions is None or end < start:
+        return []
+    ranges: list[list[int]] = []
+    first = start
+    for par_start, par_end in sorted(regions["X"]):
+        if par_end < first:
+            continue
+        if par_start > end:
+            break
+        if par_start > first:
+            ranges.append([first, par_start - 1])
+        first = par_end + 1
+    if first <= end:
+        ranges.append([first, end])
+    return ranges
+
+
+def _call_alleles(gt_value: str | None) -> tuple[str, ...] | None:
+    """The alleles of a call written with one allele (``1``) or two (``0|1``, ``0/1``); None
+    for a no-call, a half call (``0|.``) or anything else."""
+    alleles = tuple(re.split(r"[|/]", (gt_value or "").strip()))
+    if len(alleles) > 2 or not all(allele.isdigit() for allele in alleles):
+        return None
+    return alleles
+
+
+def _one_copy_alleles(gt_value: str | None) -> tuple[str, str] | None:
+    """A male's call where he has one X, as the pair the Mendelian rules read: one allele
+    written alone (``1``) or twice (``1|1``, ``1/1``) is that allele, read as ``(1, 1)``.
+    None for a no-call and for a call of two different alleles, which a male cannot
+    carry there (``_two_different_alleles``)."""
+    alleles = _call_alleles(gt_value)
+    if alleles is None or len(set(alleles)) != 1:
+        return None
+    return alleles[0], alleles[0]
+
+
+def _two_different_alleles(gt_value: str | None) -> bool:
+    """A call of two different alleles (``0|1``): on chrX outside the PARs, a genotype a male
+    cannot have."""
+    alleles = _call_alleles(gt_value)
+    return alleles is not None and len(alleles) == 2 and alleles[0] != alleles[1]
+
+
 def compute_phased_markers(
     rows: list[tuple[int, list[str], list[str]]],
     *,
@@ -107,6 +175,9 @@ def compute_phased_markers(
     children: list[str],
     father_shade: dict[int, int],
     mother_shade: dict[int, int],
+    chrom: str | None = None,
+    assembly_name: str | None = None,
+    sexes: Mapping[str, Any] | None = None,
 ) -> tuple[dict[str, list[PhasedMarker]], dict[str, PhasedSampleQc]]:
     """Per member, return the raw per-site haplotype-lane values.
 
@@ -130,7 +201,16 @@ def compute_phased_markers(
     the child's genotype is impossible given the parents' alleles (a true Mendelian
     inconsistency). QC is computed before the marker is emitted, so a Mendel error —
     which leaves both transmissions undetermined and thus draws no marker — is still
-    counted."""
+    counted.
+
+    On chrX outside the PARs of ``assembly_name`` (``chrom`` names the rows'
+    chromosome), a member ``sexes`` records as male is read as one copy (see the module
+    docstring). A son is checked against his mother alone: his informative sites are
+    those where she and he have a genotype, a Mendelian error is an allele she does not
+    carry or a call of two different alleles, and he gets maternal markers only. A
+    daughter is checked against her father's one X and her mother's two. Without
+    ``chrom`` and ``assembly_name``, and for a member whose sex is not recorded, every
+    member is read as two copies, as before."""
     # A donor (single-parent) family has only one known parent; the other side is a
     # donor whose lane stays blank. Both `father` and `mother` may be passed; a falsy
     # one means that side is absent.
@@ -144,6 +224,9 @@ def compute_phased_markers(
     ]
     single_parent = len(present_parents) == 1
     members = [name for name, _, _ in present_parents] + list(children)
+    males = {member for member in members if normalize_sex((sexes or {}).get(member)) == "male"}
+    # Only chrX of an assembly with known PAR bounds holds sites where a man has one copy.
+    x_with_pars = bool(males) and sex_chromosome(chrom) == "X" and pseudoautosomal_regions(assembly_name) is not None
 
     def shade_of(value: int | None, shade_map: dict[int, int]) -> int | None:
         if value is None:
@@ -157,26 +240,61 @@ def compute_phased_markers(
     for row in rows:
         pos, sample_ids, gts = row[0], row[-2], row[-1]
         gt = dict(zip(sample_ids, gts))
+        # Where a male has one X, a man's genotype is his one allele, read as a pair.
+        one_copy_x = x_with_pars and is_one_copy_x_site(assembly_name, chrom, pos)
         parent_alleles: dict[str, tuple[str, str]] = {}
         for name, _shade, _side in present_parents:
-            alleles = _phased_haplotype_alleles(gt.get(name))
-            if alleles is None:
-                parent_alleles = {}
-                break
-            parent_alleles[name] = alleles
-        if not parent_alleles:
-            continue  # need every present parent genotyped at this site
+            alleles = (
+                _one_copy_alleles(gt.get(name))
+                if one_copy_x and name in males
+                else _phased_haplotype_alleles(gt.get(name))
+            )
+            if alleles is not None:
+                parent_alleles[name] = alleles
+        # Need every present parent genotyped at this site, but for a son's one X.
+        every_parent = len(parent_alleles) == len(present_parents)
 
-        # Present parents: the alleles on their own homologs (raw, not shade-mapped).
-        for name, _shade, _side in present_parents:
-            a = parent_alleles[name]
-            result[name].append(PhasedMarker(pos=pos, hap1=_allele_int(a[0]), hap2=_allele_int(a[1])))
+        if every_parent:
+            # Present parents: the alleles on their own homologs (raw, not shade-mapped).
+            for name, _shade, _side in present_parents:
+                a = parent_alleles[name]
+                result[name].append(PhasedMarker(pos=pos, hap1=_allele_int(a[0]), hap2=_allele_int(a[1])))
 
         for child in children:
+            child_qc = qc_counts[child]
+            if one_copy_x and child in males:
+                # A son's one X is his mother's: his father (or a donor) gives him a Y, so
+                # the father's genotype is not read, and a father-son pair is neither an
+                # informative site nor a Mendelian error. Without a known mother there is
+                # nothing to check.
+                mother_genotype = parent_alleles.get(mother) if mother else None
+                if mother_genotype is None:
+                    continue
+                if _two_different_alleles(gt.get(child)):
+                    # Two different alleles, which a son cannot carry on his one X: a
+                    # genotype these parents cannot give him (a sex swap, contamination).
+                    child_qc["informative_sites"] += 1
+                    child_qc["mendel_errors"] += 1
+                    continue
+                son = _one_copy_alleles(gt.get(child))
+                if son is None:
+                    continue
+                child_qc["informative_sites"] += 1
+                if son[0] not in mother_genotype:
+                    child_qc["mendel_errors"] += 1
+                    continue
+                # Which of her homologs he carries: read where she is heterozygous.
+                transmitted = _transmitted_single_parent_haplotype(mother_genotype, son)
+                if transmitted is not None:
+                    result[child].append(
+                        PhasedMarker(pos=pos, hap1=None, hap2=shade_of(int(transmitted), mother_shade))
+                    )
+                continue
+            if not every_parent:
+                continue
             child_alleles = _phased_haplotype_alleles(gt.get(child))
             if child_alleles is None:
                 continue
-            child_qc = qc_counts[child]
 
             if single_parent:
                 # One known parent (donor family): the inherited homolog is resolvable
@@ -323,6 +441,8 @@ async def get_family_phased_markers_response(
     rows = await fetch_imputed_phased_genotypes(
         context, chrom=chr, start=int(start), end=int(end), limit=PHASED_FETCH_LIMIT
     )
+    # Where a male has one X in the window (chrX outside the PARs of the assembly).
+    one_copy_x = hemizygous_x_ranges(context.assembly_name, chr, int(start), int(end))
 
     # The fetch is `ORDER BY pos LIMIT PHASED_FETCH_LIMIT`, so once the region holds
     # at least that many sites it deterministically drops the highest-coordinate tail
@@ -345,6 +465,7 @@ async def get_family_phased_markers_response(
             sites=[],
             truncated=True,
             covered=covered,
+            hemizygous_x_ranges=one_copy_x,
         )
 
     markers_by_member, qc_by_child = compute_phased_markers(
@@ -357,6 +478,10 @@ async def get_family_phased_markers_response(
         children=children,
         father_shade=father_shade,
         mother_shade=mother_shade,
+        # A man has one X outside the PARs; a member whose sex is not recorded is read as two copies.
+        chrom=chr,
+        assembly_name=context.assembly_name,
+        sexes={str(row.get("sample_id")): row.get("sex") for row in context.sample_rows},
     )
     # Only sites that actually produced a marker for >=1 member carry diagnostic
     # signal (both parents non-missing at that pos -> at least the parents' own raw
@@ -392,4 +517,5 @@ async def get_family_phased_markers_response(
             for member in member_order
         ],
         sites=sites,
+        hemizygous_x_ranges=one_copy_x,
     )

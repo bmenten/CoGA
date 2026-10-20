@@ -12,8 +12,9 @@ The measures are those of the embryo's phasing QC at the ROI as the ROI marker r
 them (``phased_marker_service.compute_phased_markers``, ``pgt_analysis._embryo_qc``); the
 Mendelian error count is not checked apart from its rate:
 
-* informative sites: the ROI's sites where both parents and the embryo have a phased genotype,
-  the sites the Mendelian error rate is read on;
+* informative sites: the ROI's sites where both parents and the embryo have a phased genotype
+  (for a son on chrX outside the PARs, whose one X is his mother's, she and he), the sites the
+  Mendelian error rate is read on;
 * the Mendelian error rate: the share of those sites whose genotype the embryo cannot have from
   these parents. A raised rate points to a sample swap, a wrong pedigree, contamination, or a
   deletion or uniparental segment at the locus, any of which can make a haplotype call wrong;
