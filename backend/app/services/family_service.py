@@ -511,17 +511,18 @@ async def get_family_track_availability_for_user(
         if panel_id
         else None
     )
-    # The small-variant presence applies the panel's regions; the SV presence the panel as
-    # the SV search and its genome track apply it (_StructuralPanelMatch): an SV whose
-    # annotation names one of its genes or that overlaps one of its regions.
-    include_regions = list(panel.regions) if panel is not None else []
+    # Each presence applies the panel as its list and genome track apply it, whatever its
+    # size: the small-variant presence a variant annotated with one of its genes or in one of
+    # its regions, in the list's SQL (_small_query_filter_parts, CLIN-62); the SV presence
+    # an SV whose annotation names one of its genes or that overlaps one of its regions
+    # (_StructuralPanelMatch, as the SV search applies it).
     sv_panel = _StructuralPanelMatch(panel) if panel is not None else None
 
     # Per-sample small-variant presence in ONE aggregate query (replaces the former N
     # per-sample limit=1 probes), filter-equivalent to them. Runs concurrently with the
     # structural fetch.
     small_presence_task = (
-        _small_variant_present_sample_names(context, small_filters, include_regions=include_regions)
+        _small_variant_present_sample_names(context, small_filters, panel_constraints=panel)
         if include_small_variants
         else asyncio.sleep(0, result=set())
     )

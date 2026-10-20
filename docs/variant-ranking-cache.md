@@ -228,6 +228,32 @@ Each locus bound and the merged loci keep the same variants (the same keys). The
 over a ranked window of 5,001 candidates takes 0.037 s instead of 0.023 s: it builds the lookup of
 the panel's loci once, for the candidates none of its genes names.
 
+The chromosome view's track availability (`GET /families/{family_id}/track-availability`), which
+decides whose small-variant track the view draws, applied a panel's regions alone until CLIN-62,
+each row tested against every region, and a panel without genes or regions as no panel: a member
+whose only variants under the panel are annotated with one of its genes outside its regions
+(VEP's upstream and downstream genes) was offered no track although the list showed them, and
+under a panel that keeps nothing every member with a variant was offered one. It now applies the
+panel with the family page's own clause (`_small_variant_present_sample_names` builds its query
+with `_small_query_filter_parts`), so a member is offered a track exactly when the list shows them
+a variant under the panel. Measured as above, on the same cohort and Mendeliome (best and median
+of 7 runs, before and after alternating, on a shared machine under load): the availability's one
+aggregate over the rows the view reads, and for comparison a member's track (its bounded count).
+
+| Track availability with the Mendeliome | Regions tested per row (before) | The list's clause (now) | A member's track |
+| --- | --- | --- | --- |
+| 190,000 rows, the whole of chromosome 1 | 0.49 / 0.52 | 0.13 / 0.14 | 0.07 / 0.08 |
+| 190,000 rows, 10 Mb of chromosome 1 | 0.04 / 0.05 | 0.12 / 0.12 | 0.06 / 0.07 |
+| 1,000,000 rows, the whole of chromosome 1 | 2.52 / 3.06 | 0.14 / 0.15 | 0.08 / 0.09 |
+| 1,000,000 rows, 10 Mb of chromosome 1 | 0.11 / 0.15 | 0.12 / 0.13 | 0.06 / 0.07 |
+| Size of the query | 0.13 MB | 0.26 MB | 0.26 MB |
+
+Before and after keep the same rows here (1,175 and 72, 6,302 and 335), as this cohort annotates
+a variant only with the genes that hold it; a variant reached by a gene alone is shown by
+`e2e/test_e2e_track_availability_panel.py`. The availability now costs about the same over any
+window. ClickHouse's analyzer plans the aggregate around the join less well than the track's
+count: with `enable_analyzer=0` the 10 Mb window of the smaller family takes 0.045 s.
+
 ### Structural variants
 
 Until 2026-10-20 the structural-variant search kept a rule of its own: a gene panel of more than

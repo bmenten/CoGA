@@ -1663,7 +1663,7 @@ async def _small_variant_present_sample_names(
     context: FamilyMetadataContext,
     filters: SmallVariantQueryFilters,
     *,
-    include_regions: Sequence[Region] = (),
+    panel_constraints: PanelFilterConstraints | None = None,
 ) -> set[str]:
     """Per-sample small-variant presence for track availability, in one aggregate query
     (plus a cheap base-match probe only when explicit sample-filters are present).
@@ -1676,15 +1676,30 @@ async def _small_variant_present_sample_names(
     sample is present iff a matching variant carries a non-ref genotype for it. The base
     sample-filters are evaluated on the full call arrays in the inner query (before the
     ARRAY JOIN), so cross-sample constraints are not corrupted.
+
+    ``panel_constraints`` is the gene panel the list applies (``_fetch_panel_constraints``),
+    applied with the list's own clause (``_small_query_filter_parts``,
+    ``_small_panel_filter_condition``), whatever the panel's size: a variant annotated with
+    one of its genes (the entry's gene symbols or the gene index), or in one of its regions,
+    which a join on 64-kb windows over the family's own rows finds, the regions bound once as
+    parameters (``_small_family_region_condition``). A panel with neither keeps no variant,
+    as the list then shows none (``_resolve_small_variant_scope``), so no sample is present
+    and nothing is asked of ClickHouse. Until CLIN-62 the presence applied a panel's regions
+    alone, each row tested against every region, and a panel with neither as no panel: a
+    member whose only variants under the panel are annotated with one of its genes outside
+    its regions (VEP's upstream and downstream genes) was offered no small-variant track, and
+    under a panel that keeps nothing every member with a variant was.
     """
     if not context.assembly_name:
         return set()
     visible_ids = _visible_clickhouse_sample_ids(context)
     if not visible_ids:
         return set()
+    if panel_constraints is not None and not (panel_constraints.genes or panel_constraints.regions):
+        return set()
     entries_table = _small_table_name(context.assembly_name, "entries")
     where_clauses, params, _use_detail_join = _small_query_filter_parts(
-        context, filters, include_regions=include_regions
+        context, filters, panel_constraints=panel_constraints
     )
     inner = (
         f"SELECT e.calls.sampleId AS sids, e.calls.gt AS gts "
