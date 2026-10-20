@@ -60,6 +60,7 @@ from .family_variant_write_lock import try_share_family_variant_writes
 from .pgt_analysis import comparable_with_record as pgt_analysis_comparable_with_record
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible
+from .nipt_service import SharedNiptAnalysis
 from .report_code import (
     ReportCodeError,
     content_hash_prefix,
@@ -966,8 +967,12 @@ async def build_report_snapshot(
     drift = await evaluate_classification_drift(
         session, family_id=family_id, user=user, project_id=project_id
     )
+    # A monogenic NIPT family's analysis, over its whole callset, is computed once: the
+    # Sample QC's NIPT checks and the record's NIPT section below read the same values
+    # (#900, OPS-9).
+    shared_nipt = SharedNiptAnalysis()
     qc_report = await get_family_sample_integrity_qc(
-        session, family_id=family_id, user=user, project_id=project_id
+        session, family_id=family_id, user=user, project_id=project_id, shared_nipt=shared_nipt
     )
     reported = await _reported_reviews(session, context.family_uuid)
     reported_structural = await _reported_structural_reviews(session, context.family_uuid)
@@ -1019,6 +1024,7 @@ async def build_report_snapshot(
         context=context,
         reported=reported,
         reported_structural=reported_structural,
+        shared_nipt=shared_nipt,
     )
     return {
         # What the record is: the analytical sign-off, to which the EPD's report refers.

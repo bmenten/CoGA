@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import gzip
@@ -9,7 +10,7 @@ import itertools
 import json
 import logging
 import math
-from typing import Any, Awaitable, Callable, Collection, Iterable, Literal, Sequence
+from typing import Any, Awaitable, Callable, Collection, Generator, Iterable, Literal, Sequence, TypeVar
 import zlib
 
 from fastapi import HTTPException, UploadFile
@@ -589,6 +590,61 @@ async def _rewrite_with_sample_calls(
         raise
 
 
+# What a file reader run off the event loop yields: the insert or progress report the event
+# loop awaits before the reader reads on.
+_LoopStep = Callable[[], Awaitable[None]]
+_ReadT = TypeVar("_ReadT")
+_StepT = TypeVar("_StepT")
+
+
+async def _read_off_the_event_loop(steps: Generator[_LoopStep, None, _ReadT]) -> _ReadT:
+    """Run a file reader (``steps``) in a worker thread, a step at a time, and return what it
+    returns.
+
+    Parsing a VCF's lines is CPU work that would hold the event loop, and with it every other
+    request, for as long as the file is read (OPS-9). Each step reads and parses lines in a
+    worker thread until the reader yields what the event loop must await -- a batch to
+    insert, a progress report -- which is awaited here before the next step. The reader
+    holds at most one batch, reads nothing ahead of the insert, and its records, inserts and
+    progress reports are those it made when it read on the event loop, in the same order."""
+    try:
+        while True:
+            done, step, value = await _in_worker_thread(_advance, steps)
+            if done:
+                return value
+            await step()
+    finally:
+        # An insert that failed leaves the reader waiting at its batch: its file is let go
+        # now. No step runs in the thread by then (_in_worker_thread waits for it).
+        steps.close()
+
+
+def _advance(steps: Generator[_StepT, None, _ReadT]) -> tuple[bool, _StepT | None, _ReadT | None]:
+    """The reader's next step, or, when it has ended, what it returned. Its StopIteration
+    cannot be raised through the event loop's future."""
+    try:
+        return False, next(steps), None
+    except StopIteration as stop:
+        return True, None, stop.value
+
+
+async def _in_worker_thread(function: Callable[..., _StepT], *args: Any) -> _StepT:
+    """``function(*args)`` in a worker thread, as ``asyncio.to_thread`` runs it. Cancelled
+    meanwhile, it waits for the thread before it raises: a thread cannot be stopped, and the
+    upload's way out (its clean-up, the caller closing the file the thread reads) must not
+    run beside it."""
+    work = asyncio.ensure_future(asyncio.to_thread(function, *args))
+    try:
+        return await asyncio.shield(work)
+    except asyncio.CancelledError:
+        while not work.done():
+            with suppress(asyncio.CancelledError):
+                await asyncio.wait({work})
+        if not work.cancelled():
+            work.exception()  # retrieved: the cancellation is what is raised
+        raise
+
+
 @dataclass
 class _SmallVariantFileRead:
     """What one read of a small-variant VCF found (``upload_family_small_variant_file``):
@@ -795,10 +851,15 @@ async def upload_family_small_variant_file(
         )
         bytes_total = _upload_size(file) if progress is not None else None
 
-        async def read_file(*, write: bool) -> _SmallVariantFileRead:
+        def read_records(*, write: bool) -> Generator[_LoopStep, None, _SmallVariantFileRead]:
             """Read the whole file, record by record, and build each record as it is stored.
             With ``write``, store them a batch at a time and report the progress; without,
-            store nothing: the check of a file before it replaces stored rows."""
+            store nothing: the check of a file before it replaces stored rows.
+
+            Run by ``read_file`` in a worker thread, a step at a time (OPS-9): a step reads
+            and parses lines until the event loop must await something, which it yields: a
+            full batch to insert, or a progress report that is due. The file's read is
+            returned at its end."""
             read = _SmallVariantFileRead(
                 haplotype_blocks=(
                     HaplotypeBlockBuilder(
@@ -848,7 +909,8 @@ async def upload_family_small_variant_file(
                     )
                     if samples_scope:
                         read.uploaded_entries.extend(
-                            small_variant_record_entries(
+                            await asyncio.to_thread(
+                                small_variant_record_entries,
                                 context.assembly_name or "",
                                 context.family_uuid,
                                 context.project_ids,
@@ -909,7 +971,7 @@ async def upload_family_small_variant_file(
                 # Counted before any is left out, so a file whose records mostly are
                 # (RefCall blocks, a NIPT father's noise) still reports as it goes.
                 if progress is not None and records_read - last_reported >= SMALL_VARIANT_PROGRESS_INTERVAL:
-                    await report_read_progress()
+                    yield report_read_progress
                 fields = line.strip().split("\t")
                 if len(fields) < 10:
                     continue
@@ -1021,7 +1083,7 @@ async def upload_family_small_variant_file(
                 )
                 read.inserted += 1
                 if len(variant_batch) >= SMALL_VARIANT_UPLOAD_BATCH_SIZE:
-                    await flush_variant_batch()
+                    yield flush_variant_batch
 
             if read.inserted == 0:
                 detail = "No valid small-variant records found"
@@ -1037,8 +1099,13 @@ async def upload_family_small_variant_file(
                     )
                 raise HTTPException(status_code=400, detail=detail)
 
-            await flush_variant_batch()
+            yield flush_variant_batch
             return read
+
+        async def read_file(*, write: bool) -> _SmallVariantFileRead:
+            # Read and parsed in a worker thread, a batch at a time, while the event loop
+            # serves other requests and awaits each insert (OPS-9).
+            return await _read_off_the_event_loop(read_records(write=write))
 
         async def check_file() -> None:
             """The whole file read as the write reads it, the haplotype blocks made as the

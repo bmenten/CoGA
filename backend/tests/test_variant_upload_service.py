@@ -1,6 +1,8 @@
+import asyncio
 from io import BytesIO
 from pathlib import Path
 import tempfile
+import threading
 from types import SimpleNamespace
 
 from fastapi import HTTPException, UploadFile
@@ -8,7 +10,8 @@ import pytest
 
 from backend.app.services.clickhouse_variant_ids import build_small_variant_id
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from backend.app.services import haplotype_block_builder, variant_upload_service
+from backend.app.services import clickhouse_variant_storage, haplotype_block_builder, variant_upload_service
+from backend.tests._event_loop_probe import LoopProbe
 from backend.app.services.annotation_table_parser import _coerce_int, _vep_location_allele_key
 from backend.app.services.haplotype_block_builder import (
     _haplotype_state_end,
@@ -1054,3 +1057,211 @@ async def test_the_stored_row_keeps_each_call_under_its_own_sample(monkeypatch: 
     assert multiallelic["calls.dp"] == [21, 20, None]
     assert deepvariant["qual"] is None
     assert deepvariant["calls.dp"] == [25, 19, 22]
+
+
+# --------------------------------------------------------------------------- #
+# Off the event loop (OPS-9)
+# --------------------------------------------------------------------------- #
+#
+# An import parsed every VCF line, and built every batch's rows, on the event loop that
+# serves every other request, which waited for each batch. The upload reads and parses the
+# file in a worker thread now, a batch at a time, and builds each batch's rows in one: the
+# event loop only awaits the inserts and the progress reports.
+
+_TRIO_HEADER = _TRIO_VCF[: _TRIO_VCF.index("#CHROM")] + (
+    "#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tPROBAND\tMOTHER\tFATHER\n"
+)
+
+
+def _trio_records(count: int, *, start: int = 0) -> str:
+    return "".join(
+        f"chr{index % 22 + 1}\t{1_000 + index}\t.\tA\tG\t{30 + index % 7}\tPASS\tRS={index}\t"
+        f"GT:GQ:DP:AD:AF\t0/1:35:{20 + index % 9}:16,14:0.467\t0/0:40:28:28,0:0\t1/1:20:12:0,12:1\n"
+        for index in range(start, start + count)
+    )
+
+
+async def _upload_trio_through_the_insert(
+    monkeypatch: pytest.MonkeyPatch, text: str, *, progress=None, on_write=None
+) -> tuple[dict, list[tuple[str, list]]]:
+    """Upload ``text`` as the trio's family VCF through the real insert, whose ClickHouse
+    write alone is faked: the result, and every write as (table, rows), each also handed to
+    ``on_write`` as it is made."""
+    writes: list[tuple[str, list]] = []
+
+    async def write(query, params=None, data=None):
+        writes.append((query.split("(")[0].split()[-1], list(data or [])))
+        if on_write is not None:
+            on_write(*writes[-1])
+
+    async def no_rows(*_args, **_kwargs):
+        return 0
+
+    async def no_op(*_args, **_kwargs):
+        return None
+
+    monkeypatch.setattr(variant_upload_service, "count_family_small_variants", no_rows)
+    monkeypatch.setattr(variant_upload_service, "refresh_family_small_variant_summaries", no_op)
+    monkeypatch.setattr(clickhouse_variant_storage, "ensure_clickhouse_variant_tables", no_op)
+    monkeypatch.setattr(clickhouse_variant_storage, "_execute", write)
+
+    class FakeSession:
+        async def commit(self) -> None:
+            return None
+
+    context = FamilyMetadataContext(
+        family_uuid="family-uuid",
+        family_id="FAM001",
+        project_ids=["project-uuid"],
+        sample_rows=[],
+        sample_uuid_to_name={f"{name.lower()}-uuid": name for name in _TRIO},
+        sample_name_to_uuid={name: f"{name.lower()}-uuid" for name in _TRIO},
+        affected_sample_names=["PROBAND"],
+        assembly_id="assembly-uuid",
+        assembly_name="GRCh38",
+    )
+    sample_contexts = {
+        name: SampleMetadataContext(
+            sample_uuid=f"{name.lower()}-uuid",
+            sample_id=name,
+            family_uuid="family-uuid",
+            family_id="FAM001",
+            sex="und",
+            project_ids=["project-uuid"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+        for name in _TRIO
+    }
+    result = await variant_upload_service.upload_family_small_variant_file(
+        FakeSession(),  # type: ignore[arg-type]
+        context=context,
+        sample_contexts=sample_contexts,
+        file=UploadFile(file=BytesIO(text.encode()), filename="family.vcf"),
+        overwrite=False,
+        format_hint="clair3",
+        progress=progress,
+    )
+    return result, writes
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "module, stage",
+    [
+        (variant_upload_service, "_parse_format"),  # each call's FORMAT fields
+        (clickhouse_variant_storage, "_small_variant_entry_rows"),  # each batch's rows
+    ],
+    ids=["parse", "rows"],
+)
+async def test_the_upload_parses_its_records_and_builds_their_rows_off_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch, module, stage: str
+) -> None:
+    # The stage's first call waits for another coroutine to run on the loop meanwhile: it
+    # can only when the stage runs in a worker thread.
+    probe = LoopProbe()
+    monkeypatch.setattr(module, stage, probe.wrap(getattr(module, stage)))
+
+    result, writes = await probe.run(
+        _upload_trio_through_the_insert(monkeypatch, _TRIO_HEADER + _trio_records(5))
+    )
+
+    assert not probe.held, f"{stage} held the event loop"
+    assert result["inserted"] == 5
+    assert sum(len(rows) for table, rows in writes if table.endswith("/SNV_INDEL/entries`")) == 5
+
+
+def _stored(writes: list[tuple[str, list]]) -> list[tuple[str, list]]:
+    # The family's data version is a random number on every write, by design.
+    return [(table, rows) for table, rows in writes if not table.endswith("family_data_version`")]
+
+
+@pytest.mark.asyncio
+async def test_the_upload_stores_and_reports_what_it_did_when_it_read_on_the_event_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Read in a worker thread, the file gives the rows, batches, progress reports and
+    # counts it gave read on the event loop: a malformed and a left-out row included.
+    monkeypatch.setattr(variant_upload_service, "SMALL_VARIANT_UPLOAD_BATCH_SIZE", 4)
+    monkeypatch.setattr(variant_upload_service, "SMALL_VARIANT_PROGRESS_INTERVAL", 6)
+    text = (
+        _TRIO_HEADER
+        + _trio_records(11)
+        + "chr3\tnot-a-position\t.\tA\tG\t30\tPASS\t.\tGT\t0/1\t0/0\t1/1\n"
+        + "chr4\t500\t.\tC\tT\t30\tPASS\t.\tGT\t0/1\t0/0\n"
+        + _trio_records(1, start=11)
+    )
+
+    async def upload() -> tuple[dict, list, list]:
+        reports: list[dict] = []
+
+        async def progress(stats: dict) -> None:
+            reports.append(dict(stats))
+
+        result, writes = await _upload_trio_through_the_insert(monkeypatch, text, progress=progress)
+        return result, _stored(writes), reports
+
+    threaded = await upload()
+
+    async def on_the_loop(function, /, *args, **kwargs):
+        return function(*args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "to_thread", on_the_loop)
+    inline = await upload()
+
+    assert threaded == inline
+    result, writes, reports = threaded
+    assert (result["inserted"], result["skipped_malformed"]) == (12, 2)
+    assert [len(rows) for table, rows in writes if table.endswith("/SNV_INDEL/entries`")] == [4, 4, 4]
+    assert [report["processed"] for report in reports if "bytes_read" in report] == [6, 12]
+
+
+@pytest.mark.asyncio
+async def test_the_upload_reads_no_record_beyond_the_batch_it_inserts(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The reader runs ahead of nothing: as each batch is inserted, the records read are the
+    # earlier batches' and its own, so an upload holds one batch whatever the file's size.
+    monkeypatch.setattr(variant_upload_service, "SMALL_VARIANT_UPLOAD_BATCH_SIZE", 3)
+    parsed: list[str] = []
+    parse_format = variant_upload_service._parse_format
+
+    def counted(fmt: str, sample_field: str):
+        parsed.append(sample_field)
+        return parse_format(fmt, sample_field)
+
+    monkeypatch.setattr(variant_upload_service, "_parse_format", counted)
+    inserts: list[tuple[int, int]] = []
+
+    def on_write(table: str, rows: list) -> None:
+        if table.endswith("/SNV_INDEL/entries`"):
+            inserts.append((len(rows), len(parsed) // len(_TRIO)))
+
+    result, _writes = await _upload_trio_through_the_insert(
+        monkeypatch, _TRIO_HEADER + _trio_records(10), on_write=on_write
+    )
+
+    assert result["inserted"] == 10
+    assert inserts == [(3, 3), (3, 6), (3, 9), (1, 10)]
+
+
+@pytest.mark.asyncio
+async def test_a_cancelled_read_waits_for_its_worker_thread() -> None:
+    # A thread cannot be stopped: a cancelled upload's clean-up, and its caller closing the
+    # file, wait until the step the thread reads has ended.
+    entered, release, ended = threading.Event(), threading.Event(), threading.Event()
+
+    def step() -> str:
+        entered.set()
+        release.wait(5)
+        ended.set()
+        return "read"
+
+    task = asyncio.create_task(variant_upload_service._in_worker_thread(step))
+    while not entered.is_set():
+        await asyncio.sleep(0.001)
+    task.cancel()
+    await asyncio.sleep(0.05)
+    assert not task.done()
+    release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert ended.is_set()

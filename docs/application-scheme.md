@@ -128,6 +128,42 @@ On start the backend (`backend/app/main.py`):
 
 All of this runs inside the one uvicorn process that serves the API.
 
+## Performance
+
+The API and the import and refresh workers share that process's one event loop, so CPU work a
+request or an import runs on the loop holds every other request until it ends. These run in a
+worker thread instead (`asyncio.to_thread`), the queries and writes on the loop, each giving
+the result it gave on the loop (OPS-9):
+
+- **Sample QC**: the read of the sampled sites' genotypes, their parse (each distinct genotype
+  string parsed once) and the checks (relatedness over every pair, Mendelian, sex).
+- **Small-variant VCF uploads and imports**: the file is read and its lines parsed a batch at a
+  time (`variant_upload_service._read_off_the_event_loop`), and each batch's rows are built for
+  the insert. The loop awaits each insert and progress report before the reader reads on, so an
+  upload holds one batch, as before; a cancelled upload waits for its reader's batch before it
+  cleans up. The family's write lock, the check of a file before it replaces stored rows and the
+  upload's mark are unchanged.
+- **NIPT sign-out**: the family's NIPT analysis, which the Sample QC's NIPT checks and the
+  record's NIPT section both read, runs once per snapshot (`nipt_service.SharedNiptAnalysis`).
+
+Measured on synthetic data with Postgres and ClickHouse faked (each ClickHouse write awaits
+2 ms), main and this change alternated on a shared 10-core machine (Python 3.13), the median of
+6 runs; the longest stall is the longest wait of a coroutine that wakes every millisecond:
+
+| Work | Before: time / longest stall | After: time / longest stall |
+| --- | --- | --- |
+| Sample QC of ten samples (90,000 autosomal and 20,000 chrX sites) | 2.90 s / 2.90 s | 1.28 s / 0.05 s |
+| VCF upload of 50,000 records (a trio, VEP-annotated, gzipped) | 9.4 s / 0.21 s, 50 stalls over 50 ms | 9.5 s / 0.04 s, none over 50 ms |
+| NIPT sign-out snapshot of 50,000 sites | 1.74 s, the analysis run twice | 0.95 s, run once |
+
+The results were the same before and after: the frozen Sample QC, every row written and every
+progress report, and the record's Sample QC and NIPT section. What is left of a stall is a
+garbage collection, which stops every thread. Not done: a genome-scale import or query
+benchmark; worker processes (the import and refresh workers still run in the API's process);
+the Variant Explorer's unfiltered page, which aggregates every carrier (#841); the ranked
+view's limit of 5,000 SVs, which a family with more than 50,000 SVs reaches more often since
+#906.
+
 ## Main code areas
 
 Backend, under `backend/app/`:

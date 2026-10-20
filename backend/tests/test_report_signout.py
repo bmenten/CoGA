@@ -57,7 +57,7 @@ _REPORT_CODE_TAKEN = rss._report_code_taken
 
 @pytest.fixture(autouse=True)
 def _record_sections(monkeypatch):
-    async def _sections(session, *, context, reported, reported_structural):
+    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None):
         return copy.deepcopy(_RECORD_SECTIONS)
 
     async def _code_free(session, code):
@@ -131,7 +131,7 @@ def _patch_common(
     async def _audit(*args, **kwargs):
         return None
 
-    async def _qc(session, *, family_id, user, project_id=None):
+    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
         # Sample QC is computed inside build_report_snapshot now; stub it with a
         # parameterizable overall_status (default "pass" -> the QC gate stays open).
         return SampleIntegrityReport(overall_status=qc_status)
@@ -779,7 +779,7 @@ def test_build_report_snapshot_hash_is_drift_order_independent(monkeypatch) -> N
         async def _reviews(session, family_uuid):
             return [{"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}]
 
-        async def _qc(session, *, family_id, user, project_id=None):
+        async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
             return SampleIntegrityReport(overall_status="pass")
 
         monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
@@ -910,7 +910,7 @@ def test_sample_qc_is_bound_into_content_hash(monkeypatch) -> None:
 
 
 def _patch_qc_report(monkeypatch, report: SampleIntegrityReport) -> None:
-    async def _qc(session, *, family_id, user, project_id=None):
+    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
         return report
 
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
@@ -3142,7 +3142,7 @@ _PANEL = {
 
 
 def _with_sections(monkeypatch, **overrides) -> None:
-    async def _sections(session, *, context, reported, reported_structural):
+    async def _sections(session, *, context, reported, reported_structural, shared_nipt=None):
         return {**copy.deepcopy(_RECORD_SECTIONS), **copy.deepcopy(overrides)}
 
     monkeypatch.setattr(rss, "build_record_sections", _sections)
