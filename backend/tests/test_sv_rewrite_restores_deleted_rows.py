@@ -702,7 +702,7 @@ async def test_an_update_whose_chrm_sv_rewrite_fails_puts_the_other_samples_call
     # The dataset failed for the samples it names, as before.
     flag = database.committed["flag"]
     assert flag["failed_datasets"] == ["mito"]
-    assert flag["scopes"]["mito"] == {"source": None, "samples": ["S1"]}
+    assert [item["scope"] for item in flag["failed_scopes"]["mito"]] == [{"source": None, "samples": ["S1"]}]
 
 
 @pytest.mark.asyncio
@@ -721,5 +721,5 @@ async def test_an_update_whose_chrm_svs_cannot_be_put_back_flags_mito_for_every_
     # does not bring them again (before: flagged for S1 alone).
     flag = database.committed["flag"]
     assert flag["failed_datasets"] == ["mito"]
-    assert flag["scopes"]["mito"] == {"source": None, "samples": ["S1", "S2"]}
+    assert [item["scope"] for item in flag["failed_scopes"]["mito"]] == [{"source": None, "samples": ["S1", "S2"]}]
     assert database.committed["unfinished"] is None
