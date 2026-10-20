@@ -45,6 +45,15 @@ _ANN_ALIASES = {
     "existing_uorfs": ["Existing_uORFs"],
 }
 
+# A population frequency or count is read only from a field whose name states its source
+# (gnomAD, gnomADe, gnomADg, TOPMed), or from VEP's MAX_AF and POPMAX_AF, which only a
+# population annotation writes. The aliases are read from the record's INFO as well as from
+# each CSQ/ANN entry, and an entry without a value keeps the INFO's. An unprefixed key names
+# no source: INFO/AC is the callset's own allele count (a reserved VCF key that joint callers
+# write), and read as gnomAD's AC it made a maximum gnomAD AC filter filter on the family's
+# own count (CLIN-59); AC_Adj, nhomalt and hemi are not read either. A record without a
+# source-named field has no value, and the frequency and count filters keep it, as absent
+# from gnomAD (``ifNull(value, 0) <= maximum``).
 _POPULATION_ALIASES = {
     "gnomad_af": ["gnomAD_AF", "GNOMAD_AF"],
     "gnomad_exomes_af": ["gnomADe_AF", "GNOMADE_AF"],
@@ -59,8 +68,6 @@ _COUNT_ALIASES = {
         "GNOMAD_HOM",
         "gnomAD_hom",
         "gnomad_hom",
-        "nhomalt",
-        "NHOMALT",
         "gnomAD_nhomalt",
         "GNOMAD_NHOMALT",
     ],
@@ -70,8 +77,6 @@ _EXTRA_COUNT_ALIASES = {
     "gnomad_ac": [
         "gnomAD_AC",
         "GNOMAD_AC",
-        "AC",
-        "AC_Adj",
         "gnomADe_AC",
         "GNOMADE_AC",
         "gnomADg_AC",
@@ -82,8 +87,6 @@ _EXTRA_COUNT_ALIASES = {
         "GNOMAD_HEMI",
         "gnomAD_hemi",
         "gnomad_hemi",
-        "hemi",
-        "HEMI",
     ],
 }
 

@@ -96,6 +96,12 @@ the genome tracks mark a count within 3 repeats of a boundary there as *Near a b
 changing its status: see the [user guide](/docs), section *Structural variants, repeats, Paraphase and
 mtDNA*.
 
+A small variant's population frequencies and gnomAD counts come only from annotation fields that name
+their source (gnomAD's, TOPMed's, and VEP's `MAX_AF`), never from the callset's own allele count, the
+VCF's `AC`. A variant whose annotation gives no gnomAD count has none, and a maximum gnomAD count keeps
+it, as absent from gnomAD. A family loaded before keeps the counts it was loaded with until it is
+uploaded or imported again.
+
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
 recorded for the [report](/docs/reference/clinical-traceability).
 
