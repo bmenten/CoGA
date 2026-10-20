@@ -81,7 +81,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, 
 | `health.py` | `/health`, `/health/ready`, `/version` | Beschikbaarheid en versie; zonder login |
 | `auth.py` | `/auth` | Login, token, registratie, profiel, gebruikersbeheer (hoofdstuk 5) |
 | `ped.py` | `/ped` | Stamboom uploaden of met de hand invoeren |
-| `families.py` | `/families` | Familie, leden, structuur, HPO, fenotype-matching, regio van interesse |
+| `families.py` | `/families` | Familie, leden, structuur, HPO, fenotype-matching, regio van interesse, wie een familie toegewezen kan krijgen of nakijken (`/families/{id}/assignable-users`) |
 | `families_small_variants.py` | `/families` (deel) | Small variants: pagina's, export, compound-het, presets, tags, review en ACMG (hoofdstuk 8) |
 | `families_structural_variants.py` | `/families` (deel) | Structurele varianten van een familie |
 | `families_nipt.py` | `/families` (deel) | Monogene NIPT: samenvatting met de kwaliteitscontroles, varianten met de overervingsweergaven, dekking (ook per capture-target) (hoofdstuk 8) |
@@ -106,7 +106,7 @@ Alle routers staan in `backend/app/routers/__init__.py` en hangen onder `/api`, 
 | `product.py` | `/product` | De releasecatalogus |
 | `admin.py` | `/admin` | Alle beheerfuncties, elk achter `get_current_admin_user` (hoofdstuk 15) |
 | `ui_events.py` | `/ui-events` | UI-telemetrie (hoofdstuk 15) |
-| `lookups.py` | `/family-statuses`, `/users` | Kleine keuzelijsten voor de UI |
+| `lookups.py` | `/family-statuses`, `/users` | De statuslijst voor de keuzelijst op de familiepagina, en de lijst van actieve accounts |
 
 ## De servicegroepen
 

@@ -92,7 +92,14 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   route that changes something (an admin's, the caller's own data, or refused at a
   checkpoint), and `e2e/test_e2e_project_reader_role.py` asks each of them as a reader on real
   Postgres, then every route that reads a family or sample as a reader and as an analyst, and
-  requires the same answer but for the audit trail.
+  requires the same answer but for the audit trail. A case is assigned to, and recorded as
+  reviewed by, an active analyst of one of the family's projects or an active admin: the
+  family page's pickers read the family's own list (`GET /api/families/{family_id}/assignable-users`,
+  answered like the family, 404 outside the caller's projects), and a save that names a reader,
+  a user outside the family's projects or an inactive account is refused (`422`, saying why)
+  and changes nothing. A value the family already holds is kept until it is changed, so a
+  member made a reader stays named, marked *(not eligible)* on the page
+  (`test_case_assignee_eligibility.py`, `e2e/test_e2e_case_assignee_eligibility.py`).
 - ✅ **No control characters in what a request looks up.** A `%00` in a URL arrives decoded,
   and Postgres cannot compare a NUL, so a request that looked up a family's path
   (`/api/families/FAM%00X`) or any other path or query value with one failed with a 500.
@@ -109,8 +116,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   structure edits, region of interest, project assignment, family and sample deletions),
   replacing a family's annotation manifest, reference data, imports and uploads require
   `get_current_admin_user`. An analyst of a family's project can edit its phenotypes (each
-  change an event on its clinical audit trail), its reviews and its workflow fields, and sign
-  its report out; a reader can do none of these. Every member saves their own filter presets.
+  change an event on its clinical audit trail, as is each change an import makes to them), its
+  reviews and its workflow fields, and sign its report out; a reader can do none of these.
+  Every member saves their own filter presets.
 - ✅ **A UUID a request names a record by is read once.** asyncpg's uuid codec takes nothing
   but hex digits and hyphens, so a path or query value that was no UUID
   (`/api/admin/data/files/PROBEX/download`), or a UUID in braces or after `urn:uuid:` that a
@@ -246,8 +254,10 @@ emergency password, without MFA, so switch it on only for an emergency and off a
 The page is not linked from the sign-in page, so nobody is led to type a Microsoft password
 into CoGA.
 
-**Accepted residual: staff roster.** `GET /api/users` returns names and e-mail addresses to
-any signed-in user, for the reviewer picker. CoGA is installed for one lab, where all users
+**Accepted residual: staff roster.** `GET /api/users` returns the names and e-mail addresses
+of every active account to any signed-in user. The family page's assignee and reviewer pickers
+no longer read it: they read the family's own list, its projects' analysts and the admins
+(§1). CoGA is installed for one lab, where all users
 are colleagues, so there is no tenant boundary to protect. With Microsoft sign-in this holds
 only while the app registration requires assignment to the lab's group (deployment-gcp.md
 §12.12): any other member of the directory who could sign in would get an account, and so

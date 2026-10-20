@@ -24,7 +24,7 @@ import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import QueryFailure from '../../components/QueryFailure';
 import { formatUserRef } from '../../lib/users';
 import { isAdmin } from '../../lib/auth';
-import { READ_ONLY_HINT } from '../../lib/familyAccess';
+import { NOT_ASSIGNABLE_HINT, NOT_ASSIGNABLE_MARK, READ_ONLY_HINT } from '../../lib/familyAccess';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import {
@@ -160,9 +160,8 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   // the controls say so.
   const readOnly = Boolean(data?.read_only);
 
-  // Active status catalogue + assignable users power the status / assignment
-  // pickers below. Both are small, app-wide lookups so they are cached by a
-  // stable key and shared across family pages.
+  // The active status catalogue powers the status picker: a small, app-wide lookup, cached
+  // by a stable key and shared across family pages.
   const {
     data: familyStatusOptions = [],
     isError: statusesFailed,
@@ -175,17 +174,26 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     },
   });
 
+  // The assignee and reviewer pickers offer the family's own list: the active analysts of its
+  // projects and the active administrators, never a reader (SEC-1).
   const {
     data: assignableUsers = [],
     isError: usersFailed,
+    isSuccess: usersListed,
     refetch: refetchUsers,
   } = useQuery<ApiUserRef[]>({
-    queryKey: ['assignable-users'],
+    queryKey: ['family', familyId, 'assignable-users'],
+    enabled: Boolean(familyId),
     queryFn: async () => {
-      const res = await api.get('/users');
+      const res = await api.get(apiPath`/families/${familyId}/assignable-users`);
       return res.data as ApiUserRef[];
     },
   });
+  // A stored assignee or reviewer the list no longer holds (a reader now, say) stays shown,
+  // marked, until it is changed. Only once the list has loaded: a list that failed says
+  // nothing about who is on it.
+  const notAssignable = (userId: string) =>
+    usersListed && Boolean(userId) && !assignableUsers.some((candidate) => candidate.id === userId);
 
   const {
     assemblyName,
@@ -1042,7 +1050,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     saveMetadata({ assigned_to: value || null });
                   }}
                   disabled={readOnly || metadataBusy || usersFailed}
-                  title={readOnly ? READ_ONLY_HINT : undefined}
+                  title={readOnly ? READ_ONLY_HINT : notAssignable(assignedToDraft) ? NOT_ASSIGNABLE_HINT : undefined}
                 >
                   <option value="">Unassigned</option>
                   {assignableUsers.map((candidate) => (
@@ -1053,6 +1061,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   {assignedToDraft && !assignableUsers.some((candidate) => candidate.id === assignedToDraft) ? (
                     <option value={assignedToDraft}>
                       {data.assigned_to?.id === assignedToDraft ? formatUserRef(data.assigned_to) : assignedToDraft}
+                      {notAssignable(assignedToDraft) ? NOT_ASSIGNABLE_MARK : ''}
                     </option>
                   ) : null}
                 </select>
@@ -1069,7 +1078,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     saveMetadata({ reviewed_by: value || null });
                   }}
                   disabled={readOnly || metadataBusy || usersFailed}
-                  title={readOnly ? READ_ONLY_HINT : undefined}
+                  title={readOnly ? READ_ONLY_HINT : notAssignable(reviewedByDraft) ? NOT_ASSIGNABLE_HINT : undefined}
                 >
                   <option value="">Not reviewed</option>
                   {assignableUsers.map((candidate) => (
@@ -1080,6 +1089,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   {reviewedByDraft && !assignableUsers.some((candidate) => candidate.id === reviewedByDraft) ? (
                     <option value={reviewedByDraft}>
                       {data.reviewed_by?.id === reviewedByDraft ? formatUserRef(data.reviewed_by) : reviewedByDraft}
+                      {notAssignable(reviewedByDraft) ? NOT_ASSIGNABLE_MARK : ''}
                     </option>
                   ) : null}
                 </select>

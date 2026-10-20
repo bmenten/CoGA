@@ -26,6 +26,8 @@ the [admin dashboard](/admin), grouped in six areas.
   an **analyst** reads and changes the project's records; a **reader** (a student, say) reads, searches,
   exports and prints them and saves their own filter presets, but changes nothing and does not see the
   audit trail. A member added starts as an analyst. Administrators have every right in every project.
+  A case can be assigned to, or reviewed by, an analyst of its projects or an administrator: one
+  assigned to someone you make a reader keeps them, marked *(not eligible)*, until it is changed.
 
 ### Data Management
 

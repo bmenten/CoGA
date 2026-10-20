@@ -103,7 +103,8 @@ The **Clinical audit trail** lists, most recent first, every clinical action on 
 classified, tagged or annotated which small variant, structural variant or CNV, who reviewed a
 compound-heterozygous pair, who changed the pedigree or its members, when, and what changed
 (before → after), including each sign-out, each replacement of the pipeline versions and each change
-to the family's phenotypes (an HPO term added, changed or removed). A change to
+to the family's phenotypes (an HPO term added, changed or removed, in the member dialog or by an
+import: one entry per person an import changed, naming who ran it). A change to
 the criteria behind a class is listed too, even when the class stays the same: a criterion accepted or
 rejected, its strength (for a CNV, its points) or its evidence changed, a suggestion that appeared or
 went. Clearing a review is listed too.
@@ -125,6 +126,7 @@ reviews that went with it. The trail and the structure versions stay after the f
 - *Pedigree changed: P1 renamed P2: affected status unknown → affected*
 - *Annotation manifest replaced (was vcf_header, now manual): VEP 110 → 112*
 - *Phenotype changed for S1: HP:0001250 Seizure: status present → absent*
+- *Phenotypes imported for S1 by a package import of FAM1 (phenotypes.tsv): added HP:0001250 Seizure (present)*
 - *Gene panel Epilepsy version 2 (PanelApp panel 402, version 3.1) first applied to the small-variant search*
 - *Report signed out (v2, report code 7KQM2X-2-4PHT) — 3 reported variant(s)*
 

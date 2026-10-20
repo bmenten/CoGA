@@ -38,6 +38,7 @@ from types import SimpleNamespace
 import pytest
 
 from app.services import family_package_import as fpi
+from app.services.hpo_service import PhenotypeImport
 from app.services import family_package_registration as registration
 
 
@@ -84,6 +85,16 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
     monkeypatch.setattr(
         "app.services.family_package_registration.delete_interval_tracks", fake_interval
     )
+    recorded: list[dict] = []
+
+    async def record_phenotypes(_session, **kwargs):
+        recorded.append(kwargs)
+        return 0
+
+    monkeypatch.setattr(
+        "app.services.family_package_registration.record_phenotypes_deleted_with_family", record_phenotypes
+    )
+    origin = PhenotypeImport(user=SimpleNamespace(id="u1", username="admin"), via="package_import")
 
     async def no_event(*_args, **_kwargs):
         # The family's last clinical audit event (SEC-7) is not what this test reads.
@@ -92,11 +103,15 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
     monkeypatch.setattr("app.services.family_package_registration.record_family_deleted", no_event)
 
     session = _FakeSession()
-    await fpi._delete_family_shell(session, _ctx())
+    await fpi._delete_family_shell(session, _ctx(), phenotype_import=origin)
 
     # Coverage/segment/haplotype interval tracks are cleared alongside the variants.
     assert calls == {"small": 1, "structural": 1, "interval": 1}
     assert any("DELETE FROM families" in sql for sql, _ in session.executed)
+    # The phenotypes the family goes with are recorded as removed by the failed import.
+    assert recorded == [
+        {"family_uuid": "uuid-1", "family_identifier": "F1", "origin": origin, "change": "rolled_back"}
+    ]
 
 
 class _FamilyRow(_FakeSession):
@@ -2134,6 +2149,7 @@ async def test_phenotypes_without_an_hpo_row_are_registered(monkeypatch) -> None
             summary=FamilyImportDatasetSummary(dataset_type="phenotypes", status="valid"),
             family_context=SimpleNamespace(family_uuid="uuid-1", family_id="F1"),
             sample_contexts={},
+            phenotype_import=PhenotypeImport(user=SimpleNamespace(id="u1"), via="package_import"),
         )
 
     # Nothing to import: registered (before: skipped, as an update's skip reads).

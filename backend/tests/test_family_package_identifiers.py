@@ -581,7 +581,7 @@ async def test_the_family_builder_strips_the_family_id_and_refuses_before_any_wr
     async def no_project(_session: Any, _user: Any, _project_id: Any) -> None:
         return None
 
-    async def replace_existing(_session: Any, family_ids: list[str], *_args: Any) -> None:
+    async def replace_existing(_session: Any, family_ids: list[str], *_args: Any, **_kwargs: Any) -> None:
         written.append({"replaced": family_ids})
 
     async def available(*_args: Any) -> None:

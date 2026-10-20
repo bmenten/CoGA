@@ -1,6 +1,9 @@
-"""Lightweight authenticated lookup endpoints used to populate pickers on the
-family-detail page: the active family-status catalogue and the list of users
-that can be assigned to / recorded as reviewer of a family.
+"""Lightweight authenticated lookup endpoints: the active family-status catalogue, which
+the family-detail page's status picker reads, and the list of active users.
+
+The family page's "Assigned to" and "Reviewed by" pickers do not read the user list: they
+read the family's own, its projects' analysts and the administrators
+(``GET /families/{family_id}/assignable-users``).
 
 These are intentionally separate from the admin endpoints (which manage the full
 status catalogue and user accounts) and expose only minimal, non-sensitive

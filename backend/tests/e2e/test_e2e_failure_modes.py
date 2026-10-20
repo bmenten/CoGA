@@ -243,6 +243,7 @@ async def _collect(base: Path) -> dict:
     # then mutate both (delete/insert a different row; change the marker) and restore — the
     # mutation must be gone and the original state (row + marker) back, proving the
     # DELETE + jsonb_populate_recordset reinsert and the samples.metadata UPDATE round-trip.
+    from backend.app.services.hpo_service import PhenotypeImport
     from backend.app.services.postgres_family_snapshot import (
         restore_family_postgres_state,
         snapshot_family_postgres_state,
@@ -318,7 +319,14 @@ async def _collect(base: Path) -> dict:
         await s.commit()
 
     async with sm() as s:
-        await restore_family_postgres_state(s, pg_snap)
+        # The import a restore puts the family back for: it names the phenotypes the restore
+        # changes on the audit trail (none here; test_e2e_imported_phenotypes_audited.py).
+        await restore_family_postgres_state(
+            s,
+            pg_snap,
+            family_identifier=fid,
+            phenotype_import=PhenotypeImport(user=admin, via="package_import", source=str(base / fid)),
+        )
 
     async with sm() as s:
         rows = (
