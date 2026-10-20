@@ -7,7 +7,9 @@ import { apiPath } from '../../lib/apiPath';
 import type { ReportSignoutDetail } from '../../lib/apiSchema.generated';
 import { formatSoftwareVersion, useReportBuild } from '../../lib/appVersion';
 import { formatCnvPoints } from '../../lib/cnvAcmg/format';
+import { sexUnknownWarning } from '../../lib/embryoSegregation';
 import { isNotFoundError } from '../../lib/errorMessage';
+import { describePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
@@ -31,16 +33,24 @@ import {
   describeBreachedMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
+  describeDiseaseHaplotypes,
+  describeEmbryoCall,
+  describeEmbryoQc,
   describeFrozenEvidenceValues,
   describeGenePanel,
   describeGeneReferenceReleases,
   describeGenotype,
+  describeInherited,
   describeModuleVersions,
   describeNiptCoverage,
   describeNiptFetalFraction,
   describeNiptFetalSex,
   describeNiptFunnel,
   describeNiptVariant,
+  describeNoCall,
+  describePgtInheritance,
+  describePgtInputs,
+  describePgtMembers,
   describeRepeatCall,
   describeRepeatThresholds,
   describeReportSections,
@@ -611,12 +621,104 @@ const NiptResults: React.FC<{ record: SignedReport; version: number }> = ({ reco
   ) : null;
 
 /**
- * What the analysis looked at beyond the reported variants, as the record froze it: the gene
- * panels its searches applied, the repeat expansions and Paraphase results of the family's
- * samples, and the reference-data releases. A section the record predates says so.
+ * A PGT family's embryo calls at the ROI, as the record froze them: the calls the family page
+ * showed, each with what it rests on. A PGT family's record signed before CoGA froze them
+ * says it does not hold them; the record of any other family has no such section.
+ */
+const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => {
+  if (record.pgtAnalysis.state === 'absent' && record.sampleQc?.application !== 'pgt') return null;
+  return (
+    <RecordSectionBlock
+      title="PGT embryo results"
+      what="the PGT embryo results"
+      section={record.pgtAnalysis}
+      version={version}
+    >
+      {(analysis) => {
+        const roi = analysis.roi;
+        const disease = describeDiseaseHaplotypes(analysis);
+        const members = describePgtMembers(analysis.members);
+        return (
+          <>
+            {roi ? (
+              <p className="report-paragraph">
+                Each embryo’s call at the region of interest <strong>{roi.label ?? roi.query ?? 'not named'}</strong>{' '}
+                ({roi.chrom ?? '?'}:{roi.start?.toLocaleString() ?? '?'}–{roi.end?.toLocaleString() ?? '?'}), as the
+                family page showed it when version {version} was signed. Inheritance model:{' '}
+                {describePgtInheritance(analysis)}.{' '}
+                {disease
+                  ? `Disease haplotype at the ROI: ${disease}.`
+                  : 'No disease haplotype could be resolved at the ROI, so no embryo could be called.'}
+              </p>
+            ) : (
+              <p className="report-paragraph">
+                The family had no region of interest when version {version} was signed, so no embryo was called.
+              </p>
+            )}
+            {analysis.phaseCorrections.length ? (
+              <p className="report-paragraph" role="note">
+                ⚠ {analysis.phaseCorrections.map(describePhaseCorrection).join(' ')} This is inside or close to the
+                ROI: where the phase switched is known only to within the children’s switches, so each call across the
+                locus is less certain, and an embryo’s own crossover there may not show.
+              </p>
+            ) : null}
+            {analysis.embryos.length ? (
+              <ul className="report-signed-list">
+                {analysis.embryos.map((embryo, index) => {
+                  const inherited = describeInherited(embryo.inherited);
+                  const warning = embryo.sexDependent
+                    ? sexUnknownWarning(embryo.sexDependent)
+                    : describeNoCall(embryo, analysis);
+                  return (
+                    <li key={`${embryo.sample}-${index}`}>
+                      <strong>{embryo.sample}</strong>
+                      {embryo.sex ? ` (${embryo.sex})` : ''}: <strong>{describeEmbryoCall(embryo)}</strong>.
+                      {inherited ? ` Inherited at the ROI: ${inherited}.` : ''}
+                      {warning ? ` ${warning}` : ''}
+                      {embryo.recombinations.length
+                        ? ` ⚠ Recombination inside the ROI or within ${(
+                            analysis.recombinationFlank ?? 0
+                          ).toLocaleString()} bp of it, at ${embryo.recombinations
+                            .map((at) => at.toLocaleString())
+                            .join(', ')}.`
+                        : ''}
+                      {embryo.qc
+                        ? ` QC at the ROI: ${describeEmbryoQc(embryo.qc)}.`
+                        : embryo.call
+                          ? ` QC at the ROI: not counted (${
+                              analysis.markersTruncated
+                                ? 'the ROI holds more sites than the marker review reads'
+                                : 'the embryo is not recorded as a child of the couple'
+                            }).`
+                          : ''}
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : (
+              <p className="report-paragraph">The record lists no embryo.</p>
+            )}
+            {members ? (
+              <p className="report-paragraph">The members’ roles and statuses as the analysis read them: {members}.</p>
+            ) : null}
+            <p className="report-paragraph">Read from {describePgtInputs(analysis)}.</p>
+          </>
+        );
+      }}
+    </RecordSectionBlock>
+  );
+};
+
+/**
+ * What the analysis looked at beyond the reported variants, as the record froze it: a PGT
+ * family's embryo calls, the gene panels its searches applied, the repeat expansions and
+ * Paraphase results of the family's samples, and the reference-data releases. A section the
+ * record predates says so.
  */
 const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => (
   <>
+    <PgtAnalysisSection record={record} version={version} />
+
     <RecordSectionBlock
       title="Gene panels applied"
       what="the gene panels the analysis applied"

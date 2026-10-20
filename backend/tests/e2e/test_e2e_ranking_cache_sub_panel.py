@@ -23,15 +23,19 @@ cases (the fixture ships none):
 * a panel reaching only the first of GENE_CH's compound-het pair (through a gene seeded
   over that variant alone) is computed for itself, where the variant has no partner,
   instead of served with the pair's segregation;
-* a panel of more regions than the panel filter inlines (a Mendeliome stand-in) is
-  matched on gene symbols alone, and a smaller panel that reaches the GENE_DENOVO variant
-  by position only (through the gene reference's other symbol for that gene) is computed
-  for itself, with that variant, instead of served from the stand-in's ranking without it.
+* a panel of more than 1,000 regions (a Mendeliome stand-in) reaches the GENE_DENOVO
+  variant by position (through the gene reference's other symbol for that gene) as a
+  smaller panel does, and its ranking serves the smaller panel as the panel's own
+  computation ranks it (owner decision 2026-10-14; it was matched on gene symbols alone,
+  so the smaller panel had to be computed for itself);
+* a panel imported from PanelApp, whose coordinates for GENE_PATH reach further than any
+  gene or locus of the stand-in, is computed for itself, with the variants it reaches
+  there, instead of served from the stand-in's ranking without them.
 
 The cache rows are read back from the real table, so the record of the panel goes through
-the jsonb round trip. The panels and the seeded genes are removed at the end. Everything
-runs in ONE event loop via an in-process ``httpx.ASGITransport`` client (see
-test_e2e_api_contract.py for why).
+the jsonb round trip. PanelApp itself is answered by the test. The panels and the seeded
+genes are removed at the end. Everything runs in ONE event loop via an in-process
+``httpx.ASGITransport`` client (see test_e2e_api_contract.py for why).
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -51,6 +55,33 @@ pytestmark = pytest.mark.integration
 _FIXTURE = Path(__file__).parent / "fixtures" / "golden_trio"
 FAMILY = "FAM_TRIO"
 _SEEDED_GENE_SOURCE = "e2e-ranking-cache-sub-panel"
+# Filler genes of the Mendeliome stand-in, one locus each: with them it has more than 1,000
+# regions, as the real Mendeliome has.
+_FILLERS = 1_000
+# PanelApp's GRCh38 coordinates for GENE_PATH in the imported panel: over the variants at
+# 1:2000 to 1:7000 of the golden trio, where the gene reference has no locus for it.
+_PANELAPP_GENE_PATH = "1:1900-7100"
+
+
+def _panelapp_payload(panelapp_id: int) -> dict:
+    return {
+        "id": panelapp_id,
+        "name": f"CLIN-34 e2e {panelapp_id}",
+        "version": "1.0",
+        "stats": {"number_of_genes": 1, "number_of_strs": 0, "number_of_regions": 0},
+        "genes": [
+            {
+                "entity_name": "GENE_PATH",
+                "confidence_level": "3",
+                "gene_data": {
+                    "hgnc_symbol": "GENE_PATH",
+                    "ensembl_genes": {"GRch38": {"90": {"location": _PANELAPP_GENE_PATH}}},
+                },
+            }
+        ],
+        "strs": [],
+        "regions": [],
+    }
 
 
 def _cap(resp) -> dict:
@@ -73,12 +104,11 @@ async def _seed_genes(assembly_id: str | None) -> int:
     """Seed (or, with None, remove) the gene-reference rows the CLIN-34/35 cases need, and
     return how many are left. A gene the reference names GENE_RENAMED over the GENE_DENOVO
     variant (1:3000), as if the annotation still used an earlier symbol; a gene overlapping
-    the first of GENE_CH's pair (1:4000) and not the second (1:5000); and as many filler
-    genes on chromosome 2 as the panel filter inlines regions."""
+    the first of GENE_CH's pair (1:4000) and not the second (1:5000); and 1,000 filler genes
+    on chromosome 2 for the Mendeliome stand-in."""
     from sqlalchemy import text
 
     from backend.app.core.postgres import get_postgres_sessionmaker
-    from backend.app.services.clickhouse_variant_queries import _PANEL_REGION_INLINE_LIMIT
 
     async with get_postgres_sessionmaker()() as session:
         await session.execute(
@@ -90,7 +120,7 @@ async def _seed_genes(assembly_id: str | None) -> int:
                 ("GENE_CH_OVERLAP", "1", 3900, 4100),
                 *(
                     (f"FILLER{index:04d}", "2", 10_000 * (index + 1), 10_000 * (index + 1) + 500)
-                    for index in range(_PANEL_REGION_INLINE_LIMIT)
+                    for index in range(_FILLERS)
                 ),
             ]
             await session.execute(
@@ -125,13 +155,12 @@ async def _seed_genes(assembly_id: str | None) -> int:
     return int(left)
 
 
-async def _exercise(root: Path) -> dict:
+async def _exercise(root: Path, panelapp_id: int) -> dict:
     from httpx import ASGITransport, AsyncClient
     from sqlalchemy import text
 
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.main import app
-    from backend.app.services.clickhouse_variant_queries import _PANEL_REGION_INLINE_LIMIT
     from backend.tests.e2e import _harness
 
     facts = await _harness.import_golden_trio(root)
@@ -244,12 +273,33 @@ async def _exercise(root: Path) -> dict:
             out["split_fresh"] = await fresh("ch_overlap")
 
             await clear_cache()
-            fillers = [f"FILLER{index:04d}" for index in range(_PANEL_REGION_INLINE_LIMIT)]
+            fillers = [f"FILLER{index:04d}" for index in range(_FILLERS)]
             await make_panel("mendeliome", "GENE_PATH", "GENE_RENAMED", *fillers)
             out["mendeliome"] = await prioritised("mendeliome")
             await make_panel("renamed", "GENE_PATH", "GENE_RENAMED")
             out["renamed_served"] = await prioritised("renamed")
             out["renamed_fresh"] = await fresh("renamed")
+
+            # A panel of GENE_PATH imported from PanelApp, whose coordinates for the gene
+            # reach variants no gene or locus of the stand-in reaches.
+            imported = await ac.post(
+                "/api/panels/import/panelapp",
+                json={
+                    "panelapp_id": panelapp_id,
+                    "confidence_levels": ["3"],
+                    "include_regions": False,
+                    "include_strs": False,
+                    "assembly": "GRCh38",
+                    "name": f"e2e-sub-panel-{run}-panelapp",
+                },
+            )
+            out["panelapp_import"] = {"status": imported.status_code, "text": imported.text[:500]}
+            if imported.status_code == 201:
+                panels["panelapp"] = imported.json()["panel"]["_id"]
+                await clear_cache()
+                out["mendeliome_again"] = await prioritised("mendeliome")
+                out["panelapp_served"] = await prioritised("panelapp")
+                out["panelapp_fresh"] = await fresh("panelapp")
         finally:
             for key, panel_id in panels.items():
                 removed = await ac.delete(f"/api/panels/{panel_id}")
@@ -261,6 +311,7 @@ async def _exercise(root: Path) -> dict:
 @pytest.fixture(scope="module")
 def run(tmp_path_factory, request) -> dict:
     from backend.app.core.config import settings
+    from backend.app.services import panel_metadata_service
     from backend.tests.e2e import _harness
 
     if not (_FIXTURE / "manifest.yaml").exists():
@@ -268,12 +319,19 @@ def run(tmp_path_factory, request) -> dict:
 
     root = tmp_path_factory.mktemp("golden_sub_panel") / "FAM_TRIO"
     shutil.copytree(_FIXTURE, root)
+    panelapp_id = 930_000_000 + uuid.uuid4().int % 60_000_000
+
+    async def panelapp(requested: int, *, version: str | None = None) -> dict:
+        assert int(requested) == panelapp_id
+        return _panelapp_payload(panelapp_id)
 
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
+    # PanelApp itself is not called: the import reads the test's panel.
+    mp.setattr(panel_metadata_service, "fetch_panelapp_panel", panelapp)
     request.addfinalizer(mp.undo)
 
-    snapshot = _harness.run_async(lambda: _exercise(root))
+    snapshot = _harness.run_async(lambda: _exercise(root, panelapp_id))
     assert snapshot["facts"]["completed"] is True, snapshot["facts"]
     return snapshot
 
@@ -362,13 +420,26 @@ def test_a_compound_het_pair_the_panel_splits_is_not_carried_over(run) -> None:
     _same_as_fresh(served, fresh)
 
 
-def test_a_variant_the_panel_reaches_by_position_is_not_lost_to_a_ranking_on_symbols(run) -> None:
-    # Matched on gene symbols alone: the GENE_DENOVO variant inside GENE_RENAMED's locus is
-    # not in the stand-in's ranking.
-    _served(run["mendeliome"], cached=False, genes=["GENE_PATH"])
+def test_the_mendeliome_reaches_a_variant_by_position_and_serves_the_panel_that_does(run) -> None:
+    # Matched by position too, the stand-in of more than 1,000 regions keeps the GENE_DENOVO
+    # variant inside GENE_RENAMED's locus. It was matched on gene symbols alone, its ranking
+    # lacked the variant, and the smaller panel had to be computed for itself.
+    _served(run["mendeliome"], cached=False, genes=["GENE_DENOVO", "GENE_PATH"])
     served = run["renamed_served"]
-    _served(served, cached=False, genes=["GENE_DENOVO", "GENE_PATH"])
+    _served(served, cached=True, genes=["GENE_DENOVO", "GENE_PATH"])
     _same_as_fresh(served, run["renamed_fresh"])
+
+
+def test_a_variant_a_panel_reaches_by_panelapp_s_coordinates_is_not_lost_to_a_broader_ranking(run) -> None:
+    # The imported panel holds GENE_PATH, which the stand-in holds too, but PanelApp's
+    # coordinates for it reach variants of other genes that no gene or locus of the stand-in
+    # reaches: the stand-in's ranking lacks them, so the panel is computed for itself.
+    assert run["panelapp_import"]["status"] == 201, run["panelapp_import"]["text"]
+    _served(run["mendeliome_again"], cached=False, genes=["GENE_DENOVO", "GENE_PATH"])
+    reached = ["BRCA2", "GENE_CH", "GENE_CH", "GENE_DENOVO", "GENE_INDEL", "GENE_PATH"]
+    served = run["panelapp_served"]
+    _served(served, cached=False, genes=reached)
+    _same_as_fresh(served, run["panelapp_fresh"])
 
 
 def test_the_panels_and_seeded_genes_are_removed(run) -> None:

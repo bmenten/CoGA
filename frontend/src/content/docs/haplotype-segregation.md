@@ -145,7 +145,12 @@ If this does not lead to exactly one haplotype (for recessive, one on each side)
 ## The embryo call (at the ROI)
 
 For each embryo, CoGA compares the haplotypes it carries at the ROI with the disease haplotype(s). The
-call appears as a badge in the **Family members** table on the family page.
+call appears as a badge in the **Family members** table on the family page. CoGA works the calls out
+on the server, from the stored haplotype blocks over the ROI and 1 Mb on each side, and **Sign out
+report** freezes the same calls into the signed version, each with the haplotypes it carries at the
+ROI, its warnings, its QC at the ROI (the informative sites and the Mendelian error rate the ROI
+marker review shows) and the haplotype file it was read from. The tracks' risk line and risk state
+follow the same rules.
 
 | Badge | Meaning |
 | --- | --- |
@@ -196,7 +201,7 @@ Four warnings can sit next to the badge:
 - **⚠ sex unknown** — an X-linked recessive call depends on the embryo's sex, which is not recorded. Its
   tooltip gives the call for a son and for a daughter.
 
-If the haplotypes at the ROI cannot be loaded, the embryo shows *⚠ segregation not derived*: its call
+If the embryo calls at the ROI cannot be loaded, the embryo shows *⚠ segregation not derived*: its call
 and its warnings are then unknown, not absent.
 
 ---

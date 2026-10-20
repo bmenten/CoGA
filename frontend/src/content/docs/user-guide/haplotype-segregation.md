@@ -27,7 +27,9 @@ disease allele, and calls each embryo from it.
 Each embryo's call is a badge in the **Family members** table on the family page: *Affected / at risk*,
 *Carrier*, *Unaffected* or *Uninformative*. A call that the embryo does not carry a disease haplotype
 needs the embryo's own haplotype, seen across the ROI; without it the embryo reads *Uninformative*.
-Next to the badge may be:
+CoGA works the calls out on the server, from the stored haplotypes, and **Sign out report** freezes
+the same calls into the signed version (*PGT embryo results*), each with the haplotypes it rests on,
+its warnings and its QC at the ROI. Next to the badge may be:
 
 - **⚠ recombination** — a haplotype change inside the ROI or within 250 kb of it; the call may not hold
   across the locus.

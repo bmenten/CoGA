@@ -614,44 +614,94 @@ describe('FamilyDetailPage', () => {
     );
   });
 
-  // #607 — the embryos' recombination and uninformative warnings come from the haplotypes
-  // at the ROI: a failed request is not an embryo without warnings.
-  it('says the segregation could not be derived when the haplotypes at the ROI fail', async () => {
+  // The embryo calls the backend makes (GET /families/{id}/pgt-analysis), as a sign-out freezes
+  // them: the page shows each called embryo's badge and warnings as served. The rules behind the
+  // calls are tested in backend/tests/test_pgt_embryo_calls.py.
+  const pgtAnalysis = (
+    embryos: Record<string, unknown>[],
+    overrides: Record<string, unknown> = {},
+  ): Record<string, unknown> => ({
+    region_of_interest: { query: 'GENE1', label: 'GENE1', source: 'gene', chrom: '17', start: 43044295, end: 43125482 },
+    window: { chrom: '17', start: 42044295, end: 44125482 },
+    inheritance_model: { recorded: 'AD', applied: 'AD', mode: 'dominant' },
+    members: [],
+    disease_haplotype_resolved: true,
+    disease_haplotypes: [{ origin: 'paternal', homolog: '1', kind: 'dominant' }],
+    phase_corrections: [],
+    embryos: embryos.map((embryo) => ({
+      sex: 'female',
+      roi_not_covered: false,
+      sex_dependent: null,
+      inherited: [],
+      recombinations: [],
+      qc: null,
+      ...embryo,
+    })),
+    inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false },
+    rules: { window_flank: 1_000_000, recombination_flank: 250_000, phase_switch_uncertainty: 2_000_000 },
+    ...overrides,
+  });
+
+  const renderWithAnalysis = (analysis: Record<string, unknown> | Error) => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) =>
+      url === '/families/F1/pgt-analysis'
+        ? analysis instanceof Error
+          ? Promise.reject(analysis)
+          : Promise.resolve({ data: analysis })
+        : working(url, config),
+    );
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    return () => get.mockImplementation(working);
+  };
+
+  const rowOf = async (sampleId: string) =>
+    (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
+
+  // #607 — the embryos' recombination and uninformative warnings come with the calls: a
+  // failed request is not an embryo without warnings.
+  it('says the segregation could not be derived when the embryo calls at the ROI fail', async () => {
     localStorage.setItem('role', 'viewer');
     mockApiState.members = [
       { sample_id: 'S1', role: 'mother', affected: false, sex: 'female' },
       { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
     ];
-    const get = api.get as unknown as Mock;
-    const working = get.getMockImplementation()!;
-    get.mockImplementation((url: string, config?: unknown) =>
-      url === '/families/F1/haplotypes'
-        ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
-        : working(url, config),
-    );
+    const restore = renderWithAnalysis(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));
     try {
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1']}>
-            <Routes>
-              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
-
-      expect(await screen.findByText(/Could not load the haplotypes at the ROI — this is not an empty result/)).toHaveTextContent(
+      expect(await screen.findByText(/Could not load the embryo calls at the ROI — this is not an empty result/)).toHaveTextContent(
         /segregation, and any recombination or uninformative warning, are not shown/,
       );
       expect(screen.getByText('⚠ segregation not derived')).toBeInTheDocument();
     } finally {
-      get.mockImplementation(working);
+      restore();
+    }
+  });
+
+  it('asks for the embryo calls only for a family with embryos and an ROI', async () => {
+    localStorage.setItem('role', 'viewer');
+    (api.get as unknown as Mock).mockClear();
+    const restore = renderWithAnalysis(pgtAnalysis([]));
+    try {
+      await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+      await waitForVariantWorkspaceReady();
+      expect((api.get as unknown as Mock).mock.calls.some(([url]) => url === '/families/F1/pgt-analysis')).toBe(false);
+    } finally {
+      restore();
     }
   });
 
   // No data at the ROI is not an unaffected embryo. The embryo badge used to read
   // "Unaffected" for an embryo whose haplotype has no block over the ROI.
-  it('reads an embryo with no haplotype over the ROI as uninformative, not unaffected', async () => {
+  it('reads an embryo the backend calls uninformative for missing data as such, not unaffected', async () => {
     localStorage.setItem('role', 'viewer');
     mockApiState.members = [
       { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
@@ -659,49 +709,13 @@ describe('FamilyDetailPage', () => {
       { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
       { sample_id: 'E2', role: 'embryo', affected: false, sex: 'female' },
     ];
-    // Blocks over the ROI (chr17:43,044,295–43,125,482), or wherever `at` puts them.
-    const block = (hap1: string, hap2: string, lineage: [string, string], at = [43_000_000, 43_200_000]) => ({
-      chr: '17',
-      start: at[0],
-      end: at[1],
-      hap1,
-      hap2,
-      hap1_lineage: lineage[0],
-      hap2_lineage: lineage[1],
-    });
-    const get = api.get as unknown as Mock;
-    const working = get.getMockImplementation()!;
-    get.mockImplementation((url: string, config?: unknown) =>
-      url === '/families/F1/haplotypes'
-        ? Promise.resolve({
-            data: {
-              chr: '17',
-              samples: [
-                // The affected father and proband share paternal 1: the dominant haplotype.
-                { sample: 'FATHER', segments: [block('0', '1', ['paternal', 'paternal'])] },
-                { sample: 'PROBAND', segments: [block('1', '0', ['paternal', 'maternal'])] },
-                // E1's only block is in the flank the ROI view fetches, past the ROI.
-                { sample: 'E1', segments: [block('0', '1', ['paternal', 'maternal'], [43_600_000, 44_000_000])] },
-                // E2 inherited paternal 0 across the ROI.
-                { sample: 'E2', segments: [block('0', '1', ['paternal', 'maternal'])] },
-              ],
-            },
-          })
-        : working(url, config),
+    const restore = renderWithAnalysis(
+      pgtAnalysis([
+        { sample: 'E1', call: 'uninformative', roi_not_covered: true },
+        { sample: 'E2', call: 'unaffected_non_carrier' },
+      ]),
     );
     try {
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1']}>
-            <Routes>
-              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
-      const rowOf = async (sampleId: string) =>
-        (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
-
       const e1 = await rowOf('E1');
       expect(await within(e1).findByText('Uninformative')).toHaveClass('segregation-badge--uninformative');
       expect(within(e1).queryByText('Unaffected')).not.toBeInTheDocument();
@@ -715,7 +729,36 @@ describe('FamilyDetailPage', () => {
         'segregation-badge--unaffected_non_carrier',
       );
     } finally {
-      get.mockImplementation(working);
+      restore();
+    }
+  });
+
+  it('says when no disease haplotype was resolved, and warns of a recombination near the ROI', async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
+      { sample_id: 'E2', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    const restore = renderWithAnalysis(
+      pgtAnalysis(
+        [
+          { sample: 'E1', call: 'uninformative' },
+          { sample: 'E2', call: 'uninformative', recombinations: [43_100_000] },
+        ],
+        { disease_haplotype_resolved: false, disease_haplotypes: [] },
+      ),
+    );
+    try {
+      const e1 = await rowOf('E1');
+      expect(
+        await within(e1).findByRole('button', { name: /No disease haplotype could be resolved at the ROI/ }),
+      ).toHaveTextContent('⚠ uninformative');
+      const e2 = await rowOf('E2');
+      expect(within(e2).getByRole('button', { name: /A recombination falls inside or close to the ROI/ })).toHaveTextContent(
+        '⚠ recombination',
+      );
+    } finally {
+      restore();
     }
   });
 
@@ -728,67 +771,24 @@ describe('FamilyDetailPage', () => {
       { sample_id: 'E1', role: 'embryo', affected: false, sex: 'unknown' },
       { sample_id: 'E2', role: 'embryo', affected: false, sex: 'unknown' },
     ];
-    // Blocks over an ROI on X, outside the PARs; the trio builder never confirms a paternal
-    // X side ('?').
-    const xBlock = (hap2: string) => ({
-      chr: 'X',
-      start: 150_000_000,
-      end: 150_300_000,
-      hap1: '?',
-      hap2,
-      hap1_lineage: 'paternal',
-      hap2_lineage: 'maternal',
-      hemizygous_in_males: true,
-    });
-    const get = api.get as unknown as Mock;
-    const working = get.getMockImplementation()!;
-    get.mockImplementation(async (url: string, config?: unknown) => {
-      if (url === '/families/F1') {
-        const family = (await working(url, config)) as { data: Record<string, unknown> };
-        return {
-          data: {
-            ...family.data,
-            metadata: { ...(family.data.metadata as object), pgt: { inheritance_model: 'XLR' } },
-            roi: {
-              query: 'GENEX',
-              label: 'GENEX',
-              source: 'gene',
-              assembly_id: 'asm1',
-              chr: 'X',
-              start: 150_100_000,
-              end: 150_200_000,
-            },
+    const restore = renderWithAnalysis(
+      pgtAnalysis(
+        [
+          {
+            sample: 'E1',
+            sex: 'und',
+            call: 'affected_or_at_risk',
+            sex_dependent: { if_male: 'affected_or_at_risk', if_female: 'carrier' },
           },
-        };
-      }
-      if (url === '/families/F1/haplotypes') {
-        return {
-          data: {
-            chr: 'X',
-            samples: [
-              // The affected son carries the mother's risk X: maternal 1.
-              { sample: 'SON', segments: [xBlock('1')] },
-              { sample: 'E1', segments: [xBlock('1')] },
-              { sample: 'E2', segments: [xBlock('0')] },
-            ],
-          },
-        };
-      }
-      return working(url, config);
-    });
+          { sample: 'E2', sex: 'und', call: 'unaffected_non_carrier' },
+        ],
+        {
+          inheritance_model: { recorded: 'XLR', applied: 'XLR', mode: 'x_linked_recessive' },
+          disease_haplotypes: [{ origin: 'maternal', homolog: '1', kind: 'x-linked' }],
+        },
+      ),
+    );
     try {
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1']}>
-            <Routes>
-              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
-      const rowOf = async (sampleId: string) =>
-        (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
-
       const e1 = await rowOf('E1');
       expect(await within(e1).findByText('Affected / at risk')).toHaveClass('segregation-badge--affected_or_at_risk');
       expect(within(e1).queryByText('Carrier')).not.toBeInTheDocument();
@@ -801,7 +801,7 @@ describe('FamilyDetailPage', () => {
       expect(within(e2).getByText('Unaffected')).toHaveClass('segregation-badge--unaffected_non_carrier');
       expect(within(e2).queryByText('⚠ sex unknown')).not.toBeInTheDocument();
     } finally {
-      get.mockImplementation(working);
+      restore();
     }
   });
 
@@ -815,62 +815,20 @@ describe('FamilyDetailPage', () => {
       { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
       { sample_id: 'E2', role: 'embryo', affected: false, sex: 'female' },
     ];
-    const block = (hap1: string, hap2: string, lineage = 'maternal') => ({
-      chr: '7',
-      start: 29_000_000,
-      end: 32_000_000,
-      hap1,
-      hap2,
-      hap1_lineage: 'paternal',
-      hap2_lineage: lineage,
-    });
-    const get = api.get as unknown as Mock;
-    const working = get.getMockImplementation()!;
-    get.mockImplementation(async (url: string, config?: unknown) => {
-      if (url === '/families/F1') {
-        const family = (await working(url, config)) as { data: Record<string, unknown> };
-        return {
-          data: {
-            ...family.data,
-            metadata: {
-              ...(family.data.metadata as object),
-              pgt: { inheritance_model: 'AD' },
-              haplotype_phase_corrections: [
-                { parent: 'DAD', side: 'father', chr: '7', position: 30_400_000, end: 30_450_000, children_switching: 3, children: 3 },
-              ],
-            },
-            roi: { query: 'GENEY', label: 'GENEY', source: 'gene', assembly_id: 'asm1', chr: '7', start: 30_500_000, end: 30_600_000 },
-          },
-        };
-      }
-      if (url === '/families/F1/haplotypes') {
-        return {
-          data: {
-            chr: '7',
-            samples: [
-              { sample: 'DAD', segments: [block('0', '1', 'paternal')] },
-              { sample: 'KID', segments: [block('1', '0')] },
-              { sample: 'E1', segments: [block('1', '1')] },
-              { sample: 'E2', segments: [block('0', '1')] },
-            ],
-          },
-        };
-      }
-      return working(url, config);
-    });
+    const restore = renderWithAnalysis(
+      pgtAnalysis(
+        [
+          { sample: 'E1', call: 'affected_or_at_risk' },
+          { sample: 'E2', call: 'unaffected_non_carrier' },
+        ],
+        {
+          phase_corrections: [
+            { parent: 'DAD', side: 'father', chr: '7', position: 30_400_000, end: 30_450_000, children_switching: 3, children: 3 },
+          ],
+        },
+      ),
+    );
     try {
-      render(
-        <QueryClientProvider client={createTestQueryClient()}>
-          <MemoryRouter initialEntries={['/families/F1']}>
-            <Routes>
-              <Route path="/families/:familyId" element={<FamilyDetailPage />} />
-            </Routes>
-          </MemoryRouter>
-        </QueryClientProvider>,
-      );
-      const rowOf = async (sampleId: string) =>
-        (await screen.findByRole('button', { name: sampleId })).closest('tr') as HTMLElement;
-
       for (const embryo of ['E1', 'E2']) {
         const row = await rowOf(embryo);
         const warning = await within(row).findByRole('button', { name: /Phase corrected: 3 of 3 children switched together on the father's side/ });
@@ -880,7 +838,7 @@ describe('FamilyDetailPage', () => {
       expect(within(await rowOf('E1')).getByText('Affected / at risk')).toBeInTheDocument();
       expect(within(await rowOf('E2')).getByText('Unaffected')).toBeInTheDocument();
     } finally {
-      get.mockImplementation(working);
+      restore();
     }
   });
 

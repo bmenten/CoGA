@@ -30,8 +30,8 @@ classification, consequence and tags, with the number of carriers (het and hom) 
   T2T (see [Small-variant prioritisation](#small-variant-filtering)).
 - A gene panel works as on the family page too: it keeps the variants of its genes and the variants in
   its regions (PanelApp's regions for the assembly, and each gene's position in the gene reference), so a
-  variant whose annotation names its gene differently is kept. A panel of more than 1,000 regions, such
-  as the Mendeliome, is matched on gene symbols alone.
+  variant whose annotation names its gene differently is kept. This holds for a panel of any size, the
+  Mendeliome included.
 - Click a het, hom or family count to see the carriers per family, with links to their family pages.
 - Imputed calls are left out unless you tick **Include imputed variants (GLIMPSE2 / SHAPEIT)**.
 - **Download CSV** exports the filtered variants with their annotation, up to 50,000 rows. A file that

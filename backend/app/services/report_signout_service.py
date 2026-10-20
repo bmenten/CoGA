@@ -10,11 +10,12 @@ annotation/reference versions (the manifest), the reported variant list, each
 classification with its frozen evidence snapshot, and the evidence-drift state at the
 moment of sign-out; and what the analysis looked at (``signed_record_sections``): each
 reported variant's description, the gene-panel versions its searches applied, the
-reference-data releases, and the family's repeat-expansion and Paraphase results, and for a
-monogenic NIPT family its NIPT results (``signed_record_nipt``): a NIPT analysis is signed
-out through this same sign-out, from the NIPT page or the report page. The
-snapshot is content-hashed (SHA-256) and written append-only into ``report_signouts`` as a
-new version; the sign-out is recorded in the immutable clinical audit trail.
+reference-data releases, the family's repeat-expansion and Paraphase results, in a PGT
+family each embryo's call at the region of interest, and in a monogenic NIPT family its NIPT
+results (``signed_record_nipt``): a NIPT analysis is signed out through this same sign-out,
+from the NIPT page or the report page. The snapshot is content-hashed (SHA-256) and written
+append-only into ``report_signouts`` as a new version; the sign-out is recorded in the
+immutable clinical audit trail.
 
 Sign-out is gated on evidence drift: if any classification's backing annotation has
 changed since it was made — a small variant's ACMG classification, or a structural
@@ -960,8 +961,9 @@ async def build_report_snapshot(
         key=lambda item: item.get("variant_id") or "",
     )
     # What the analysis looked at: each reported variant's description, the gene-panel
-    # versions its searches applied, the reference-data releases, and the family's repeat
-    # expansions and Paraphase results (signed_record_sections, one key each).
+    # versions its searches applied, the reference-data releases, the family's repeat
+    # expansions and Paraphase results, a PGT family's embryo calls and a monogenic NIPT
+    # family's NIPT results (signed_record_sections, one key each).
     sections = await build_record_sections(
         session,
         context=context,
@@ -1595,15 +1597,16 @@ REPORT_CONTENT_SECTIONS = (
     "import_incomplete",
     "import_unfinished",
     # What the analysis looked at (signed_record_sections): the variant descriptions, the
-    # gene panels applied, the reference-data releases, the repeat expansions and the
-    # Paraphase results, and a NIPT family's NIPT results.
+    # gene panels applied, the reference-data releases, the repeat expansions, the
+    # Paraphase results and, in a PGT family, the embryo calls, in a monogenic NIPT family,
+    # the NIPT results.
     *(section.key for section in RECORD_SECTIONS),
 )
 # A section a record does not hold (one CoGA adds after it was signed) cannot be compared
-# and is reported as such; one neither the record nor the family's current data holds
-# (another application's) is left out. The record's statement of what it is
-# ("record_statement") is not report content either: it is the same sentence for every
-# record of one build.
+# and is reported as such; a section of one application (the PGT embryo calls, the NIPT
+# results) that neither the record nor the family's current data holds is no section of
+# this family and is not named. The record's statement of what it is ("record_statement")
+# is not report content either: it is the same sentence for every record of one build.
 
 
 def _section_fingerprint(value: Any) -> str:
@@ -1658,7 +1661,9 @@ async def compare_report_with_latest_signout(
     version; on that version, whether the family's data changed since (#508). This
     rebuilds the snapshot body and compares it, section by section, with the frozen one. A
     section or reference module the signed record predates is listed in ``not_compared``
-    (a module as ``modules.<key>``) rather than reported as changed.
+    (a module as ``modules.<key>``) rather than reported as changed. A section of one
+    application that neither holds (``pgt_analysis`` of a family without an embryo, ``nipt``
+    of a family that is no monogenic NIPT family) is neither compared nor listed.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1698,8 +1703,9 @@ async def compare_report_with_latest_signout(
     for section in REPORT_CONTENT_SECTIONS:
         if section not in signed:
             # A section CoGA added after the record was signed is not compared. One that
-            # neither holds is not this family's (another application's, such as the NIPT
-            # results of a family that is no NIPT family): there is nothing to compare.
+            # neither holds is another application's (the PGT embryo calls of a family
+            # without an embryo, the NIPT results of a family that is no NIPT family): there
+            # is nothing to compare, and nothing to name.
             if section in current:
                 not_compared.append(section)
             continue

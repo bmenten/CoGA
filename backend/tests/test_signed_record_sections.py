@@ -3,8 +3,9 @@
 Each section of ``signed_record_sections``: the reported variants' descriptions (gene,
 transcript, HGVS c. and p., consequence and each sample's genotype; an SV's type, locus,
 genes and copy number), the reference-data releases, the repeat-expansion calls and the
-Paraphase results with their status and the catalogue behind it; a section that cannot be
-read frozen as an explicit marker, which ``snapshot_gaps`` names.
+Paraphase results with their status and the catalogue behind it, and in a PGT family only
+the PGT analysis the family page shows; a section that cannot be read frozen as an explicit
+marker, which ``snapshot_gaps`` names.
 """
 
 from __future__ import annotations
@@ -24,6 +25,12 @@ from backend.app.schemas import (
     ParaphaseGeneResultOut,
     ParaphaseMetricOut,
     ParaphaseSampleResultOut,
+    PgtAnalysisOut,
+    PgtDiseaseHaplotypeOut,
+    PgtEmbryoOut,
+    PgtInheritanceModelOut,
+    PgtRegionOfInterestOut,
+    PgtRulesOut,
     RepeatExpansionRowOut,
     RepeatExpansionSampleCallOut,
     VariantOut,
@@ -454,8 +461,10 @@ def test_a_section_that_cannot_be_read_is_frozen_as_unavailable_and_named(monkey
         )
     )
 
-    # Every section but another application's: this family is no NIPT family.
+    # Every section but another application's: this family has no embryo (the PGT section
+    # is a PGT family's alone) and is no NIPT family.
     assert set(sections) == {section.key for section in srs.RECORD_SECTIONS if section.application is None}
+    assert srs.PGT_ANALYSIS.key not in sections
     assert srs.NIPT_RESULTS.key not in sections
     # A fixed sentence, never the error's text, which may quote what it read.
     assert sections["variant_descriptions"] == {"unavailable": srs.VARIANT_DESCRIPTIONS.unavailable}
@@ -548,7 +557,10 @@ def test_a_nipt_family_holds_its_nipt_results_read_for_its_reported_variants(mon
     session = _nipt_family_session()
     sections = _sections_of(session, monkeypatch, reported=[{"variant_id": "1-1001-A-G"}])
 
-    assert set(sections) == {section.key for section in srs.RECORD_SECTIONS}
+    # Every section without an application, and the NIPT one: this family has no embryo.
+    assert set(sections) == {
+        section.key for section in srs.RECORD_SECTIONS if section.application in (None, "nipt")
+    }
     assert sections["nipt"] == {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
     assert asked == [{"family": "FAM1", "reported": ["1-1001-A-G"]}]
     # In a savepoint of its own, as every section: six for a family without one, seven here.
@@ -587,3 +599,105 @@ def test_a_section_a_record_predates_is_no_gap(absent: str) -> None:
     # Said by the signed view and listed by the check as not compared, not as not captured.
     snapshot = {section.key: {} for section in srs.RECORD_SECTIONS if section.key != absent}
     assert srs.record_section_gaps(snapshot) == []
+
+
+# --- The PGT analysis, in a PGT family ---------------------------------------------------
+
+
+def _pgt_context(*roles: str) -> types.SimpleNamespace:
+    return types.SimpleNamespace(
+        **vars(_context()),
+        sample_rows=[{"sample_id": f"S{index}", "role": role} for index, role in enumerate(roles)],
+    )
+
+
+def _analysis() -> PgtAnalysisOut:
+    return PgtAnalysisOut(
+        region_of_interest=PgtRegionOfInterestOut(query="GENE1", label="GENE1", source="gene", chrom="7", start=10, end=20),
+        inheritance_model=PgtInheritanceModelOut(recorded="AD", applied="AD", mode="dominant"),
+        disease_haplotype_resolved=True,
+        disease_haplotypes=[PgtDiseaseHaplotypeOut(origin="paternal", homolog="1", kind="dominant")],
+        embryos=[PgtEmbryoOut(sample="E1", sex="female", call="affected_or_at_risk", recombinations=[15])],
+        rules=PgtRulesOut(window_flank=1_000_000, recombination_flank=250_000, phase_switch_uncertainty=2_000_000),
+    )
+
+
+def _stub_other_sections(monkeypatch) -> None:
+    async def _empty_table(session, *, context):
+        return FamilyRepeatExpansionTableOut(loci=[])
+
+    async def _no_paraphase(session, *, context):
+        return FamilyParaphaseTableOut(genes=[])
+
+    monkeypatch.setattr(srs, "get_family_repeat_expansion_table_response", _empty_table)
+    monkeypatch.setattr(srs, "get_family_paraphase_table_response", _no_paraphase)
+
+
+def test_a_pgt_familys_record_freezes_the_analysis_the_family_page_shows(monkeypatch) -> None:
+    asked: list[Any] = []
+
+    async def _analysis_of(session, context):
+        asked.append(context)
+        return _analysis()
+
+    _stub_other_sections(monkeypatch)
+    monkeypatch.setattr(srs, "family_pgt_analysis", _analysis_of)
+    session = _Session()
+    context = _pgt_context("father", "mother", "embryo")
+    sections = asyncio.run(
+        srs.build_record_sections(session, context=context, reported=[], reported_structural=[])
+    )
+
+    # The object the family page reads from GET /families/{id}/pgt-analysis, as JSON.
+    assert sections["pgt_analysis"] == _analysis().model_dump(mode="json")
+    assert asked == [context]
+    # Every section without an application, and the PGT one: this family is no NIPT family.
+    assert set(sections) == {
+        section.key for section in srs.RECORD_SECTIONS if section.application in (None, "pgt")
+    }
+    # In a savepoint of its own, like every section.
+    assert session.savepoints == 7
+
+
+def test_a_family_without_an_embryo_holds_no_pgt_section(monkeypatch) -> None:
+    async def _never(session, context):  # pragma: no cover - must not be read
+        raise AssertionError("a family without an embryo has no PGT analysis")
+
+    _stub_other_sections(monkeypatch)
+    monkeypatch.setattr(srs, "family_pgt_analysis", _never)
+    sections = asyncio.run(
+        srs.build_record_sections(
+            _Session(), context=_pgt_context("father", "mother", "proband"), reported=[], reported_structural=[]
+        )
+    )
+    assert "pgt_analysis" not in sections
+
+
+def test_a_pgt_analysis_that_cannot_be_read_is_frozen_as_unavailable_and_named(monkeypatch) -> None:
+    async def _fails(session, context):
+        raise RuntimeError("SELECT ... WHERE sample = 'E1-secret'")
+
+    _stub_other_sections(monkeypatch)
+    monkeypatch.setattr(srs, "family_pgt_analysis", _fails)
+    sections = asyncio.run(
+        srs.build_record_sections(_Session(), context=_pgt_context("embryo"), reported=[], reported_structural=[])
+    )
+
+    assert sections["pgt_analysis"] == {"unavailable": "The PGT analysis's embryo results could not be read."}
+    assert "secret" not in str(sections)
+    assert srs.record_section_gaps(sections) == [
+        {
+            "section": "pgt_analysis",
+            "item": "PGT embryo results",
+            "reason": "The PGT analysis's embryo results could not be read.",
+        }
+    ]
+
+
+def test_only_the_pgt_and_nipt_sections_belong_to_one_application() -> None:
+    assert {section.key: section.application for section in srs.RECORD_SECTIONS if section.application} == {
+        "pgt_analysis": "pgt",
+        "nipt": "nipt",
+    }
+    assert srs.PGT_ANALYSIS.application == "pgt"
+    assert srs.NIPT_RESULTS.application == "nipt"
