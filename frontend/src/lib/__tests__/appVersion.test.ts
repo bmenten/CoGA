@@ -14,6 +14,12 @@ describe('formatBuild / formatSoftwareVersion', () => {
     expect(formatSoftwareVersion('0.1.0-beta.1', '0123456789ab')).toBe('CoGA 0.1.0-beta.1 (0123456)');
   });
 
+  it('show a development build as the server reports it, never as the release it precedes', () => {
+    // Only a release build reports a release's version (TF-18 §2): any other build carries `dev`.
+    expect(formatBuild('0.1.0-rc.1.dev', '0123456789ab')).toBe('0.1.0-rc.1.dev (0123456)');
+    expect(formatSoftwareVersion('0.1.0-dev', '0123456789ab')).toBe('CoGA 0.1.0-dev (0123456)');
+  });
+
   it('leave out a git SHA the build did not record', () => {
     expect(formatSoftwareVersion('0.0.0+unknown', 'unknown')).toBe('CoGA 0.0.0+unknown');
     expect(formatSoftwareVersion('0.1.0', '')).toBe('CoGA 0.1.0');

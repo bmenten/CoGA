@@ -118,11 +118,13 @@ Three limits are stated so the artifact is not overread:
 - **Container base images are not inventoried** — only the two dependency lockfiles are covered.
   **🔲 ACTION:** add a container/base-image SBOM (e.g. syft against the pushed image digests).
 - Only **CycloneDX** is produced; there is no SPDX output.
-- The `sbom` job is **not** a required status check, and the release build (`build.yml`, which
-  runs on `release: published`) makes no SBOM: the release's SBOM comes from the CI run of the
-  tagged commit. Capturing it into the technical file is therefore a **manual archiving step**
-  ([`RELEASING.md`](../../RELEASING.md), [TF-18](TF-18-change-configuration-management.md)), and
-  the artifact expires after 90 days if not archived.
+- The `sbom` job is **not** a required status check. The release build (`build.yml`, which
+  runs on `release: published`) makes the release's SBOMs itself, from the release commit with
+  the same script, generator pins and runtimes, and attaches them with their SHA-256 sums to
+  the GitHub release (job `release-sbom`), where they stay as long as the release does, not
+  the 90 days of the CI artifact; the release record cites their sums
+  ([`RELEASING.md`](../../RELEASING.md), [TF-18](TF-18-change-configuration-management.md)).
+  Deleting the release deletes them.
 
 ## 6. Vulnerability management
 - **Monitoring:** Dependabot (in use) + CVE feeds for layer-A SOUP, especially security-critical items (`PyJWT`/`cryptography`, `bcrypt`, `axios`, `@azure/msal-browser`, FastAPI/Starlette, drivers).

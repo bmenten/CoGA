@@ -40,9 +40,9 @@ COPY backend/app ./app
 # image (TF-13). The dev stack mounts the whole folder over /app/scripts.
 COPY scripts/clinical_cnv_knowledgebase.py scripts/import_dgv.py ./scripts/
 
-# The version the image is built from (TF-18 §2). Settings reports it when no APP_VERSION
-# is stamped; it sits at /VERSION, outside /app, so the dev stack's bind mount of backend/
-# over /app does not hide it.
+# The version the image is built from (TF-18 §2). Settings reports it, as a development
+# build (0.1.0-dev), when no APP_VERSION is stamped; it sits at /VERSION, outside /app, so
+# the dev stack's bind mount of backend/ over /app does not hide it.
 COPY VERSION /VERSION
 
 # Build identity, injected via --build-arg (see docker-compose build args). Placed
@@ -50,7 +50,9 @@ COPY VERSION /VERSION
 # Baked into the base image as ENV so both dev and production runtimes report it via
 # Settings (the .git dir is excluded from the build context, so the short SHA must be
 # passed in by the build invoker, e.g. GIT_SHA="$(git rev-parse --short=12 HEAD)").
-# An empty APP_VERSION means "not stamped": Settings then reads /VERSION.
+# An empty APP_VERSION means "not stamped": Settings then reports /VERSION's version as a
+# development build. Only the release build stamps a release's version
+# (scripts/build-version.sh).
 ARG APP_VERSION=
 ARG GIT_SHA=unknown
 ENV APP_VERSION=${APP_VERSION} \
