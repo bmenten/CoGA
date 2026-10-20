@@ -196,7 +196,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   rare high- or moderate-impact variants with the ClinVar P/LP frequency override, so a
   long-read genome's screen reaches chrX within the candidate window.
 - **Structural variants, CNVs and repeats** — SV gene and panel filters before the candidate
-  cap; SV length filters that measure a call's SVLEN (without one, the length its alleles
+  cap, a gene panel of any size, the Mendeliome included, keeping the SVs whose annotation
+  names one of its genes as well as those overlapping one of its regions; SV length filters that measure a call's SVLEN (without one, the length its alleles
   state for a call written as its sequence, END − POS otherwise), an insertion written with
   END at POS included, and let a translocation pass any minimum but no exact length; SV
   records written without END or SVTYPE read as VCF 4.4 defines them, a deletion

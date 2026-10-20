@@ -25,7 +25,7 @@ from .bed_service import (
     get_track_sources_by_sample,
 )
 from .clickhouse_family_variants import (
-    _fetch_panel_regions,
+    _fetch_panel_constraints,
     _fetch_structural_variant_rows,
     _small_variant_present_sample_names,
     _structural_present_sample_names,
@@ -35,7 +35,7 @@ from .clickhouse_interval_tracks import (
     interval_track_normalizations_by_sample,
 )
 from .coverage_read_depth import coverage_contents
-from .clickhouse_variant_queries import _structural_record_matches
+from .clickhouse_variant_queries import _StructuralPanelMatch, _structural_record_matches
 from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
 from .phased_marker_service import get_family_phased_markers_response
@@ -506,11 +506,16 @@ async def get_family_track_availability_for_user(
         sample_filters=sample_filters or [],
         overlap=overlap,
     )
-    include_regions = (
-        await _fetch_panel_regions(session, panel_id, assembly_id=context.assembly_id)
+    panel = (
+        await _fetch_panel_constraints(session, panel_id, assembly_id=context.assembly_id)
         if panel_id
-        else []
+        else None
     )
+    # The small-variant presence applies the panel's regions; the SV presence the panel as
+    # the SV search and its genome track apply it (_StructuralPanelMatch): an SV whose
+    # annotation names one of its genes or that overlaps one of its regions.
+    include_regions = list(panel.regions) if panel is not None else []
+    sv_panel = _StructuralPanelMatch(panel) if panel is not None else None
 
     # Per-sample small-variant presence in ONE aggregate query (replaces the former N
     # per-sample limit=1 probes), filter-equivalent to them. Runs concurrently with the
@@ -523,12 +528,12 @@ async def get_family_track_availability_for_user(
     # Structural presence: when no Python-side SV filter is active (the common, and most
     # expensive, unfiltered workspace-load case), use the cheap per-sample aggregate instead
     # of materialising + JSON-decoding the entire family SV set. Any active Python-side
-    # filter (type/source/length/remote/panel-regions/sample) falls back to the exact
+    # filter (type/source/length/remote/panel/sample) falls back to the exact
     # row-fetch + per-sample matching — those queries return far less data anyway.
     # Must cover EVERY filter _structural_record_matches applies Python-side. This endpoint
-    # never sets gene / panel-gene-terms / annotation filters (they stay at dataclass
-    # defaults), but gene is guarded defensively so a future param can't silently bypass the
-    # aggregate; if SV annotation filters are ever threaded in, add them here too.
+    # never sets gene / annotation filters (they stay at dataclass defaults), but gene is
+    # guarded defensively so a future param can't silently bypass the aggregate; if SV
+    # annotation filters are ever threaded in, add them here too.
     sv_needs_python = (
         bool(structural_filters.variant_type)
         or bool(structural_filters.source)
@@ -538,10 +543,11 @@ async def get_family_track_availability_for_user(
         or structural_filters.remote_start is not None
         or bool(structural_filters.sample_filters)
         or bool(getattr(structural_filters, "gene", None))
-        or bool(include_regions)
+        or sv_panel is not None
     )
     sv_task = (
-        _fetch_structural_variant_rows(context, structural_filters)
+        # The panel narrows the read in SQL as well, as on the SV page.
+        _fetch_structural_variant_rows(context, structural_filters, panel=panel)
         if sv_needs_python
         else _structural_present_sample_names(context, structural_filters)
     )
@@ -595,8 +601,9 @@ async def get_family_track_availability_for_user(
                 _structural_record_matches(
                     record,
                     sample_structural_filters,
-                    include_regions,
+                    [],
                     [sample_name],
+                    panel=sv_panel,
                 )
                 for record in structural_records
             )
