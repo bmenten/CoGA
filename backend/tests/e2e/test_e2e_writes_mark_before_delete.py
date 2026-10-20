@@ -249,7 +249,8 @@ async def _exercise(family_id: str) -> dict[str, Any]:
 
         response = await ac.post(
             f"/api/bed/upload/{names['child']}/coverage",
-            params={"overwrite": "true"},
+            # A coverage BED declares what it holds (TRACE-9).
+            params={"overwrite": "true", "content": "read_depth"},
             files={"file": ("coverage.bed", b"1\t0\t1000\tbin1\t31.0\n1\t1000\t2000\tbin2\t29.5\n", "text/plain")},
         )
         await step("bed", response)

@@ -289,4 +289,88 @@ describe('CoverageSegmentsChart', () => {
     expect(await screen.findByRole('img', { name: /^Coverage log2 ratio: no data; gain > / })).toBeInTheDocument();
     expect(screen.getByText('No coverage data in this region')).toBeInTheDocument();
   });
+
+  // TRACE-9 — a coverage track is drawn on the axis of what it holds. Read depth on a depth axis
+  // from 0, without the gain/loss colouring (its thresholds are log2 ratios) and without the
+  // segments (log2 ratios).
+  it('draws read depth on a depth axis from 0, without the log2 thresholds or the segments', async () => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) =>
+      String(input).includes('segments')
+        ? Promise.resolve({ ok: true, json: async () => ({ items: [{ chr: '1', start: 0, end: 300, value: 0.9 }] }) })
+        : Promise.resolve({
+            ok: true,
+            json: async () => ({
+              items: [
+                { chr: '1', start: 0, end: 100, value: 28 },
+                { chr: '1', start: 100, end: 200, value: 31 },
+                { chr: '1', start: 200, end: 300, value: 60 },
+              ],
+            }),
+          }),
+    );
+    serveTrackFetchFrom(fetchMock);
+
+    renderWithClient(
+      <CoverageSegmentsChart
+        coverageUrls={['https://example.test/coverage']}
+        segmentsUrls={['https://example.test/segments']}
+        scale="read_depth"
+        chroms={['1']}
+        regionStart={0}
+        regionEnd={300}
+        width={320}
+        height={120}
+      />,
+    );
+
+    // The axis: 0 to a round number at or above the values, labelled in ×.
+    expect(await screen.findByRole('img', { name: 'Coverage read depth; read depth · axis 0–60×' })).toBeInTheDocument();
+    expect(screen.getByText('read depth · axis 0–60×')).toBeInTheDocument();
+    expect(screen.queryByText(/gain >/)).not.toBeInTheDocument();
+    await waitFor(() => expect(canvasContext.arc).toHaveBeenCalledTimes(3));
+    const labels = (canvasContext.fillText as unknown as ReturnType<typeof vi.fn>).mock.calls.map(([text]) => text);
+    expect(labels).toEqual(['0×', '20×', '40×', '60×']);
+    // No segment line beside depths: only the four gridlines are stroked.
+    expect(canvasContext.stroke).toHaveBeenCalledTimes(4);
+  });
+
+  // A coverage BED that does not declare what it holds: its values on their own range, with no
+  // gridline or label that would give them a unit.
+  it('draws values of unknown kind on their own range, without an axis', async () => {
+    serveTrackFetchFrom(
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: async () => ({
+            items: [
+              { chr: '1', start: 0, end: 100, value: 0.2 },
+              { chr: '1', start: 100, end: 200, value: 1.4 },
+            ],
+          }),
+        }),
+      ),
+    );
+
+    renderWithClient(
+      <CoverageSegmentsChart
+        coverageUrls={['https://example.test/coverage']}
+        scale="unknown"
+        chroms={['1']}
+        regionStart={0}
+        regionEnd={200}
+        width={320}
+        height={120}
+      />,
+    );
+
+    expect(
+      await screen.findByRole('img', {
+        name: 'Coverage of unknown kind; drawn on its own range, without an axis',
+      }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('values of unknown kind (0.2–1.4) · no axis')).toBeInTheDocument();
+    await waitFor(() => expect(canvasContext.arc).toHaveBeenCalledTimes(2));
+    expect(canvasContext.fillText).not.toHaveBeenCalled();
+    expect(canvasContext.stroke).not.toHaveBeenCalled();
+  });
 });

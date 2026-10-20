@@ -274,7 +274,8 @@ async def test_an_update_imports_coverage_whose_rows_are_gone_though_postgres_re
     # Before: skipped as there, the rows still gone, and reported as imported.
     assert stores.rows == {(_uuid("S1"), "coverage", "web"): 3}
     assert (result.status, result.message) == ("imported", "Imported coverage into interval tracks")
-    assert result.summary == {"S1": {"inserted": 3}}
+    # The BED declares nothing of what it holds: stored as unknown (TRACE-9).
+    assert result.summary == {"S1": {"inserted": 3, "content": "unknown"}}
     assert job.skipped_samples == set()
 
 
@@ -690,5 +691,6 @@ async def test_a_sample_an_update_skipped_keeps_the_datasets_failure_flagged(
     )
     # S1 was not imported again, so the failure, for S1 and S2, stays. Before: cleared.
     assert stores.flag["failed_datasets"] == ["coverage", "snv"]
-    # What the family holds records the sample this import imported.
-    assert {"source": None, "samples": ["S2"]} in stores.imported["coverage"]
+    # What the family holds records the sample this import imported, with what its BED
+    # declared it holds: nothing, so unknown (TRACE-9).
+    assert {"source": None, "samples": ["S2"], "content": "unknown"} in stores.imported["coverage"]

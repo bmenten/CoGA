@@ -49,6 +49,7 @@ import NiptRecessiveGenes from './NiptRecessiveGenes';
 import NiptTargetCoverage from './NiptTargetCoverage';
 import VariantResultsLoading from './VariantResultsLoading';
 import { apiPath } from '../../lib/apiPath';
+import NiptCoverageNotes from './NiptCoverageNotes';
 
 const PAGE_SIZE = 50;
 
@@ -697,6 +698,7 @@ const FamilyNiptPage: React.FC = () => {
                     </Link>
                   </p>
                 )}
+                <NiptCoverageNotes notes={coverage.coverage_notes} />
               </>
             )
           ) : coverageFailed ? (

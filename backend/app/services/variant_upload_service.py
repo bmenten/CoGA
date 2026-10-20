@@ -589,39 +589,6 @@ async def _rewrite_with_sample_calls(
         raise
 
 
-async def remove_family_small_variant_sample_calls(
-    session: AsyncSession,
-    context: FamilyMetadataContext,
-    samples: Iterable[SampleMetadataContext],
-    *,
-    source: str,
-) -> int:
-    """Remove these samples' calls from the family's ``source`` rows, every other call as
-    stored, and return how many rows held one.
-
-    For a callset stored one file per sample whose new file holds no call (a mitochondrial
-    run with no chrM variant): the sample then has no call of that callset. The family's
-    small-variant write lock is held from the read until ``session``'s transaction ends.
-    """
-    if not context.assembly_name:
-        return 0
-    await lock_family_variant_writes(session, context.family_uuid, [SMALL_VARIANTS])
-    replaced = _sample_call_ids(samples)
-    stored = await fetch_family_small_variant_entries(
-        context.assembly_name, context.family_uuid, source=source
-    )
-    held = sum(
-        1
-        for entry in stored
-        if any(str(sample) in replaced for sample in entry["calls.sampleId"] or [])
-    )
-    if held:
-        await _rewrite_with_sample_calls(
-            context, source=source, stored=stored, replaced=replaced, uploaded=[]
-        )
-    return held
-
-
 @dataclass
 class _SmallVariantFileRead:
     """What one read of a small-variant VCF found (``upload_family_small_variant_file``):

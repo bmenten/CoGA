@@ -325,6 +325,11 @@ async def _track_availability(
     monkeypatch.setattr(service + "_structural_present_sample_names", nobody)
     monkeypatch.setattr(service + "interval_track_normalizations_by_sample", normalizations)
 
+    async def no_declarations(*_args: Any, **_kwargs: Any) -> dict[str, dict[str, list[str]]]:
+        return {}  # no coverage BED among these tracks (TRACE-9)
+
+    monkeypatch.setattr(service + "interval_track_contents_by_sample", no_declarations)
+
     availability = await get_family_track_availability_for_user(
         None,  # type: ignore[arg-type]
         family_id="FAM",
