@@ -1229,6 +1229,19 @@ A family small-variant upload is one family VCF from one callset:
   position: it is skipped and counted with the malformed records (`skipped_malformed`), and a
   file of such records alone holds no record the upload can store (400). The rule for every
   column is in [database.md](database.md#clickhouse-tables).
+- A record's annotation is read from its VEP `CSQ` (or snpEff `ANN`) entries, and from its
+  INFO where an entry has no value (`variant_annotation_parser.py`). A population frequency
+  or count is read only from a field that names its source: gnomAD's (`gnomAD_AF`,
+  `gnomADe_AF`, `gnomADg_AF`, `gnomAD_AF_POPMAX`, `gnomAD_AC`, `gnomADe_AC`, `gnomADg_AC`,
+  `gnomAD_nhomalt`, `gnomAD_Hom`, `gnomAD_Hemi`, in the spellings the parser lists),
+  TOPMed's (`TOPMed_AF`), and VEP's `MAX_AF` and `POPMAX_AF`. The INFO's `AC`, the
+  callset's own allele count, is never read as gnomAD's, nor are `AC_Adj`, `nhomalt` and
+  `hemi` without a prefix: before (CLIN-59), a record whose CSQ had no gnomAD count took
+  them, so a maximum gnomAD AC filter filtered on the family's own count. A variant without
+  a population value has none, and a maximum frequency or count filter keeps it, as absent
+  from gnomAD. A package's `snv` dataset, its VEP table and the per-sample callsets are read
+  the same way; a callset stored before keeps the counts it was stored with until it is
+  uploaded or imported again.
 - ClickHouse has no transactions, so a write that still fails after that delete (ClickHouse
   failing part-way) answers 500 with the callset gone: the rows the write had stored are
   removed again. The family is then flagged import-incomplete
