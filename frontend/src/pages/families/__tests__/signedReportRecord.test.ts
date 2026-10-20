@@ -5,9 +5,14 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
+  coverageTrackCaller,
   describeBreachedMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
+  describeCoverageContent,
+  describeCoverageFiles,
+  describeCoverageTrack,
+  describeCoverageTracks,
   describeDiseaseHaplotypes,
   describeEmbryoCall,
   describeEmbryoQc,
@@ -47,6 +52,7 @@ import {
   parseSignedReport,
   parseSignedVersionParam,
   reportViewSearch,
+  type SignedCoverageTrack,
   type SignedPgtAnalysis,
   type SignedReport,
 } from '../signedReportRecord';
@@ -833,6 +839,99 @@ describe('what the analysis looked at', () => {
     expect(paraphaseStatusWords('no_call')).toBe('No-call');
     expect(paraphaseStatusWords('none')).toBe('No change');
     expect(paraphaseStatusWords(null)).toBe('Not assessed');
+  });
+});
+
+// What each coverage track held, frozen since 2026-10-20 (signed_record_sections.coverage_tracks):
+// which kind of coverage a depth check rested on (TRACE-9).
+describe('what each coverage track held', () => {
+  const tracksOf = (snapshot: Record<string, unknown>): SignedCoverageTrack[] => {
+    const section = parseSignedReport(snapshot)!.coverageTracks;
+    expect(section.state).toBe('recorded');
+    return section.state === 'recorded' ? section.value : [];
+  };
+
+  it('reads each track the record holds, per sample and caller, with where it came from', () => {
+    const tracks = tracksOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS });
+    // An entry that is not one is left out; the downloaded record keeps it as stored.
+    expect(tracks).toEqual([
+      {
+        sample: 'MOTHER',
+        source: 'web',
+        content: 'unknown',
+        files: [{ file: 'MOTHER.bed', rows: 2, loadedAt: '2026-10-01T09:00:00+00:00', loadedFrom: 'package' }],
+      },
+      {
+        sample: 'PROBAND',
+        source: 'web',
+        content: 'read_depth',
+        files: [{ file: 'PROBAND.upload.bed', rows: 1200, loadedAt: '2026-10-02T09:00:00+00:00', loadedFrom: 'upload' }],
+      },
+      {
+        sample: 'PROBAND',
+        source: 'wisecondorx',
+        content: 'log2_ratio',
+        files: [{ file: 'PROBAND_bins.bed', rows: 3000, loadedAt: '2026-10-01T09:00:00+00:00', loadedFrom: 'package' }],
+      },
+    ]);
+  });
+
+  it('words each track plainly, as the signed view and its printout list them', () => {
+    const tracks = tracksOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS });
+    expect(tracks.map(describeCoverageTrack)).toEqual([
+      'MOTHER coverage BED (package) — unknown',
+      'PROBAND coverage BED (upload) — read depth',
+      'PROBAND WisecondorX (package) — log2 ratio',
+    ]);
+    expect(describeCoverageTracks(tracks)).toBe(
+      'MOTHER coverage BED (package) — unknown; PROBAND coverage BED (upload) — read depth; PROBAND WisecondorX (package) — log2 ratio',
+    );
+    expect(describeCoverageTracks([])).toBe('none');
+    expect(tracks.map(describeCoverageContent)).toEqual([
+      'unknown: it declares neither read depth nor a log2 ratio, so it is not read as depth',
+      'read depth',
+      'log2 ratio, not read as depth',
+    ]);
+    expect(describeCoverageFiles(tracks[1])).toBe(
+      'PROBAND.upload.bed, from a single-file upload, 1,200 rows, loaded 2026-10-02 09:00 UTC',
+    );
+    expect(describeCoverageFiles(tracks[0])).toBe('MOTHER.bed, from a package import, 2 rows, loaded 2026-10-01 09:00 UTC');
+    expect(coverageTrackCaller('hificnv')).toBe('HiFiCNV');
+    expect(coverageTrackCaller('cnvkit')).toBe('cnvkit');
+  });
+
+  it('reads what it cannot be sure of as unknown or not recorded, never as depth', () => {
+    const [unknownCaller, odd, unrecorded] = tracksOf({
+      ...SNAPSHOT,
+      coverage_tracks: {
+        tracks: [
+          { sample: 'S1', source: 'cnvkit', content: 'unknown', files: [] },
+          // A value that is neither read depth nor a log2 ratio is read as unknown.
+          { sample: 'S1', source: 'web', content: 'depth', files: [{ file: 'S1.bed', loaded_from: 'demo-script' }] },
+          // A track stored before its loader recorded where it came from.
+          { sample: 'S2', source: 'web', content: 'unknown', files: [{ file: null, rows: null, loaded_at: null, loaded_from: null }] },
+        ],
+      },
+    });
+    expect(describeCoverageContent(unknownCaller)).toBe('unknown: what it holds is not recorded, so it is not read as depth');
+    expect(describeCoverageFiles(unknownCaller)).toBe('no file recorded');
+    expect(odd.content).toBe('unknown');
+    expect(describeCoverageTrack(odd)).toBe('S1 coverage BED (demo-script) — unknown');
+    expect(describeCoverageFiles(odd)).toBe('S1.bed, from demo-script');
+    expect(describeCoverageTrack(unrecorded)).toBe('S2 coverage BED (origin not recorded) — unknown');
+    expect(describeCoverageFiles(unrecorded)).toBe('file not named, origin not recorded');
+    // A family without a coverage track holds the section, as none.
+    expect(tracksOf({ ...SNAPSHOT, coverage_tracks: { tracks: [] } })).toEqual([]);
+  });
+
+  it('reads a record signed before the section as not holding it, and one that could not capture it as unavailable', () => {
+    expect(parseSignedReport(SNAPSHOT)!.coverageTracks).toEqual({ state: 'absent' });
+    expect(
+      parseSignedReport({ ...SNAPSHOT, coverage_tracks: { unavailable: 'The coverage tracks could not be read.' } })!
+        .coverageTracks,
+    ).toEqual({ state: 'unavailable', reason: 'The coverage tracks could not be read.' });
+    // The check names the section, when it changed since, in words.
+    expect(describeReportSections(['coverage_tracks', 'paraphase'])).toBe('coverage tracks and Paraphase results');
   });
 });
 

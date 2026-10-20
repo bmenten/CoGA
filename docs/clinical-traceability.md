@@ -307,6 +307,23 @@ in the EPD refers to the signed version by its report code (*The report code* be
     that is no monogenic NIPT family holds no `nipt` key: its record is as before. A trio that
     cannot be resolved (no active father, or no maternal plasma sample) is frozen as unavailable,
     with a sentence of its own;
+  - `coverage_tracks` (owner decision of 2026-10-20; TRACE-9): every coverage track of the
+    family's members, one per sample and caller (`source`: `web` for a coverage BED, an
+    upload's or a package's; `wisecondorx`, `qdnaseq`, `hificnv`), with what it holds as the
+    depth readers read it (`content`: `read_depth`, `log2_ratio` or `unknown`, by their one rule,
+    `coverage_read_depth.coverage_track_content`, over the same records: a coverage BED what it
+    declared when it was loaded, another caller's track what its import's transform made of its
+    file), and each file it was loaded from (`files`: its name, its rows, when it was loaded, and
+    from where: `upload` for a single-file upload, `package` for a package import's dataset, null
+    when its record does not say, as for a coverage BED loaded before 2026-10-20; with what a
+    coverage BED declared and the transform another caller's import recorded). Only a track of
+    read depth is read as depth (the mtDNA coverage and its `mtdna.mean_depth` verdict, the NIPT
+    coverage check without a per-target table), so the record says which kind of coverage a depth
+    check rested on. Read from the tracks' records in Postgres, as the PGT and NIPT sections read
+    their inputs. Every family's record holds it, as `{"tracks": []}` for a family without a
+    coverage track, so a track loaded after sign-out reads as a change. A monogenic NIPT family's
+    per-target coverage tables are another track type (`target_coverage`), which `nipt` holds
+    (`inputs.target_tables`); the NIPT section freezes no coverage note, so nothing is held twice;
 - the signer, the time, and any acknowledgement with its reason.
 
 Each section of what the analysis looked at is read inside a savepoint. One that cannot be
@@ -516,10 +533,13 @@ monogenic NIPT family its NIPT results (*NIPT results*: the fetal fraction and t
 checks with their verdicts, the coverage, the funnel and the categories, each reported variant
 as the NIPT analysis classified it, the recessive fetal risk, and what the analysis ran with);
 no other family's record shows or mentions either; the gene panels applied, the repeat
-expansions, the Paraphase results and the reference-data releases; the drift, Sample QC,
-sequencing QC and import state, with the
-acknowledgements; the frozen modules, and the reference-data releases beside them in the footer
-with the report code; and `not_captured`. A section the snapshot lacks is shown as not in the
+expansions, the Paraphase results, the coverage tracks (*Coverage tracks*: per sample and caller,
+what the track held, read depth, a log2 ratio or unknown, and the file it was loaded from, from
+where and when) and the reference-data releases; the drift, Sample QC, sequencing QC and import
+state, with the acknowledgements; the frozen modules, and the reference-data releases and the
+coverage tracks beside them in the footer (*Coverage tracks as signed: S1 coverage BED (package)
+— read depth; S1 WisecondorX (package) — log2 ratio; …*) with the report code; and
+`not_captured`. A section the snapshot lacks is shown as not in the
 record (*Not in the signed record: version N was signed before CoGA recorded …*), never as
 empty, and one frozen as unavailable as not captured, with its reason. A record without
 `pgt_analysis` says so only when its Sample QC read the family as a PGT family
@@ -719,6 +739,13 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   each gene with a weak target, not the coverage of a search's gene panel or genes as the NIPT
   page's coverage card reads it; without a per-target coverage table it holds no coverage QC at
   all (the page's coverage over a coverage track is read for a search's genes or the family's
-  region of interest). The artifact list and the de novo recurrence are shared by every family
-  of the assay: a change to the list, or another pregnancy of the assay imported since, makes
-  the sign-out check name `nipt` as changed.
+  region of interest): `coverage_tracks` holds what the plasma's coverage tracks held, so which
+  kind of coverage that check rested on, not its result. The artifact list and the de novo
+  recurrence are shared by every family of the assay: a change to the list, or another pregnancy
+  of the assay imported since, makes the sign-out check name `nipt` as changed.
+- `coverage_tracks` names each coverage track of the members as their records list it, not the
+  chromosomes a depth check read: the mtDNA coverage reads a track only where it has rows on
+  chrM, the NIPT coverage check on its targets' chromosomes, and a sample with two tracks of read
+  depth is read from its coverage BED. The mtDNA coverage and its verdict are not frozen. A
+  coverage BED loaded before 2026-10-20 has no record of where it came from (`loaded_from` null,
+  *origin not recorded* on the signed version).

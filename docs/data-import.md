@@ -1154,6 +1154,10 @@ An interval-track upload loads one sample's track of `bed_type` from a BED, unde
   ([Where each dataset lands](#where-each-dataset-lands)). The request's audit row names the
   parameter (`AUDIT_LOG_QUERY_STRING_MODE=keys` keeps the key, `sanitized` its value too). Before
   (TRACE-9), a coverage BED declared nothing and was read as depth.
+- The track's record also says a single-file upload loaded it (`uploaded_from: web`), and a
+  package's coverage BED's says a package did (`family_package`): both are stored under the source
+  `web`, and a sign-out freezes, for each coverage track, what it holds and where it came from
+  (`coverage_tracks`, [clinical-traceability.md](clinical-traceability.md#sign-out)).
 - The file is read and checked whole first. One that is not text, or holds no record of the
   track type, is refused (400) before anything is replaced: the stored tracks and their records
   stay as they were. A line whose start or end is negative is no record: it is left out, as a

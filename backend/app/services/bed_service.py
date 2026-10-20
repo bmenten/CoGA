@@ -220,6 +220,7 @@ async def upload_bed_data(
     record_upload: bool = False,
     source: str = BED_UPLOAD_SOURCE,
     content: str | None = None,
+    uploaded_from: str | None = None,
 ) -> dict[str, int]:
     """Store one sample's ``bed_type`` track from a BED file under ``source``, replacing
     (with ``overwrite``) the track of that type the sample has from that source. The tracks
@@ -245,6 +246,13 @@ async def upload_bed_data(
     used to record nothing, and was read as depth while the views drew it as a log2 ratio.
     What the upload brought is recorded with it (``interval_track_upload_scope``). The other
     track types declare nothing.
+
+    ``uploaded_from`` says where the file came from, kept in the track's record as the other
+    loaders keep it (``metadata.uploaded_from``): ``web`` for the single-file upload,
+    ``family_package`` for a package's dataset. The single-file upload and a package's
+    coverage BED share the source ``web``, so without it the signed record could not say which
+    of the two loaded a sample's coverage BED (``signed_record_sections.coverage_tracks``,
+    owner decision of 2026-10-20). None records nothing.
 
     ``record_upload`` is for the single-file upload, which holds the family's variant-write
     locks in this transaction before it calls this (``routers/bed.py``), as a package import
@@ -336,7 +344,11 @@ async def upload_bed_data(
         source=source,
         filename=file.filename or "",
         row_count=len(rows),
-        metadata=json.loads(metadata_json),
+        metadata={
+            **json.loads(metadata_json),
+            # Where the file came from, in the record alone, as the other loaders keep it.
+            **({"uploaded_from": uploaded_from} if uploaded_from else {}),
+        },
     )
     await session.commit()
     return {"inserted": len(rows)}

@@ -475,7 +475,7 @@ def test_a_section_that_cannot_be_read_is_frozen_as_unavailable_and_named(monkey
     # The others are read all the same, each in a savepoint of its own.
     assert sections["repeat_expansions"]["loci"][0]["locus_id"] == "HD_HTT"
     assert sections["gene_panels"] == {"applied": []}
-    assert session.savepoints == 6
+    assert session.savepoints == 7
     # The reference data names no gene when no variant could be described.
     assert sections["reference_data"]["gene_reference"]["genes"] == []
 
@@ -565,8 +565,8 @@ def test_a_nipt_family_holds_its_nipt_results_read_for_its_reported_variants(mon
     }
     assert sections["nipt"] == {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
     assert asked == [{"family": "FAM1", "reported": ["1-1001-A-G"]}]
-    # In a savepoint of its own, as every section: six for a family without one, seven here.
-    assert session.savepoints == 7
+    # In a savepoint of its own, as every section: seven for a family without one, eight here.
+    assert session.savepoints == 8
     # Whether it is a NIPT family is read from its metadata, bound, never spliced in.
     [(sql, params)] = [(sql, params) for sql, params in session.executed if "FROM families" in sql]
     assert "analysis_type" in sql and params == {"family_uuid": _context().family_uuid}
@@ -691,7 +691,7 @@ def test_a_pgt_familys_record_freezes_the_analysis_the_family_page_shows(monkeyp
         section.key for section in srs.RECORD_SECTIONS if section.application in (None, "pgt")
     }
     # In a savepoint of its own, like every section.
-    assert session.savepoints == 7
+    assert session.savepoints == 8
 
 
 def test_a_family_without_an_embryo_holds_no_pgt_section(monkeypatch) -> None:

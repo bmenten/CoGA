@@ -30,9 +30,13 @@ import {
 } from './reportSignoutQueries';
 import {
   ANALYTICAL_SIGN_OFF_STATEMENT,
+  coverageTrackCaller,
   describeBreachedMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
+  describeCoverageContent,
+  describeCoverageFiles,
+  describeCoverageTracks,
   describeDiseaseHaplotypes,
   describeEmbryoCall,
   describeEmbryoQc,
@@ -467,6 +471,58 @@ const describeReferenceDataLine = (record: SignedReport | null): string => {
     .join('; ');
 };
 
+/** The coverage tracks as the footer lists them, or why the record has none to list. */
+const describeCoverageTracksLine = (record: SignedReport | null): string => {
+  const coverage = record?.coverageTracks;
+  if (!coverage || coverage.state === 'absent') return 'not in the signed record';
+  if (coverage.state === 'unavailable') return `not captured (${coverage.reason})`;
+  return describeCoverageTracks(coverage.value);
+};
+
+/**
+ * What each coverage track of the family's samples held when the version was signed, as the
+ * depth readers read it (TRACE-9; owner decision of 2026-10-20), with the files each was loaded
+ * from: which kind of coverage a depth check rested on. Every family's record holds it since.
+ */
+const CoverageTracksSection: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => {
+  // The checks that read a coverage track as depth; a family that is no NIPT family hears nothing
+  // of NIPT.
+  const depthReaders = isNiptRecord(record)
+    ? 'by the mtDNA coverage and by the NIPT coverage check without a per-target table'
+    : 'by the mtDNA coverage and its depth verdict';
+  return (
+    <RecordSectionBlock
+      title="Coverage tracks"
+      what="what each coverage track holds"
+      section={record.coverageTracks}
+      version={version}
+    >
+      {(tracks) =>
+        tracks.length ? (
+          <>
+            <p className="report-paragraph">
+              What each coverage track of the family’s samples held when this version was signed, as CoGA
+              read it: read depth, a log2 ratio, or unknown. A coverage BED holds what it declared when it
+              was loaded; another caller’s track what its import recorded. Only a track of read depth is
+              read as depth, {depthReaders}.
+            </p>
+            <ul className="report-signed-list">
+              {tracks.map((track, index) => (
+                <li key={`${track.sample}-${track.source}-${index}`}>
+                  <strong>{track.sample}</strong> {coverageTrackCaller(track.source)}:{' '}
+                  {describeCoverageContent(track)}. {describeCoverageFiles(track)}.
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="report-paragraph">The family’s samples had no coverage track.</p>
+        )
+      }
+    </RecordSectionBlock>
+  );
+};
+
 // A NIPT check that could not run reads "Not run", as on the NIPT page.
 const niptStatusLabel = (status: string | null): string =>
   qcStatusLabel(status === 'unknown' ? 'skip' : status);
@@ -722,8 +778,8 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
 /**
  * What the analysis looked at beyond the reported variants, as the record froze it: a PGT
  * family's embryo calls, the gene panels its searches applied, the repeat expansions and
- * Paraphase results of the family's samples, and the reference-data releases. A section the
- * record predates says so.
+ * Paraphase results of the family's samples, what each of their coverage tracks held, and the
+ * reference-data releases. A section the record predates says so.
  */
 const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => (
   <>
@@ -828,6 +884,8 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
         </>
       )}
     </RecordSectionBlock>
+
+    <CoverageTracksSection record={record} version={version} />
 
     <RecordSectionBlock
       title="Reference-data releases"
@@ -1457,6 +1515,10 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
         <p className="report-footer-versions">
           <span className="report-footer-label">Reference data as signed:</span>{' '}
           {describeReferenceDataLine(record)}
+        </p>
+        <p className="report-footer-versions">
+          <span className="report-footer-label">Coverage tracks as signed:</span>{' '}
+          {describeCoverageTracksLine(record)}
         </p>
       </footer>
     </div>
