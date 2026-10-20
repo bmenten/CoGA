@@ -39,23 +39,43 @@ from .core.postgres import (
     init_postgres_schema,
     wait_for_postgres,
 )
-from .dependencies import get_password_hash
+from .dependencies import get_password_hash, verify_password
 
 
 async def init_postgres_admin_user() -> None:
-    """Ensure a metadata admin user exists in Postgres.
+    """Ensure the seeded admin user exists in Postgres, with ``ADMIN_PASSWORD`` as its password.
 
-    Idempotent: returns early if the admin username is already present. Safe to run either
-    as the owner (migration path) or as ``coga_app`` (which retains ``INSERT`` on ``users``).
+    That account is the emergency (break-glass) administrator beside Microsoft sign-in
+    (SEC-4). Its password is ``ADMIN_PASSWORD`` (Secret Manager in a deployment): when the
+    stored hash no longer matches it, the hash is replaced, so rotating the secret and
+    redeploying rotates the password; nothing else changes a local password. An account of
+    that name bound to a Microsoft object ID is left alone. Idempotent; safe to run either as
+    the owner (migration path) or as ``coga_app`` (which keeps ``INSERT`` and ``UPDATE`` on
+    ``users``).
     """
 
     engine = get_postgres_engine()
     async with engine.begin() as conn:
-        existing = await conn.execute(
-            text("SELECT id FROM users WHERE username = :username"),
-            {"username": settings.admin_username},
-        )
-        if existing.scalar_one_or_none() is not None:
+        existing = (
+            await conn.execute(
+                text(
+                    "SELECT id::text AS id, hashed_password, azure_object_id IS NOT NULL AS microsoft "
+                    "FROM users WHERE username = :username"
+                ),
+                {"username": settings.admin_username},
+            )
+        ).mappings().first()
+        if existing is not None:
+            if not existing["microsoft"] and not await asyncio.to_thread(
+                verify_password, settings.admin_password, existing["hashed_password"]
+            ):
+                await conn.execute(
+                    text("UPDATE users SET hashed_password = :hashed_password WHERE id = CAST(:id AS uuid)"),
+                    {
+                        "id": existing["id"],
+                        "hashed_password": await asyncio.to_thread(get_password_hash, settings.admin_password),
+                    },
+                )
             return
 
         await conn.execute(

@@ -656,6 +656,9 @@ datasets:
   wisecondorx:
     per_sample:
       SAMPLE1: {bins: wisecondorx/SAMPLE1/bins.bed, segments: wisecondorx/SAMPLE1/segments.bed}
+  coverage:
+    per_sample:
+      SAMPLE1: {bed: coverage/SAMPLE1.coverage.bed, content: read_depth}   # or log2_ratio
   cnv:
     per_sample:
       HG002:
@@ -723,6 +726,21 @@ The `snv` dataset takes three optional settings:
   input file. CoGA already strips known tool suffixes; a column that matches no family
   sample fails the import.
 
+A `coverage` entry that names a BED (`bed:`) declares what the BED holds: `content: read_depth`
+for read depths, `content: log2_ratio` for log2 ratios against the sample's baseline. The import
+keeps it with the track (`sample_interval_track_sources.metadata.content`,
+[database.md](database.md)), and it decides how the track is read: the coverage chart draws read
+depth on a depth axis and a log2 ratio on its log2-ratio axis, and the readers that take coverage
+as depth read a BED declared as read depth only ([below](#where-each-dataset-lands)). An entry
+without `content` imports as `unknown`, and validation warns (`coverage_content_undeclared`):
+such a track is drawn on its own range without an axis, with a note, and never read as depth. A
+`content` that is neither value is an error (`coverage_content_invalid`). A per-target coverage
+table (`target_table:`) declares nothing: it holds each target's depth. Before, a coverage BED
+declared nothing and recorded nothing of what it held (TRACE-9): the importer called it a BED of
+depths and the depth readers read it as one, while the coverage chart drew it on its log2-ratio
+axis. Coverage BEDs stored before declarations read as `unknown`: the data is synthetic, so none
+is migrated; import or upload such a BED again with what it holds.
+
 ### Where each dataset lands
 
 | Dataset | Stored as |
@@ -731,7 +749,7 @@ The `snv` dataset takes three optional settings:
 | `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample; a breakend with its mate, the position its ALT names in brackets, read as a structural-variant upload reads it ([below](#6-single-file-uploads)); each SV under the id its coordinates give it, never the record's ID, which its annotation keeps (below this table) |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
-| `coverage` | the `coverage` track (a BED per sample, `bed:`), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
+| `coverage` | the `coverage` track (a BED per sample, `bed:`, with what it holds, `content:`, [above](#the-manifest)), or the `target_coverage` track (a capture panel's per-target coverage table, `target_table:`, [below](#monogenic-nipt-pairs)) |
 | `apcad` | the `apcad` track: per SNV the embryo's alternate-allele fraction, tagged with the parent the alternate allele can only have come from. From a family VCF, or one trio VCF per embryo (`vcf:` under `per_sample`) |
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
@@ -747,8 +765,9 @@ another, and two callers' rows of one variant stay two rows in storage
 ([database.md](database.md#row-identity)). The `mito` dataset has one file per sample, and
 each file replaces only that sample's calls. The other samples' mitochondrial calls stay as
 they are, one row per variant with every sample's call, so the mtDNA analysis can set the
-mother's calls beside the children's. A file without chrM variants removes that sample's calls.
-The chrM SV files follow the same rule: one deletion called in the mother and the child is one
+mother's calls beside the children's. A chrM VCF without a variant record fails the dataset
+before any sample's calls are replaced ([below](#where-each-dataset-lands)). The chrM SV files
+follow the same rule: one deletion called in the mother and the child is one
 SV with both calls, and a sample's new SV file replaces only that sample's calls. The import
 rewrites the `mito_sv` rows of every sample to do so, and an `update` takes no snapshot of the
 family: a write that fails after the rewrite's delete puts the stored rows back, and one that
@@ -797,24 +816,38 @@ That holds for a TRGT VCF (a sample's, or a family VCF, which must hold a record
 it names), the WisecondorX and QDNAseq bins and segments, HiFiCNV's copy-number bedGraph and its
 depth and minor-allele-fraction bigWigs (a depth file without a bin above zero holds none), an
 APCAD file, a PCF table (both of a sample's tables are read before its track is deleted), a
-Paraphase JSON without a gene, a sample's NeedlR file and a long-read sample's SNV file. Each
-measures its sample across the genome or a catalogue, so a file without a record is no result.
+Paraphase JSON without a gene, a sample's NeedlR file, a long-read sample's SNV file and a
+sample's chrM VCF (the `mito` dataset checks every sample's chrM VCF for a record before it
+replaces any sample's calls). Each measures its sample across the genome, a catalogue or the
+mitochondrial genome, so a file without a record is no result: a chrM caller reports every
+variant against the reference, and practically every person carries some (the owner's decision,
+SAFE-29).
 Such a file used to replace the data with none and end `imported`, which counts as importing the
 dataset again: it completed an earlier failure, or a whole-family entry, while the data was
 missing ([The import job](#the-import-job)). A track reader reads its file up to the first record
 before it deletes the track; a file cut short after that still fails the dataset where the read
-stops, after the delete, and the family is put back or flagged as for any failed dataset. A file
-without a record is a result where a sample can have no call: a chrM VCF without a chrM variant,
-and a chrM SV file with its `#CHROM` line and no call (most samples carry no mtDNA deletion), each
-replace the sample's earlier calls with none; a HiFiCNV VCF without a call leaves the sample
-without `hificnv` calls (when no sample's VCF holds one, the calls stay as they were and the
+stops, after the delete, and the family is put back or flagged as for any failed dataset. A
+chrM VCF without a variant record used to replace the sample's earlier mitochondrial calls with
+none, the dataset `imported`; now the dataset fails, with every sample's mitochondrial calls as
+they were, and an import that keeps the family flags it import-incomplete for `mito`. A file
+without a record is a result where a sample can have no call: a chrM SV file with its `#CHROM`
+line and no call (most samples carry no mtDNA deletion) replaces the sample's earlier chrM SVs
+with none; a HiFiCNV VCF without a call leaves the sample without `hificnv` calls (when no sample's VCF holds one, the calls stay as they were and the
 dataset is only registered). A chrM SV file without its `#CHROM` line is refused before anything
 of the `mito` dataset is written.
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
-lists them, with the transform each coverage track's record names, `coverage_normalizations`).
-A coverage track whose values are not a log2 ratio, such as HiFiCNV depths stored as read, is
-not drawn on the viewers' log2-ratio axis: its place says why. The three HiFiCNV files are also
+lists them, with the transform each coverage track's record names, `coverage_normalizations`,
+and what each holds, `coverage_contents`: `read_depth`, `log2_ratio` or `unknown`, by the rule
+the depth readers read it by, below). A log2 ratio is drawn on the viewers' log2-ratio axis, with
+the gain/loss colouring and the caller's segments. Read depth (a coverage BED declared as read
+depth, HiFiCNV's depths stored as read) is drawn on a depth axis from 0 to a round number above
+the 99th percentile of the values shown, without the colouring or the segments, which are log2
+ratios; HiFiCNV's track says why its depths are not a log2 ratio. Values of unknown kind (a
+coverage BED that declares nothing, a transform not known) are drawn on their own range, without
+an axis, and the track's head says so in the warning tone. Before, HiFiCNV's depths stored as
+read were left off the chart, and a coverage BED was drawn on the log2-ratio axis whatever it
+held (TRACE-7, TRACE-9). The three HiFiCNV files are also
 served unchanged to the genome browser (IGV): with local storage from the family's package
 folder, `data/families/<family>/`, at the path the import recorded, and never from outside the
 family's own folders (a recorded path or a symlink that leads elsewhere names no file); from the
@@ -822,12 +855,17 @@ bucket for a package in a bucket.
 
 The readers that take coverage as read depth, the mtDNA coverage with its depth verdict and the
 NIPT coverage check without a per-target table, read one coverage track per sample, one whose
-values are depth: the coverage BED (`web`), otherwise HiFiCNV's depth when its record says it is
-stored as read (`none`). WisecondorX's and QDNAseq's bins and HiFiCNV's normalised depth are log2
-ratios and are never read as depth, nor is another caller's track whose record names no transform.
-A sample without such a track has no coverage to these readers: the mtDNA analysis reads its
-calls' depth, and the NIPT check reports its regions as without coverage
-([database.md](database.md)).
+values are depth: the coverage BED (`web`) when it was declared as read depth, otherwise
+HiFiCNV's depth when its record says it is stored as read (`none`). WisecondorX's and QDNAseq's
+bins and HiFiCNV's normalised depth are log2 ratios and are never read as depth, nor is a
+coverage BED declared as a log2 ratio or declaring nothing (`unknown`), nor another caller's
+track whose record names no transform. Each track a reader leaves out is named with the reason:
+in the family's mtDNA QC notes, and in the NIPT coverage check's `coverage_notes`, shown with the
+coverage on the NIPT pages and in the printed NIPT report (*"CFDNA1: the coverage BED does not
+declare whether it holds read depth or a log2 ratio; it is not read as depth."*). A sample
+without such a track has no coverage to these readers: the mtDNA analysis reads its calls'
+depth, and the NIPT check reports its regions as without coverage ([database.md](database.md)).
+Until TRACE-9 a coverage BED was read as depth whatever it held.
 
 Every file a dataset names, per sample or for the whole family, is recorded in
 `raw_import_files` with its size and SHA-256 ([database.md](database.md)), whichever of its
@@ -997,6 +1035,8 @@ Discover, dry run and import check that:
   needs no index;
 - a per-target coverage table's header names `chromosome`, `start`, `end`, `attribute` and
   `mean` (`coverage_target_table_columns`);
+- a coverage BED's `content` is `read_depth` or `log2_ratio` (`coverage_content_invalid`); a BED
+  without one is a warning (`coverage_content_undeclared`): it imports as `unknown`;
 - every dataset key is a known one.
 
 A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional without a
@@ -1102,6 +1142,14 @@ or package.
 An interval-track upload loads one sample's track of `bed_type` from a BED, under the source
 `web`, and only that source's track is checked and replaced:
 
+- A coverage BED declares what it holds in the `content` query parameter, `read_depth` or
+  `log2_ratio` (the upload form asks, with no default). A coverage upload without it, or one of
+  another track type with it, is refused (422) before anything is read. The track's record, the
+  raw file's record (`raw_import_files.metadata`) and what the upload records for the family
+  keep it, and it decides how the track is drawn and whether it is read as depth
+  ([Where each dataset lands](#where-each-dataset-lands)). The request's audit row names the
+  parameter (`AUDIT_LOG_QUERY_STRING_MODE=keys` keeps the key, `sanitized` its value too). Before
+  (TRACE-9), a coverage BED declared nothing and was read as depth.
 - The file is read and checked whole first. One that is not text, or holds no record of the
   track type, is refused (400) before anything is replaced: the stored tracks and their records
   stay as they were. A line whose start or end is negative is no record: it is left out, as a
@@ -1261,7 +1309,7 @@ its own:
 | Family small variants | `snv`, with the callset it stored (`clair3` or `mito`; `auto` as it resolved): what a package `snv` dataset stored as that callset brings (its `source_format`, or `auto` as the import resolved it). Imputed genotypes (`glimpse2`), with their haplotype blocks: `haplotypes`, as a package's imputed family VCF |
 | Structural variants | `sv_sniffles`, `sv_spectre` or `sv_manual`, for the sample: no package dataset brings them |
 | Repeat expansions (TRGT) | `repeats_trgt`, for the sample: what a package's TRGT file of that sample brings |
-| Interval tracks (BED) | `bed_coverage`, `bed_segments`, `bed_apcad` or `bed_apcad_pcf`, for the sample: a package dataset that writes such a track may read another kind of file into it, or write another track |
+| Interval tracks (BED) | `bed_coverage`, `bed_segments`, `bed_apcad` or `bed_apcad_pcf`, for the sample: a package dataset that writes such a track may read another kind of file into it, or write another track. A coverage BED's scope also says what it declared it holds (`content`), as the package `coverage` dataset's says each sample's (`unknown` without the manifest's `content`); a later record of the same sample's BED replaces it, and no overwrite compares it (TRACE-9) |
 
 An upload with `overwrite` also removes from such an entry what it brought again: the same
 dataset, for the same sample and (for the small variants) the same callset. One without
@@ -1400,6 +1448,10 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
+| `coverage_content_undeclared` (warning) | A coverage BED's manifest entry has no `content`: it imports as `unknown`, drawn without an axis and never read as depth. Add `content: read_depth` or `content: log2_ratio` and import again. |
+| `coverage_content_invalid` | A coverage BED's `content` is neither `read_depth` nor `log2_ratio`. |
+| "Declare what the coverage BED holds: content=read_depth or content=log2_ratio" (BED upload, 422) | A coverage BED was uploaded without `content`. Choose what it holds in the form, or pass `content`. |
+| A coverage track drawn *without an axis*, or *"… is not read as depth"* in the mtDNA QC notes or the NIPT coverage check | The coverage BED declares nothing (`unknown`; a BED stored before BEDs declared what they hold reads so too), or holds log2 ratios. Upload or import it again with what it holds. |
 | A per-target coverage import fails on `sample_interval_track_sources_track_type_check` | The Postgres database is older than the `target_coverage` track type; reset it ([database.md](database.md)). |
 | "VCF file must be plain text or gzipped" (small-variant upload, 400) | The file is neither text nor whole gzip: a `.vcf.gz` cut short in a copy, or damaged. Copy it again; a refused upload with `overwrite` kept the stored callset. |
 | *Import incomplete* for `snv` or `haplotypes`, with no import job | A small-variant upload with `overwrite` failed after it had deleted the callset it replaced ([section 6](#6-single-file-uploads)). Upload the callset again, or import it. |
@@ -1408,6 +1460,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
 | "… holds no record of the … track", "… holds no interval on a primary chromosome …", "… holds no segment", "… holds no APCAD value for …" | A package's track file holds nothing its reader can store: an empty or truncated pipeline output, or another file than the manifest means. Its dataset failed before the track was deleted ([Where each dataset lands](#where-each-dataset-lands)). Correct the file and import again. |
 | "Paraphase JSON for … holds no gene result", "The NeedlR file of … holds no structural variant", "The SNV file of … holds no record" | That sample's file holds no result; its dataset failed before the sample's data was replaced. |
+| "No mitochondrial call was replaced: the chrM VCF of … holds no variant record" (the `mito` dataset) | A sample's chrM VCF holds no variant record: a failed analysis or a file cut short. Every sample's mitochondrial calls are as they were; rerun the analysis and import its VCF. |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |
 | dbNSFP `missing` on every gene | The dbNSFP gene file is not at `GENE_REFERENCE_DBNSFP_GENE_PATH`. |
 

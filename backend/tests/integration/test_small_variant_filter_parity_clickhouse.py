@@ -302,7 +302,8 @@ def _panels() -> dict[str, Any]:
         SMALL_PANEL: PanelFilterConstraints(
             genes=("SYNC",), regions=(Region("chr11", 95_100_175, 95_100_185),)
         ),
-        # More regions than the panel filter inlines: matched on its genes alone.
+        # More than 1,000 regions, as the Mendeliome has: matched by its genes and its regions
+        # too, so UNANNOTATED is reached by position (it was matched on its genes alone).
         LARGE_PANEL: PanelFilterConstraints(
             genes=("SYNC",),
             regions=(
@@ -490,7 +491,9 @@ CASES: dict[str, _Case] = {
     "PolyPhen": _case({HOMOZYGOUS}, polyphen="benign"),
     # --- the panel ---
     "panel": _case({MATERNAL_MNV, PATERNAL_SYNONYMOUS, UNANNOTATED}, panel_id=SMALL_PANEL),
-    "panel of more regions than are inlined": _case({MATERNAL_MNV, PATERNAL_SYNONYMOUS}, panel_id=LARGE_PANEL),
+    "panel of more than 1,000 regions": _case(
+        {MATERNAL_MNV, PATERNAL_SYNONYMOUS, UNANNOTATED}, panel_id=LARGE_PANEL
+    ),
     "panel region on chrMT, stored as M": _case({MITO}, panel_id=MITO_PANEL),
     # --- excluded genes: by name, and by the gene reference's loci ---
     "excluded gene the reference lacks": _case(ALL - {COMMON_PATHOGENIC}, exclude_gene="SYND"),

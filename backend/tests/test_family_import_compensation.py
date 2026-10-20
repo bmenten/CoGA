@@ -690,7 +690,11 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
             datasets={
                 "snv": dataset(family_vcf="snv/family.vcf", extra={"source_format": "deepvariant"}),
                 "haplotypes": dataset(family_vcf="GLIMPSE2/FAM.vcf.gz"),
-                "coverage": dataset(per_sample={"S2": {"bed": "b"}, "S1": {"bed": "a"}, "bad": "x"}),
+                # S2's BED declares what it holds; S1's declares nothing, so it is stored as
+                # unknown (TRACE-9). The scope says so, sample by sample.
+                "coverage": dataset(
+                    per_sample={"S2": {"bed": "b", "content": "read_depth"}, "S1": {"bed": "a"}, "bad": "x"}
+                ),
                 # A family VCF wins over per-sample files, as the TRGT loader reads it.
                 "repeats_trgt": dataset(family_vcf="repeats/fam.vcf", per_sample={"S1": {"file": "r"}}),
             }
@@ -704,7 +708,11 @@ def test_a_dataset_scope_is_what_its_loader_replaces(tmp_path) -> None:
     assert scopes == {
         "snv": {"source": "deepvariant", "samples": None},
         "haplotypes": {"source": None, "samples": None},
-        "coverage": {"source": None, "samples": ["S1", "S2"]},
+        "coverage": {
+            "source": None,
+            "samples": ["S1", "S2"],
+            "content": {"S1": "unknown", "S2": "read_depth"},
+        },
         "repeats_trgt": {"source": None, "samples": None},
         "phenotypes": {"source": None, "samples": None},
     }
@@ -729,7 +737,8 @@ _UPLOADS = {
     "small_variants": ("snv", {"source": "clair3", "samples": None}),
     "structural_variants": ("sv_manual", _one("S1")),
     "repeats": ("repeats_trgt", _one("S1")),
-    "track": ("bed_coverage", _one("S1")),
+    # A coverage BED's scope says what it declared it holds (TRACE-9).
+    "track": ("bed_coverage", {**_one("S1"), "content": "read_depth"}),
 }
 
 
@@ -957,6 +966,7 @@ def uploads(monkeypatch):
                 bed_type="coverage",
                 file=_upload_file("1\t0\t1000\tbin1\t31.0\n", "coverage.bed"),
                 overwrite=overwrite,
+                content="read_depth",
                 session=row,
                 user=user,
             )

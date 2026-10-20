@@ -2808,9 +2808,10 @@ def test_the_snapshot_freezes_what_the_analysis_looked_at_and_what_the_record_is
     snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
 
     for section in RECORD_SECTIONS:
-        assert section.key in snapshot, section.key
         # Each is report content: the sign-out check compares it.
         assert section.key in rss.REPORT_CONTENT_SECTIONS
+        # The family here has no embryo, so it holds every section but the PGT one.
+        assert (section.key in snapshot) is (section.application is None), section.key
     assert snapshot["gene_panels"] == {"applied": [_PANEL]}
     assert snapshot["record_statement"] == (
         "This record is the analytical sign-off in CoGA, which closes and freezes the analysis; "
@@ -2853,6 +2854,129 @@ def test_each_new_section_is_bound_into_the_content_hash_and_compared(monkeypatc
     )
     assert out["matches"] is False
     assert out["changed_sections"] == list(change)
+
+
+# A PGT family's embryo calls as signed_record_sections freezes them (pgt_analysis.py): only a
+# family with an embryo holds the section.
+_PGT_ANALYSIS = {
+    "region_of_interest": {"query": "GENE1", "label": "GENE1", "source": "gene", "chrom": "7", "start": 10, "end": 20},
+    "window": {"chrom": "7", "start": 0, "end": 1_000_020},
+    "inheritance_model": {"recorded": "AD", "applied": "AD", "mode": "dominant"},
+    "members": [],
+    "disease_haplotype_resolved": True,
+    "disease_haplotypes": [{"origin": "paternal", "homolog": "1", "kind": "dominant"}],
+    "phase_corrections": [],
+    "embryos": [
+        {
+            "sample": "E1",
+            "sex": "female",
+            "call": "affected_or_at_risk",
+            "roi_not_covered": False,
+            "sex_dependent": None,
+            "inherited": [{"origin": "paternal", "homolog": "1", "start": 0, "end": 30}],
+            "recombinations": [],
+            "qc": {"informative_sites": 40, "mendel_errors": 0, "mendel_rate": 0.0, "paternal_markers": 3, "maternal_markers": 2},
+        }
+    ],
+    "inputs": {"haplotype_sources": [], "blocks_read": 4, "blocks_digest": "d" * 64, "markers_truncated": False},
+    "rules": {"window_flank": 1_000_000, "recombination_flank": 250_000, "phase_switch_uncertainty": 2_000_000},
+}
+
+
+def _no_sequencing_qc(monkeypatch) -> None:
+    async def _sequencing_qc(session, context):
+        return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
+
+    monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+
+
+def test_a_pgt_familys_sign_out_freezes_its_embryo_calls_into_the_hashed_record(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _no_sequencing_qc(monkeypatch)
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    captured = _capture_audit(monkeypatch)
+    session = _Session()
+    out = asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
+
+    [insert] = [args for args, _ in session.executed if "INSERT INTO report_signouts" in str(args[0])]
+    stored = json.loads(insert[1]["snapshot"])
+    assert stored["pgt_analysis"] == _PGT_ANALYSIS
+    assert rss._canonical_hash(stored) == out["content_hash"]
+    assert captured["after"]["not_captured"] == []
+
+
+def test_a_pgt_analysis_not_captured_at_sign_out_is_named_on_the_trail(monkeypatch) -> None:
+    _patch_common(monkeypatch, drifted_count=0)
+    _no_sequencing_qc(monkeypatch)
+    unavailable = {"unavailable": "The PGT analysis's embryo results could not be read."}
+    _with_sections(monkeypatch, pgt_analysis=unavailable)
+    captured = _capture_audit(monkeypatch)
+    out = asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
+
+    gap = {"section": "pgt_analysis", "item": "PGT embryo results", "reason": unavailable["unavailable"]}
+    assert captured["after"]["not_captured"] == [gap]
+    assert out["not_captured"] == [gap]
+    assert "1 part(s) not captured" in captured["summary"]
+
+
+def test_signout_check_compares_the_embryo_calls_a_pgt_familys_record_holds(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True and out["not_compared"] == []
+
+    # After sign-out an embryo's call changes (a member's status edited, blocks re-imported).
+    changed = copy.deepcopy(_PGT_ANALYSIS)
+    changed["embryos"][0]["call"] = "unaffected_non_carrier"
+    _with_sections(monkeypatch, pgt_analysis=changed)
+    current = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert rss._canonical_hash(current) != rss._canonical_hash(signed)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False
+    assert out["changed_sections"] == ["pgt_analysis"]
+
+
+def test_signout_check_names_the_embryo_calls_a_pgt_familys_older_record_predates(monkeypatch) -> None:
+    # Signed before CoGA froze the embryo calls: the record still matches, the section is
+    # not compared, and nothing is "not captured".
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert "pgt_analysis" not in signed
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is True
+    assert out["not_compared"] == ["pgt_analysis"]
+    assert out["not_captured"] == []
+
+
+def test_signout_check_does_not_name_the_pgt_section_for_a_family_without_embryos(monkeypatch) -> None:
+    # Neither the record nor the family's data holds it: it is no section of this family.
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert "pgt_analysis" not in signed
+    assert out["matches"] is True and out["not_compared"] == [] and out["changed_sections"] == []
+
+
+def test_signout_check_says_when_a_family_lost_the_embryo_calls_its_record_holds(monkeypatch) -> None:
+    # The record holds them; the family's data no longer gives them (its embryos removed).
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    _with_sections(monkeypatch, pgt_analysis=_PGT_ANALYSIS)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _with_sections(monkeypatch)
+    out = asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+    assert out["matches"] is False and out["changed_sections"] == ["pgt_analysis"]
 
 
 def test_a_sign_out_carries_its_report_code(monkeypatch) -> None:

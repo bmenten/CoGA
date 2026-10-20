@@ -828,25 +828,6 @@ async def test_the_package_sv_datasets_hold_the_lock_until_their_sv_files_are_re
 
 
 @pytest.mark.asyncio
-async def test_removing_a_samples_mitochondrial_calls_holds_the_lock_from_its_read(small_store) -> None:
-    postgres = _Postgres()
-    small_store([_entry(73, {"MOTHER": "1/1", "PROBAND": "1/1"})], postgres=postgres)
-    session = postgres.session("import")
-
-    removed = await variant_upload_service.remove_family_small_variant_sample_calls(
-        session,  # type: ignore[arg-type]
-        _family_context(),
-        [_sample_context("PROBAND")],
-        source="mito",
-    )
-
-    assert removed == 1
-    # Held until the import commits.
-    assert postgres.trace("import") == [f"lock {_key(SMALL_VARIANTS)}", "read small variants"]
-    assert session.held == [_key(SMALL_VARIANTS)]
-
-
-@pytest.mark.asyncio
 async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_deleting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

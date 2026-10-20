@@ -38,6 +38,7 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/clinical_cnv_kb_jobs.py": 94.0,  # (97.1)
     "backend/app/services/cnv_acmg_points.py": 94.0,  # (97.7)
     "backend/app/services/compound_het_phase.py": 95.0,  # (98.7)
+    "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured when added for CLIN-46)
     "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
     "backend/app/services/family_structure_audit.py": 93.0,  # (96.7, measured when added for SEC-7)
@@ -55,6 +56,10 @@ MODULE_FLOORS: dict[str, float] = {
     # (100.0 measured locally when it was added: the signed analysis record, the gene-panel
     # versions a family's searches applied)
     "backend/app/services/panel_use_audit.py": 97.0,
+    # (100.0 measured locally when they were added: the PGT embryo calls the family page
+    # shows and a sign-out freezes, REG-2)
+    "backend/app/services/pgt_analysis.py": 97.0,
+    "backend/app/services/pgt_embryo_calls.py": 97.0,
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
     # (100.0 measured locally when it was added: the report code the EPD report quotes)
     "backend/app/services/report_code.py": 97.0,

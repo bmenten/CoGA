@@ -11,11 +11,15 @@ A trio is created through the PED upload under a new id each run, and a VEP-anno
 in through the family small-variant upload: variants on each side of a region's first and last
 base, deletions that end on a region's first base or one before it, one that starts in the
 64-kb window before a region it reaches, variants in a region that spans several windows, a
-compound-het pair, a homozygous variant and a gene both parents carry in. Two panels are made
+compound-het pair, a homozygous variant and a gene both parents carry in. Three panels are made
 as CoGA makes them: one of PanelApp regions only, through the PanelApp import (PanelApp itself
 answered by the test), and one of two genes through the panel API, with gene-reference loci
-seeded for the run (one spelled "chr7", one over variants whose annotation names another gene).
-Each panel goes to the family search unranked, ranked, at a locus, with compound-het and
+seeded for the run (one spelled "chr7", one over variants whose annotation names another gene),
+and the same two genes with 1,000 filler genes: a panel of more than 1,000 regions, as the
+Mendeliome is, which keeps on every path what the panel of the two genes keeps, the variants
+it reaches by a gene's locus only included (owner decision 2026-10-14: such a panel was
+matched on gene symbols alone). Each panel goes to the family search unranked, ranked, at a
+locus, with compound-het and
 recessive pairing, with expanded carrier screening (unranked and ranked), as the genome-browser
 track, and to the CSV export (unranked and ranked), once with the join and once with the
 per-row test patched back in, over an emptied ranking cache each time. Every answer is the
@@ -111,6 +115,12 @@ _SEEDED_LOCI = {
     "ENG15CH": ("7", _B + 20_000, _B + 20_600),
     "ENG15LOC": ("chr7", _B + 6990, _B + 7005),
 }
+# The filler genes of the panel of more than 1,000 regions: a locus each on chromosome 21,
+# where the family has no variant.
+_FILLER_LOCI = {
+    f"ENG15FILL{index:04d}": ("21", 40_000_000 + 1_000 * index, 40_000_000 + 1_000 * index + 500)
+    for index in range(1_000)
+}
 
 # What the search without other filters keeps, per panel.
 _EXPECTED: dict[str, set[str]] = {
@@ -120,6 +130,8 @@ _EXPECTED: dict[str, set[str]] = {
         _CARRIER_FATHER, _CARRIER_MOTHER,
     },
     "genes and their loci": {_ON_RC, _AFTER_RC, _PAIR_PATERNAL, _PAIR_MATERNAL, _PATERNAL_OUTSIDE_RE},
+    # _ON_RC and _AFTER_RC by ENG15LOC's locus only, as the panel of the two genes keeps them.
+    "more than 1,000 regions": {_ON_RC, _AFTER_RC, _PAIR_PATERNAL, _PAIR_MATERNAL, _PATERNAL_OUTSIDE_RE},
 }
 
 # The family search's paths: name -> (endpoint, query parameters).
@@ -221,7 +233,7 @@ async def _seed_genes(assembly_id: str | None) -> int:
                         "end": end,
                         "source": _SEEDED_GENE_SOURCE,
                     }
-                    for symbol, (chrom, start, end) in _SEEDED_LOCI.items()
+                    for symbol, (chrom, start, end) in {**_SEEDED_LOCI, **_FILLER_LOCI}.items()
                 ],
             )
         left = (
@@ -355,6 +367,14 @@ async def _exercise(family_id: str, panelapp_id: int) -> dict[str, Any]:
             out["panels"]["genes and their loci"] = (created.status_code, created.text[:500])
             if created.status_code == 201:
                 panels["genes and their loci"] = created.json()["panel"]["_id"]
+            created = await ac.post(
+                "/api/panels/",
+                json={"name": f"e2e-eng15-{run}-large", "genes": [*sorted(_SEEDED_LOCI), *_FILLER_LOCI]},
+            )
+            out["panels"]["more than 1,000 regions"] = (created.status_code, created.text[:500])
+            if created.status_code == 201:
+                panels["more than 1,000 regions"] = created.json()["panel"]["_id"]
+                out["large panel regions"] = len(created.json()["panel"]["regions"])
 
             async def clear_rankings() -> None:
                 async with get_postgres_sessionmaker()() as session:
@@ -468,6 +488,21 @@ def test_the_paths_find_pairs_carriers_and_the_track_s_variants(run: dict[str, A
     assert all(priority and priority.get("rank") for _v, priority in regions["ranked"]["join"]["variants"])
     exported = regions["export, ranked"]["join"]["csv"].splitlines()
     assert len(exported) == 1 + len(_EXPECTED["PanelApp regions"])
+
+
+@pytest.mark.parametrize("path", list(_PATHS))
+def test_a_panel_of_more_than_1000_regions_keeps_what_the_panel_of_its_genes_keeps(
+    run: dict[str, Any], path: str
+) -> None:
+    # The Mendeliome's size class: the two genes and 1,000 fillers. It keeps on every path
+    # what the panel of the two genes keeps, _ON_RC and _AFTER_RC by ENG15LOC's locus included,
+    # with the same pairs, scores, ranks, totals and exported file. It was matched on gene
+    # symbols alone, and left those two out on every path (owner decision 2026-10-14).
+    assert run["large panel regions"] > 1_000
+    large = run["answers"]["more than 1,000 regions"][path]["join"]
+    genes = run["answers"]["genes and their loci"][path]["join"]
+    assert isinstance(large, dict), large
+    assert large == genes
 
 
 def test_the_family_page_sent_the_join_and_the_patch_the_per_row_test(run: dict[str, Any]) -> None:
