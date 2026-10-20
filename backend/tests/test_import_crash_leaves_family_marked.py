@@ -446,7 +446,7 @@ async def test_a_new_family_nothing_imported_into_goes_with_its_entry(family, mo
     _datasets(monkeypatch, {"snv": RuntimeError("ClickHouse insert failed")})
     deleted: list[str] = []
 
-    async def delete_shell(_session: Any, context: Any) -> None:
+    async def delete_shell(_session: Any, context: Any, *_args: Any, **_kwargs: Any) -> None:
         deleted.append(context.family_uuid)
         family.unfinished = {}  # the row, and its metadata, are gone
 

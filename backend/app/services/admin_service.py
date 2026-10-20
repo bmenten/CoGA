@@ -55,9 +55,11 @@ from .access_control import CurrentUser
 from .family_metadata_context import FamilyMetadataContext
 from .family_package_registration import mark_family_deletion_not_restored
 from .family_structure_audit import (
+    ADMIN_DELETE,
     SAMPLE_DELETED,
     lock_family_pedigree,
     read_structure_snapshot,
+    record_family_deleted,
     record_structure_change,
 )
 from .family_variant_write_lock import (
@@ -1073,7 +1075,11 @@ async def delete_family_with_data(
     session: AsyncSession,
     family_id: str,
     confirm: bool,
+    user: CurrentUser | None = None,
 ) -> dict[str, Any]:
+    """Delete a family with every dataset of it. Its deletion is the last event of its
+    clinical audit trail, written in this transaction before anything of the family is
+    deleted, as made by ``user`` (SEC-7)."""
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
     family_uuid = await _resolve_family_uuid(session, family_id)
@@ -1103,6 +1109,19 @@ async def delete_family_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
+    # The family's last clinical audit event, before anything of it goes: a deletion that
+    # fails from here on rolls it back with the rest of the transaction.
+    await record_family_deleted(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_id,
+        user=user,
+        source=ADMIN_DELETE,
+        variant_counts={"small_variants": small_deleted, "structural_variants": structural_deleted},
+    )
+    for context in contexts:
+        if not context.assembly_name:
+            continue
         await delete_family_small_variants(context.assembly_name, context.family_uuid)
         await delete_family_structural_variants(context.assembly_name, context.family_uuid)
         await delete_interval_tracks(

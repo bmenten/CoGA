@@ -42,6 +42,7 @@ from .clinical_audit_service import record_clinical_event
 from .hash_chain import ChainVerification, chain_row_hash, verify_chain
 
 PEDIGREE_ACTION = "pedigree"
+FAMILY_DELETED_ACTION = "family_deleted"
 
 # Where a pedigree change came from, in its audit event's metadata.
 FAMILY_CREATED = "family_created"
@@ -49,10 +50,21 @@ STRUCTURE_EDIT = "structure_edit"
 PACKAGE_IMPORT = "package_import"
 SAMPLE_DELETED = "sample_deleted"
 
+# Why a family was deleted, in its last audit event's metadata.
+ADMIN_DELETE = "admin_delete"
+PEDIGREE_REPLACED = "pedigree_replaced"
+IMPORT_FAILED = "import_failed"
+
 _SUMMARY_PREFIX = {
     STRUCTURE_EDIT: "Pedigree changed",
     PACKAGE_IMPORT: "Pedigree changed by a package import",
     SAMPLE_DELETED: "Pedigree changed by deleting a sample with its data",
+}
+
+_DELETED_PREFIX = {
+    ADMIN_DELETE: "Family deleted with its data",
+    PEDIGREE_REPLACED: "Family deleted, to be replaced by the pedigree uploaded with overwrite",
+    IMPORT_FAILED: "Family deleted after the package import that created it imported nothing",
 }
 
 # A summary names at most this many changes; the event's before and after hold them all.
@@ -785,4 +797,121 @@ async def record_structure_change(
         metadata={"reason": source, **dict(metadata or {})},
         change=pedigree_change_by(user, source=source, before=snapshot_pedigree_state(before_snapshot)),
         snapshot=after_snapshot,
+    )
+
+
+# ------------------------------------------------------------------------- the family's deletion
+
+_FAMILY_SAMPLES = text(
+    """
+    SELECT sample_id
+    FROM samples
+    WHERE family_id = CAST(:family_uuid AS uuid)
+    ORDER BY lower(sample_id)
+    """
+)
+
+_LATEST_STRUCTURE_VERSION = text(
+    """
+    SELECT MAX(version)
+    FROM family_structure_versions
+    WHERE family_id = CAST(:family_uuid AS uuid)
+    """
+)
+
+# What the family holds in Postgres that its deletion takes with it: the reviews, the repeat
+# calls, the Paraphase results, the interval tracks' source rows and the raw files.
+_FAMILY_POSTGRES_DATA = text(
+    """
+    SELECT 'small_variant_reviews' AS kind, COUNT(*)::bigint AS count
+    FROM small_variant_reviews WHERE family_id = CAST(:family_uuid AS uuid)
+    UNION ALL
+    SELECT 'structural_variant_reviews', COUNT(*)::bigint
+    FROM structural_variant_reviews WHERE family_id = CAST(:family_uuid AS uuid)
+    UNION ALL
+    SELECT 'repeat_expansions', COUNT(*)::bigint
+    FROM repeat_expansions WHERE family_id = CAST(:family_uuid AS uuid)
+    UNION ALL
+    SELECT 'paraphase_results', COUNT(*)::bigint
+    FROM sample_paraphase_results WHERE family_id = CAST(:family_uuid AS uuid)
+    UNION ALL
+    SELECT 'interval_track_sources', COUNT(*)::bigint
+    FROM sample_interval_track_sources WHERE family_id = CAST(:family_uuid AS uuid)
+    UNION ALL
+    SELECT 'raw_import_files', COUNT(*)::bigint
+    FROM raw_import_files WHERE family_id = CAST(:family_uuid AS uuid)
+    """
+)
+
+# The counts a deletion's summary names, with the words it names them by.
+_DELETED_NAMED: tuple[tuple[str, str], ...] = (
+    ("small_variants", "small variants"),
+    ("structural_variants", "structural variants"),
+    ("reviews", "variant reviews"),
+)
+
+
+def family_deleted_summary(source: str, samples: list[str], data: Mapping[str, int]) -> str:
+    """The summary of a family's deletion: its samples, five by name at most, and how many
+    variants and variant reviews went with it."""
+    count = len(samples)
+    named = ", ".join(samples[:_MAX_SUMMARY_CHANGES])
+    if count > _MAX_SUMMARY_CHANGES:
+        named = f"{named} and {count - _MAX_SUMMARY_CHANGES} more"
+    parts = [f"{count} sample{'' if count == 1 else 's'}" + (f" ({named})" if named else "")]
+    for key, label in _DELETED_NAMED:
+        if key in data:
+            parts.append(f"{data[key]} {label}")
+    return f"{_DELETED_PREFIX.get(source, 'Family deleted')}: {', '.join(parts)}"
+
+
+async def record_family_deleted(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family_identifier: str,
+    user: Any,
+    source: str,
+    variant_counts: Mapping[str, int] | None = None,
+    reason: str | None = None,
+) -> None:
+    """Record a family's deletion as the last event of its clinical audit trail (SEC-7), in
+    the transaction of the deletion and before the family row goes (no commit).
+
+    The event names who deleted the family and when, and what went with it: its samples,
+    its latest structure version, the variant reviews and other data Postgres held of it
+    and, given ``variant_counts``, the variants counted in ClickHouse. A deletion that fails
+    rolls the event back with it. Afterwards the family's chains (its clinical audit events,
+    sign-outs and structure versions) stay, unlinked from the family row, verifiable by its ID.
+    """
+    await lock_family_pedigree(session, family_identifier)
+    sample_rows = (await session.execute(_FAMILY_SAMPLES, {"family_uuid": family_uuid})).all()
+    samples = [str(row[0]) for row in sample_rows]
+    latest = (await session.execute(_LATEST_STRUCTURE_VERSION, {"family_uuid": family_uuid})).scalar_one_or_none()
+    held_rows = (await session.execute(_FAMILY_POSTGRES_DATA, {"family_uuid": family_uuid})).all()
+    held = {str(row[0]): int(row[1] or 0) for row in held_rows}
+    data: dict[str, int] = {key: int(value) for key, value in (variant_counts or {}).items()}
+    data.update(held)
+    data["reviews"] = held.get("small_variant_reviews", 0) + held.get("structural_variant_reviews", 0)
+    metadata: dict[str, Any] = {"source": source}
+    stated_reason = _optional_text(reason)
+    if stated_reason:
+        metadata["reason"] = stated_reason
+    actor_id = getattr(user, "id", None)
+    await record_clinical_event(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        variant_id=None,
+        actor=audit_actor(user),
+        actor_id=str(actor_id) if actor_id is not None else None,
+        action=FAMILY_DELETED_ACTION,
+        summary=family_deleted_summary(source, samples, data),
+        before={
+            "samples": samples,
+            "structure_version": int(latest) if latest is not None else None,
+            "data": data,
+        },
+        after=None,
+        metadata=metadata,
     )

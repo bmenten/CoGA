@@ -85,6 +85,12 @@ async def test_delete_family_shell_also_clears_interval_tracks(monkeypatch) -> N
         "app.services.family_package_registration.delete_interval_tracks", fake_interval
     )
 
+    async def no_event(*_args, **_kwargs):
+        # The family's last clinical audit event (SEC-7) is not what this test reads.
+        return None
+
+    monkeypatch.setattr("app.services.family_package_registration.record_family_deleted", no_event)
+
     session = _FakeSession()
     await fpi._delete_family_shell(session, _ctx())
 

@@ -299,6 +299,9 @@ class _Result:
     def scalar_one(self) -> Any:
         return self._scalar
 
+    def scalar_one_or_none(self) -> Any:
+        return self._scalar
+
 
 class _ChainDatabase:
     """``family_structure_versions`` and ``clinical_audit_events`` as Postgres keeps them:
@@ -310,6 +313,9 @@ class _ChainDatabase:
         self.locks: list[str] = []
         self.snapshot = snapshot or {"members": [], "relationships": []}
         self.commits = 0
+        # What a family's deletion reads of it: its samples and the data Postgres holds.
+        self.samples: list[str] = []
+        self.held: dict[str, int] = {}
 
     def _chain(self, rows: list[dict[str, Any]], family_identifier: Any) -> list[dict[str, Any]]:
         return sorted(
@@ -351,6 +357,13 @@ class _ChainDatabase:
             return _Result(chain[-1:][::-1])
         if "FROM family_structure_versions" in sql and "ORDER BY created_at ASC" in sql:
             return _Result(self._chain(self.versions, params["family_identifier"]))
+        if sql.startswith("SELECT sample_id FROM samples"):
+            return _Result([(sample_id,) for sample_id in self.samples])  # type: ignore[misc]
+        if sql.startswith("SELECT MAX(version) FROM family_structure_versions"):
+            numbers = [row["version"] for row in self.versions if row["family_id"] == params["family_uuid"]]
+            return _Result(scalar=max(numbers, default=None))
+        if "'small_variant_reviews' AS kind" in sql:
+            return _Result([(kind, count) for kind, count in self.held.items()])  # type: ignore[misc]
         raise AssertionError(f"unexpected SQL: {sql}")
 
     async def commit(self) -> None:
@@ -858,3 +871,155 @@ def test_the_structure_versions_are_verified_and_anchored_with_the_other_chains(
 
     assert admin_router._INTEGRITY_VERIFIERS["family_structure_versions"] is audit.verify_family_structure_chain
     assert integrity_anchor_service._CHAIN_ORDER_COLS["family_structure_versions"] == ["created_at", "id"]
+
+
+# ------------------------------------------------------------------------ the family's deletion
+
+
+@pytest.mark.asyncio
+async def test_a_familys_deletion_is_the_last_event_of_its_chain_with_what_went() -> None:
+    database = _ChainDatabase(_snapshot(*_trio()))
+    await audit.record_structure_version(
+        database,  # type: ignore[arg-type]
+        family_uuid="fam-uuid",
+        family_identifier=FAMILY,
+        change=audit.PedigreeChange(source=audit.FAMILY_CREATED, actor="analyst-b"),
+    )
+    database.samples = ["F1", "M1", "P1"]
+    database.held = {"small_variant_reviews": 4, "structural_variant_reviews": 1, "repeat_expansions": 2}
+
+    await audit.record_family_deleted(
+        database,  # type: ignore[arg-type]
+        family_uuid="fam-uuid",
+        family_identifier=FAMILY,
+        user=_admin(),
+        source=audit.ADMIN_DELETE,
+        variant_counts={"small_variants": 1204, "structural_variants": 3},
+    )
+
+    created, deleted = database.events
+    assert (deleted["action"], deleted["actor"], deleted["actor_id"]) == (
+        "family_deleted",
+        "analyst-a",
+        "11111111-1111-1111-1111-111111111111",
+    )
+    assert deleted["summary"] == (
+        "Family deleted with its data: 3 samples (F1, M1, P1), 1204 small variants, 3 structural variants, "
+        "5 variant reviews"
+    )
+    assert deleted["before"] == {
+        "samples": ["F1", "M1", "P1"],
+        "structure_version": 1,
+        "data": {
+            "small_variants": 1204,
+            "structural_variants": 3,
+            "small_variant_reviews": 4,
+            "structural_variant_reviews": 1,
+            "repeat_expansions": 2,
+            "reviews": 5,
+        },
+    }
+    assert deleted["after"] is None and deleted["metadata"] == {"source": "admin_delete"}
+    # On the family's chain, after its pedigree: the deletion links to the event before it.
+    assert deleted["prev_hash"] == created["row_hash"] and deleted["family_identifier"] == FAMILY
+    # Under the family's pedigree lock, then the audit trail's.
+    assert database.locks[-2:] == [f"fsv:{FAMILY}", f"cae:{FAMILY}"]
+    assert database.commits == 0  # the deletion's transaction
+
+
+def test_the_deletion_summary_names_five_samples_at_most_and_says_why() -> None:
+    samples = [f"S{index}" for index in range(1, 8)]
+    assert audit.family_deleted_summary(audit.PEDIGREE_REPLACED, samples, {"reviews": 0}) == (
+        "Family deleted, to be replaced by the pedigree uploaded with overwrite: 7 samples "
+        "(S1, S2, S3, S4, S5 and 2 more), 0 variant reviews"
+    )
+    assert audit.family_deleted_summary(audit.IMPORT_FAILED, ["S1"], {"reviews": 0}) == (
+        "Family deleted after the package import that created it imported nothing: 1 sample (S1), "
+        "0 variant reviews"
+    )
+    assert audit.family_deleted_summary(audit.ADMIN_DELETE, [], {}) == "Family deleted with its data: 0 samples"
+
+
+def _admin_family_delete(monkeypatch, steps: list[str], *, failing: str | None = None) -> None:
+    """The admin's family delete over fakes of its stores; ``steps`` records what it did."""
+
+    async def resolve(_session: Any, family_id: str) -> str:
+        return "fam-uuid"
+
+    async def sample_rows(_session: Any, family_uuids: list[str]) -> dict[str, list[Any]]:
+        return {uuid: [] for uuid in family_uuids}
+
+    async def contexts(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return [SimpleNamespace(assembly_name="GRCh38", family_uuid="fam-uuid", project_ids=["p1"])]
+
+    def step(name: str, result: Any = None):
+        async def run(*_args: Any, **_kwargs: Any) -> Any:
+            steps.append(name)
+            if name == failing:
+                raise RuntimeError(f"{name} failed")
+            return result
+
+        return run
+
+    async def counted(*_args: Any, **_kwargs: Any) -> int:
+        steps.append("count")
+        return 7
+
+    async def family_deleted(_session: Any, **kwargs: Any) -> None:
+        steps.append(f"audit: family deleted {kwargs['family_identifier']} {kwargs['variant_counts']}")
+
+    for name, fake in {
+        "_resolve_family_uuid": resolve,
+        "_sample_rows_by_family": sample_rows,
+        "_family_assembly_contexts": contexts,
+        "lock_family_variant_writes": step("lock"),
+        "count_family_small_variants": counted,
+        "count_family_structural_variants": counted,
+        "record_family_deleted": family_deleted,
+        "delete_family_small_variants": step("ClickHouse: delete small variants"),
+        "delete_family_structural_variants": step("ClickHouse: delete structural variants"),
+        "delete_interval_tracks": step("ClickHouse: delete interval tracks"),
+        "delete_interval_track_sources": step("delete interval track sources", 0),
+        "purge_family_managed_files": step("purge raw files", 0),
+    }.items():
+        monkeypatch.setattr(admin_service, name, fake)
+
+
+class _DeleteSession:
+    def __init__(self, steps: list[str]) -> None:
+        self.steps = steps
+
+    async def execute(self, statement: Any, params: Any = None) -> Any:
+        self.steps.append(" ".join(str(statement).split()).split(" WHERE ")[0])
+        return SimpleNamespace(fetchall=lambda: [])
+
+    async def commit(self) -> None:
+        self.steps.append("commit")
+
+
+@pytest.mark.asyncio
+async def test_the_admins_family_delete_records_its_event_before_it_deletes_anything(monkeypatch) -> None:
+    steps: list[str] = []
+    _admin_family_delete(monkeypatch, steps)
+
+    await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin())  # type: ignore[arg-type]
+
+    event = f"audit: family deleted {FAMILY} {{'small_variants': 7, 'structural_variants': 7}}"
+    assert steps[: steps.index(event) + 1] == ["lock", "count", "count", event]
+    assert steps.index(event) < steps.index("ClickHouse: delete small variants")
+    assert steps.index(event) < steps.index("DELETE FROM families")
+    assert steps[-1] == "commit"
+
+
+@pytest.mark.asyncio
+async def test_a_family_delete_that_fails_commits_nothing(monkeypatch) -> None:
+    # The event is the transaction's: the failure leaves it uncommitted, so it is rolled back
+    # with the rest of the deletion.
+    steps: list[str] = []
+    _admin_family_delete(monkeypatch, steps, failing="purge raw files")
+
+    with pytest.raises(RuntimeError, match="purge raw files failed"):
+        await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin())  # type: ignore[arg-type]
+
+    assert any(step.startswith("audit: family deleted") for step in steps)
+    assert "commit" not in steps and "DELETE FROM families" not in steps

@@ -746,6 +746,7 @@ async def delete_family(
         session,
         family_id,
         confirm,
+        user=user,
     )
 
 

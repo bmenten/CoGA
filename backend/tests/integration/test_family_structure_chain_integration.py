@@ -9,8 +9,10 @@ affected, a member removed in the editor and a sample deleted with its data. The
 
 - the family holds four structure versions on an intact chain, and four ``pedigree`` events
   on its intact clinical audit chain, each naming its change;
-- the family's deletion keeps both chains (``family_id`` nulled), still verifiable by the
-  family's identifier, also through the admin's verify endpoint;
+- a family delete that fails part-way commits nothing; the family's deletion is the last
+  event of its chain (``family_deleted``: who, its samples, what went with it), and both chains
+  stay (``family_id`` nulled), still verifiable by the family's identifier, also through the
+  admin's verify endpoint;
 - a signed anchor records the structure chain's head;
 - an UPDATE or DELETE of a structure version is refused, and a version edited behind the
   trigger's back breaks the chain at that version;
@@ -77,6 +79,18 @@ async def _pedigree_events(session: Any, label: str) -> list[dict[str, Any]]:
     return [dict(row) for row in rows.mappings().all()]
 
 
+async def _family_deleted_events(session: Any, label: str) -> list[dict[str, Any]]:
+    rows = await session.execute(
+        text(
+            "SELECT summary, actor, before, after, metadata, family_id::text AS family_id "
+            "FROM clinical_audit_events WHERE family_identifier = :f AND action = 'family_deleted' "
+            "ORDER BY created_at, id"
+        ),
+        {"f": label},
+    )
+    return [dict(row) for row in rows.mappings().all()]
+
+
 async def _versions(session: Any, label: str) -> list[dict[str, Any]]:
     rows = await session.execute(
         text(
@@ -100,6 +114,7 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
     from backend.app.routers.admin import verify_integrity_chain
     from backend.app.schemas import FamilyMemberUpdate, ManualPedFamilyCreate, ManualPedMemberCreate
+    from backend.app.services import admin_service
     from backend.app.services.admin_service import delete_family_with_data, delete_sample_with_data
     from backend.app.services.clinical_audit_service import verify_clinical_audit_chain
     from backend.app.services.family_member_management_service import (
@@ -208,20 +223,57 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
                 verdict = await verify_against_latest_anchor(s)
             assert not [entry for entry in verdict.diverged if entry["family_identifier"] == label], verdict
 
-            # The family deleted: both chains stay, unlinked from it and still verifiable.
+            # A delete that fails part-way commits nothing: no event, the family as it was.
+            async def fails(*_args: Any, **_kwargs: Any) -> int:
+                raise RuntimeError("purge failed")
+
+            monkeypatch.setattr(admin_service, "purge_family_managed_files", fails)
+            with pytest.raises(RuntimeError, match="purge failed"):
+                async with sm() as s:
+                    await delete_family_with_data(s, label, True, user=user)
+            monkeypatch.undo()
             async with sm() as s:
-                await delete_family_with_data(s, label, True)
+                still_there = (
+                    await s.execute(text("SELECT count(*) FROM families WHERE family_id = :f"), {"f": label})
+                ).scalar_one()
+                deletions = await _family_deleted_events(s, label)
+            assert (still_there, deletions) == (1, [])
+
+            # The family deleted: its deletion is the last event of its chain, and both chains
+            # stay, unlinked from it and still verifiable.
+            async with sm() as s:
+                await delete_family_with_data(s, label, True, user=user)
             async with sm() as s:
                 kept = await _versions(s, label)
                 events_kept = await _pedigree_events(s, label)
+                deletions = await _family_deleted_events(s, label)
+                last_action = (
+                    await s.execute(
+                        text(
+                            "SELECT action FROM clinical_audit_events WHERE family_identifier = :f "
+                            "ORDER BY created_at DESC, id DESC LIMIT 1"
+                        ),
+                        {"f": label},
+                    )
+                ).scalar_one()
                 endpoint = await verify_integrity_chain(
                     table="family_structure_versions", family_id=label, session=s, user=user
                 )
                 audit_after = await verify_clinical_audit_chain(s, label)
             assert [(row["id"], row["family_id"]) for row in kept] == [(row["id"], None) for row in versions]
             assert len(events_kept) == 4 and {event["family_id"] for event in events_kept} == {None}
+            [deletion] = deletions
+            assert last_action == "family_deleted"
+            assert (deletion["actor"], deletion["family_id"], deletion["after"]) == (user.username, None, None)
+            assert deletion["summary"] == (
+                f"Family deleted with its data: 2 samples ({mother}, {child}2), 0 small variants, "
+                "0 structural variants, 0 variant reviews"
+            )
+            assert deletion["before"]["samples"] == [mother, f"{child}2"]
+            assert deletion["before"]["structure_version"] == 4
+            assert deletion["metadata"] == {"source": "admin_delete"}
             assert (endpoint.verified, endpoint.rows_checked, endpoint.family_id) == (True, 4, label), endpoint
-            assert audit_after.verified, audit_after
+            assert audit_after.verified and audit_after.rows_checked == 5, audit_after
 
             # Append-only: no UPDATE and no DELETE of a version.
             second = versions[1]["id"]

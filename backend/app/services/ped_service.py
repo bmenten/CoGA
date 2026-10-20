@@ -11,7 +11,14 @@ from ..core.sql import require_uuid
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
 from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
-from .family_structure_audit import FAMILY_CREATED, PedigreeChange, audit_actor, record_structure_version
+from .family_structure_audit import (
+    FAMILY_CREATED,
+    PEDIGREE_REPLACED,
+    PedigreeChange,
+    audit_actor,
+    record_family_deleted,
+    record_structure_version,
+)
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .upload_safety import decode_upload_text
 from .access_control import CurrentUser, RecordNotVisible, is_admin_user, user_can_access_metadata_projects
@@ -428,6 +435,15 @@ async def _replace_existing_families(
         replaced.extend(
             (assembly_name, family_uuid)
             for assembly_name in sorted(assembly_rows_by_family.get(family_id, set()))
+        )
+        # The replaced family's last clinical audit event, in this transaction, before its
+        # row goes; the new family's pedigree follows it on the same chain (SEC-7).
+        await record_family_deleted(
+            session,
+            family_uuid=family_uuid,
+            family_identifier=family_id,
+            user=user,
+            source=PEDIGREE_REPLACED,
         )
         await session.execute(
             text("DELETE FROM families WHERE id = CAST(:family_uuid AS uuid)"),

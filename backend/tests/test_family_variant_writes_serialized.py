@@ -757,6 +757,8 @@ async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_unt
     monkeypatch.setattr(admin_service, "lock_family_pedigree", no_change)
     monkeypatch.setattr(admin_service, "read_structure_snapshot", no_pedigree)
     monkeypatch.setattr(admin_service, "record_structure_change", no_change)
+    # A family's deletion records its last clinical audit event first (SEC-7).
+    monkeypatch.setattr(admin_service, "record_family_deleted", no_change)
 
     await delete(postgres.session("admin"))
 
@@ -856,9 +858,14 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
             {"family_uuid": "uuid-a", "family_id": "FAM_A", "project_id": "p", "assembly_name": "GRCh38"},
         ]
 
+    async def no_event(*_args, **_kwargs):
+        # Each replaced family's last clinical audit event (SEC-7) is not what this test reads.
+        return None
+
     monkeypatch.setattr(ped_service, "_existing_family_rows", existing_rows)
     monkeypatch.setattr(ped_service, "delete_family_small_variants", _recorder(postgres, "delete small variants"))
     monkeypatch.setattr(ped_service, "delete_family_structural_variants", _recorder(postgres, "delete SVs"))
+    monkeypatch.setattr(ped_service, "record_family_deleted", no_event)
     session = postgres.session("ped")
 
     replaced = await ped_service._replace_existing_families(
@@ -930,6 +937,12 @@ async def test_an_import_shell_delete_takes_both_locks_before_deleting(monkeypat
     postgres = _Postgres()
     for name in ("delete_family_small_variants", "delete_family_structural_variants", "delete_interval_tracks"):
         monkeypatch.setattr(family_package_registration, name, _recorder(postgres, name))
+
+    async def no_event(*_args, **_kwargs):
+        # The family's last clinical audit event (SEC-7) is not what this test reads.
+        return None
+
+    monkeypatch.setattr(family_package_registration, "record_family_deleted", no_event)
 
     await family_package_registration._delete_family_shell(
         postgres.session("import"),  # type: ignore[arg-type]

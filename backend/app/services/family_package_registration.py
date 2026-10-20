@@ -35,10 +35,12 @@ from .clickhouse_variant_storage import (
 from .data_scope import normalize_chromosome
 from .family_identifiers import identifier_problem
 from .family_structure_audit import (
+    IMPORT_FAILED,
     PACKAGE_IMPORT,
     audit_actor,
     lock_family_pedigree,
     read_structure_snapshot,
+    record_family_deleted,
     record_structure_change,
 )
 from .family_metadata_context import (
@@ -1662,19 +1664,30 @@ async def _ensure_family_from_ped(
 
 
 async def _delete_family_shell(
-    session: AsyncSession, family_context: FamilyMetadataContext
+    session: AsyncSession,
+    family_context: FamilyMetadataContext,
+    user: CurrentUser | None = None,
 ) -> None:
     """Compensating cleanup for a failed import that created a fresh family.
 
     Removes the family's ClickHouse variant rows and the Postgres family shell
     (samples / members / other family-scoped rows cascade via ``ON DELETE
     CASCADE``) so a failed import leaves no orphan partial state. Mirrors the
-    deletion recipe in ``ped_service``.
+    deletion recipe in ``ped_service``. The deletion is the family's last clinical audit
+    event, as made by ``user``, the import's (SEC-7).
     """
     assembly_name = family_context.assembly_name
     family_uuid = family_context.family_uuid
     # The import that calls this holds the lock already; any other caller takes it here.
     await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
+    # Before anything of the family goes, in the transaction that deletes it.
+    await record_family_deleted(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_context.family_id,
+        user=user,
+        source=IMPORT_FAILED,
+    )
     if assembly_name:
         try:
             await delete_family_small_variants(assembly_name, family_uuid)
