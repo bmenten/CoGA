@@ -636,6 +636,7 @@ const FamilyNiptPage: React.FC = () => {
           totalPages={pageCount}
           tags={tags}
           showCsvExport={false}
+          readOnly={Boolean(family?.read_only)}
           reviewIsPending={reviewMutation.isPending}
           reviewError={
             reviewMutation.isError

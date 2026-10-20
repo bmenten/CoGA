@@ -256,10 +256,17 @@ const FamilyIntakePanel: React.FC = () => {
   const [statusTone, setStatusTone] = useState<'success' | 'error'>('success');
   const [loading, setLoading] = useState(false);
   const {
-    data: projectOptions = [],
+    data: projectCatalog,
     isLoading: projectsLoading,
     error: projectsError,
   } = useProjectCatalog();
+  // A family is added to a project by an analyst of it or an admin: the projects where the
+  // user is a reader are not offered (SEC-1).
+  const projectOptions = useMemo(
+    () => (projectCatalog ?? []).filter((project) => !project.read_only),
+    [projectCatalog],
+  );
+  const readerOnly = (projectCatalog ?? []).length > 0 && projectOptions.length === 0;
 
   useEffect(() => {
     if (!userIsAdmin && mode === 'upload') {
@@ -720,7 +727,9 @@ const FamilyIntakePanel: React.FC = () => {
           )}
           {!projectsLoading && !projectsError && projectOptions.length === 0 && (
             <p className="status-note status-note--error mt-3">
-              No projects are available for this account.
+              {readerOnly
+                ? 'You have read-only access (reader) to each of your projects, so you cannot add a family.'
+                : 'No projects are available for this account.'}
             </p>
           )}
         </div>

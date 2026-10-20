@@ -116,7 +116,10 @@ recomputed, and the prioritised variant ranking is warmed again. An HPO edit re-
 ranking only.
 
 Changing an HPO term marks the phenotype-dependent views stale in
-`derived_data_status.hpo_annotations`.
+`derived_data_status.hpo_annotations`. A family's HPO terms are added, changed and removed by an
+analyst of its project or an admin, not by a reader (SEC-1), and each change is a `phenotype`
+event on the family's clinical audit trail, written in the same transaction
+([clinical-traceability.md](clinical-traceability.md)).
 
 Saved variant reviews stay as they are. After a change to phenotypes, carriers or
 relationships, re-check the saved interpretations before you rely on them.

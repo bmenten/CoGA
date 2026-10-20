@@ -25,7 +25,7 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, reviewed a compound-heterozygous pair, changed the family's pedigree or members, replaced the annotation manifest, changed the NIPT artifact list, first applied a gene-panel version to a search of the family, deleted the family, or signed out, when, with before and after |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, reviewed a compound-heterozygous pair, changed the family's pedigree, members or phenotypes, replaced the annotation manifest, changed the NIPT artifact list, first applied a gene-panel version to a search of the family, deleted the family, or signed out, when, with before and after |
 | Pedigree history | `family_structure_versions` | the family's pedigree after each change (members with their sex, role, affected and carrier status, and the relationships), one version per change, hash-chained per family |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot, found again by its report code |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
@@ -97,7 +97,7 @@ row's evidence.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). Its actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree`, `family_deleted`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `panel_applied` (below), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family). So does every change to a family's phenotypes (SEC-1): a `phenotype` event per HPO term added, changed or removed, with the member, the term and its label, the status, onset, evidence, source and note before and after (none before a term added, none after one removed), and a summary that names what changed (*Phenotype changed for S1: HP:0001250 Seizure: status present → absent*); a save that changes nothing writes none. Its actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree`, `phenotype`, `family_deleted`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `panel_applied` (below), `sign_out`, and `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed).
 `compound_het_pair` (SEC-7) is the review of a compound-heterozygous pair, given on one
 variant's review with its partner: a save that records a pair, changes it or breaks it up
 writes one event per pair that changed, with the pair as it was and as it is (its partner,
@@ -609,7 +609,8 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   sign-out, from the catalogue loaded then; the genome tracks still show the status stored at
   import until the calls are imported again (*TRGT repeat catalogue*,
   [data-import.md](data-import.md)).
-- HPO edits write no clinical audit event: they appear in the HTTP audit log only.
+- Phenotypes a package import loads are not on the clinical audit trail: the import job's
+  dataset summary says how many it imported.
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
 - The export of each anchor to a store outside the database is not implemented (the
@@ -622,7 +623,8 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   releases of the gene reference, PanelApp and the clinical CNVs are frozen beside it
   (`reference_data`, `gene_panels`), not in it: `GET …/annotation-manifest` and the live report's
   footer do not show them.
-- Any user who can open the family can sign out; sign-out is not limited to a role.
+- Any analyst of the family's project can sign out, and any admin; a reader cannot. Sign-out is
+  not limited to a signer role.
 - CoGA does not see the clinical report in the EPD. Nothing in CoGA checks that the report
   refers to a signed version, which one, or that it says what that version holds; the
   reference is written into the report by the person who drafts it. The report code makes that

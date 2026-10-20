@@ -13,8 +13,10 @@ final form, and the Alembic revisions in
 already exists to that form. One migration step applies both, as the table owner, on every
 start in the default mode (see "Startup Behavior"); the ledger table `alembic_version` records
 the revision a database is at ([Schema Migrations](#schema-migrations)).
-`01_access.sql` also adds `users.azure_object_id` with `ALTER TABLE … ADD COLUMN IF NOT
-EXISTS`, so a database made before Microsoft sign-in keeps its accounts (SEC-4).
+`01_access.sql` also adds `users.azure_object_id` and `project_users.access_level` with
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so a database made before Microsoft sign-in keeps its
+accounts (SEC-4), and one made before the reader level keeps its memberships, each as an
+analyst's (SEC-1).
 
 ### 01_access.sql: genome foundation and access
 
@@ -25,7 +27,7 @@ EXISTS`, so a database made before Microsoft sign-in keeps its accounts (SEC-4).
 | `chromosomes` | chromosome sizes and cytobands per assembly |
 | `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`), active flag, and for an account made at its first Microsoft sign-in the user's object ID in Microsoft Entra ID (`azure_object_id`, unique), by which every later sign-in finds it; such an account has no password (`hashed_password` holds a marker no password matches). A local account, such as the emergency administrator, has none (SEC-4) |
 | `projects` | projects, each bound to one species and assembly |
-| `project_users` | which users belong to which project; data access is scoped by project |
+| `project_users` | which users belong to which project, and each member's `access_level`: `analyst` (reads and changes the project's records, the default) or `reader` (reads them only; SEC-1). Data access is scoped by project; an admin has every right in every project |
 | `auth_login_attempts` | failed-login counts and back-off per email and per client address, and sign-up attempts per address |
 
 ### 02_reference.sql: reference and annotation data
@@ -82,7 +84,7 @@ built-in reference file is recorded under its file name.
 | `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end), `couple`, or `relative` (`sample_id_b` is related through `sample_id_a` by an unknown degree, such as a PGT index known only to be on the mother's side); `source` says what made it (`pedigree`: the parents a pedigree gives; `manifest`: a package manifest's `family.relationships`; `manual`: a couple typed in, or an edit), `active = false` retires it |
 | `family_structure_versions` | **append-only**, hash-chained: one row per change of a family's pedigree (its creation, a structure or member edit, a package import that changes a member's affected or carrier status, a sample deleted with its data): the version, a `structure_hash` over the members (sex, role, affected and carrier status, active) and the relationships, the full snapshot, and the family's own ID (`family_identifier`), which stays when the family is deleted (below) |
 | `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset, with its progress (when it started and ended; while it runs, the share of its files read and the time left). `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute, stamped and judged by the database's clock (`now()`); a worker claims a job whose heartbeat is ten minutes old, runs it again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way. An update that names a worker applies only while the job is that worker's: the heartbeat of an import whose job was ended so stops the import |
-| `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown` |
+| `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown`; added, changed and removed by an analyst of the family's project or an admin, each change a `phenotype` event on the clinical audit trail |
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
 | `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay: entries added one by one, imported from the NIPT-M pipeline's recurrent table (as `curated`) or seeded from the cohort (`auto`) (see [monogenic-nipt.md](monogenic-nipt.md) and [data-import.md](data-import.md#the-nipt-artifact-list)) |
@@ -166,7 +168,7 @@ was.
 | `ui_events` | **append-only** log of UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below). Not hash-chained (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below); an uploaded coverage BED's `metadata.content` says what it was declared to hold (TRACE-9) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
-| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, compound-het pair reviews, pedigree changes, a family's deletion (its last event), the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after |
+| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, phenotype changes, compound-het pair reviews, pedigree changes, a family's deletion (its last event), the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after |
 | `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot; its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)) |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
 

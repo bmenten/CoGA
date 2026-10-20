@@ -28,7 +28,7 @@ from ..core.sql import require_uuid
 from . import cnv_acmg_points
 from .family_metadata_context import build_family_metadata_context
 from .hash_chain import ChainVerification, chain_row_hash, verify_chain
-from .access_control import CurrentUser
+from .access_control import CurrentUser, require_audit_trail_access
 
 
 def _clinical_chain_payload(row: dict[str, Any]) -> dict[str, Any]:
@@ -826,6 +826,9 @@ async def list_clinical_audit(
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
+    # The trail is for analysts and admins: a reader in the family's projects may read the
+    # family, not its audit trail (SEC-1).
+    require_audit_trail_access(context.project_ids, user)
     page_size = max(1, min(int(limit), CLINICAL_AUDIT_MAX_PAGE_SIZE))
     anchor: dict[str, Any] = {"created_at": None, "id": None}
     if before is not None:

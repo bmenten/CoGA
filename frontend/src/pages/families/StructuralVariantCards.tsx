@@ -24,6 +24,7 @@ import ReviewTagChip from './ReviewTagChip';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { formatStructuralLength } from './StructuralVariantTable';
 import VariantPriorityBlock from './VariantPriorityBlock';
+import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 interface StructuralVariantCardsProps {
   familyId?: string;
@@ -77,6 +78,8 @@ export default function StructuralVariantCards({
   onClassifyCnv,
   onToggleReviewTag,
 }: StructuralVariantCardsProps) {
+  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  const readOnly = useFamilyReadOnly();
   const location = useLocation();
   const svPage = `${location.pathname}${location.search}`;
   const tagMap = getTagDefinitionMap(tags);
@@ -366,7 +369,8 @@ export default function StructuralVariantCards({
                   type="button"
                   className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
                   aria-pressed={hasReviewTag}
-                  disabled={reviewIsPending || !onToggleReviewTag}
+                  disabled={readOnly || reviewIsPending || !onToggleReviewTag}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                   onClick={() => {
                     void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.review);
                   }}
@@ -377,7 +381,8 @@ export default function StructuralVariantCards({
                   type="button"
                   className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
                   aria-pressed={isExcluded}
-                  disabled={reviewIsPending || !onToggleReviewTag}
+                  disabled={readOnly || reviewIsPending || !onToggleReviewTag}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                   onClick={() => {
                     void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.excluded);
                   }}
@@ -388,7 +393,8 @@ export default function StructuralVariantCards({
                   type="button"
                   className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
                   aria-pressed={isReported}
-                  disabled={reviewIsPending || !onToggleReviewTag}
+                  disabled={readOnly || reviewIsPending || !onToggleReviewTag}
+                  title={readOnly ? READ_ONLY_HINT : undefined}
                   onClick={() => {
                     void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.report);
                   }}

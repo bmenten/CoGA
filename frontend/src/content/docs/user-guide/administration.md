@@ -14,13 +14,18 @@ the [admin dashboard](/admin), grouped in six areas.
 
 ### User & Access Management
 
-- **Users** — accounts, how each signs in (Microsoft or a password), roles and activation. A colleague's
+- **Users** — accounts, how each signs in (Microsoft or a password), roles and activation, and each user's projects with their level there
+  (*analyst* or *reader*). A colleague's
   first Microsoft sign-in makes their account, a viewer in no project. Set an account's role in its
   **Role** list (CoGA asks you to confirm; you cannot change your own). Activate a new account
-  here; deactivate one to revoke access without deleting its history.
+  here; deactivate one to revoke access without
+  deleting its history.
 - **Projects & Access** — the projects (each tied to an assembly) and which families, samples and users
   belong to them. A user sees only the data of their projects, and the cohort counts in the explorers
-  follow the same scope.
+  follow the same scope. Tick a user to make them a member and choose their level next to their name:
+  an **analyst** reads and changes the project's records; a **reader** (a student, say) reads, searches,
+  exports and prints them and saves their own filter presets, but changes nothing and does not see the
+  audit trail. A member added starts as an analyst. Administrators have every right in every project.
 
 ### Data Management
 

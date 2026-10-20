@@ -27,6 +27,7 @@ import type {
 } from './smallVariantSearch';
 import { buildSmallVariantReviewPath } from './smallVariantReview';
 import { apiPath } from '../../lib/apiPath';
+import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 
 // gnomAD allele-frequency cut-offs offered in the "common variant" filter.
 const GNOMAD_AF_OPTIONS: Array<{ value: string; label: string }> = [
@@ -881,18 +882,20 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
       )}
 
       {acmgVariant && (
-        <AcmgClassificationModal
-          familyId={family.family_id}
-          projectId={resolvedProjectId ?? undefined}
-          variant={toSmallVariantForAcmg(acmgVariant, mtDNA.samples)}
-          members={samplesToMembers(mtDNA.samples)}
-          assemblyName={assemblyName ?? undefined}
-          assemblyVersion={assemblyVersion ?? undefined}
-          errorMessage={reviewError}
-          isPending={reviewMutation.isPending}
-          onClose={() => setAcmgVariant(null)}
-          onSave={handleSaveAcmg}
-        />
+        <FamilyReadOnlyContext.Provider value={Boolean(family.read_only)}>
+          <AcmgClassificationModal
+            familyId={family.family_id}
+            projectId={resolvedProjectId ?? undefined}
+            variant={toSmallVariantForAcmg(acmgVariant, mtDNA.samples)}
+            members={samplesToMembers(mtDNA.samples)}
+            assemblyName={assemblyName ?? undefined}
+            assemblyVersion={assemblyVersion ?? undefined}
+            errorMessage={reviewError}
+            isPending={reviewMutation.isPending}
+            onClose={() => setAcmgVariant(null)}
+            onSave={handleSaveAcmg}
+          />
+        </FamilyReadOnlyContext.Provider>
       )}
     </div>
   );

@@ -26,6 +26,7 @@ import ReviewTagChip from './ReviewTagChip';
 import VariantScoreCell from './VariantScoreCell';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import { niptEvidenceSummary, pct } from './niptClassification';
+import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
 interface SmallVariantTableProps {
   variants: SmallVariant[];
@@ -73,6 +74,8 @@ export default function SmallVariantTable({
   onAcmgClassify,
   onToggleReviewTag,
 }: SmallVariantTableProps) {
+  // A reader in the family's projects sees the review but cannot change it (SEC-1).
+  const readOnly = useFamilyReadOnly();
   const [tableSortKey, setTableSortKey] = useState<TableSortKey>('position');
   const [tableSortAsc, setTableSortAsc] = useState(true);
   const tagMap = useMemo(() => getTagDefinitionMap(tags), [tags]);
@@ -239,7 +242,8 @@ export default function SmallVariantTable({
                         type="button"
                         className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
                         aria-pressed={hasReviewTag}
-                        disabled={reviewIsPending}
+                        disabled={readOnly || reviewIsPending}
+                        title={readOnly ? READ_ONLY_HINT : undefined}
                         onClick={() => {
                           void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.review);
                         }}
@@ -250,7 +254,8 @@ export default function SmallVariantTable({
                         type="button"
                         className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
                         aria-pressed={isExcluded}
-                        disabled={reviewIsPending}
+                        disabled={readOnly || reviewIsPending}
+                        title={readOnly ? READ_ONLY_HINT : undefined}
                         onClick={() => {
                           void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
                         }}
@@ -261,7 +266,8 @@ export default function SmallVariantTable({
                         type="button"
                         className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
                         aria-pressed={isReported}
-                        disabled={reviewIsPending}
+                        disabled={readOnly || reviewIsPending}
+                        title={readOnly ? READ_ONLY_HINT : undefined}
                         onClick={() => {
                           void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.report);
                         }}

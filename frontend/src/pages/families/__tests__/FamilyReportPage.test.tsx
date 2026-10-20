@@ -843,6 +843,36 @@ describe('FamilyReportPage', () => {
     expect(retry).toHaveBeenCalledTimes(1);
   });
 
+  // SEC-1: a reader in the family's project reads and prints the report but signs nothing out,
+  // and is not shown the audit trail; the printout says why it holds none.
+  it('lets a reader print the report but not sign it out, and says why the audit trail is not shown', async () => {
+    const asked: string[] = [];
+    apiMock.get.mockImplementation((url: string) => {
+      asked.push(url);
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [], read_only: true } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/report/sign-outs') {
+        return Promise.resolve({ data: { family_id: 'F1', latest: null, signouts: [] } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    const signOut = await screen.findByRole('button', { name: /Sign out report/ });
+    await waitFor(() => expect(signOut).toBeDisabled());
+    expect(signOut).toHaveAttribute('title', expect.stringMatching(/you are a reader in this family/));
+    expect(screen.getByRole('button', { name: 'Print report' })).toBeEnabled();
+    expect(screen.getByText('Read-only access (reader)')).toBeInTheDocument();
+    expect(screen.getByText('Clinical audit trail')).toBeInTheDocument();
+    expect(screen.getByText(/Not shown: the audit trail is for analysts and administrators/)).toBeInTheDocument();
+    // The trail is not asked for: the server refuses it to a reader.
+    expect(asked.some((url) => url.includes('clinical-audit'))).toBe(false);
+  });
+
   it('shows no scope label for a validated assembly', async () => {
     mockUnsignedFamily();
     renderPage();

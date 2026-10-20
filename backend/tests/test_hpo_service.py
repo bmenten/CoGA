@@ -198,8 +198,10 @@ async def test_create_individual_hpo_annotation_returns_service_unavailable_when
         await hpo_service.create_individual_hpo_annotation(
             session,
             family_uuid="11111111-1111-1111-1111-111111111111",
+            family_identifier="FAM1",
             sample_id="PROBAND",
             payload=SimpleNamespace(hpo_id="HP:0001250", status="present", onset=None, evidence=None, source=None, note=None),
+            user=SimpleNamespace(id=None, username="analyst"),
         )
 
     assert exc_info.value.status_code == 503
@@ -287,8 +289,10 @@ async def test_update_individual_hpo_annotation_returns_service_unavailable_when
         await hpo_service.update_individual_hpo_annotation(
             session,
             family_uuid="11111111-1111-1111-1111-111111111111",
+            family_identifier="FAM1",
             annotation_id="22222222-2222-2222-2222-222222222222",
             payload=SimpleNamespace(hpo_id="HP:0001250", status="present", onset=None, evidence=None, source=None, note=None),
+            user=SimpleNamespace(id=None, username="analyst"),
         )
 
     assert exc_info.value.status_code == 503
