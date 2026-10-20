@@ -19,9 +19,10 @@ import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiSmallVariantEvidence, ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
 import { segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
-import { joinWithAnd } from '../../lib/format';
+import { formatCount, joinWithAnd } from '../../lib/format';
 import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
+import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
 import { formatAlleleFrequency } from './reportNarrative';
 import { formatLocus } from './smallVariantResultUtils';
 import {
@@ -448,6 +449,98 @@ export interface SignedPgtAnalysis {
   recombinationFlank: number | null;
 }
 
+/** A NIPT quality check as frozen (`nipt_quality_checks`): its verdict and why. */
+export interface SignedNiptCheck {
+  status: string | null;
+  message: string | null;
+}
+
+export interface SignedNiptFetalFraction extends SignedNiptCheck {
+  ff: number | null;
+  /** Null: not estimated (too few category-7 sites). */
+  ffComputed: number | null;
+  ffMedian: number | null;
+  ciLow: number | null;
+  ciHigh: number | null;
+  nSites: number | null;
+  lowConfidence: boolean;
+}
+
+export interface SignedNiptFetalSex extends SignedNiptCheck {
+  call: string | null;
+  /** What the father's X alleles read, and what the plasma's chrY coverage reads. */
+  paternalX: string | null;
+  chry: string | null;
+}
+
+export interface SignedNiptTargetCoverage {
+  targets: number | null;
+  medianMean: number | null;
+  belowCritical: number | null;
+  belowAdvisory: number | null;
+  incomplete: number | null;
+  criticalMeanDepth: number | null;
+  /** Each gene with a weak target. */
+  weakGenes: { gene: string; targets: number | null; weakTargets: number | null; minMean: number | null }[];
+}
+
+/** A reported variant as the NIPT variant list classified it when the version was signed. */
+export interface SignedNiptVariant {
+  variantId: string | null;
+  source: string | null;
+  genes: string[];
+  category: number | null;
+  categoryLabel: string | null;
+  maternalState: string | null;
+  fetalInheritance: string | null;
+  observedVaf: number | null;
+  expectedVaf: number | null;
+  confidence: number | null;
+  paternalTransmissionProbability: number | null;
+  maternalAlleleProbability: number | null;
+  fetalHomAltProbability: number | null;
+  flags: string[];
+  plasma: { altReads: number | null; depth: number | null; depthEstimated: boolean };
+  father: { state: string | null; vaf: number | null; depth: number | null };
+  deNovo: { window: string | null; score: number | null; label: string | null; reasons: string[] } | null;
+}
+
+export interface SignedNiptRecessiveGene {
+  gene: string | null;
+  risk: number | null;
+  riskUsesPrior: boolean;
+  maternalVariantId: string | null;
+  paternalVariantId: string | null;
+}
+
+/** A monogenic NIPT family's NIPT results, as its record froze them (`signed_record_nipt`). */
+export interface SignedNipt {
+  samples: { father: string | null; maternalPlasma: string | null; fetus: string | null };
+  fetalFraction: SignedNiptFetalFraction | null;
+  deNovoWindow: { strictMin: number | null; strictMax: number | null } | null;
+  /** [category, count], in category order. */
+  categoryCounts: [number, number][];
+  filterCounts: Record<string, number>;
+  /** [reason, count]: why cfDNA calls failed the quality filter. */
+  qualityFailures: [string, number][];
+  paternity: SignedNiptCheck | null;
+  fetalSex: SignedNiptFetalSex | null;
+  plasmaSample: SignedNiptCheck | null;
+  targetCoverage: SignedNiptTargetCoverage | null;
+  variants: SignedNiptVariant[];
+  notClassified: { variantId: string; reason: string }[];
+  recessiveGenes: SignedNiptRecessiveGene[];
+  targetTables: { sample: string; file: string | null; targets: number | null; loadedAt: string | null }[];
+  artifactList: {
+    assayKey: string | null;
+    entries: number | null;
+    digest: string | null;
+    removed: number | null;
+    kept: { variantId: string; reason: string }[];
+  } | null;
+  modelReference: string | null;
+}
+
 export interface SignedReport {
   /** What the record says it is; null: signed before CoGA froze the sentence. */
   statement: string | null;
@@ -478,6 +571,8 @@ export interface SignedReport {
   paraphase: SignedRecordSection<SignedParaphase>;
   /** A PGT family's embryo calls at the ROI; `absent` from a record of any other family too. */
   pgtAnalysis: SignedRecordSection<SignedPgtAnalysis>;
+  /** A monogenic NIPT family's NIPT results; `absent` from a record of any other family too. */
+  nipt: SignedRecordSection<SignedNipt>;
 }
 
 const acknowledgement = (snapshot: Json, flag: string, reason: string): SignedAcknowledgement => ({
@@ -1114,6 +1209,146 @@ const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
   };
 };
 
+const niptCheck = (value: unknown): SignedNiptCheck | null =>
+  isObject(value) ? { status: text(value.status), message: text(value.message) } : null;
+
+// A count keyed by name ({"low_quality": 3}), its counts only, in key order.
+const countEntries = (value: unknown): [string, number][] =>
+  isObject(value)
+    ? Object.keys(value)
+        .sort()
+        .filter((key) => number(value[key]) !== null)
+        .map((key): [string, number] => [key, number(value[key]) as number])
+    : [];
+
+const parseNiptVariant = (entry: Json): SignedNiptVariant => {
+  const plasma = isObject(entry.plasma) ? entry.plasma : {};
+  const father = isObject(entry.father) ? entry.father : {};
+  const deNovo = isObject(entry.de_novo) ? entry.de_novo : null;
+  return {
+    variantId: text(entry.variant_id),
+    source: text(entry.source),
+    genes: strings(entry.genes),
+    category: number(entry.category),
+    categoryLabel: text(entry.category_label),
+    maternalState: text(entry.maternal_state),
+    fetalInheritance: text(entry.fetal_inheritance),
+    observedVaf: number(entry.observed_vaf),
+    expectedVaf: number(entry.expected_vaf),
+    confidence: number(entry.confidence),
+    paternalTransmissionProbability: number(entry.paternal_transmission_probability),
+    maternalAlleleProbability: number(entry.maternal_allele_probability),
+    fetalHomAltProbability: number(entry.fetal_hom_alt_probability),
+    flags: strings(entry.flags),
+    plasma: {
+      altReads: number(plasma.alt_reads),
+      depth: number(plasma.depth),
+      depthEstimated: plasma.depth_estimated === true,
+    },
+    father: { state: text(father.state), vaf: number(father.vaf), depth: number(father.depth) },
+    deNovo: deNovo
+      ? {
+          window: text(deNovo.window),
+          score: number(deNovo.score),
+          label: text(deNovo.label),
+          reasons: strings(deNovo.reasons),
+        }
+      : null,
+  };
+};
+
+const parseNipt = (value: Json): SignedNipt => {
+  const samples = isObject(value.samples) ? value.samples : {};
+  const ff = isObject(value.fetal_fraction) ? value.fetal_fraction : null;
+  const checks = isObject(value.checks) ? value.checks : {};
+  const sex = isObject(checks.fetal_sex) ? checks.fetal_sex : null;
+  const window = isObject(value.de_novo_window) ? value.de_novo_window : null;
+  const coverage = isObject(value.target_coverage) ? value.target_coverage : null;
+  const inputs = isObject(value.inputs) ? value.inputs : {};
+  const artifacts = isObject(inputs.artifact_list) ? inputs.artifact_list : null;
+  const model = isObject(value.model) ? value.model : {};
+  const filterCounts = Object.fromEntries(countEntries(value.filter_counts));
+  return {
+    samples: {
+      father: text(samples.father),
+      maternalPlasma: text(samples.maternal_plasma),
+      fetus: text(samples.fetus),
+    },
+    fetalFraction: ff
+      ? {
+          status: text(ff.status),
+          message: text(ff.message),
+          ff: number(ff.ff),
+          ffComputed: number(ff.ff_computed),
+          ffMedian: number(ff.ff_median),
+          ciLow: number(ff.ci_low),
+          ciHigh: number(ff.ci_high),
+          nSites: number(ff.n_sites),
+          lowConfidence: ff.low_confidence === true,
+        }
+      : null,
+    deNovoWindow: window ? { strictMin: number(window.strict_min), strictMax: number(window.strict_max) } : null,
+    categoryCounts: countEntries(value.category_counts)
+      .map(([category, count]): [number, number] => [Number(category), count])
+      .filter(([category]) => Number.isFinite(category))
+      .sort((a, b) => a[0] - b[0]),
+    filterCounts,
+    qualityFailures: countEntries(value.quality_failures),
+    paternity: niptCheck(checks.paternity),
+    fetalSex: sex
+      ? { ...(niptCheck(sex) as SignedNiptCheck), call: text(sex.call), paternalX: text(sex.paternal_x), chry: text(sex.chry) }
+      : null,
+    plasmaSample: niptCheck(checks.plasma_sample),
+    targetCoverage: coverage
+      ? {
+          targets: number(coverage.targets),
+          medianMean: number(coverage.median_mean),
+          belowCritical: number(coverage.below_critical),
+          belowAdvisory: number(coverage.below_advisory),
+          incomplete: number(coverage.incomplete),
+          criticalMeanDepth: number(coverage.critical_mean_depth),
+          weakGenes: objects(coverage.genes).map((gene) => ({
+            gene: text(gene.gene) ?? 'a gene',
+            targets: number(gene.targets),
+            weakTargets: number(gene.weak_targets),
+            minMean: number(gene.min_mean),
+          })),
+        }
+      : null,
+    variants: objects(value.variants).map(parseNiptVariant),
+    notClassified: objects(value.not_classified).map((entry) => ({
+      variantId: text(entry.variant_id) ?? 'a variant',
+      reason: text(entry.reason) ?? 'unknown',
+    })),
+    recessiveGenes: objects(value.recessive_genes).map((gene) => ({
+      gene: text(gene.gene),
+      risk: number(gene.risk),
+      riskUsesPrior: gene.risk_uses_prior === true,
+      maternalVariantId: text(gene.maternal_variant_id),
+      paternalVariantId: text(gene.paternal_variant_id),
+    })),
+    targetTables: objects(inputs.target_tables).map((table) => ({
+      sample: text(table.sample) ?? 'a sample',
+      file: text(table.file),
+      targets: number(table.targets),
+      loadedAt: text(table.loaded_at),
+    })),
+    artifactList: artifacts
+      ? {
+          assayKey: text(artifacts.assay_key),
+          entries: number(artifacts.entries),
+          digest: text(artifacts.digest),
+          removed: number(artifacts.removed),
+          kept: objects(artifacts.kept).map((entry) => ({
+            variantId: text(entry.variant_id) ?? 'a variant',
+            reason: text(entry.reason) ?? 'unknown',
+          })),
+        }
+      : null,
+    modelReference: text(model.reference),
+  };
+};
+
 /** The signed version's frozen snapshot, read; null when there is no readable snapshot. */
 export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
   if (!isObject(snapshot)) return null;
@@ -1155,8 +1390,17 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     repeatExpansions: parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions),
     paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
     pgtAnalysis: parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis),
+    nipt: parseRecordSection(snapshot, 'nipt', parseNipt),
   };
 };
+
+/**
+ * Whether the record is a monogenic NIPT family's: it holds the NIPT results, or its Sample QC
+ * was run for a NIPT family (a record signed before CoGA froze the NIPT results). Any other
+ * family's record holds no NIPT section, and the signed view says nothing of one.
+ */
+export const isNiptRecord = (record: SignedReport): boolean =>
+  record.nipt.state !== 'absent' || record.sampleQc?.application === 'nipt';
 
 // --- Wording shared by the live and the signed report ----------------------
 
@@ -1213,6 +1457,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   repeat_expansions: 'repeat expansions',
   paraphase: 'Paraphase results',
   pgt_analysis: 'PGT embryo results',
+  nipt: 'NIPT results',
 };
 
 // --- Wording of what the analysis looked at --------------------------------------------
@@ -1402,6 +1647,86 @@ export const describeCatalogue = (catalogue: SignedCatalogue | null, noun: strin
         catalogue.digest ? `, digest ${catalogue.digest.slice(0, 12)}` : ''
       }`
     : 'not recorded';
+
+// --- Wording of a NIPT family's NIPT results -------------------------------------------
+
+const sitesWord = (count: number | null): string =>
+  count === null ? 'an unrecorded number of category-7 sites' : `${formatCount(count)} category-7 site${count === 1 ? '' : 's'}`;
+
+/** The fetal fraction as signed: "12.0% (95% CI 10.9%–13.1%) from 40 category-7 sites; per-site median 11.8%". */
+export const describeNiptFetalFraction = (ff: SignedNiptFetalFraction): string => {
+  if (ff.ffComputed === null) return `not estimated, from ${sitesWord(ff.nSites)}`;
+  const interval = ff.ciLow !== null && ff.ciHigh !== null ? ` (95% CI ${pct(ff.ciLow)}–${pct(ff.ciHigh)})` : '';
+  const median = ff.ffMedian !== null ? `; per-site median ${pct(ff.ffMedian)}` : '';
+  return `${pct(ff.ffComputed)}${interval} from ${sitesWord(ff.nSites)}${median}`;
+};
+
+/** The fetal sex as signed, with what each signal read. */
+export const describeNiptFetalSex = (sex: SignedNiptFetalSex): string => {
+  const call = sex.call ?? 'not recorded';
+  return `${call.charAt(0).toUpperCase()}${call.slice(1)} (the father's X alleles read ${
+    sex.paternalX ?? 'nothing'
+  }; the plasma's chrY coverage reads ${sex.chry ?? 'nothing'})`;
+};
+
+/** The quality and artifact filters as signed: "48 cfDNA calls: 1 quality-filtered, 1 artifact-filtered, 46 analysed". */
+export const describeNiptFunnel = (counts: Record<string, number>): string => {
+  const parts = [
+    `${formatCount(counts.total_in ?? 0)} cfDNA calls: ${formatCount(counts.failed_quality ?? 0)} quality-filtered`,
+    `${formatCount(counts.failed_artifact ?? 0)} artifact-filtered`,
+    `${formatCount(counts.passed ?? 0)} analysed`,
+  ];
+  const paternalOnly = counts.paternal_only ?? 0;
+  return `${parts.join(', ')}${
+    paternalOnly ? `; ${formatCount(paternalOnly)} paternal allele${paternalOnly === 1 ? '' : 's'} without a plasma call of ${paternalOnly === 1 ? 'its' : 'their'} own` : ''
+  }`;
+};
+
+/** The target coverage as signed: "median 800x over 60,000 targets; 1,500 below 300x, 1,000 with uncovered bases". */
+export const describeNiptCoverage = (coverage: SignedNiptTargetCoverage): string =>
+  `median ${depth(coverage.medianMean)} over ${formatCount(coverage.targets ?? 0)} targets; ${formatCount(
+    coverage.belowCritical ?? 0,
+  )} below ${depth(coverage.criticalMeanDepth)}, ${formatCount(coverage.incomplete ?? 0)} with uncovered bases`;
+
+/** A reported variant's NIPT classification as signed, worded as the NIPT page words it. */
+export const describeNiptVariant = (variant: SignedNiptVariant): string => {
+  const category =
+    variant.category !== null
+      ? `Category ${variant.category}${variant.categoryLabel ? ` (${variant.categoryLabel})` : ''}`
+      : `Unclassified${variant.categoryLabel ? ` (${variant.categoryLabel})` : ''}`;
+  const confidence = variant.confidence !== null ? `, confidence ${variant.confidence.toFixed(2)}` : '';
+  const father = variant.father.state
+    ? `; father ${FATHER_STATE_LABELS[variant.father.state] ?? variant.father.state}${
+        variant.father.vaf !== null ? ` · ${pct(variant.father.vaf)}` : ''
+      }${variant.father.depth !== null ? ` · ${variant.father.depth}×` : ''}`
+    : '';
+  const reads = readsText({
+    cf_alt_reads: variant.plasma.altReads,
+    cf_depth: variant.plasma.depth,
+    cf_depth_estimated: variant.plasma.depthEstimated,
+  });
+  const evidence = niptEvidenceSummary({
+    paternal_transmission_probability: variant.paternalTransmissionProbability,
+    maternal_allele_probability: variant.maternalAlleleProbability,
+    fetal_hom_alt_probability: variant.fetalHomAltProbability,
+    de_novo:
+      variant.deNovo && variant.deNovo.label && variant.deNovo.score !== null
+        ? { label: variant.deNovo.label, score: variant.deNovo.score }
+        : null,
+  });
+  return `${category}${confidence}: maternal ${variant.maternalState ?? 'n/a'}, fetal ${
+    variant.fetalInheritance ?? 'n/a'
+  }; VAF ${pct(variant.observedVaf)} (expected ${pct(variant.expectedVaf)}); plasma reads ${reads}${father}${
+    evidence ? `. ${evidence}` : ''
+  }.`;
+};
+
+/** Why a reported variant has no NIPT classification in the record. */
+export const NIPT_NOT_CLASSIFIED_REASONS: Record<string, string> = {
+  not_in_data: 'it was not in the family’s NIPT data',
+  artifact_list: 'it is on the assay’s recurrent-artifact list, which the analysis leaves out',
+  no_plasma_call: 'the plasma has no call of it, so the analysis does not classify it',
+};
 
 /** The sections the sign-out check names as changed: "reported small variants and …". */
 export const describeReportSections = (sections: string[]): string =>
@@ -1662,6 +1987,71 @@ export const describePgtMembers = (members: SignedPgtMember[]): string | null =>
         })
         .join(', ')
     : null;
+
+// --- A live report beside the latest signed version -------------------------------
+
+/**
+ * How a live report (the family report's, or the NIPT report's) relates to the family's
+ * latest signed version. It is never the signed report, whatever the state: only the signed
+ * version, rendered from its record, is (#508).
+ */
+export type LiveReportSignedState =
+  | 'loading'
+  | 'none'
+  | 'checking'
+  | 'matches'
+  | 'changed'
+  | 'unverified'
+  | 'unknown';
+
+export const liveReportSignedState = ({
+  signoutsFailed,
+  signoutsPending,
+  latestVersion,
+  checkFailed,
+  check,
+}: {
+  signoutsFailed: boolean;
+  signoutsPending: boolean;
+  latestVersion: number | null;
+  checkFailed: boolean;
+  check: { version?: number | null; matches?: boolean | null } | undefined;
+}): LiveReportSignedState =>
+  // A sign-out record that could not be loaded leaves it unknown whether the case is
+  // signed: the page is then neither a draft nor the signed report (#605). Still loading,
+  // it is not known either: not yet a draft (#605).
+  signoutsFailed
+    ? 'unknown'
+    : signoutsPending
+      ? 'loading'
+      : latestVersion === null
+        ? 'none'
+        : checkFailed
+          ? 'unverified'
+          : !check
+            ? 'checking'
+            : check.version !== latestVersion || typeof check.matches !== 'boolean'
+              ? 'unverified'
+              : check.matches
+                ? 'matches'
+                : 'changed';
+
+/**
+ * The notice that heads every printout of a live report: even content that matches the
+ * latest signed version is drawn from current data, which the signed record does not all hold.
+ */
+export const liveReportSignedNotice = (state: LiveReportSignedState, latestVersion: number | null): string =>
+  state === 'unknown'
+    ? 'The sign-out record could not be loaded — do not use as the signed report.'
+    : state === 'loading'
+      ? 'The sign-out record is still loading — do not use as the signed report.'
+      : state === 'none'
+        ? 'Draft — this report has not been signed.'
+        : state === 'changed'
+          ? `Not the signed report — the content differs from signed version ${latestVersion}.`
+          : state === 'matches'
+            ? `Not the signed report — this is the live report. Print signed version ${latestVersion} from its record.`
+            : `Not verified against signed version ${latestVersion} — do not use as the signed report.`;
 
 // --- The report page's views ------------------------------------------------
 

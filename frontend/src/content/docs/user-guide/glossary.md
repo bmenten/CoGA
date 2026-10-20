@@ -2,6 +2,8 @@
   pathogenic.
 - **Affected versus carrier** — affected status describes the person, carrier status the genotype. They
   are recorded separately: an unaffected person can be a carrier.
+- **Analyst / reader** — a member's level in a project. An analyst reads and changes the project's
+  records; a reader only reads them. An administrator has every right in every project.
 - **APCAD** — *Definition to be confirmed by the laboratory.* On screen, the APCAD track shows
   parent-of-origin markers (0 to 1) for a phased trio, or the folded minor allele fraction (0 to 0.5)
   from a depth-based caller.

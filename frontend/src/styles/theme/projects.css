@@ -346,6 +346,14 @@
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 
+/* A project member and, once ticked, their access level (SEC-1). */
+.project-member-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3125rem;
+}
+
 .project-form-actions {
   display: flex;
   justify-content: flex-start;

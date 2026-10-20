@@ -20,8 +20,9 @@ and refers to exactly one signed version: the one it rests on.
   a new ClinVar significance, a new REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), a new
   consequence or LoF call (*LoF LC → HC*), a new missense Z for a missense variant's gene, or a
   structural variant that now overlaps other genes. Re-review those variants.
-- The **Classification audit trail**: who classified, tagged or annotated what, and when. Entries can
-  never be changed or deleted. It opens on the 200 most recent entries; when there are more, it says
+- The **Classification audit trail**: who classified, tagged or annotated what, and who changed the
+  family's phenotypes, and when. Entries can never be changed or deleted. It is for analysts and
+  administrators: a reader of the family's project sees, on screen and in print, that it is not shown. It opens on the 200 most recent entries; when there are more, it says
   how many it shows, and **Show older events** loads the next 200. A printout that shows only part of
   the trail says so.
 - The **Analysis pipeline settings** recorded at import.
@@ -37,9 +38,10 @@ and refers to exactly one signed version: the one it rests on.
 **Sign out report** is your analytical sign-off: it closes the analysis and freezes the reported result
 into a numbered version with a unique fingerprint, with what the analysis looked at: each reported
 variant's description as you reviewed it, the gene panels the family's searches applied, the
-reference-data releases, the repeat-expansion and Paraphase results, and in a PGT family each embryo's
-call at the region of interest as the family page shows it. The EPD refers to the signed
-version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
+reference-data releases, the repeat-expansion and Paraphase results, in a PGT family each embryo's
+call at the region of interest as the family page shows it, and for a monogenic NIPT family its NIPT
+results (the NIPT page signs out through this same sign-out, see the NIPT chapter). The EPD refers to
+the signed version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
@@ -48,8 +50,9 @@ version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five 
 3. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
    re-review, or acknowledge with a reason.
-4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity: acknowledge with
-   a reason. Each concern names the sample, the pair or the child it is about.
+4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity, and for a NIPT
+   family a NIPT quality check that failed: acknowledge with a reason. Each concern names the sample,
+   the pair or the child it is about.
 5. **An incomplete import** (the page says *Import incomplete*): import what failed again, or
    acknowledge with a reason. After an import that stopped part-way, re-run it with **overwrite**: an
    update skips data that is already there, partly written data too. After a failed overwrite that
@@ -65,8 +68,8 @@ the version you signed and its report code: quote that code in the EPD report. A
 refused as a typo, never taken for another record's. **Report codes** in the main menu finds the
 signed version a code names.
 
-> **Only people the laboratory authorises sign out.** CoGA lets any project member press **Sign out
-> report** and does not check that authority. The laboratory decides who may sign out an analysis;
+> **Only people the laboratory authorises sign out.** CoGA lets any analyst of the family's project
+> press **Sign out report**, not a reader, and does not check that authority further. The laboratory decides who may sign out an analysis;
 > CoGA records who did. The medical sign-off is given in the EPD.
 
 ### Is this the signed report?
@@ -74,8 +77,9 @@ signed version a code names.
 Only the signed version is. A signed case opens on its **latest signed version**, drawn from the frozen
 record: *Signed version N — signed out by … on …*, with its report code and fingerprint. It shows what
 was signed: each reported variant's description, classification, criteria, evidence and note, in a PGT
-family the embryo calls (*PGT embryo results*), the gene panels applied, the repeat expansions and
-Paraphase results, the reference-data releases, and the checks at sign-out. It says what the record does not hold — the population frequencies and predictions, the
+family the embryo calls (*PGT embryo results*), in a monogenic NIPT family its NIPT results (*NIPT
+results*), the gene panels applied, the repeat expansions and Paraphase results, the reference-data
+releases, and the checks at sign-out. It says what the record does not hold — the population frequencies and predictions, the
 gene and phenotype context, the audit trail — and never fills that in from current data. **Print
 signed version N** prints it, and **Download signed version N (JSON)** returns the record itself.
 *Signed versions* lists the earlier ones.

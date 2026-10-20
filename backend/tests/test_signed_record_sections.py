@@ -461,8 +461,11 @@ def test_a_section_that_cannot_be_read_is_frozen_as_unavailable_and_named(monkey
         )
     )
 
-    # Every section a family without an embryo holds: the PGT one is a PGT family's alone.
+    # Every section but another application's: this family has no embryo (the PGT section
+    # is a PGT family's alone) and is no NIPT family.
     assert set(sections) == {section.key for section in srs.RECORD_SECTIONS if section.application is None}
+    assert srs.PGT_ANALYSIS.key not in sections
+    assert srs.NIPT_RESULTS.key not in sections
     # A fixed sentence, never the error's text, which may quote what it read.
     assert sections["variant_descriptions"] == {"unavailable": srs.VARIANT_DESCRIPTIONS.unavailable}
     assert sections["paraphase"] == {"unavailable": srs.PARAPHASE.unavailable}
@@ -511,6 +514,84 @@ def test_what_a_section_cannot_use_is_left_out_not_guessed() -> None:
     assert srs._int_or_none("not a number") is None and srs._int_or_none(True) is None
     # A region without a copy-number norm has none to freeze.
     assert srs._expected_copy_number({"expected_copy_number": {}}) is None
+
+
+# --- The NIPT results: a monogenic NIPT family's section ------------------------------
+
+
+def _nipt_family_session(analysis_type: str | None = "monogenic_nipt") -> _Session:
+    return _Session({"FROM families": [{"analysis_type": analysis_type}]})
+
+
+def _sections_of(session: _Session, monkeypatch, **reported: Any) -> dict[str, Any]:
+    async def _no_page(*args, **kwargs):
+        return VariantPage(total=0, variants=[])
+
+    async def _repeats(session, *, context):
+        return FamilyRepeatExpansionTableOut(loci=[])
+
+    async def _paraphase(session, *, context):
+        return FamilyParaphaseTableOut(genes=[])
+
+    monkeypatch.setattr(srs, "get_family_small_variants_page", _no_page)
+    monkeypatch.setattr(srs, "get_family_repeat_expansion_table_response", _repeats)
+    monkeypatch.setattr(srs, "get_family_paraphase_table_response", _paraphase)
+    return asyncio.run(
+        srs.build_record_sections(
+            session,
+            context=_context(),
+            reported=reported.get("reported", []),
+            reported_structural=[],
+        )
+    )
+
+
+def test_a_nipt_family_holds_its_nipt_results_read_for_its_reported_variants(monkeypatch) -> None:
+    asked: list[dict[str, Any]] = []
+
+    async def _nipt(session, context, *, reported_ids):
+        asked.append({"family": context.family_id, "reported": list(reported_ids)})
+        return {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
+
+    monkeypatch.setattr(srs, "nipt_results", _nipt)
+    session = _nipt_family_session()
+    sections = _sections_of(session, monkeypatch, reported=[{"variant_id": "1-1001-A-G"}])
+
+    # Every section without an application, and the NIPT one: this family has no embryo.
+    assert set(sections) == {
+        section.key for section in srs.RECORD_SECTIONS if section.application in (None, "nipt")
+    }
+    assert sections["nipt"] == {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
+    assert asked == [{"family": "FAM1", "reported": ["1-1001-A-G"]}]
+    # In a savepoint of its own, as every section: six for a family without one, seven here.
+    assert session.savepoints == 7
+    # Whether it is a NIPT family is read from its metadata, bound, never spliced in.
+    [(sql, params)] = [(sql, params) for sql, params in session.executed if "FROM families" in sql]
+    assert "analysis_type" in sql and params == {"family_uuid": _context().family_uuid}
+
+
+@pytest.mark.parametrize("analysis_type", [None, "", "wgs", "MONOGENIC_NIPT"])
+def test_a_family_that_is_no_nipt_family_holds_no_nipt_key(monkeypatch, analysis_type) -> None:
+    async def _must_not_read(*args, **kwargs):
+        raise AssertionError("no NIPT family, no NIPT analysis")
+
+    monkeypatch.setattr(srs, "nipt_results", _must_not_read)
+    sections = _sections_of(_nipt_family_session(analysis_type), monkeypatch)
+    assert "nipt" not in sections
+    assert set(sections) == {section.key for section in srs.RECORD_SECTIONS if section.application is None}
+
+
+def test_nipt_results_that_cannot_be_read_are_frozen_as_unavailable_and_named(monkeypatch) -> None:
+    async def _fails(session, context, *, reported_ids):
+        raise RuntimeError("SELECT ... WHERE sample = 'CFDNA_SECRET'")
+
+    monkeypatch.setattr(srs, "nipt_results", _fails)
+    sections = _sections_of(_nipt_family_session(), monkeypatch)
+    assert sections["nipt"] == {"unavailable": "The NIPT results could not be read."}
+    assert "CFDNA_SECRET" not in str(sections)
+    assert srs.record_section_gaps(sections) == [
+        {"section": "nipt", "item": "NIPT results", "reason": "The NIPT results could not be read."}
+    ]
 
 
 @pytest.mark.parametrize("absent", [section.key for section in srs.RECORD_SECTIONS])
@@ -570,7 +651,10 @@ def test_a_pgt_familys_record_freezes_the_analysis_the_family_page_shows(monkeyp
     # The object the family page reads from GET /families/{id}/pgt-analysis, as JSON.
     assert sections["pgt_analysis"] == _analysis().model_dump(mode="json")
     assert asked == [context]
-    assert set(sections) == {section.key for section in srs.RECORD_SECTIONS}
+    # Every section without an application, and the PGT one: this family is no NIPT family.
+    assert set(sections) == {
+        section.key for section in srs.RECORD_SECTIONS if section.application in (None, "pgt")
+    }
     # In a savepoint of its own, like every section.
     assert session.savepoints == 7
 
@@ -610,6 +694,10 @@ def test_a_pgt_analysis_that_cannot_be_read_is_frozen_as_unavailable_and_named(m
     ]
 
 
-def test_only_the_pgt_section_belongs_to_one_application() -> None:
-    assert [section.key for section in srs.RECORD_SECTIONS if section.application] == ["pgt_analysis"]
+def test_only_the_pgt_and_nipt_sections_belong_to_one_application() -> None:
+    assert {section.key: section.application for section in srs.RECORD_SECTIONS if section.application} == {
+        "pgt_analysis": "pgt",
+        "nipt": "nipt",
+    }
     assert srs.PGT_ANALYSIS.application == "pgt"
+    assert srs.NIPT_RESULTS.application == "nipt"

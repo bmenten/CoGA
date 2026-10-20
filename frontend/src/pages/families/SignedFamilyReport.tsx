@@ -13,7 +13,9 @@ import { describePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import PageState from '../../components/PageState';
 import FamilyPageHeader from './FamilyPageHeader';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
-import { joinWithAnd } from '../../lib/format';
+import { formatCount, joinWithAnd } from '../../lib/format';
+import { CATEGORY_LABELS, depth, pct } from './niptClassification';
+import { NIPT_QUALITY_FAILURE_LABELS } from './NiptQcPanel';
 import {
   failuresByJob,
   pendingDatasets,
@@ -40,6 +42,11 @@ import {
   describeGenotype,
   describeInherited,
   describeModuleVersions,
+  describeNiptCoverage,
+  describeNiptFetalFraction,
+  describeNiptFetalSex,
+  describeNiptFunnel,
+  describeNiptVariant,
   describeNoCall,
   describePgtInheritance,
   describePgtInputs,
@@ -54,6 +61,8 @@ import {
   describeStructuralVariantDescription,
   formatReportTime,
   geneReferenceSourceLabel,
+  isNiptRecord,
+  NIPT_NOT_CLASSIFIED_REASONS,
   paraphaseStatusWords,
   parseSignedReport,
   qcStatusLabel,
@@ -61,6 +70,7 @@ import {
   reportViewSearch,
   type SignedAcknowledgement,
   type SignedGenotype,
+  type SignedNipt,
   type SignedRecordSection,
   type SignedReport,
   type SignedSmallVariant,
@@ -454,6 +464,161 @@ const describeReferenceDataLine = (record: SignedReport | null): string => {
     .filter((part): part is string => Boolean(part))
     .join('; ');
 };
+
+// A NIPT check that could not run reads "Not run", as on the NIPT page.
+const niptStatusLabel = (status: string | null): string =>
+  qcStatusLabel(status === 'unknown' ? 'skip' : status);
+
+const NiptResultsBody: React.FC<{ nipt: SignedNipt }> = ({ nipt }) => {
+  const { fetalFraction: ff, paternity, fetalSex: sex, plasmaSample: plasma, targetCoverage: coverage } = nipt;
+  return (
+    <>
+      <p className="report-paragraph">
+        The monogenic NIPT analysis of the maternal plasma {nipt.samples.maternalPlasma ?? 'sample'} against the
+        father {nipt.samples.father ?? 'sample'}
+        {nipt.samples.fetus ? `, for fetus ${nipt.samples.fetus}` : ''}, as CoGA computed it when this version was
+        signed.
+      </p>
+      <div className="report-section">
+        <h3 className="report-subheading">Fetal fraction and quality checks</h3>
+        <ul className="report-signed-list">
+          <li>
+            Fetal fraction: {ff ? describeNiptFetalFraction(ff) : 'not in the record'} — {niptStatusLabel(ff?.status ?? null)}
+            {ff?.lowConfidence && ff.ffComputed !== null ? ' (low confidence: too few sites or a wide interval)' : ''}
+            {nipt.deNovoWindow && nipt.deNovoWindow.strictMin !== null && nipt.deNovoWindow.strictMax !== null
+              ? `; fetal window for de novo alleles ${pct(nipt.deNovoWindow.strictMin)}–${pct(nipt.deNovoWindow.strictMax)}`
+              : ''}
+          </li>
+          <li>
+            Paternity: {niptStatusLabel(paternity?.status ?? null)}
+            {paternity?.message ? ` — ${paternity.message}` : ''}
+          </li>
+          <li>
+            Fetal sex: {sex ? describeNiptFetalSex(sex) : 'not in the record'} — {niptStatusLabel(sex?.status ?? null)}
+            {sex?.status === 'fail' && sex.message ? ` — ${sex.message}` : ''}
+          </li>
+          <li>
+            Maternal plasma sample: {niptStatusLabel(plasma?.status ?? null)}
+            {plasma?.message ? ` — ${plasma.message}` : ''}
+          </li>
+          <li>
+            Target coverage:{' '}
+            {coverage
+              ? `${describeNiptCoverage(coverage)}${
+                  coverage.weakGenes.length
+                    ? `; genes with a weak target: ${coverage.weakGenes
+                        .map((gene) => `${gene.gene} (${gene.weakTargets ?? '?'} of ${gene.targets ?? '?'}, lowest mean ${depth(gene.minMean)})`)
+                        .join(', ')}`
+                    : ''
+                }`
+              : 'no per-target coverage table'}
+          </li>
+          <li>
+            Filters: {describeNiptFunnel(nipt.filterCounts)}
+            {nipt.qualityFailures.length
+              ? `; quality-filter failures: ${nipt.qualityFailures
+                  .map(([reason, count]) => `${count} ${NIPT_QUALITY_FAILURE_LABELS[reason] ?? reason}`)
+                  .join(', ')}`
+              : ''}
+          </li>
+          <li>
+            Categories:{' '}
+            {nipt.categoryCounts.length
+              ? nipt.categoryCounts
+                  .map(([category, count]) => `${CATEGORY_LABELS[category] ?? `Category ${category}`}: ${count}`)
+                  .join('; ')
+              : 'none recorded'}
+          </li>
+        </ul>
+      </div>
+      <div className="report-section">
+        <h3 className="report-subheading">Reported variants in the NIPT analysis</h3>
+        {nipt.variants.length || nipt.notClassified.length ? (
+          <ul className="report-signed-list">
+            {nipt.variants.map((variant, index) => (
+              <li key={`${variant.variantId ?? 'variant'}-${variant.source ?? ''}-${index}`}>
+                <strong>{variant.variantId ?? 'An entry that cannot be read'}</strong>
+                {variant.genes.length ? ` (${variant.genes.join(', ')})` : ''}: {describeNiptVariant(variant)}
+                {variant.flags.length ? ` Flags: ${variant.flags.join(', ')}.` : ''}
+              </li>
+            ))}
+            {nipt.notClassified.map((entry) => (
+              <li key={`not-classified-${entry.variantId}`}>
+                <strong>{entry.variantId}</strong>: not classified — {NIPT_NOT_CLASSIFIED_REASONS[entry.reason] ?? entry.reason}.
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="report-paragraph">No variant was tagged for reporting.</p>
+        )}
+        {nipt.recessiveGenes.length ? (
+          <>
+            <p className="report-paragraph">
+              Recessive fetal risk of the genes in which the reported variants make both parents carriers:
+            </p>
+            <ul className="report-signed-list">
+              {nipt.recessiveGenes.map((gene, index) => (
+                <li key={`${gene.gene ?? 'gene'}-${index}`}>
+                  <strong>{gene.gene ?? 'A gene'}</strong>: {pct(gene.risk)}
+                  {gene.maternalVariantId && gene.paternalVariantId
+                    ? gene.maternalVariantId === gene.paternalVariantId
+                      ? ` (the fetus homozygous for ${gene.maternalVariantId})`
+                      : ` (maternal ${gene.maternalVariantId}, paternal ${gene.paternalVariantId})`
+                    : ''}
+                  {gene.riskUsesPrior ? '; an inheritance the cfDNA did not tell is read at its Mendelian prior' : ''}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : null}
+      </div>
+      <div className="report-section">
+        <h3 className="report-subheading">What the analysis ran with</h3>
+        <ul className="report-signed-list">
+          <li>
+            Per-target coverage:{' '}
+            {nipt.targetTables.length
+              ? nipt.targetTables
+                  .map(
+                    (table) =>
+                      `${table.sample}: ${table.file ?? 'file not named'}${
+                        table.targets !== null ? `, ${formatCount(table.targets)} targets` : ''
+                      }${table.loadedAt ? `, loaded ${formatReportTime(table.loadedAt)}` : ''}`,
+                  )
+                  .join('; ')
+              : 'no table was loaded'}
+          </li>
+          <li>
+            Artifact list:{' '}
+            {nipt.artifactList
+              ? `${nipt.artifactList.assayKey ?? 'scope not named'}, ${formatCount(nipt.artifactList.entries ?? 0)} alleles${
+                  nipt.artifactList.digest ? `, digest ${nipt.artifactList.digest.slice(0, 12)}` : ''
+                }; ${formatCount(nipt.artifactList.removed ?? 0)} left out of this analysis${
+                  nipt.artifactList.kept.length
+                    ? `; kept in by the family’s annotation: ${nipt.artifactList.kept
+                        .map((entry) => `${entry.variantId} (${entry.reason})`)
+                        .join(', ')}`
+                    : ''
+                }`
+              : 'not in the record'}
+          </li>
+          <li>Model: {nipt.modelReference ?? 'not in the record'}.</li>
+        </ul>
+      </div>
+    </>
+  );
+};
+
+/**
+ * A monogenic NIPT family's NIPT results, as its record froze them. Any other family's record
+ * holds none, and nothing is said of them.
+ */
+const NiptResults: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) =>
+  isNiptRecord(record) ? (
+    <RecordSectionBlock title="NIPT results" what="the NIPT results" section={record.nipt} version={version}>
+      {(nipt) => <NiptResultsBody nipt={nipt} />}
+    </RecordSectionBlock>
+  ) : null;
 
 /**
  * A PGT family's embryo calls at the ROI, as the record froze them: the calls the family page
@@ -1224,6 +1389,8 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
               </p>
             ) : null}
           </section>
+
+          <NiptResults record={record} version={version} />
 
           {smallVariants === null ? (
             <section className="surface-card report-empty">

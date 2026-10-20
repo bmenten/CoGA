@@ -23,22 +23,27 @@ of its own:
 * ``pgt_analysis`` — in a PGT family (one with an embryo) only: the PGT analysis at the ROI,
   each embryo's call with what it rests on, as the family page shows it (``pgt_analysis``,
   REQ-PGT-005). A family without an embryo has no such key, so its record is as before.
+* ``nipt`` — in a monogenic NIPT family only: its NIPT analysis as the NIPT page shows it, the
+  reported variants' classification among it, and the inputs it ran with
+  (``signed_record_nipt``). Another family has no such key, so its record is as before.
 
-Every section is built inside a savepoint. A section that cannot be read is frozen as
+A section with an ``application`` is held by that application's families alone. Every
+section is built inside a savepoint. A section that cannot be read is frozen as
 ``{"unavailable": <a fixed sentence>}``, never as an empty one that would read as "nothing
 there" (#514), and ``report_signout_service.snapshot_gaps`` names it. A record signed before
 CoGA recorded a section does not hold it: the sign-out check lists it as not compared, and
 the signed view says the record does not hold it.
 
-Adding a section (the NIPT results follow this pattern):
+Adding a section (as the PGT and NIPT results were added):
 
 1. write its builder here: ``async (session, inputs) -> dict``, JSON-safe and deterministic
    (lists sorted, no clock, no random order), reading what the analysis showed the analyst;
 2. add it to ``RECORD_SECTIONS`` and to ``build_record_sections``. It is then hashed with
    the record, compared by the sign-out check (``REPORT_CONTENT_SECTIONS`` includes every
    key here) and named in ``not_captured`` when it could not be read. A section of one
-   application (``pgt_analysis``) is added only for a family of it: the check compares it
-   only where the record or the family's current data has it;
+   application (``pgt_analysis``, ``nipt``) is added only for a family of it: the check
+   compares it where the record holds it, names it not compared where only the family's
+   current data does, and says nothing of it where neither does;
 3. read it in ``frontend/src/pages/families/signedReportRecord.ts`` (``parseRecordSection``
    gives the absent / unavailable / recorded states) and render it in
    ``SignedFamilyReport.tsx`` (``RecordSectionBlock``), with its label in
@@ -75,6 +80,7 @@ from .paraphase_pg import (
     load_paraphase_medical_regions,
 )
 from .repeat_expansion_pg import get_family_repeat_expansion_table_response
+from .signed_record_nipt import is_nipt_family, nipt_results
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +96,8 @@ class RecordSection:
     key: str
     label: str
     unavailable: str
-    # The application whose families alone hold the section ("pgt"); None: every family.
+    # The application whose families alone hold the section ("pgt", "nipt"); None: every
+    # family. A family of another application holds no such key.
     application: str | None = None
 
 
@@ -122,6 +129,10 @@ PGT_ANALYSIS = RecordSection(
     "The PGT analysis's embryo results could not be read.",
     application="pgt",
 )
+# In a monogenic NIPT family only (``is_nipt_family``).
+NIPT_RESULTS = RecordSection(
+    "nipt", "NIPT results", "The NIPT results could not be read.", application="nipt"
+)
 
 RECORD_SECTIONS: tuple[RecordSection, ...] = (
     VARIANT_DESCRIPTIONS,
@@ -130,6 +141,7 @@ RECORD_SECTIONS: tuple[RecordSection, ...] = (
     REPEAT_EXPANSIONS,
     PARAPHASE,
     PGT_ANALYSIS,
+    NIPT_RESULTS,
 )
 
 # The parts of ``reference_data``, each frozen as unavailable on its own.
@@ -608,7 +620,9 @@ async def build_record_sections(
     reported: Sequence[Mapping[str, Any]],
     reported_structural: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Every section of ``RECORD_SECTIONS``, keyed by its snapshot key."""
+    """Every section of ``RECORD_SECTIONS`` the family's record holds, keyed by its snapshot
+    key: each one without an application, the PGT section of a PGT family and the NIPT
+    section of a monogenic NIPT family."""
     descriptions = await _guarded(
         session,
         VARIANT_DESCRIPTIONS.unavailable,
@@ -639,6 +653,18 @@ async def build_record_sections(
     if is_pgt_family(context):
         sections[PGT_ANALYSIS.key] = await _guarded(
             session, PGT_ANALYSIS.unavailable, lambda: pgt_embryo_results(session, context)
+        )
+    # Read outside a savepoint of its own: whether the record holds the key at all cannot be
+    # frozen as unavailable.
+    if await is_nipt_family(session, context):
+        sections[NIPT_RESULTS.key] = await _guarded(
+            session,
+            NIPT_RESULTS.unavailable,
+            lambda: nipt_results(
+                session,
+                context,
+                reported_ids=[str(entry.get("variant_id") or "") for entry in reported],
+            ),
         )
     return sections
 

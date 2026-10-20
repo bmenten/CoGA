@@ -25,7 +25,7 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
 | Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, replaced the annotation manifest, changed the NIPT artifact list, first applied a gene-panel version to a search of the family, or signed out, when, with before and after |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, changed a family's phenotypes, replaced the annotation manifest, changed the NIPT artifact list, first applied a gene-panel version to a search of the family, or signed out, when, with before and after |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot, found again by its report code |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
 
@@ -96,7 +96,7 @@ row's evidence.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family), and every record of whether TRGT's counting units at a repeat locus are validated, on another (`system:repeat-loci`). Its actions are `classification`, `tags`, `note`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `panel_applied` (below), `sign_out`, `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed), and `repeat_count_units_validated` and `repeat_count_units_not_validated` (the locus, and the record before and after, with its reason).
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family), and every record of whether TRGT's counting units at a repeat locus are validated, on another (`system:repeat-loci`). So does every change to a family's phenotypes (SEC-1): a `phenotype` event per HPO term added, changed or removed, with the member, the term and its label, the status, onset, evidence, source and note before and after (none before a term added, none after one removed), and a summary that names what changed (*Phenotype changed for S1: HP:0001250 Seizure: status present → absent*); a save that changes nothing writes none. Its actions are `classification`, `tags`, `note`, `phenotype`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `panel_applied` (below), `sign_out`, `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed), and `repeat_count_units_validated` and `repeat_count_units_not_validated` (the locus, and the record before and after, with its reason).
 
 **The gene panels a family's searches apply** (`services/panel_use_audit.py`, REQ-CARR-003). A
 search of the family's data that applies a gene panel writes a `panel_applied` event before it
@@ -249,6 +249,31 @@ in the EPD refers to the signed version by its report code (*The report code* be
     loaded, the number of blocks read and a SHA-256 digest of them as read (lineage tags
     included), and the distances the calls and warnings use. A family without an embryo has no
     such key, so its record is as it was;
+  - `nipt`, a monogenic NIPT family's only (`services/signed_record_nipt.py`; REQ-NIPT-001,
+    -004, -006, -010 to -013, -015): the NIPT analysis as the NIPT page computes it at
+    sign-out, by the backend's code (`nipt_service`, `nipt_quality_checks`), never by the
+    browser. The trio (`samples`); the fetal fraction with its interval, site count, per-site
+    median and verdict, and the de novo window; the category counts, the filter funnel and why
+    cfDNA calls failed the quality filter; the quality checks, each with its verdict and the
+    sentence that says why (`checks`: paternity, the fetal sex from the father's X alleles and
+    from the plasma's chrY coverage, the maternal plasma sample's sex profile); the coverage of
+    every capture target and each gene with a weak target (`target_coverage`, null without a
+    per-target coverage table); each variant tagged `report` as the NIPT variant list
+    classifies it (`variants`: its category, maternal state and fetal inheritance, the observed
+    and expected allele fraction, the confidence, the fetal-inheritance probabilities, its flags
+    and quality-filter failures, the plasma's and the father's reads, and for a de novo candidate
+    in the fetal window its triage, one the de novo view leaves out as recurrent included); each
+    reported variant it does not classify, with why (`not_classified`: not in the data, on the
+    artifact list, no plasma call); the recessive fetal risk of the genes the reported variants
+    make both parents carriers in, as the recessive view computes it over them
+    (`recessive_genes`); and what the analysis ran with (`inputs`: the per-target coverage
+    tables with their file, number of targets and load time, and the assay's artifact list with
+    its scope, its number of alleles, a SHA-256 digest of them, how many it left out of this
+    analysis and which the family's annotation kept in; `model`: the R NIPT-M v0.5.1
+    validation, its constants, the cfDNA quality filter and the fetal-fraction rules). A family
+    that is no monogenic NIPT family holds no `nipt` key: its record is as before. A trio that
+    cannot be resolved (no active father, or no maternal plasma sample) is frozen as unavailable,
+    with a sentence of its own;
 - the signer, the time, and any acknowledgement with its reason.
 
 Each section of what the analysis looked at is read inside a savepoint. One that cannot be
@@ -256,35 +281,42 @@ read is frozen as `{"unavailable": <a fixed sentence>}`, never as an empty secti
 named in `not_captured` (a part of `reference_data` on its own); the error's own text, which may
 quote what it read, is not frozen.
 
-Sign-out exists for the family report only. In a PGT family its snapshot holds the embryo calls
-(`pgt_analysis`, above; the owner's decision of 2026-10-14, REG-2). The backend makes them from
-the stored haplotype blocks (`services/pgt_embryo_calls.py`), the family page shows the calls the
-backend serves, and a sign-out freezes the same object: the record holds the calls the analyst
-saw, made by one implementation from stored data. The haplotype tracks still draw the risk line
+Sign-out exists for the family report, and a monogenic NIPT family's analysis is signed out
+through it (below). In a PGT family its snapshot holds the embryo calls (`pgt_analysis`,
+above; the owner's decision of 2026-10-14, REG-2). The backend makes them from the stored
+haplotype blocks (`services/pgt_embryo_calls.py`), the family page shows the calls the backend
+serves, and a sign-out freezes the same object: the record holds the calls the analyst saw,
+made by one implementation from stored data. The haplotype tracks still draw the risk line
 and each member's risk state in the browser (`frontend/src/lib/haplotypeRisk.ts`); the two
 implementations answer the cases of `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json`
 alike, which `test_pgt_embryo_calls.py` and `haplotypeRisk.test.ts` both run. The live family
-report does not show the embryo calls; its signed version does. It holds no NIPT result: the monogenic NIPT report page
-(`FamilyNiptReportPage.tsx`) has no sign-out, and the snapshot of a NIPT family holds no
-fetal-fraction estimate and no variant's category, fetal-inheritance probability, de novo
-priority or recessive fetal risk. Of the NIPT analysis it holds only the sample-integrity checks
-in `sample_qc` (`paternity_check`, `fetal_sex_check` from the father's X alleles,
-`category_qc_check`) and the gene panels its NIPT searches applied (`gene_panels`). A NIPT variant whose review is tagged `report` is frozen like any reported
-small variant: with its classification, not with its category or probabilities. What the signed
-record is to hold per application is an open decision (*Known limitations*).
+report does not show the embryo calls; its signed version does.
+
+**A NIPT family's record** (owner decision of 2026-10-14, REG-2). A monogenic NIPT family is
+signed out through the same sign-out, `POST /families/{family_id}/report/sign-out`, from the
+NIPT page or from the report page: one signed record per analysis, with the same gates, version
+and report code, which also holds the NIPT results (`nipt`, above). Where it is signed out from
+makes no difference to what is frozen. The Sample QC's NIPT checks stay in `sample_qc`
+(`paternity_check`, `fetal_sex_check` from the father's X alleles, `category_qc_check`, the
+parents' sex, and their fixed notes), and the gene panels its NIPT searches applied in
+`gene_panels`. A NIPT variant whose review is tagged `report` is frozen in `reported_variants`
+and `variant_descriptions` like any reported small variant, with its classification, and in
+`nipt` with its category, reads and probabilities. Reading the NIPT section runs the NIPT
+analysis once more, beside the one the Sample QC runs.
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
 An amendment is a new sign-out; no version is ever changed. The sign-out is also written to the
 clinical audit trail. A stored hash is always checked against the snapshot as it was stored, so
 a version signed before a field was added still verifies; the sign-out check reports that
-section as `not_compared`.
+section as `not_compared`. A section neither the record nor the family's current data holds
+(the NIPT results of a family that is no NIPT family) is neither compared nor listed.
 
 Five gates run first, in this order:
 
 1. **Assembly scope.** A family whose assembly is not in `VALIDATED_ASSEMBLIES` (default
    GRCh38), or that has none, is refused with 409 (`gate: "assembly_scope"`). This cannot be
    acknowledged. The family and report pages say such a family is not validated for clinical
-   use, and the report page offers no sign-out.
+   use, and neither the report page nor the NIPT page offers a sign-out.
 2. **Data being written.** A package import writes a family over minutes and commits as it
    goes, and flags it `import_incomplete` only once it has failed, so a snapshot read while it
    runs can hold a half-imported family. A family with a package-import job (not a dry run)
@@ -328,6 +360,14 @@ Five gates run first, in this order:
    maternal lineage, read from the cfDNA as a whole, name no sample. The checks frozen in
    `sample_qc` keep their own messages beside their sample fields, so a record signed before
    the names were added compares the same; an audit event recorded before names none (CLIN-8).
+   For a monogenic NIPT family a NIPT quality check that failed in the record's `nipt` section
+   counts as well, under the same acknowledgement: no fetal-fraction estimate, a fetal sex
+   whose paternal-X and chrY signals disagree, or male DNA given as the maternal plasma
+   (REQ-NIPT-015; TF-06 H4). The 409 lists each in `nipt_failed_checks` and in
+   `qc_summary.messages`, the plasma's naming its sample ("Sample X (maternal plasma): male
+   DNA …"), and the audit event records them (`nipt_failed_checks`). Paternity is not among
+   them: the Sample QC reads it from the same analysis, and gates on it already. NIPT results
+   that could not be read are not captured (named in `not_captured`), not a QC concern.
 5. **Incomplete import.** A family flagged `metadata.import_incomplete` by a package import
    that left it partly loaded ([data-import.md](data-import.md)), or by a small-variant upload
    that failed after deleting the callset it replaced (with no import job;
@@ -437,9 +477,13 @@ sentence); each reported variant's description as reviewed, classification, acce
 evidence snapshot, tags and note; the reported SVs with their description and ClinGen CNV
 scoring; in a PGT family the embryo calls (*PGT embryo results*: the ROI, the inheritance model,
 the disease haplotype, and per embryo its call, the homologs it carries at the ROI as the track
-names them (P1, P2, M1, M2), its warnings, its QC at the ROI, and the haplotype file read); the
-gene panels applied, the repeat expansions, the Paraphase results and the
-reference-data releases; the drift, Sample QC, sequencing QC and import state, with the
+names them (P1, P2, M1, M2), its warnings, its QC at the ROI, and the haplotype file read); in a
+monogenic NIPT family its NIPT results (*NIPT results*: the fetal fraction and the quality
+checks with their verdicts, the coverage, the funnel and the categories, each reported variant
+as the NIPT analysis classified it, the recessive fetal risk, and what the analysis ran with);
+no other family's record shows or mentions either; the gene panels applied, the repeat
+expansions, the Paraphase results and the reference-data releases; the drift, Sample QC,
+sequencing QC and import state, with the
 acknowledgements; the frozen modules, and the reference-data releases beside them in the footer
 with the report code; and `not_captured`. A section the snapshot lacks is shown as not in the
 record (*Not in the signed record: version N was signed before CoGA recorded …*), never as
@@ -472,6 +516,16 @@ classification audit trail shows only its most recent events, the notice says th
 ("Incomplete — the audit trail lists the 200 most recent of its 450 events …"). While the
 sign-out record is loading or could not be loaded, sign-out is not offered. After a sign-out the
 page shows the new version.
+
+**A monogenic NIPT family** is signed out from the NIPT page too (`FamilyNiptPage.tsx`,
+*Sign out NIPT analysis*, or *Amend sign-out* once signed), through the same request, gates and
+acknowledgement dialogs as the live report (`reportSignOut.tsx`, which both pages use). The NIPT
+page names the latest signed version with its report code, says whether the family's data still
+matches it (`sign-out-check`) and links to it; after a sign-out it opens the new version on the
+report page. Sign-out is not offered there off the validated assembly scope, nor while the
+sign-out record is loading or could not be loaded. The NIPT report (`FamilyNiptReportPage.tsx`)
+is live too: it says so on screen, beside the latest signed version, and every printout of it
+starts with the live report's notice ("Draft …", "Not the signed report …", "Not verified …").
 
 Each snapshot also records the reference modules its build looked up (`reference_modules`). A
 reference module CoGA adds later is not in that list: for a record signed before it, the check
@@ -507,9 +561,15 @@ Both views download the frozen record as JSON.
 
 ### Adding a section to the signed record
 
-The NIPT results are to follow the sections of what the analysis looked at, as the PGT embryo
-calls did (`pgt_analysis`). A new section is added in four places, or it is missing from the
-signed view without a trace:
+The PGT embryo calls (`pgt_analysis`) and the NIPT results (`nipt`) were added as sections of
+what the analysis looked at. A new section is added in four places, or it is missing from the
+signed view without a trace. A section only one application's families hold names that
+application in its `RecordSection` (`application="pgt"`, `application="nipt"`):
+`build_record_sections` builds it for those families alone, another family's record holds no
+such key, and the sign-out check neither compares nor lists a section that neither the record
+nor the family's current data holds. The signed view renders it only for a record of that
+application, read from the section itself or, for a record signed before it, from
+`sample_qc.application` (`PgtAnalysisSection`, `isNiptRecord`).
 
 1. **Its builder** in `backend/app/services/signed_record_sections.py`: an async function that
    reads what the analysis showed the analyst and returns a JSON-safe dict, deterministic (lists
@@ -579,9 +639,10 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   import until the calls are imported again (*TRGT repeat catalogue*,
   [data-import.md](data-import.md)).
 - The review of a compound-heterozygous pair (its classification, tags and note) writes no
-  clinical audit event. Nor do pedigree, member and HPO edits: they appear in the HTTP audit log,
-  and pedigree and member edits also as structure versions (`family_structure_versions`, which is
-  neither append-only nor chained).
+  clinical audit event. Nor do pedigree and member edits: they appear in the HTTP audit log, and
+  as structure versions (`family_structure_versions`, which is neither append-only nor chained).
+  Phenotypes a package import loads are not on the trail either: the import job's dataset
+  summary says how many it imported.
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
 - The export of each anchor to a store outside the database is not implemented (the
@@ -594,21 +655,24 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   releases of the gene reference, PanelApp and the clinical CNVs are frozen beside it
   (`reference_data`, `gene_panels`), not in it: `GET …/annotation-manifest` and the live report's
   footer do not show them.
-- Any user who can open the family can sign out; sign-out is not limited to a role.
+- Any analyst of the family's project can sign out, and any admin; a reader cannot. Sign-out is
+  not limited to a signer role.
 - CoGA does not see the clinical report in the EPD. Nothing in CoGA checks that the report
   refers to a signed version, which one, or that it says what that version holds; the
   reference is written into the report by the person who drafts it. The report code makes that
   reference short and refuses a mistyped one, and `GET /report-codes/{code}` finds the version
   it names, but CoGA does not see where a code is quoted.
-- Sign-out exists for the family report only; the monogenic NIPT report page has none. The NIPT
-  results (the fetal fraction, each variant's category and fetal-inheritance probabilities, the
-  de novo candidates, the recessive fetal risk) are therefore part of no signed record (see
-  *Sign-out*); a PGT family's record holds its embryo calls (`pgt_analysis`). What each
-  application's signed record is to hold is pending the owner's decision (REG-2 in
-  [open-issues.md](open-issues.md); [TF-02 §6](regulatory/TF-02-device-description.md),
-  [TF-06](regulatory/TF-06-risk-management-plan.md) H5, H6 and H9).
 - The embryo calls are frozen as the backend makes them at sign-out; the genome overview's and
   the chromosome view's haplotype tracks show each member's risk state from the browser's
   implementation of the same rules, which the parity cases pin but do not prove equal on every
   input. No threshold gates an embryo call on its QC (the informative sites and Mendelian error
   rate at the ROI): the record freezes the numbers the analyst judged.
+- A NIPT family's record freezes the NIPT classification of the variants tagged `report`, not
+  every candidate the NIPT report or a view of the NIPT page lists, and their recessive fetal
+  risk over the reported variants alone. It freezes the coverage of every capture target and
+  each gene with a weak target, not the coverage of a search's gene panel or genes as the NIPT
+  page's coverage card reads it; without a per-target coverage table it holds no coverage QC at
+  all (the page's coverage over a coverage track is read for a search's genes or the family's
+  region of interest). The artifact list and the de novo recurrence are shared by every family
+  of the assay: a change to the list, or another pregnancy of the assay imported since, makes
+  the sign-out check name `nipt` as changed.

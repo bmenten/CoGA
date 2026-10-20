@@ -20,6 +20,7 @@ import {
   type StructuralVariantTagDefinition,
 } from './structuralVariantSearch';
 import { apiPath, raw } from '../../lib/apiPath';
+import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 
 type ResultViewMode = 'auto' | 'table' | 'cards';
 
@@ -49,6 +50,9 @@ type StructuralVariantResultsProps = {
   onOpenReview?: () => void;
   onSaveReview?: (variant: StructuralVariant, payload: StructuralVariantReviewSavePayload) => Promise<void>;
   onToggleReviewTag?: (variant: StructuralVariant, tagKey: string) => Promise<void>;
+  // The caller is a reader in the family's projects (SEC-1): the review controls inside are
+  // disabled, and the reviews stay readable.
+  readOnly?: boolean;
 };
 
 export default function StructuralVariantResults({
@@ -74,6 +78,7 @@ export default function StructuralVariantResults({
   onOpenReview,
   onSaveReview,
   onToggleReviewTag,
+  readOnly = false,
 }: StructuralVariantResultsProps) {
   const [viewMode, setViewMode] = useState<ResultViewMode>('auto');
   const [selectedVariant, setSelectedVariant] = useState<StructuralVariant | null>(null);
@@ -161,7 +166,7 @@ export default function StructuralVariantResults({
   };
 
   return (
-    <>
+    <FamilyReadOnlyContext.Provider value={readOnly}>
       <section className="surface-card space-y-4">
         <div className="variant-results-toolbar">
           <div className="space-y-1">
@@ -301,6 +306,6 @@ export default function StructuralVariantResults({
           }}
         />
       ) : null}
-    </>
+    </FamilyReadOnlyContext.Provider>
   );
 }

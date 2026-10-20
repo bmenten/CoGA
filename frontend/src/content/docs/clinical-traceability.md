@@ -39,7 +39,9 @@ Only an admin can replace them, through the API, and the replacement is written 
 guessed. The footer prints with the report and is part of the signed record.
 
 The footer also names the software: *Software: CoGA X.Y.Z (commit)*, the build that produced the page,
-followed by the in-house IVD statement and the manufacturer. The report asks for the build each time it
+followed by the in-house IVD statement and the manufacturer. Only a release names a release's version: any
+other build adds `dev` to it (*CoGA 0.1.0-dev (commit)*, or *0.1.0-rc.1.dev* after the release
+candidate), so it is never taken for that release. The report asks for the build each time it
 opens. A signed version's footer names two builds: *Signed with*, the build that froze it, and *Rendered
 by*, the build that drew the page from its record. After a CoGA update the two can differ.
 
@@ -99,7 +101,8 @@ and needs an acknowledgement (see *The sign-out checks*).
 
 The **Classification audit trail** lists, most recent first, every clinical action on the family's
 small variants, structural variants and CNVs: who classified, tagged or annotated which variant, when,
-and what changed (before → after), including each sign-out and each replacement of the pipeline versions. A change to
+and what changed (before → after), including each sign-out, each replacement of the pipeline versions
+and each change to the family's phenotypes (an HPO term added, changed or removed). A change to
 the criteria behind a class is listed too, even when the class stays the same: a criterion accepted or
 rejected, its strength (for a CNV, its points) or its evidence changed, a suggestion that appeared or
 went. Clearing a review is listed too.
@@ -109,6 +112,7 @@ went. Clearing a review is listed too.
 - *CNV classification VUS - class 3 → Pathogenic - class 5*
 - *Tags added report*
 - *Annotation manifest replaced (was vcf_header, now manual): VEP 110 → 112*
+- *Phenotype changed for S1: HP:0001250 Seizure: status present → absent*
 - *Gene panel Epilepsy version 2 (PanelApp panel 402, version 3.1) first applied to the small-variant search*
 - *Report signed out (v2, report code 7KQM2X-2-4PHT) — 3 reported variant(s)*
 
@@ -120,8 +124,9 @@ applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
 This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
-separate. Changes to the pedigree, the family members or their phenotypes, and the review of a
-compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them.
+separate. Changes to the pedigree or the family members, and the review of a
+compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them. The trail is
+for analysts and administrators: a reader of the family's project does not see it.
 
 The trail opens on its 200 most recent entries. When it holds more, it says how many it shows
 (*Showing the 200 most recent of 450 events; the older ones are not shown.*), and **Show older
@@ -154,11 +159,25 @@ the clinical report in the EPD refers to:
   inherited at the ROI, its warnings (missing data, an unrecorded sex, a recombination or a parent's
   phase correction near the ROI), its QC at the ROI (informative sites and Mendelian error rate), and
   the haplotype file the calls were read from;
+- for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out: the
+  fetal fraction, the quality checks with their verdicts (paternity, the fetal sex from both signals,
+  the maternal plasma sample), the coverage of the capture targets, the category counts and the
+  filter funnel, each variant tagged *report* as the NIPT analysis classifies it (its category, the
+  reads behind it, the chance the fetus inherited it and, for a de novo candidate, its priority), the
+  recessive fetal risk of the reported variants' genes, and what the analysis ran with (the coverage
+  tables, the artifact list and the model);
 - a sentence that says what the record is (the analytical sign-off, referred to by the EPD);
 - the CoGA software version that produced it.
 
 A signed version can never change; any later tampering would show as a fingerprint mismatch. A part
 that could not be read while the version was frozen is recorded as not captured, never as empty.
+
+A monogenic NIPT family is signed out from the NIPT page as well (**Sign out NIPT analysis**): the
+same sign-out, with the same checks and report code, into the family's one signed record. Where you
+sign out from makes no difference to what is frozen. The NIPT page names the latest signed version
+with its report code and says whether the family's data still matches it. The NIPT report is live,
+like the live family report: it says so on screen, and every printout of it starts with *Draft* or
+*Not the signed report*.
 
 ### The report code
 
@@ -186,7 +205,7 @@ Sign-out stops at each of these, in this order:
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
 | **Data being written** | A data import of the family is queued or running, or its data are being written (an upload, or a deletion of its variants). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
-| **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
+| **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). For a NIPT family, also a NIPT quality check that failed: no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA given as the maternal plasma. | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
@@ -213,7 +232,7 @@ If a data import fails for some datasets and leaves the family partly loaded, Co
 load and marks the family as incomplete. Every family page, the reports included, then shows
 *Import incomplete*: the datasets that failed and those that did import, when, and the import job
 whose record holds each dataset's error. The warning prints with the report, and with the NIPT
-report, which has no sign-out to stop on it.
+report, a live report that prints without a sign-out to stop on it.
 
 Results on such a family can lack whole datasets, for example all its structural variants. Import
 the datasets that failed again to complete the family: the warning goes once each has been imported
@@ -246,8 +265,8 @@ brought again.
 
 ### Who may sign out
 
-Only people the laboratory has authorised to sign out an analysis. CoGA lets any member of the project
-press **Sign out report** and does not check that authority itself. It records who signed each version,
+Only people the laboratory has authorised to sign out an analysis. CoGA lets any analyst of the
+family's project press **Sign out report** (a reader cannot) and does not check that authority itself. It records who signed each version,
 in the signed record and in the audit trail. The medical sign-off of the clinical report is given in
 the EPD, under its own signing rights.
 
@@ -284,6 +303,11 @@ It shows what the record holds:
 - in a PGT family, the embryo calls (*PGT embryo results*): each embryo's call at the ROI, the
   haplotypes it inherited there as the track names them (P1, P2, M1, M2), its warnings and its QC;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
+- for a monogenic NIPT family, its **NIPT results**: the fetal fraction and the quality checks with
+  their verdicts, the coverage, the filter funnel and the categories, each reported variant as the NIPT
+  analysis classified it, the recessive fetal risk and what the analysis ran with. A NIPT family's
+  version signed before CoGA froze them says *Not in the signed record*; another family's record has
+  no NIPT results and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
 - the versions it was signed with and the reference-data releases, in the footer, with the report code.
