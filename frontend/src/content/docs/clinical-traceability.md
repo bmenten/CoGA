@@ -303,6 +303,12 @@ Signing out again creates a new version (v2, v3, …); earlier versions are neve
 case is signed out, the button on the live report reads **Amend sign-out**. A clinical report that rests
 on the amended analysis refers to the new version.
 
+Versions are numbered per family ID. A family that was deleted and made again under the same ID (for
+example by replacing it with **overwrite**) continues the numbering: after a deleted family's versions 1
+and 2, its first signed version is version 3. A family ID and a version, and so a report code, therefore
+always name one signed record. The family's pages show only its own versions; the deleted family's stay
+on record, but no page or report code opens them.
+
 ---
 
 ## The signed version and the live report

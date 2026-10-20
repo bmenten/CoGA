@@ -443,6 +443,184 @@ def test_the_active_import_job_is_read_as_a_mapping() -> None:
     assert asyncio.run(rss._active_import_job(_JobSession([]), "FAM1")) is None
 
 
+# ---------------------------------------------------------------------------
+# A family made again under its ID (TRACE-13)
+# ---------------------------------------------------------------------------
+
+
+class _Value:
+    """A result that holds one value."""
+
+    def __init__(self, value) -> None:
+        self._value = value
+
+    def scalar_one(self):
+        return self._value
+
+    def scalar_one_or_none(self):
+        return self._value
+
+
+class _SignoutTable(_Session):
+    """``report_signouts`` in memory. It answers what a sign-out reads and writes of the
+    table (the version, the chain head, the new row) and the chain verifier's walk, from its
+    rows; every other statement gets what ``_Session`` gives.
+
+    A version read is answered over the rows its WHERE clause names: those of the family ID
+    (``family_identifier = :family_identifier``) and those of the family row
+    (``family_id = CAST(:family_uuid AS uuid)``), either one."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[dict] = []
+
+    async def execute(self, *args, **kwargs):
+        self.executed.append((args, kwargs))
+        sql = " ".join(str(args[0]).split())
+        params = args[1] if len(args) > 1 else {}
+        if sql.startswith("INSERT INTO report_signouts"):
+            self.rows.append({**params, "snapshot": json.loads(params["snapshot"])})
+        elif "MAX(version)" in sql and "FROM report_signouts" in sql:
+            named = [
+                row["version"]
+                for row in self.rows
+                if (
+                    "family_identifier = :family_identifier" in sql
+                    and row["family_identifier"] == params.get("family_identifier")
+                )
+                or ("family_id = CAST(:family_uuid AS uuid)" in sql and row["family_id"] == params.get("family_uuid"))
+            ]
+            return _Value(max(named, default=0))
+        elif sql.startswith("SELECT row_hash FROM report_signouts"):
+            # The chain head: the family ID's highest version.
+            chain = [row for row in self.rows if row["family_identifier"] == params["fident"]]
+            return _Value(max(chain, key=lambda row: row["version"])["row_hash"] if chain else None)
+        elif "FROM report_signouts" in sql and "ORDER BY version ASC" in sql:
+            # The verifier's walk: the family ID's chained rows in version order (a tie
+            # keeps the order the rows were written in).
+            chain = sorted(
+                (
+                    {**row, "id": str(row["version"])}
+                    for row in self.rows
+                    if row["family_identifier"] == params["fident"] and row["row_hash"] is not None
+                ),
+                key=lambda row: row["version"],
+            )
+            return types.SimpleNamespace(mappings=lambda: types.SimpleNamespace(all=lambda: chain))
+        return _Result()
+
+    def delete_family(self, family_uuid: str) -> None:
+        """What the family's deletion does to its sign-outs: ON DELETE SET NULL."""
+        for row in self.rows:
+            if row["family_id"] == family_uuid:
+                row["family_id"] = None
+
+
+def _sign_out_two_families(monkeypatch) -> _SignoutTable:
+    """Family FAM1 signed out twice, deleted, made again under its ID (another family row)
+    and signed out twice more: the case TRACE-13 found."""
+    _patch_common(monkeypatch, drifted_count=0)
+    family = {"uuid": "u1"}
+
+    async def _ctx(session, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(family_uuid=family["uuid"], family_id="FAM1", assembly_name="GRCh38")
+
+    async def _complete_import(session, family_uuid):
+        return None
+
+    async def _no_unfinished_import(session, family_uuid):
+        return {}
+
+    monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
+    monkeypatch.setattr(rss, "_import_incomplete_state", _complete_import, raising=False)
+    monkeypatch.setattr(rss, "_import_unfinished_state", _no_unfinished_import, raising=False)
+    table = _SignoutTable()
+    for family_uuid in ("u1", "u2"):
+        family["uuid"] = family_uuid
+        for _ in range(2):
+            asyncio.run(rss.sign_out_report(table, family_id="FAM1", user=_user()))
+        if family_uuid == "u1":
+            table.delete_family("u1")
+    return table
+
+
+def test_a_family_made_again_under_its_id_numbers_its_sign_outs_on_and_both_verify(monkeypatch) -> None:
+    table = _sign_out_two_families(monkeypatch)
+
+    # Numbered per family ID: the new family's first sign-out is version 3, not 1 again.
+    assert [(row["family_id"], row["version"]) for row in table.rows] == [
+        (None, 1),
+        (None, 2),
+        ("u2", 3),
+        ("u2", 4),
+    ]
+    # One chain, in the order it was written: the new family's first record links to the
+    # deleted family's last one.
+    assert table.rows[0]["prev_hash"] is None
+    assert [row["prev_hash"] for row in table.rows[1:]] == [row["row_hash"] for row in table.rows[:-1]]
+    chain = asyncio.run(rss.verify_report_signout_chain(table, "FAM1"))
+    assert (chain.verified, chain.rows_checked) == (True, 4), chain
+    # The version is the family ID's, and so the report code names one record of either family.
+    codes = [report_code("FAM1", row["version"], row["content_hash"]) for row in table.rows]
+    assert len(set(codes)) == 4 and None not in codes
+    assert [parse_report_code(code).version for code in codes if code] == [1, 2, 3, 4]
+
+
+def test_a_record_of_either_family_changed_afterwards_still_breaks_the_chain(monkeypatch) -> None:
+    table = _sign_out_two_families(monkeypatch)
+    rows = copy.deepcopy(table.rows)
+
+    # The deleted family's last record, signed by someone else.
+    table.rows[1]["signed_out_by"] = "impostor"
+    edited = asyncio.run(rss.verify_report_signout_chain(table, "FAM1"))
+    assert (edited.verified, edited.first_bad_row, edited.reason) == (
+        False,
+        "2",
+        "row_hash mismatch (row content tampered)",
+    )
+
+    # The new family's first record, its snapshot changed.
+    table.rows = copy.deepcopy(rows)
+    table.rows[2]["snapshot"]["note"] = "ALTERED"
+    altered = asyncio.run(rss.verify_report_signout_chain(table, "FAM1"))
+    assert (altered.verified, altered.first_bad_row) == (False, "3"), altered
+    assert "content_hash" in (altered.reason or "")
+
+    # The deleted family's last record removed: the new family's first no longer links.
+    table.rows = [row for index, row in enumerate(copy.deepcopy(rows)) if index != 1]
+    removed = asyncio.run(rss.verify_report_signout_chain(table, "FAM1"))
+    assert (removed.verified, removed.first_bad_row) == (False, "3"), removed
+    assert "prev_hash" in (removed.reason or "")
+
+
+def test_the_next_version_counts_every_family_made_under_the_id() -> None:
+    table = _SignoutTable()
+    table.rows = [
+        {"family_id": None, "family_identifier": "FAM1", "version": 1},
+        {"family_id": None, "family_identifier": "FAM1", "version": 2},
+        {"family_id": None, "family_identifier": "FAM9", "version": 7},
+    ]
+    # A family made again under FAM1 signs version 3; another family ID counts for nothing.
+    assert asyncio.run(rss._next_version(table, "FAM1", "u2")) == 3
+    assert asyncio.run(rss._next_version(table, "FAM5", "u5")) == 1
+    # A row of the family stored without its ID still counts.
+    table.rows.append({"family_id": "u2", "family_identifier": None, "version": 4})
+    assert asyncio.run(rss._next_version(table, "FAM1", "u2")) == 5
+    # Read with bound parameters, never spliced into the statement.
+    sql, params = table.executed[-1][0]
+    assert ":family_identifier" in str(sql) and "FAM1" not in str(sql)
+    assert params == {"family_identifier": "FAM1", "family_uuid": "u2"}
+
+
+def test_a_deleted_familys_record_keeps_its_report_code_from_a_new_sign_out() -> None:
+    # The uniqueness check reads every record with the code's version and hash prefix, a
+    # deleted family's too (its family_id nulled), so no sign-out takes its code again.
+    code = report_code("FAM1", 2, _CONTENT_HASH)
+    assert code is not None
+    assert asyncio.run(_REPORT_CODE_TAKEN(_CodeSession([_code_row(family_uuid=None)]), code)) is True
+    assert "family_id" not in " ".join(str(rss._REPORT_CODE_CANDIDATES).split()).split("WHERE")[1]
+
+
 def test_sign_out_blocks_unacknowledged_drift(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=2)
     with pytest.raises(HTTPException) as excinfo:
