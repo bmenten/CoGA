@@ -220,8 +220,9 @@ loops is refused.
 
 **Mitochondrial calls are replaced per sample.** A package holds one mitochondrial file per sample,
 and each file replaces only that sample's calls. The other family members' calls stay as they are, so
-the mtDNA analysis keeps the mother's calls beside the children's for the maternal transmission. A file
-without chrM variants removes that sample's calls. The chrM structural-variant files (large deletions and
+the mtDNA analysis keeps the mother's calls beside the children's for the maternal transmission. A
+mitochondrial file without a variant is a failed analysis, not a sample without mitochondrial variants
+(see below). The chrM structural-variant files (large deletions and
 duplications) are replaced per sample the same way, and the mtDNA analysis lists them with each member's
 heteroplasmy.
 
@@ -231,21 +232,33 @@ HiFiCNV's minor allele fraction; the viewers draw each caller's coverage as a tr
 import or an upload replaces only its own caller's tracks: a coverage BED leaves the WisecondorX and
 QDNAseq bins and HiFiCNV's depth, and an APCAD import leaves HiFiCNV's minor allele fraction.
 **Update** skips a sample only when its own caller's track is there. A package's coverage BED and an
-uploaded coverage BED count as one caller: each replaces the other. The mtDNA analysis, and the NIPT
-coverage check without a per-target table, read as depth only a coverage BED, or HiFiCNV's depth where
-the import stored it as read: never the WisecondorX or QDNAseq bins or HiFiCNV's normalised depth,
-which are log2 ratios. An APCAD family file replaces the track of each sample it holds values for;
-a sample it holds none for keeps its track.
+uploaded coverage BED count as one caller: each replaces the other. An APCAD family file replaces the
+track of each sample it holds values for; a sample it holds none for keeps its track.
+
+**A coverage BED says what it holds.** Each coverage BED declares whether it holds read depth or a log2
+ratio: in the upload form (*Coverage BED holds*), and in the manifest with `content: read_depth` or
+`content: log2_ratio` on the sample's coverage entry. The viewers draw read depth on a depth axis and a
+log2 ratio on the log2-ratio axis; the mtDNA analysis, and the NIPT coverage check without a per-target
+table, read as depth only a BED declared as read depth, or HiFiCNV's depth where the import stored it as
+read: never the WisecondorX or QDNAseq bins or HiFiCNV's normalised depth, which are log2 ratios, nor a
+BED declared as a log2 ratio. A manifest entry without `content` imports as *unknown*, and validation
+warns: such a track is drawn on its own range without an axis, with a note, and never read as depth.
+Each track these checks leave out is named, with the reason, on the mtDNA page and with the NIPT coverage.
+A coverage BED loaded before BEDs said what they hold reads as unknown too: load it again with what it
+holds.
 
 **A file without a record fails its dataset, and nothing is replaced.** A file that holds nothing
 CoGA can store (a header alone, a file cut short before its first record, an empty file) used to
 replace the stored data with none, and the dataset read *imported*. Now its dataset fails before
 anything is deleted, and the job's log names the file: a TRGT file, WisecondorX or QDNAseq bins or
 segments, HiFiCNV's copy-number and signal files, an APCAD file, a PCF table, a Paraphase result, a
-sample's NeedlR file or a long-read sample's SNV file. A file cut short after its first records still
-fails its dataset when the import reaches the cut, and the family is put back or marked as for any
-failed dataset. A mitochondrial file without a call is a result, not an empty file (most samples carry
-no mtDNA deletion): it removes that sample's earlier calls, as above.
+sample's NeedlR file, a long-read sample's SNV file or a sample's mitochondrial SNV file. Every sample's
+mitochondrial file is read before any sample's calls are replaced, so one without a variant keeps every
+sample's earlier mitochondrial calls, and the family is put back or marked import-incomplete for the
+mitochondrial calls; it used to remove that sample's earlier calls. A file cut short after its first
+records still fails its dataset when the import reaches the cut, and the family is put back or marked as
+for any failed dataset. A mitochondrial structural-variant file without a call is a result, not an empty
+file (most samples carry no mtDNA deletion): it removes that sample's earlier chrM deletions.
 
 ### What validation checks
 
@@ -328,6 +341,16 @@ stored ones were deleted (the variant store failing part-way), the upload report
 family page shows *Import incomplete* for those calls, so the report can be signed out only with an
 acknowledgement, until they have been uploaded or imported again.
 
+The small-variant, structural-variant and interval-track uploads mark the family before they first
+write to the variant store, and remove the mark once they have finished. If the server stops in the
+middle of such an upload (it restarted, or ran out of memory), or the upload fails and cannot put back
+what it had deleted, the mark stays: every family page shows *Import incomplete* ("A single-file upload
+… began rewriting this family's data and has not finished"), naming what may be partly written or
+missing, and the report can be signed out only with an acknowledgement. Upload again with
+**overwrite** what it names: each sample's file for a structural-variant caller (the upload rewrites
+every sample's calls from that caller), the callset, or the sample's track; each goes from the warning
+as it is uploaded, or imported, again. An upload without **overwrite** removes nothing from it.
+
 A value the variant store cannot hold, or that is no number, never fails an upload or an import: it is
 stored as missing. A genotype quality written as `inf` or above 65,535, a negative phase set, or a
 QUAL beyond the store's largest decimal reads as absent, so a sample filter with a minimum genotype
@@ -344,7 +367,7 @@ calls apart:
   before it replaces them.
 - Replacing them changes only that sample's calls from that caller. The other samples' calls, and the
   calls of every other source (a package's NeedlR or HiFiCNV calls, another caller's upload), stay as
-  they are.
+  they are. If storing them fails, every sample's calls from that caller are put back as they were.
 - The caller and its version, as the file's header names them, are added to the family's annotation
   versions.
 - Uploads from two callers that report an SV with the same type and breakpoints each keep their own
@@ -395,8 +418,10 @@ Deleting a sample's structural variants on **Admin → Family & Sample Data** re
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
 of a member removed from the family.
 
-An interval-track (BED) upload works the same way. It stops only when the sample already has that track
-from a BED (an earlier upload, or a package's coverage BED), and the page asks before it replaces it;
+An interval-track (BED) upload works the same way. A coverage BED needs what it holds, read depth or a
+log2 ratio, chosen in the form: the upload is refused without it. It stops only when the sample already
+has that track from a BED (an earlier upload, or a package's coverage BED), and the page asks before it
+replaces it;
 replacing it leaves the other callers' tracks of that type (WisecondorX, QDNAseq, HiFiCNV, a package's
 APCAD or PCF) as they are. A file that holds no record of the track type is refused before anything is
 replaced. Deleting a sample's track type on **Admin → Family & Sample Data** removes every caller's.

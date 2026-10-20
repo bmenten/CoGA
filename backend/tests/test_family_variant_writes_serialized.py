@@ -282,7 +282,7 @@ class _SvStore:
         await self.interleaving.after_read()
         return rows
 
-    async def rewrite(self, _assembly, _family, rows, *, source=None) -> None:
+    async def rewrite(self, _assembly, _family, rows, *, source=None, stored=()) -> None:
         self._log("rewrite SVs")
         # The delete and the inserts are separate statements; nothing holds them together.
         self.rows = [row for row in self.rows if source is not None and row.record.source != source]
@@ -814,25 +814,6 @@ async def test_the_package_sv_datasets_hold_the_lock_until_their_sv_files_are_re
 
 
 @pytest.mark.asyncio
-async def test_removing_a_samples_mitochondrial_calls_holds_the_lock_from_its_read(small_store) -> None:
-    postgres = _Postgres()
-    small_store([_entry(73, {"MOTHER": "1/1", "PROBAND": "1/1"})], postgres=postgres)
-    session = postgres.session("import")
-
-    removed = await variant_upload_service.remove_family_small_variant_sample_calls(
-        session,  # type: ignore[arg-type]
-        _family_context(),
-        [_sample_context("PROBAND")],
-        source="mito",
-    )
-
-    assert removed == 1
-    # Held until the import commits.
-    assert postgres.trace("import") == [f"lock {_key(SMALL_VARIANTS)}", "read small variants"]
-    assert session.held == [_key(SMALL_VARIANTS)]
-
-
-@pytest.mark.asyncio
 async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_deleting(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -893,18 +874,23 @@ async def test_clearing_a_familys_data_takes_both_locks_before_deleting(monkeypa
     ):
         monkeypatch.setattr(family_structure_service, name, _recorder(postgres, name))
 
-    await family_structure_service._clear_family_genomic_data(
-        postgres.session("structure"),  # type: ignore[arg-type]
+    session = postgres.session("structure")
+    _counts, assemblies = await family_structure_service._clear_family_genomic_data(
+        session,  # type: ignore[arg-type]
         family_uuid=_FAMILY,
     )
+    # The ClickHouse data goes last, before the structure change commits (SAFE-28), under
+    # the locks the clear took, which its transaction still holds.
+    await family_structure_service._delete_family_clickhouse_data(_FAMILY, assemblies)
 
+    assert assemblies == ["GRCh38"]
     assert postgres.trace("structure") == [
         f"lock {_key(SMALL_VARIANTS)}",
         f"lock {_key(STRUCTURAL_VARIANTS)}",
+        "delete_interval_track_sources",
         "delete_family_small_variants",
         "delete_family_structural_variants",
         "delete_interval_tracks",
-        "delete_interval_track_sources",
     ]
 
 

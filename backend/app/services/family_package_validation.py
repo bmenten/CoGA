@@ -26,6 +26,7 @@ from .family_package_manifest import _manifest_added_member_entries, _manifest_a
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_path, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .nipt_target_coverage import target_table_missing_columns
+from .coverage_content import COVERAGE_CONTENT_KEY, DECLARED_COVERAGE_CONTENTS
 
 
 def _add_missing_optional_dataset_warnings(
@@ -407,7 +408,13 @@ def _validate_coverage_dataset(
     dataset: ManifestDataset,
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
+    warnings: list[FamilyImportValidationIssue] | None = None,
 ) -> FamilyImportDatasetSummary:
+    """A coverage entry names a BED (``bed``) with what it holds (``content``: ``read_depth``
+    or ``log2_ratio``, TRACE-9), or a per-target table (``target_table``). A ``content`` that
+    is neither is an error: a misspelt declaration must not import as unknown without a word.
+    A BED without one is imported as ``unknown`` -- drawn without a depth or log2-ratio axis,
+    never read as depth -- and validation says so (``coverage_content_undeclared``)."""
     files: list[str] = []
     samples: list[str] = []
     before = len(errors)
@@ -467,6 +474,29 @@ def _validate_coverage_dataset(
             files=files,
             sample_id=sample_id,
         )
+        content = entry.get(COVERAGE_CONTENT_KEY)
+        if content is None:
+            if warnings is not None:
+                warnings.append(
+                    _issue(
+                        "coverage_content_undeclared",
+                        f"The coverage BED of {sample_id} does not declare what it holds "
+                        "(content: read_depth or log2_ratio): it is imported as unknown, drawn "
+                        "without a depth or log2-ratio axis and never read as depth",
+                        dataset="coverage",
+                        sample_id=sample_id,
+                    )
+                )
+        elif content not in DECLARED_COVERAGE_CONTENTS:
+            errors.append(
+                _issue(
+                    "coverage_content_invalid",
+                    f"The coverage BED of {sample_id} declares content {content!r}: it must be "
+                    "read_depth or log2_ratio",
+                    dataset="coverage",
+                    sample_id=sample_id,
+                )
+            )
     return FamilyImportDatasetSummary(
         dataset_type="coverage",
         enabled=True,
@@ -1155,6 +1185,7 @@ def _validate_dataset(
             dataset=dataset,
             ped_sample_ids=ped_sample_ids,
             errors=errors,
+            warnings=warnings,
         )
     if dataset_type == "qdnaseq":
         return _validate_qdnaseq_dataset(

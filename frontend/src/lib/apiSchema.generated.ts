@@ -1716,6 +1716,7 @@ export interface NiptCoverageSummaryOut {
   min_covered_fraction: number;
   low_coverage_regions: NiptCoverageLowRegionOut[];
   targets: NiptTargetCoverageOut | null;
+  coverage_notes: string[];
 }
 
 /**
@@ -3097,6 +3098,7 @@ export interface TrackAvailabilityOut {
   coverage_sources: string[];
   segments_sources: string[];
   coverage_normalizations: Record<string, string[]>;
+  coverage_contents: Record<string, "read_depth" | "log2_ratio" | "unknown">;
   apcad_sources: string[];
   apcad: boolean;
   apcad_pcf: boolean;

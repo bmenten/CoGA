@@ -230,6 +230,15 @@ or ran out of memory), the mark stays: the warning names the import job and the 
 finished, which may be partly written. Re-import those with **overwrite**: an update skips data that
 is already there, partly written data too, so only an overwrite removes the warning.
 
+A single upload of small variants, structural variants or a track marks the family the same way
+before it first writes to the variant store, and removes the mark when it has finished. If the server
+stops in the middle of it, or it fails and cannot put back what it had deleted, the warning names "a
+single-file upload" and what may be partly written or missing; so does the refusal at sign-out, and
+a version signed over it records the upload. An administrator's deletion of a sample's structural
+variants that cannot put the family's other calls back marks it too ("a deletion of a sample's data").
+Upload again, or import again, with **overwrite** what the warning names: each part goes as it is
+brought again.
+
 ### Who may sign out
 
 Only people the laboratory has authorised to sign out an analysis. CoGA lets any member of the project

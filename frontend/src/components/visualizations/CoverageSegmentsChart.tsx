@@ -14,6 +14,7 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import { NUCLEAR_CHROMOSOMES, normalizeChrom } from '../../lib/chromosomes';
+import type { CoverageContent } from '../../lib/apiTypes';
 import { deriveLayoutFromBins, splitKey, type GenomeLayout } from './genomeBinLayout';
 
 interface CoverageBin {
@@ -45,6 +46,90 @@ interface BedRecordPayload<T> {
 
 type BedRecordResponse<T> = BedRecordPayload<T> | T[];
 
+/** The y-axis a coverage chart draws its values on (TRACE-9). */
+interface CoverageAxis {
+  min: number;
+  max: number;
+  /** Gridlines, each labelled; none on a chart of values of unknown kind. */
+  ticks: number[];
+  tickLabel: (value: number) => string;
+  /** The lowest and highest value drawn, and how many there are. */
+  low: number;
+  high: number;
+  count: number;
+}
+
+/** The smallest of 1, 2, 2.5, 5 or 10 times a power of ten at or above `value`. */
+const niceStep = (value: number): number => {
+  if (!(value > 0) || !Number.isFinite(value)) return 1;
+  const base = 10 ** Math.floor(Math.log10(value));
+  const factor = [1, 2, 2.5, 5, 10].find((candidate) => value <= candidate * base * (1 + 1e-9)) ?? 10;
+  return factor * base;
+};
+
+const formatAxisValue = (value: number): string => String(Number(value.toPrecision(3)));
+
+const valueRange = (values: number[]): { low: number; high: number } =>
+  values.reduce(
+    (range, value) => ({ low: Math.min(range.low, value), high: Math.max(range.high, value) }),
+    { low: Infinity, high: -Infinity },
+  );
+
+/**
+ * Read depth: from 0 to a round number at or above the 99th percentile of the values drawn,
+ * in about four steps, so one high bin does not flatten the rest; a bin above the top is drawn
+ * at it. No gain or loss colouring: the thresholds that colour them are log2 ratios.
+ */
+const depthAxis = (values: number[]): CoverageAxis => {
+  const sorted = [...values].sort((left, right) => left - right);
+  // The 99th percentile by nearest rank: every value of a short window, the top 1 % of a long one
+  // left above the axis.
+  const high = sorted.length ? Math.max(sorted[Math.ceil(0.99 * sorted.length) - 1], 0) : 0;
+  const step = niceStep(high / 4);
+  const max = Math.max(step, Math.ceil(high / step - 1e-9) * step);
+  const ticks: number[] = [];
+  for (let index = 0; index * step <= max + step / 1000; index += 1) {
+    ticks.push(Number((index * step).toPrecision(12)));
+  }
+  return {
+    min: 0,
+    max,
+    ticks,
+    tickLabel: (value) => `${formatAxisValue(value)}×`,
+    ...valueRange(sorted),
+    count: sorted.length,
+  };
+};
+
+/**
+ * Values of unknown kind (a coverage BED that does not declare what it holds): drawn on their
+ * own range, with no gridline or label that would give them a unit, a depth or a log2 ratio.
+ */
+const ownRangeAxis = (values: number[]): CoverageAxis => {
+  const { low, high } = valueRange(values);
+  if (!values.length) {
+    return { min: -1, max: 1, ticks: [], tickLabel: formatAxisValue, low, high, count: 0 };
+  }
+  const pad = (high - low) * 0.05 || Math.abs(high) * 0.05 || 1;
+  return { min: low - pad, max: high + pad, ticks: [], tickLabel: formatAxisValue, low, high, count: values.length };
+};
+
+/** The log2-ratio axis: ± the configured range, a gridline every 0.5. */
+const log2Axis = (): CoverageAxis => {
+  // Guard against a zero/non-finite range: a 0-width domain makes every point
+  // a non-finite coordinate and silently blanks the chart.
+  const configuredRange = getCoverageRange();
+  const range =
+    Number.isFinite(configuredRange) && configuredRange > 0
+      ? configuredRange
+      : defaultCoverageRange;
+  const ticks: number[] = [];
+  for (let tick = Math.ceil(-range / 0.5) * 0.5; tick <= range + 1e-6; tick += 0.5) {
+    ticks.push(Number(tick.toFixed(2)));
+  }
+  return { min: -range, max: range, ticks, tickLabel: (value) => String(value), low: -range, high: range, count: 0 };
+};
+
 const payloadItems = <T,>(payload: BedRecordResponse<T> | null): T[] => {
   if (!payload) {
     return [];
@@ -58,6 +143,13 @@ const payloadItems = <T,>(payload: BedRecordResponse<T> | null): T[] => {
 interface Props {
   coverageUrls: string[];
   segmentsUrls?: string[];
+  /**
+   * What the coverage values are (TRACE-9), as the track availability serves it: a log2
+   * ratio is drawn on the ± log2-ratio axis with the gain/loss colouring and the segments; read
+   * depth on a depth axis from 0; values of unknown kind on their own range, without an axis.
+   * Segments are log2 ratios, and drawn on the log2-ratio axis only.
+   */
+  scale?: CoverageContent;
   width?: number;
   height?: number;
   chroms?: string[];
@@ -72,6 +164,7 @@ interface Props {
 const CoverageSegmentsChart: React.FC<Props> = ({
   coverageUrls,
   segmentsUrls,
+  scale = 'log2_ratio',
   width = 800,
   height = 120,
   chroms = NUCLEAR_CHROMOSOMES,
@@ -154,16 +247,25 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     isError,
   );
   const loading = isLoading && stableCoverageUrls.length > 0 && displayData === null;
+  const log2Scale = scale === 'log2_ratio';
   // null while loading (don't blank the chart), false when there are no URLs or the
-  // payloads are empty, true when either track has data.
+  // payloads are empty, true when either track has data. Segments are drawn on the
+  // log2-ratio axis only.
   const hasData =
     stableCoverageUrls.length === 0
       ? false
       : displayData
-        ? displayData.bins.length > 0 || displayData.segments.length > 0
+        ? displayData.bins.length > 0 || (log2Scale && displayData.segments.length > 0)
         : loading
           ? null
           : false;
+  // A depth axis or a values' own range follows the values drawn; the log2-ratio axis is
+  // read from the settings when the chart draws.
+  const valueAxis = useMemo<CoverageAxis | null>(() => {
+    if (log2Scale) return null;
+    const values = (displayData?.bins ?? []).map((bin) => bin.value).filter((value) => Number.isFinite(value));
+    return scale === 'read_depth' ? depthAxis(values) : ownRangeAxis(values);
+  }, [displayData, log2Scale, scale]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -174,12 +276,16 @@ const CoverageSegmentsChart: React.FC<Props> = ({
 
     ctx.clearRect(0, 0, width, height);
 
-    if (!displayData || (displayData.bins.length === 0 && displayData.segments.length === 0)) {
+    if (
+      !displayData ||
+      (displayData.bins.length === 0 && (!log2Scale || displayData.segments.length === 0))
+    ) {
       layoutRef.current = { offsets: {}, lengths: {}, total: 0 };
       return;
     }
 
-    const { bins, segments } = displayData;
+    const { bins } = displayData;
+    const segments = log2Scale ? displayData.segments : [];
     let chromLengths: Record<string, number>;
     let offsets: Record<string, number>;
     let totalLength: number;
@@ -219,15 +325,9 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       return;
     }
 
-    // Guard against a zero/non-finite range: a 0-width domain makes every point
-    // a non-finite coordinate and silently blanks the chart.
-    const configuredRange = getCoverageRange();
-    const range =
-      Number.isFinite(configuredRange) && configuredRange > 0
-        ? configuredRange
-        : defaultCoverageRange;
-    const minVal = -range;
-    const maxVal = range;
+    const axis = valueAxis ?? log2Axis();
+    const minVal = axis.min;
+    const maxVal = axis.max;
     const yScale = (value: number) =>
       height - ((value - minVal) / (maxVal - minVal)) * height;
 
@@ -241,20 +341,11 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       return yScale(value);
     };
 
-    const tickValues: number[] = [];
-    for (
-      let tick = Math.ceil(minVal / 0.5) * 0.5;
-      tick <= maxVal + 1e-6;
-      tick += 0.5
-    ) {
-      tickValues.push(Number(tick.toFixed(2)));
-    }
-
     const gridColor = cssVar('--color-grid');
     const textColor = cssVar('--color-coverage-neutral');
     ctx.font = '10px sans-serif';
     ctx.textBaseline = 'alphabetic';
-    tickValues.forEach((tick) => {
+    axis.ticks.forEach((tick) => {
       const y = yScale(tick);
       ctx.strokeStyle = gridColor;
       ctx.beginPath();
@@ -262,7 +353,7 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       ctx.lineTo(width, y);
       ctx.stroke();
       ctx.fillStyle = textColor;
-      ctx.fillText(String(tick), 2, y - 2);
+      ctx.fillText(axis.tickLabel(tick), 2, y - 2);
     });
 
     const upperThreshold = getCoverageUpperThreshold();
@@ -270,12 +361,16 @@ const CoverageSegmentsChart: React.FC<Props> = ({
     const gainColor = cssVar('--color-coverage-gain');
     const lossColor = cssVar('--color-coverage-loss');
     const neutralColor = cssVar('--color-coverage-neutral');
+    // The gain/loss thresholds are log2 ratios: read depth and values of unknown kind are
+    // drawn in the neutral colour.
     const colorForValue = (value: number) =>
-      value > upperThreshold
-        ? gainColor
-        : value < lowerThreshold
-          ? lossColor
-          : neutralColor;
+      !log2Scale
+        ? neutralColor
+        : value > upperThreshold
+          ? gainColor
+          : value < lowerThreshold
+            ? lossColor
+            : neutralColor;
 
     const segmentsByChr: Record<string, Segment[]> = {};
     segments.forEach((segment) => {
@@ -368,11 +463,13 @@ const CoverageSegmentsChart: React.FC<Props> = ({
   }, [
     height,
     layout,
+    log2Scale,
     onLayout,
     regionEnd,
     regionStart,
     stableChroms,
     displayData,
+    valueAxis,
     width,
   ]);
 
@@ -476,9 +573,25 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       : hasData === false
         ? 'no data'
         : null;
+  // A depth axis says its range; values of unknown kind say they have none (TRACE-9).
+  const scaleLegend =
+    valueAxis === null
+      ? null
+      : scale === 'read_depth'
+        ? valueAxis.count
+          ? `read depth · axis 0–${formatAxisValue(valueAxis.max)}×`
+          : 'read depth'
+        : valueAxis.count
+          ? `values of unknown kind (${formatAxisValue(valueAxis.low)}–${formatAxisValue(valueAxis.high)}) · no axis`
+          : 'values of unknown kind · no axis';
+  const stateSuffix = coverageState ? `: ${coverageState}` : '';
   const chartLabel =
-    `Coverage log2 ratio${coverageState ? `: ${coverageState}` : ''}; ${thresholdLegend}` +
-    `${customThresholds ? ', custom thresholds set in this browser' : ''}`;
+    valueAxis === null
+      ? `Coverage log2 ratio${stateSuffix}; ${thresholdLegend}` +
+        `${customThresholds ? ', custom thresholds set in this browser' : ''}`
+      : scale === 'read_depth'
+        ? `Coverage read depth${stateSuffix}; ${scaleLegend}`
+        : `Coverage of unknown kind${stateSuffix}; drawn on its own range, without an axis`;
 
   return (
     <div style={{ position: 'relative', width, height }}>
@@ -500,17 +613,30 @@ const CoverageSegmentsChart: React.FC<Props> = ({
       {!loading && !isError && hasData === false && (
         <div className="viz-empty-overlay">No coverage data in this region</div>
       )}
-      <div
-        className={`viz-threshold-legend${customThresholds ? ' viz-threshold-legend--custom' : ''}`}
-        title={
-          customThresholds
-            ? 'These colour thresholds were changed in this browser’s settings; other workstations may colour this data differently.'
-            : 'Default colour thresholds (Settings → coverage thresholds).'
-        }
-      >
-        {thresholdLegend}
-        {customThresholds ? ' · custom (this browser)' : ''}
-      </div>
+      {scaleLegend === null ? (
+        <div
+          className={`viz-threshold-legend${customThresholds ? ' viz-threshold-legend--custom' : ''}`}
+          title={
+            customThresholds
+              ? 'These colour thresholds were changed in this browser’s settings; other workstations may colour this data differently.'
+              : 'Default colour thresholds (Settings → coverage thresholds).'
+          }
+        >
+          {thresholdLegend}
+          {customThresholds ? ' · custom (this browser)' : ''}
+        </div>
+      ) : (
+        <div
+          className="viz-threshold-legend"
+          title={
+            scale === 'read_depth'
+              ? 'Read depth, on an axis from 0 to just above the 99th percentile of the values shown.'
+              : 'What these values are is not recorded: they are drawn on their own range, with no unit.'
+          }
+        >
+          {scaleLegend}
+        </div>
+      )}
       <div style={rectStyle} />
     </div>
   );
