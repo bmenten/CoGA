@@ -121,6 +121,32 @@ def test_revision_0004_runs_the_baselines_own_statements_for_the_structure_versi
         module.selected_statements(lambda _name: [])
 
 
+def test_revision_0005_runs_the_access_baselines_own_upgrade_of_the_project_memberships() -> None:
+    # SEC-1: a membership's access level, brought to a database made before it by the
+    # statement 01_access.sql adds it with.
+    from backend.app.core.postgres_migrations import baseline_statements
+
+    module = migration_script().get_revision("0005").module
+    selected = module.selected_statements(baseline_statements)
+
+    upgrades = [statement for statement in _statements("01_access.sql") if statement.startswith("ALTER TABLE project_users")]
+    assert selected == upgrades
+    assert len(selected) == 1
+    flat = " ".join(selected[0].split())
+    assert flat == (
+        "ALTER TABLE project_users ADD COLUMN IF NOT EXISTS access_level TEXT NOT NULL DEFAULT 'analyst' "
+        "CHECK (access_level IN ('analyst', 'reader'))"
+    )
+    # The column a new database's CREATE TABLE gives, with the same default and check.
+    create = next(s for s in _statements("01_access.sql") if s.startswith("CREATE TABLE IF NOT EXISTS project_users"))
+    assert "access_level TEXT NOT NULL DEFAULT 'analyst' CHECK (access_level IN ('analyst', 'reader'))" in " ".join(
+        create.split()
+    )
+    # A baseline that no longer holds it stops the revision.
+    with pytest.raises(RuntimeError, match="the baseline changed under it"):
+        module.selected_statements(lambda _name: [])
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

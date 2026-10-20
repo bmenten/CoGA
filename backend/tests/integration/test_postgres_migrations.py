@@ -20,6 +20,9 @@ the CI ``smoke`` job sets it.
   index, the family link a deletion nulls, and both tables' append-only guards and REVOKE
   (revision 0004), keeps its structure version (outside the chain), and ends at the same
   fingerprint.
+- A database at revision 0004 from before SEC-1 gets the project memberships' access level
+  (revision 0005), each stored membership an analyst's, with the baseline's check, and ends at
+  the same fingerprint.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -670,6 +673,110 @@ def test_a_database_from_before_sec7_gets_the_structure_versions_chain_and_the_a
     assert "ui_events is append-only; DELETE is not permitted" in refusals[1]
     assert unlinked == 1
     # The schema is the baselines': columns, foreign key, index, triggers, functions, grants.
+    assert actual == expected, _differences(expected, actual)
+
+
+# The project memberships as a database had them before SEC-1 (revision 0005): no access level.
+_BEFORE_0005 = ("ALTER TABLE project_users DROP COLUMN access_level",)
+
+
+@_MODES
+def test_a_database_from_before_sec1_gets_the_access_level_with_every_member_an_analyst(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0004 from before SEC-1, with a member in a project.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0004'"))
+                for statement in _BEFORE_0005:
+                    await conn.exec_driver_sql(statement)
+                species = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO species (name, common_name, tax_id) "
+                            "VALUES ('Organism SEC-1', 'Test organism', 999000001) RETURNING id::text"
+                        )
+                    )
+                ).scalar_one()
+                assembly = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO assemblies (species_id, assembly_name, version, release_date) "
+                            "VALUES (CAST(:s AS uuid), 'SEC1TEST', 'test', DATE '2026-01-01') RETURNING id::text"
+                        ),
+                        {"s": species},
+                    )
+                ).scalar_one()
+                project = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO projects (name, species_id, assembly_id) "
+                            "VALUES ('project-sec1', CAST(:s AS uuid), CAST(:a AS uuid)) RETURNING id::text"
+                        ),
+                        {"s": species, "a": assembly},
+                    )
+                ).scalar_one()
+                member = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO users (username, hashed_password, role, email) "
+                            "VALUES ('member-sec1@example.org', '', 'viewer', 'member-sec1@example.org') "
+                            "RETURNING id::text"
+                        )
+                    )
+                ).scalar_one()
+                await conn.execute(
+                    text("INSERT INTO project_users (project_id, user_id) VALUES (CAST(:p AS uuid), CAST(:u AS uuid))"),
+                    {"p": project, "u": member},
+                )
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                levels = [
+                    str(row[0]) for row in (await conn.execute(text("SELECT access_level FROM project_users"))).all()
+                ]
+            refused = ""
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(text("UPDATE project_users SET access_level = 'admin'"))
+            except DBAPIError as exc:
+                refused = str(exc)
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE project_users SET access_level = 'reader'"))
+            async with engine.connect() as conn:
+                changed = [
+                    str(row[0]) for row in (await conn.execute(text("SELECT access_level FROM project_users"))).all()
+                ]
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, levels, refused, changed, fingerprints
+
+    revision, levels, refused, changed, (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0004", head_revision())
+    # The member from before the level is an analyst, as every member could change the project's
+    # records until then; another level than analyst or reader is refused, reader is not.
+    assert levels == ["analyst"]
+    assert "project_users_access_level_check" in refused
+    assert changed == ["reader"]
+    # The schema is the baselines': the column with its default, its check and its name.
     assert actual == expected, _differences(expected, actual)
 
 
