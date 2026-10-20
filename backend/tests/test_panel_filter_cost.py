@@ -29,7 +29,6 @@ import pytest
 from backend.app.services import clickhouse_variant_queries as queries
 from backend.app.services.clickhouse_family_variants import _kept_small_candidates, _SmallVariantScope
 from backend.app.services.clickhouse_variant_queries import (
-    _panel_regions_apply,
     _small_query_filter_parts,
     _small_record_hits_gene_terms,
     _small_record_matches,
@@ -101,16 +100,14 @@ def _scope(panel: PanelFilterConstraints) -> _SmallVariantScope:
 
 def _rule(record: SmallVariantRecord, panel: PanelFilterConstraints) -> bool:
     """The panel check as the record filter made it before ENG-15: a gene of the panel among
-    the record's gene names, or the record in one of the panel's regions; a panel of genes
-    with more regions than the SQL inlines is matched on its genes alone
-    (``_panel_regions_apply``, ENG-1)."""
+    the record's gene names, or the record in one of the panel's regions, whatever the
+    panel's size. (A panel of genes with more than 1,000 regions was matched on its genes
+    alone until the owner's decision of 2026-10-14.)"""
     if not (panel.genes or panel.regions):
         return True
     gene_match = bool(panel.genes) and _small_record_hits_gene_terms(record, panel.genes)
-    region_match = (
-        bool(panel.regions)
-        and _panel_regions_apply(panel)
-        and _variant_overlaps_regions(record.chr, record.start, record.end, panel.regions)
+    region_match = bool(panel.regions) and _variant_overlaps_regions(
+        record.chr, record.start, record.end, panel.regions
     )
     return gene_match or region_match
 
@@ -280,18 +277,24 @@ def test_the_region_lookup_answers_what_testing_every_region_answers() -> None:
 def test_the_kept_candidates_are_the_per_row_rule_s_on_a_mendeliome_sized_panel() -> None:
     panel, records = _panel_and_records(genes=5_300, records=400)
     rng = random.Random(5300)
-    # Half of them annotated with another symbol. A panel this size is matched on its genes
-    # alone (``_panel_regions_apply``, ENG-1), so these are left out, in their gene's locus or
-    # past it.
+    # Half of them annotated with another symbol: kept by position in their gene's locus,
+    # left out past it. A panel this size was matched on its genes alone, and left them all
+    # out (owner decision 2026-10-14).
+    renamed_in_locus: list[str] = []
+    renamed_past_locus: list[str] = []
     for record in records[::2]:
         record.gene_symbols = ["RENAMED"]
         record.annotations = [{"gene": "RENAMED"}]
         if rng.random() < 0.5:
             record.start = record.end = record.start + 1_000  # past the gene's locus
+            renamed_past_locus.append(record.variant_id)
+        else:
+            renamed_in_locus.append(record.variant_id)
     expected = [record.variant_id for record in records if _rule(record, panel)]
-    kept = _kept_small_candidates(records, _FILTERS, _scope(panel), _CONTEXT)
-    assert [record.variant_id for record in kept] == expected
-    assert 0 < len(expected) < len(records)
+    kept = [record.variant_id for record in _kept_small_candidates(records, _FILTERS, _scope(panel), _CONTEXT)]
+    assert kept == expected
+    assert renamed_in_locus and set(renamed_in_locus) <= set(kept)
+    assert renamed_past_locus and not set(renamed_past_locus) & set(kept)
 
 
 # --------------------------------------------------------------------------- #
@@ -401,23 +404,115 @@ def test_without_an_assembly_the_rule_is_tested_per_row() -> None:
     assert "panel_region_family_guid" not in params
 
 
-def test_a_large_gene_panel_reads_no_region() -> None:
-    # As before (CLIN-34): a panel of genes with more than 1,000 regions, such as the
-    # Mendeliome, is matched on gene symbols alone; a panel of regions only, on its regions.
-    regions = tuple(
-        Region(chr="2", start=10_000 * index, end=10_000 * index + 500)
-        for index in range(queries._PANEL_REGION_INLINE_LIMIT + 1)
+def test_a_mendeliome_sized_gene_panel_joins_its_regions_beside_its_genes() -> None:
+    # Every panel keeps a variant in one of its regions as well as one annotated with one of
+    # its genes, whatever its size (owner decision 2026-10-14). A panel of genes with more
+    # than 1,000 regions, such as the Mendeliome, was matched on gene symbols alone and read
+    # no region. Its regions are now joined to the family's rows on windows as a smaller
+    # panel's are: once, the region arrays bound as parameters of the join, not tested
+    # against each row nor written into the query region by region.
+    genes = tuple(f"PANELGENE{index:04d}" for index in range(5_300))
+    regions = tuple(Region(chr="2", start=10_000 * index, end=10_000 * index + 500) for index in range(5_300))
+    clause, params = _panel_clause(_FILTERS, PanelFilterConstraints(genes=genes, regions=regions))
+    assert clause.count("AS v INNER JOIN (SELECT region.1 AS region_chrom") == 1
+    assert "arrayExists((region_chrom" not in clause
+    for name in ("panel_region_chromosomes", "panel_region_starts", "panel_region_ends"):
+        assert clause.count(f"%({name})s") == 1
+        assert len(params[name]) == 5_300
+    assert not [name for name in params if name.startswith("panel_region_chromosomes_")]
+    assert _join_rows_where(clause) == (
+        "fe.family_guid = %(panel_region_family_guid)s AND fe.sign = 1"
+        " AND fe.project_guid IN %(panel_region_project_ids)s"
     )
-    clauses, params, _detail = _small_query_filter_parts(
-        _CONTEXT, _FILTERS, panel_constraints=PanelFilterConstraints(genes=("BRCA1",), regions=regions)
-    )
-    assert not any("variant_window" in clause for clause in clauses)
-    assert not any(name.startswith("panel_region") for name in params)
-    clauses, params, _detail = _small_query_filter_parts(
-        _CONTEXT, _FILTERS, panel_constraints=PanelFilterConstraints(regions=regions)
-    )
-    assert any("variant_window" in clause for clause in clauses)
-    assert len(params["panel_region_chromosomes"]) == queries._PANEL_REGION_INLINE_LIMIT + 1
+    # Beside the genes, read as before: the row's own symbols and the gene index.
+    assert "arrayExists(gene -> lower(gene) IN %(panel_gene_terms)s, e.gene_symbols)" in clause
+    assert len(params["panel_annotation_gene_terms"]) == 5_300
+
+
+def _transcript_loci(genes: int) -> tuple[PanelFilterConstraints, list[Region]]:
+    """A panel of ``genes`` genes 10 kb apart on chromosome 2, each with eight transcript
+    loci nested in its span (a gene reference of one row per transcript), and the spans."""
+    loci: list[Region] = []
+    spans: list[Region] = []
+    for index in range(genes):
+        start = 10_000 * index + 1
+        spans.append(Region(chr="2", start=start, end=start + 5_000))
+        for transcript in range(8):
+            loci.append(Region(chr="chr2", start=start + 100 * transcript, end=start + 5_000 - 50 * transcript))
+        loci.append(Region(chr="2", start=start + 5_000, end=start))  # PanelApp's, reversed
+    panel = PanelFilterConstraints(genes=tuple(f"PANELGENE{index:04d}" for index in range(genes)), regions=tuple(loci))
+    return panel, spans
+
+
+def test_a_mendeliome_sized_panel_binds_one_region_per_gene_not_one_per_transcript() -> None:
+    # The Mendeliome resolves to some 42,000 loci in a gene reference of one row per
+    # transcript. Bound one by one they made the family page's query 1.2 MB and its join's
+    # added time two to four times longer (docs/variant-ranking-cache.md); the loci of a gene
+    # share bases, and merge into its span.
+    panel, spans = _transcript_loci(5_300)
+    assert len(panel.regions) == 47_700
+    clause, params = _panel_clause(_FILTERS, panel)
+    assert params["panel_region_chromosomes"] == ["2"] * 5_300
+    assert params["panel_region_starts"] == [span.start for span in spans]
+    assert params["panel_region_ends"] == [span.end for span in spans]
+    assert "AS v INNER JOIN (SELECT region.1 AS region_chrom" in clause
+
+
+def _rule_on_bounds(chrom: str, pos: int, ref_length: int, bounds: tuple[list[str], list[int], list[int]]) -> bool:
+    """The SQL overlap rule (``_small_region_filter_condition``) on bound regions: the same
+    chromosome by match key, the REF's first base at or before a region's end and its last
+    (``pos + length(ref) - 1``) at or after its start."""
+    key = queries._chromosome_match_key(chrom)
+    ref_end = pos + ref_length - 1
+    return any(key == c and pos <= e and ref_end >= s for c, s, e in zip(*bounds))
+
+
+def _unmerged_bounds(regions: list[Region]) -> tuple[list[str], list[int], list[int]]:
+    """The regions as given, each read on its own (match key, start and end in order)."""
+    kept = [
+        (queries._chromosome_match_key(region.chr), min(region.start, region.end), max(region.start, region.end))
+        for region in regions
+        if queries._chromosome_match_key(region.chr)
+    ]
+    return [c for c, _s, _e in kept], [s for _c, s, _e in kept], [e for _c, _s, e in kept]
+
+
+def test_regions_that_share_a_base_are_merged_and_keep_what_each_kept() -> None:
+    from backend.app.services.clickhouse_variant_queries import _small_region_bounds
+
+    # Nested, overlapping in a chain, and repeated: one region. Touching only: two.
+    assert _small_region_bounds(
+        [Region("1", 100, 300), Region("chr1", 150, 200), Region("1", 300, 250), Region("1", 260, 400)]
+    ) == (["1"], [100], [400])
+    assert _small_region_bounds([Region("1", 100, 200), Region("1", 201, 300)]) == (["1", "1"], [100, 201], [200, 300])
+    assert _small_region_bounds([Region("chrM", 5, 10), Region("MT", 8, 20), Region("", 1, 9)]) == (["MT"], [5], [20])
+
+    rng = random.Random(42_000)
+    chromosomes = ["1", "chr1", "CHR1", "2", "X", "x", "chrM", "MT", "M", ""]
+    checked: Counter[bool] = Counter()
+    for _case in range(400):
+        regions: list[Region] = []
+        for _ in range(rng.randint(0, 30)):
+            start = rng.randint(0, 300)
+            length = rng.choice([0, 0, 1, 3, 10, 60])
+            region = Region(rng.choice(chromosomes), start, start + length)
+            regions.append(region if rng.random() < 0.8 else Region(region.chr, region.end, region.start))
+            if rng.random() < 0.2:  # one that touches the region just made
+                regions.append(Region(region.chr, max(region.start, region.end) + 1, max(region.start, region.end) + 5))
+        merged = _small_region_bounds(regions)
+        # Sorted, and no two regions of a chromosome share a base.
+        pairs = list(zip(merged[0], merged[1], merged[2]))
+        assert pairs == sorted(pairs)
+        assert all(not (a[0] == b[0] and b[1] <= a[2]) for a, b in zip(pairs, pairs[1:]))
+        unmerged = _unmerged_bounds(regions)
+        for _row in range(60):
+            chrom = rng.choice(chromosomes[:-1])
+            pos = rng.randint(0, 320)
+            ref_length = rng.choice([0, 1, 1, 2, 5, 40])  # no base: no VCF record has one
+            expected = _rule_on_bounds(chrom, pos, ref_length, unmerged)
+            assert _rule_on_bounds(chrom, pos, ref_length, merged) is expected, (chrom, pos, ref_length, regions)
+            checked[expected] += 1
+    assert checked[True] > 1_000 and checked[False] > 1_000
 
 
 def test_the_intervals_and_excluded_regions_are_still_tested_per_row() -> None:

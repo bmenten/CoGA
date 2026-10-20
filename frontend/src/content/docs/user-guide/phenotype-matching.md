@@ -13,7 +13,10 @@ The **Panel catalog** holds reusable gene lists; administrators create them or i
 PanelApp. Choose a panel in the **Locations** filter of the small-variant or structural-variant page to
 limit a search to its genes. The **Mendeliome** — every gene that Monarch says causes a disease or is
 associated with one — is the default scope of both pages. A gene Monarch links to a disease only as
-contributing to it or raising its likelihood is not in it.
+contributing to it or raising its likelihood is not in it. On the small-variant page and in the Variant
+Explorer a panel keeps the variants annotated with one of its genes and those inside one of its regions
+(PanelApp's regions for the assembly, and each gene's position in the gene reference), whatever its size:
+the Mendeliome too keeps a variant inside one of its genes whose annotation names another gene.
 
 ### Phenotype matching
 
