@@ -1434,6 +1434,13 @@ export interface MendeliomeRegenerateResponse {
   missing_genes: string[];
 }
 
+/** What the browser needs to sign a user in with Microsoft (MSAL): none of it is secret. */
+export interface MicrosoftSignInOut {
+  client_id: string;
+  authority: string;
+  api_scope: string;
+}
+
 export interface MitoDNACoverageOut {
   mean_depth: number | null;
   min_depth: number | null;
@@ -2895,6 +2902,14 @@ export interface SegmentalDuplicationOut {
   source: string | null;
 }
 
+/**
+ * How users sign in: with Microsoft when ``microsoft`` is given, else with a password
+ * (and then a new user signs up).
+ */
+export interface SignInConfigOut {
+  microsoft: MicrosoftSignInOut | null;
+}
+
 /** One caller signal file the genome browser can draw. */
 export interface SignalTrackManifestEntryOut {
   sample_id: string;
@@ -3305,6 +3320,7 @@ export interface UserRead {
   first_name: string | null;
   last_name: string | null;
   affiliation: string | null;
+  sign_in: "microsoft" | "password";
   is_active: boolean;
   role: string;
   projects: string[];
@@ -3322,6 +3338,7 @@ export interface UserRefOut {
 
 export interface UserUpdate {
   is_active?: boolean | null;
+  role?: "viewer" | "superuser" | "admin" | null;
   projects?: string[] | null;
 }
 
