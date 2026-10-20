@@ -19,6 +19,11 @@ variable "cmek_key_self_link" {
   type        = string
 }
 
+variable "deploy_sa_email" {
+  description = "The CoGA deploy pipeline's service account, which runs terraform apply: coga-<env>-<region_short>-gh-actions@<project>.iam.gserviceaccount.com (build.yml)."
+  type        = string
+}
+
 locals {
   name_prefix = "coga"
 }
@@ -129,6 +134,28 @@ resource "google_project_iam_member" "db_migrate_sql_client" {
 # account and run it: roles/iam.serviceAccountUser on google_service_account.db_migrate,
 # like the actAs grants on the other runtime accounts (rollout-checklist.md, Part C), and a
 # Cloud Run role that includes run.jobs.run (roles/run.developer or roles/run.admin).
+
+# Deploy pipeline: before each schema migration it starts, the CoGA apply takes an on-demand
+# backup of the Cloud SQL instance and waits for it (CoGA terraform/migrate.tf). A role with
+# only what that needs: create the backup, and read the instance's operation to follow it.
+# The predefined roles that create backups (roles/cloudsql.editor, roles/cloudsql.admin) hold
+# much more.
+resource "google_project_iam_custom_role" "deploy_pre_migration_backup" {
+  project     = var.project_id
+  role_id     = "cogaPreMigrationBackup"
+  title       = "CoGA backup before a schema migration"
+  description = "Create an on-demand Cloud SQL backup and follow its operation to the end."
+  permissions = [
+    "cloudsql.backupRuns.create",
+    "cloudsql.instances.get",
+  ]
+}
+
+resource "google_project_iam_member" "deploy_pre_migration_backup" {
+  project = var.project_id
+  role    = google_project_iam_custom_role.deploy_pre_migration_backup.id
+  member  = "serviceAccount:${var.deploy_sa_email}"
+}
 
 # Frontend: logs only.
 resource "google_project_iam_member" "frontend_log_writer" {

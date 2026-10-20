@@ -291,8 +291,8 @@ The Postgres schema reaches a database through one migration step,
 runs. The API runs it at every start when it connects as the table owner
 (`POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP`, the default); when the API runs as the restricted
 role, `python -m app.db_migrate` runs it as the owner before each rollout
-([db-runtime-role-runbook.md](db-runtime-role-runbook.md)). The step is one transaction, so it
-applies whole or not at all:
+([db-runtime-role-runbook.md](db-runtime-role-runbook.md)), and the API checks the revision at
+its start instead (below). The step is one transaction, so it applies whole or not at all:
 
 1. It takes an advisory lock, so that two instances starting together migrate one after the
    other.
@@ -337,19 +337,36 @@ two pull requests that take the same number fail it, and that a revision's check
 baseline's. Alembic's commands that need a database (`alembic upgrade`, `alembic current`) stop
 in `env.py`: the revisions run only through the migration step.
 
-**Upgrading a database that holds data.** Take a backup first. On Google Cloud, Cloud SQL keeps
-daily backups and point-in-time recovery ([deployment-gcp.md](deployment-gcp.md), 12.3); an
-on-demand backup just before the rollout (`gcloud sql backups create --instance coga-postgres`)
-is the restore point of the upgrade itself. Locally the data is synthetic. Then roll the new
-version out. In the default mode its first start migrates; with the restricted role the
-migration job runs first, and the API rolls out only when it succeeded
-([deployment-gcp.md](deployment-gcp.md), 12.8). The log names the revision the database came
-from and is now at (`Postgres schema migrated from revision … to …`). A failed migration keeps
-nothing, and the running version keeps serving.
+**A start that does not migrate.** With `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` (the
+restricted role) the API only reads the ledger at its start, which `coga_app` may
+(`check_schema_revision` in the same module), and starts only when it names exactly this
+version's newest revision. An older revision, an empty ledger or none at all means the
+migration job has not run for this version: the start is refused with "The database is at
+schema revision …, and this version of CoGA needs revision …", which says to run the job first.
+A revision this version does not have means a newer version migrated the database: "…, which
+this version of CoGA does not have …: this version is older than the database". Either way the
+message is logged and nothing else starts. Until the release candidate a pull request can still
+change a baseline without a new revision (a new table, say), which this check cannot see; on
+Google Cloud the migration job runs before every rollout of a new image, so it applies such a
+change too.
+
+**Upgrading a database that holds data.** Take a backup first. On Google Cloud the deploy does
+so itself: before each schema migration it starts (the migration job, or the first start of a
+new revision in the default mode) it takes an on-demand Cloud SQL backup and waits until it is
+done, and it stops before the migration when the backup fails
+([deployment-gcp.md](deployment-gcp.md), 12.1). That backup is the restore point of the upgrade
+itself, beside the daily backups and point-in-time recovery (12.3). Elsewhere, take one by hand
+before you migrate; locally the data is synthetic. Then roll the new version out. In the
+default mode its first start migrates; with the restricted role the migration job runs first,
+and the API rolls out only when it succeeded ([deployment-gcp.md](deployment-gcp.md), 12.8).
+The log names the revision the database came from and is now at (`Postgres schema migrated
+from revision … to …`). A failed migration keeps nothing, and the running version keeps
+serving.
 
 **Going back.** Revisions do not run backwards. A version older than the database's revision
-refuses to start on it (step 2; versions from before the ledger do not check): restore the
-backup taken before the upgrade, or go forward with a fix
+refuses to start on it, whether it migrates at start (step 2) or not (above); versions from
+before the ledger do not check. Restore the backup taken before the upgrade
+([deployment-gcp.md](deployment-gcp.md), 12.3), or go forward with a fix
 ([RELEASING.md](../RELEASING.md#rollback)).
 
 ### Freezing the baselines at the release candidate
@@ -619,7 +636,9 @@ re-applies the five baseline files, then it runs the revisions the ledger lacks:
 [Schema Migrations](#schema-migrations)) and makes sure the admin user exists, when
 `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default). With the restricted runtime
 role a separate migration step (`backend/app/db_migrate.py`) does this instead, as the table
-owner. In ClickHouse, startup creates the database and refuses
+owner, and the start refuses to go on unless the database is at this version's own schema
+revision ([A start that does not migrate](#schema-migrations)). In ClickHouse, startup creates
+the database and refuses
 to go on when an assembly's tables have a different row identity, or its `SNV_INDEL/entries`
 table lacks the per-call columns ([Row identity](#row-identity)); each assembly's tables are
 created on first use, and an `SNV_INDEL/entries` table created with the narrower depth columns

@@ -23,6 +23,11 @@ revision, which each end at the baseline's schema whatever they start from, and 
 rows. A ledger naming a revision this version does not know was written by a newer version:
 the migration refuses it rather than run older code on a newer schema.
 
+A start that does not migrate (``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false``, as with
+``coga_app``) runs ``check_schema_revision`` instead: it only reads the ledger, and refuses to
+start unless it names exactly this version's newest revision. Behind it, the migration job has
+not run for this version; ahead of it, a newer version migrated the database.
+
 The release candidate freezes the baselines: ``REAPPLY_BASELINES_ON_EVERY_RUN`` becomes
 ``False``, revision 0001 is then the only step that applies them (to a new database), and every
 schema change is a revision of its own (docs/database.md, "Schema Migrations").
@@ -62,6 +67,10 @@ _LOCK_KEY = "coga:postgres-schema-migration"
 
 class SchemaMigrationRefused(RuntimeError):
     """The migration did not run: the wrong role, or a ledger written by a newer version."""
+
+
+class SchemaRevisionMismatch(RuntimeError):
+    """A start that does not migrate found the database at another revision than its own."""
 
 
 @dataclass(frozen=True)
@@ -130,6 +139,51 @@ def refuse_unknown_revision(revision: str | None, script: ScriptDirectory) -> No
             "migrated it. Run that version, or restore the database from the backup taken "
             "before that upgrade (docs/database.md, \"Schema Migrations\")."
         )
+
+
+def _refuse_start(message: str) -> SchemaRevisionMismatch:
+    # Logged as well as raised: the log writes a failed start's traceback without the
+    # exception's message (core/coga_logging.py), and the operator needs this one.
+    logger.error("%s", message)
+    return SchemaRevisionMismatch(message)
+
+
+def check_schema_revision(connection: Connection) -> str:
+    """This version's newest revision, when the ledger on ``connection`` names exactly that one.
+
+    For a start that does not migrate (``POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false``, as
+    with the restricted runtime role ``coga_app``): the migration step runs separately, as the
+    owner, before the rollout. Any other ledger raises ``SchemaRevisionMismatch``, and the
+    message is logged. An older revision or none means the migration did not run for this
+    version; a revision this version does not have means a newer version migrated the
+    database. It only reads the ledger, which ``coga_app`` may.
+    """
+
+    head = head_revision()
+    try:
+        current = ledger_revision(connection)
+    except SchemaMigrationRefused as exc:
+        raise _refuse_start(f"{exc} The backend does not start.") from exc
+    if current == head:
+        logger.info("Postgres schema at revision %s, this version's own", head)
+        return head
+    known = {script_revision.revision for script_revision in migration_script().walk_revisions()}
+    if current is None or current in known:
+        raise _refuse_start(
+            f"The database is at schema revision {current or 'none (no ledger)'}, and this "
+            f"version of CoGA needs revision {head}. It does not migrate at start "
+            "(POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false), so the backend does not start. "
+            "Run the migration job first, python -m app.db_migrate as the owner of the tables "
+            "(on Google Cloud: gcloud run jobs execute coga-db-migrate --region <region> --wait), "
+            "then start this version again (docs/database.md, \"Schema Migrations\")."
+        )
+    raise _refuse_start(
+        f"The database is at schema revision {current}, which this version of CoGA does not "
+        f"have (its newest is {head}): this version is older than the database, which a newer "
+        "version migrated. The backend does not start. Roll out the version that migrated it "
+        "again, or restore the database from the backup taken before that migration "
+        "(docs/database.md, \"Schema Migrations\")."
+    )
 
 
 def _alembic_config(connection: Connection) -> Config:

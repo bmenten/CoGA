@@ -70,9 +70,11 @@ it. The migration step refuses to run as `coga_app`, before it changes anything.
 4. **Connection pooler (PgBouncer / RDS Proxy), if any.** Configure the app's pool to
    authenticate as `coga_app`. Transaction-pooling mode is fine — the app connects
    *directly* as `coga_app` (no `SET ROLE`), so nothing leaks across pooled sessions.
-5. **Deploy.** Run the migration step first, **as the owner**:
-   `python -m backend.app.db_migrate` (applies the schema + seeds the admin user). Then start
-   the app (as `coga_app`, with startup migrations disabled).
+5. **Deploy.** Back up a database that holds data, then run the migration step, **as the
+   owner**: `python -m backend.app.db_migrate` (applies the schema + seeds the admin user).
+   Then start the app (as `coga_app`, with startup migrations disabled). It starts only when
+   the database is at its own schema revision: without the migration step it refuses to start
+   and says to run it ([database.md](database.md#schema-migrations)).
 6. **Verify** (see below). 
 7. **Rollback** (if needed): repoint the application connection back to the owner role and
    set `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=true` again, then redeploy. No schema
@@ -103,13 +105,16 @@ and the switch is the variable `db_runtime_role`.
   running `python -m app.db_migrate` as the owner, over the Cloud SQL connector, in
   production mode with the backend's cross-origin settings, without which its settings
   refuse to load;
+- takes an on-demand backup of the database and waits for it, the restore point of the
+  migration ([deployment-gcp.md](deployment-gcp.md), 12.1);
 - runs the job and waits for it. It applies the schema, seeds the admin user and enables
   `coga_app`'s login from `POSTGRES_APP_PASSWORD` (step 2);
 - only then rolls the backend out as `coga_app` with startup migrations off, and removes
   the backend account's access to the owner's password.
 
-Every later deploy of a new backend image runs the job first. If it fails, the apply
-stops and the running revision keeps serving.
+Every later deploy of a new backend image takes the backup and runs the job first. If
+either fails, the apply stops and the running revision keeps serving. A backend that starts
+on a database the job has not brought to its schema revision refuses to start.
 
 **Verify:** the checks under "Verification" below. Connecting directly as `coga_app` needs a
 client inside the VPC, so the automated proof is the CI smoke test, which takes the same

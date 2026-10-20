@@ -7,9 +7,10 @@
 # `python -m app.db_migrate` applies the idempotent schema baselines, seeds the admin user
 # and enables coga_app's login from the coga-postgres-app-password secret (as a SCRAM
 # verifier, so the plaintext never reaches the database). Terraform runs it whenever the
-# backend image changes and the backend service waits for it, so a new revision never
-# serves against an older schema. If it fails, the apply stops and the running revision
-# keeps serving.
+# backend image changes, right after an on-demand backup of the database (below), and the
+# backend service waits for it, so a new revision never serves against an older schema; the
+# API checks at its start that the database is at its own revision. If the backup or the job
+# fails, the apply stops and the running revision keeps serving.
 #
 # The job runs as its own service account (created in the central infra repo), so the
 # API's account never holds the owner's password. See docs/db-runtime-role-runbook.md.
@@ -142,6 +143,13 @@ resource "terraform_data" "db_migrate" {
   count            = local.restricted_db_role ? 1 : 0
   triggers_replace = [var.backend_image]
 
+  # First the backup (below). In this resource rather than one of its own, so that the run
+  # after a failed backup or migration, which replaces this resource, takes a new one too.
+  provisioner "local-exec" {
+    command     = local.pre_migration_backup.command
+    environment = local.pre_migration_backup.environment
+  }
+
   provisioner "local-exec" {
     command = "gcloud run jobs execute \"$JOB\" --region=\"$REGION\" --project=\"$PROJECT\" --wait"
     environment = {
@@ -150,4 +158,53 @@ resource "terraform_data" "db_migrate" {
       PROJECT = var.project_id
     }
   }
+}
+
+# ==========================================
+# BACKUP BEFORE EACH SCHEMA MIGRATION
+# ==========================================
+#
+# Every new backend image migrates the Postgres schema: the db-migrate job above with the
+# restricted role, the API's first start in owner mode. Before either, the apply takes an
+# on-demand Cloud SQL backup and waits until it is done: the restore point if that migration
+# has to be undone (docs/deployment-gcp.md, 12.3). It does so for every new image, because the
+# machine that applies has no path to the database (private address only) to read the revision
+# it is at, and until the release candidate a migration can change the schema without a new
+# revision. A backup that fails stops the apply before the migration runs, and the running
+# revision keeps serving. On-demand backups stay until someone deletes them (12.3).
+#
+# The script runs gcloud with the credentials of whoever applies; the deploy pipeline's account
+# needs the backup permissions (main-repo-reference/coga-prerequisites.tf.example).
+
+locals {
+  pre_migration_backup = {
+    command = "bash ${path.module}/scripts/backup-postgres-before-migration.sh"
+    environment = {
+      INSTANCE = google_sql_database_instance.postgres.name
+      PROJECT  = var.project_id
+      IMAGE    = var.backend_image
+    }
+  }
+}
+
+# Owner mode: the API migrates at its first start, so the backup comes before the backend rolls
+# out (cloudrun.tf waits for it). With the restricted role, terraform_data.db_migrate takes it
+# right before the job. Not when the API runs as the owner without migrating at start
+# (run_db_schema_migrations_on_startup = false): whoever migrates then takes the backup first.
+resource "terraform_data" "pre_migration_backup" {
+  count            = local.app_runs_migrations ? 1 : 0
+  triggers_replace = [var.backend_image]
+
+  provisioner "local-exec" {
+    command     = local.pre_migration_backup.command
+    environment = local.pre_migration_backup.environment
+  }
+
+  # Cloud SQL runs one operation on an instance at a time and refuses a second one, so the
+  # backup waits for the database and the owner's login this apply may create or change. The
+  # db-migrate resource waits for them through its job.
+  depends_on = [
+    google_sql_database.coga,
+    google_sql_user.coga,
+  ]
 }

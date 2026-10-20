@@ -26,6 +26,10 @@ the CI ``smoke`` job sets it.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
+- A start that does not migrate (OPS-23) reads the ledger as the restricted runtime role and
+  accepts only this version's own revision: an older one, an empty ledger or none at all
+  (the migration job has not run) and one this version does not have (a newer version
+  migrated the database) are each refused, and the ledger stays as it was.
 """
 
 from __future__ import annotations
@@ -859,6 +863,76 @@ def test_two_instances_starting_together_both_come_up() -> None:
         (head_revision(), head_revision()),
     }
     assert ledger == [head_revision()]
+
+
+def test_a_start_that_does_not_migrate_serves_only_on_its_own_revision() -> None:
+    # The API as the restricted runtime role (POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false):
+    # the migration job runs before the rollout, and the start only reads the ledger (OPS-23).
+    from backend.app.core.postgres_migrations import (
+        SchemaRevisionMismatch,
+        apply_postgres_schema,
+        check_schema_revision,
+        head_revision,
+        migration_script,
+    )
+
+    previous = migration_script().get_revision(head_revision()).down_revision
+    assert isinstance(previous, str) and re.fullmatch(r"\d{4}", previous)  # safe to write into SQL
+    # Each ledger the owner leaves, from the migrated database on, and what coga_app's start reads.
+    ledgers: dict[str, list[str]] = {
+        "own revision": [],
+        "previous revision": [f"UPDATE alembic_version SET version_num = '{previous}'"],
+        "newer version's revision": ["UPDATE alembic_version SET version_num = '9999'"],
+        "empty ledger": ["DELETE FROM alembic_version"],
+        "no ledger": ["DROP TABLE alembic_version"],
+    }
+
+    async def _body(database: str):
+        engine = _engine(database)
+        outcomes = {}
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            for case, statements in ledgers.items():
+                async with engine.begin() as conn:
+                    for statement in statements:
+                        await conn.exec_driver_sql(statement)
+                async with engine.begin() as conn:
+                    await conn.execute(text("SET LOCAL ROLE coga_app"))
+                    role = (await conn.execute(text("SELECT current_user"))).scalar_one()
+                    try:
+                        outcome = await conn.run_sync(check_schema_revision)
+                    except SchemaRevisionMismatch as refused:
+                        outcome = f"refused: {refused}"
+                async with engine.connect() as conn:
+                    exists = (await conn.execute(text("SELECT to_regclass('public.alembic_version')"))).scalar_one()
+                ledger = await _ledger(database) if exists else None
+                outcomes[case] = (role, outcome, ledger)
+            return outcomes
+        finally:
+            await engine.dispose()
+
+    outcomes = _run(_body)
+
+    assert {role for role, _outcome, _ledger_rows in outcomes.values()} == {"coga_app"}
+    assert outcomes["own revision"][1:] == (head_revision(), [head_revision()])
+    behind = f"and this version of CoGA needs revision {head_revision()}"
+    assert outcomes["previous revision"][1].startswith(f"refused: The database is at schema revision {previous}, {behind}")
+    assert outcomes["empty ledger"][1].startswith(f"refused: The database is at schema revision none (no ledger), {behind}")
+    assert outcomes["no ledger"][1].startswith(f"refused: The database is at schema revision none (no ledger), {behind}")
+    for case in ("previous revision", "empty ledger", "no ledger"):
+        assert "Run the migration job first" in outcomes[case][1], case
+    newer = outcomes["newer version's revision"][1]
+    assert newer.startswith("refused: The database is at schema revision 9999, which this version of CoGA does not have")
+    assert "this version is older than the database" in newer
+    # The start only read the ledger.
+    assert [rows for _role, _outcome, rows in outcomes.values()] == [
+        [head_revision()],
+        [previous],
+        ["9999"],
+        [],
+        None,
+    ]
 
 
 # The accounts as a database had them before SEC-4 (revision 0006): no Microsoft object ID.

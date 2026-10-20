@@ -201,7 +201,8 @@ class Settings(BaseSettings):
     #   False: schema migrations are run out-of-band as the owner (``python -m
     #          backend.app.db_migrate``) and the app boots as the restricted runtime role
     #          ``coga_app``, which cannot run DDL. This is the switch that closes the owner bypass of the audit hash chains
-    #          (see docs/db-runtime-role-runbook.md).
+    #          (see docs/db-runtime-role-runbook.md). The app then only checks at startup that
+    #          the database is at its own schema revision, and refuses to start otherwise.
     postgres_run_schema_migrations_on_startup: bool = Field(
         default=True, alias="POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP"
     )

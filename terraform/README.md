@@ -48,13 +48,13 @@ configuration addresses are tracked in [TF-13 §3](../docs/regulatory/TF-13-cybe
 | `network.tf` | the VPC and subnet (with Private Google Access), private service access for Cloud SQL, the serverless VPC connector, Cloud NAT and the ClickHouse firewall rule |
 | `database.tf` | Cloud SQL (private IP, encrypted connections only, backups and PITR) and the ClickHouse VM with its disk and snapshot policy |
 | `cloudrun.tf` | the backend and frontend services and their settings |
-| `migrate.tf` | the `coga-db-migrate` job for the restricted database role (below) |
+| `migrate.tf` | the `coga-db-migrate` job for the restricted database role (below), and the on-demand Cloud SQL backup the apply takes before each schema migration it starts (`scripts/backup-postgres-before-migration.sh`) |
 | `loadbalancer.tf`, `armor.tf` | the HTTPS load balancer (managed certificate, TLS 1.2+ `MODERN` policy) and Cloud Armor |
 | `secrets.tf`, `tls.tf` | the Secret Manager containers and grants; the private CA and ClickHouse certificate |
 | `storage.tf` | the two buckets and their grants |
 | `egress.tf` | the ClickHouse egress lockdown (below) |
 | `monitoring.tf` | the metrics token, the collector's configuration (`scripts/metrics-collector.yaml.tftpl`; the collector itself is a second container of the backend in `cloudrun.tf`), the alert policies and their email channels, and the uptime check ([docs/monitoring.md](../docs/monitoring.md)) |
-| `scripts/` | the ClickHouse VM's startup, certificate-refresh and shutdown scripts |
+| `scripts/` | the ClickHouse VM's startup, certificate-refresh and shutdown scripts, and the backup before a schema migration, which the apply runs with gcloud |
 
 ## Boundary with the central infra repo
 
@@ -73,11 +73,18 @@ owner, `coga_admin`, and applies the schema on startup. Set `"coga_app"` to clos
 owner-bypass gap of TF-09b REQ-TRACE-008. The API then connects as the restricted role,
 which cannot run DDL or change the append-only audit tables, and its service account loses
 access to the owner's password. The `coga-db-migrate` Cloud Run job ([`migrate.tf`](migrate.tf))
-takes over the owner's work: Terraform runs it with every new backend image, and the backend
-waits for it. It applies the schema, seeds the admin user and enables `coga_app`'s login from
-the `coga-postgres-app-password` secret, so no SQL is run by hand. The procedure, verification
-and rollback are in [docs/db-runtime-role-runbook.md](../docs/db-runtime-role-runbook.md),
-"Google Cloud".
+takes over the owner's work: Terraform runs it with every new backend image, after an
+on-demand backup of the database, and the backend waits for it. It applies the schema, seeds
+the admin user and enables `coga_app`'s login from the `coga-postgres-app-password` secret, so
+no SQL is run by hand. The API, which then does not migrate, refuses to start unless the
+database is at its own schema revision. The procedure, verification and rollback are in
+[docs/db-runtime-role-runbook.md](../docs/db-runtime-role-runbook.md), "Google Cloud".
+
+In either mode, every new backend image migrates the schema (the job, or in owner mode the
+API's first start), and the apply first takes an on-demand Cloud SQL backup with gcloud, the
+restore point of that migration; a backup that fails stops the apply before the migration
+runs. The deploy pipeline's account needs the backup permissions
+([main-repo-reference/](main-repo-reference/)).
 
 ## ClickHouse egress lockdown (`clickhouse_restrict_egress`)
 
