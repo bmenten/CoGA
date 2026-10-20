@@ -2,34 +2,16 @@ import { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from './api';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from './apiTypes';
-import { classifyEmbryosAtRoi, type EmbryoClassification } from './embryoSegregation';
+import type { PgtAnalysisOut } from './apiSchema.generated';
+import { embryoClassificationsFromAnalysis, type EmbryoClassification } from './embryoSegregation';
 import type { HaplotypePhaseCorrection } from './haplotypePhaseCorrections';
-import type { HaplotypeMemberLike, HaplotypeSampleLike } from './haplotypeRisk';
 import { apiPath } from './apiPath';
 
-// Fetch a window around the ROI (shared query cache with the ROI marker page) so
-// the relatives' IBD lineage resolves robustly, then classify AT the ROI itself.
-const ROI_FLANK = 1_000_000;
-
-interface HaplotypeResponse {
-  samples: HaplotypeSampleLike[];
-}
-
-const toMember = (m: ApiFamilyMember): HaplotypeMemberLike => ({
-  sample_id: m.sample_id,
-  role: m.role,
-  affected: m.affected,
-  sex: m.sex,
-  clinical_status: m.clinical_status,
-  carrier_status: m.carrier_status,
-  carrier_type: m.carrier_type,
-});
-
 /**
- * Derived embryo segregation at the ROI, keyed by embryo sample id. Reuses the
- * canonical disease-haplotype inference (haplotypeRisk.ts) over the ROI's
- * lineage-tagged haplotypes — this is DERIVED FROM THE ANALYSIS, not entered by an
- * analyst. Returns an empty map until there is a ROI, embryos, and haplotype data.
+ * The embryo calls at the ROI, keyed by embryo sample id, as the backend makes them
+ * (`GET /families/{id}/pgt-analysis`, backend/app/services/pgt_embryo_calls.py): the calls a
+ * sign-out of the family freezes into its signed record. DERIVED FROM THE ANALYSIS, not
+ * entered by an analyst. Empty until there is a ROI, embryos, and haplotype data.
  */
 export const useEmbryoSegregation = ({
   familyId,
@@ -41,44 +23,47 @@ export const useEmbryoSegregation = ({
   familyId: string;
   roi: ApiFamilyRegionOfInterest | null;
   members: ApiFamilyMember[];
+  /** The family's recorded model: the calls change with it, so the query does too. */
   inheritanceModel?: string | null;
-  /** The parents' phase switches the blocks undid, from the family's metadata. */
+  /** The parents' phase corrections the family records; a new import changes them. */
   phaseCorrections?: HaplotypePhaseCorrection[];
 }): {
   byEmbryo: Map<string, EmbryoClassification>;
   isLoading: boolean;
-  /** The haplotypes at the ROI could not be loaded: no segregation is derived, and the
+  /** The calls at the ROI could not be loaded: no segregation is shown, and the
    * recombination and uninformative warnings are unknown, not absent (#607). */
   isError: boolean;
   retry: () => void;
 } => {
   const hasEmbryos = members.some((m) => String(m.role || '').toLowerCase() === 'embryo');
-  const winStart = roi ? Math.max(0, roi.start - ROI_FLANK) : 0;
-  const winEnd = roi ? roi.end + ROI_FLANK : 0;
+  // What the calls are made from on the family's side: the ROI, the members' roles, sexes
+  // and statuses, the model and the parents' phase corrections. A change to any of them
+  // asks for the calls again.
+  const inputs = useMemo(
+    () =>
+      JSON.stringify([
+        roi ? [roi.chr, roi.start, roi.end] : null,
+        members.map((m) => [m.sample_id, m.role, m.sex, m.affected, m.clinical_status, m.carrier_status, m.carrier_type]),
+        inheritanceModel ?? null,
+        phaseCorrections ?? [],
+      ]),
+    [roi, members, inheritanceModel, phaseCorrections],
+  );
 
-  const { data, isLoading, isError, refetch } = useQuery<HaplotypeResponse>({
-    queryKey: ['haplotypes', familyId, roi?.chr, winStart, winEnd],
+  const { data, isLoading, isError, refetch } = useQuery<PgtAnalysisOut>({
+    queryKey: ['pgt-analysis', familyId, inputs],
     enabled: !!roi && !!familyId && hasEmbryos,
     staleTime: Infinity,
-    queryFn: async () =>
-      (
-        await api.get(apiPath`/families/${familyId}/haplotypes`, {
-          params: { chr: roi!.chr, start: winStart, end: winEnd },
-        })
-      ).data as HaplotypeResponse,
+    queryFn: async () => (await api.get(apiPath`/families/${familyId}/pgt-analysis`)).data as PgtAnalysisOut,
   });
 
-  const byEmbryo = useMemo(() => {
-    if (!roi || !data?.samples?.length) return new Map<string, EmbryoClassification>();
-    const rows = classifyEmbryosAtRoi({
-      members: members.map(toMember),
-      samples: data.samples,
-      inheritanceModel,
-      region: { chr: roi.chr, start: roi.start, end: roi.end },
-      phaseCorrections,
-    });
-    return new Map(rows.map((r) => [r.sampleId, r]));
-  }, [roi, data?.samples, members, inheritanceModel, phaseCorrections]);
+  const byEmbryo = useMemo(
+    () =>
+      roi && data && Array.isArray(data.embryos)
+        ? embryoClassificationsFromAnalysis(data)
+        : new Map<string, EmbryoClassification>(),
+    [roi, data],
+  );
 
   return {
     byEmbryo,

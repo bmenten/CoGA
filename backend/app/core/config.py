@@ -46,6 +46,16 @@ _CORS_PROBE_ORIGINS = (
 # The commit a build was made from, as build.yml and ci/cloudbuild.backend.yaml stamp it
 # (`git rev-parse --short=12 HEAD`); a full 40-character hash is accepted too.
 _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
+# A directory (tenant) ID and an application (client) ID, as the Azure portal shows them.
+_GUID_PATTERN = re.compile(
+    r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+)
+# CoGA's API scope: the application ID URI the app registration exposes, then the scope's
+# name (`api://<client id>/access_as_user`). The name is what a token's `scp` claim lists.
+_AZURE_API_SCOPE_PATTERN = re.compile(r"(?:api|https)://[^\s/]+(?:/[^\s/]+)*/[A-Za-z0-9_-][A-Za-z0-9._-]*")
+# The scope IT exposes on CoGA's app registration (docs/deployment-gcp.md), when
+# AZURE_API_SCOPE names none.
+AZURE_DEFAULT_SCOPE_NAME = "access_as_user"
 # The HPO release the startup download is pinned to (OPS-6): the release of the vendored
 # data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. The startup
 # downloads only when it finds no ontology file. It then fetches this release from its own
@@ -512,8 +522,21 @@ class Settings(BaseSettings):
         default="/data/ref-data/paraphase-medical-regions.json",
         alias="PARAPHASE_MEDICAL_REGIONS_PATH",
     )
+    # Microsoft sign-in (Azure AD / Microsoft Entra ID, SEC-4). With the directory (tenant) ID
+    # and the application (client) ID of the app registration IT made for CoGA, users sign in
+    # with their Microsoft account and the API accepts only Microsoft's access tokens for
+    # CoGA's API scope (core/azure.py); without them, the local password sign-in serves every
+    # account. Both or neither: a half configuration is refused at startup.
     azure_tenant_id: str | None = Field(default=None, alias="AZURE_TENANT_ID")
     azure_client_id: str | None = Field(default=None, alias="AZURE_CLIENT_ID")
+    # The API scope the browser asks Microsoft for, whose name every access token must carry
+    # in its `scp` claim. Blank: api://<AZURE_CLIENT_ID>/access_as_user, the scope IT exposes
+    # (docs/deployment-gcp.md).
+    azure_api_scope: str | None = Field(default=None, alias="AZURE_API_SCOPE")
+    # The emergency (break-glass) sign-in. Off (the default), Microsoft sign-in is the only
+    # one. On, the emergency administrator (the local account ADMIN_USERNAME names) may also
+    # sign in with its password at /login/emergency; every such sign-in, and every request
+    # made with it, is logged and flagged in the request audit. It needs Azure AD.
     azure_admin_override: bool = Field(default=False, alias="AZURE_ADMIN_OVERRIDE")
 
     # Resolve the project root .env if present (repo root), otherwise fallback to CWD
@@ -573,6 +596,18 @@ class Settings(BaseSettings):
             return [entry.strip() for entry in stripped.split(",") if entry.strip()]
         return value
 
+    @field_validator("azure_tenant_id", "azure_client_id", "azure_api_scope", mode="before")
+    @classmethod
+    def normalize_blank_azure_values(cls, value: object) -> object:
+        # Terraform passes an unset variable as an empty value: that is no value. A GUID is
+        # compared as Microsoft writes it in a token, in lower case.
+        if isinstance(value, str):
+            stripped = value.strip()
+            if not stripped:
+                return None
+            return stripped.lower() if _GUID_PATTERN.fullmatch(stripped) else stripped
+        return value
+
     @field_validator("app_env", mode="before")
     @classmethod
     def normalize_app_env(cls, value: object) -> object:
@@ -608,6 +643,69 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip().lower() or "keys"
         return value
+
+    @model_validator(mode="after")
+    def validate_azure_ad(self) -> "Settings":
+        """Refuse a half Microsoft sign-in configuration, in every environment (SEC-4).
+
+        A tenant without a client ID (or the reverse) used to leave Azure AD off without a
+        word, and an override without Azure AD did nothing; either way the deployment did not
+        sign in the way it was configured to.
+        """
+        tenant, client = self.azure_tenant_id, self.azure_client_id
+        if bool(tenant) != bool(client):
+            missing = "AZURE_CLIENT_ID" if tenant else "AZURE_TENANT_ID"
+            raise ValueError(
+                "Microsoft sign-in needs both AZURE_TENANT_ID and AZURE_CLIENT_ID, and "
+                f"{missing} is not set. Set both (the directory (tenant) ID and the application "
+                "(client) ID of CoGA's app registration), or neither for the local sign-in."
+            )
+        if tenant and not _GUID_PATTERN.fullmatch(tenant):
+            raise ValueError(
+                "AZURE_TENANT_ID must be the directory (tenant) ID of the organisation, a GUID "
+                "such as 00000000-0000-0000-0000-000000000000. 'common', 'organizations', "
+                "'consumers' and a domain name are refused: CoGA admits accounts of one "
+                "directory only."
+            )
+        if client and not _GUID_PATTERN.fullmatch(client):
+            raise ValueError(
+                "AZURE_CLIENT_ID must be the application (client) ID of CoGA's app "
+                "registration, a GUID such as 00000000-0000-0000-0000-000000000000."
+            )
+        if self.azure_api_scope and not tenant:
+            raise ValueError(
+                "AZURE_API_SCOPE is set without AZURE_TENANT_ID and AZURE_CLIENT_ID: the scope "
+                "is used only with Microsoft sign-in."
+            )
+        if self.azure_api_scope and not _AZURE_API_SCOPE_PATTERN.fullmatch(self.azure_api_scope):
+            raise ValueError(
+                "AZURE_API_SCOPE must be CoGA's application ID URI followed by the scope's "
+                "name, such as api://<AZURE_CLIENT_ID>/access_as_user, or be left blank for "
+                "that default."
+            )
+        if self.azure_admin_override and not tenant:
+            raise ValueError(
+                "AZURE_ADMIN_OVERRIDE=true opens the emergency administrator's password "
+                "sign-in beside Microsoft sign-in, and Microsoft sign-in is not configured "
+                "(AZURE_TENANT_ID, AZURE_CLIENT_ID). Without it every local account signs in "
+                "with its password already: set AZURE_ADMIN_OVERRIDE=false."
+            )
+        return self
+
+    @property
+    def azure_ad_enabled(self) -> bool:
+        """Whether users sign in with Microsoft (Azure AD) rather than with a password."""
+        return bool(self.azure_tenant_id and self.azure_client_id)
+
+    @property
+    def azure_api_scope_value(self) -> str:
+        """The API scope the browser asks for: AZURE_API_SCOPE, else the default one."""
+        return self.azure_api_scope or f"api://{self.azure_client_id}/{AZURE_DEFAULT_SCOPE_NAME}"
+
+    @property
+    def azure_api_scope_name(self) -> str:
+        """The scope's name, as an access token's `scp` claim lists it."""
+        return self.azure_api_scope_value.rsplit("/", 1)[-1]
 
     @model_validator(mode="after")
     def validate_security_defaults(self) -> "Settings":

@@ -18,7 +18,10 @@ import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../..
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiSmallVariantEvidence, ApiStructuralEvidence, QcStatus } from '../../lib/apiTypes';
+import { segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
 import { joinWithAnd } from '../../lib/format';
+import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
+import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { formatAlleleFrequency } from './reportNarrative';
 import { formatLocus } from './smallVariantResultUtils';
 import {
@@ -156,6 +159,8 @@ export interface SignedQcCheck {
 
 export interface SignedSampleQc {
   overallStatus: string | null;
+  /** The application the Sample QC read the family as ('pgt', 'nipt', 'wgs', ...). */
+  application: string | null;
   applicationLabel: string | null;
   checks: SignedQcCheck[];
   notes: string[];
@@ -373,6 +378,76 @@ export interface SignedParaphase {
   genes: SignedParaphaseGene[];
 }
 
+/** A parental homolog as the PGT analysis names it: its side and its label ('0', '1'). */
+export interface SignedPgtHaplotype {
+  origin: 'paternal' | 'maternal' | null;
+  homolog: string | null;
+}
+
+export interface SignedPgtDiseaseHaplotype extends SignedPgtHaplotype {
+  kind: string | null;
+}
+
+/** A homolog an embryo carries at the ROI, with the extent of its block. */
+export interface SignedPgtInherited extends SignedPgtHaplotype {
+  start: number | null;
+  end: number | null;
+}
+
+/** An embryo's phasing QC at the ROI, as the ROI marker review counts it. */
+export interface SignedPgtEmbryoQc {
+  informativeSites: number | null;
+  mendelErrors: number | null;
+  mendelRate: number | null;
+  paternalMarkers: number | null;
+  maternalMarkers: number | null;
+}
+
+export interface SignedPgtEmbryo {
+  sample: string;
+  sex: string | null;
+  /** Null: not assessed (no ROI, or no haplotypes read). */
+  call: HaplotypeRiskState | null;
+  roiNotCovered: boolean;
+  sexDependent: { ifMale: HaplotypeRiskState; ifFemale: HaplotypeRiskState } | null;
+  inherited: SignedPgtInherited[];
+  recombinations: number[];
+  qc: SignedPgtEmbryoQc | null;
+}
+
+export interface SignedPgtMember {
+  sample: string;
+  role: string | null;
+  sex: string | null;
+  affected: boolean;
+  carrierStatus: string | null;
+  carrierType: string | null;
+}
+
+export interface SignedPgtSource {
+  sample: string;
+  source: string | null;
+  filename: string | null;
+  blocks: number | null;
+  loadedAt: string | null;
+}
+
+/** The PGT analysis at the ROI as a PGT family's record froze it (pgt_analysis.py). */
+export interface SignedPgtAnalysis {
+  roi: { query: string | null; label: string | null; chrom: string | null; start: number | null; end: number | null } | null;
+  inheritance: { recorded: string | null; applied: string | null };
+  diseaseHaplotypeResolved: boolean;
+  diseaseHaplotypes: SignedPgtDiseaseHaplotype[];
+  phaseCorrections: HaplotypePhaseCorrection[];
+  embryos: SignedPgtEmbryo[];
+  members: SignedPgtMember[];
+  sources: SignedPgtSource[];
+  blocksRead: number | null;
+  blocksDigest: string | null;
+  markersTruncated: boolean;
+  recombinationFlank: number | null;
+}
+
 export interface SignedReport {
   /** What the record says it is; null: signed before CoGA froze the sentence. */
   statement: string | null;
@@ -401,6 +476,8 @@ export interface SignedReport {
   referenceData: SignedRecordSection<SignedReferenceData>;
   repeatExpansions: SignedRecordSection<SignedRepeatExpansions>;
   paraphase: SignedRecordSection<SignedParaphase>;
+  /** A PGT family's embryo calls at the ROI; `absent` from a record of any other family too. */
+  pgtAnalysis: SignedRecordSection<SignedPgtAnalysis>;
 }
 
 const acknowledgement = (snapshot: Json, flag: string, reason: string): SignedAcknowledgement => ({
@@ -689,6 +766,7 @@ const parseSampleQc = (value: unknown): SignedSampleQc | null => {
   };
   return {
     overallStatus: text(value.overall_status),
+    application: text(value.application),
     applicationLabel: text(value.application_label),
     checks: [
       ...list('sex_checks', (check) => `Sex of ${text(check.sample_id) ?? 'a sample'}`),
@@ -940,6 +1018,102 @@ const parseParaphase = (value: Json): SignedParaphase => ({
   })),
 });
 
+const RISK_STATES: HaplotypeRiskState[] = ['affected_or_at_risk', 'carrier', 'unaffected_non_carrier', 'uninformative'];
+const riskState = (value: unknown): HaplotypeRiskState | null =>
+  RISK_STATES.includes(value as HaplotypeRiskState) ? (value as HaplotypeRiskState) : null;
+const parentSide = (value: unknown): 'paternal' | 'maternal' | null =>
+  value === 'paternal' || value === 'maternal' ? value : null;
+
+const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
+  const roi = isObject(value.region_of_interest) ? value.region_of_interest : null;
+  const inheritance = isObject(value.inheritance_model) ? value.inheritance_model : {};
+  const inputs = isObject(value.inputs) ? value.inputs : {};
+  const rules = isObject(value.rules) ? value.rules : {};
+  return {
+    roi: roi
+      ? {
+          query: text(roi.query),
+          label: text(roi.label),
+          chrom: text(roi.chrom),
+          start: number(roi.start),
+          end: number(roi.end),
+        }
+      : null,
+    inheritance: { recorded: text(inheritance.recorded), applied: text(inheritance.applied) },
+    diseaseHaplotypeResolved: value.disease_haplotype_resolved === true,
+    diseaseHaplotypes: objects(value.disease_haplotypes).map((haplotype) => ({
+      origin: parentSide(haplotype.origin),
+      homolog: text(haplotype.homolog),
+      kind: text(haplotype.kind),
+    })),
+    phaseCorrections: objects(value.phase_corrections).flatMap((correction): HaplotypePhaseCorrection[] => {
+      const parent = text(correction.parent);
+      const chrom = text(correction.chr);
+      const position = number(correction.position);
+      if (!parent || !chrom || position === null) return [];
+      return [
+        {
+          parent,
+          side: correction.side === 'mother' ? 'mother' : 'father',
+          chr: chrom,
+          position,
+          end: number(correction.end) ?? position,
+          children_switching: number(correction.children_switching) ?? 0,
+          children: number(correction.children) ?? 0,
+        },
+      ];
+    }),
+    embryos: objects(value.embryos).map((embryo) => {
+      const sexDependent = isObject(embryo.sex_dependent) ? embryo.sex_dependent : null;
+      const ifMale = riskState(sexDependent?.if_male);
+      const ifFemale = riskState(sexDependent?.if_female);
+      const qc = isObject(embryo.qc) ? embryo.qc : null;
+      return {
+        sample: text(embryo.sample) ?? 'an embryo',
+        sex: text(embryo.sex),
+        call: riskState(embryo.call),
+        roiNotCovered: embryo.roi_not_covered === true,
+        sexDependent: ifMale && ifFemale ? { ifMale, ifFemale } : null,
+        inherited: objects(embryo.inherited).map((homolog) => ({
+          origin: parentSide(homolog.origin),
+          homolog: text(homolog.homolog),
+          start: number(homolog.start),
+          end: number(homolog.end),
+        })),
+        recombinations: numbers(embryo.recombinations) ?? [],
+        qc: qc
+          ? {
+              informativeSites: number(qc.informative_sites),
+              mendelErrors: number(qc.mendel_errors),
+              mendelRate: number(qc.mendel_rate),
+              paternalMarkers: number(qc.paternal_markers),
+              maternalMarkers: number(qc.maternal_markers),
+            }
+          : null,
+      };
+    }),
+    members: objects(value.members).map((member) => ({
+      sample: text(member.sample) ?? 'a member',
+      role: text(member.role),
+      sex: text(member.sex),
+      affected: member.affected === true,
+      carrierStatus: text(member.carrier_status),
+      carrierType: text(member.carrier_type),
+    })),
+    sources: objects(inputs.haplotype_sources).map((source) => ({
+      sample: text(source.sample) ?? 'a member',
+      source: text(source.source),
+      filename: text(source.filename),
+      blocks: number(source.blocks),
+      loadedAt: text(source.loaded_at),
+    })),
+    blocksRead: number(inputs.blocks_read),
+    blocksDigest: text(inputs.blocks_digest),
+    markersTruncated: inputs.markers_truncated === true,
+    recombinationFlank: number(rules.recombination_flank),
+  };
+};
+
 /** The signed version's frozen snapshot, read; null when there is no readable snapshot. */
 export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
   if (!isObject(snapshot)) return null;
@@ -980,6 +1154,7 @@ export const parseSignedReport = (snapshot: unknown): SignedReport | null => {
     referenceData: parseRecordSection(snapshot, 'reference_data', parseReferenceData),
     repeatExpansions: parseRecordSection(snapshot, 'repeat_expansions', parseRepeatExpansions),
     paraphase: parseRecordSection(snapshot, 'paraphase', parseParaphase),
+    pgtAnalysis: parseRecordSection(snapshot, 'pgt_analysis', parsePgtAnalysis),
   };
 };
 
@@ -1037,6 +1212,7 @@ const REPORT_SECTION_LABELS: Record<string, string> = {
   reference_data: 'reference-data releases',
   repeat_expansions: 'repeat expansions',
   paraphase: 'Paraphase results',
+  pgt_analysis: 'PGT embryo results',
 };
 
 // --- Wording of what the analysis looked at --------------------------------------------
@@ -1367,6 +1543,125 @@ export const describeBreachedMetric = (metric: SignedSequencingQcMetric): string
   const value = metric.value !== null ? ` ${metric.value}${metric.unit ? ` ${metric.unit}` : ''}` : '';
   return `${metric.label}${value} (${qcStatusLabel(metric.verdict)}${limits.length ? `; ${limits.join(', ')}` : ''})`;
 };
+
+// --- Wording of the PGT embryo results ---------------------------------------------
+
+/** A homolog as the haplotype track's legend names it: P1/P2 the father's, M1/M2 the mother's. */
+export const homologLabel = (haplotype: SignedPgtHaplotype): string => {
+  const side = haplotype.origin === 'paternal' ? 'P' : haplotype.origin === 'maternal' ? 'M' : '?';
+  return haplotype.homolog !== null && /^[0-9]+$/.test(haplotype.homolog)
+    ? `${side}${Number(haplotype.homolog) + 1}`
+    : `${side}?`;
+};
+
+const DISEASE_KIND_WORDS: Record<string, string> = {
+  dominant: 'dominant',
+  'recessive-paternal': 'recessive, the father’s side',
+  'recessive-maternal': 'recessive, the mother’s side',
+  'x-linked': 'X-linked',
+};
+
+/** The disease haplotype(s) the calls were made against: "P2 (dominant)"; null: none resolved. */
+export const describeDiseaseHaplotypes = (analysis: SignedPgtAnalysis): string | null =>
+  analysis.diseaseHaplotypeResolved && analysis.diseaseHaplotypes.length
+    ? joinWithAnd(
+        analysis.diseaseHaplotypes.map(
+          (haplotype) =>
+            `${homologLabel(haplotype)} (${haplotype.kind ? (DISEASE_KIND_WORDS[haplotype.kind] ?? haplotype.kind) : 'kind not recorded'})`,
+        ),
+      )
+    : null;
+
+/** The model the calls used: "AD", or "not recorded; CoGA assumed AR". */
+export const describePgtInheritance = (analysis: SignedPgtAnalysis): string =>
+  analysis.inheritance.recorded
+    ? analysis.inheritance.recorded
+    : `not recorded; CoGA assumed ${analysis.inheritance.applied ?? 'none'}`;
+
+const formatPosition = (value: number | null): string => (value === null ? '?' : value.toLocaleString());
+
+/** The homologs an embryo carries at the ROI, block by block: "P2 and M1 (29,000,000–32,000,000)". */
+export const describeInherited = (inherited: SignedPgtInherited[]): string | null => {
+  if (!inherited.length) return null;
+  const blocks = new Map<string, { start: number | null; end: number | null; labels: string[] }>();
+  inherited.forEach((homolog) => {
+    const key = `${homolog.start}-${homolog.end}`;
+    const block = blocks.get(key) ?? { start: homolog.start, end: homolog.end, labels: [] };
+    block.labels.push(homologLabel(homolog));
+    blocks.set(key, block);
+  });
+  return Array.from(blocks.values())
+    .map((block) => `${joinWithAnd(block.labels)} (${formatPosition(block.start)}–${formatPosition(block.end)})`)
+    .join('; ');
+};
+
+/** Why an embryo's call is uninformative, in the words of the family page's warning. */
+export const describeNoCall = (embryo: SignedPgtEmbryo, analysis: SignedPgtAnalysis): string | null => {
+  if (embryo.call !== 'uninformative') return null;
+  if (embryo.sexDependent) return sexUnknownWarning(embryo.sexDependent);
+  if (embryo.roiNotCovered) {
+    return 'This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made.';
+  }
+  return analysis.diseaseHaplotypeResolved
+    ? 'No call could be made against the disease haplotypes resolved at the ROI.'
+    : 'No disease haplotype could be resolved at the ROI (uninformative markers).';
+};
+
+/** An embryo's phasing QC at the ROI: "40 informative sites, Mendelian error rate 2.5% (1 of 40); …". */
+export const describeEmbryoQc = (qc: SignedPgtEmbryoQc): string => {
+  const sites = qc.informativeSites ?? 0;
+  const rate = qc.mendelRate !== null ? `${(qc.mendelRate * 100).toFixed(1)}%` : 'not recorded';
+  return `${sites.toLocaleString()} informative site${sites === 1 ? '' : 's'}, Mendelian error rate ${rate} (${(
+    qc.mendelErrors ?? 0
+  ).toLocaleString()} of ${sites.toLocaleString()}); informative markers ${qc.paternalMarkers ?? 0} paternal, ${
+    qc.maternalMarkers ?? 0
+  } maternal`;
+};
+
+/** An embryo's call as signed: its badge's words, or that it was not assessed. */
+export const describeEmbryoCall = (embryo: SignedPgtEmbryo): string =>
+  embryo.call ? segregationStateLabel(embryo.call) : 'Not assessed';
+
+/** What the calls were read from: the haplotype files, the blocks read and their digest. */
+export const describePgtInputs = (analysis: SignedPgtAnalysis): string => {
+  const files = new Map<string, string[]>();
+  analysis.sources.forEach((source) => {
+    const name = `${source.filename || 'a file not named'}${source.loadedAt ? `, loaded ${formatReportTime(source.loadedAt)}` : ''}`;
+    files.set(name, [...(files.get(name) ?? []), source.sample]);
+  });
+  const parts = [
+    files.size
+      ? `the haplotype blocks of ${Array.from(files.entries())
+          .map(([name, samples]) => `${name} (${joinWithAnd(samples)})`)
+          .join('; ')}`
+      : 'no recorded haplotype file',
+    analysis.blocksRead !== null
+      ? `${analysis.blocksRead.toLocaleString()} block${analysis.blocksRead === 1 ? '' : 's'} read${
+          analysis.blocksDigest ? `, digest ${analysis.blocksDigest.slice(0, 12)}` : ''
+        }`
+      : null,
+  ].filter((part): part is string => Boolean(part));
+  return parts.join('; ');
+};
+
+/** The members' statuses the disease haplotype was inferred from: "FATHER (father, affected)". */
+export const describePgtMembers = (members: SignedPgtMember[]): string | null =>
+  members.length
+    ? members
+        .map((member) => {
+          const status = [
+            member.role,
+            member.affected ? 'affected' : null,
+            member.carrierStatus === 'carrier'
+              ? `${member.carrierType ? `${member.carrierType} ` : ''}carrier`
+              : member.carrierStatus === 'not_carrier'
+                ? 'not a carrier'
+                : null,
+          ].filter((part): part is string => Boolean(part));
+          return `${member.sample}${status.length ? ` (${status.join(', ')})` : ''}`;
+        })
+        .join(', ')
+    : null;
 
 // --- The report page's views ------------------------------------------------
 

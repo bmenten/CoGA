@@ -6,7 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyReportPage from '../FamilyReportPage';
 import { APP_VERSION_QUERY_KEY } from '../../../lib/appVersion';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import { SIGNED_ANALYSIS, SIGNED_STATEMENT } from '../../../test/signedAnalysisFixture';
+import { SIGNED_ANALYSIS, SIGNED_PGT_ANALYSIS, SIGNED_STATEMENT } from '../../../test/signedAnalysisFixture';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -1367,6 +1367,105 @@ describe('FamilyReportPage', () => {
       expect(variant).toHaveTextContent(
         'The record holds no description of this variant: it was not in the family’s data when version 2 was signed.',
       );
+    });
+
+    // A PGT family's record holds the embryo calls the family page showed (since 2026-10-20).
+    const PGT_SAMPLE_QC = { ...SIGNED_SNAPSHOT.sample_qc, application: 'pgt', application_label: 'Shallow-WGS PGT (imputed)' };
+    const pgtSection = async () => (await screen.findByRole('heading', { name: 'PGT embryo results' })).closest('section')!;
+
+    it("shows a PGT family's embryo calls as the record froze them, and prints them", async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: PGT_SAMPLE_QC, pgt_analysis: SIGNED_PGT_ANALYSIS },
+      });
+      const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+      renderPage();
+
+      const pgt = await pgtSection();
+      expect(pgt).toHaveTextContent(
+        'Each embryo’s call at the region of interest GENE1 (7:30,500,000–30,600,000), as the family page showed it when version 2 was signed. Inheritance model: not recorded; CoGA assumed AD. Disease haplotype at the ROI: P2 (dominant).',
+      );
+      expect(pgt).toHaveTextContent(
+        "⚠ Phase corrected: 3 of 3 children switched together on the father's side between 30.40 Mb and 30.45 Mb, a switch in the father's phasing rather than crossovers. The father's two haplotypes are swapped from 30.40 Mb. This is inside or close to the ROI",
+      );
+      expect(pgt).toHaveTextContent(
+        'E1 (female): Affected / at risk. Inherited at the ROI: M1 and P2 (29,000,000–32,000,000). QC at the ROI: 40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal.',
+      );
+      expect(pgt).toHaveTextContent(
+        'E2 (und): Uninformative. This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made. ⚠ Recombination inside the ROI or within 250,000 bp of it, at 30,550,000. QC at the ROI: not counted (the embryo is not recorded as a child of the couple).',
+      );
+      expect(pgt).toHaveTextContent('E3 (female): Unaffected. Inherited at the ROI: M2 and P1 (29,000,000–32,000,000).');
+      expect(pgt).toHaveTextContent('an embryo: Not assessed.');
+      expect(pgt).toHaveTextContent(
+        'The members’ roles and statuses as the analysis read them: E1 (embryo), E2 (embryo), E3 (embryo), FATHER (father, affected), INDEX (proband, affected), MOTHER (mother, not a carrier).',
+      );
+      expect(pgt).toHaveTextContent(
+        'Read from the haplotype blocks of family.vcf.gz, loaded 2026-10-01 09:00 UTC (E1 and FATHER); 6 blocks read, digest abcdef012345.',
+      );
+      // On the printout: the section is part of the record, not of the page around it.
+      expect(pgt.closest('.no-print')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Print signed version 2' }));
+      expect(print).toHaveBeenCalledTimes(1);
+      // From the record alone: the family's current calls are not asked for.
+      const requested = apiMock.get.mock.calls.map(([url]) => String(url));
+      expect(requested.filter((url) => url.includes('pgt-analysis'))).toEqual([]);
+      print.mockRestore();
+    });
+
+    it('says when the family had no region of interest, so no embryo was called', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          sample_qc: PGT_SAMPLE_QC,
+          pgt_analysis: {
+            ...SIGNED_PGT_ANALYSIS,
+            region_of_interest: null,
+            window: null,
+            disease_haplotype_resolved: false,
+            disease_haplotypes: [],
+            phase_corrections: [],
+            embryos: [{ sample: 'E1', sex: 'female', call: null, roi_not_covered: false, sex_dependent: null, inherited: [], recombinations: [], qc: null }],
+          },
+        },
+      });
+      renderPage();
+
+      const pgt = await pgtSection();
+      expect(pgt).toHaveTextContent('The family had no region of interest when version 2 was signed, so no embryo was called.');
+      expect(pgt).toHaveTextContent('E1 (female): Not assessed.');
+      expect(pgt).not.toHaveTextContent('QC at the ROI');
+    });
+
+    it("says a PGT family's record signed before CoGA froze the embryo calls does not hold them", async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, sample_qc: PGT_SAMPLE_QC } });
+      renderPage();
+
+      expect(await pgtSection()).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the PGT embryo results.',
+      );
+    });
+
+    it('says when the embryo calls could not be captured at sign-out', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          sample_qc: PGT_SAMPLE_QC,
+          pgt_analysis: { unavailable: "The PGT analysis's embryo results could not be read." },
+        },
+      });
+      renderPage();
+
+      expect(await pgtSection()).toHaveTextContent(
+        "Not captured: the PGT embryo results could not be read when version 2 was signed (The PGT analysis's embryo results could not be read.).",
+      );
+    });
+
+    it('shows no PGT section in the record of a family without embryos', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      renderPage();
+
+      await signedRecordCard();
+      expect(await screen.findByRole('heading', { name: 'Paraphase' })).toBeInTheDocument();
+      expect(screen.queryByRole('heading', { name: 'PGT embryo results' })).not.toBeInTheDocument();
     });
 
     it('prints the signed version: the page Print prints is the record', async () => {

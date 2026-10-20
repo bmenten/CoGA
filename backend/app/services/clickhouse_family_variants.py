@@ -2152,12 +2152,17 @@ async def _serve_subpanel_from_superset(
     - it is complete (not truncated), and has no panel or a panel that still holds exactly
       the genes and regions it was computed on, and whose genes cover the request (CLIN-27);
     - it holds every one of the variants, and recorded the same segregation modes for each
-      (``_priorities_from_ranking``). A panel of more than ``_PANEL_REGION_INLINE_LIMIT``
-      regions (the Mendeliome) is matched on gene symbols alone, so its ranking can lack a
-      variant a smaller panel reaches by position only (CLIN-34); a compound-het pair whose
-      partner the panel leaves out is no pair within the panel, so the variant loses that
-      mode, and with it, unless another mode is as strong, segregation weight and score
-      (CLIN-35).
+      (``_priorities_from_ranking``). Every panel, the Mendeliome included, is matched by
+      its genes and its regions, and the broader panel holds the requested genes, whose
+      loci it applied as they are now (the CLIN-27 check), so its ranking holds every
+      variant the requested panel reaches by a gene or a gene's locus. It can still lack
+      one the requested panel reaches by a region of its own only: coordinates PanelApp
+      gave for a gene, or a locus stored when the panel was made, that the broader panel
+      does not hold. (Until the owner's decision of 2026-10-14 a panel of more than 1,000
+      regions was matched on gene symbols alone, and its ranking lacked every variant a
+      smaller panel reaches by position only: CLIN-34.) A compound-het pair whose partner
+      the panel leaves out is no pair within the panel, so the variant loses that mode, and
+      with it, unless another mode is as strong, segregation weight and score (CLIN-35).
     """
     request_genes = {gene.lower() for gene in (panel_constraints.genes or []) if gene}
     if not request_genes:

@@ -2,10 +2,10 @@
 
 The family page keeps a variant in one of a panel's regions (the regions PanelApp gave for
 the assembly, and each gene's locus in the gene reference) or annotated with one of its
-genes; a panel of genes with more than 1,000 regions, such as the Mendeliome, is matched on
-gene symbols alone. The Variant Explorer read the panel's gene symbols only: a panel of
-regions only filtered nothing, and a variant reached through a region alone was left out
-(CLIN-48).
+genes, whatever the panel's size: a panel of genes with more than 1,000 regions, such as the
+Mendeliome, was matched on gene symbols alone until the owner's decision of 2026-10-14. The
+Variant Explorer read the panel's gene symbols only: a panel of regions only filtered
+nothing, and a variant reached through a region alone was left out (CLIN-48).
 
 A family is created through the PED upload under a new id each run, and a VEP-annotated VCF
 goes in through the family small-variant upload. Gene-reference rows are seeded for the run
@@ -84,8 +84,12 @@ _EXPECTED: dict[str, set[str]] = {
     "regions only": {_DELETION_INTO_REGION, _INTERGENIC_IN_REGION},
     "genes and regions": {_IN_GENE, _DELETION_INTO_REGION, _INTERGENIC_IN_REGION},
     "a gene reached by its locus": {_IN_LOCUS},
-    "more than 1,000 regions": {_IN_GENE},
+    # SYN48A by its gene; SYN48LOC's variant by its locus, as for the smaller panel above (it
+    # was matched on gene symbols alone, and left _IN_LOCUS out).
+    "more than 1,000 regions": {_IN_GENE, _IN_LOCUS},
 }
+# Filler genes of the panel of more than 1,000 regions, one locus each on chromosome 21.
+_FILLERS = 1_000
 
 _VCF_HEADER = (
     "##fileformat=VCFv4.2\n"
@@ -125,11 +129,10 @@ def _panelapp_payload(panelapp_id: int, *, genes: list[str]) -> dict[str, Any]:
 async def _seed_genes(assembly_id: str | None) -> int:
     """Seed (or, with None, remove) the gene-reference rows of the run, and return how many
     are left: SYN48LOC over the _IN_LOCUS variant, spelled "chr9" as some references spell
-    it, and as many filler genes on chromosome 21 as the panel filter reads regions."""
+    it, and 1,000 filler genes on chromosome 21."""
     from sqlalchemy import text
 
     from backend.app.core.postgres import get_postgres_sessionmaker
-    from backend.app.services.clickhouse_variant_queries import _PANEL_REGION_INLINE_LIMIT
 
     async with get_postgres_sessionmaker()() as session:
         await session.execute(text("DELETE FROM genes WHERE source = :source"), {"source": _SEEDED_GENE_SOURCE})
@@ -138,7 +141,7 @@ async def _seed_genes(assembly_id: str | None) -> int:
                 ("SYN48LOC", "chr9", 137_100_150, 137_100_250),
                 *(
                     (f"CL48FILL{index:04d}", "21", 30_000_000 + 1_000 * index, 30_000_000 + 1_000 * index + 500)
-                    for index in range(_PANEL_REGION_INLINE_LIMIT)
+                    for index in range(_FILLERS)
                 ),
             ]
             await session.execute(
@@ -191,7 +194,6 @@ async def _exercise(family_id: str, panelapp_ids: dict[str, int]) -> dict[str, A
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
     from backend.app.main import app
-    from backend.app.services.clickhouse_variant_queries import _PANEL_REGION_INLINE_LIMIT
     from backend.app.services.clickhouse_variant_storage import ensure_clickhouse_variant_tables
     from backend.tests.e2e import _harness
 
@@ -251,7 +253,7 @@ async def _exercise(family_id: str, panelapp_ids: dict[str, int]) -> dict[str, A
                         ],
                     }
             # Panels of genes, through the panel API.
-            fillers = [f"CL48FILL{index:04d}" for index in range(_PANEL_REGION_INLINE_LIMIT)]
+            fillers = [f"CL48FILL{index:04d}" for index in range(_FILLERS)]
             for name, genes in (
                 ("a gene reached by its locus", ["SYN48LOC"]),
                 ("more than 1,000 regions", ["SYN48A", "SYN48LOC", *fillers]),

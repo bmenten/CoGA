@@ -184,7 +184,10 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Variant filtering and genotypes** — one genotype classification for every filter,
   inheritance check and count, including haploid and multi-allelic calls; frequency presets
   that also bound popmax; the ClinVar P/LP frequency override; unreadable filter values and
-  location filters refused, not dropped; gene-panel regions per assembly.
+  location filters refused, not dropped; gene-panel regions per assembly; a gene panel of any
+  size, the Mendeliome included, keeping the variants in its regions as well as those
+  annotated with its genes, so the default view also lists a variant inside a Mendeliome gene
+  whose annotation names another gene.
 - **Inheritance** — de novo and hemizygous calls on a son's X and Y, and the sex-aware
   PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
   relatives; the SV second-hit index; expanded carrier screening, which keeps the genes in
@@ -240,7 +243,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   software, annotation, reference, HPO and QC-limit versions it binds; what the analysis
   looked at, frozen with it (each reported variant's description and genotypes, the gene-panel
   versions the family's searches applied, the reference-data releases, the repeat-expansion
-  and Paraphase calls with their status); the report code the EPD report quotes, its check
+  and Paraphase calls with their status, and in a PGT family each embryo's call at the ROI as
+  the family page shows it); the report code the EPD report quotes, its check
   symbol and its lookup; the device label and the build identity; every review and
   classification change on the clinical audit trail.
 - **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),

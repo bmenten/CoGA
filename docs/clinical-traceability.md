@@ -231,6 +231,24 @@ in the EPD refers to the signed version by its report code (*The report code* be
   - `paraphase`: every Paraphase result of the family's samples, with its status as CoGA reads
     it at sign-out, its copy numbers, the region's status rule and copy-number norm, and the
     catalogue of regions (how many, and a digest of their rules);
+  - `pgt_analysis`, in a PGT family only (one with an embryo; REQ-PGT-005): the PGT analysis at
+    the family's region of interest, the object the family page reads its embryo calls from
+    (`services/pgt_analysis.py`, `GET /families/{family_id}/pgt-analysis`). It holds the ROI and
+    the span of haplotype blocks read (the ROI and 1 Mb on each side); the inheritance model as
+    recorded and as applied (without one, AR when a member is marked a carrier, else AD); each
+    member's role, sex, affected and carrier status, which the disease haplotype is inferred from;
+    the disease haplotype(s) found at the ROI (side, homolog and kind) or that none was; the
+    parents' phase corrections near the ROI; and for each embryo its recorded sex, its call
+    (affected / at risk, carrier, unaffected, uninformative; none when the family has no ROI),
+    whether an uninformative call is down to its own missing data at the ROI, both calls when an
+    X-linked recessive call depends on a sex that is not recorded, the homologs it carries at the
+    ROI with the extent of their blocks, the block boundaries inside the ROI or within 250 kb of
+    it (recombinations), and its phasing QC at the ROI as the ROI marker review counts it
+    (informative sites, Mendelian errors and their rate, and the sites read on each parent's
+    side). Its inputs: the haplotype file each member's blocks were built from and when it was
+    loaded, the number of blocks read and a SHA-256 digest of them as read (lineage tags
+    included), and the distances the calls and warnings use. A family without an embryo has no
+    such key, so its record is as it was;
 - the signer, the time, and any acknowledgement with its reason.
 
 Each section of what the analysis looked at is read inside a savepoint. One that cannot be
@@ -238,10 +256,15 @@ read is frozen as `{"unavailable": <a fixed sentence>}`, never as an empty secti
 named in `not_captured` (a part of `reference_data` on its own); the error's own text, which may
 quote what it read, is not frozen.
 
-Sign-out exists for the family report only. Its snapshot holds no PGT embryo call (REQ-PGT-005):
-the embryo calls are derived in the browser from the family's haplotype blocks
-(`frontend/src/lib/embryoSegregation.ts`) and shown on the family page, and the family report
-does not include them. It holds no NIPT result either: the monogenic NIPT report page
+Sign-out exists for the family report only. In a PGT family its snapshot holds the embryo calls
+(`pgt_analysis`, above; the owner's decision of 2026-10-14, REG-2). The backend makes them from
+the stored haplotype blocks (`services/pgt_embryo_calls.py`), the family page shows the calls the
+backend serves, and a sign-out freezes the same object: the record holds the calls the analyst
+saw, made by one implementation from stored data. The haplotype tracks still draw the risk line
+and each member's risk state in the browser (`frontend/src/lib/haplotypeRisk.ts`); the two
+implementations answer the cases of `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json`
+alike, which `test_pgt_embryo_calls.py` and `haplotypeRisk.test.ts` both run. The live family
+report does not show the embryo calls; its signed version does. It holds no NIPT result: the monogenic NIPT report page
 (`FamilyNiptReportPage.tsx`) has no sign-out, and the snapshot of a NIPT family holds no
 fetal-fraction estimate and no variant's category, fetal-inheritance probability, de novo
 priority or recessive fetal risk. Of the NIPT analysis it holds only the sample-integrity checks
@@ -412,12 +435,17 @@ time, **report code**, content hash, `verified` and the frozen build, and the se
 what the record is (the record's own, or for a record signed before CoGA froze it, the same
 sentence); each reported variant's description as reviewed, classification, accepted criteria,
 evidence snapshot, tags and note; the reported SVs with their description and ClinGen CNV
-scoring; the gene panels applied, the repeat expansions, the Paraphase results and the
+scoring; in a PGT family the embryo calls (*PGT embryo results*: the ROI, the inheritance model,
+the disease haplotype, and per embryo its call, the homologs it carries at the ROI as the track
+names them (P1, P2, M1, M2), its warnings, its QC at the ROI, and the haplotype file read); the
+gene panels applied, the repeat expansions, the Paraphase results and the
 reference-data releases; the drift, Sample QC, sequencing QC and import state, with the
 acknowledgements; the frozen modules, and the reference-data releases beside them in the footer
 with the report code; and `not_captured`. A section the snapshot lacks is shown as not in the
 record (*Not in the signed record: version N was signed before CoGA recorded …*), never as
-empty, and one frozen as unavailable as not captured, with its reason. What no snapshot holds is
+empty, and one frozen as unavailable as not captured, with its reason. A record without
+`pgt_analysis` says so only when its Sample QC read the family as a PGT family
+(`sample_qc.application`); the record of any other family shows no PGT section. What no snapshot holds is
 said on the page: the population frequencies and in silico predictions the live report shows,
 the segregation, the gene and phenotype context, the audit trail and the pipeline settings (and,
 for a record signed before CoGA froze it, the variant description). Print prints this view, the
@@ -479,8 +507,9 @@ Both views download the frozen record as JSON.
 
 ### Adding a section to the signed record
 
-The NIPT and PGT results are to follow the sections of what the analysis looked at. A new
-section is added in four places, or it is missing from the signed view without a trace:
+The NIPT results are to follow the sections of what the analysis looked at, as the PGT embryo
+calls did (`pgt_analysis`). A new section is added in four places, or it is missing from the
+signed view without a trace:
 
 1. **Its builder** in `backend/app/services/signed_record_sections.py`: an async function that
    reads what the analysis showed the analyst and returns a JSON-safe dict, deterministic (lists
@@ -490,7 +519,11 @@ section is added in four places, or it is missing from the signed view without a
    `build_record_sections` through `_guarded`. It is then frozen and hashed with the record,
    compared by `sign-out-check` (`REPORT_CONTENT_SECTIONS` holds every key of `RECORD_SECTIONS`),
    listed as `not_compared` against a record signed before it, and named in `not_captured` when
-   it could not be read.
+   it could not be read. A section of one application (`pgt_analysis`) names it in its
+   `RecordSection` (`application`) and is built only for a family of it: the check compares it
+   where the record or the family's current data holds it and names it as not compared only where
+   the family's data holds it and the record does not, so the record of any other family stays
+   as it was.
 2. **Its reading** in `frontend/src/pages/families/signedReportRecord.ts`: a field of
    `SignedReport` parsed with `parseRecordSection`, which gives the absent, unavailable and
    recorded states; and its label in `REPORT_SECTION_LABELS`, which the check's changed sections
@@ -567,10 +600,15 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   reference is written into the report by the person who drafts it. The report code makes that
   reference short and refuses a mistyped one, and `GET /report-codes/{code}` finds the version
   it names, but CoGA does not see where a code is quoted.
-- Sign-out exists for the family report only; the monogenic NIPT report page has none. The PGT
-  embryo calls and the NIPT results (the fetal fraction, each variant's category and
-  fetal-inheritance probabilities, the de novo candidates, the recessive fetal risk) are
-  therefore part of no signed record (see *Sign-out*). What each application's signed record is
-  to hold is pending the owner's decision (REG-2 in [open-issues.md](open-issues.md);
-  [TF-02 §6](regulatory/TF-02-device-description.md),
+- Sign-out exists for the family report only; the monogenic NIPT report page has none. The NIPT
+  results (the fetal fraction, each variant's category and fetal-inheritance probabilities, the
+  de novo candidates, the recessive fetal risk) are therefore part of no signed record (see
+  *Sign-out*); a PGT family's record holds its embryo calls (`pgt_analysis`). What each
+  application's signed record is to hold is pending the owner's decision (REG-2 in
+  [open-issues.md](open-issues.md); [TF-02 §6](regulatory/TF-02-device-description.md),
   [TF-06](regulatory/TF-06-risk-management-plan.md) H5, H6 and H9).
+- The embryo calls are frozen as the backend makes them at sign-out; the genome overview's and
+  the chromosome view's haplotype tracks show each member's risk state from the browser's
+  implementation of the same rules, which the parity cases pin but do not prove equal on every
+  input. No threshold gates an embryo call on its QC (the informative sites and Mendelian error
+  rate at the ROI): the record freezes the numbers the analyst judged.

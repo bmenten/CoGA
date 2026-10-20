@@ -8,13 +8,22 @@ import {
   describeBreachedMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
+  describeDiseaseHaplotypes,
+  describeEmbryoCall,
+  describeEmbryoQc,
   describeFrozenEvidenceValues,
   describeGenePanel,
   describeGeneReferenceReleases,
   describeGenotype,
+  describeInherited,
   describeModuleVersions,
+  describeNoCall,
+  describePgtInheritance,
+  describePgtInputs,
+  describePgtMembers,
   describeRepeatCall,
   describeRepeatThresholds,
+  describeReportSections,
   describeSignedDrift,
   describeSignedStructuralDrift,
   describeSmallVariantDescription,
@@ -22,12 +31,15 @@ import {
   describeSmallVariantLocus,
   describeStructuralEvidenceChange,
   describeStructuralVariantDescription,
+  homologLabel,
   paraphaseStatusWords,
   parseSignedReport,
   parseSignedVersionParam,
   reportViewSearch,
+  type SignedPgtAnalysis,
+  type SignedReport,
 } from '../signedReportRecord';
-import { SIGNED_ANALYSIS } from '../../../test/signedAnalysisFixture';
+import { SIGNED_ANALYSIS, SIGNED_PGT_ANALYSIS } from '../../../test/signedAnalysisFixture';
 
 // The evidence a small-variant classification froze since CLIN-7: the annotation identity,
 // ClinVar, and the primary transcript's frequencies and in-silico scores
@@ -806,5 +818,93 @@ describe('what the analysis looked at', () => {
     expect(paraphaseStatusWords('no_call')).toBe('No-call');
     expect(paraphaseStatusWords('none')).toBe('No change');
     expect(paraphaseStatusWords(null)).toBe('Not assessed');
+  });
+});
+
+// A PGT family's embryo calls at the ROI, frozen since 2026-10-20 (pgt_analysis.py): the calls
+// the family page showed, each with what it rests on.
+describe('the PGT embryo results', () => {
+  const pgtRecord = (pgtAnalysis: unknown) =>
+    parseSignedReport({ ...SNAPSHOT, ...SIGNED_ANALYSIS, pgt_analysis: pgtAnalysis })!;
+  const recorded = (record: SignedReport): SignedPgtAnalysis => {
+    if (record.pgtAnalysis.state !== 'recorded') throw new Error('not recorded');
+    return record.pgtAnalysis.value;
+  };
+
+  it('reads each embryo call with what it rests on', () => {
+    const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
+
+    expect(analysis.roi).toEqual({ query: 'GENE1', label: 'GENE1', chrom: '7', start: 30500000, end: 30600000 });
+    expect(analysis.inheritance).toEqual({ recorded: null, applied: 'AD' });
+    expect(analysis.phaseCorrections).toEqual([SIGNED_PGT_ANALYSIS.phase_corrections[0]]);
+    // An entry that is not an embryo's call reads as an embryo not assessed, never as a call.
+    expect(analysis.embryos.map((embryo) => [embryo.sample, embryo.call])).toEqual([
+      ['E1', 'affected_or_at_risk'],
+      ['E2', 'uninformative'],
+      ['E3', 'unaffected_non_carrier'],
+      ['an embryo', null],
+    ]);
+    const [e1, e2] = analysis.embryos;
+    expect(e1.qc).toEqual({ informativeSites: 40, mendelErrors: 1, mendelRate: 0.025, paternalMarkers: 22, maternalMarkers: 18 });
+    expect(e2).toMatchObject({ roiNotCovered: true, recombinations: [30550000], qc: null });
+    expect(analysis.sources.map((source) => source.sample)).toEqual(['E1', 'FATHER']);
+    expect(analysis).toMatchObject({ blocksRead: 6, blocksDigest: 'abcdef0123456789', markersTruncated: false, recombinationFlank: 250000 });
+  });
+
+  it('words the calls as the family page and the haplotype track do', () => {
+    const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
+    const [e1, e2, e3, unread] = analysis.embryos;
+
+    expect(describeDiseaseHaplotypes(analysis)).toBe('P2 (dominant)');
+    expect(describePgtInheritance(analysis)).toBe('not recorded; CoGA assumed AD');
+    expect(describeEmbryoCall(e1)).toBe('Affected / at risk');
+    expect(describeEmbryoCall(unread)).toBe('Not assessed');
+    expect(describeInherited(e1.inherited)).toBe('M1 and P2 (29,000,000–32,000,000)');
+    expect(describeInherited(e3.inherited)).toBe('M2 and P1 (29,000,000–32,000,000)');
+    expect(describeInherited([])).toBeNull();
+    expect(describeEmbryoQc(e1.qc!)).toBe(
+      '40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal',
+    );
+    expect(describeNoCall(e1, analysis)).toBeNull();
+    expect(describeNoCall(e2, analysis)).toBe(
+      'This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made.',
+    );
+    expect(describePgtMembers(analysis.members)).toBe(
+      'E1 (embryo), E2 (embryo), E3 (embryo), FATHER (father, affected), INDEX (proband, affected), MOTHER (mother, not a carrier)',
+    );
+    expect(describePgtInputs(analysis)).toBe(
+      'the haplotype blocks of family.vcf.gz, loaded 2026-10-01 09:00 UTC (E1 and FATHER); 6 blocks read, digest abcdef012345',
+    );
+    expect(describeReportSections(['pgt_analysis'])).toBe('PGT embryo results');
+  });
+
+  it('says why an embryo is not called: no disease haplotype, or its unrecorded sex', () => {
+    const unresolved = recorded(
+      pgtRecord({ ...SIGNED_PGT_ANALYSIS, disease_haplotype_resolved: false, disease_haplotypes: [] }),
+    );
+    const [, , e3] = unresolved.embryos;
+    expect(describeDiseaseHaplotypes(unresolved)).toBeNull();
+    expect(describeNoCall({ ...e3, call: 'uninformative' }, unresolved)).toBe(
+      'No disease haplotype could be resolved at the ROI (uninformative markers).',
+    );
+    const sexDependent = { ...e3, call: 'uninformative' as const, sexDependent: { ifMale: 'unaffected_non_carrier' as const, ifFemale: 'carrier' as const } };
+    expect(describeNoCall(sexDependent, unresolved)).toBe(
+      "This embryo's sex is not recorded, and the call depends on it: unaffected if male, carrier if female. Record the sex to resolve it.",
+    );
+    expect(homologLabel({ origin: 'maternal', homolog: '?' })).toBe('M?');
+    expect(homologLabel({ origin: null, homolog: '0' })).toBe('?1');
+    expect(describePgtInheritance({ ...unresolved, inheritance: { recorded: 'XLR', applied: 'XLR' } })).toBe('XLR');
+    expect(describePgtInputs({ ...unresolved, sources: [], blocksRead: null })).toBe('no recorded haplotype file');
+    expect(describePgtMembers([])).toBeNull();
+  });
+
+  it('reads a record without the section as absent, and one that could not capture it as unavailable', () => {
+    expect(parseSignedReport(SNAPSHOT)!.pgtAnalysis).toEqual({ state: 'absent' });
+    expect(pgtRecord({ unavailable: "The PGT analysis's embryo results could not be read." }).pgtAnalysis).toEqual({
+      state: 'unavailable',
+      reason: "The PGT analysis's embryo results could not be read.",
+    });
+    // The Sample QC says which application read the family: a PGT family's older record is told apart.
+    expect(parseSignedReport({ ...SNAPSHOT, sample_qc: { overall_status: 'pass', application: 'pgt' } })!.sampleQc?.application).toBe('pgt');
   });
 });

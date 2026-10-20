@@ -179,7 +179,12 @@ management is governed by **TF-18**.
   security items are listed in [TF-13 §3](TF-13-cybersecurity.md).
 - **Docker Compose** is for local development and verification, on synthetic data only. The
   databases and the API are bound to the host's loopback; only the web UI is published.
-- Authentication via JWT (HS256), optional Azure AD; project-scoped RBAC; admin-gated mutations.
+- Authentication: users sign in with their institutional Microsoft account (Microsoft Entra ID /
+  Azure AD, through MSAL with the authorization code flow and PKCE); the backend checks the RS256
+  access token Entra ID issues for CoGA's API. One local emergency administrator signs in with a
+  password only while `AZURE_ADMIN_OVERRIDE` is on. Without Azure AD (development) accounts sign in
+  with a password and an HS256 token (SEC-4, [TF-13 §2](TF-13-cybersecurity.md)). Project-scoped
+  RBAC; admin-gated mutations.
 - The **device** is not transferred to any other legal entity (Art. 5(5)(a)). Hosting of
   patient data by Google Cloud, the DPIA and the data-processing agreement:
   [TF-14 §1](TF-14-dpia.md).
