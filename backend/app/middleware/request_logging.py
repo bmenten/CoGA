@@ -298,6 +298,15 @@ async def log_request_response(request: Request, call_next) -> Response:
             # Answered as an unknown record; the audit keeps that it exists outside the user's
             # projects (main._answer_record_not_visible, REQ-SEC-001).
             request_meta["record_hidden"] = record_hidden
+        account_change = getattr(request.state, "account_change", None)
+        if account_change:
+            # An account this request made (a first Microsoft sign-in) or changed (an
+            # administrator's role or activation change): which, and each field from and to.
+            request_meta["account_change"] = account_change
+        if getattr(request.state, "emergency_sign_in", False):
+            # The emergency administrator's password sign-in beside Microsoft sign-in, or a
+            # request made with it (SEC-4).
+            request_meta["emergency_sign_in"] = True
         audit_event: AuditLogEventPayload | None = None
         try:
             audit_event = AuditLogEventPayload(

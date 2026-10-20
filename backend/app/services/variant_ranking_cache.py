@@ -64,7 +64,11 @@ from .hpo_service import get_loaded_hpo_release
 #    variants outside its loci. A ranking cached before lacks the variants it dropped (chrM
 #    named MT or M, an interval in lower case, an MNV, an indel running past a location's
 #    end, a SpliceAI score of 0, a value at its threshold, a gene's upstream variant).
-_ALGORITHM_VERSION = "5"
+# 6: a gene panel of more than 1,000 regions, the Mendeliome among them, keeps a variant in
+#    one of its regions as well as one annotated with one of its genes (owner decision
+#    2026-10-14, reversing CLIN-34's limit). A ranking cached before on such a panel lacks
+#    the variants it reaches by position only; its digest of the panel is unchanged.
+_ALGORITHM_VERSION = "6"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 

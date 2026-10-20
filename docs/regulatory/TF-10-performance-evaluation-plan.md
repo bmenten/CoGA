@@ -184,7 +184,10 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Variant filtering and genotypes** — one genotype classification for every filter,
   inheritance check and count, including haploid and multi-allelic calls; frequency presets
   that also bound popmax; the ClinVar P/LP frequency override; unreadable filter values and
-  location filters refused, not dropped; gene-panel regions per assembly.
+  location filters refused, not dropped; gene-panel regions per assembly; a gene panel of any
+  size, the Mendeliome included, keeping the variants in its regions as well as those
+  annotated with its genes, so the default view also lists a variant inside a Mendeliome gene
+  whose annotation names another gene.
 - **Inheritance** — de novo and hemizygous calls on a son's X and Y, and the sex-aware
   PM6/PS2 rule; compound-heterozygote pairing with read-backed phasing and informative
   relatives; the SV second-hit index; expanded carrier screening, which keeps the genes in
@@ -229,15 +232,23 @@ pull request updates this list only when it adds clinical behaviour that no area
   read as reference; the PGT pipeline layout, with the
   embryo roles and the index its PED lacks; the monogenic NIPT pair, one VCF per sample with
   the father's noise left out, and the per-target coverage tables; bucket sources;
-  snapshot/restore);
+  snapshot/restore); coverage BEDs that declare whether they hold read depth or a log2 ratio,
+  read as depth only when declared so, an undeclared one drawn without an axis;
   serialised per-family variant writes; per-sample and per-source rewrites and deletes that
   keep every other call; calls from two callsets or sources both kept; concurrent review
   saves refused when stale.
 - **Sign-out and the signed record** — the frozen snapshot and its drift gates (small
   variants, SVs and CNVs), sample-integrity, sample-QC, incomplete-import and assembly-scope
   gates; the signed view rendered from its record in the release-candidate format; the
-  software, annotation, reference, HPO and QC-limit versions it binds; the device label and
-  the build identity; every review and classification change on the clinical audit trail.
+  software, annotation, reference, HPO and QC-limit versions it binds; what the analysis
+  looked at, frozen with it (each reported variant's description and genotypes, the gene-panel
+  versions the family's searches applied, the reference-data releases, the repeat-expansion
+  and Paraphase calls with their status, in a PGT family each embryo's call at the ROI as
+  the family page shows it, and a monogenic NIPT family's NIPT results as the NIPT page
+  computes them, signed out from the NIPT page too, a failed NIPT quality check gating the
+  sign-out with the Sample QC); the report code the EPD report quotes, its check
+  symbol and its lookup; the device label and the build identity; every review,
+  classification and phenotype change on the clinical audit trail.
 - **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),
   dbNSFP 5.4, HPO releases, and T2T-CHM13v2.0 as an optional assembly outside the validated
   scope.

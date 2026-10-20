@@ -30,7 +30,11 @@ from .clickhouse_family_variants import (
     _small_variant_present_sample_names,
     _structural_present_sample_names,
 )
-from .clickhouse_interval_tracks import interval_track_normalizations_by_sample
+from .clickhouse_interval_tracks import (
+    interval_track_contents_by_sample,
+    interval_track_normalizations_by_sample,
+)
+from .coverage_read_depth import coverage_contents
 from .clickhouse_variant_queries import _structural_record_matches
 from .data_scope import normalize_chromosome
 from .family_metadata_context import build_family_metadata_context
@@ -449,8 +453,9 @@ async def get_family_track_availability_for_user(
     # What each caller's coverage values are, as its import recorded them. A HiFiCNV depth
     # track is a log2 ratio unless its sample had no usable autosomal median, when its
     # depths are stored as read and must not be drawn on the views' log2-ratio axis
-    # (TRACE-7). A Postgres read, so not in the gather, which already runs one on this
-    # session.
+    # (TRACE-7); a coverage BED holds what it declared when it was loaded (TRACE-9). Postgres
+    # reads, so not in the gather, which already runs one on this session.
+    has_coverage = any(coverage_sources.values())
     coverage_normalizations = (
         await interval_track_normalizations_by_sample(
             session,
@@ -458,7 +463,17 @@ async def get_family_track_availability_for_user(
             sample_uuid_to_name=context.sample_uuid_to_name,
             track_type="coverage",
         )
-        if any(coverage_sources.values())
+        if has_coverage
+        else {}
+    )
+    coverage_declarations = (
+        await interval_track_contents_by_sample(
+            session,
+            family_uuid=context.family_uuid,
+            sample_uuid_to_name=context.sample_uuid_to_name,
+            track_type="coverage",
+        )
+        if has_coverage
         else {}
     )
 
@@ -541,6 +556,12 @@ async def get_family_track_availability_for_user(
             for source, transforms in coverage_normalizations.get(sample_name, {}).items()
             if source in sample_availability.coverage_sources
         }
+        # What each offered track holds, by the rule the depth readers read it by.
+        sample_availability.coverage_contents = coverage_contents(
+            sample_availability.coverage_sources,
+            coverage_normalizations.get(sample_name, {}),
+            coverage_declarations.get(sample_name, {}),
+        )
         sample_availability.segments_sources = segment_sources.get(sample_name, [])
         sample_availability.coverage = bool(sample_availability.coverage_sources)
         sample_availability.segments = bool(sample_availability.segments_sources)

@@ -40,6 +40,12 @@ const uploadWithOverwrite = async <R extends { data: unknown }>(
   }
 };
 
+/** What a coverage BED may declare it holds, as the form names it (TRACE-9). */
+const BED_CONTENT_LABEL: Record<string, string> = {
+  read_depth: 'read depth',
+  log2_ratio: 'log2 ratio',
+};
+
 const SampleUpload: FC = () => {
   const [familyFile, setFamilyFile] = useState<File | null>(null);
   const [familyId, setFamilyId] = useState('');
@@ -56,6 +62,8 @@ const SampleUpload: FC = () => {
   const [bedFile, setBedFile] = useState<File | null>(null);
   const [bedSample, setBedSample] = useState('');
   const [bedType, setBedType] = useState('coverage');
+  // What a coverage BED holds (TRACE-9): chosen for each upload, never a default.
+  const [bedContent, setBedContent] = useState('');
   const [bedStatus, setBedStatus] = useState('');
   const [bedLoading, setBedLoading] = useState(false);
 
@@ -140,6 +148,14 @@ const SampleUpload: FC = () => {
   const handleBedSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!bedFile || !bedSample.trim()) return;
+    // A coverage BED declares what it holds: an undeclared one would be read as neither depth
+    // nor a log2 ratio, so the form asks rather than pick one (TRACE-9).
+    const coverage = bedType === 'coverage';
+    if (coverage && !bedContent) {
+      setBedStatus('Choose what the coverage BED holds: read depth or log2 ratio.');
+      return;
+    }
+    const declared = coverage ? ` declared as ${BED_CONTENT_LABEL[bedContent] ?? bedContent}` : '';
     const formData = new FormData();
     formData.append('file', bedFile);
     setBedStatus('');
@@ -148,19 +164,14 @@ const SampleUpload: FC = () => {
       setBedStatus(
         await uploadWithOverwrite(
           (overwrite: boolean) =>
-            api.post(
-              overwrite
-                ? apiPath`/bed/upload/${bedSample.trim()}/${bedType}?overwrite=true`
-                : apiPath`/bed/upload/${bedSample.trim()}/${bedType}`,
-              formData,
-              {
-                headers: { 'Content-Type': 'multipart/form-data' },
-              }
-            ),
+            api.post(apiPath`/bed/upload/${bedSample.trim()}/${bedType}`, formData, {
+              params: { overwrite, ...(coverage ? { content: bedContent } : {}) },
+              headers: { 'Content-Type': 'multipart/form-data' },
+            }),
           {
             confirm: 'BED data already exist for this sample and track type. Overwrite them?',
-            done: (data) => `Uploaded ${data.inserted} ${bedType} record(s).`,
-            replaced: (data) => `Replaced ${data.inserted} ${bedType} record(s).`,
+            done: (data) => `Uploaded ${data.inserted} ${bedType} record(s)${declared}.`,
+            replaced: (data) => `Replaced ${data.inserted} ${bedType} record(s)${declared}.`,
             failed: 'BED upload failed.',
             cancelled: 'BED upload cancelled.',
           }
@@ -314,7 +325,8 @@ const SampleUpload: FC = () => {
           <div className="space-y-2">
             <h2 className="section-title">BED Tracks</h2>
             <p className="section-copy">
-              Upload coverage, APCAD, PCF APCAD segments, or segments per sample.
+              Upload coverage, APCAD, PCF APCAD segments, or segments per sample. A coverage
+              BED says whether it holds read depth or a log2 ratio.
             </p>
           </div>
           <form onSubmit={handleBedSubmit} className="field-grid">
@@ -336,6 +348,18 @@ const SampleUpload: FC = () => {
                 <option value="segments">Segments</option>
               </select>
             </label>
+            {bedType === 'coverage' && (
+              <label className="field-label">
+                Coverage BED holds
+                <select value={bedContent} required onChange={(e) => setBedContent(e.target.value)}>
+                  <option value="" disabled>
+                    Choose…
+                  </option>
+                  <option value="read_depth">Read depth</option>
+                  <option value="log2_ratio">Log2 ratio</option>
+                </select>
+              </label>
+            )}
             <label className="field-label">
               BED file
               <input

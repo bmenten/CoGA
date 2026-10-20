@@ -854,8 +854,8 @@ async def test_a_variant_list_that_fits_the_classification_limit_is_complete(
 
 
 def _plasma_coverage_is_a_bed(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The plasma's coverage track is a coverage BED (source ``web``), whose record names no
-    transform: the track the coverage check reads as depth (coverage_read_depth, CLIN-46)."""
+    """The plasma's coverage track is a coverage BED (source ``web``) declared as read depth:
+    the track the coverage check reads as depth (coverage_read_depth, CLIN-46, TRACE-9)."""
 
     async def fake_sources(_assembly_name, *, sample_uuid_to_name, **_kwargs):
         return {name: ["web"] for name in sample_uuid_to_name.values()}
@@ -863,8 +863,12 @@ def _plasma_coverage_is_a_bed(monkeypatch: pytest.MonkeyPatch) -> None:
     async def fake_normalizations(_session, **_kwargs):
         return {}
 
+    async def fake_contents(_session, *, sample_uuid_to_name, **_kwargs):
+        return {name: {"web": ["read_depth"]} for name in sample_uuid_to_name.values()}
+
     monkeypatch.setattr(clickhouse_interval_tracks, "get_interval_track_sources_by_sample", fake_sources)
     monkeypatch.setattr(clickhouse_interval_tracks, "interval_track_normalizations_by_sample", fake_normalizations)
+    monkeypatch.setattr(clickhouse_interval_tracks, "interval_track_contents_by_sample", fake_contents)
 
 
 @pytest.mark.asyncio

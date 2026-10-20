@@ -1,12 +1,21 @@
 """Case sign-out — frozen, versioned, hashed report snapshot (clinical traceability,
 Phase 3; see docs/clinical-traceability.md).
 
+A sign-out is the analyst's analytical sign-off: it closes and freezes the analysis. The
+medical sign-off of the patient report happens in the hospital's EPD, which refers to the
+frozen record by its report code (``report_code``; owner decision of 2026-10-14).
+
 Signing out a case freezes the reported result to exactly what produced it: the
 annotation/reference versions (the manifest), the reported variant list, each
 classification with its frozen evidence snapshot, and the evidence-drift state at the
-moment of sign-out. The snapshot is content-hashed (SHA-256) and written append-only
-into ``report_signouts`` as a new version; the sign-out is recorded in the immutable
-clinical audit trail.
+moment of sign-out; and what the analysis looked at (``signed_record_sections``): each
+reported variant's description, the gene-panel versions its searches applied, the
+reference-data releases, the family's repeat-expansion and Paraphase results, in a PGT
+family each embryo's call at the region of interest, and in a monogenic NIPT family its NIPT
+results (``signed_record_nipt``): a NIPT analysis is signed out through this same sign-out,
+from the NIPT page or the report page. The snapshot is content-hashed (SHA-256) and written
+append-only into ``report_signouts`` as a new version; the sign-out is recorded in the
+immutable clinical audit trail.
 
 Sign-out is gated on evidence drift: if any classification's backing annotation has
 changed since it was made — a small variant's ACMG classification, or a structural
@@ -26,7 +35,7 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
 from fastapi import HTTPException
@@ -45,9 +54,23 @@ from .assembly_scope import is_validated_assembly, off_scope_message, validated_
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
+from .family_package_registration import unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
-from .access_control import CurrentUser
+from .access_control import CurrentUser, RecordNotVisible
+from .report_code import (
+    ReportCodeError,
+    content_hash_prefix,
+    parse_report_code,
+    report_code,
+)
+from .signed_record_nipt import nipt_signout_concerns
+from .signed_record_sections import (
+    NIPT_RESULTS,
+    RECORD_SECTIONS,
+    build_record_sections,
+    record_section_gaps,
+)
 from .sample_integrity_qc import (
     MIN_MATERNAL_TRANSMISSION_SITES,
     MIN_MENDEL_SITES,
@@ -80,6 +103,26 @@ _IMPORT_FLAG_DATASET_LISTS = ("failed_datasets", "imported_datasets")
 
 # The snapshot section holding the SV/CNV evidence drift.
 STRUCTURAL_DRIFT_SECTION = "structural_drift"
+
+# What a signed record is, frozen into it and said on the report page (owner decision of
+# 2026-10-14). The report code is not in the record: it is made from the record's content
+# hash.
+ANALYTICAL_SIGN_OFF_STATEMENT = (
+    "This record is the analytical sign-off in CoGA, which closes and freezes the analysis; "
+    "the medical sign-off of the patient report happens in the EPD, which refers to this "
+    "record by its report code."
+)
+
+# A sign-out whose report code another record already has is signed again this much later:
+# the new time changes its content hash, and so its code (report_code.py).
+_REPORT_CODE_RESTAMP = timedelta(microseconds=1)
+_REPORT_CODE_ATTEMPTS = 8
+# One lock for every family's sign-out while it makes its report code unique.
+_REPORT_CODE_LOCK = "report-code"
+
+# The 404 a report code gets when no record has it, and when its record is outside the
+# caller's projects: the two must read the same.
+_UNKNOWN_REPORT_CODE = "No signed record has this report code."
 
 
 def _canonical_hash(snapshot: dict[str, Any]) -> str:
@@ -181,9 +224,9 @@ def _named(subject: str | None, message: str) -> str:
     return f"{subject}: {message}"
 
 
-def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
+def _qc_failure_summary(qc: dict[str, Any], nipt_failed: list[str] | None = None) -> dict[str, Any]:
     """Compact summary of the concerning QC checks, for the 409 acknowledge prompt, each
-    naming its sample, pair or child."""
+    naming its sample, pair or child; then the NIPT quality checks that failed."""
     messages: list[str] = []
     for key, subject in (
         ("sex_checks", _sample_named),
@@ -201,11 +244,23 @@ def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
         check = qc.get(key)
         if check and check.get("status") in ("warn", "fail") and check.get("message"):
             messages.append(_named(subject(check), check["message"]))
+    messages.extend(nipt_failed or [])
     return {
         "overall_status": qc.get("overall_status"),
         "application_label": qc.get("application_label"),
         "messages": messages,
     }
+
+
+def _nipt_failed_checks(snapshot: Mapping[str, Any]) -> list[str]:
+    """The NIPT quality checks of a NIPT family's record that failed (no fetal-fraction
+    estimate, fetal-sex signals that disagree, male DNA given as the maternal plasma), each as
+    the gate lists it. A NIPT family is signed out with its NIPT results, and a check that
+    failed gates the sign-out like a failed Sample QC check; [] for any other family."""
+    return [
+        _named(subject, message)
+        for subject, message in nipt_signout_concerns(snapshot.get(NIPT_RESULTS.key))
+    ]
 
 
 def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
@@ -319,18 +374,29 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
     return reasons
 
 
-def _qc_gate_message(qc_status: str, hard_fail: bool, unverifiable: list[str]) -> str:
+def _qc_gate_message(
+    qc_status: str,
+    hard_fail: bool,
+    unverifiable: list[str],
+    nipt_failed: list[str] | None = None,
+) -> str:
+    nipt_part = (
+        f"A NIPT quality check failed ({'; '.join(nipt_failed)}). " if nipt_failed else ""
+    )
     if hard_fail:
         return (
             f"Sample-integrity QC status is '{qc_status}' (possible sample or pedigree "
-            "swap — TF-06 H4). Resolve it, or acknowledge with a reason to sign out anyway."
+            f"swap — TF-06 H4). {nipt_part}Resolve it, or acknowledge with a reason to sign "
+            "out anyway."
         )
-    return (
-        "A swap-relevant sample-integrity check could not be verified for an asserted "
-        f"pedigree relationship ({'; '.join(unverifiable)}). A sample swap can present as "
-        "missing data rather than a mismatch. Resolve it, or acknowledge with a reason to "
-        "sign out anyway."
-    )
+    if unverifiable:
+        return (
+            "A swap-relevant sample-integrity check could not be verified for an asserted "
+            f"pedigree relationship ({'; '.join(unverifiable)}). A sample swap can present as "
+            f"missing data rather than a mismatch. {nipt_part}Resolve it, or acknowledge with "
+            "a reason to sign out anyway."
+        )
+    return f"{nipt_part}Resolve it, or acknowledge with a reason to sign out anyway."
 
 
 async def _import_incomplete_state(
@@ -352,7 +418,10 @@ async def _import_incomplete_state(
     ``failed_jobs`` names, for each failed dataset, the import job whose record holds its
     error: a later failure keeps an earlier import's failed datasets in the flag
     (``family_package_registration.merged_import_failure``), so they can come from
-    different jobs. A flag without it names its own job for every dataset.
+    different jobs. A flag without it names its own job for every dataset. A dataset that
+    failed for more than one scope (another callset, other samples) is named with the job of
+    its latest failure; the flag keeps every scope with its own job (``failed_scopes``),
+    which is not frozen.
     """
     raw = (
         await session.execute(
@@ -408,6 +477,12 @@ async def _import_unfinished_state(
     it only by importing those again with overwrite. Frozen into the snapshot beside
     ``import_incomplete`` and gating sign-out with it, as one gate.
 
+    A single-file upload marks the family the same way before its first ClickHouse write,
+    and an admin's deletion of a sample's data whose rewrite could not put the family's
+    structural variants back leaves a mark (``family_package_registration.FamilyWriteMark``,
+    SAFE-28): an entry under a key that says which (``unfinished_entry_writer``), with no
+    job, listing what may be partly written or missing. It reads and gates as an import's.
+
     Fails safe like that flag: a value that is set but not in the shape an import writes
     still counts, with nothing to name. Dataset lists are frozen sorted, for a stable hash.
     """
@@ -442,11 +517,21 @@ async def _import_unfinished_state(
     return state
 
 
-def _unfinished_import_clause(entry: Mapping[str, Any]) -> str:
-    """One unfinished import, as the gate message names it."""
+def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
+    """One unfinished import, as the gate message names it. An entry a single-file upload,
+    or an admin's deletion of a sample's data, left (SAFE-28) is named for what wrote it,
+    which its key says (``family_package_registration.unfinished_entry_writer``): the
+    snapshot freezes the key with the entry."""
     when = f" ({entry['at']})" if entry.get("at") else ""
     finished = list(entry.get("finished_datasets") or [])
     pending = [name for name in entry.get("datasets") or [] if name not in finished]
+    writer = unfinished_entry_writer(key)
+    if writer != "import":
+        what = "a single-file upload" if writer == "upload" else "a deletion of a sample's data"
+        what += f"{when} did not finish"
+        if pending:
+            what += f", so {', '.join(pending)} may be partly written or missing"
+        return f"{what}."
     what = f"an import{when} stopped before it finished"
     if pending:
         what += f", so {', '.join(pending)} may be partly written or missing"
@@ -465,8 +550,8 @@ def _import_gate_message(
     unfinished: Mapping[str, Mapping[str, Any]] | None = None,
 ) -> str:
     stopped = sorted(
-        (unfinished or {}).values(),
-        key=lambda entry: (str(entry.get("at") or ""), str(entry.get("job_id") or "")),
+        (unfinished or {}).items(),
+        key=lambda item: (str(item[1].get("at") or ""), str(item[1].get("job_id") or "")),
     )
     findings: list[str] = []
     if state is not None:
@@ -499,13 +584,24 @@ def _import_gate_message(
         else:
             job = ""
         findings.append(f"{what}. The report may lack data from what failed.{job}")
-    findings.extend(_unfinished_import_clause(entry) for entry in stopped)
-    if stopped:
+    findings.extend(_unfinished_import_clause(entry, str(key)) for key, entry in stopped)
+    writers = {unfinished_entry_writer(str(key)) for key, _entry in stopped}
+    remedies: list[str] = []
+    if "import" in writers:
         # An update skips a dataset that already holds data, partly written data included.
-        complete = (
+        remedies.append(
             "Import again, with overwrite, what an import that stopped did not finish (an "
             "update keeps the data already there)"
         )
+    if writers - {"import"}:
+        # A single-file upload's or a deletion's mark goes item by item as each dataset is
+        # brought again with overwrite (SAFE-28).
+        remedies.append(
+            "Upload or import again, with overwrite, what a single-file upload or a "
+            "deletion did not finish"
+        )
+    if stopped:
+        complete = ". ".join(remedies)
         if state is not None:
             complete = f"Re-run the import to complete it. {complete}"
     else:
@@ -759,10 +855,12 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
 
     A lookup that failed while the snapshot was built is frozen as an explicit marker,
     never as an empty block that reads like "nothing there". This lists those markers so
-    the audit event and the report page can say what the signed record lacks. It also
-    lists a reference module CoGA added after the record was signed (not among the
-    modules it looked up, and not held): the record cannot say which version its report
-    was produced with.
+    the audit event and the report page can say what the signed record lacks, a section of
+    what the analysis looked at included (``signed_record_sections``). It also lists a
+    reference module CoGA added after the record was signed (not among the modules it
+    looked up, and not held): the record cannot say which version its report was produced
+    with. A whole section a record predates is not listed here: the sign-out check names it
+    as not compared, and the signed view says the record does not hold it.
     """
     if not isinstance(snapshot, Mapping):
         return []
@@ -797,6 +895,7 @@ def snapshot_gaps(snapshot: Mapping[str, Any] | None) -> list[dict[str, str]]:
                         "reason": "signed before CoGA recorded its version",
                     }
                 )
+    gaps.extend(record_section_gaps(snapshot))
     return gaps
 
 
@@ -861,7 +960,19 @@ async def build_report_snapshot(
         [*structural["drifted"], *structural_unsnapshotted],
         key=lambda item: item.get("variant_id") or "",
     )
+    # What the analysis looked at: each reported variant's description, the gene-panel
+    # versions its searches applied, the reference-data releases, the family's repeat
+    # expansions and Paraphase results, a PGT family's embryo calls and a monogenic NIPT
+    # family's NIPT results (signed_record_sections, one key each).
+    sections = await build_record_sections(
+        session,
+        context=context,
+        reported=reported,
+        reported_structural=reported_structural,
+    )
     return {
+        # What the record is: the analytical sign-off, to which the EPD's report refers.
+        "record_statement": ANALYTICAL_SIGN_OFF_STATEMENT,
         "family_id": context.family_id,
         "assembly": manifest.get("assembly"),
         "modules": manifest.get("modules", []),
@@ -911,6 +1022,7 @@ async def build_report_snapshot(
         "import_unfinished": import_unfinished,
         "reported_variants": reported,
         "reported_structural_variants": reported_structural,
+        **sections,
     }
 
 
@@ -925,12 +1037,57 @@ async def _next_version(session: AsyncSession, family_uuid: str) -> int:
     return int(result.scalar_one() or 0) + 1
 
 
+# The records a report code can belong to: its version, and a content hash starting with the
+# hex its hash symbols spell. Few rows; the code itself is compared in Python.
+_REPORT_CODE_CANDIDATES = text(
+    """
+    SELECT family_id::text AS family_uuid, family_identifier, version, content_hash,
+           signed_out_at, signed_out_by
+    FROM report_signouts
+    WHERE version = :version
+      AND lower(left(content_hash, 3)) = :prefix
+    """
+)
+
+
+async def _report_code_records(
+    session: AsyncSession, *, version: int, hash_symbols: str, code: str
+) -> list[dict[str, Any]]:
+    """The signed records whose report code is ``code``: one, or none."""
+    rows = (
+        await session.execute(
+            _REPORT_CODE_CANDIDATES,
+            {"version": version, "prefix": content_hash_prefix(hash_symbols)},
+        )
+    ).mappings().all()
+    return [
+        dict(row)
+        for row in rows
+        if report_code(row.get("family_identifier"), row.get("version"), row.get("content_hash"))
+        == code
+    ]
+
+
+async def _report_code_taken(session: AsyncSession, code: str) -> bool:
+    """Whether a signed record already has the report code ``code``."""
+    parsed = parse_report_code(code)
+    return bool(
+        await _report_code_records(
+            session, version=parsed.version, hash_symbols=parsed.hash_part, code=parsed.code
+        )
+    )
+
+
 def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
     return {
         "version": row["version"],
         "signed_out_by": row["signed_out_by"],
         "signed_out_at": row["signed_out_at"],
         "content_hash": row["content_hash"],
+        # Made from the record's immutable fields; no column holds it (report_code.py).
+        "report_code": report_code(
+            row.get("family_identifier"), row.get("version"), row.get("content_hash")
+        ),
         "software_version": row.get("software_version"),
         "git_sha": row.get("git_sha"),
         "qc_status": row.get("qc_status"),
@@ -1030,15 +1187,20 @@ async def sign_out_report(
     # (it never becomes "fail"); gate those unverifiable asserted-pedigree checks too so
     # they cannot sign out silently (#330).
     qc_unverifiable = _unverifiable_swap_checks(sample_qc)
-    qc_blocks = qc_hard_fail or bool(qc_unverifiable)
+    # A NIPT family's NIPT quality checks that failed (signed_record_nipt): its record holds
+    # the NIPT results, and male DNA as the maternal plasma or fetal-sex signals that
+    # disagree are sample-integrity concerns (TF-06 H4) the same acknowledgement covers.
+    nipt_failed = _nipt_failed_checks(snapshot_body)
+    qc_blocks = qc_hard_fail or bool(qc_unverifiable) or bool(nipt_failed)
     if qc_blocks and not acknowledge_qc:
         raise HTTPException(
             status_code=409,
             detail={
                 "gate": "sample_qc",
-                "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable),
-                "qc_summary": _qc_failure_summary(sample_qc),
+                "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable, nipt_failed),
+                "qc_summary": _qc_failure_summary(sample_qc, nipt_failed),
                 "unverifiable_checks": qc_unverifiable,
+                "nipt_failed_checks": nipt_failed,
             },
         )
     qc_reason = (qc_acknowledgement_reason or "").strip()
@@ -1100,23 +1262,43 @@ async def sign_out_report(
     version = await _next_version(session, context.family_uuid)
     actor = getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
 
-    snapshot = {
-        **snapshot_body,
-        "version": version,
-        "generated_at": now.isoformat(),
-        "signed_out_by": actor,
-        "acknowledged_drift": bool(drifted_count) and acknowledge_drift,
-        "drift_acknowledgement_reason": (
-            drift_reason if (drifted_count and acknowledge_drift) else None
-        ),
-        "acknowledged_qc": qc_blocks and acknowledge_qc,
-        "qc_acknowledgement_reason": qc_reason if (qc_blocks and acknowledge_qc) else None,
-        "acknowledged_import_incomplete": import_acknowledged,
-        "import_incomplete_acknowledgement_reason": (
-            import_reason if import_acknowledged else None
-        ),
-    }
-    content_hash = _canonical_hash(snapshot)
+    def _snapshot_at(moment: datetime) -> dict[str, Any]:
+        return {
+            **snapshot_body,
+            "version": version,
+            "generated_at": moment.isoformat(),
+            "signed_out_by": actor,
+            "acknowledged_drift": bool(drifted_count) and acknowledge_drift,
+            "drift_acknowledgement_reason": (
+                drift_reason if (drifted_count and acknowledge_drift) else None
+            ),
+            "acknowledged_qc": qc_blocks and acknowledge_qc,
+            "qc_acknowledgement_reason": qc_reason if (qc_blocks and acknowledge_qc) else None,
+            "acknowledged_import_incomplete": import_acknowledged,
+            "import_incomplete_acknowledgement_reason": (
+                import_reason if import_acknowledged else None
+            ),
+        }
+
+    # The report code is made from the family, the version and the content hash
+    # (report_code.py), and must name this record alone. Every sign-out takes this lock
+    # from here to its commit, so two cannot take one code; one whose code another record
+    # has is signed a microsecond later, which changes its content hash and so its code.
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtext(:k))"), {"k": _REPORT_CODE_LOCK}
+    )
+    for _attempt in range(_REPORT_CODE_ATTEMPTS):
+        snapshot = _snapshot_at(now)
+        content_hash = _canonical_hash(snapshot)
+        code = report_code(context.family_id, version, content_hash)
+        if code is not None and not await _report_code_taken(session, code):
+            break
+        now += _REPORT_CODE_RESTAMP
+    else:  # pragma: no cover - eight codes in a row taken: astronomically unlikely
+        raise HTTPException(
+            status_code=503,
+            detail="No unique report code could be made for this sign-out. Sign out again.",
+        )
     row_hash = chain_row_hash(
         prev_hash,
         _signout_chain_payload(
@@ -1165,7 +1347,8 @@ async def sign_out_report(
         actor_id=getattr(user, "id", None),
         action="sign_out",
         summary=(
-            f"Report signed out (v{version}) — {len(snapshot_body['reported_variants'])} "
+            f"Report signed out (v{version}, report code {code}) — "
+            f"{len(snapshot_body['reported_variants'])} "
             f"reported variant(s), "
             f"{len(snapshot_body['reported_structural_variants'])} reported structural "
             f"variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
@@ -1176,6 +1359,8 @@ async def sign_out_report(
         after={
             "version": version,
             "content_hash": content_hash,
+            # The code the EPD report quotes for this record (report_code.py).
+            "report_code": code,
             "software_version": snapshot_body["software"]["version"],
             "git_sha": snapshot_body["software"]["git_sha"],
             "reported_count": len(snapshot_body["reported_variants"]),
@@ -1188,6 +1373,8 @@ async def sign_out_report(
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
             "qc_unverifiable": qc_unverifiable,
+            # The NIPT quality checks that failed, which the QC acknowledgement covered.
+            "nipt_failed_checks": nipt_failed,
             # What the family's import left out when it was signed (None: nothing), the
             # imports that stopped part-way ({}: none), and the override of that gate.
             "import_incomplete": import_incomplete,
@@ -1207,6 +1394,7 @@ async def sign_out_report(
         "signed_out_by": actor,
         "signed_out_at": now,
         "content_hash": content_hash,
+        "report_code": code,
         # Surface the frozen identity at top level so the POST response matches the
         # GET list/detail contract (which extracts it from the JSONB snapshot).
         "software_version": snapshot_body["software"]["version"],
@@ -1243,7 +1431,7 @@ async def list_report_signouts(
         await session.execute(
             text(
                 """
-                SELECT version, signed_out_by, signed_out_at, content_hash,
+                SELECT version, signed_out_by, signed_out_at, content_hash, family_identifier,
                        snapshot->'software'->>'version' AS software_version,
                        snapshot->'software'->>'git_sha'  AS git_sha,
                        snapshot->'sample_qc'->>'overall_status' AS qc_status,
@@ -1290,6 +1478,7 @@ async def get_report_signout(
             text(
                 """
                 SELECT version, signed_out_by, signed_out_at, content_hash, snapshot,
+                       family_identifier,
                        snapshot->'software'->>'version' AS software_version,
                        snapshot->'software'->>'git_sha'  AS git_sha,
                        snapshot->'sample_qc'->>'overall_status' AS qc_status,
@@ -1338,6 +1527,58 @@ async def get_report_signout(
     return detail
 
 
+async def find_report_signout_by_code(
+    session: AsyncSession, *, code: str, user: CurrentUser
+) -> dict[str, Any]:
+    """The signed record a report code names, for a user who may open its family.
+
+    The EPD report refers to the signed record by its code; this finds it again. A string
+    that is not a report code (a symbol mistyped, two swapped, a letter a code never holds)
+    is refused with 422 and says so: that is read from the string alone. A well-formed code
+    that no record has, and one whose record's family is outside the caller's projects or
+    has been deleted, all get the same 404, so a code tells nobody whether a record exists
+    outside their projects (REQ-SEC-001); the audit row names the hidden one.
+    """
+    try:
+        parsed = parse_report_code(code)
+    except ReportCodeError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={"code": "report_code_invalid", "message": str(exc)},
+        ) from exc
+    records = await _report_code_records(
+        session, version=parsed.version, hash_symbols=parsed.hash_part, code=parsed.code
+    )
+    if not records:
+        raise HTTPException(status_code=404, detail=_UNKNOWN_REPORT_CODE)
+    record = records[0]
+    family_identifier = record.get("family_identifier")
+    if not record.get("family_uuid") or not family_identifier:
+        # The family was deleted: its signed history stays, but nobody opens it through it.
+        raise HTTPException(status_code=404, detail=_UNKNOWN_REPORT_CODE)
+    try:
+        context = await build_family_metadata_context(
+            session, family_identifier=family_identifier, user=user
+        )
+    except RecordNotVisible as exc:
+        raise RecordNotVisible(exc.kind, _UNKNOWN_REPORT_CODE) from exc
+    except HTTPException as exc:
+        if exc.status_code != 404:
+            raise
+        raise HTTPException(status_code=404, detail=_UNKNOWN_REPORT_CODE) from exc
+    if context.family_uuid != record["family_uuid"]:
+        # A family made since under the identifier of a deleted one does not own its record.
+        raise HTTPException(status_code=404, detail=_UNKNOWN_REPORT_CODE)
+    return {
+        "report_code": parsed.code,
+        "family_id": context.family_id,
+        "version": record["version"],
+        "signed_out_at": record["signed_out_at"],
+        "signed_out_by": record["signed_out_by"],
+        "content_hash": record["content_hash"],
+    }
+
+
 # The snapshot sections that make up the report's clinical content. The build identity
 # ("software") is left out on purpose: a newer build over identical content has not
 # changed what was signed. The per-sign-out fields (version, signer, timestamp,
@@ -1355,9 +1596,17 @@ REPORT_CONTENT_SECTIONS = (
     "sequencing_qc",
     "import_incomplete",
     "import_unfinished",
+    # What the analysis looked at (signed_record_sections): the variant descriptions, the
+    # gene panels applied, the reference-data releases, the repeat expansions, the
+    # Paraphase results and, in a PGT family, the embryo calls, in a monogenic NIPT family,
+    # the NIPT results.
+    *(section.key for section in RECORD_SECTIONS),
 )
 # A section a record does not hold (one CoGA adds after it was signed) cannot be compared
-# and is reported as such.
+# and is reported as such; a section of one application (the PGT embryo calls, the NIPT
+# results) that neither the record nor the family's current data holds is no section of
+# this family and is not named. The record's statement of what it is ("record_statement")
+# is not report content either: it is the same sentence for every record of one build.
 
 
 def _section_fingerprint(value: Any) -> str:
@@ -1412,7 +1661,9 @@ async def compare_report_with_latest_signout(
     version; on that version, whether the family's data changed since (#508). This
     rebuilds the snapshot body and compares it, section by section, with the frozen one. A
     section or reference module the signed record predates is listed in ``not_compared``
-    (a module as ``modules.<key>``) rather than reported as changed.
+    (a module as ``modules.<key>``) rather than reported as changed. A section of one
+    application that neither holds (``pgt_analysis`` of a family without an embryo, ``nipt``
+    of a family that is no monogenic NIPT family) is neither compared nor listed.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1451,7 +1702,12 @@ async def compare_report_with_latest_signout(
     not_compared: list[str] = []
     for section in REPORT_CONTENT_SECTIONS:
         if section not in signed:
-            not_compared.append(section)
+            # A section CoGA added after the record was signed is not compared. One that
+            # neither holds is another application's (the PGT embryo calls of a family
+            # without an embryo, the NIPT results of a family that is no NIPT family): there
+            # is nothing to compare, and nothing to name.
+            if section in current:
+                not_compared.append(section)
             continue
         signed_value = signed[section]
         current_value = current.get(section)

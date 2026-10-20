@@ -19,6 +19,7 @@ vi.mock('../../../lib/api', () => ({
               species_id: 'sp1',
               assembly_id: 'asm1',
               user_ids: ['u1'],
+              reader_user_ids: [],
               families: [
                 {
                   family_id: 'F2',
@@ -57,6 +58,15 @@ vi.mock('../../../lib/api', () => ({
               role: 'viewer',
               is_active: true,
               projects: ['p1'],
+            },
+            {
+              id: 'u2',
+              email: 'student@example.com',
+              first_name: 'Stu',
+              last_name: 'Dent',
+              role: 'viewer',
+              is_active: true,
+              projects: [],
             },
           ],
         });
@@ -132,6 +142,66 @@ describe('ProjectsPage', () => {
       failing = false;
       fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
       expect(await screen.findByText('Projects 1')).toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
+  // SEC-1: each member is an analyst (read and change) or a reader (read only); a member added
+  // starts as an analyst, and the save sends the readers among the members.
+  it('sets each member’s access level and saves the readers with the members', async () => {
+    vi.mocked(api.put).mockResolvedValue({ data: {} });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/projects']}>
+          <Routes>
+            <Route path="/projects" element={<ProjectsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    const level = await screen.findByRole('combobox', { name: 'Access level of viewer@example.com' });
+    expect(level).toHaveValue('analyst');
+    // No level for someone who is no member.
+    expect(screen.queryByRole('combobox', { name: 'Access level of student@example.com' })).not.toBeInTheDocument();
+
+    const userAccess = screen.getByRole('heading', { name: 'User access' }).closest('.surface-card-muted') as HTMLElement;
+    fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
+    const studentLevel = screen.getByRole('combobox', { name: 'Access level of student@example.com' });
+    expect(studentLevel).toHaveValue('analyst');
+    fireEvent.change(studentLevel, { target: { value: 'reader' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(api.put).mock.calls[0][1]).toMatchObject({
+      user_ids: ['u1', 'u2'],
+      reader_user_ids: ['u2'],
+    });
+  });
+
+  it('counts a project’s readers among its users', async () => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string, config?: unknown) =>
+      url === '/projects'
+        ? working(url, config).then((response: { data: Array<Record<string, unknown>> }) => ({
+            data: response.data.map((project) => ({ ...project, user_ids: ['u1', 'u2'], reader_user_ids: ['u2'] })),
+          }))
+        : working(url, config),
+    );
+    try {
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/projects']}>
+            <Routes>
+              <Route path="/projects" element={<ProjectsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      expect(await screen.findByText('2 (1 reader)')).toBeInTheDocument();
+      expect(await screen.findByRole('combobox', { name: 'Access level of student@example.com' })).toHaveValue('reader');
     } finally {
       get.mockImplementation(working);
     }

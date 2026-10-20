@@ -1,7 +1,8 @@
 """The explorer's panel-region join keeps what the family page's region condition keeps (CLIN-48).
 
-The family page keeps a variant in one of a panel's regions with ``arrayExists`` over every
-region, per row (``_small_region_filter_condition``). Across every family of the cohort the
+The family page's rule keeps a variant in one of a panel's regions; tested per row, it is
+``arrayExists`` over every region (``_small_region_filter_condition``; since ENG-15 the family
+page joins its own rows on the same windows instead). Across every family of the cohort the
 Variant Explorer reads the same regions as a join on 64-kb windows instead
 (``variant_explorer_service._region_key_condition``): a region is listed under each window it
 touches, a variant under each window its REF touches, and a pair that shares a window is kept

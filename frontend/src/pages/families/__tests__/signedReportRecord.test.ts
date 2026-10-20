@@ -4,15 +4,81 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  ANALYTICAL_SIGN_OFF_STATEMENT,
   describeBreachedMetric,
+  describeCatalogue,
+  describeCnvKnowledgebase,
+  describeDiseaseHaplotypes,
+  describeEmbryoCall,
+  describeEmbryoQc,
+  describeFrozenEvidenceValues,
+  describeGenePanel,
+  describeGeneReferenceReleases,
+  describeGenotype,
+  describeInherited,
   describeModuleVersions,
+  describeNiptCoverage,
+  describeNiptFetalFraction,
+  describeNiptFetalSex,
+  describeNiptFunnel,
+  describeNiptVariant,
+  describeNoCall,
+  describePgtInheritance,
+  describePgtInputs,
+  describePgtMembers,
+  describeRepeatCall,
+  describeRepeatThresholds,
+  describeReportSections,
   describeSignedDrift,
   describeSignedStructuralDrift,
+  describeSmallVariantDescription,
+  describeSmallVariantEvidenceChange,
+  describeSmallVariantLocus,
   describeStructuralEvidenceChange,
+  describeStructuralVariantDescription,
+  homologLabel,
+  isNiptRecord,
+  liveReportSignedNotice,
+  liveReportSignedState,
+  NIPT_NOT_CLASSIFIED_REASONS,
+  paraphaseStatusWords,
   parseSignedReport,
   parseSignedVersionParam,
   reportViewSearch,
+  type SignedPgtAnalysis,
+  type SignedReport,
 } from '../signedReportRecord';
+import { SIGNED_ANALYSIS, SIGNED_PGT_ANALYSIS } from '../../../test/signedAnalysisFixture';
+
+// The evidence a small-variant classification froze since CLIN-7: the annotation identity,
+// ClinVar, and the primary transcript's frequencies and in-silico scores
+// (backend small_variant_review_acmg.build_evidence_snapshot).
+const FROZEN_EVIDENCE = {
+  annotation_version: 'v1',
+  annotation_set_hash: 'h1',
+  clinvar: null,
+  transcript_id: 'ENST00000000001',
+  frequencies: {
+    gnomad_af: 3.1e-5,
+    gnomad_exomes_af: 1.2e-5,
+    gnomad_genomes_af: 3.1e-5,
+    gnomad_popmax_af: 0.0002,
+    topmed_af: null,
+    gnomad_ac: 4,
+    gnomad_hom_count: 0,
+    gnomad_hemi_count: null,
+  },
+  in_silico: {
+    cadd_phred: 24.3,
+    revel: 0.412,
+    spliceai_max: 0.02,
+    sift: 'deleterious(0.01)',
+    polyphen: 'probably_damaging(0.981)',
+    alpha_missense_class: null,
+    alpha_missense_pathogenicity: 'high',
+  },
+  captured_at: '2026-06-20T08:30:00+00:00',
+};
 
 const SNAPSHOT = {
   family_id: 'F1',
@@ -130,7 +196,18 @@ describe('parseSignedReport', () => {
     expect(record.drift).toEqual({
       checked: 2,
       driftedCount: 1,
-      drifted: [{ variantId: '1-100-A-G', status: 'no_snapshot', clinvarFrom: null, clinvarTo: null, classifiedBy: null }],
+      drifted: [
+        {
+          variantId: '1-100-A-G',
+          status: 'no_snapshot',
+          clinvarFrom: null,
+          clinvarTo: null,
+          changed: [],
+          evidenceFrom: null,
+          evidenceTo: null,
+          classifiedBy: null,
+        },
+      ],
     });
     // The SV/CNV classifications' drift: a field of the wrong type is dropped, not guessed.
     expect(record.structuralDrift).toEqual({
@@ -185,10 +262,17 @@ describe('parseSignedReport', () => {
     expect(classified.criteria[0].name).not.toBe('PS3');
     // An entry that cannot be read is counted, not dropped.
     expect(classified.unreadableCriteria).toBe(1);
+    // Frozen before CoGA froze the consequence, frequencies, in-silico scores and gene
+    // missense Z: the record holds none.
     expect(classified.evidence).toEqual({
       clinvar: 'Likely_pathogenic',
       annotationVersion: 'v1',
       capturedAt: '2026-06-20T08:30:00+00:00',
+      transcriptId: null,
+      consequence: null,
+      frequencies: null,
+      inSilico: null,
+      geneConstraint: null,
     });
 
     // No ACMG criteria: the class its classification tag names; no evidence was frozen.
@@ -198,6 +282,158 @@ describe('parseSignedReport', () => {
     expect(tagged.evidence).toBeNull();
 
     expect(unreadable.variantId).toBeNull();
+  });
+
+  it('reads the frequencies and in-silico scores frozen with a classification (CLIN-7)', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '17-43000000-A-G',
+          acmg_class: 'acmg_class_4',
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: FROZEN_EVIDENCE,
+        },
+      ],
+    })!;
+    const [variant] = record.reportedVariants!;
+
+    expect(variant.evidence?.transcriptId).toBe('ENST00000000001');
+    // Every value the record holds, in the order a reviewer reads them, written as the report
+    // writes it; one without a value, or of the wrong type, reads as none.
+    expect(variant.evidence?.frequencies).toEqual([
+      { label: 'gnomAD AF', value: '3.10e-5' },
+      { label: 'gnomAD exomes AF', value: '1.20e-5' },
+      { label: 'gnomAD genomes AF', value: '3.10e-5' },
+      { label: 'gnomAD popmax AF', value: '0.0002' },
+      { label: 'TOPMed AF', value: null },
+      { label: 'gnomAD allele count', value: '4' },
+      { label: 'gnomAD homozygotes', value: '0' },
+      { label: 'gnomAD hemizygotes', value: null },
+    ]);
+    expect(variant.evidence?.inSilico).toEqual([
+      { label: 'CADD', value: '24.3' },
+      { label: 'REVEL', value: '0.412' },
+      { label: 'SpliceAI', value: '0.02' },
+      { label: 'SIFT', value: 'deleterious(0.01)' },
+      { label: 'PolyPhen', value: 'probably_damaging(0.981)' },
+      { label: 'AlphaMissense class', value: null },
+      { label: 'AlphaMissense score', value: null },
+    ]);
+    expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
+      'Read from its primary transcript ENST00000000001: population frequencies gnomAD AF 3.10e-5, ' +
+        'gnomAD exomes AF 1.20e-5, gnomAD genomes AF 3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, ' +
+        'gnomAD allele count 4, gnomAD homozygotes 0 and gnomAD hemizygotes not annotated; in silico scores ' +
+        'CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT deleterious(0.01), PolyPhen probably_damaging(0.981), ' +
+        'AlphaMissense class not annotated and AlphaMissense score not annotated.',
+    );
+    // A record frozen before them holds none, and says nothing of them.
+    const older = parseSignedReport(SNAPSHOT)!.reportedVariants![0].evidence!;
+    expect(describeFrozenEvidenceValues(older)).toBeNull();
+    // Nor does one frozen before the consequence and the gene's missense Z were: no group
+    // of them is read, so none is said to be "not annotated".
+    expect(variant.evidence?.consequence).toBeNull();
+    expect(variant.evidence?.geneConstraint).toBeNull();
+  });
+
+  it('reads the consequence, the LoF call and the gene missense Z frozen with a classification', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '17-43000000-A-G',
+          acmg_class: 'acmg_class_4',
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: {
+            ...FROZEN_EVIDENCE,
+            consequence: { effect: 'missense_variant', impact: 'MODERATE', lof: null },
+            gene_constraint: { gene_missense_z: 3.521 },
+          },
+        },
+        {
+          // A stop gained: no missense Z is frozen for it, as PP2 does not read one.
+          variant_id: '17-43000100-C-T',
+          acmg_class: 'acmg_class_5',
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: {
+            ...FROZEN_EVIDENCE,
+            consequence: { effect: 'stop_gained', impact: 'HIGH', lof: 'HC' },
+          },
+        },
+      ],
+    })!;
+    const [variant, stopGained] = record.reportedVariants!;
+
+    expect(variant.evidence?.consequence).toEqual([
+      { label: 'consequence', value: 'missense_variant' },
+      { label: 'impact', value: 'MODERATE' },
+      { label: 'LoF', value: null },
+    ]);
+    expect(variant.evidence?.geneConstraint).toEqual([{ label: 'gnomAD missense Z', value: '3.52' }]);
+    // The consequence first, read from the primary transcript; the missense Z is the gene's.
+    expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
+      'Read from its primary transcript ENST00000000001: consequence missense_variant, impact MODERATE and LoF ' +
+        'not annotated; population frequencies gnomAD AF 3.10e-5, gnomAD exomes AF 1.20e-5, gnomAD genomes AF ' +
+        '3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, gnomAD allele count 4, gnomAD homozygotes 0 ' +
+        'and gnomAD hemizygotes not annotated; in silico scores CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT ' +
+        'deleterious(0.01), PolyPhen probably_damaging(0.981), AlphaMissense class not annotated and ' +
+        "AlphaMissense score not annotated. From its gene's profile: gnomAD missense Z 3.52.",
+    );
+    // The stop gained's record holds no missense Z, and says nothing of one.
+    expect(stopGained.evidence?.geneConstraint).toBeNull();
+    expect(describeFrozenEvidenceValues(stopGained.evidence!)).toMatch(
+      /^Read from its primary transcript ENST00000000001: consequence stop_gained, impact HIGH and LoF HC; .*score not annotated\.$/,
+    );
+    // A missense Z the gene's profile did not hold, or one of the wrong type, reads as none.
+    const without = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '17-43000000-A-G',
+          tags: ['report'],
+          evidence_snapshot: {
+            transcript_id: null,
+            consequence: { effect: 7, impact: 'MODERATE' },
+            gene_constraint: { gene_missense_z: 'high' },
+          },
+        },
+      ],
+    })!.reportedVariants![0].evidence!;
+    expect(describeFrozenEvidenceValues(without)).toBe(
+      "Read from its primary transcript: consequence not annotated and impact MODERATE. From its gene's " +
+        'profile: gnomAD missense Z not annotated.',
+    );
+  });
+
+  it('reads what moved in a classification’s frozen values when the version was signed', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      drift: {
+        checked: 1,
+        drifted_count: 1,
+        drifted: [
+          {
+            variant_id: '17-43000000-A-G',
+            status: 'drifted',
+            clinvar_from: null,
+            clinvar_to: null,
+            changed: ['revel', 'annotations', 3],
+            evidence_from: { revel: 0.412 },
+            evidence_to: { revel: 0.951 },
+            classified_by: 'alice',
+          },
+        ],
+      },
+    })!;
+    const [item] = record.drift!.drifted;
+    expect(item.changed).toEqual(['revel', 'annotations']);
+    expect(describeSignedDrift(item)).toBe('REVEL 0.412 → 0.951');
   });
 
   it('reads a reported structural variant with its ClinGen CNV scoring', () => {
@@ -309,7 +545,15 @@ describe('the signed report’s wording', () => {
   });
 
   it('says why a classification counted as drift when the version was signed', () => {
-    const item = { variantId: 'v', clinvarFrom: null, clinvarTo: null, classifiedBy: null };
+    const item = {
+      variantId: 'v',
+      clinvarFrom: null,
+      clinvarTo: null,
+      changed: [],
+      evidenceFrom: null,
+      evidenceTo: null,
+      classifiedBy: null,
+    };
     expect(describeSignedDrift({ ...item, status: 'no_snapshot' })).toBe(
       'no frozen evidence (not saved through ACMG classify)',
     );
@@ -318,6 +562,97 @@ describe('the signed report’s wording', () => {
       'ClinVar VUS → Pathogenic',
     );
     expect(describeSignedDrift({ ...item, status: 'drifted' })).toBe('annotation set changed');
+    expect(describeSignedDrift({ ...item, status: 'drifted', changed: ['annotations'] })).toBe(
+      'annotation set changed',
+    );
+    // What moved in the frozen frequencies and in-silico scores, after the ClinVar significance.
+    expect(
+      describeSignedDrift({
+        ...item,
+        status: 'drifted',
+        clinvarFrom: 'VUS',
+        clinvarTo: 'Pathogenic',
+        changed: ['clinvar', 'gnomad_af', 'revel', 'annotations'],
+        evidenceFrom: { gnomad_af: 3.1e-5, revel: 0.412 },
+        evidenceTo: { gnomad_af: 0.012, revel: 0.951 },
+      }),
+    ).toBe('ClinVar VUS → Pathogenic; gnomAD AF 3.10e-5 → 0.012; REVEL 0.412 → 0.951');
+  });
+
+  it('names what moved in a small-variant classification’s frozen values', () => {
+    expect(
+      describeSmallVariantEvidenceChange(
+        ['transcript_id', 'revel', 'sift', 'gnomad_hom_count'],
+        { transcript_id: 'ENST00000000001', revel: null, sift: 'tolerated(0.2)', gnomad_hom_count: 0 },
+        { transcript_id: 'ENST00000000002', revel: 0.7, sift: 'deleterious(0.01)', gnomad_hom_count: 2 },
+      ),
+    ).toBe(
+      'primary transcript ENST00000000001 → ENST00000000002; gnomAD homozygotes 0 → 2; REVEL n/a → 0.700; ' +
+        'SIFT tolerated(0.2) → deleterious(0.01)',
+    );
+    // Two values that differ past the digits the report writes are written in full.
+    expect(describeSmallVariantEvidenceChange(['revel'], { revel: 0.4121 }, { revel: 0.4124 })).toBe(
+      'REVEL 0.4121 → 0.4124',
+    );
+    // Only the annotation set moved: nothing to name.
+    expect(describeSmallVariantEvidenceChange(['annotations'], {}, {})).toBeNull();
+    expect(describeSmallVariantEvidenceChange(['revel'], null, null)).toBe('REVEL n/a → n/a');
+  });
+
+  it('names a moved consequence, LoF call or gene missense Z, in the order a reviewer reads them', () => {
+    // A missense variant called a stop gained now: the missense Z is read for no other
+    // variant, so it is gone, not moved.
+    expect(
+      describeSmallVariantEvidenceChange(
+        ['effect', 'impact', 'lof', 'revel', 'gene_missense_z', 'annotations'],
+        { effect: 'missense_variant', impact: 'MODERATE', lof: null, revel: 0.412, gene_missense_z: 2.95 },
+        { effect: 'stop_gained', impact: 'HIGH', lof: 'HC', revel: 0.951 },
+      ),
+    ).toBe(
+      'consequence missense_variant → stop_gained; impact MODERATE → HIGH; LoF n/a → HC; REVEL 0.412 → 0.951; ' +
+        'gnomAD missense Z 2.95 → n/a',
+    );
+    // Two values that differ past the two digits a missense Z is written with are written in full.
+    expect(describeSmallVariantEvidenceChange(['gene_missense_z'], { gene_missense_z: 3.091 }, { gene_missense_z: 3.089 })).toBe(
+      'gnomAD missense Z 3.091 → 3.089',
+    );
+  });
+
+  it('reads a moved consequence, LoF call and gene missense Z in the drift a version was signed with', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      drift: {
+        checked: 2,
+        drifted_count: 2,
+        drifted: [
+          {
+            // A missense variant whose gene's profile was refreshed.
+            variant_id: '12-40100301-C-T',
+            status: 'drifted',
+            clinvar_from: 'uncertain_significance',
+            clinvar_to: 'uncertain_significance',
+            changed: ['gene_missense_z'],
+            evidence_from: { effect: 'missense_variant', gene_missense_z: 2.95 },
+            evidence_to: { effect: 'missense_variant', gene_missense_z: 3.52 },
+            classified_by: 'alice',
+          },
+          {
+            // A stop gained, re-annotated: it froze no missense Z.
+            variant_id: '12-40100501-G-T',
+            status: 'drifted',
+            clinvar_from: 'uncertain_significance',
+            clinvar_to: 'uncertain_significance',
+            changed: ['effect', 'lof', 'annotations'],
+            evidence_from: { effect: 'stop_gained', lof: 'LC' },
+            evidence_to: { effect: 'stop_gained&splice_region_variant', lof: 'HC' },
+            classified_by: 'alice',
+          },
+        ],
+      },
+    })!;
+    const [missense, stopGained] = record.drift!.drifted;
+    expect(describeSignedDrift(missense)).toBe('gnomAD missense Z 2.95 → 3.52');
+    expect(describeSignedDrift(stopGained)).toBe('consequence stop_gained → stop_gained&splice_region_variant; LoF LC → HC');
   });
 
   it('says why an SV/CNV classification counted as drift when the version was signed', () => {
@@ -371,5 +706,421 @@ describe('the report page’s views', () => {
     expect(reportViewSearch('?project_id=P1', { version: 3 })).toBe('?project_id=P1&version=3');
     expect(reportViewSearch('?project_id=P1&version=3', 'live')).toBe('?project_id=P1&view=live');
     expect(reportViewSearch('?view=live', { version: 1 })).toBe('?version=1');
+  });
+});
+
+// What the analysis looked at, frozen since 2026-10-14 (signed_record_sections.py).
+describe('what the analysis looked at', () => {
+  it('reads each section the record holds, and words it', () => {
+    const record = parseSignedReport({ ...SNAPSHOT, ...SIGNED_ANALYSIS })!;
+    expect(record.statement).toBe(ANALYTICAL_SIGN_OFF_STATEMENT);
+
+    expect(record.variantDescriptions.state).toBe('recorded');
+    if (record.variantDescriptions.state !== 'recorded') return;
+    // An entry that is not one is left out; the downloaded record keeps it as stored.
+    expect(record.variantDescriptions.value.small).toHaveLength(1);
+    const [small] = record.variantDescriptions.value.small;
+    expect(describeSmallVariantDescription(small)).toBe('GENE_PATH c.10A>G p.(Lys4Arg), missense variant (MODERATE)');
+    expect(describeSmallVariantLocus(small)).toBe(
+      '17:43,000,000 A → G · transcript ENST01 (MANE Select) · callset clair3',
+    );
+    expect(small.genotypes.map(describeGenotype)).toEqual([
+      'MOTHER 0/0 (depth 28, GQ 60)',
+      'PROBAND 0/1 (depth 30, AD 15,15, VAF 0.5)',
+    ]);
+    const [sv] = record.variantDescriptions.value.structural;
+    expect(describeStructuralVariantDescription(sv)).toBe(
+      'Deletion (copy loss), 2:1,000-50,000, 49,000 bp, genes GENE_DEL, 2p25.3, caller needlr',
+    );
+    expect(describeGenotype(sv.genotypes[0])).toBe('PROBAND 0/1 (copy number 1, 18 supporting reads)');
+
+    expect(record.genePanels.state).toBe('recorded');
+    if (record.genePanels.state === 'recorded') {
+      expect(describeGenePanel(record.genePanels.value[0])).toBe(
+        'Epilepsy, version 2, 120 genes; PanelApp panel 402, version 3.1 (confidence levels 3), imported 2026-09-01 08:00 UTC; first applied 2026-10-10 09:00 UTC by analyst',
+      );
+    }
+
+    expect(record.referenceData.state).toBe('recorded');
+    if (record.referenceData.state === 'recorded') {
+      const { geneReference, clinicalCnvs } = record.referenceData.value;
+      expect(geneReference.state).toBe('recorded');
+      if (geneReference.state === 'recorded') {
+        // A partial refresh left two ClinGen dosage releases: both are named.
+        expect(describeGeneReferenceReleases(geneReference.value)).toBe(
+          'ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01',
+        );
+        expect(geneReference.value.notInReference).toEqual(['NOT_LOADED']);
+      }
+      expect(clinicalCnvs.state).toBe('recorded');
+      if (clinicalCnvs.state === 'recorded') {
+        expect(describeCnvKnowledgebase(clinicalCnvs.value)).toBe(
+          'clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated)',
+        );
+      }
+    }
+
+    expect(record.repeatExpansions.state).toBe('recorded');
+    if (record.repeatExpansions.state === 'recorded') {
+      const [locus] = record.repeatExpansions.value.loci;
+      expect(describeRepeatThresholds(locus)).toBe('grey zone from 27, pathogenic from 36');
+      expect(describeRepeatCall(locus.calls[0])).toBe('PROBAND 0/1: 18, 40 repeats — Pathogenic');
+      expect(describeCatalogue(record.repeatExpansions.value.catalogue, 'loci')).toBe(
+        '96 loci (CoGA built-in, STRchive), digest abcdef012345',
+      );
+    }
+
+    expect(record.paraphase.state).toBe('recorded');
+    if (record.paraphase.state === 'recorded') {
+      const [smn, gba] = record.paraphase.value.genes;
+      expect(smn.statusRule).toBe('status by smn1_cn: pathogenic = 0, carrier = 1, normal ≥ 2');
+      expect(smn.results[0]).toEqual({
+        sample: 'PROBAND',
+        status: 'carrier',
+        copyNumberSignal: true,
+        copyNumber: [{ label: 'SMN1 CN', value: 1 }],
+      });
+      expect(gba.statusRule).toBeNull();
+    }
+  });
+
+  it('reads a record signed before these sections as not holding them', () => {
+    const record = parseSignedReport(SNAPSHOT)!;
+    expect(record.statement).toBeNull();
+    for (const section of [
+      record.variantDescriptions,
+      record.genePanels,
+      record.referenceData,
+      record.repeatExpansions,
+      record.paraphase,
+    ]) {
+      expect(section).toEqual({ state: 'absent' });
+    }
+  });
+
+  it('reads a section that could not be read at sign-out as not captured, with its reason', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      ...SIGNED_ANALYSIS,
+      paraphase: { unavailable: 'The Paraphase results could not be read.' },
+      gene_panels: 'not an object',
+      reference_data: {
+        gene_reference: { unavailable: "The gene reference's releases could not be read." },
+        clinical_cnvs: null,
+      },
+    })!;
+    expect(record.paraphase).toEqual({ state: 'unavailable', reason: 'The Paraphase results could not be read.' });
+    expect(record.genePanels.state).toBe('unavailable');
+    expect(record.referenceData.state).toBe('recorded');
+    if (record.referenceData.state === 'recorded') {
+      expect(record.referenceData.value.geneReference).toEqual({
+        state: 'unavailable',
+        reason: "The gene reference's releases could not be read.",
+      });
+      // None loaded is recorded, as none.
+      expect(record.referenceData.value.clinicalCnvs).toEqual({ state: 'recorded', value: null });
+      expect(describeCnvKnowledgebase(null)).toBe('none loaded');
+    }
+  });
+
+  it('names the statuses as the repeat and Paraphase pages do', () => {
+    expect(paraphaseStatusWords('no_call')).toBe('No-call');
+    expect(paraphaseStatusWords('none')).toBe('No change');
+    expect(paraphaseStatusWords(null)).toBe('Not assessed');
+  });
+});
+
+// A PGT family's embryo calls at the ROI, frozen since 2026-10-20 (pgt_analysis.py): the calls
+// the family page showed, each with what it rests on.
+describe('the PGT embryo results', () => {
+  const pgtRecord = (pgtAnalysis: unknown) =>
+    parseSignedReport({ ...SNAPSHOT, ...SIGNED_ANALYSIS, pgt_analysis: pgtAnalysis })!;
+  const recorded = (record: SignedReport): SignedPgtAnalysis => {
+    if (record.pgtAnalysis.state !== 'recorded') throw new Error('not recorded');
+    return record.pgtAnalysis.value;
+  };
+
+  it('reads each embryo call with what it rests on', () => {
+    const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
+
+    expect(analysis.roi).toEqual({ query: 'GENE1', label: 'GENE1', chrom: '7', start: 30500000, end: 30600000 });
+    expect(analysis.inheritance).toEqual({ recorded: null, applied: 'AD' });
+    expect(analysis.phaseCorrections).toEqual([SIGNED_PGT_ANALYSIS.phase_corrections[0]]);
+    // An entry that is not an embryo's call reads as an embryo not assessed, never as a call.
+    expect(analysis.embryos.map((embryo) => [embryo.sample, embryo.call])).toEqual([
+      ['E1', 'affected_or_at_risk'],
+      ['E2', 'uninformative'],
+      ['E3', 'unaffected_non_carrier'],
+      ['an embryo', null],
+    ]);
+    const [e1, e2] = analysis.embryos;
+    expect(e1.qc).toEqual({ informativeSites: 40, mendelErrors: 1, mendelRate: 0.025, paternalMarkers: 22, maternalMarkers: 18 });
+    expect(e2).toMatchObject({ roiNotCovered: true, recombinations: [30550000], qc: null });
+    expect(analysis.sources.map((source) => source.sample)).toEqual(['E1', 'FATHER']);
+    expect(analysis).toMatchObject({ blocksRead: 6, blocksDigest: 'abcdef0123456789', markersTruncated: false, recombinationFlank: 250000 });
+  });
+
+  it('words the calls as the family page and the haplotype track do', () => {
+    const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
+    const [e1, e2, e3, unread] = analysis.embryos;
+
+    expect(describeDiseaseHaplotypes(analysis)).toBe('P2 (dominant)');
+    expect(describePgtInheritance(analysis)).toBe('not recorded; CoGA assumed AD');
+    expect(describeEmbryoCall(e1)).toBe('Affected / at risk');
+    expect(describeEmbryoCall(unread)).toBe('Not assessed');
+    expect(describeInherited(e1.inherited)).toBe('M1 and P2 (29,000,000–32,000,000)');
+    expect(describeInherited(e3.inherited)).toBe('M2 and P1 (29,000,000–32,000,000)');
+    expect(describeInherited([])).toBeNull();
+    expect(describeEmbryoQc(e1.qc!)).toBe(
+      '40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal',
+    );
+    expect(describeNoCall(e1, analysis)).toBeNull();
+    expect(describeNoCall(e2, analysis)).toBe(
+      'This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made.',
+    );
+    expect(describePgtMembers(analysis.members)).toBe(
+      'E1 (embryo), E2 (embryo), E3 (embryo), FATHER (father, affected), INDEX (proband, affected), MOTHER (mother, not a carrier)',
+    );
+    expect(describePgtInputs(analysis)).toBe(
+      'the haplotype blocks of family.vcf.gz, loaded 2026-10-01 09:00 UTC (E1 and FATHER); 6 blocks read, digest abcdef012345',
+    );
+    expect(describeReportSections(['pgt_analysis'])).toBe('PGT embryo results');
+  });
+
+  it('says why an embryo is not called: no disease haplotype, or its unrecorded sex', () => {
+    const unresolved = recorded(
+      pgtRecord({ ...SIGNED_PGT_ANALYSIS, disease_haplotype_resolved: false, disease_haplotypes: [] }),
+    );
+    const [, , e3] = unresolved.embryos;
+    expect(describeDiseaseHaplotypes(unresolved)).toBeNull();
+    expect(describeNoCall({ ...e3, call: 'uninformative' }, unresolved)).toBe(
+      'No disease haplotype could be resolved at the ROI (uninformative markers).',
+    );
+    const sexDependent = { ...e3, call: 'uninformative' as const, sexDependent: { ifMale: 'unaffected_non_carrier' as const, ifFemale: 'carrier' as const } };
+    expect(describeNoCall(sexDependent, unresolved)).toBe(
+      "This embryo's sex is not recorded, and the call depends on it: unaffected if male, carrier if female. Record the sex to resolve it.",
+    );
+    expect(homologLabel({ origin: 'maternal', homolog: '?' })).toBe('M?');
+    expect(homologLabel({ origin: null, homolog: '0' })).toBe('?1');
+    expect(describePgtInheritance({ ...unresolved, inheritance: { recorded: 'XLR', applied: 'XLR' } })).toBe('XLR');
+    expect(describePgtInputs({ ...unresolved, sources: [], blocksRead: null })).toBe('no recorded haplotype file');
+    expect(describePgtMembers([])).toBeNull();
+  });
+
+  it('reads a record without the section as absent, and one that could not capture it as unavailable', () => {
+    expect(parseSignedReport(SNAPSHOT)!.pgtAnalysis).toEqual({ state: 'absent' });
+    expect(pgtRecord({ unavailable: "The PGT analysis's embryo results could not be read." }).pgtAnalysis).toEqual({
+      state: 'unavailable',
+      reason: "The PGT analysis's embryo results could not be read.",
+    });
+    // The Sample QC says which application read the family: a PGT family's older record is told apart.
+    expect(parseSignedReport({ ...SNAPSHOT, sample_qc: { overall_status: 'pass', application: 'pgt' } })!.sampleQc?.application).toBe('pgt');
+  });
+});
+
+// A monogenic NIPT family's record holds its NIPT results (signed_record_nipt); no other
+// family's does, and the signed view then says nothing of them.
+describe('a NIPT family’s NIPT results', () => {
+  const NIPT = {
+    samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetus: null },
+    fetal_fraction: {
+      ff: 0.0,
+      ff_computed: null,
+      ff_median: 0.05,
+      ci_low: null,
+      ci_high: null,
+      n_sites: 3,
+      method: 'category7_pooled',
+      low_confidence: true,
+      status: 'fail',
+      message: 'Not estimated, from 3 category-7 sites (an estimate needs at least 5).',
+    },
+    de_novo_window: null,
+    category_counts: { '7': 3, '1': 0, '10': 'not a count', x: 2 },
+    filter_counts: { total_in: 10, failed_quality: 2, failed_artifact: 0, passed: 8, paternal_only: 2 },
+    quality_failures: { low_vaf: 2, few_alt_reads: 1 },
+    checks: {
+      paternity: { status: 'warn', message: 'Too few paternal-informative sites.' },
+      fetal_sex: { call: 'indeterminate', status: 'warn', message: 'Indeterminate.', paternal_x: 'indeterminate', chry: null },
+      plasma_sample: { status: 'fail', message: 'Male DNA.' },
+    },
+    target_coverage: null,
+    variants: [
+      {
+        variant_id: '7-400-C-T',
+        source: 'nipt',
+        genes: ['GENEB'],
+        category: null,
+        category_label: 'undetermined',
+        maternal_state: 'hom_ref',
+        fetal_inheritance: 'paternal_not_transmitted',
+        expected_vaf: 0.1,
+        observed_vaf: 0,
+        confidence: 0.99,
+        paternal_transmission_probability: 0.000001,
+        flags: [],
+        plasma: { alt_reads: 0, depth: 1500, depth_estimated: true },
+        father: { state: 'het', vaf: 0.5, depth: 300 },
+        de_novo: null,
+      },
+      'not an entry',
+    ],
+    not_classified: [{ variant_id: '7-300-A-G', reason: 'artifact_list' }, { reason: 'no_plasma_call' }],
+    recessive_genes: [{ gene: 'GENEB', risk: 0.0001, risk_uses_prior: true }],
+    inputs: { target_tables: [], artifact_list: null },
+    model: {},
+  };
+
+  it('reads the section the record holds', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      sample_qc: { ...SNAPSHOT.sample_qc, application: 'nipt' },
+      nipt: NIPT,
+    })!;
+    expect(isNiptRecord(record)).toBe(true);
+    expect(record.sampleQc?.application).toBe('nipt');
+    expect(record.nipt.state).toBe('recorded');
+    if (record.nipt.state !== 'recorded') return;
+    const nipt = record.nipt.value;
+    expect(nipt.samples).toEqual({ father: 'FATHER1', maternalPlasma: 'CFDNA1', fetus: null });
+    expect(nipt.fetalFraction).toMatchObject({ status: 'fail', ffComputed: null, nSites: 3, lowConfidence: true });
+    // Counts only, in category order; a count that is not a number is left out.
+    expect(nipt.categoryCounts).toEqual([
+      [1, 0],
+      [7, 3],
+    ]);
+    expect(nipt.qualityFailures).toEqual([
+      ['few_alt_reads', 1],
+      ['low_vaf', 2],
+    ]);
+    expect(nipt.plasmaSample).toEqual({ status: 'fail', message: 'Male DNA.' });
+    expect(nipt.fetalSex).toMatchObject({ call: 'indeterminate', status: 'warn', paternalX: 'indeterminate', chry: null });
+    expect(nipt.targetCoverage).toBeNull();
+    // An entry that cannot be read is skipped, never shown as a variant.
+    expect(nipt.variants).toHaveLength(1);
+    expect(nipt.variants[0]).toMatchObject({
+      variantId: '7-400-C-T',
+      category: null,
+      plasma: { altReads: 0, depth: 1500, depthEstimated: true },
+      father: { state: 'het', vaf: 0.5, depth: 300 },
+      deNovo: null,
+    });
+    expect(nipt.notClassified).toEqual([
+      { variantId: '7-300-A-G', reason: 'artifact_list' },
+      { variantId: 'a variant', reason: 'no_plasma_call' },
+    ]);
+    expect(nipt.recessiveGenes).toEqual([
+      { gene: 'GENEB', risk: 0.0001, riskUsesPrior: true, maternalVariantId: null, paternalVariantId: null },
+    ]);
+    expect(nipt.artifactList).toBeNull();
+    expect(nipt.modelReference).toBeNull();
+  });
+
+  it('reads a record without the section by whose it is', () => {
+    // Another family's record: no NIPT results, and nothing to say of them.
+    const other = parseSignedReport(SNAPSHOT)!;
+    expect(other.nipt).toEqual({ state: 'absent' });
+    expect(isNiptRecord(other)).toBe(false);
+    // A NIPT family's record signed before CoGA froze them: absent, and said so.
+    const before = parseSignedReport({ ...SNAPSHOT, sample_qc: { ...SNAPSHOT.sample_qc, application: 'nipt' } })!;
+    expect(before.nipt).toEqual({ state: 'absent' });
+    expect(isNiptRecord(before)).toBe(true);
+    // Results that could not be read: not captured, with the reason.
+    const unread = parseSignedReport({ ...SNAPSHOT, nipt: { unavailable: 'The NIPT results could not be read.' } })!;
+    expect(unread.nipt).toEqual({ state: 'unavailable', reason: 'The NIPT results could not be read.' });
+    expect(isNiptRecord(unread)).toBe(true);
+  });
+
+  it('words the results as the NIPT page does', () => {
+    const record = parseSignedReport({ ...SNAPSHOT, nipt: NIPT })!;
+    if (record.nipt.state !== 'recorded') throw new Error('not recorded');
+    const nipt = record.nipt.value;
+    expect(describeNiptFetalFraction(nipt.fetalFraction!)).toBe('not estimated, from 3 category-7 sites');
+    expect(
+      describeNiptFetalFraction({
+        ...nipt.fetalFraction!,
+        ffComputed: 0.12,
+        ciLow: 0.109,
+        ciHigh: 0.131,
+        ffMedian: 0.118,
+        nSites: 1,
+      }),
+    ).toBe('12.0% (95% CI 10.9%–13.1%) from 1 category-7 site; per-site median 11.8%');
+    expect(describeNiptFetalSex(nipt.fetalSex!)).toBe(
+      "Indeterminate (the father's X alleles read indeterminate; the plasma's chrY coverage reads nothing)",
+    );
+    expect(describeNiptFunnel(nipt.filterCounts)).toBe(
+      '10 cfDNA calls: 2 quality-filtered, 0 artifact-filtered, 8 analysed; 2 paternal alleles without a plasma call of their own',
+    );
+    expect(describeNiptFunnel({ total_in: 1, passed: 1 })).toBe(
+      '1 cfDNA calls: 0 quality-filtered, 0 artifact-filtered, 1 analysed',
+    );
+    expect(
+      describeNiptCoverage({
+        targets: 60000,
+        medianMean: 800,
+        belowCritical: 1500,
+        belowAdvisory: 40000,
+        incomplete: 1000,
+        criticalMeanDepth: 300,
+        weakGenes: [],
+      }),
+    ).toBe('median 800x over 60,000 targets; 1,500 below 300x, 1,000 with uncovered bases');
+    expect(describeNiptVariant(nipt.variants[0])).toBe(
+      'Unclassified (undetermined), confidence 0.99: maternal hom_ref, fetal paternal_not_transmitted; VAF 0.0% (expected 10.0%); plasma reads no call at ~1500× (target coverage); father het · 50.0% · 300×. paternal inherited 0.0%.',
+    );
+    expect(NIPT_NOT_CLASSIFIED_REASONS.artifact_list).toBe(
+      'it is on the assay’s recurrent-artifact list, which the analysis leaves out',
+    );
+    // The sign-out check names a changed section in words.
+    expect(describeReportSections(['nipt', 'sample_qc'])).toBe('NIPT results and sample-integrity QC');
+  });
+});
+
+// The family's live report and the NIPT report say alike how they stand to the latest
+// signed version (TF-06 H9): never the signed report.
+describe('a live report beside the latest signed version', () => {
+  const state = (overrides: Partial<Parameters<typeof liveReportSignedState>[0]>) =>
+    liveReportSignedState({
+      signoutsFailed: false,
+      signoutsPending: false,
+      latestVersion: 2,
+      checkFailed: false,
+      check: { version: 2, matches: true },
+      ...overrides,
+    });
+
+  it('reads the state from the signed versions and the check', () => {
+    expect(state({ signoutsFailed: true })).toBe('unknown');
+    expect(state({ signoutsPending: true })).toBe('loading');
+    expect(state({ latestVersion: null })).toBe('none');
+    expect(state({ checkFailed: true })).toBe('unverified');
+    expect(state({ check: undefined })).toBe('checking');
+    expect(state({ check: { version: 1, matches: true } })).toBe('unverified');
+    expect(state({ check: { version: 2, matches: null } })).toBe('unverified');
+    expect(state({})).toBe('matches');
+    expect(state({ check: { version: 2, matches: false } })).toBe('changed');
+  });
+
+  it('heads every printout with what it is', () => {
+    expect(liveReportSignedNotice('none', null)).toBe('Draft — this report has not been signed.');
+    expect(liveReportSignedNotice('matches', 2)).toBe(
+      'Not the signed report — this is the live report. Print signed version 2 from its record.',
+    );
+    expect(liveReportSignedNotice('changed', 2)).toBe(
+      'Not the signed report — the content differs from signed version 2.',
+    );
+    expect(liveReportSignedNotice('unverified', 2)).toBe(
+      'Not verified against signed version 2 — do not use as the signed report.',
+    );
+    expect(liveReportSignedNotice('checking', 2)).toBe(
+      'Not verified against signed version 2 — do not use as the signed report.',
+    );
+    expect(liveReportSignedNotice('unknown', null)).toBe(
+      'The sign-out record could not be loaded — do not use as the signed report.',
+    );
+    expect(liveReportSignedNotice('loading', null)).toBe(
+      'The sign-out record is still loading — do not use as the signed report.',
+    );
   });
 });

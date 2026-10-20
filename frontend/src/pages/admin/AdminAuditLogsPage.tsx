@@ -73,10 +73,50 @@ const escapedFlag = (meta: FlagSource): AuditFlag | null => {
   };
 };
 
+// request_meta.emergency_sign_in: the emergency administrator's password sign-in beside
+// Microsoft sign-in, or a request made with it (SEC-4).
+const emergencySignInFlag = (meta: FlagSource): AuditFlag | null =>
+  meta?.emergency_sign_in === true
+    ? {
+        key: 'emergency-sign-in',
+        text: 'Emergency sign-in',
+        title:
+          'Signed in with the emergency administrator’s password beside Microsoft sign-in ' +
+          '(AZURE_ADMIN_OVERRIDE on).',
+      }
+    : null;
+
+type FieldChange = { from?: unknown; to?: unknown };
+
+const isFieldChange = (value: unknown): value is FieldChange =>
+  typeof value === 'object' && value !== null && 'to' in value;
+
+// request_meta.account_change: the account this request made (a first Microsoft sign-in) or
+// whose role or activation it changed, each field from and to (SEC-4).
+const accountChangeFlag = (meta: FlagSource): AuditFlag | null => {
+  const change = meta?.account_change;
+  if (typeof change !== 'object' || change === null) return null;
+  const { email, created, role, is_active: isActive } = change as Record<string, unknown>;
+  const account = typeof email === 'string' && email ? email : 'an account';
+  const parts: string[] = [];
+  if (created === 'microsoft_sign_in') parts.push('made at its first Microsoft sign-in');
+  if (isFieldChange(role) && !created) parts.push(`role ${String(role.from)} → ${String(role.to)}`);
+  if (isFieldChange(isActive)) parts.push(isActive.to ? 'activated' : 'deactivated');
+  if (!parts.length) return null;
+  return {
+    key: 'account-change',
+    text: `Account ${account}: ${parts.join(', ')}`,
+    title: 'This request made or changed a user account; the audit row keeps each field from and to.',
+  };
+};
+
 const requestFlags = (event: AuditLogEventOut): AuditFlag[] =>
-  [recordHiddenFlag(event.request_meta), escapedFlag(event.request_meta)].filter(
-    (flag): flag is AuditFlag => flag !== null,
-  );
+  [
+    recordHiddenFlag(event.request_meta),
+    escapedFlag(event.request_meta),
+    emergencySignInFlag(event.request_meta),
+    accountChangeFlag(event.request_meta),
+  ].filter((flag): flag is AuditFlag => flag !== null);
 
 // In a UI event's detail only _escaped is the writer's (it drops a client's own): anything
 // else there, a record_hidden included, came from the browser.

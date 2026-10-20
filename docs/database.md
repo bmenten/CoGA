@@ -7,10 +7,16 @@ reference.
 ## Postgres Tables
 
 The schema is five idempotent baseline files in
-[backend/db/schema/postgres/](../backend/db/schema/postgres/), applied in name order on every
-start (see "Startup Behavior"). There is no migration ledger and no upgrade statement: each
-table is created in its final form, and a database from an older schema is reset, not
-migrated ([development.md](development.md#stop-and-reset)).
+[backend/db/schema/postgres/](../backend/db/schema/postgres/), which create each table in its
+final form, and the Alembic revisions in
+[backend/db/migrations/versions/](../backend/db/migrations/versions/), which bring a table that
+already exists to that form. One migration step applies both, as the table owner, on every
+start in the default mode (see "Startup Behavior"); the ledger table `alembic_version` records
+the revision a database is at ([Schema Migrations](#schema-migrations)).
+`01_access.sql` also adds `users.azure_object_id` and `project_users.access_level` with
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so a database made before Microsoft sign-in keeps its
+accounts (SEC-4), and one made before the reader level keeps its memberships, each as an
+analyst's (SEC-1).
 
 ### 01_access.sql: genome foundation and access
 
@@ -19,9 +25,9 @@ migrated ([development.md](development.md#stop-and-reset)).
 | `species` | organisms: name, common name, NCBI taxonomy id |
 | `assemblies` | genome assemblies per species |
 | `chromosomes` | chromosome sizes and cytobands per assembly |
-| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`), active flag |
+| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`), active flag, and for an account made at its first Microsoft sign-in the user's object ID in Microsoft Entra ID (`azure_object_id`, unique), by which every later sign-in finds it; such an account has no password (`hashed_password` holds a marker no password matches). A local account, such as the emergency administrator, has none (SEC-4) |
 | `projects` | projects, each bound to one species and assembly |
-| `project_users` | which users belong to which project; data access is scoped by project |
+| `project_users` | which users belong to which project, and each member's `access_level`: `analyst` (reads and changes the project's records, the default) or `reader` (reads them only; SEC-1). Data access is scoped by project; an admin has every right in every project |
 | `auth_login_attempts` | failed-login counts and back-off per email and per client address, and sign-up attempts per address |
 
 ### 02_reference.sql: reference and annotation data
@@ -41,7 +47,7 @@ migrated ([development.md](development.md#stop-and-reset)).
 | `gene_panel_versions` | a snapshot of every version of a panel: genes, regions, source, external version and author. Version 1 is archived when a panel is created by hand, built (the Mendeliome) or first imported from PanelApp, and the next version at each hand edit of a local panel (its genes or description), each Mendeliome rebuild that changes its genes (or is forced) and each PanelApp import that changes the panel's genes or regions. The app never rewrites a snapshot, and `UNIQUE (panel_id, version)` refuses a second one under the same number, but no trigger makes the table append-only, and deleting a panel deletes its versions (`ON DELETE CASCADE`). The panel page lists the versions; no screen shows one version's genes: `GET /api/panels/{id}/versions/{version}` returns them, to look up the panel version a report names |
 | `hpo_term`, `hpo_synonym`, `hpo_edge`, `hpo_closure` | one HPO release: terms, synonyms, `is_a` links, and every ancestor of a term with its distance |
 | `monarch_gene_disease`, `monarch_disease_phenotype` | Monarch gene-to-disease links (predicate, sources, causal or not) and disease-to-HPO annotations, including negated ones |
-| `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs) |
+| `repeat_loci` | the TRGT repeat catalogue (STRchive thresholds, genes, diseases, motifs): the built-in loci and the shipped STRchive release's, rewritten at every start, which removes STRchive loci the release does not list ([data-import.md](data-import.md#the-strchive-release)) |
 | `reference_dataset_imports` | every reference import and upload: dataset, rows inserted, whether it replaced data, source, the release the source states (below), who and when |
 
 `clinical_cnvs` carries the knowledgebase's ClinVar support per region:
@@ -78,7 +84,7 @@ built-in reference file is recorded under its file name.
 | `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end), `couple`, or `relative` (`sample_id_b` is related through `sample_id_a` by an unknown degree, such as a PGT index known only to be on the mother's side); `source` says what made it (`pedigree`: the parents a pedigree gives; `manifest`: a package manifest's `family.relationships`; `manual`: a couple typed in, or an edit), `active = false` retires it |
 | `family_structure_versions` | one row per pedigree or phenotype change: the version, a `structure_hash` over roles, parentage and affected status, and the full snapshot |
 | `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset, with its progress (when it started and ended; while it runs, the share of its files read and the time left). `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute, stamped and judged by the database's clock (`now()`); a worker claims a job whose heartbeat is ten minutes old, runs it again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way. An update that names a worker applies only while the job is that worker's: the heartbeat of an import whose job was ended so stops the import |
-| `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown` |
+| `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown`; added, changed and removed by an analyst of the family's project or an admin, each change a `phenotype` event on the clinical audit trail |
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
 | `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay: entries added one by one, imported from the NIPT-M pipeline's recurrent table (as `curated`) or seeded from the cohort (`auto`) (see [monogenic-nipt.md](monogenic-nipt.md) and [data-import.md](data-import.md#the-nipt-artifact-list)) |
@@ -95,18 +101,24 @@ built-in reference file is recorded under its file name.
 
 `sample_interval_track_sources.track_type` is held to the track types above by a `CHECK`
 (`sample_interval_track_sources_track_type_check`). The baseline creates the table only when it
-is missing, so a database created before `target_coverage` was in the list keeps the old check,
-and the import of a per-target coverage table fails on it. Reset such a database
-([development.md](development.md#stop-and-reset)).
+is missing, so a database created before `target_coverage` was in the list (#749) kept the old
+check, on which the import of a per-target coverage table failed; revision `0003` gives it the
+current check at its next start ([Schema Migrations](#schema-migrations)).
 
 `repeat_expansions.status` is a call's status as its import classified it: `normal`, `review`,
 `not_assessed` (a call at a locus without thresholds: no catalogue row names its TRID, or the
-row states no intermediate, premutation or pathogenic threshold), `intermediate`,
-`premutation`, `pathogenic` or `unknown` (no call). The genome tracks show it; the repeat page
-classifies the call again against the catalogue as it is now. A `CHECK`
+row states no intermediate, premutation or pathogenic threshold; a count inside the benign range
+such a row states is `normal`), `intermediate`, `premutation`, `pathogenic` or `unknown` (no
+call). The genome tracks show it; the repeat page classifies the call again against the
+catalogue as it is now, so a POLG call of 10 stored as `not_assessed` before that rule reads
+normal there at once and on the tracks once imported again. A `CHECK`
 (`repeat_expansions_status_check`) holds it to these values. A database created before
-`not_assessed` was in the list keeps the old check, and a TRGT import with a call at a locus
-without thresholds fails on it, with the whole repeat dataset. Reset such a database too.
+`not_assessed` was in the list (#826) kept the old check, on which a TRGT import with a call at
+a locus without thresholds failed, with the whole repeat dataset; revision `0002` gives it the
+current check at its next start ([Schema Migrations](#schema-migrations)).
+A call whose TRID names several STRchive loci (the gene of ARX or HOXA13) and whose region
+picks none of them is stored without thresholds, and `repeat_expansions.metadata` holds the
+reason under `locus_not_resolved` (CLIN-31), which the repeat page shows with the call.
 
 JSON keys that package import writes into the `metadata` columns:
 
@@ -118,7 +130,8 @@ JSON keys that package import writes into the `metadata` columns:
 | `samples.metadata` | `mtdna` | the mtDNA haplogroup from the mutserve annotation |
 | `samples.metadata` | `sv_files` | the file name per structural-variant source |
 | `samples.metadata` | `assay`, `assay_panel` | copied from the manifest's `samples` entry (kept whole under `package_sample_metadata`): `assay: nipt_cfdna` marks the maternal-plasma cfDNA sample of a monogenic NIPT family, and `assay_panel` names its capture panel, which scopes the NIPT artifact list |
-| `sample_interval_track_sources.metadata` | `normalization` | the transform the import put a track's values through before storing them: `log2_ratio_to_diploid` on a HiFiCNV copy-number track (`segments`: log2 of the copy number over 2) and `log2_ratio_to_autosomal_median` on a HiFiCNV depth track (`coverage`: log2 of the depth over the sample's autosomal median, which `autosomal_median_depth` holds), or `none` on a depth track whose file gave no usable autosomal median (`autosomal_median_depth` null, or at or below zero): its depths are stored as read. A track without the key holds its file's values. The track availability serves each coverage track's (`coverage_normalizations`), and the viewers draw on their log2-ratio axis only a track whose values are a log2 ratio. The readers that take coverage values as read depth (the mtDNA coverage and its `mtdna.mean_depth` verdict, the NIPT coverage check without a per-target table) read one `coverage` track per sample, one whose values are read depth (`coverage_read_depth.py`): a coverage BED (source `web`, whose record names no transform) or a track whose records all name `none`; never one whose records name a log2 ratio, a transform it does not know or two that disagree, nor another caller's track without the key (WisecondorX's and QDNAseq's bins hold log2 ratios). A sample with two such tracks is read from its BED |
+| `sample_interval_track_sources.metadata` | `normalization` | the transform the import put a track's values through before storing them: `log2_ratio_to_diploid` on a HiFiCNV copy-number track (`segments`: log2 of the copy number over 2) and `log2_ratio_to_autosomal_median` on a HiFiCNV depth track (`coverage`: log2 of the depth over the sample's autosomal median, which `autosomal_median_depth` holds), or `none` on a depth track whose file gave no usable autosomal median (`autosomal_median_depth` null, or at or below zero): its depths are stored as read. A track without the key holds its file's values. The track availability serves each coverage track's (`coverage_normalizations`) |
+| `sample_interval_track_sources.metadata` | `content` | what a coverage BED (source `web`) declared it holds when it was loaded (TRACE-9): `read_depth` or `log2_ratio`, from the BED upload's `content` or the package manifest's coverage entry, or `unknown` for a manifest entry without it. A coverage BED stored before BEDs declared what they hold has no key and reads as `unknown`: the data is synthetic, so nothing was migrated. The other tracks' records have none. With `normalization` it decides what each coverage track holds (`coverage_read_depth.py::coverage_track_content`): a coverage BED what it declared, another track what its transform made of its file (read depth after `none` alone, a log2 ratio after a log2-ratio transform, else unknown; without the key a WisecondorX or QDNAseq file's log2 ratios, any other caller's unknown). The track availability serves it (`coverage_contents`), and the viewers draw read depth on a depth axis, a log2 ratio on their log2-ratio axis and an unknown track on its own range without an axis. The readers that take coverage values as read depth (the mtDNA coverage and its `mtdna.mean_depth` verdict, the NIPT coverage check without a per-target table) read one `coverage` track per sample that holds read depth: a coverage BED declared as read depth, or a track whose records all name `none`; never a log2 ratio, nor a track of unknown kind. Each track they leave out is named with the reason (the mtDNA QC notes, the NIPT check's `coverage_notes`). A sample with two tracks of read depth is read from its BED |
 | `families.metadata` | `pipeline` | the Nextflow run parameters (reference build, callers, annotation caches; for the PGT pipeline the affected parent, ROI and QDNAseq bin size, and the callset and phasing panel it started from) |
 | `families.metadata` | `pipeline_qc` | the QC the PGT pipeline reported for the family as a whole: the KING kinship, IBS0 and SNP count of every pair (`kinship`), and the files they came from |
 | `families.metadata` | `haplotype_phase_corrections` | the parents' phase switches the haplotype blocks undid, one per switch: the parent and its side, the chromosome, the position from which its two haplotypes are swapped and the end of the children's switches, and how many of how many informative children switched. Replaced at every haplotype import; the lineage colouring and the phased markers read the parents' phase through them |
@@ -126,9 +139,9 @@ JSON keys that package import writes into the `metadata` columns:
 | `families.metadata` | `package_import` | the import provenance: folder (a bucket folder's URI), manifest, datasets and the manifest's own `metadata` |
 | `families.metadata` | `pgt`, `analysis_type` | the manifest's PGT context (the inheritance model, the obligate and proven carriers, the affected parents and the indexes) and analysis type |
 | `families.metadata` | `unresolved_roi` | the manifest's `roi` when the import could not resolve it in the family's assembly (`query`, and `source: manifest`); the family's region of interest is then left as it was |
-| `families.metadata` | `import_incomplete` | set by an import that failed for some datasets and kept the others: the datasets that failed and those that imported, when, and the import job (after a failed overwrite whose restore failed too, other than by refusing without its whole backup, every dataset of that import as failed and none as imported); for each failed dataset the job that holds its error (`failed_jobs`, as a later failure keeps an earlier one's) and its scope (`scopes`). A completed import removes each failed dataset it imported again for that scope, and the flag with the last |
-| `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write (and again once it holds the family's variant-write locks) and removes it when it ends, so an entry that stays names one whose process stopped part-way. It records each dataset's scope (`scopes`: the small variants' callset, as `imported_scopes` records it; a per-sample dataset's samples), and only an `overwrite` that imports again what it had not finished, for that scope, removes it. Once a failed overwrite's restore begins, its entry names every dataset of the family (`imported_scopes`) and of the import, none finished, and lists each with its scope, one sample at a time, under `whole_family`; a restore that puts the family back or refuses to start removes it, one that fails part-way (or whose process stops in it) leaves it, and each `overwrite` that completes, and each single-file upload with `overwrite`, removes from it what it brought again, the entry going with the last |
-| `families.metadata` | `imported_scopes` | what the family's imports imported and its single-file uploads brought, by dataset: each scope (`source`, the callset the small variants were stored as: the `source_format` an SNV dataset declares, or with `auto` the one its file holds, read before the import's first write; `auto` itself names no callset and nothing completes it, [data-import.md](data-import.md#the-small-variant-callset-an-import-records); `samples`, one sample at a time for a per-sample dataset, null for a family-level file). An import adds what it imported when it ends, with its flag or its clear, and what an import that stopped had finished once that one's entry goes; an upload adds what it brought in the transaction that commits it, as the package dataset that brings the same data records it, or under a name of its own (`sv_<caller>`, `bed_<type>`; [data-import.md](data-import.md#what-an-upload-records)). What a failed overwrite's restore may remove besides its own datasets: its entry in `import_unfinished` names all of it |
+| `families.metadata` | `import_incomplete` | set by an import that failed for some datasets and kept the others: the datasets that failed and those that imported, when, and the import job (after a failed overwrite whose restore failed too, other than by refusing without its whole backup, every dataset of that import as failed and none as imported); for each failed dataset every scope it failed for, oldest first, each with the job that holds its error (`failed_scopes`: a later failure keeps an earlier one's, and one of the same dataset under another callset or other samples never replaces it; the same scope failing again is one failure, with its latest job), and the job of its latest failure (`failed_jobs`, which the family pages and a sign-out name). A completed import removes each failure it brought again for that scope (imported, imported with warnings, or registered when its package carries nothing CoGA imports for the dataset), as does each single-file upload, and the flag goes with the last; once what is left is one job's, that job becomes the flag's `job_id`. A flag written with one scope per dataset (`scopes`, its job in `failed_jobs`) is read as one failure each, and stays as it was until something leaves it |
+| `families.metadata` | `import_unfinished` | the imports that have begun writing the family and not finished, by job: when each began, its datasets and those it finished. An import writes its entry before its first write (and again once it holds the family's variant-write locks) and removes it when it ends, so an entry that stays names one whose process stopped part-way. It records each dataset's scope (`scopes`: the small variants' callset, as `imported_scopes` records it; a per-sample dataset's samples; `empty` for a dataset that carries nothing CoGA imports, which any import of the dataset completes), and only an `overwrite` that imports again what it had not finished, for that scope, removes it. Once a failed overwrite's restore begins, its entry names every dataset of the family (`imported_scopes`) and of the import, none finished, and lists each with its scope, one sample at a time, under `whole_family`; a restore that puts the family back or refuses to start removes it, one that fails part-way (or whose process stops in it) leaves it, and each `overwrite` that completes, and each single-file upload with `overwrite`, removes from it what it brought again, the entry going with the last. A single-file upload that writes ClickHouse (small variants, structural variants, interval tracks) writes an entry of its own before its first write there, keyed `upload-` and an id, with no job, committed apart from the upload: in the same `whole_family` shape it lists what the upload may leave partly written or missing (its callset; its caller's calls of every sample its rewrite deletes; the sample's track), and the upload's commit removes it; a failure removes it once nothing is missing, else it stays and gates sign-out until each item has been brought again with `overwrite`. An admin's delete of a sample's structural variants whose rewrite could not put the family's calls back leaves one keyed `deletion-` and an id, listing the family's structural-variant datasets but the deleted sample's ([data-import.md](data-import.md#the-mark-of-an-upload-that-did-not-finish)) |
+| `families.metadata` | `imported_scopes` | what the family's imports imported and its single-file uploads brought, by dataset: each scope (`source`, the callset the small variants were stored as: the `source_format` an SNV dataset declares, or with `auto` the one its file holds, read before the import's first write; `auto` itself names no callset and nothing completes it, [data-import.md](data-import.md#the-small-variant-callset-an-import-records); `samples`, one sample at a time for a per-sample dataset, null for a family-level file; for a coverage BED, `content`, what it declared it holds, which a later record of the same sample's BED replaces and no overwrite compares, TRACE-9). A dataset that carried nothing CoGA imports is not recorded: the family holds nothing of it. An import adds what it imported when it ends, with its flag or its clear, and what an import that stopped had finished once that one's entry goes; an upload adds what it brought in the transaction that commits it, as the package dataset that brings the same data records it, or under a name of its own (`sv_<caller>`, `bed_<type>`; [data-import.md](data-import.md#what-an-upload-records)). What a failed overwrite's restore may remove besides its own datasets: its entry in `import_unfinished` names all of it |
 
 A family's `metadata` also holds `derived_data_status` (which analyses an edit made stale, and
 whether a structure update kept the imported data; see
@@ -150,12 +163,13 @@ was.
 
 | Table | Holds |
 | --- | --- |
+| `alembic_version` | the schema-migration ledger: one row, the revision the database is at. Only the migration step writes it, as the owner; `coga_app` may read it ([Schema Migrations](#schema-migrations)) |
 | `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped (below) |
 | `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below) |
-| `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below) |
+| `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below); an uploaded coverage BED's `metadata.content` says what it was declared to hold (TRACE-9) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
-| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes and sign-out, with before and after |
-| `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot |
+| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, phenotype changes, the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after |
+| `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot; its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)) |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
 
 **Files from a bucket.** For a package imported from a bucket, `storage_path` is the
@@ -223,8 +237,90 @@ copy of the actor and the family identifier.
 ### 05_grants.sql: the runtime role
 
 Creates the restricted role `coga_app` and grants it normal access to every table, except
-UPDATE, DELETE and TRUNCATE on the five append-only tables. How and when the application
-switches to it is in [db-runtime-role-runbook.md](db-runtime-role-runbook.md).
+UPDATE, DELETE and TRUNCATE on the five append-only tables, and anything but SELECT on the
+ledger `alembic_version`. How and when the application switches to it is in
+[db-runtime-role-runbook.md](db-runtime-role-runbook.md).
+
+## Schema Migrations
+
+The Postgres schema reaches a database through one migration step,
+[postgres_migrations.py](../backend/app/core/postgres_migrations.py), which `init_postgres_schema`
+runs. The API runs it at every start when it connects as the table owner
+(`POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP`, the default); when the API runs as the restricted
+role, `python -m app.db_migrate` runs it as the owner before each rollout
+([db-runtime-role-runbook.md](db-runtime-role-runbook.md)). The step is one transaction, so it
+applies whole or not at all:
+
+1. It takes an advisory lock, so that two instances starting together migrate one after the
+   other.
+2. It refuses to run as `coga_app`. It also refuses a ledger that names a revision this version
+   does not have: a newer version migrated that database, and older code does not run on a newer
+   schema.
+3. Until the release candidate, it re-applies the five baseline files. They are idempotent, so
+   a pull request that edits a baseline reaches every existing database, the dev stack's
+   included. `CREATE TABLE IF NOT EXISTS` leaves a table that exists as it is, though.
+4. It runs the Alembic revisions in
+   [backend/db/migrations/versions/](../backend/db/migrations/versions/) that the ledger does not
+   list yet, and records the last one in `alembic_version`.
+
+| Revision | What it does |
+| --- | --- |
+| `0001` | applies the five baseline files |
+| `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (#763) and `not_assessed` (#826) |
+| `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (#747) and `target_coverage` (#749) |
+
+A database the baselines created before the ledger existed has an empty one, so its first start
+with the ledger runs every revision. Each revision ends at the baseline's definition whatever
+it starts from, and every row stays. The integration test
+[test_postgres_migrations.py](../backend/tests/integration/test_postgres_migrations.py) shows
+both: a new database ends with exactly the schema the baseline files create (the catalogue
+fingerprint of its columns, constraints, indexes, triggers, functions, sequences, views,
+privileges, extensions and owners is the same), and a database from before the ledger, with
+the old checks and rows in its tables, reaches that same fingerprint with its rows unchanged
+and then stores a TRGT call at a locus without thresholds.
+
+**Writing a revision.** Until the release candidate, a change to a table that already exists (a
+value added to a `CHECK`, a column, a type, an index) goes in its baseline as the table's final
+form, and in a new revision that brings an existing table to that form. From the repository root,
+`alembic revision --rev-id <next number> -m "<what it changes>"` writes the revision from the
+template ([script.py.mako](../backend/db/migrations/script.py.mako)). A revision may meet a table
+that already has the change (a new database gets the baseline first), keeps every stored row
+valid, and runs forward only: its `downgrade` refuses. A new table needs only its baseline.
+`backend/tests/test_postgres_migrations.py` checks that the revisions form one numbered line, so
+two pull requests that take the same number fail it, and that a revision's check is its
+baseline's. Alembic's commands that need a database (`alembic upgrade`, `alembic current`) stop
+in `env.py`: the revisions run only through the migration step.
+
+**Upgrading a database that holds data.** Take a backup first. On Google Cloud, Cloud SQL keeps
+daily backups and point-in-time recovery ([deployment-gcp.md](deployment-gcp.md), 12.3); an
+on-demand backup just before the rollout (`gcloud sql backups create --instance coga-postgres`)
+is the restore point of the upgrade itself. Locally the data is synthetic. Then roll the new
+version out. In the default mode its first start migrates; with the restricted role the
+migration job runs first, and the API rolls out only when it succeeded
+([deployment-gcp.md](deployment-gcp.md), 12.8). The log names the revision the database came
+from and is now at (`Postgres schema migrated from revision … to …`). A failed migration keeps
+nothing, and the running version keeps serving.
+
+**Going back.** Revisions do not run backwards. A version older than the database's revision
+refuses to start on it (step 2; versions from before the ledger do not check): restore the
+backup taken before the upgrade, or go forward with a fix
+([RELEASING.md](../RELEASING.md#rollback)).
+
+### Freezing the baselines at the release candidate
+
+This is a proposal for QA to confirm ([TF-18](regulatory/TF-18-change-configuration-management.md),
+§3a). Until the release candidate, pull requests still edit the baseline files, and step 3
+brings those edits to every database. The release candidate's pull request freezes them:
+
+1. It sets `REAPPLY_BASELINES_ON_EVERY_RUN` to `False` in `postgres_migrations.py`. A start then
+   runs only the revisions the ledger lacks; revision `0001` applies the baselines to a new
+   database, and to one from before the ledger.
+2. It pins the SHA-256 of the five baseline files in a test, so they cannot change after the
+   release candidate: a database created later gets the same baseline as one created at the
+   release candidate.
+3. From then on every schema change is a new revision only. Its change record (TF-18 §8) names
+   the revision, its verification runs it on a database at the previous revision (as the
+   integration test does), and the release record states the release's last revision.
 
 ## ClickHouse Tables
 
@@ -241,7 +337,7 @@ Their names start with the assembly, for example `GRCh38/SNV_INDEL/entries`.
 | `SNV_INDEL/variants/annotations` | per variant and transcript: gene, consequence, HGVS, population frequencies, scores. The family search and the Variant Explorer test their annotation filters here, all on one row (one transcript) |
 | `SNV_INDEL/variants/annotation_index` | per variant: its genes and the fields the filters use, pooled over its transcripts, for what holds for the variant as a whole (its rsID, genes and ClinVar terms). The Variant Explorer also reads each variant's position here to apply a gene panel's regions to every family at once |
 | `SNV_INDEL/variants/gene_index` | per gene term (symbol or gene id) and variant, for gene searches and the gene panel filter of the family page and the Variant Explorer |
-| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`) |
+| `SNV_INDEL/entries` | the calls: per family and variant, each sample's genotype and call fields (`calls.*`). The family page also reads a family's own rows here, by position, to apply a gene panel's regions: a join on 64-kb windows (ENG-15) |
 | `SNV_INDEL/family_variant_summary`, `SNV_INDEL/family_sample_variant_summary` | variant counts per family and per sample |
 | `SNV_INDEL/family_data_version` | one token per change to a family's small variants (below) |
 | `SV/variants/details` | one row per SV key, that is per family, structural variant and source: type, span, the SVLEN its caller wrote (`svLen`; the SV length filters measure it), the full annotation. A call written as a sequence allele without SVLEN (VCF 4.4 writes it `.`) is stored with the length its alleles state, len(ALT) − len(REF), negative for a deletion (CLIN-41); any other call without SVLEN is stored with none and measured by END − POS. A call stored before that rule keeps its stored value until its file is imported again |
@@ -326,6 +422,14 @@ tables, these two are not shared between families. An SV's key hashes the family
 stored key (a per-sample upload, the admin sample delete, a snapshot restore) writes it back to
 the family it read it from. No other family's entry can reach them, so the delete reads only the
 family's own entries. After a family delete no entry is left and all of the family's rows go.
+
+A rewrite of the family's SV rows (`rewrite_family_structural_variants`: a per-sample upload,
+the admin deletes of a sample's SVs or of a sample, a package's chrM SVs) deletes its scope and
+writes the rows again, and is handed the rows it deletes, as read under the family's lock. A
+write that fails after the delete deletes the scope again, with what it had stored, and writes
+those rows back; one that cannot put them back raises `StructuralVariantsNotRestored`, and the
+caller marks the family for what may be missing
+([data-import.md](data-import.md#the-mark-of-an-upload-that-did-not-finish)).
 After a source-scoped delete the source's rows go, but a row whose key another source's entry
 still has is kept: two callers' calls at one position shared a key before the key named the
 source, and `variants/details` keeps one row per key, so deleting it would strip the other
@@ -376,6 +480,12 @@ the locks while the import runs.
 
 An upload or a package import checks, once it holds the lock, that its family and samples are
 still stored: when the write before it deleted them, it writes nothing and answers 404.
+
+A single-file upload writes its mark in `families.metadata.import_unfinished` before its first
+write to ClickHouse on a connection of its own, committed while the upload's transaction holds
+its locks: an UPDATE of the family row, which waits for no advisory lock. The upload writes it
+before its own transaction locks that row (its record of what it brings), which the mark's
+write would wait for.
 
 ### Row identity
 
@@ -458,10 +568,12 @@ Locally, `docker compose down -v` and loading the demo data again does the same
 
 ## Startup Behavior
 
-On every start the backend re-applies the five Postgres baseline files and makes sure the
-admin user exists, when `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default).
-With the restricted runtime role a separate migration step (`backend/app/db_migrate.py`)
-does this instead, as the table owner. In ClickHouse, startup creates the database and refuses
+On every start the backend migrates the Postgres schema (until the release candidate it
+re-applies the five baseline files, then it runs the revisions the ledger lacks:
+[Schema Migrations](#schema-migrations)) and makes sure the admin user exists, when
+`POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` is true (the default). With the restricted runtime
+role a separate migration step (`backend/app/db_migrate.py`) does this instead, as the table
+owner. In ClickHouse, startup creates the database and refuses
 to go on when an assembly's tables have a different row identity, or its `SNV_INDEL/entries`
 table lacks the per-call columns ([Row identity](#row-identity)); each assembly's tables are
 created on first use, and an `SNV_INDEL/entries` table created with the narrower depth columns

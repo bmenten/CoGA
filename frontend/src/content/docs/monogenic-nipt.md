@@ -54,9 +54,9 @@ rest and reports how many.
 median and covered share) belong with the VCFs. The plasma's table drives the coverage check and the
 sex profile, and it gives the plasma's depth where its VCF has no call, which tells whether a missing
 paternal allele would have shown (see *Paternal alleles*). The father's table gives his depth where his
-VCF has none. Without the tables CoGA falls back on the plasma's coverage BED, or another coverage
-track of read depth (see *Coverage*), over the family's region of interest, and an allele the plasma
-does not show cannot be read.
+VCF has none. Without the tables CoGA falls back on the plasma's coverage BED declared as read depth,
+or another coverage track of read depth (see *Coverage*), over the family's region of interest, and an
+allele the plasma does not show cannot be read.
 
 ### The father's genotype
 
@@ -390,8 +390,33 @@ counts only the candidates it lists. Narrow the scope with a gene panel or a gen
 again.
 
 Its header carries the warnings of every family page when they apply, *Import incomplete* and
-*Not validated for clinical use*, and prints them: the report has no sign-out to stop on a partly
-imported family.
+*Not validated for clinical use*, and prints them: the report itself prints without a sign-out to
+stop on a partly imported family. It is a live report: beside the latest signed version it says
+*This is the live report, not signed version N*, or that the analysis has not been signed out, and
+every printout starts with *Draft* or *Not the signed report*, as the live family report's does.
+
+---
+
+## Sign-out
+
+**Sign out NIPT analysis** on the NIPT page signs the analysis out: the analyst's analytical sign-off,
+which closes and freezes the analysis into the family's signed record (the medical sign-off of the
+patient report happens in the EPD, which refers to the record by its report code). It is the family
+sign-out, with its checks and report code: one record per family, whether it is signed out here or from
+the family report. Once signed, the button reads **Amend sign-out**, and the page names the latest
+signed version, its report code, and whether the family's data still matches it.
+
+For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out: the
+fetal fraction and the quality checks with their verdicts, the coverage of the capture targets, the
+filter funnel and the category counts, each variant tagged *report* as this analysis classifies it (its
+category, reads, inheritance probabilities and, for a de novo candidate in the fetal window, its
+priority), the recessive fetal risk of the reported variants' genes, and what the analysis ran with
+(the coverage tables, the artifact list and the model). The signed version shows them.
+
+Sign-out stops at the family's checks. Besides the Sample QC, a NIPT quality check that failed stops it
+until you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, or male
+DNA given as the maternal plasma. Tag the variants you report before you sign out: a variant without
+the *report* tag is not frozen with its classification.
 
 ---
 
@@ -441,10 +466,13 @@ selected genes, otherwise the family's region of interest. A region is flagged w
 a median below 20×, or less than 90% of its length covered. The card counts the flagged regions; the
 coverage page lists the regions below and above target.
 
-The coverage track read here is one that holds read depth: the plasma's coverage BED, otherwise
-HiFiCNV's depth when the import stored it as read. WisecondorX's and QDNAseq's bins and HiFiCNV's
-normalised depth hold log2 ratios, not depths, and are never read here, also beside a BED. A plasma
-without a coverage BED or such a depth track shows every region as without coverage.
+The coverage track read here is one that holds read depth: the plasma's coverage BED when it was
+declared as read depth (the upload's *Coverage BED holds*, the manifest's `content: read_depth`),
+otherwise HiFiCNV's depth when the import stored it as read. WisecondorX's and QDNAseq's bins,
+HiFiCNV's normalised depth and a BED declared as a log2 ratio hold log2 ratios, not depths, and are
+never read here, also beside a BED; nor is a coverage BED that does not say what it holds. The card,
+the coverage page and the printed report name each track left out and why. A plasma without such a
+depth track shows every region as without coverage.
 
 NIPT has its own sample-integrity checks on the Sample QC page as well (paternity, fetal sex, parent
 sex and the category distribution): see the [Sample-integrity QC reference](/docs/reference/sample-qc).

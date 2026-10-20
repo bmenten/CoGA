@@ -74,6 +74,7 @@ const FamilyNiptCoveragePage = lazy(
   () => import('./pages/families/FamilyNiptCoveragePage')
 );
 const GeneInfoPage = lazy(() => import('./pages/genes/GeneInfoPage'));
+const ReportCodeLookupPage = lazy(() => import('./pages/reports/ReportCodeLookupPage'));
 const GlobalSmallVariantExplorerPage = lazy(
   () => import('./pages/variant-explorer/GlobalSmallVariantExplorerPage'),
 );
@@ -156,6 +157,8 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
               }
             />
             <Route path="/login" element={routeElement(<LoginPage />)} />
+            {/* The emergency administrator's password sign-in beside Microsoft sign-in (SEC-4). */}
+            <Route path="/login/emergency" element={routeElement(<LoginPage emergency />)} />
             <Route path="/signup" element={routeElement(<SignupPage />)} />
             <Route element={<RequireAuth />}>
               <Route path="/dashboard" element={routeElement(<Dashboard />)} />
@@ -232,6 +235,11 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 element={routeElement(<FamilyIgvPage />)}
               />
               <Route path="/genes" element={routeElement(<GeneInfoPage />)} />
+              <Route path="/report-codes" element={routeElement(<ReportCodeLookupPage />)} />
+              <Route
+                path="/report-codes/:code"
+                element={routeElement(<ReportCodeLookupPage />)}
+              />
               <Route
                 path="/variant-explorer"
                 element={routeElement(<GlobalSmallVariantExplorerPage />)}

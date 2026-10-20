@@ -9,7 +9,17 @@ classified this" (see docs/clinical-traceability.md).
 
 The annotation-set hash is the authoritative drift key (it changes whenever any
 annotation changes); the ClinVar significance is reported as the human-readable
-specific when it is what moved.
+specific when it is what moved, and so is each value the snapshot froze: the consequence,
+impact and LoF call, each population frequency and in-silico score (CLIN-7), and, for a
+missense variant, the gene's missense Z, which is the gene profile's and so is not under
+the hash: ``changed`` names what moved, ``evidence_from`` and ``evidence_to`` hold the
+values. Only the fields a snapshot froze are compared, so a snapshot frozen before a field
+was (it holds none of its group) is never compared on it: one frozen before the
+frequencies were is compared by its hash and ClinVar significance alone, and one of a
+variant that is not a missense variant, which holds no missense Z, never drifts on its
+gene's profile. The current values are read as a classification saved now would freeze
+them, so a missense variant no longer called missense names its consequence and its
+missense Z as gone.
 
 Structural-variant / CNV classifications are checked the same way, under ``structural``:
 each CNV (ClinGen) scoring's frozen ``cnv_evidence_snapshot`` against the row of the
@@ -20,7 +30,8 @@ the specifics.
 
 from __future__ import annotations
 
-from typing import Any, Sequence
+import json
+from typing import Any, Mapping, Sequence
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,31 +39,111 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from .clickhouse_small_variants import get_small_variant_family_record
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .access_control import CurrentUser
-from .small_variant_review_acmg import build_evidence_snapshot
+from .hash_chain import canonical_json
+from .small_variant_review_acmg import (
+    EVIDENCE_CONSEQUENCE_FIELDS,
+    EVIDENCE_FREQUENCY_FIELDS,
+    EVIDENCE_GENE_CONSTRAINT_FIELDS,
+    EVIDENCE_IN_SILICO_FIELDS,
+    build_evidence_snapshot,
+    evidence_gene_missense_z,
+)
 from .structural_variant_evidence import (
     diff_structural_evidence,
     fetch_structural_variant_records,
     frozen_evidence_source,
 )
 
+# The snapshot's groups of values, each compared field by field.
+_EVIDENCE_GROUPS = ("consequence", "frequencies", "in_silico", "gene_constraint")
+# The order a drift names the frozen values in: the transcript they are read from, its
+# consequence, the frequencies, the in-silico scores, then the gene's missense Z
+# (``build_evidence_snapshot``).
+_EVIDENCE_ORDER = {
+    field: index
+    for index, field in enumerate(
+        (
+            "transcript_id",
+            *EVIDENCE_CONSEQUENCE_FIELDS,
+            *EVIDENCE_FREQUENCY_FIELDS,
+            *EVIDENCE_IN_SILICO_FIELDS,
+            *EVIDENCE_GENE_CONSTRAINT_FIELDS,
+        )
+    )
+}
 
-def _current_evidence(record: Any) -> dict[str, Any]:
+
+def _current_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str, Any]:
     # Reuse the snapshot builder so "current" is extracted exactly like "frozen".
     # captured_at is irrelevant here; pass a sentinel that we never read.
     from datetime import datetime, timezone
 
-    return build_evidence_snapshot(record, datetime.now(timezone.utc))
+    return build_evidence_snapshot(record, datetime.now(timezone.utc), gene_missense_z=gene_missense_z)
+
+
+def _evidence_values(snapshot: Mapping[str, Any]) -> tuple[dict[str, Any] | None, bool]:
+    """The transcript and the consequence, frequencies, in-silico scores and gene missense
+    Z a snapshot froze, as one mapping of field to value, and whether all of it can be read.
+
+    None when the snapshot froze none of them, as one frozen before CLIN-7 did; a snapshot
+    frozen before a group was holds only the others. A group that is there but is not a
+    mapping cannot be read: its values cannot be shown unchanged.
+    """
+    values: dict[str, Any] = {}
+    readable = True
+    if "transcript_id" in snapshot:
+        values["transcript_id"] = snapshot["transcript_id"]
+    for group in _EVIDENCE_GROUPS:
+        if group not in snapshot:
+            continue
+        frozen = snapshot[group]
+        if isinstance(frozen, Mapping):
+            values.update({str(field): value for field, value in frozen.items()})
+        else:
+            readable = False
+    return (values or None), readable
+
+
+def _same(left: Any, right: Any) -> bool:
+    """Whether a frozen value and the current one are the same: numbers by value (JSONB
+    keeps a number's digits, not whether it was an int or a float), anything else through
+    the JSON encoding the stored snapshot went through."""
+    if (
+        isinstance(left, (int, float))
+        and isinstance(right, (int, float))
+        and not isinstance(left, bool)
+        and not isinstance(right, bool)
+    ):
+        return float(left) == float(right)
+    return canonical_json(json.loads(json.dumps(left, default=str))) == canonical_json(
+        json.loads(json.dumps(right, default=str))
+    )
+
+
+def _moved_values(frozen: Mapping[str, Any], current: Mapping[str, Any]) -> list[str]:
+    """The frozen values that are not the same now, in the order a reviewer reads them."""
+    moved = [field for field, value in frozen.items() if not _same(value, current.get(field))]
+    return sorted(moved, key=lambda field: (_EVIDENCE_ORDER.get(field, len(_EVIDENCE_ORDER)), field))
 
 
 def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str, Any]:
     """Compare a frozen snapshot against current evidence.
 
-    status is one of: ``current`` (unchanged), ``drifted`` (annotation changed),
-    ``variant_missing`` (the variant is no longer present in the dataset).
+    status is one of: ``current`` (unchanged), ``drifted`` (the annotation set, the ClinVar
+    significance or a frozen value changed: the consequence, impact or LoF call, a
+    frequency or in-silico score, or a missense variant's gene missense Z; ``changed`` names
+    each, ``annotations`` for the annotation set), ``unknown`` (nothing is seen to have
+    moved, but a hash is missing or a frozen group cannot be read, so the match cannot be
+    verified) and ``variant_missing`` (the variant is no longer present in the dataset).
+    Only what the snapshot froze is compared: a snapshot frozen before the frequencies and
+    in-silico scores were holds none, and its ``evidence_from`` is None; one frozen before
+    the consequence and the gene's missense Z were, or of a variant that is not a missense
+    variant (no missense Z), is compared on what it holds.
     """
     snap_hash = snapshot.get("annotation_set_hash")
     snap_clinvar = snapshot.get("clinvar")
     snap_version = snapshot.get("annotation_version")
+    evidence_from, readable = _evidence_values(snapshot)
 
     if current is None:
         return {
@@ -61,22 +152,35 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
             "annotation_version_to": None,
             "clinvar_from": snap_clinvar,
             "clinvar_to": None,
+            "changed": [],
+            "evidence_from": evidence_from,
+            "evidence_to": None,
         }
 
     cur_hash = current.get("annotation_set_hash")
     cur_clinvar = current.get("clinvar")
     cur_version = current.get("annotation_version")
+    evidence_to = _evidence_values(current)[0] or {}
+
+    changed: list[str] = []
+    if "clinvar" in snapshot and not _same(snap_clinvar, cur_clinvar):
+        changed.append("clinvar")
+    if evidence_from:
+        changed.extend(_moved_values(evidence_from, evidence_to))
+    if snap_hash and cur_hash and snap_hash != cur_hash:
+        changed.append("annotations")
 
     # A signed report must be verifiably bound to the evidence behind each reported
-    # classification. When either hash is absent the binding CANNOT be verified as
-    # unchanged, so fail safe to "unknown" — which the sign-out drift gate counts like a
-    # real drift (requiring acknowledgement) — rather than silently reporting "current".
-    # Previously a present-but-hashless current record read as "current" and cleared the
-    # gate, letting a stale classification freeze into a report unchallenged.
-    if not snap_hash or not cur_hash:
-        status = "unknown"
-    elif snap_hash != cur_hash:
+    # classification. When either hash is absent, or a frozen group cannot be read, the
+    # binding CANNOT be verified as unchanged, so fail safe to "unknown" — which the
+    # sign-out drift gate counts like a real drift (requiring acknowledgement) — rather
+    # than silently reporting "current". Previously a present-but-hashless current record
+    # read as "current" and cleared the gate, letting a stale classification freeze into a
+    # report unchallenged. A value seen to move is a drift whatever else is missing.
+    if changed:
         status = "drifted"
+    elif not snap_hash or not cur_hash or not readable:
+        status = "unknown"
     else:
         status = "current"
     return {
@@ -85,6 +189,9 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
         "annotation_version_to": cur_version,
         "clinvar_from": snap_clinvar,
         "clinvar_to": cur_clinvar,
+        "changed": changed,
+        "evidence_from": evidence_from,
+        "evidence_to": evidence_to,
     }
 
 
@@ -114,13 +221,11 @@ async def evaluate_classification_drift(
         )
     ).mappings().all()
 
-    drifted: list[dict[str, Any]] = []
-    checked = 0
+    compared: list[tuple[Any, dict[str, Any], Any]] = []
     for row in rows:
         snapshot = row["acmg_evidence_snapshot"]
         if not isinstance(snapshot, dict):
             continue
-        checked += 1
         current_record = None
         if context.assembly_name:
             current_record = await get_small_variant_family_record(
@@ -128,7 +233,21 @@ async def evaluate_classification_drift(
                 family_guid=context.family_uuid,
                 variant_id=row["variant_id"],
             )
-        current = _current_evidence(current_record) if current_record is not None else None
+        compared.append((row, snapshot, current_record))
+    # The genes' missense Z as the variant list serves it now, read at once for every variant
+    # that is a missense variant now (no other variant's gene is looked up).
+    missense_z = await evidence_gene_missense_z(
+        session,
+        {str(row["variant_id"]): record for row, _snapshot, record in compared if record is not None},
+    )
+
+    drifted: list[dict[str, Any]] = []
+    for row, snapshot, current_record in compared:
+        current = (
+            _current_evidence(current_record, gene_missense_z=missense_z.get(str(row["variant_id"])))
+            if current_record is not None
+            else None
+        )
         diff = _diff(snapshot, current)
         if diff["status"] == "current":
             continue
@@ -144,7 +263,7 @@ async def evaluate_classification_drift(
 
     return {
         "family_id": context.family_id,
-        "checked": checked,
+        "checked": len(compared),
         "drifted_count": len(drifted),
         "drifted": drifted,
         "structural": await evaluate_structural_classification_drift(session, context),

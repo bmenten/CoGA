@@ -26,7 +26,8 @@ from ..services.clickhouse_family_variants import (
     get_family_small_variants_page as get_family_small_variants_clickhouse,
 )
 from ..services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext, build_family_metadata_context
-from ..services.access_control import CurrentUser
+from ..services.access_control import CurrentUser, changes_only_own_data
+from ..services.panel_use_audit import record_family_panel_use
 from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.small_variant_review_pg import (
     get_small_variant_review_summary,
@@ -243,6 +244,10 @@ async def get_family_small_variants(
         user=user,
         project_id=project_id,
     )
+    # A panel the search applies goes on the family's clinical audit trail first (REQ-CARR-003).
+    await record_family_panel_use(
+        session, context=context, panel_id=filters.get("panel_id"), user=user, search="small_variants"
+    )
     return await get_family_small_variants_clickhouse(
         session,
         context=context,
@@ -354,6 +359,13 @@ async def export_family_small_variants_csv(
         user=user,
         project_id=project_id,
     )
+    await record_family_panel_use(
+        session,
+        context=context,
+        panel_id=filters.get("panel_id"),
+        user=user,
+        search="small_variants_export",
+    )
     export = await export_family_small_variants(
         session,
         context=context,
@@ -403,6 +415,8 @@ async def list_small_variant_filter_presets(
     "/{family_id}/small-variant-filter-presets",
     response_model=SmallVariantFilterPresetOut,
 )
+# A preset is its owner's alone: a reader may save theirs.
+@changes_only_own_data
 async def save_small_variant_filter_preset(
     family_id: str,
     payload: SmallVariantFilterPresetCreate,
@@ -418,6 +432,7 @@ async def save_small_variant_filter_preset(
 
 
 @router.delete("/{family_id}/small-variant-filter-presets/{preset_id}", status_code=204)
+@changes_only_own_data
 async def delete_small_variant_filter_preset(
     family_id: str,
     preset_id: str,

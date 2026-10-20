@@ -57,7 +57,7 @@ validation per method [TF-10](TF-10-performance-evaluation-plan.md)) → **opera
 | 5.8 Release | Tagged version + build identifier; release checklist | TF-18 |
 | 6 Maintenance | Bugfix/enhancement under same gates; change control | TF-18 |
 | 7 Risk management | ISO 14971 process | [TF-06](TF-06-risk-management-plan.md) |
-| 8 Configuration management | Git, pinned deps, schema baselines | TF-18, [TF-08](TF-08-soup-register.md) |
+| 8 Configuration management | Git, pinned deps, schema baselines and migration revisions | TF-18, [TF-08](TF-08-soup-register.md) |
 | 9 Problem resolution | Issue tracking + CAPA | [TF-17](TF-17-vigilance-capa.md) |
 
 ## 3. Roles & responsibilities

@@ -495,7 +495,6 @@ def test_mane_only_keeps_a_mane_select_or_a_mane_plus_clinical_transcript() -> N
 from fastapi import HTTPException  # noqa: E402
 
 from backend.app.services.clickhouse_variant_queries import (  # noqa: E402
-    _PANEL_REGION_INLINE_LIMIT,
     _small_panel_filter_condition,
     _small_region_filter_condition,
 )
@@ -587,21 +586,24 @@ def test_a_panel_of_regions_only_keeps_the_variants_in_its_regions() -> None:
     assert "panel_gene_terms" not in params
 
 
-def test_a_large_gene_panel_is_matched_on_gene_symbols_alone() -> None:
-    # As on the family page (CLIN-34): a panel of genes with more than 1,000 regions, such
-    # as the Mendeliome, is matched on its genes' symbols alone. Its regions are not read.
-    regions = tuple(("2", 10_000 * index, 10_000 * index + 500) for index in range(_PANEL_REGION_INLINE_LIMIT + 1))
+def test_a_large_gene_panel_is_matched_by_its_genes_and_its_regions() -> None:
+    # As on the family page: a panel of genes with more than 1,000 regions, such as the
+    # Mendeliome, keeps the variants in its regions as well as its genes' (owner decision
+    # 2026-10-14). It was matched on its genes' symbols alone, and its regions not read.
+    regions = tuple(("2", 10_000 * index, 10_000 * index + 500) for index in range(1_001))
     panel = _panel(genes=("SYN48A", "SYN48B"), regions=regions)
     clauses, params = _explorer_panel(panel)
     family_condition, family_params = _family_panel(panel)
-    assert family_condition in clauses
-    assert params == {**params, **family_params}
-    assert "panel_region_chromosomes" not in params
-    assert not [clause for clause in clauses if "variant_window" in clause]
-    # The same number of regions without a gene is still read by its regions.
-    clauses, params = _explorer_panel(_panel(regions=regions))
-    assert len(params["panel_region_chromosomes"]) == _PANEL_REGION_INLINE_LIMIT + 1
-    assert [clause for clause in clauses if "variant_window" in clause]
+    family_regions = _small_region_filter_condition(panel.regions, prefix="panel_region", params={})
+    assert family_condition is not None and family_regions is not None
+    assert family_condition.replace(family_regions, _region_join(panel)) in clauses
+    assert {name: params.get(name) for name in family_params} == family_params
+    assert len(params["panel_region_chromosomes"]) == 1_001
+    assert params["panel_gene_terms"] == ("syn48a", "syn48b")
+    # The regions are joined to the annotation index once, not tested against each row.
+    assert len([clause for clause in clauses if "variant_window" in clause]) == 1
+    assert not [clause for clause in clauses if "arrayExists((region_chrom" in clause]
+    bind_query("SELECT 1 FROM t AS e WHERE " + " AND ".join(clauses), params)
 
 
 def test_the_region_join_reads_the_regions_as_the_family_page_does() -> None:

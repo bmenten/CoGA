@@ -41,6 +41,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          # terraform/versions.tf requires 1.11+ (write-only arguments).
+          terraform_version: 1.16.6
       - name: terraform fmt -check
         working-directory: terraform
         run: terraform fmt -check -recursive
@@ -64,6 +67,20 @@ jobs:
       gcp_configured: ${{ steps.gate.outputs.gcp_configured }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The whole history: whether a release tag is on main is an ancestry question,
+          # which a shallow clone cannot answer.
+          fetch-depth: 0
+      - name: Check the release tag is on main
+        # A release is built only from a commit on main: one that passed main's required
+        # checks and that QA's four-eyes review covers (TF-18 section 6). Runs before
+        # anything is stamped or built, so a tag on any other commit fails the release here.
+        if: github.ref_type == 'tag'
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          ./scripts/check-release-on-main.sh "$REF_NAME" origin/main
       - name: Check the release version identifies this build
         # Runs BEFORE any metadata is computed or any image is stamped, so a release whose
         # tag and VERSION disagree fails loudly instead of shipping a mislabelled image.
@@ -88,24 +105,32 @@ jobs:
           REPO_NAME: ${{ github.event.repository.name }}
           REF_NAME: ${{ github.ref_name }}
           REF_TYPE: ${{ github.ref_type }}
-        # A main build is tagged by its commit, not with a moving `main` tag: Terraform
-        # deploys whatever image string it is given, so reusing one tag would leave it no
-        # change to apply. Cloud Run would keep the image it already runs, and the db-migrate
-        # job, which re-runs when the backend image changes, would never run again.
+        # The image tag names the build in the registry: the release tag, or for a main
+        # build its commit (`main-<12-character commit>`), never a moving `main`. Deploy
+        # runs each image by its digest (the deploy job), not by this tag.
+        #
+        # The version stamped into the backend image (TF-18 section 2): a release build, the
+        # only one with a tag ref, stamps VERSION as it is; every other build stamps VERSION
+        # marked as a development build (0.1.0-dev, 0.1.0-rc.1.dev), so a build of main after
+        # a release tag never reports that release's version (scripts/build-version.sh).
         run: |
           REPO=$(echo "$REPO_NAME" | tr '[:upper:]' '[:lower:]')
           echo "repo_name=${REPO}" >> "$GITHUB_OUTPUT"
           GIT_SHA=$(git rev-parse --short=12 HEAD)
           if [ "$REF_TYPE" = "tag" ]; then
             TAG="$REF_NAME"
+            APP_VERSION=$(./scripts/build-version.sh --release "$REF_NAME")
           elif [ "$REF_NAME" = "main" ]; then
             TAG="main-${GIT_SHA}"
+            APP_VERSION=$(./scripts/build-version.sh)
           else
             TAG=$(echo "$REF_NAME" | tr '/.' '_')
+            APP_VERSION=$(./scripts/build-version.sh)
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "app_version=$(cat VERSION)" >> "$GITHUB_OUTPUT"
+          echo "app_version=${APP_VERSION}" >> "$GITHUB_OUTPUT"
           echo "git_sha=${GIT_SHA}" >> "$GITHUB_OUTPUT"
+          echo "Version stamped into the backend image: \`${APP_VERSION}\`, commit \`${GIT_SHA}\`." >> "$GITHUB_STEP_SUMMARY"
       - name: Detect GCP deploy credentials
         # The `secrets` context cannot be used in a job-level `if`, so resolve it
         # here and gate the build/deploy jobs on this output. When GCP is not yet
@@ -129,6 +154,11 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    outputs:
+      # The digest of the image this build pushed (sha256:…), which deploy runs. Only the
+      # digest: the image name holds the registry project, a secret, and GitHub drops a job
+      # output that contains one.
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -138,7 +168,12 @@ jobs:
           project_id: ${{ env.REGISTRY_PROJECT_ID }}
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
       - name: Build & push backend (root context, build identity baked)
+        id: build
+        # The digest comes from the build itself: gcloud prints the build's log and then, last,
+        # the digest Cloud Build recorded for the image it pushed (`--format`). pipefail, so a
+        # failed build still fails this step through the `tee`.
         run: |
+          set -o pipefail
           gcloud builds submit \
             --project=${{ env.REGISTRY_PROJECT_ID }} \
             --region=${{ env.GCP_REGION }} \
@@ -146,7 +181,15 @@ jobs:
             --substitutions=_IMAGE=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-backend:${{ needs.prepare.outputs.tag }},_APP_VERSION=${{ needs.prepare.outputs.app_version }},_GIT_SHA=${{ needs.prepare.outputs.git_sha }} \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
-            .
+            --format='value(results.images[0].digest)' \
+            . | tee "$RUNNER_TEMP/build-output"
+          DIGEST=$(tail -n 1 "$RUNNER_TEMP/build-output")
+          if ! printf '%s' "$DIGEST" | grep -Eqx 'sha256:[0-9a-f]{64}'; then
+            echo "::error::Cloud Build reported no digest for the backend image it pushed, and deploy runs an image only by its digest."
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Backend image digest: \`${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
 
   build-frontend:
     needs: prepare
@@ -155,6 +198,9 @@ jobs:
     permissions:
       id-token: write
       contents: read
+    outputs:
+      # As build-backend's: the digest only.
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3.0.0
@@ -164,12 +210,15 @@ jobs:
           project_id: ${{ env.REGISTRY_PROJECT_ID }}
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
       - name: Build & push frontend (VITE_API_BASE_URL=/api baked)
+        id: build
         # Where users report a problem: the repository variable COGA_PROBLEM_REPORT_URL, the
         # CMGGMC probleemmelding route (TF-16, TF-17), passed via env and quoted. Unset, the
         # clinical build shows no problem-report link, never the public GitHub issue form.
+        # The digest is read from the build as in build-backend.
         env:
           PROBLEM_REPORT_URL: ${{ vars.COGA_PROBLEM_REPORT_URL }}
         run: |
+          set -o pipefail
           SUBSTITUTIONS="_IMAGE=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }}"
           if [ -n "${PROBLEM_REPORT_URL}" ]; then
             # gcloud splits --substitutions on commas.
@@ -185,7 +234,15 @@ jobs:
             --substitutions="${SUBSTITUTIONS}" \
             --gcs-source-staging-dir=gs://${{ env.CLOUDBUILD_BUCKET }}/source \
             --service-account=projects/${{ env.REGISTRY_PROJECT_ID }}/serviceAccounts/reg-${{ env.GCP_ENV }}-${{ env.GCP_REGION_SHORT }}-cb-runner@${{ env.REGISTRY_PROJECT_ID }}.iam.gserviceaccount.com \
-            .
+            --format='value(results.images[0].digest)' \
+            . | tee "$RUNNER_TEMP/build-output"
+          DIGEST=$(tail -n 1 "$RUNNER_TEMP/build-output")
+          if ! printf '%s' "$DIGEST" | grep -Eqx 'sha256:[0-9a-f]{64}'; then
+            echo "::error::Cloud Build reported no digest for the frontend image it pushed, and deploy runs an image only by its digest."
+            exit 1
+          fi
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Frontend image digest: \`${DIGEST}\`" >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     needs: [prepare, build-backend, build-frontend]
@@ -238,6 +295,9 @@ jobs:
           project_id: ${{ env.COGA_PROJECT_ID }}
       - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
       - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          # terraform/versions.tf requires 1.11+ (write-only arguments).
+          terraform_version: 1.16.6
       - name: Terraform Init
         working-directory: terraform
         run: |
@@ -255,13 +315,75 @@ jobs:
         run: printf '%s\n' "$COGA_TFVARS" > ci.auto.tfvars
       - name: Terraform Plan
         working-directory: terraform
+        # Each image goes to Terraform by the digest its build job pushed (…@sha256:…), not
+        # by a tag, which can be pushed again: the revision Cloud Run deploys is exactly the
+        # image built in this run. Every build is a new digest, so every deploy changes the
+        # image, Cloud Run rolls out, and the db-migrate job, keyed on the backend image,
+        # runs again. A missing or malformed digest stops the deploy before the plan.
+        env:
+          BACKEND_DIGEST: ${{ needs.build-backend.outputs.digest }}
+          FRONTEND_DIGEST: ${{ needs.build-frontend.outputs.digest }}
+          REPO_NAME: ${{ needs.prepare.outputs.repo_name }}
         run: |
+          for image in backend frontend; do
+            if [ "$image" = backend ]; then digest="$BACKEND_DIGEST"; else digest="$FRONTEND_DIGEST"; fi
+            if ! printf '%s' "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}'; then
+              echo "::error::build-${image} passed no image digest. Deploy runs an image only by the digest its build pushed."
+              exit 1
+            fi
+          done
+          IMAGES="${REGISTRY_HOST}/${REGISTRY_PROJECT_ID}/${AR_REPO}/${REPO_NAME}"
           terraform plan -out=tfplan \
             -var="project_id=${{ env.COGA_PROJECT_ID }}" \
             -var="region=${{ env.GCP_REGION }}" \
             -var="cmek_key_self_link=${{ secrets.GCP_COGA_CMEK_KEY_SELF_LINK }}" \
-            -var="backend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-backend:${{ needs.prepare.outputs.tag }}" \
-            -var="frontend_image=${{ env.REGISTRY_HOST }}/${{ env.REGISTRY_PROJECT_ID }}/${{ env.AR_REPO }}/${{ needs.prepare.outputs.repo_name }}-frontend:${{ needs.prepare.outputs.tag }}"
+            -var="backend_image=${IMAGES}-backend@${BACKEND_DIGEST}" \
+            -var="frontend_image=${IMAGES}-frontend@${FRONTEND_DIGEST}"
       - name: Terraform Apply
         working-directory: terraform
         run: terraform apply -auto-approve tfplan
+
+  # ---- A release archives its own SBOMs ---------------------------------------
+  release-sbom:
+    # The CycloneDX SBOMs of the release (TF-13, TF-18 section 6a), made from the release
+    # commit as ci.yml's `sbom` job makes them (the same script, generator pins and runtimes;
+    # backend/tests/test_release_mechanics.py fails when the two drift apart), and attached
+    # to the GitHub release with their SHA-256 sums. There they stay as long as the release
+    # does, not the 90 days of a workflow artifact, and the release record cites them
+    # (RELEASING.md section 4). Not gated on Google Cloud: an SBOM describes the
+    # dependencies, whether or not images were built. Runs only after `prepare` passed, so
+    # a release refused there (tag not v<VERSION>, or not on main) gets no evidence.
+    needs: prepare
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    permissions:
+      # Attach files to the release, and nothing else.
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "22"
+      - name: Generate the SBOMs (backend requirements.txt, frontend package-lock.json)
+        run: ./scripts/generate-sbom.sh --native
+      - name: Attach the SBOMs and their SHA-256 sums to the release
+        # Never --clobber: an SBOM already attached is evidence and is not replaced. A re-run
+        # of this job after the files were attached therefore fails, and the first files stay.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          (cd sbom && sha256sum backend.cdx.json frontend.cdx.json > sbom-sha256sums.txt)
+          cat sbom/sbom-sha256sums.txt
+          gh release upload "$TAG" --repo "$REPOSITORY" \
+            sbom/backend.cdx.json sbom/frontend.cdx.json sbom/sbom-sha256sums.txt
+          {
+            echo "SBOMs attached to release ${TAG} (SHA-256):"
+            echo '```'
+            cat sbom/sbom-sha256sums.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -291,6 +291,14 @@ resource "google_cloud_run_v2_service" "backend" {
         name  = "AZURE_CLIENT_ID"
         value = var.azure_ad_client_id
       }
+      env {
+        name  = "AZURE_API_SCOPE"
+        value = var.azure_ad_api_scope
+      }
+      env {
+        name  = "AZURE_ADMIN_OVERRIDE"
+        value = tostring(var.azure_admin_override)
+      }
       # Turns GET /metrics on, for the collector below (monitoring.tf, docs/monitoring.md).
       dynamic "env" {
         for_each = var.metrics_collection_enabled ? [1] : []
@@ -377,6 +385,19 @@ resource "google_cloud_run_v2_service" "backend" {
     # With the restricted DB role, a new image serves only after its schema is applied.
     terraform_data.db_migrate,
   ]
+
+  lifecycle {
+    # The backend refuses to start on half a Microsoft sign-in configuration (SEC-4): say so
+    # at plan time instead of after a deploy.
+    precondition {
+      condition     = (var.azure_ad_tenant_id == "") == (var.azure_ad_client_id == "")
+      error_message = "Microsoft sign-in needs both azure_ad_tenant_id and azure_ad_client_id (or neither)."
+    }
+    precondition {
+      condition     = var.azure_ad_tenant_id != "" || (var.azure_ad_api_scope == "" && !var.azure_admin_override)
+      error_message = "azure_ad_api_scope and azure_admin_override need Microsoft sign-in (azure_ad_tenant_id, azure_ad_client_id)."
+    }
+  }
 }
 
 # ---- Frontend UI ----------------------------------------------------------

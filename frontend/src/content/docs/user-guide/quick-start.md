@@ -1,7 +1,11 @@
 ### Getting started
 
-To get an account, choose **Sign up** on the sign-in page and fill in **Create account**. You can sign
-in once an administrator has activated the account and given you access to your projects. The arrow at
+Choose **Sign in with Microsoft** and sign in with the Microsoft account of your hospital or university.
+Your first sign-in makes your CoGA account; you see a project's data once an administrator has given
+you access to it. Where CoGA runs without Microsoft sign-in, choose **Sign up** on the sign-in page and
+fill in **Create account** instead: you can sign in once an administrator has activated the account and
+given you access to your projects. **Logout** signs you out of CoGA; on a shared computer, then choose
+**Sign out of Microsoft** on the sign-in page too. The arrow at
 the right of the top bar opens a menu of the main sections: the projects, the explorers, the gene panels,
 this guide and, for administrators, **Admin**. **Settings** in the same bar holds your display
 preferences.
@@ -10,7 +14,9 @@ CoGA keeps the pedigree, the assay data and your interpretation together, so a c
 whole:
 
 - A **project** decides who sees the data and which reference assembly applies. You see only the
-  projects you belong to; administrators see everything and create the projects.
+  projects you belong to; administrators see everything and create the projects. In each of your
+  projects you are an **analyst**, who reads and changes its records, or a **reader**, who only reads
+  them; a family page says *Read-only access (reader)* where you are a reader.
 - A **family** is the case: related samples with their pedigree, roles and affected status.
 - A **sample** carries the assay data: variants, coverage, segments, repeats and more.
 - **Reference data** (genes, cytobands, ClinVar, gnomAD, clinical CNVs and more) belongs to an assembly
@@ -27,7 +33,8 @@ whole:
 > - **Check Sample QC** before sign-out: it confirms that the samples are who the pedigree says.
 > - **Sign-out closes the analysis.** It is the analyst's sign-off, not the medical one: the clinical
 >   report is drafted and medically signed in the EPD and refers to the signed version. Only people
->   the laboratory authorises sign out; CoGA does not check who may.
+>   the laboratory authorises sign out; CoGA refuses it to a reader, but does not check which
+>   analyst may.
 
 ### Reviewing a case
 

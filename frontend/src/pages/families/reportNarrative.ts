@@ -56,7 +56,7 @@ export const humanizeEffect = (effect?: string): string => {
     .join(' / ');
 };
 
-const formatAlleleFrequency = (value: number): string => {
+export const formatAlleleFrequency = (value: number): string => {
   if (value === 0) return '0';
   if (value < 0.0001) return value.toExponential(2);
   const fixed = value.toFixed(5).replace(/0+$/, '').replace(/\.$/, '');

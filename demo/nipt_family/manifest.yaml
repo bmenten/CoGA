@@ -12,5 +12,6 @@ datasets:
     per_sample:
       CFDNA_NIPT:
         bed: nipt_coverage.bed
+        content: read_depth
 metadata:
   description: Synthetic monogenic NIPT demo (fetal fraction 12%)

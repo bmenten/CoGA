@@ -45,6 +45,7 @@ from .postgres_family_snapshot import (
     snapshot_family_postgres_state,
 )
 from .family_package_common import (
+    DatasetLeftMissing,
     FamilyPackageBundle,
     FamilyRecordCallback,
     PackageExecutionResult,
@@ -80,6 +81,7 @@ from .family_package_registration import (
     _mark_family_import_restoring,
     _record_family_import_finished,
     _enabled_dataset_summaries,
+    datasets_brought_again,
     imported_dataset_scopes,
     _normalized_conflict_mode,
     _execution_metadata,
@@ -88,6 +90,8 @@ from .family_package_registration import (
     family_sample_ids,
     is_whole_family_entry,
     pending_datasets,
+    scope_with_samples,
+    unfinished_entry_writer,
 )
 from .family_package_datasets import _import_dataset
 from .import_progress import DatasetTimer
@@ -132,20 +136,25 @@ def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> s
 
 def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
     """The log line of an import that completed while the family stays flagged by an
-    earlier import's failure it did not import again."""
+    earlier import's failure it did not import again. A dataset is named with each job
+    that holds an error of it still flagged: one that failed for several scopes (callsets,
+    samples) can have more than one (SAFE-26)."""
     if failures.unreadable:
         return (
             f"Family {family_id} stays flagged import-incomplete: its flag is not in the shape "
             "an import writes, so nothing shows what would complete it."
         )
     by_job: dict[str, list[str]] = {}
-    for name, job_id in sorted(failures.failed.items()):
-        by_job.setdefault(f"import job {job_id}" if job_id else "an import", []).append(name)
+    for name, latest in sorted(failures.failed.items()):
+        for job_id in failures.jobs.get(name) or [latest]:
+            names = by_job.setdefault(f"import job {job_id}" if job_id else "an import", [])
+            if name not in names:
+                names.append(name)
     failed = "; ".join(f"{', '.join(names)} in {job}" for job, names in sorted(by_job.items()))
     return (
         f"Family {family_id} stays flagged import-incomplete: an earlier import failed for "
-        f"datasets this import did not import again ({failed}). Import them again to "
-        "complete the family."
+        "datasets this import did not import again, for the callset and samples that failed "
+        f"({failed}). Import them again to complete the family."
     )
 
 
@@ -167,6 +176,28 @@ def _still_not_restored_message(family_id: str, remaining: Mapping[str, Any]) ->
         "or upload wrote it. Import each of them again with overwrite to complete the "
         "family, and upload again with overwrite what a single-file upload brought: the "
         "whole family, not only the datasets that failed."
+    )
+
+
+def _still_unwritten_message(family_id: str, remaining: Mapping[str, Any]) -> str:
+    """The log line of an import that completed while the family stays marked by a
+    single-file upload, or an admin's deletion of a sample's data, that did not finish (its
+    mark in ``import_unfinished``, SAFE-28): what of it no import, or upload, has brought
+    again with overwrite since."""
+    writes: list[str] = []
+    for key, entry in sorted(remaining.items()):
+        name = (
+            "a single-file upload"
+            if unfinished_entry_writer(key) == "upload"
+            else "a deletion of a sample's data"
+        )
+        pending = sorted(pending_datasets(entry) or ())
+        writes.append(f"{name}, still to bring again: {', '.join(pending)}" if pending else name)
+    return (
+        f"Family {family_id} stays marked import-incomplete: an earlier write of its data did "
+        f"not finish ({'; '.join(writes)}), so the family's data of these datasets may be "
+        "partly written or missing. Upload or import each of them again with overwrite to "
+        "complete the family."
     )
 
 
@@ -466,6 +497,9 @@ async def _import_family_datasets(
     # first write: each importer is handed its dataset's (an SNV family VCF is stored as
     # the callset its scope names, SAFE-23).
     mark_scopes: Mapping[str, Any] = import_mark.scopes if import_mark is not None else {}
+    # The scope a failed dataset is flagged for where its failure may have removed the data
+    # of samples it does not name (DatasetLeftMissing): its own, with theirs (SAFE-28).
+    failed_scopes: dict[str, Any] = {}
     finished: set[str] = set()
     # The samples of each dataset an update left as they were, their rows being there
     # (``DatasetImportJob.skipped_samples``).
@@ -549,6 +583,10 @@ async def _import_family_datasets(
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
         except Exception as exc:  # noqa: BLE001 - the dataset is recorded as failed and fails the import
             await session.rollback()
+            if isinstance(exc, DatasetLeftMissing):
+                failed_scopes[summary.dataset_type] = scope_with_samples(
+                    mark_scopes.get(summary.dataset_type), exc.samples
+                )
             datasets[index] = summary.model_copy(
                 update={
                     "status": "failed",
@@ -570,11 +608,24 @@ async def _import_family_datasets(
 
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
     imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
-    # What each imported dataset replaced (dataset_scopes): an earlier import's failure or
-    # unfinished entry for the same scope is completed by it. Not the samples an update
-    # skipped, nor a dataset it skipped whole (`skipped`): a skip imports nothing again,
-    # so it completes nothing (SAFE-20).
-    imported_scopes = imported_dataset_scopes(imported_datasets, mark_scopes, skipped_samples)
+    # What each dataset it brought again replaced (dataset_scopes): an earlier import's
+    # failure or unfinished entry for the same scope is completed by it. Brought again:
+    # imported, imported with warnings, or registered when the package carries nothing for
+    # it (SAFE-17). Not the samples an update skipped, nor a dataset it skipped whole
+    # (`skipped`): a skip imports nothing again, so it completes nothing (SAFE-20).
+    # Only the datasets the loop ran: validation names its own `warning`s.
+    ran = {summary.dataset_type for summary in _enabled_dataset_summaries(validation)}
+    imported_scopes = imported_dataset_scopes(
+        datasets_brought_again(
+            ((dataset.dataset_type, dataset.status) for dataset in datasets if dataset.dataset_type in ran),
+            mark_scopes,
+        ),
+        mark_scopes,
+        skipped_samples,
+    )
+    # What the flag records each failed dataset as: its scope, widened where its failure
+    # reached the data of samples it does not name.
+    flag_scopes: Mapping[str, Any] = {**mark_scopes, **failed_scopes}
 
     # Fail-clean. A failed import must not leave a silently-partial family behind:
     #   * NEW family, and NOTHING imported -> compensate by deleting the freshly-created
@@ -669,7 +720,7 @@ async def _import_family_datasets(
                     imported_datasets=imported_datasets,
                     job_id=job_id,
                     import_key=import_key,
-                    scopes=mark_scopes,
+                    scopes=flag_scopes,
                     imported_scopes=imported_scopes,
                 )
                 logs.append(
@@ -687,7 +738,7 @@ async def _import_family_datasets(
                         failed_datasets=flagged_failed,
                         job_id=job_id,
                         mark=import_mark,
-                        scopes=mark_scopes,
+                        scopes=flag_scopes,
                         family_samples=family_sample_ids(bundle),
                     )
                 else:  # an import outside the bookkeeping: there is no entry to keep
@@ -697,7 +748,7 @@ async def _import_family_datasets(
                         failed_datasets=flagged_failed,
                         imported_datasets=[],
                         job_id=job_id,
-                        scopes=mark_scopes,
+                        scopes=flag_scopes,
                     )
                 logs.append(_restore_failed_message(flagged_failed, whole))
     elif failed_datasets:
@@ -708,7 +759,7 @@ async def _import_family_datasets(
             imported_datasets=imported_datasets,
             job_id=job_id,
             import_key=import_key,
-            scopes=mark_scopes,
+            scopes=flag_scopes,
             imported_scopes=imported_scopes,
         )
         logs.append(
@@ -758,18 +809,29 @@ async def _import_family_datasets(
             else:
                 if left.failures.failed or left.failures.unreadable:
                     logs.append(_still_failed_message(family_context.family_id, left.failures))
+                # A single-file upload's mark, or a deletion's, is said apart from an
+                # import's entry (SAFE-28).
+                writes = {
+                    key: entry
+                    for key, entry in left.unfinished.items()
+                    if unfinished_entry_writer(key) != "import"
+                }
                 stopped = {
                     key: entry
                     for key, entry in left.unfinished.items()
-                    if not is_whole_family_entry(entry)
+                    if key not in writes and not is_whole_family_entry(entry)
                 }
                 not_restored = {
-                    key: entry for key, entry in left.unfinished.items() if is_whole_family_entry(entry)
+                    key: entry
+                    for key, entry in left.unfinished.items()
+                    if key not in writes and is_whole_family_entry(entry)
                 }
                 if stopped:
                     logs.append(_still_unfinished_message(family_context.family_id, stopped))
                 if not_restored:
                     logs.append(_still_not_restored_message(family_context.family_id, not_restored))
+                if writes:
+                    logs.append(_still_unwritten_message(family_context.family_id, writes))
 
     # (Re)importing variant data changes the prioritised ranking. The cache's input hash
     # covers the family's storage-level data version, so an outdated ranking is already

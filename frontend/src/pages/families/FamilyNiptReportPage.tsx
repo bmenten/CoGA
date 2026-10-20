@@ -29,6 +29,13 @@ import {
 import { apiPath } from '../../lib/apiPath';
 import { memberLabel } from '../../lib/familyMembers';
 import { formatCount, joinWithAnd } from '../../lib/format';
+import { useReportSignoutCheck, useReportSignouts } from './reportSignoutQueries';
+import {
+  describeReportSections,
+  formatReportTime,
+  liveReportSignedNotice,
+  liveReportSignedState,
+} from './signedReportRecord';
 
 // A report lists one page of candidates, the first ones in genomic order.
 const REPORT_PAGE_SIZE = 500;
@@ -273,6 +280,20 @@ const FamilyNiptReportPage: React.FC = () => {
     },
   });
 
+  // The NIPT analysis is signed out from the NIPT page into the family's signed record. This
+  // page is live, never that record: it says so on screen and at the top of every printout,
+  // as the family's live report does (TF-06 H9).
+  const {
+    data: signouts,
+    isError: signoutsFailed,
+    isPending: signoutsPending,
+  } = useReportSignouts(queryReady ? familyId : undefined);
+  const latestSignout = signouts?.latest ?? null;
+  const { data: signoutCheck, isError: signoutCheckFailed } = useReportSignoutCheck(
+    familyId,
+    latestSignout?.version ?? null,
+  );
+
   const candidates = useMemo(
     () => (variantPage?.variants ?? []).filter((variant) => variant.nipt),
     [variantPage],
@@ -390,11 +411,27 @@ const FamilyNiptReportPage: React.FC = () => {
     failedParts.length ? `${joinWithAnd(failedParts)} could not be loaded` : null,
     listIncomplete ? incompleteListNotice(extent) : null,
   ].filter((part): part is string => Boolean(part));
-  const printNotice = printNoticeParts.length
+  const incompleteNotice = printNoticeParts.length
     ? `Incomplete — ${printNoticeParts.join(', and ')}, so this printout does not show ${
         failedParts.length ? 'the whole report' : 'every candidate'
       }.`
     : null;
+  const signedState = liveReportSignedState({
+    signoutsFailed,
+    signoutsPending,
+    latestVersion: latestSignout?.version ?? null,
+    checkFailed: signoutCheckFailed,
+    check: signoutCheck,
+  });
+  const printNotice = [incompleteNotice, liveReportSignedNotice(signedState, latestSignout?.version ?? null)]
+    .filter(Boolean)
+    .join(' ');
+  const signedVersionSearch = (version: number) => {
+    const params = new URLSearchParams();
+    if (preferredProjectId) params.set('project_id', preferredProjectId);
+    params.set('version', String(version));
+    return `?${params.toString()}`;
+  };
   const variantsWord = (count: number) => `variant${count === 1 ? '' : 's'}`;
   const candidateCountPhrase = extent.pastReportLimit
     ? `${formatCount(extent.listed)} of ${extent.classificationCapped ? 'at least' : 'the'} ${formatCount(
@@ -412,8 +449,8 @@ const FamilyNiptReportPage: React.FC = () => {
           <p className="page-kicker">Monogenic NIPT report</p>
           <h1 className="page-state-title">Family {familyId}</h1>
           <p className="report-header-meta">{referenceLabel}</p>
-          {/* In the header, which prints: a NIPT report has no sign-out to stop on a partly
-              imported family, so the printout itself must say so. */}
+          {/* In the header, which prints: the sign-out stops on a partly imported family, but
+              this live report prints without one, so the printout itself must say so. */}
           <FamilyPageBanners
             metadata={family?.metadata}
             assemblyScope={{
@@ -433,6 +470,47 @@ const FamilyNiptReportPage: React.FC = () => {
           </button>
         </div>
       </header>
+
+      <section
+        className={`surface-card report-signout report-signout-${signedState === 'matches' ? 'live' : signedState}`}
+        role={
+          signedState === 'changed' || signedState === 'unverified' || signedState === 'unknown'
+            ? 'alert'
+            : undefined
+        }
+      >
+        <p className="report-signout-line">
+          {signedState === 'unknown'
+            ? 'The sign-out record could not be loaded, so it is not known whether this analysis has been signed out. Do not treat this report as signed.'
+            : signedState === 'loading'
+              ? 'Looking up the signed versions…'
+              : signedState === 'none'
+                ? 'Draft: this NIPT analysis has not been signed out. It is signed out from the NIPT page, into the family’s signed record.'
+                : `This is the live report, not signed version ${latestSignout?.version}.`}
+        </p>
+        {latestSignout ? (
+          <p className="report-signout-status">
+            Signed version {latestSignout.version}
+            {latestSignout.report_code ? ` (report code ${latestSignout.report_code})` : ''} was signed
+            out by <strong>{latestSignout.signed_out_by}</strong> on{' '}
+            {formatReportTime(latestSignout.signed_out_at)}: it holds the NIPT results.{' '}
+            {signedState === 'checking' ? 'Checking the family’s current data against it… ' : null}
+            {signedState === 'matches' ? 'The family’s current data still matches it. ' : null}
+            {signedState === 'changed'
+              ? `Changed since sign-out: ${describeReportSections(signoutCheck?.changed_sections ?? [])}. `
+              : null}
+            {signedState === 'unverified'
+              ? 'Whether the family’s current data still matches it could not be checked. '
+              : null}
+            <Link
+              to={{ pathname: `/families/${familyId}/report`, search: signedVersionSearch(latestSignout.version) }}
+              className="no-print"
+            >
+              View signed version {latestSignout.version}
+            </Link>
+          </p>
+        ) : null}
+      </section>
 
       {failedParts.length ? (
         <section className="surface-card report-incomplete no-print" role="alert">
@@ -580,6 +658,12 @@ const FamilyNiptReportPage: React.FC = () => {
               across {coverage.target_region_count} target region
               {coverage.target_region_count === 1 ? '' : 's'}.
             </p>
+            {/* Each coverage track not read as depth, and why (TRACE-9). */}
+            {(coverage.coverage_notes ?? []).map((note) => (
+              <p key={note} className="report-paragraph">
+                {note}
+              </p>
+            ))}
             {lowCoverage.length ? (
               <>
                 <p className="report-paragraph">

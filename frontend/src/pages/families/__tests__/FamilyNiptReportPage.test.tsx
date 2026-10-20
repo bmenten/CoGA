@@ -120,6 +120,7 @@ describe('FamilyNiptReportPage', () => {
             low_coverage_regions: [
               { label: 'ARID1B', chr: '6', median_coverage: 8, covered_fraction: 1, reason: 'low_depth' },
             ],
+            coverage_notes: ['CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.'],
           },
         });
       }
@@ -165,6 +166,8 @@ describe('FamilyNiptReportPage', () => {
     // Coverage QC flags the low-depth panel gene.
     expect(screen.getByText('Coverage QC')).toBeInTheDocument();
     expect(screen.getByText(/1 of 3 panel genes were not adequately interrogated/)).toBeInTheDocument();
+    // Printed with the coverage: the plasma's track the check did not read as depth (TRACE-9).
+    expect(screen.getByText('CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.')).toBeInTheDocument();
     expect(screen.getByText(/8x median/)).toBeInTheDocument();
 
     // Candidates are grouped by inheritance.
@@ -487,10 +490,11 @@ describe('FamilyNiptReportPage', () => {
           'lists at most 500, in genomic order. The list stops at chr7:117,559,590. Narrow the scope ' +
           'with a gene panel or a gene on the NIPT page, then open the report again.',
       );
+      // Followed by what every printout of the live report says: it is not the signed record.
       expect(
         screen.getByText(
           'Incomplete — this report lists 3 of the 1,234 candidate variants in its scope, so this ' +
-            'printout does not show every candidate.',
+            'printout does not show every candidate. Draft — this report has not been signed.',
         ),
       ).toHaveClass('print-only');
       expect(screen.getByText(/The candidate list is incomplete/).closest('section')).toHaveAttribute(
@@ -531,7 +535,107 @@ describe('FamilyNiptReportPage', () => {
       const statement = await statementParagraph();
       expect(statement).toHaveTextContent(why);
       expect(statement).toHaveTextContent('The list stops at chr7:117,559,590.');
-      expect(screen.getByText(printed)).toHaveClass('print-only');
+      expect(screen.getByText(`${printed} Draft — this report has not been signed.`)).toHaveClass('print-only');
+    });
+  });
+
+  // The NIPT analysis is signed out from the NIPT page into the family's signed record. This
+  // live report is never that record: it says so on screen and at the top of every printout,
+  // as the family's live report does (TF-06 H9).
+  describe('beside the signed record', () => {
+    const LATEST = {
+      version: 2,
+      signed_out_by: 'lab-signer',
+      signed_out_at: '2026-10-15T09:00:00Z',
+      content_hash: 'hash-v2',
+      report_code: '7KQM2X-2-4PHT',
+    };
+    const serveSigned = ({
+      latest = LATEST,
+      matches = true,
+      listFails = false,
+    }: { latest?: typeof LATEST | null; matches?: boolean; listFails?: boolean } = {}) => {
+      serveReport({});
+      const base = apiMock.get.getMockImplementation()!;
+      apiMock.get.mockImplementation((url: string, config?: unknown) => {
+        if (url === '/families/NIPT001/report/sign-outs') {
+          return listFails
+            ? Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }))
+            : Promise.resolve({ data: { family_id: 'NIPT001', latest, signouts: latest ? [latest] : [] } });
+        }
+        if (url === '/families/NIPT001/report/sign-out-check') {
+          return Promise.resolve({
+            data: {
+              family_id: 'NIPT001',
+              version: latest?.version ?? null,
+              content_hash: latest?.content_hash ?? null,
+              matches,
+              changed_sections: matches ? [] : ['nipt'],
+              not_compared: [],
+              not_captured: [],
+              checked_at: '2026-10-16T09:00:00Z',
+            },
+          });
+        }
+        return base(url, config);
+      });
+    };
+    const signoutStatus = async () =>
+      (await screen.findByText(/^This is the live report|^Draft: this NIPT analysis|^The sign-out record could not be loaded, so/)).closest(
+        'section',
+      ) as HTMLElement;
+
+    it('says it is the live report, not the signed version, on screen and in print', async () => {
+      serveSigned();
+      renderPage('');
+
+      const status = await signoutStatus();
+      expect(status).toHaveTextContent('This is the live report, not signed version 2.');
+      await waitFor(() => expect(status).toHaveTextContent('The family’s current data still matches it.'));
+      expect(status).toHaveTextContent(
+        'Signed version 2 (report code 7KQM2X-2-4PHT) was signed out by lab-signer on 2026-10-15 09:00 UTC: it holds the NIPT results.',
+      );
+      expect(within(status).getByRole('link', { name: 'View signed version 2' })).toHaveAttribute(
+        'href',
+        '/families/NIPT001/report?version=2',
+      );
+      expect(
+        screen.getByText('Not the signed report — this is the live report. Print signed version 2 from its record.'),
+      ).toHaveClass('print-only');
+    });
+
+    it('warns when the family’s analysis changed since the signed version', async () => {
+      serveSigned({ matches: false });
+      renderPage('');
+
+      const status = await signoutStatus();
+      await waitFor(() => expect(status).toHaveAttribute('role', 'alert'));
+      expect(status).toHaveTextContent('Changed since sign-out: NIPT results.');
+      expect(
+        screen.getByText('Not the signed report — the content differs from signed version 2.'),
+      ).toHaveClass('print-only');
+    });
+
+    it('is a draft before the analysis is signed out', async () => {
+      serveSigned({ latest: null });
+      renderPage('');
+
+      expect(await signoutStatus()).toHaveTextContent(
+        'Draft: this NIPT analysis has not been signed out. It is signed out from the NIPT page, into the family’s signed record.',
+      );
+      expect(screen.getByText('Draft — this report has not been signed.')).toHaveClass('print-only');
+    });
+
+    it('is not taken for signed or unsigned when the sign-out record cannot be loaded', async () => {
+      serveSigned({ listFails: true });
+      renderPage('');
+
+      const status = await signoutStatus();
+      expect(status).toHaveAttribute('role', 'alert');
+      expect(status).toHaveTextContent('Do not treat this report as signed.');
+      expect(
+        screen.getByText('The sign-out record could not be loaded — do not use as the signed report.'),
+      ).toHaveClass('print-only');
     });
   });
 

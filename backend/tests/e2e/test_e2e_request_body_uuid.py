@@ -48,7 +48,15 @@ pytestmark = pytest.mark.integration
 # identifier of text: a family, a sample, a variant, an HPO term, a PanelApp panel, a taxon,
 # a UI session or element, an OAuth client. A body field the API gains fails
 # test_every_id_a_body_carries_is_known until it is listed in one of the two.
-UUID_BODY_FIELDS = {"assembly_id", "project_id", "project_ids", "shared_project_ids", "species_id", "user_ids"}
+UUID_BODY_FIELDS = {
+    "assembly_id",
+    "project_id",
+    "project_ids",
+    "reader_user_ids",
+    "shared_project_ids",
+    "species_id",
+    "user_ids",
+}
 TEXT_BODY_FIELDS = {
     "client_id",
     "family_id",

@@ -38,6 +38,7 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/clinical_cnv_kb_jobs.py": 94.0,  # (97.1)
     "backend/app/services/cnv_acmg_points.py": 94.0,  # (97.7)
     "backend/app/services/compound_het_phase.py": 95.0,  # (98.7)
+    "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured when added for CLIN-46)
     "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
     "backend/app/services/family_variant_filters.py": 96.0,  # (99.3)
@@ -48,14 +49,32 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/mitochondrial_analysis.py": 72.0,  # (75.4)
     "backend/app/services/monarch_semsim.py": 65.0,  # (68.8)
     "backend/app/services/nipt_analysis.py": 94.0,  # (97.7)
+    # (100.0 measured locally when it was added: the NIPT quality checks' verdicts, which
+    # the NIPT page shows and the signed record freezes)
+    "backend/app/services/nipt_quality_checks.py": 97.0,
     "backend/app/services/nipt_service.py": 92.0,  # (95.9)
     "backend/app/services/nipt_target_coverage.py": 93.0,  # (95.6)
     "backend/app/services/nipt_triage.py": 93.0,  # (96.8)
+    # (100.0 measured locally when it was added: the signed analysis record, the gene-panel
+    # versions a family's searches applied)
+    "backend/app/services/panel_use_audit.py": 97.0,
+    # (100.0 measured locally when they were added: the PGT embryo calls the family page
+    # shows and a sign-out freezes, REG-2)
+    "backend/app/services/pgt_analysis.py": 97.0,
+    "backend/app/services/pgt_embryo_calls.py": 97.0,
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
+    # (100.0 measured locally when it was added: the report code the EPD report quotes)
+    "backend/app/services/report_code.py": 97.0,
     "backend/app/services/report_signout_service.py": 92.0,  # (95.7)
     "backend/app/services/review_pg_utils.py": 87.0,  # (90.2)
     "backend/app/services/sample_integrity_qc.py": 90.0,  # (93.4)
     "backend/app/services/sample_integrity_service.py": 91.0,  # (94.4) feeds the sign-out gate
+    # (100.0 measured locally when it was added: the NIPT section of the signed analysis
+    # record)
+    "backend/app/services/signed_record_nipt.py": 97.0,
+    # (100.0 measured locally when it was added: what the signed analysis record freezes of
+    # what the analysis looked at)
+    "backend/app/services/signed_record_sections.py": 97.0,
     "backend/app/services/small_variant_review_tags.py": 63.0,  # (66.5)
     "backend/app/services/structural_variant_evidence.py": 74.0,  # (77.8)
     "backend/app/services/structural_variant_review_pg.py": 59.0,  # (62.2) CNV ACMG persistence

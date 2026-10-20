@@ -234,19 +234,21 @@ def sv_list(monkeypatch: pytest.MonkeyPatch) -> list[dict[str, Any]]:
     return reads
 
 
-async def _page(**filters: Any):
+async def _page(*, prioritize: bool = False, track_mode: bool = False, **filters: Any):
     return await get_family_structural_variants_page(
         None,  # type: ignore[arg-type]
         context=_family(),
         page=1,
         page_size=100,
-        **filters,
+        filters=StructuralVariantQueryFilters(page=1, page_size=100, **filters),
+        prioritize=prioritize,
+        track_mode=track_mode,
     )
 
 
 @pytest.mark.asyncio
 async def test_a_deletion_over_10_mb_is_found_by_type_and_minimum_length_with_its_length(sv_list) -> None:
-    page = await _page(type="DEL", min_length=_TEN_MB)
+    page = await _page(variant_type="DEL", min_length=_TEN_MB)
 
     assert [str(variant.id) for variant in page.variants] == ["del-15mb", "del-10mb"]
     assert [(variant.type, variant.length) for variant in page.variants] == [
@@ -261,7 +263,7 @@ async def test_a_deletion_over_10_mb_is_found_by_type_and_minimum_length_with_it
 
 @pytest.mark.asyncio
 async def test_a_type_search_lists_counts_and_summarises_the_matching_svs_alone(sv_list) -> None:
-    page = await _page(type="DEL,DUP")
+    page = await _page(variant_type="DEL,DUP")
 
     assert [str(variant.id) for variant in page.variants] == [
         "del-49",
@@ -284,7 +286,7 @@ async def test_a_type_search_lists_counts_and_summarises_the_matching_svs_alone(
         # The breakend passes any minimum (CLIN-25). Before, a minimum dropped it: its END
         # minus POS is 0.
         ({"min_length": 15_000_000}, ["del-15mb", "bnd"]),
-        ({"type": "inv"}, ["inv"]),
+        ({"variant_type": "inv"}, ["inv"]),
     ],
 )
 async def test_any_one_length_or_type_filter_is_applied_to_the_list(
@@ -489,7 +491,7 @@ async def test_the_export_holds_the_svs_the_list_holds(stored) -> None:
     export = await export_family_structural_variants(
         None,  # type: ignore[arg-type]
         context=_family(),
-        min_length=50,
+        filters=StructuralVariantQueryFilters(page=1, page_size=0, min_length=50),
     )
 
     assert [str(row.id) for row in export.rows] == _AT_LEAST_50
@@ -498,7 +500,7 @@ async def test_the_export_holds_the_svs_the_list_holds(stored) -> None:
 
 @pytest.mark.asyncio
 async def test_the_genome_track_draws_the_svs_the_list_holds(stored) -> None:
-    page = await _page(min_length=50, track_mode=True, samples=["PROBAND"])
+    page = await _page(min_length=50, track_mode=True, selected_samples=["PROBAND"])
 
     assert [str(variant.id) for variant in page.variants] == _AT_LEAST_50
     assert page.total == len(_AT_LEAST_50)

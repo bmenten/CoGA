@@ -47,22 +47,34 @@ each allele, and a status read against the locus's thresholds in the repeat cata
   a note that explains it.
 - *Not assessed*: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus
   the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold.
-  CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*.
+  CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*. Where the
+  catalogue gives a locus a benign range but no threshold (STRchive's POLG: 10 repeats), a count
+  inside the range reads *Normal* and any other count *Not assessed*; the cutoff reads
+  *normal 10 · no threshold*. The count is the one TRGT reports for the catalogued motif across
+  the whole locus, flanking copies included, so it can run higher than the count the range
+  describes: in the TRGT catalogue in use (TRID `CPEO_POLG`), POLG's common allele of 10 repeats
+  counts 14 and stays *Not assessed*.
+- A gene with several repeat tracts, each a locus of its own in STRchive (ARX, HOXA13), has
+  thresholds per tract. A call whose TRID is the gene's name is read against the tract its region
+  overlaps. If the region overlaps none of the tracts, or more than one, the call reads *Not
+  assessed*, and its note names the tracts and says why.
 - *Unknown*: no call.
 
 **Aberrant only** keeps every locus whose status is not *Normal* or *Unknown*, *Not assessed*
-included, and the page header counts the calls at loci without thresholds. The genome tracks colour
-each locus by the status its call was imported with, and keep it until the call is imported again;
-this page classifies every call again, against the catalogue as it is now.
+included, and the page header counts the calls not assessed. The genome tracks colour each locus by
+the status its call was imported with, and keep it until the call is imported again; this page
+classifies every call again, against the catalogue as it is now.
 
 ### mtDNA
 
 Each sample's card on the **mtDNA analysis** page gives its mean chrM depth and the share of chrM
 covered, and a QC status judged against the lab's limits (**Sequencing QC Thresholds**). The depth
-comes from one coverage track that holds read depth: the sample's coverage BED, otherwise HiFiCNV's
-depth where the import stored it as read. WisecondorX's and QDNAseq's bins and HiFiCNV's normalised
-depth hold log2 ratios, not depths, and never count. A sample without a track of read depth shows the
-depth of its chrM calls.
+comes from one coverage track that holds read depth: the sample's coverage BED when it was declared as
+read depth, otherwise HiFiCNV's depth where the import stored it as read. WisecondorX's and QDNAseq's
+bins, HiFiCNV's normalised depth and a coverage BED declared as a log2 ratio hold log2 ratios, not
+depths, and never count, nor does a coverage BED that does not say what it holds. A sample without a
+track of read depth shows the depth of its chrM calls, and the page's QC notes name each track left
+out and why.
 
 **ACMG classify** on a variant from the **mtDNA analysis** page uses the mitochondrial rule set.
 

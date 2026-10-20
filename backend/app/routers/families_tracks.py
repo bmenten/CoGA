@@ -11,6 +11,7 @@ from ..schemas import (
     FamilyRepeatExpansionTableOut,
     FamilyTrackAvailabilityOut,
     HaplotypeResponse,
+    PgtAnalysisOut,
     PhasedMarkerResponse,
     RepeatExpansionTrackResponse,
     VariantLengthOut,
@@ -26,6 +27,7 @@ from ..services.family_service import (
 )
 from ..services.access_control import CurrentUser
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
+from ..services.pgt_analysis import family_pgt_analysis
 from ..services.paraphase_pg import get_family_paraphase_table_response
 from ..services.repeat_expansion_pg import (
     get_family_repeat_expansion_table_response,
@@ -72,6 +74,25 @@ async def get_family_phased_markers(
         start=start,
         end=end,
     )
+
+
+@router.get("/{family_id}/pgt-analysis", response_model=PgtAnalysisOut)
+async def get_family_pgt_analysis(
+    family_id: str,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> PgtAnalysisOut:
+    """The PGT analysis at the family's region of interest: the disease haplotype and each
+    embryo's call with what it rests on (REQ-PGT-005). The family page shows these calls, and
+    a sign-out of the family freezes the same object into its signed record."""
+    context = await build_family_metadata_context(
+        session,
+        family_identifier=family_id,
+        user=user,
+        project_id=project_id,
+    )
+    return await family_pgt_analysis(session, context)
 
 
 @router.get("/{family_id}/haplotypes/batch", response_model=HaplotypeResponse)

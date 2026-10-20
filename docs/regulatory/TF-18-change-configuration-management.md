@@ -20,7 +20,7 @@
 ## 1. Configuration items (what is under control)
 - **Source code** — Git repository; releases are tagged; every clinical build maps to a commit hash.
 - **Dependencies** — `backend/requirements.txt` (every package pinned and hash-verified, [TF-08 §A.1](TF-08-soup-register.md)), `frontend/package-lock.json`, container base-image digests.
-- **Database schema** — idempotent, domain-grouped SQL baselines (`backend/db/schema/postgres/01_access.sql`–`05_grants.sql`), applied in name order: by the API at startup in the default mode, or, once the API runs as the restricted database role, by the migration job before each rollout. There is no migration history: every file is re-applied each time.
+- **Database schema** — idempotent, domain-grouped SQL baselines (`backend/db/schema/postgres/01_access.sql`–`05_grants.sql`) and the Alembic revisions that bring an existing database to them (`backend/db/migrations/versions/`), applied as one migration step, as the table owner: by the API at startup in the default mode, or, once the API runs as the restricted database role, by the migration job before each rollout. The ledger table `alembic_version` records the revision each database is at, and a version older than that revision refuses to start on it. Until the release candidate every run re-applies the baselines first ([database.md](../database.md#schema-migrations)).
 - **Reference data & content** — assembly, ClinVar/gnomAD/dbNSFP/VEP/etc. releases (versioned via the manifest), gene panels and their source version, NIPT artifact lists, ACMG criterion-positioning rules.
 - **Configuration/secrets** — environment settings (secrets in a manager, not in VCS).
 - **Documentation** — this technical file and the per-feature design docs.
@@ -28,7 +28,7 @@
 ## 2. Version identification
 - **Software number `Sxxxx`** — CoGA is to be registered in the CMGGMC ICT module and assigned a software number (`Sxxxx`) per H11.1-OP5 (**🔲** not yet assigned); this is the device identifier (UDI-DI-equivalent) for this in-house device.
 - **Semantic version `x.y.z`** (+ git commit hash) identifies each released build. The running version is served at `/api/version` and shown in the footer of every page and every report ([TF-15 §1](TF-15-instructions-for-use.md)); each signed report freezes the version that signed it and shows it in its sign-out block. **Only major (`X.y.z`) versions are recorded in the CMGGMC ICT "Software" section** per H11.1-OP5 §4.4.5.
-- **The `VERSION` file at the repository root is the single source of truth.** The release commit bumps it; the release is then tagged **`v<VERSION>`** (e.g. `VERSION` = `0.1.0-beta.1` → tag `v0.1.0-beta.1`). Pre-release builds use a SemVer pre-release suffix (`-beta.N`, `-rc.N`) so a beta is never mistaken for the release it precedes. The build stamps `APP_VERSION` from that file into the image, from where it reaches `/api/version`, the app and report footers, and every signed report — so a tag that disagreed with `VERSION` would file a result against a version that does not identify the software that produced it. [`scripts/check-release-version.sh`](../../scripts/check-release-version.sh) enforces the match in the `prepare` job of `build.yml` and fails the release before any image is stamped; it can also be run locally before tagging.
+- **The `VERSION` file at the repository root is the single source of truth.** The release commit bumps it; the release is then tagged **`v<VERSION>`** (e.g. `VERSION` = `0.1.0-beta.1` → tag `v0.1.0-beta.1`). Pre-release builds use a SemVer pre-release suffix (`-beta.N`, `-rc.N`) so a beta is never mistaken for the release it precedes. The build stamps `APP_VERSION` from that file into the image, from where it reaches `/api/version`, the app and report footers, and every signed report — so a tag that disagreed with `VERSION` would file a result against a version that does not identify the software that produced it. Only the release build (`build.yml` building a published release, tagged `v<VERSION>`) stamps `VERSION` as it is; every other build (a push to `main`, a manual or local build) stamps `VERSION` with the SemVer pre-release identifier `dev` added (`0.1.0-dev`, `0.1.0-rc.1.dev`), so a build of `main` after a release's tag is never mistaken for that release ([`scripts/build-version.sh`](../../scripts/build-version.sh)); `VERSION` therefore carries neither `dev` nor build metadata. [`scripts/check-release-version.sh`](../../scripts/check-release-version.sh) enforces the match and that format in the `prepare` job of `build.yml` and fails the release before any image is stamped; it can also be run locally before tagging.
 - Each signed report freezes the CoGA version and commit together with the reference-data versions, inside its content hash — the per-case configuration record. It links every signed-out case to the software version that produced it, as the operational-phase rule of H11.1-OP5 §6 requires ([TF-16 §1](TF-16-post-market-surveillance-plan.md)).
 
 ## 3. Change-control workflow
@@ -49,6 +49,18 @@ from the first release candidate.
 | **Release candidate** | Feature freeze; `VERSION` takes an `-rc.N` suffix and the tag follows it (§2). A documented, risk-based design and code review: every clinical-critical module (the ones the type-check and coverage gates single out: scoring, prioritisation and filters, NIPT, PGT, sample QC, traceability and sign-out) in full, the rest by sample and automated analysis. Bio-IT ingangsvalidatie on H11.1-F12.2 ([TF-09](TF-09-verification-validation.md)); security go-live ([TF-13 §3](TF-13-cybersecurity.md)); QA confirms the TF-10 §8 list as validation scope. | Full change control from here: every change is assessed (§4) and recorded (§8). |
 | **Beta — clinical validation** | Clinical validation per method on H11.1-F11 ([TF-10](TF-10-performance-evaluation-plan.md)), on the frozen release candidate, in parallel with the current validated workflow. CoGA results are not used for patient care until the validation concludes *voldoet*. | Bug fixes only, where possible. Each fix is a new `-rc.N` with its §4 level, and states which validation it leaves standing and which it re-opens. |
 | **Release (v1.0.0)** | Release approval by the lab director and the release record (§7); registration in CMGGMC (`Sxxxx`); the Art. 5(5)(e) declaration made public before first use; post-market surveillance ([TF-16](TF-16-post-market-surveillance-plan.md)). | §4–§8 as written: patch, minor or major per H11.1-OP5. |
+
+**Proposal for QA: the database schema at the release candidate.** Not adopted; QA confirms
+or changes it. Until the release candidate, pull requests edit the five Postgres baseline files,
+and every migration run re-applies them, so each edit reaches every database. The release
+candidate's pull request would freeze them: the migration step stops re-applying them
+(`REAPPLY_BASELINES_ON_EVERY_RUN = False` in `backend/app/core/postgres_migrations.py`), revision
+`0001` applies them to a new database only, and a test pins their SHA-256. From then on each
+schema change is a new Alembic revision only: its change record (§8) names the revision, its
+verification runs it on a database at the previous revision, the release record states the
+release's last revision, and it runs forward only, so going back means restoring the backup
+taken before the upgrade
+([database.md](../database.md#freezing-the-baselines-at-the-release-candidate)).
 
 ## 4. Significance assessment — semantic patch / minor / major (H11.1-OP5 §4.4.5, §5.4)
 
@@ -86,6 +98,7 @@ the normal §4 (patch/minor/major) flow**.
 
 ## 5. Release & deployment
 - Releases are built from a tagged commit with pinned dependencies (reproducible build).
+- `build.yml` refuses a release tag whose commit is not on `main` ([`scripts/check-release-on-main.sh`](../../scripts/check-release-on-main.sh), with `main`'s whole history), deploys each image by the digest its build pushed (`…@sha256:…`), not by a tag, and attaches the release's CycloneDX SBOMs, with their SHA-256 sums, to the GitHub release ([`RELEASING.md`](../../RELEASING.md)).
 - The **release verification checklist** (TF-09 §6) must be complete and signed.
 - Deployment to the clinical environment is controlled; the running version is served at `/api/version` and shown in the app footer (§2). A clinical build sets `COGA_PROBLEM_REPORT_URL`, so that **Report a problem** opens the CMGGMC route ([TF-15 §7](TF-15-instructions-for-use.md)).
 - Rollback: the prior tagged release is retained. Each signed version's frozen record stays in the database and can be downloaded.

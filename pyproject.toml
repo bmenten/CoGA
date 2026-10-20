@@ -38,6 +38,7 @@ files = [
     "backend/app/services/clinical_audit_service.py",
     "backend/app/services/cnv_acmg_points.py",
     "backend/app/services/compound_het_phase.py",
+    "backend/app/services/coverage_content.py",
     "backend/app/services/coverage_read_depth.py",
     "backend/app/services/family_identifiers.py",
     "backend/app/services/family_variant_filters.py",
@@ -48,14 +49,21 @@ files = [
     "backend/app/services/mitochondrial_analysis.py",
     "backend/app/services/monarch_semsim.py",
     "backend/app/services/nipt_analysis.py",
+    "backend/app/services/nipt_quality_checks.py",
     "backend/app/services/nipt_service.py",
     "backend/app/services/nipt_target_coverage.py",
     "backend/app/services/nipt_triage.py",
+    "backend/app/services/panel_use_audit.py",
+    "backend/app/services/pgt_analysis.py",
+    "backend/app/services/pgt_embryo_calls.py",
     "backend/app/services/qc_threshold_service.py",
+    "backend/app/services/report_code.py",
     "backend/app/services/report_signout_service.py",
     "backend/app/services/review_pg_utils.py",
     "backend/app/services/sample_integrity_qc.py",
     "backend/app/services/sample_integrity_service.py",
+    "backend/app/services/signed_record_nipt.py",
+    "backend/app/services/signed_record_sections.py",
     "backend/app/services/structural_variant_evidence.py",
     "backend/app/services/sv_copy_change.py",
     "backend/app/services/sv_gene_index_service.py",
@@ -86,3 +94,10 @@ markers = [
 [tool.coverage.run]
 relative_files = true
 concurrency = ["greenlet", "thread"]
+
+# Alembic's command line, for writing a Postgres schema revision from the repository root:
+# `alembic revision --rev-id <next number> -m "<what it changes>"` (docs/database.md, "Schema
+# migrations"). The revisions run only through CoGA's migration step
+# (backend/app/core/postgres_migrations.py); `alembic upgrade` stops in env.py.
+[tool.alembic]
+script_location = "%(here)s/backend/db/migrations"

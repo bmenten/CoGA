@@ -3,9 +3,11 @@ search.
 
 ### Recording phenotypes
 
-HPO terms are kept per person. An administrator adds them: click the person's sample name on the family
-page, and under **HPO Phenotypes** search a term, choose *present*, *absent* or *unknown*, and press
-**Add phenotype**. Only *present* terms are used for matching.
+HPO terms are kept per person. An analyst of the family's project or an administrator adds them: click
+the person's sample name on the family page, and under **HPO Phenotypes** search a term, choose
+*present*, *absent* or *unknown*, and press **Add phenotype**; **Remove** takes one off. Only *present*
+terms are used for matching. Each term added, changed or removed is an entry on the family's
+**Classification audit trail**. A reader sees the terms but cannot change them.
 
 ### Gene panels
 
@@ -13,7 +15,10 @@ The **Panel catalog** holds reusable gene lists; administrators create them or i
 PanelApp. Choose a panel in the **Locations** filter of the small-variant or structural-variant page to
 limit a search to its genes. The **Mendeliome** — every gene that Monarch says causes a disease or is
 associated with one — is the default scope of both pages. A gene Monarch links to a disease only as
-contributing to it or raising its likelihood is not in it.
+contributing to it or raising its likelihood is not in it. On the small-variant page and in the Variant
+Explorer a panel keeps the variants annotated with one of its genes and those inside one of its regions
+(PanelApp's regions for the assembly, and each gene's position in the gene reference), whatever its size:
+the Mendeliome too keeps a variant inside one of its genes whose annotation names another gene.
 
 ### Phenotype matching
 

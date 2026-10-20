@@ -1,7 +1,7 @@
 """Users, sign-in and sign-up."""
 
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr, Field
 
@@ -36,14 +36,26 @@ class UserRead(BaseModel):
     first_name: Optional[str] = None
     last_name: Optional[str] = None
     affiliation: Optional[str] = None
+    # How the account signs in (SEC-4): with Microsoft, bound to its object ID in the
+    # directory, or with a local password.
+    sign_in: Literal["microsoft", "password"] = "password"
     is_active: bool
     role: str
+    # The projects the user is a member of, and those among them where they are a reader
+    # (SEC-1); in the others they are an analyst.
     projects: List[str] = Field(default_factory=list)
+    reader_projects: List[str] = Field(default_factory=list)
     created_at: datetime
+
+
+# The global roles (the CHECK on users.role): a viewer sees the records of their projects; an
+# admin or a superuser, every record, and the administration.
+UserRole = Literal["viewer", "superuser", "admin"]
 
 
 class UserUpdate(BaseModel):
     is_active: Optional[bool] = None
+    role: Optional[UserRole] = None
     projects: Optional[List[str]] = None
 
 
@@ -51,6 +63,21 @@ class Token(BaseModel):
     access_token: str
     token_type: str = "bearer"
     role: str
+
+
+class MicrosoftSignInOut(BaseModel):
+    """What the browser needs to sign a user in with Microsoft (MSAL): none of it is secret."""
+
+    client_id: str
+    authority: str
+    api_scope: str
+
+
+class SignInConfigOut(BaseModel):
+    """How users sign in: with Microsoft when ``microsoft`` is given, else with a password
+    (and then a new user signs up)."""
+
+    microsoft: Optional[MicrosoftSignInOut] = None
 
 
 class SignupAck(BaseModel):

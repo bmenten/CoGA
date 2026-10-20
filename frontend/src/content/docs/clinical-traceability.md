@@ -7,8 +7,8 @@ can never change.
 
 **Sign-out is the analyst's analytical sign-off, not the medical one.** It closes the analysis and
 freezes it. The clinical report is drafted and medically signed in the hospital's electronic patient
-record (EPD), outside CoGA, and refers to exactly one signed version of the analysis. CoGA does not see
-the EPD report and does not check that reference.
+record (EPD), outside CoGA, and refers to exactly one signed version of the analysis, by its **report
+code** (below). CoGA does not see the EPD report and does not check that reference.
 
 How to prepare and sign out a report is in the [user guide](/docs), section *Clinical report and
 sign-out*. This page holds the rules.
@@ -39,7 +39,9 @@ Only an admin can replace them, through the API, and the replacement is written 
 guessed. The footer prints with the report and is part of the signed record.
 
 The footer also names the software: *Software: CoGA X.Y.Z (commit)*, the build that produced the page,
-followed by the in-house IVD statement and the manufacturer. The report asks for the build each time it
+followed by the in-house IVD statement and the manufacturer. Only a release names a release's version: any
+other build adds `dev` to it (*CoGA 0.1.0-dev (commit)*, or *0.1.0-rc.1.dev* after the release
+candidate), so it is never taken for that release. The report asks for the build each time it
 opens. A signed version's footer names two builds: *Signed with*, the build that froze it, and *Rendered
 by*, the build that drew the page from its record. After a CoGA update the two can differ.
 
@@ -47,8 +49,13 @@ by*, the build that drew the page from its record. After a CoGA update the two c
 
 When you save a classification, CoGA freezes the evidence it rests on:
 
-- **ACMG classify** (a small variant): a fingerprint of the variant's annotation and its ClinVar
-  significance at that moment;
+- **ACMG classify** (a small variant): a fingerprint of the variant's annotation, its ClinVar
+  significance, its consequence, impact and LoF call (LOFTEE), and the population frequencies and
+  in-silico scores the dialog read — the gnomAD frequencies (overall, exomes, genomes, popmax), the
+  TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts, CADD, REVEL, SpliceAI,
+  SIFT, PolyPhen and AlphaMissense — taken from the variant's primary transcript, as the dialog
+  shows them, and, for a missense variant, the gnomAD missense Z of its gene, from the gene's
+  profile, which PP2 reads (PP2 reads it for no other variant, so none is frozen for one);
 - **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
   event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
   position, a fingerprint of its annotation, and the annotation versions its genes came from. The
@@ -61,8 +68,20 @@ When you open the report, each frozen classification is compared with the curren
 banner lists every classification whose evidence changed:
 
 - the ClinVar significance changed (for example *ClinVar Uncertain significance → Pathogenic*);
+- a frozen consequence, LoF call, frequency or in-silico score, or a missense variant's gene
+  missense Z, changed, or a value missing then is there now: each is named with its value then and
+  now (for example *REVEL 0.412 → 0.951*, *gnomAD AF 3.10e-5 → 0.012*, *LoF LC → HC* or *gnomAD
+  missense Z 2.95 → 3.52*), and so is a change of the primary transcript they are read from. The
+  missense Z can change when the gene profiles are refreshed, without any change to the variant's
+  annotation; such a refresh never prompts a re-review of a classification of any other variant
+  (a stop gained, for example). A missense variant no longer called one shows its missense Z as
+  gone (*gnomAD missense Z 2.95 → n/a*), beside its new consequence;
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
-  (*annotation set changed*);
+  (*annotation set changed*). A classification saved before CoGA froze the frequencies and
+  in-silico scores is compared on its fingerprint and ClinVar significance alone, so its banner
+  line does not say which value moved. One saved before CoGA froze the consequence and the
+  missense Z is compared on the values it froze: a change of its consequence shows only as a
+  changed annotation, and a change of the gene's missense Z alone does not show;
 - for a structural variant, what moved in the row of the caller its evidence was frozen from: for
   example *genes TCF4, TXNL1 → TCF4* or *pLI 0.990 → 0.410*, and likewise its inheritance, type or
   position. It says *annotation changed* when only its other annotation changed, and *its frozen
@@ -82,7 +101,8 @@ and needs an acknowledgement (see *The sign-out checks*).
 
 The **Classification audit trail** lists, most recent first, every clinical action on the family's
 small variants, structural variants and CNVs: who classified, tagged or annotated which variant, when,
-and what changed (before → after), including each sign-out and each replacement of the pipeline versions. A change to
+and what changed (before → after), including each sign-out, each replacement of the pipeline versions
+and each change to the family's phenotypes (an HPO term added, changed or removed). A change to
 the criteria behind a class is listed too, even when the class stays the same: a criterion accepted or
 rejected, its strength (for a CNV, its points) or its evidence changed, a suggestion that appeared or
 went. Clearing a review is listed too.
@@ -92,12 +112,21 @@ went. Clearing a review is listed too.
 - *CNV classification VUS - class 3 → Pathogenic - class 5*
 - *Tags added report*
 - *Annotation manifest replaced (was vcf_header, now manual): VEP 110 → 112*
-- *Report signed out (v2) — 3 reported variant(s)*
+- *Phenotype changed for S1: HP:0001250 Seizure: status present → absent*
+- *Gene panel Epilepsy version 2 (PanelApp panel 402, version 3.1) first applied to the small-variant search*
+- *Report signed out (v2, report code 7KQM2X-2-4PHT) — 3 reported variant(s)*
+
+A search of the family that applies a gene panel (the small-variant and structural-variant lists and
+their exports, the NIPT variants and coverage) writes the panel to the trail the first time it applies
+that version of the panel: its name, local version and, for a PanelApp panel, PanelApp's version of it.
+Applying the same version again writes nothing; a new version of the panel is written again. A panel
+applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
 This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
-separate. Changes to the pedigree, the family members or their phenotypes, and the review of a
-compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them.
+separate. Changes to the pedigree or the family members, and the review of a
+compound-heterozygous pair, are not in this trail; **Admin → Audit Logs** records them. The trail is
+for analysts and administrators: a reader of the family's project does not see it.
 
 The trail opens on its 200 most recent entries. When it holds more, it says how many it shows
 (*Showing the 200 most recent of 450 events; the older ones are not shown.*), and **Show older
@@ -118,9 +147,54 @@ the clinical report in the EPD refers to:
 - the drift state, the Sample QC verdict, and the sequencing-QC verdicts with the cut-offs they were
   judged against;
 - whether the family's data imported completely, and if not, which datasets failed;
+- what the analysis looked at: each reported variant's **description** as you reviewed it (gene,
+  transcript, HGVS c. and p., consequence and each sample's genotype; for a structural variant its type,
+  copy change, position, genes and each sample's genotype and copy number), the **gene panels** the
+  family's searches applied (each version, with PanelApp's version of a PanelApp panel), the
+  **reference-data releases** (the gene reference for the reported genes and the clinical CNV
+  knowledgebase), and the family's **repeat expansions** (TRGT) and **Paraphase** results, each with
+  its status as CoGA reads it at sign-out and the catalogue behind it;
+- in a PGT family, the **embryo calls** at the region of interest, the calls the family page shows: the
+  ROI, the inheritance model, the disease haplotype, and for each embryo its call, the haplotypes it
+  inherited at the ROI, its warnings (missing data, an unrecorded sex, a recombination or a parent's
+  phase correction near the ROI), its QC at the ROI (informative sites and Mendelian error rate), and
+  the haplotype file the calls were read from;
+- for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out: the
+  fetal fraction, the quality checks with their verdicts (paternity, the fetal sex from both signals,
+  the maternal plasma sample), the coverage of the capture targets, the category counts and the
+  filter funnel, each variant tagged *report* as the NIPT analysis classifies it (its category, the
+  reads behind it, the chance the fetus inherited it and, for a de novo candidate, its priority), the
+  recessive fetal risk of the reported variants' genes, and what the analysis ran with (the coverage
+  tables, the artifact list and the model);
+- a sentence that says what the record is (the analytical sign-off, referred to by the EPD);
 - the CoGA software version that produced it.
 
-A signed version can never change; any later tampering would show as a fingerprint mismatch.
+A signed version can never change; any later tampering would show as a fingerprint mismatch. A part
+that could not be read while the version was frozen is recorded as not captured, never as empty.
+
+A monogenic NIPT family is signed out from the NIPT page as well (**Sign out NIPT analysis**): the
+same sign-out, with the same checks and report code, into the family's one signed record. Where you
+sign out from makes no difference to what is frozen. The NIPT page names the latest signed version
+with its report code and says whether the family's data still matches it. The NIPT report is live,
+like the live family report: it says so on screen, and every printout of it starts with *Draft* or
+*Not the signed report*.
+
+### The report code
+
+Each signed version has a **report code**, for example `7KQM2X-2-4PHT`: six characters that every
+version of the family's record shares, the version number, and four characters tied to the signed
+content. Quote it in the EPD report. A code is unique, and its last character is a check: a mistyped
+character or two swapped neighbours is refused as a typo, never taken for another record's code. Upper
+or lower case and the hyphens do not matter, and an I or L reads as 1, an O as 0.
+
+The code is on the signed version, on screen and in print (top card and footer), on the live report
+next to the latest signed version, and in the audit trail entry of the sign-out. Straight after you sign
+out, the page confirms *Signed out as version N. Report code …*.
+
+To find a signed record from its code, open **Report codes** in the main menu (the arrow at the right of
+the header), enter the code, and open the signed version it names. The EPD can link to
+`/report-codes/<code>` directly. A code that no record you can open has gives the same answer whether
+no record has it or it belongs to a family outside your projects.
 
 ### The sign-out checks
 
@@ -131,7 +205,7 @@ Sign-out stops at each of these, in this order:
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
 | **Data being written** | A data import of the family is queued or running, or its data are being written (an upload, or a deletion of its variants). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
-| **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
+| **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). For a NIPT family, also a NIPT quality check that failed: no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA given as the maternal plasma. | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
@@ -158,14 +232,15 @@ If a data import fails for some datasets and leaves the family partly loaded, Co
 load and marks the family as incomplete. Every family page, the reports included, then shows
 *Import incomplete*: the datasets that failed and those that did import, when, and the import job
 whose record holds each dataset's error. The warning prints with the report, and with the NIPT
-report, which has no sign-out to stop on it.
+report, a live report that prints without a sign-out to stop on it.
 
 Results on such a family can lack whole datasets, for example all its structural variants. Import
 the datasets that failed again to complete the family: the warning goes once each has been imported
 again, and an import without them leaves it. A family small-variant upload that fails after it has
 deleted the calls it replaced marks the family the same way, for those calls and with no import job;
 uploading them again, or importing them, removes the warning. If a later import fails too, the warning names both,
-each with its import job. A failed overwrite is put back as it was before the import; if that fails
+each with its import job; a dataset that fails again for another callset or other samples stays named until
+each has been imported again. A failed overwrite is put back as it was before the import; if that fails
 too, any dataset of the family may have lost data, whichever import or upload it came from, so the
 warning names every dataset of that import as failed, the ones that imported too, and every dataset
 the family holds as possibly partly written or missing. It stays until the whole family has been
@@ -179,10 +254,19 @@ or ran out of memory), the mark stays: the warning names the import job and the 
 finished, which may be partly written. Re-import those with **overwrite**: an update skips data that
 is already there, partly written data too, so only an overwrite removes the warning.
 
+A single upload of small variants, structural variants or a track marks the family the same way
+before it first writes to the variant store, and removes the mark when it has finished. If the server
+stops in the middle of it, or it fails and cannot put back what it had deleted, the warning names "a
+single-file upload" and what may be partly written or missing; so does the refusal at sign-out, and
+a version signed over it records the upload. An administrator's deletion of a sample's structural
+variants that cannot put the family's other calls back marks it too ("a deletion of a sample's data").
+Upload again, or import again, with **overwrite** what the warning names: each part goes as it is
+brought again.
+
 ### Who may sign out
 
-Only people the laboratory has authorised to sign out an analysis. CoGA lets any member of the project
-press **Sign out report** and does not check that authority itself. It records who signed each version,
+Only people the laboratory has authorised to sign out an analysis. CoGA lets any analyst of the
+family's project press **Sign out report** (a reader cannot) and does not check that authority itself. It records who signed each version,
 in the signed record and in the audit trail. The medical sign-off of the clinical report is given in
 the EPD, under its own signing rights.
 
@@ -202,25 +286,40 @@ The report page has two views. Only the signed version is the signed report.
 
 A case that has been signed out opens on its **latest signed version**. The page is drawn from the
 frozen record alone; nothing on it is read from the family's current data. Its top card says *Signed
-version 2 — signed out by … on …*, with the fingerprint (content hash), the build that signed it, and
-whether the stored record still matches its fingerprint.
+version 2 — signed out by … on …*, with the report code, the sentence that says what the record is,
+the fingerprint (content hash), the build that signed it, and whether the stored record still matches
+its fingerprint.
 
 It shows what the record holds:
 
-- each reported small variant, named by its variant ID, with its classification and points, the
-  accepted ACMG criteria and their evidence, the evidence frozen when it was classified (the ClinVar
-  significance and the annotation version), its tags and its note;
-- each reported structural variant or CNV, with its classification and ClinGen CNV criteria;
+- each reported small variant, named by its variant ID, with its description as you reviewed it, its
+  classification and points, the accepted ACMG criteria and their evidence, the evidence frozen when it
+  was classified (the ClinVar significance and the annotation version and, for a classification saved
+  since CoGA froze them, the consequence, impact and LoF call, the population frequencies and in-silico
+  scores as they were then, read from its primary transcript, and, for a missense variant, the gnomAD
+  missense Z of its gene), its tags and its note;
+- each reported structural variant or CNV, with its description, classification and ClinGen CNV
+  criteria;
+- in a PGT family, the embryo calls (*PGT embryo results*): each embryo's call at the ROI, the
+  haplotypes it inherited there as the track names them (P1, P2, M1, M2), its warnings and its QC;
+- the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
+- for a monogenic NIPT family, its **NIPT results**: the fetal fraction and the quality checks with
+  their verdicts, the coverage, the filter funnel and the categories, each reported variant as the NIPT
+  analysis classified it, the recessive fetal risk and what the analysis ran with. A NIPT family's
+  version signed before CoGA froze them says *Not in the signed record*; another family's record has
+  no NIPT results and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
-- the versions it was signed with, in the footer.
+- the versions it was signed with and the reference-data releases, in the footer, with the report code.
 
-The record does not hold the rest of what the live report shows: the variant description (gene, HGVS,
-consequence, genotypes, population frequency, in silico predictions), the segregation and the family's
-members, the gene description, conditions and panels, the phenotype match, the audit trail and the
-pipeline settings. The page says so, once for the report and on each variant, and never fills them in
-from current data. A part the record does not hold is marked *Not in the signed record*, never shown as
-empty.
+The record does not hold the rest of what the live report shows: the population frequency and the in
+silico predictions, the segregation and the family's members, the gene description, conditions and
+panels, the phenotype match, the audit trail and the pipeline settings. The page says so, once for the
+report and on each variant, and never fills them in from current data. A part the record does not hold
+is marked *Not in the signed record*, never shown as empty: a version signed before CoGA recorded the
+variant description, the gene panels, the reference-data releases, the repeat expansions or the
+Paraphase results says so for each (*Not in the signed record: version 2 was signed before CoGA
+recorded …*), and so does a PGT family's version signed before CoGA recorded the embryo calls.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,

@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { CNV_GAIN_CRITERIA, CNV_LOSS_CRITERIA, type CnvCriterionDef } from '../../../lib/cnvAcmg';
 import CnvAcmgClassificationModal from '../CnvAcmgClassificationModal';
+import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type { StructuralVariant, StructuralVariantReviewSavePayload } from '../structuralVariantSearch';
 
 const variant: StructuralVariant = {
@@ -382,5 +383,22 @@ describe('CnvAcmgClassificationModal', () => {
 
     await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }));
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+// SEC-1: a reader in the family's projects sees the scoring but cannot save it.
+describe('CnvAcmgClassificationModal for a reader', () => {
+  it('does not save a reader’s classification and says why', () => {
+    const onSave = vi.fn(async () => undefined);
+    render(
+      <FamilyReadOnlyContext.Provider value>
+        <CnvAcmgClassificationModal variant={variant} onClose={vi.fn()} onSave={onSave} />
+      </FamilyReadOnlyContext.Provider>,
+    );
+    const save = screen.getByRole('button', { name: /save classification/i });
+    expect(save).toBeDisabled();
+    fireEvent.click(save);
+    expect(onSave).not.toHaveBeenCalled();
+    expect(screen.getByRole('note')).toHaveTextContent(/you are a reader in this family/);
   });
 });
