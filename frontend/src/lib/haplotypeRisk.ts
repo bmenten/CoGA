@@ -111,7 +111,7 @@ const normalizeRole = (role?: string | null): string =>
     .trim()
     .toLowerCase();
 
-const normalizeSex = (sex?: string | null): 'male' | 'female' | 'unknown' => {
+export const normalizeSex = (sex?: string | null): 'male' | 'female' | 'unknown' => {
   const normalized = String(sex || '')
     .trim()
     .toLowerCase();

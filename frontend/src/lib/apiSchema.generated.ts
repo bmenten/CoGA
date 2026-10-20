@@ -2329,6 +2329,7 @@ export interface PhasedMarkerResponse {
   sites: PhasedSite[];
   truncated: boolean;
   covered: number[] | null;
+  hemizygous_x_ranges: number[][];
 }
 
 export interface PhasedMarkerSample {
@@ -2344,10 +2345,12 @@ export interface PhasedMarkerSample {
  * Computed only for the index couple's own children (the members for whom
  * parent-of-origin is defined). ``informative_sites`` counts sites where both
  * parents and the child carry a valid phased genotype (the joint-informative
- * denominator). ``mendel_errors`` counts the subset of those sites whose child
- * genotype is impossible given the parents' alleles — a true Mendelian
- * inconsistency (likely sample swap / wrong pedigree), NOT mere parent-of-origin
- * ambiguity. ``mendel_rate`` = mendel_errors / informative_sites (0 when none).
+ * denominator); for a son on chrX outside the PARs, whose one X is his mother's,
+ * the sites where she and he have a genotype. ``mendel_errors`` counts the subset
+ * of those sites whose child genotype is impossible given the parents' alleles — a
+ * true Mendelian inconsistency (likely sample swap / wrong pedigree), NOT mere
+ * parent-of-origin ambiguity. ``mendel_rate`` = mendel_errors / informative_sites
+ * (0 when none).
  */
 export interface PhasedSampleQc {
   informative_sites: number;

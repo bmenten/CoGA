@@ -72,10 +72,12 @@ class PhasedSampleQc(BaseModel):
     Computed only for the index couple's own children (the members for whom
     parent-of-origin is defined). ``informative_sites`` counts sites where both
     parents and the child carry a valid phased genotype (the joint-informative
-    denominator). ``mendel_errors`` counts the subset of those sites whose child
-    genotype is impossible given the parents' alleles — a true Mendelian
-    inconsistency (likely sample swap / wrong pedigree), NOT mere parent-of-origin
-    ambiguity. ``mendel_rate`` = mendel_errors / informative_sites (0 when none)."""
+    denominator); for a son on chrX outside the PARs, whose one X is his mother's,
+    the sites where she and he have a genotype. ``mendel_errors`` counts the subset
+    of those sites whose child genotype is impossible given the parents' alleles — a
+    true Mendelian inconsistency (likely sample swap / wrong pedigree), NOT mere
+    parent-of-origin ambiguity. ``mendel_rate`` = mendel_errors / informative_sites
+    (0 when none)."""
 
     informative_sites: int = 0
     mendel_errors: int = 0
@@ -123,6 +125,12 @@ class PhasedMarkerResponse(BaseModel):
     # prompt the user to zoom in. Blocks remain fully renderable.
     truncated: bool = False
     covered: Optional[List[int]] = None
+    # The parts of the window on chrX outside the pseudo-autosomal regions of the family's
+    # assembly, as [first, last] positions (inclusive): there a male has one X, and the
+    # per-child QC reads a member recorded as male as one copy. The ROI marker review checks
+    # its sites by the same rule. Empty off chrX, inside a PAR, and on an assembly whose PAR
+    # bounds are not known, where every member is read as two copies.
+    hemizygous_x_ranges: List[List[int]] = Field(default_factory=list)
 
 
 class SignalTrackManifestEntryOut(BaseModel):

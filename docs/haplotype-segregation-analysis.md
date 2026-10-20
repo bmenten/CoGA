@@ -107,7 +107,7 @@ ROI*):
 
 | Constant | Value | Role |
 | --- | --- | --- |
-| `MIN_INFORMATIVE_SITES` | 50 | sites at the ROI where both parents and the embryo are genotyped; fewer is a warning (1 / `MAX_MENDEL_RATE`: with fewer, one Mendelian error is above the maximum rate) |
+| `MIN_INFORMATIVE_SITES` | 50 | sites at the ROI where both parents and the embryo are genotyped (a son on chrX outside the PARs: his mother and he); fewer is a warning (1 / `MAX_MENDEL_RATE`: with fewer, one Mendelian error is above the maximum rate) |
 | `MAX_MENDEL_RATE` | 0.02 | a Mendelian error rate at the ROI above it is a warning (the Sample QC's warning rate, and the haplotype track's) |
 | `MIN_MARKERS_PER_SIDE` | 6 | sites where the homolog inherited from a parent is read, on each side the call reads (`pgt_embryo_calls.call_sides`); fewer is a warning (ESHRE PGT Consortium 2020: six informative SNPs on each side of the locus for markers-only testing) |
 
@@ -129,7 +129,17 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   (member, structure and region-of-interest edits) and `routers/ped.py`.
 - **Raw phased markers and per-child QC** — `backend/app/services/phased_marker_service.py`
   (`compute_phased_markers`: per-site lane values for the couple's children, trio and single-parent
-  modes, the informative-site count and Mendel-error rate, the fetch cap).
+  modes, the informative-site count and Mendel-error rate, the fetch cap). On chrX outside the PARs
+  of the family's assembly (`is_one_copy_x_site`, from `sex_chromosomes.hemizygous_chromosome`) a
+  member recorded as male is read as one copy: a call of one allele (`1`) or of one allele twice
+  (`1|1`) is `(1, 1)`, a call of two different alleles is no genotype he can have. A son is counted
+  against his mother alone (his father, or a donor, passes him a Y; with no known mother he is not
+  counted), and his call of two different alleles is a Mendelian error; a daughter is counted against
+  her father's one X and her mother's two; a father's call of two different alleles is read as no
+  call. A member whose sex is not recorded, and every member on an assembly whose PAR bounds the
+  table does not hold (T2T-CHM13), is read as two copies. The response serves the window's one-copy
+  ranges (`hemizygous_x_ranges`), and the ROI marker review (`FamilyRoiMarkersPage.tsx`) shades its
+  Mendelian errors by the same rule (CLIN-60).
 - **Disease haplotype and embryo call** — the backend makes the embryo calls:
   `backend/app/services/pgt_embryo_calls.py` (`infer_disease_haplotypes`; `assess_member`, the call
   and, when it is uninformative or depends on the sex, why; `call_embryos`, each embryo's call with
@@ -164,19 +174,11 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   them, via `FamilyMetadataContext.phase_corrections`. The precompute fingerprint includes them.
 - **One copy in males** — `bed_service._mark_hemizygous_blocks` marks each block `hemizygous_in_males`
   with `sex_chromosomes.hemizygous_interval`, the PAR table the variant queries use; `haplotypeRisk.ts`
-  reads a male on one lane only on such blocks, so in a PAR he is read on both.
+  reads a male on one lane only on such blocks, so in a PAR he is read on both. The per-child QC reads
+  the same table site by site (`phased_marker_service.is_one_copy_x_site`).
 
 ## Known issues
 
 - **Behaviour to know:** when the ROI is not on the chromosome shown (or there is none), the chromosome
   view assesses the risk over the visible window (`defaultHaplotypeRiskRegion`); the genome overview
   and the family page need the ROI.
-- **chrX in the per-child QC:** `compute_phased_markers` reads every member as having two copies on
-  every chromosome, chrX outside the PARs too. A man's one-copy call written as a single allele is no
-  phased genotype: a site where the father's is one is skipped for every child, and a son's own are
-  skipped, so the counts show no informative sites. Written as two copies, a son's call is a Mendelian
-  error wherever his mother's allele is not his father's, and draws no marker. The ROI marker review
-  shows these counts and the embryo QC verdict (`pgt_embryo_qc.py`) warns on them, so at an X-linked
-  locus a call can carry *⚠ phasing QC* for that reason alone. Reading a father's non-PAR X as one copy
-  and counting a son's against his mother alone, as the single-parent mode counts a child, would fix
-  both.
