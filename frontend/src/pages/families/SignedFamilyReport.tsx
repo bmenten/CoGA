@@ -25,33 +25,162 @@ import {
   useSignedVersionDownload,
 } from './reportSignoutQueries';
 import {
+  ANALYTICAL_SIGN_OFF_STATEMENT,
   describeBreachedMetric,
+  describeCatalogue,
+  describeCnvKnowledgebase,
   describeFrozenEvidenceValues,
+  describeGenePanel,
+  describeGeneReferenceReleases,
+  describeGenotype,
   describeModuleVersions,
+  describeRepeatCall,
+  describeRepeatThresholds,
   describeReportSections,
   describeSignedDrift,
   describeSignedStructuralDrift,
+  describeSmallVariantDescription,
+  describeSmallVariantLocus,
+  describeStructuralVariantDescription,
   formatReportTime,
+  geneReferenceSourceLabel,
+  paraphaseStatusWords,
   parseSignedReport,
   qcStatusLabel,
+  repeatStatusWords,
   reportViewSearch,
   type SignedAcknowledgement,
+  type SignedGenotype,
+  type SignedRecordSection,
   type SignedReport,
   type SignedSmallVariant,
   type SignedStructuralVariant,
+  type SignedVariantDescriptions,
 } from './signedReportRecord';
 
 // What the live report shows around each reported variant and the signed record does not
 // hold. The signed view leaves these out and says so; it never fills them in from live data.
-const NOT_IN_RECORD = [
-  'the variant description: gene, HGVS, consequence, genotypes, population frequency and in silico predictions',
+// A record signed before CoGA froze the variant description lacks that too.
+const notInRecord = (descriptions: boolean): string[] => [
+  descriptions
+    ? 'the population frequency and the in silico predictions the live report shows'
+    : 'the variant description: gene, HGVS, consequence, genotypes, population frequency and in silico predictions',
   'the segregation in the family, and the family’s members',
   'the gene description, its associated conditions and its gene panels',
   'the phenotype (HPO) terms and their overlap with the gene',
   'the classification audit trail and the analysis pipeline settings',
 ];
-const NOT_IN_RECORD_PER_VARIANT =
-  'Not in the signed record: the variant description, segregation, gene and phenotype.';
+const notInRecordPerVariant = (descriptions: boolean): string =>
+  descriptions
+    ? 'Not in the signed record: the segregation, gene and phenotype.'
+    : 'Not in the signed record: the variant description, segregation, gene and phenotype.';
+
+/**
+ * A section of what the analysis looked at, in each of its states: not in a record signed
+ * before CoGA recorded it, not captured when it could not be read, else as `children` renders
+ * it. Every section of signed_record_sections.py is shown through this, so none drops out of
+ * the signed view without a trace.
+ */
+function RecordSectionBlock<T>({
+  title,
+  what,
+  section,
+  version,
+  children,
+}: {
+  title: string;
+  /** What the section holds, in the sentence that says the record lacks it. */
+  what: string;
+  section: SignedRecordSection<T>;
+  version: number;
+  children: (value: T) => React.ReactNode;
+}) {
+  return (
+    <section className="surface-card report-signed-checks">
+      <h2 className="report-audit-heading">{title}</h2>
+      {section.state === 'absent' ? (
+        <p className="report-paragraph">
+          Not in the signed record: version {version} was signed before CoGA recorded {what}.
+        </p>
+      ) : section.state === 'unavailable' ? (
+        <p className="report-paragraph" role="note">
+          Not captured: {what} could not be read when version {version} was signed ({section.reason}).
+        </p>
+      ) : (
+        children(section.value)
+      )}
+    </section>
+  );
+}
+
+const GenotypeList: React.FC<{ genotypes: SignedGenotype[] }> = ({ genotypes }) =>
+  genotypes.length ? (
+    <ul className="report-signed-list">
+      {genotypes.map((genotype, index) => (
+        <li key={`${genotype.sample}-${index}`}>{describeGenotype(genotype)}</li>
+      ))}
+    </ul>
+  ) : (
+    <p className="report-paragraph">No genotypes are recorded for it.</p>
+  );
+
+/** A reported variant's description as reviewed, from the record; or why the record has none. */
+const VariantDescription: React.FC<{
+  variantId: string;
+  kind: 'small' | 'structural';
+  descriptions: SignedRecordSection<SignedVariantDescriptions>;
+  version: number;
+}> = ({ variantId, kind, descriptions, version }) => {
+  if (descriptions.state === 'absent') return null;
+  // One entry per callset or caller that calls the variant: what it is, where, and the
+  // genotypes the analyst saw.
+  const entries =
+    descriptions.state !== 'recorded'
+      ? []
+      : kind === 'small'
+        ? descriptions.value.small
+            .filter((entry) => entry.variantId === variantId)
+            .map((entry) => ({
+              source: entry.source,
+              headline: describeSmallVariantDescription(entry),
+              locus: describeSmallVariantLocus(entry),
+              genotypes: entry.genotypes,
+            }))
+        : descriptions.value.structural
+            .filter((entry) => entry.variantId === variantId)
+            .map((entry) => ({
+              source: entry.source,
+              headline: describeStructuralVariantDescription(entry),
+              locus: null,
+              genotypes: entry.genotypes,
+            }));
+  return (
+    <div className="report-section">
+      <h3 className="report-subheading">Variant description as reviewed</h3>
+      {descriptions.state === 'unavailable' ? (
+        <p className="report-paragraph" role="note">
+          The variant descriptions could not be read when version {version} was signed (
+          {descriptions.reason}).
+        </p>
+      ) : !entries.length ? (
+        <p className="report-paragraph">
+          The record holds no description of this variant: it was not in the family’s data when
+          version {version} was signed.
+        </p>
+      ) : (
+        entries.map((entry, index) => (
+          <div key={`${entry.source ?? 'entry'}-${index}`} className="report-signed-description">
+            <p className="report-paragraph">
+              <strong>{entry.headline}</strong>
+            </p>
+            {entry.locus ? <p className="report-variant-locus">{entry.locus}</p> : null}
+            <GenotypeList genotypes={entry.genotypes} />
+          </div>
+        ))
+      )}
+    </div>
+  );
+};
 
 const plural = (count: number, word: string) => `${count} ${word}${count === 1 ? '' : 's'}`;
 
@@ -83,7 +212,16 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
   }.`;
 };
 
-const SmallVariantCard: React.FC<{ variant: SignedSmallVariant }> = ({ variant }) => (
+type CardContext = {
+  descriptions: SignedRecordSection<SignedVariantDescriptions>;
+  version: number;
+};
+
+const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> = ({
+  variant,
+  descriptions,
+  version,
+}) => (
   <article className="surface-card report-variant">
     <div className="report-variant-head">
       <h2 className="section-title">{variant.variantId ?? 'An entry that cannot be read'}</h2>
@@ -105,6 +243,12 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant }> = ({ variant }
       </p>
     ) : (
       <>
+        <VariantDescription
+          variantId={variant.variantId}
+          kind="small"
+          descriptions={descriptions}
+          version={version}
+        />
         <div className="report-section">
           <h3 className="report-subheading">Classification motivation</h3>
           {variant.criteria.length ? (
@@ -174,13 +318,19 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant }> = ({ variant }
           </div>
         ) : null}
         <p className="report-variant-locus">Tags: {variant.tags.join(', ') || 'none'}</p>
-        <p className="report-signed-absent-line">{NOT_IN_RECORD_PER_VARIANT}</p>
+        <p className="report-signed-absent-line">
+          {notInRecordPerVariant(descriptions.state !== 'absent')}
+        </p>
       </>
     )}
   </article>
 );
 
-const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant }> = ({ variant }) => {
+const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant } & CardContext> = ({
+  variant,
+  descriptions,
+  version,
+}) => {
   const title = variant.variantId ?? variant.variantKey;
   return (
     <article className="surface-card report-variant">
@@ -206,6 +356,14 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant }> = ({
         </p>
       ) : (
         <>
+          {variant.variantId ? (
+            <VariantDescription
+              variantId={variant.variantId}
+              kind="structural"
+              descriptions={descriptions}
+              version={version}
+            />
+          ) : null}
           <div className="report-section">
             <h3 className="report-subheading">Classification motivation</h3>
             {variant.criteria.length ? (
@@ -249,12 +407,201 @@ const StructuralVariantCard: React.FC<{ variant: SignedStructuralVariant }> = ({
             </div>
           ) : null}
           <p className="report-variant-locus">Tags: {variant.tags.join(', ') || 'none'}</p>
-          <p className="report-signed-absent-line">{NOT_IN_RECORD_PER_VARIANT}</p>
+          <p className="report-signed-absent-line">
+            {notInRecordPerVariant(descriptions.state !== 'absent')}
+          </p>
         </>
       )}
     </article>
   );
 };
+
+/** The reference-data releases in one line, beside the modules in the footer. */
+const describeReferenceDataLine = (record: SignedReport | null): string => {
+  const reference = record?.referenceData;
+  if (!reference || reference.state === 'absent') return 'not in the signed record';
+  if (reference.state === 'unavailable') return `not captured (${reference.reason})`;
+  const { geneReference, clinicalCnvs } = reference.value;
+  const genes =
+    geneReference.state === 'recorded'
+      ? `gene reference ${describeGeneReferenceReleases(geneReference.value) ?? 'with no release recorded'}`
+      : geneReference.state === 'unavailable'
+        ? 'gene reference not captured'
+        : 'gene reference not in the record';
+  const cnvs =
+    clinicalCnvs.state === 'recorded'
+      ? `clinical CNV knowledgebase ${describeCnvKnowledgebase(clinicalCnvs.value)}`
+      : clinicalCnvs.state === 'unavailable'
+        ? 'clinical CNV knowledgebase not captured'
+        : 'clinical CNV knowledgebase not in the record';
+  const panelApp =
+    record.genePanels.state === 'recorded'
+      ? record.genePanels.value
+          .filter((panel) => panel.source === 'panelapp')
+          .map((panel) => `${panel.name ?? panel.externalId} ${panel.externalVersion ?? 'version not stated'}`)
+      : [];
+  return [genes, cnvs, panelApp.length ? `PanelApp ${panelApp.join(', ')}` : null]
+    .filter((part): part is string => Boolean(part))
+    .join('; ');
+};
+
+/**
+ * What the analysis looked at beyond the reported variants, as the record froze it: the gene
+ * panels its searches applied, the repeat expansions and Paraphase results of the family's
+ * samples, and the reference-data releases. A section the record predates says so.
+ */
+const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({ record, version }) => (
+  <>
+    <RecordSectionBlock
+      title="Gene panels applied"
+      what="the gene panels the analysis applied"
+      section={record.genePanels}
+      version={version}
+    >
+      {(panels) =>
+        panels.length ? (
+          <>
+            <p className="report-paragraph">
+              The family’s searches applied {panels.length === 1 ? 'this gene-panel version' : 'these gene-panel versions'}:
+            </p>
+            <ul className="report-signed-list">
+              {panels.map((panel, index) => (
+                <li key={`${panel.panelId ?? 'panel'}-${panel.version ?? index}-${panel.externalVersion ?? ''}`}>
+                  {describeGenePanel(panel)}
+                </li>
+              ))}
+            </ul>
+          </>
+        ) : (
+          <p className="report-paragraph">No search of the family applied a gene panel.</p>
+        )
+      }
+    </RecordSectionBlock>
+
+    <RecordSectionBlock
+      title="Repeat expansions (TRGT)"
+      what="the repeat-expansion calls"
+      section={record.repeatExpansions}
+      version={version}
+    >
+      {(repeats) => (
+        <>
+          <p className="report-paragraph">
+            Each call’s status as CoGA classified it when this version was signed, against the
+            repeat catalogue of {describeCatalogue(repeats.catalogue, 'loci')}.
+          </p>
+          {repeats.loci.length ? (
+            <ul className="report-signed-list">
+              {repeats.loci.map((locus, index) => (
+                <li key={`${locus.locusId ?? 'locus'}-${index}`}>
+                  <strong>
+                    {locus.gene ?? locus.locusId ?? 'A locus'}
+                    {locus.locusId && locus.locusId !== locus.gene ? ` (${locus.locusId})` : ''}
+                  </strong>
+                  {locus.disease ? `, ${locus.disease}` : ''}: {repeatStatusWords(locus.status)} ({describeRepeatThresholds(locus)}
+                  {locus.motif ? `; motif ${locus.motif}` : ''}).{' '}
+                  {locus.calls.map(describeRepeatCall).join('; ')}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="report-paragraph">The family’s samples had no repeat-expansion calls.</p>
+          )}
+        </>
+      )}
+    </RecordSectionBlock>
+
+    <RecordSectionBlock
+      title="Paraphase"
+      what="the Paraphase results"
+      section={record.paraphase}
+      version={version}
+    >
+      {(paraphase) => (
+        <>
+          <p className="report-paragraph">
+            Each result’s status as CoGA read it when this version was signed, by the catalogue of{' '}
+            {describeCatalogue(paraphase.catalogue, 'regions')}.
+          </p>
+          {paraphase.genes.length ? (
+            <ul className="report-signed-list">
+              {paraphase.genes.map((gene, index) => (
+                <li key={`${gene.gene ?? 'gene'}-${index}`}>
+                  <strong>{gene.gene ?? 'A gene'}</strong>
+                  {gene.region ? ` (${gene.region})` : ''}
+                  {gene.statusRule ? ` — ${gene.statusRule}` : ' — no automatic call'}.{' '}
+                  {gene.results
+                    .map(
+                      (result) =>
+                        `${result.sample}: ${paraphaseStatusWords(result.status)}${
+                          result.copyNumber.length
+                            ? ` (${result.copyNumber
+                                .map((metric) => `${metric.label} ${metric.value ?? 'no call'}`)
+                                .join(', ')})`
+                            : ''
+                        }${result.copyNumberSignal ? ', copy-number change' : ''}`,
+                    )
+                    .join('; ') || 'No sample has a result.'}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="report-paragraph">The family’s samples had no Paraphase results.</p>
+          )}
+        </>
+      )}
+    </RecordSectionBlock>
+
+    <RecordSectionBlock
+      title="Reference-data releases"
+      what="the reference-data releases"
+      section={record.referenceData}
+      version={version}
+    >
+      {(reference) => (
+        <ul className="report-signed-list">
+          <li>
+            Gene reference, for the reported variants’ genes:{' '}
+            {reference.geneReference.state === 'recorded' ? (
+              <>
+                {describeGeneReferenceReleases(reference.geneReference.value) ?? 'no release recorded'}
+                {reference.geneReference.value.sources.length ? (
+                  <ul className="report-signed-list">
+                    {reference.geneReference.value.sources.map((source, index) => (
+                      <li key={`${source.source}-${index}`}>
+                        {geneReferenceSourceLabel(source.source)} {source.release ?? '(no release)'}
+                        {source.status ? ` — ${source.status}` : ''}: {source.genes.join(', ')}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {reference.geneReference.value.notInReference.length
+                  ? ` Not in the gene reference: ${reference.geneReference.value.notInReference.join(', ')}.`
+                  : ''}
+              </>
+            ) : reference.geneReference.state === 'unavailable' ? (
+              `not captured (${reference.geneReference.reason})`
+            ) : (
+              'not in the signed record'
+            )}
+          </li>
+          <li>
+            Clinical CNV knowledgebase:{' '}
+            {reference.clinicalCnvs.state === 'recorded'
+              ? describeCnvKnowledgebase(reference.clinicalCnvs.value)
+              : reference.clinicalCnvs.state === 'unavailable'
+                ? `not captured (${reference.clinicalCnvs.reason})`
+                : 'not in the signed record'}
+          </li>
+          <li>
+            PanelApp: each PanelApp panel’s version is listed with the panel, under Gene panels
+            applied.
+          </li>
+        </ul>
+      )}
+    </RecordSectionBlock>
+  </>
+);
 
 /** The checks frozen at sign-out: Sample QC, sequencing QC and the import's completeness. */
 const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
@@ -455,6 +802,10 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
   }
 
   const record = parseSignedReport(detail.snapshot);
+  const reportCode = detail.report_code ?? null;
+  // Straight after the sign-out: the page that signed it says so, with the code (once).
+  const justSigned = (location.state as { signedOut?: { version?: unknown } } | null)?.signedOut;
+  const confirmation = justSigned?.version === version;
   const tampered = detail.verified === false;
   const superseded = latest && latest.version > version ? latest : null;
   const signedWith = detail.software_version
@@ -551,6 +902,21 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
         <p className="report-signout-line">
           Signed version {version} — signed out by <strong>{detail.signed_out_by}</strong> on{' '}
           {formatReportTime(detail.signed_out_at)}
+        </p>
+        {confirmation ? (
+          <p className="report-signout-confirmation no-print" role="status">
+            <strong>Signed out as version {version}.</strong>{' '}
+            {reportCode
+              ? `Report code ${reportCode}: the EPD report refers to this record by it.`
+              : 'This record has no report code.'}
+          </p>
+        ) : null}
+        <p className="report-signout-code">
+          <span className="report-footer-label">Report code</span>{' '}
+          <strong>{reportCode ?? 'none: the record’s fields cannot make one'}</strong>
+        </p>
+        <p className="report-signout-status">
+          {record?.statement ?? ANALYTICAL_SIGN_OFF_STATEMENT}
         </p>
         <p className="report-signout-status">
           This is the record frozen when version {version} was signed. Nothing on this page is read
@@ -689,15 +1055,18 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           <section className="surface-card report-signed-absent" role="note">
             <h2 className="report-audit-heading">Not in the signed record</h2>
             <p className="report-paragraph">
-              The record holds each reported variant’s classification, criteria, tags and note, and
-              the evidence frozen when it was classified. It does not hold the rest of what the live
-              report shows, so this page leaves it out:
+              The record holds each reported variant’s classification, criteria, tags and note
+              {record.variantDescriptions.state !== 'absent'
+                ? ', its description as the analyst reviewed it'
+                : ''}
+              , and the evidence frozen when it was classified. It does not hold the rest of what
+              the live report shows, so this page leaves it out:
             </p>
             <ul className="report-signed-list">
-              {NOT_IN_RECORD.map((item, index) => (
+              {notInRecord(record.variantDescriptions.state !== 'absent').map((item, index, items) => (
                 <li key={item}>
                   {item}
-                  {index === NOT_IN_RECORD.length - 1 ? '.' : ';'}
+                  {index === items.length - 1 ? '.' : ';'}
                 </li>
               ))}
             </ul>
@@ -762,13 +1131,20 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
             </section>
           ) : (
             smallVariants.map((variant, index) => (
-              <SmallVariantCard key={`${variant.variantId ?? 'entry'}-${index}`} variant={variant} />
+              <SmallVariantCard
+                key={`${variant.variantId ?? 'entry'}-${index}`}
+                variant={variant}
+                descriptions={record.variantDescriptions}
+                version={version}
+              />
             ))
           )}
           {(structuralVariants ?? []).map((variant, index) => (
             <StructuralVariantCard
               key={`sv-${variant.variantId ?? variant.variantKey ?? 'entry'}-${index}`}
               variant={variant}
+              descriptions={record.variantDescriptions}
+              version={version}
             />
           ))}
           {smallVariants?.length === 0 && (structuralVariants?.length ?? 0) === 0 ? (
@@ -777,6 +1153,8 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
             </section>
           ) : null}
 
+          <AnalysisSections record={record} version={version} />
+
           <SignedChecks record={record} />
         </>
       )}
@@ -784,6 +1162,7 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
       <footer className="surface-card report-footer">
         <p className="report-footer-timestamp">
           Signed version {version} · signed out {formatReportTime(detail.signed_out_at)}
+          {reportCode ? ` · report code ${reportCode}` : ''}
         </p>
         <p className="report-footer-software">
           <span className="report-footer-label">Signed with:</span>{' '}
@@ -795,6 +1174,10 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           {!record?.modules
             ? 'not in the signed record'
             : (describeModuleVersions(record.modules) ?? 'none recorded')}
+        </p>
+        <p className="report-footer-versions">
+          <span className="report-footer-label">Reference data as signed:</span>{' '}
+          {describeReferenceDataLine(record)}
         </p>
       </footer>
     </div>

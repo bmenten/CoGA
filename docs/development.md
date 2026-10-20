@@ -102,7 +102,8 @@ docker compose down -v   # stop and delete the local Postgres and ClickHouse dat
 ```
 
 After `down -v`, the next start creates an empty database again and re-runs the reference
-bootstrap.
+bootstrap. A Postgres schema change needs no reset: each start brings the local database to
+the current schema, keeping its data ([database.md](database.md#schema-migrations)).
 
 ### Upgrading the ClickHouse image
 
@@ -136,9 +137,12 @@ docker compose exec -T backend printenv | grep -E '^(APP_ENV|POSTGRES_(HOST|PORT
   [database.md](database.md#row-identity), which keep the interval tracks.
 - **"Refusing to use ClickHouse variant tables created by an earlier version"** — an
   assembly's `SNV_INDEL/entries` table lacks the per-call columns `calls.filters` and
-  `calls.metrics`. Reset or recover as above. A Postgres database from before the
-  `target_coverage` track type fails a per-target coverage import on
-  `sample_interval_track_sources_track_type_check`: reset it as well.
+  `calls.metrics`. Reset or recover as above.
+- **"The database is at schema revision …, which this version of CoGA does not have"** — a
+  newer branch migrated your local Postgres. Start that branch again, or reset
+  (`docker compose down -v`). An older local database needs nothing: the next start brings it
+  to the current schema and logs `Postgres schema migrated from revision … to …`
+  ([database.md](database.md#schema-migrations)).
 - **The web app cannot reach the API** — the backend is still starting or keeps restarting;
   read its log.
 - **Families, samples or users look wrong** — that data is in Postgres; look for schema

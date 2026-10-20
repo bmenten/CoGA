@@ -11,24 +11,49 @@
 # cert are stored in Secret Manager and fetched by the VM at boot (so the key is
 # never in instance metadata).
 #
-# Rotation: the cert is long-lived (10y) and re-issued ~30 days before expiry on a
-# subsequent apply; a re-issue requires restarting the VM to refetch. The CA key +
-# server key live in Terraform state — keep the state bucket private + CMEK.
+# Neither private key enters the Terraform state or plan. Both are ephemeral: every plan and
+# apply generates them afresh and passes them only to write-only arguments, which a resource
+# reads when it is created and never stores. So only the run that issues the certificates
+# uses its keys: the server key goes to Secret Manager with them, and the CA key is kept
+# nowhere, so it can sign nothing after that run. The CA and the server cert are therefore
+# always issued together, in one run:
+#  - raising local.clickhouse_tls_key_version replaces both keys and both certs;
+#  - a new certificate request (the VM's address changed) re-issues the CA too
+#    (replace_triggered_by below) and stores the new server key with it;
+#  - near expiry the CA, issued first, renews first and re-issues the server cert with it,
+#    for the same server key (so both certs keep the same validity and early renewal).
+# Any other change that would re-issue the server cert alone fails the apply, because that
+# run's CA key does not match the CA cert: raise the key version in the same change.
+#
+# A new CA reaches the backend in the same apply (its next revision), but the VM loads a new
+# key and cert only at boot or at its daily refresh, so ClickHouse is unreachable from the
+# backend until then: restart the VM right after such an apply (docs/deployment-gcp.md
+# §12.4).
 
 locals {
   clickhouse_tls_dns = "coga-clickhouse"
+
+  # Raise by one to replace the CA, the server key and both certificates on the next apply.
+  # The keys are never stored, so this number is the only sign that they changed.
+  clickhouse_tls_key_version = 1
 }
 
-resource "tls_private_key" "ca" {
+ephemeral "tls_private_key" "ca" {
   algorithm = "RSA"
   rsa_bits  = 4096
 }
 
+ephemeral "tls_private_key" "clickhouse" {
+  algorithm = "RSA"
+  rsa_bits  = 2048
+}
+
 resource "tls_self_signed_cert" "ca" {
-  private_key_pem       = tls_private_key.ca.private_key_pem
-  is_ca_certificate     = true
-  validity_period_hours = 87600 # 10 years
-  early_renewal_hours   = 720
+  private_key_pem_wo         = ephemeral.tls_private_key.ca.private_key_pem
+  private_key_pem_wo_version = local.clickhouse_tls_key_version
+  is_ca_certificate          = true
+  validity_period_hours      = 87600 # 10 years
+  early_renewal_hours        = 720
 
   subject {
     common_name  = "CoGA ClickHouse CA"
@@ -36,15 +61,16 @@ resource "tls_self_signed_cert" "ca" {
   }
 
   allowed_uses = ["cert_signing", "crl_signing", "digital_signature"]
-}
 
-resource "tls_private_key" "clickhouse" {
-  algorithm = "RSA"
-  rsa_bits  = 2048
+  lifecycle {
+    # The server cert can only be signed in the run that creates the CA (above).
+    replace_triggered_by = [tls_cert_request.clickhouse]
+  }
 }
 
 resource "tls_cert_request" "clickhouse" {
-  private_key_pem = tls_private_key.clickhouse.private_key_pem
+  private_key_pem_wo         = ephemeral.tls_private_key.clickhouse.private_key_pem
+  private_key_pem_wo_version = local.clickhouse_tls_key_version
 
   subject {
     common_name  = local.clickhouse_tls_dns
@@ -56,9 +82,10 @@ resource "tls_cert_request" "clickhouse" {
 }
 
 resource "tls_locally_signed_cert" "clickhouse" {
-  cert_request_pem   = tls_cert_request.clickhouse.cert_request_pem
-  ca_private_key_pem = tls_private_key.ca.private_key_pem
-  ca_cert_pem        = tls_self_signed_cert.ca.cert_pem
+  cert_request_pem              = tls_cert_request.clickhouse.cert_request_pem
+  ca_private_key_pem_wo         = ephemeral.tls_private_key.ca.private_key_pem
+  ca_private_key_pem_wo_version = local.clickhouse_tls_key_version
+  ca_cert_pem                   = tls_self_signed_cert.ca.cert_pem
 
   validity_period_hours = 87600 # 10 years
   early_renewal_hours   = 720
@@ -82,9 +109,16 @@ resource "google_secret_manager_secret" "clickhouse_tls" {
   }
 }
 
+# Write-only: Secret Manager holds the key, the state does not.
 resource "google_secret_manager_secret_version" "clickhouse_tls_key" {
-  secret      = google_secret_manager_secret.clickhouse_tls["key"].id
-  secret_data = tls_private_key.clickhouse.private_key_pem
+  secret                 = google_secret_manager_secret.clickhouse_tls["key"].id
+  secret_data_wo         = ephemeral.tls_private_key.clickhouse.private_key_pem
+  secret_data_wo_version = tostring(local.clickhouse_tls_key_version)
+
+  lifecycle {
+    # A new certificate request was made with this run's server key: store that key.
+    replace_triggered_by = [tls_cert_request.clickhouse]
+  }
 }
 
 resource "google_secret_manager_secret_version" "clickhouse_tls_cert" {

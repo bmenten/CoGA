@@ -103,6 +103,10 @@ describe('Layout main menu', () => {
       '/cnv-explorer',
     );
     expect(within(nav).getByRole('link', { name: 'Panels' })).toHaveAttribute('href', '/panels');
+    expect(within(nav).getByRole('link', { name: 'Report codes' })).toHaveAttribute(
+      'href',
+      '/report-codes',
+    );
     expect(within(nav).getByRole('link', { name: 'User guide' })).toHaveAttribute('href', '/docs');
     // Not an admin: no way into the admin pages from the menu.
     expect(within(nav).queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument();
