@@ -10,10 +10,12 @@ annotation/reference versions (the manifest), the reported variant list, each
 classification with its frozen evidence snapshot, and the evidence-drift state at the
 moment of sign-out; and what the analysis looked at (``signed_record_sections``): each
 reported variant's description, the gene-panel versions its searches applied, the
-reference-data releases, the family's repeat-expansion and Paraphase results, and in a PGT
-family each embryo's call at the region of interest. The snapshot is content-hashed
-(SHA-256) and written append-only into ``report_signouts`` as a new version; the sign-out is
-recorded in the immutable clinical audit trail.
+reference-data releases, the family's repeat-expansion and Paraphase results, in a PGT
+family each embryo's call at the region of interest, and in a monogenic NIPT family its NIPT
+results (``signed_record_nipt``): a NIPT analysis is signed out through this same sign-out,
+from the NIPT page or the report page. The snapshot is content-hashed (SHA-256) and written
+append-only into ``report_signouts`` as a new version; the sign-out is recorded in the
+immutable clinical audit trail.
 
 Sign-out is gated on evidence drift: if any classification's backing annotation has
 changed since it was made — a small variant's ACMG classification, or a structural
@@ -62,7 +64,9 @@ from .report_code import (
     parse_report_code,
     report_code,
 )
+from .signed_record_nipt import nipt_signout_concerns
 from .signed_record_sections import (
+    NIPT_RESULTS,
     RECORD_SECTIONS,
     build_record_sections,
     record_section_gaps,
@@ -220,9 +224,9 @@ def _named(subject: str | None, message: str) -> str:
     return f"{subject}: {message}"
 
 
-def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
+def _qc_failure_summary(qc: dict[str, Any], nipt_failed: list[str] | None = None) -> dict[str, Any]:
     """Compact summary of the concerning QC checks, for the 409 acknowledge prompt, each
-    naming its sample, pair or child."""
+    naming its sample, pair or child; then the NIPT quality checks that failed."""
     messages: list[str] = []
     for key, subject in (
         ("sex_checks", _sample_named),
@@ -240,11 +244,23 @@ def _qc_failure_summary(qc: dict[str, Any]) -> dict[str, Any]:
         check = qc.get(key)
         if check and check.get("status") in ("warn", "fail") and check.get("message"):
             messages.append(_named(subject(check), check["message"]))
+    messages.extend(nipt_failed or [])
     return {
         "overall_status": qc.get("overall_status"),
         "application_label": qc.get("application_label"),
         "messages": messages,
     }
+
+
+def _nipt_failed_checks(snapshot: Mapping[str, Any]) -> list[str]:
+    """The NIPT quality checks of a NIPT family's record that failed (no fetal-fraction
+    estimate, fetal-sex signals that disagree, male DNA given as the maternal plasma), each as
+    the gate lists it. A NIPT family is signed out with its NIPT results, and a check that
+    failed gates the sign-out like a failed Sample QC check; [] for any other family."""
+    return [
+        _named(subject, message)
+        for subject, message in nipt_signout_concerns(snapshot.get(NIPT_RESULTS.key))
+    ]
 
 
 def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
@@ -358,18 +374,29 @@ def _unverifiable_swap_checks(qc: dict[str, Any]) -> list[str]:
     return reasons
 
 
-def _qc_gate_message(qc_status: str, hard_fail: bool, unverifiable: list[str]) -> str:
+def _qc_gate_message(
+    qc_status: str,
+    hard_fail: bool,
+    unverifiable: list[str],
+    nipt_failed: list[str] | None = None,
+) -> str:
+    nipt_part = (
+        f"A NIPT quality check failed ({'; '.join(nipt_failed)}). " if nipt_failed else ""
+    )
     if hard_fail:
         return (
             f"Sample-integrity QC status is '{qc_status}' (possible sample or pedigree "
-            "swap — TF-06 H4). Resolve it, or acknowledge with a reason to sign out anyway."
+            f"swap — TF-06 H4). {nipt_part}Resolve it, or acknowledge with a reason to sign "
+            "out anyway."
         )
-    return (
-        "A swap-relevant sample-integrity check could not be verified for an asserted "
-        f"pedigree relationship ({'; '.join(unverifiable)}). A sample swap can present as "
-        "missing data rather than a mismatch. Resolve it, or acknowledge with a reason to "
-        "sign out anyway."
-    )
+    if unverifiable:
+        return (
+            "A swap-relevant sample-integrity check could not be verified for an asserted "
+            f"pedigree relationship ({'; '.join(unverifiable)}). A sample swap can present as "
+            f"missing data rather than a mismatch. {nipt_part}Resolve it, or acknowledge with "
+            "a reason to sign out anyway."
+        )
+    return f"{nipt_part}Resolve it, or acknowledge with a reason to sign out anyway."
 
 
 async def _import_incomplete_state(
@@ -935,8 +962,8 @@ async def build_report_snapshot(
     )
     # What the analysis looked at: each reported variant's description, the gene-panel
     # versions its searches applied, the reference-data releases, the family's repeat
-    # expansions and Paraphase results, and a PGT family's embryo calls
-    # (signed_record_sections, one key each).
+    # expansions and Paraphase results, a PGT family's embryo calls and a monogenic NIPT
+    # family's NIPT results (signed_record_sections, one key each).
     sections = await build_record_sections(
         session,
         context=context,
@@ -1160,15 +1187,20 @@ async def sign_out_report(
     # (it never becomes "fail"); gate those unverifiable asserted-pedigree checks too so
     # they cannot sign out silently (#330).
     qc_unverifiable = _unverifiable_swap_checks(sample_qc)
-    qc_blocks = qc_hard_fail or bool(qc_unverifiable)
+    # A NIPT family's NIPT quality checks that failed (signed_record_nipt): its record holds
+    # the NIPT results, and male DNA as the maternal plasma or fetal-sex signals that
+    # disagree are sample-integrity concerns (TF-06 H4) the same acknowledgement covers.
+    nipt_failed = _nipt_failed_checks(snapshot_body)
+    qc_blocks = qc_hard_fail or bool(qc_unverifiable) or bool(nipt_failed)
     if qc_blocks and not acknowledge_qc:
         raise HTTPException(
             status_code=409,
             detail={
                 "gate": "sample_qc",
-                "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable),
-                "qc_summary": _qc_failure_summary(sample_qc),
+                "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable, nipt_failed),
+                "qc_summary": _qc_failure_summary(sample_qc, nipt_failed),
                 "unverifiable_checks": qc_unverifiable,
+                "nipt_failed_checks": nipt_failed,
             },
         )
     qc_reason = (qc_acknowledgement_reason or "").strip()
@@ -1341,6 +1373,8 @@ async def sign_out_report(
             "acknowledged_qc": snapshot["acknowledged_qc"],
             "qc_acknowledgement_reason": snapshot["qc_acknowledgement_reason"],
             "qc_unverifiable": qc_unverifiable,
+            # The NIPT quality checks that failed, which the QC acknowledgement covered.
+            "nipt_failed_checks": nipt_failed,
             # What the family's import left out when it was signed (None: nothing), the
             # imports that stopped part-way ({}: none), and the override of that gate.
             "import_incomplete": import_incomplete,
@@ -1564,14 +1598,15 @@ REPORT_CONTENT_SECTIONS = (
     "import_unfinished",
     # What the analysis looked at (signed_record_sections): the variant descriptions, the
     # gene panels applied, the reference-data releases, the repeat expansions, the
-    # Paraphase results and, in a PGT family, the embryo calls.
+    # Paraphase results and, in a PGT family, the embryo calls, in a monogenic NIPT family,
+    # the NIPT results.
     *(section.key for section in RECORD_SECTIONS),
 )
 # A section a record does not hold (one CoGA adds after it was signed) cannot be compared
-# and is reported as such; a section of one application (the PGT embryo calls) that
-# neither the record nor the family's current data holds is no section of this family and
-# is not named. The record's statement of what it is ("record_statement") is not report
-# content either: it is the same sentence for every record of one build.
+# and is reported as such; a section of one application (the PGT embryo calls, the NIPT
+# results) that neither the record nor the family's current data holds is no section of
+# this family and is not named. The record's statement of what it is ("record_statement")
+# is not report content either: it is the same sentence for every record of one build.
 
 
 def _section_fingerprint(value: Any) -> str:
@@ -1627,8 +1662,8 @@ async def compare_report_with_latest_signout(
     rebuilds the snapshot body and compares it, section by section, with the frozen one. A
     section or reference module the signed record predates is listed in ``not_compared``
     (a module as ``modules.<key>``) rather than reported as changed. A section of one
-    application that neither holds (``pgt_analysis`` of a family without an embryo) is
-    neither compared nor listed.
+    application that neither holds (``pgt_analysis`` of a family without an embryo, ``nipt``
+    of a family that is no monogenic NIPT family) is neither compared nor listed.
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1667,6 +1702,10 @@ async def compare_report_with_latest_signout(
     not_compared: list[str] = []
     for section in REPORT_CONTENT_SECTIONS:
         if section not in signed:
+            # A section CoGA added after the record was signed is not compared. One that
+            # neither holds is another application's (the PGT embryo calls of a family
+            # without an embryo, the NIPT results of a family that is no NIPT family): there
+            # is nothing to compare, and nothing to name.
             if section in current:
                 not_compared.append(section)
             continue

@@ -111,6 +111,10 @@ def test_the_docs_that_describe_the_pin_name_the_shipped_release() -> None:
     [strchive_row] = [line for line in soup_register.splitlines() if line.startswith("| STRchive")]
     assert shortened in strchive_row
     assert "STRCHIVE_PINNED_LOCI_SHA256" in strchive_row
+    # The upstream release the file is (found by comparing the SHA-256 with every published
+    # release's loci file) is named where the pin is described, and moves with it.
+    assert config.STRCHIVE_PINNED_RELEASE in section
+    assert config.STRCHIVE_PINNED_RELEASE in strchive_row
 
 
 def test_the_shipped_file_reads_as_itself() -> None:

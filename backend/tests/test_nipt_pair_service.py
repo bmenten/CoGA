@@ -513,6 +513,9 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
         "indeterminate", "female_no_chrY_signal", "female"
     )
     assert qc.plasma_profile_status == "pass"
+    # The verdicts the page made itself before, from the backend now (nipt_quality_checks),
+    # as the signed record freezes them.
+    assert (qc.fetal_fraction_status, qc.fetal_sex.status) == ("pass", "pass")
     assert qc.de_novo_window is not None and qc.target_coverage is not None
     assert qc.model.reference.startswith("R NIPT-M v0.5.1")
     # chrY at the autosomal level and a low chrX: male DNA, not maternal plasma.
@@ -524,6 +527,8 @@ async def test_the_quality_checks_payload(monkeypatch: pytest.MonkeyPatch) -> No
     male = _qc_out(await get_family_nipt_summary(session=None, family_id="NIPTFAM1", user=None))  # type: ignore[arg-type]
     assert male.plasma_profile_status == "fail"
     assert male.fetal_sex.chry_profile == "male_like_not_maternal_plasma"
+    # Neither signal tells the fetal sex then: a warning.
+    assert (male.fetal_sex.call, male.fetal_sex.status) == ("indeterminate", "warn")
 
 
 @pytest.mark.asyncio
