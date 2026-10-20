@@ -596,10 +596,11 @@ def _download_hpo_ontology_file(
     The bootstrap trusts this file as the phenotype ontology, so it is fetched over TLS
     only, capped in size, must look like an OBO file (an HTML error page would otherwise
     be imported as an empty ontology), and never leaves a partial file behind (#522). It
-    must be the pinned file: its SHA-256 must be ``expected_sha256`` (the vendored file's
-    unless HPO_ONTOLOGY_SHA256 says otherwise), checked before anything is written. Another
-    file, such as a later release, is refused and no file on disk is touched (OPS-6). There
-    is no unchecked download: without a SHA-256 to check against, nothing is requested.
+    must be the pinned file: its SHA-256 must be ``expected_sha256``, by default the vendored
+    file's (``HPO_PINNED_ONTOLOGY_SHA256``, which no setting overrides), checked before
+    anything is written. Another file, such as a later release, is refused and no file on
+    disk is touched (OPS-6). There is no unchecked download: without a SHA-256 to check
+    against, nothing is requested.
     """
     if urlparse(url).scheme.lower() != "https":
         raise RuntimeError(f"Refusing to download the HPO ontology over a non-HTTPS URL: {url}")
@@ -607,7 +608,7 @@ def _download_hpo_ontology_file(
     if not _SHA256_HEX_PATTERN.fullmatch(pinned):
         raise RuntimeError(
             "Refusing to download the HPO ontology without a pinned SHA-256 to check it against "
-            "(HPO_ONTOLOGY_SHA256 must be 64 hexadecimal characters)"
+            "(the pin must be 64 hexadecimal characters)"
         )
     request = Request(url, headers={"User-Agent": "CoGA-HPO-bootstrap/1.0"})
     try:
@@ -621,7 +622,7 @@ def _download_hpo_ontology_file(
     if digest != pinned:
         raise HpoOntologyChecksumMismatch(
             f"Refused the HPO ontology downloaded from {url}: its SHA-256 is {digest}, not the "
-            f"pinned {pinned} (HPO_ONTOLOGY_SHA256). Nothing was written."
+            f"pinned {pinned}. Nothing was written."
         )
     logger.info(
         "Downloaded the HPO ontology from %s (%d bytes, sha256 %s, the pinned digest)",
@@ -655,10 +656,17 @@ async def ensure_hpo_ontology_on_startup(
     session: AsyncSession,
     *,
     ontology_path: str | Path | None = None,
-    ontology_url: str = HPO_PINNED_ONTOLOGY_URL,
     download_if_missing: bool = True,
     enabled: bool = True,
 ) -> dict[str, Any] | None:
+    """Import the HPO ontology when no terms are loaded yet.
+
+    It reads the ontology file it finds (the vendored ``hp.obo``). Only when it finds none,
+    and ``download_if_missing``, does it download one: always the pinned release from its
+    PURL, checked against the pinned SHA-256 (``HPO_PINNED_ONTOLOGY_URL`` and
+    ``HPO_PINNED_ONTOLOGY_SHA256``). No setting changes either: the release moves only with
+    the vendored file, through a reviewed code change (OPS-6).
+    """
     if not enabled:
         return None
     try:
@@ -676,9 +684,9 @@ async def ensure_hpo_ontology_on_startup(
         try:
             resolved_path = await asyncio.to_thread(
                 _download_hpo_ontology_file,
-                ontology_url,
+                HPO_PINNED_ONTOLOGY_URL,
                 candidate_paths,
-                expected_sha256=settings.hpo_ontology_sha256,
+                expected_sha256=HPO_PINNED_ONTOLOGY_SHA256,
             )
             logger.info("Downloaded HPO ontology to %s", resolved_path)
         except Exception as exc:
@@ -686,7 +694,7 @@ async def ensure_hpo_ontology_on_startup(
                 # Not the pinned file (OPS-6): an expected refusal, logged without a traceback.
                 logger.error("%s The HPO ontology was not imported.", exc)
             else:
-                logger.exception("Failed to download HPO ontology from %s", ontology_url)
+                logger.exception("Failed to download HPO ontology from %s", HPO_PINNED_ONTOLOGY_URL)
             try:
                 await session.rollback()
             except Exception:  # pragma: no cover

@@ -47,7 +47,8 @@ payloads.
   tracks; and the traceability records: the annotation manifest, the append-only,
   hash-chained clinical audit and sign-out tables, and the integrity anchors. The schema is
   five idempotent baseline files in `backend/db/schema/postgres/` (`01_access.sql` to
-  `05_grants.sql`), applied in name order on every start; there is no migration ledger.
+  `05_grants.sql`) and the Alembic revisions in `backend/db/migrations/versions/`, recorded in
+  the ledger table `alembic_version` ([database.md](database.md#schema-migrations)).
 - **ClickHouse** holds, for each assembly, the small variants (details, annotations and their
   indexes, the per-sample calls in `entries`, and per-family summaries), the structural
   variants and CNVs, and the interval tracks: coverage, a capture panel's per-target
@@ -102,7 +103,8 @@ columns. The sort keys, how the storage keys are built and the recovery steps ar
 
 On start the backend (`backend/app/main.py`):
 
-1. waits for Postgres, applies the schema files and makes sure the admin user exists. With
+1. waits for Postgres, migrates its schema (the baseline files, then the revisions its ledger
+   lacks) and makes sure the admin user exists. With
    `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP=false` it skips this, so that the schema can be
    applied separately and the API can run as the restricted database role
    ([db-runtime-role-runbook.md](db-runtime-role-runbook.md));

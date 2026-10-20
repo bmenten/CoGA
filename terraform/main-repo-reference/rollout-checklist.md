@@ -120,6 +120,7 @@ below keeps each one small. Details in `docs/deployment-gcp.md` §10 and §12.7�
 - [ ] **ClickHouse egress lockdown:** image mirrored to Artifact Registry, VM account
       `roles/artifactregistry.reader`, Cloud DNS API, then `clickhouse_restrict_egress = true`
       and a VM reset (§12.10).
-- [ ] **Terraform state secrets:** the owner accepts the residual (owner password and
-      ClickHouse TLS keys in the private, versioned, CMEK state bucket) or schedules the
-      provider upgrade that keeps them out of state (`terraform/README.md`, residuals).
+- [ ] **Terraform state secrets:** none since OPS-10 (write-only arguments). Only for an
+      environment applied before that change: the one-time clean-up of
+      [deployment-gcp.md §12.11](../../docs/deployment-gcp.md) is done (new ClickHouse keys,
+      VM restarted, owner password rotated, older state versions deleted).

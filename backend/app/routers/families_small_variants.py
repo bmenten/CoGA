@@ -27,6 +27,7 @@ from ..services.clickhouse_family_variants import (
 )
 from ..services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext, build_family_metadata_context
 from ..services.access_control import CurrentUser, changes_only_own_data
+from ..services.panel_use_audit import record_family_panel_use
 from ..services.raw_import_files_pg import record_upload_file_obj
 from ..services.small_variant_review_pg import (
     get_small_variant_review_summary,
@@ -243,6 +244,10 @@ async def get_family_small_variants(
         user=user,
         project_id=project_id,
     )
+    # A panel the search applies goes on the family's clinical audit trail first (REQ-CARR-003).
+    await record_family_panel_use(
+        session, context=context, panel_id=filters.get("panel_id"), user=user, search="small_variants"
+    )
     return await get_family_small_variants_clickhouse(
         session,
         context=context,
@@ -353,6 +358,13 @@ async def export_family_small_variants_csv(
         family_identifier=family_id,
         user=user,
         project_id=project_id,
+    )
+    await record_family_panel_use(
+        session,
+        context=context,
+        panel_id=filters.get("panel_id"),
+        user=user,
+        search="small_variants_export",
     )
     export = await export_family_small_variants(
         session,

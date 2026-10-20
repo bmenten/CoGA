@@ -38,6 +38,10 @@ resource "google_cloud_run_v2_job" "db_migrate" {
   location = var.region
   labels   = var.labels
 
+  # The google provider protects a Cloud Run job from deletion by default (6.0+); the rollback
+  # to db_runtime_role = "owner" removes this one (docs/db-runtime-role-runbook.md).
+  deletion_protection = false
+
   template {
     task_count = 1
 

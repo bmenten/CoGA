@@ -181,6 +181,9 @@ export interface ClassificationDriftItem {
   annotation_version_to: string | null;
   clinvar_from: string | null;
   clinvar_to: string | null;
+  changed: string[];
+  evidence_from: Record<string, unknown> | null;
+  evidence_to: Record<string, unknown> | null;
 }
 
 /**
@@ -2526,6 +2529,21 @@ export interface RepeatExpansionUploadResult {
 }
 
 /**
+ * The signed record a report code names (``GET /report-codes/{code}``).
+ *
+ * The EPD report refers to the record by its code; this says which family and version it
+ * is, to open it at ``/families/{family_id}/report?version={version}``.
+ */
+export interface ReportCodeLookupOut {
+  report_code: string;
+  family_id: string;
+  version: number;
+  signed_out_at: string;
+  signed_out_by: string;
+  content_hash: string;
+}
+
+/**
  * Whether the report, as it would be signed now, matches the latest sign-out.
  *
  * ``matches`` is None when the family has never been signed out. ``changed_sections``
@@ -2551,6 +2569,7 @@ export interface ReportSignoutDetail {
   signed_out_by: string;
   signed_out_at: string;
   content_hash: string;
+  report_code: string | null;
   software_version: string | null;
   git_sha: string | null;
   qc_status: string | null;
@@ -2594,6 +2613,7 @@ export interface ReportSignoutSummary {
   signed_out_by: string;
   signed_out_at: string;
   content_hash: string;
+  report_code: string | null;
   software_version: string | null;
   git_sha: string | null;
   qc_status: string | null;

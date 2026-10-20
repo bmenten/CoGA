@@ -80,7 +80,7 @@ Each layer is optional and switches on part of CoGA.
 | --- | --- |
 | **Small variants (SNV/indel)** | the small-variant page, its review, and the Sample QC page |
 | **Structural variants** | the structural-variant page, its review, CNV classification and the variant summary |
-| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). A call whose TRID names no catalogued locus, or a locus without thresholds, reads *Not assessed*, never normal |
+| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). For a gene with several STRchive loci, a repeat tract each (ARX, HOXA13), the gene's name picks the locus the call's region overlaps. A call whose TRID names no catalogued locus, or a locus without thresholds, reads *Not assessed*, never normal (except a count inside the benign range STRchive states for a locus without thresholds, POLG: 10, which reads normal), as does a call whose region overlaps none of its gene's loci, or several |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
@@ -235,7 +235,18 @@ QDNAseq bins and HiFiCNV's depth, and an APCAD import leaves HiFiCNV's minor all
 uploaded coverage BED count as one caller: each replaces the other. The mtDNA analysis, and the NIPT
 coverage check without a per-target table, read as depth only a coverage BED, or HiFiCNV's depth where
 the import stored it as read: never the WisecondorX or QDNAseq bins or HiFiCNV's normalised depth,
-which are log2 ratios.
+which are log2 ratios. An APCAD family file replaces the track of each sample it holds values for;
+a sample it holds none for keeps its track.
+
+**A file without a record fails its dataset, and nothing is replaced.** A file that holds nothing
+CoGA can store (a header alone, a file cut short before its first record, an empty file) used to
+replace the stored data with none, and the dataset read *imported*. Now its dataset fails before
+anything is deleted, and the job's log names the file: a TRGT file, WisecondorX or QDNAseq bins or
+segments, HiFiCNV's copy-number and signal files, an APCAD file, a PCF table, a Paraphase result, a
+sample's NeedlR file or a long-read sample's SNV file. A file cut short after its first records still
+fails its dataset when the import reaches the cut, and the family is put back or marked as for any
+failed dataset. A mitochondrial file without a call is a result, not an empty file (most samples carry
+no mtDNA deletion): it removes that sample's earlier calls, as above.
 
 ### What validation checks
 
@@ -278,11 +289,13 @@ which are log2 ratios.
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import has imported each dataset that failed again, or an
-  upload has brought it again (an **update** will do; a dataset, or a sample, it skips because its data
-  is there is not imported again, and stays named), and its report can be signed out only with an
-  acknowledgement
-  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
-  without them leaves the warning, and says so in its log.
+  upload has brought it again, for each callset and each set of samples it failed for (an **update**
+  will do; a dataset, or a sample, it skips because its data is there is not imported again, and stays
+  named), and its report can be signed out only with an acknowledgement
+  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). A dataset imported with
+  warnings counts, as does one the package carries nothing for that CoGA imports (phenotypes without
+  an HPO term, say), which the import only registers. An import that completes without them leaves
+  the warning, and says so in its log.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
   too, part of the family's data may be gone, whichever import or upload it came from: the warning
   then names every dataset of that import as failed, the ones that imported too, and every dataset
@@ -351,6 +364,11 @@ below), and otherwise by its end minus its start: an insertion written `N`, `<IN
 start is 0 bp to them. A package's per-sample TRGT,
 mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
 verified its tubes), the entry's `vcf_sample` says so.
+
+A repeat-expansion (TRGT) upload reads the whole file before it replaces anything. TRGT writes a record
+for every locus of its catalogue, so a file without a record for the sample (a header alone, or a file
+cut short in a copy) is refused (*No valid TRGT records found*), and the sample's stored calls stay as
+they were. Before, it replaced them with none.
 
 A Sniffles or Spectre record without an END ends where the VCF standard (4.4) puts it: a deletion,
 duplication, inversion or copy-number change SVLEN bases after its start, any other call on its start.

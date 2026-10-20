@@ -397,16 +397,26 @@ export interface ApiAnnotationManifest {
   modules: ApiAnnotationModule[];
 }
 
+// The primary transcript, population frequencies and in-silico scores a small-variant
+// classification rested on, as frozen and as they are now, by field (backend
+// services/small_variant_review_acmg.py::small_variant_evidence).
+export type ApiSmallVariantEvidence = Record<string, unknown>;
+
 export interface ApiClassificationDriftItem {
   variant_id: string;
   acmg_class: string | null;
   classified_by: string | null;
   classified_at: string | null;
-  status: string; // 'drifted' | 'variant_missing'
+  status: string; // 'drifted' | 'unknown' | 'variant_missing'
   annotation_version_from: string | null;
   annotation_version_to: string | null;
   clinvar_from: string | null;
   clinvar_to: string | null;
+  // What moved: 'clinvar', 'transcript_id', a frequency or in-silico field ('gnomad_af',
+  // 'revel', …) or 'annotations' (the annotation set).
+  changed: string[];
+  evidence_from: ApiSmallVariantEvidence | null;
+  evidence_to: ApiSmallVariantEvidence | null;
 }
 
 // The evidence a structural-variant / CNV classification rested on, as frozen and as it
@@ -478,6 +488,9 @@ export interface ApiReportSignout {
   signed_out_by: string;
   signed_out_at: string;
   content_hash: string;
+  // The code the EPD report quotes for the record, made from its family, version and content
+  // hash (services/report_code.py); null when the stored fields cannot make one.
+  report_code?: string | null;
   // Frozen software identity that produced this sign-out (null for sign-outs created
   // before version-binding shipped). Extracted from the frozen JSONB snapshot.
   software_version?: string | null;
@@ -675,8 +688,8 @@ export interface ApiGenomeTrackAvailability {
 
 /**
  * A repeat allele's, call's or locus's status. `not_assessed` is a call at a locus without
- * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26); `unknown` a
- * no-call.
+ * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26) whose count is
+ * outside any benign range the row states (CLIN-36); `unknown` a no-call.
  */
 export type ApiRepeatStatus =
   | 'normal'

@@ -99,8 +99,9 @@ You'll meet these terms throughout. Skim now, refer back later.
   describe the *desired* state; Terraform makes reality match it. (OpenTofu is a
   drop-in open-source equivalent — `tofu` instead of `terraform`.)
 - **Terraform state** — Terraform's record of what it created. Stored remotely in a
-  **GCS bucket** so the whole team shares one source of truth. **It contains
-  secrets**, so the bucket must be private + encrypted.
+  **GCS bucket** so the whole team shares one source of truth. It holds no password or
+  private key (Terraform passes those through **write-only** arguments, which it never
+  stores), but it maps the whole deployment, so the bucket must be private + encrypted.
 - **`apply` / `plan`** — `plan` shows what *would* change; `apply` makes it happen.
 - **Project** — a GCP container for resources and billing. CoGA may use one project,
   or several (a runtime project, a shared image-registry project, a KMS project).
@@ -161,7 +162,7 @@ Understanding this makes everything else click:
 | Tool | Why | Install |
 |------|-----|---------|
 | `gcloud` | Talk to GCP from the CLI | <https://cloud.google.com/sdk/docs/install> |
-| `terraform` (or `tofu`), at the version `terraform/versions.tf` requires | Run the deployment | <https://developer.hashicorp.com/terraform/install> |
+| `terraform` (or `tofu`), at the version `terraform/versions.tf` requires: 1.11 or later | Run the deployment | <https://developer.hashicorp.com/terraform/install> |
 | `git` | Get the code | your package manager |
 | `openssl` | Generate strong secrets | usually preinstalled |
 
@@ -306,7 +307,9 @@ Notes:
   seed), which is what `openssl rand -base64 32` prints. Any other length and the backend
   refuses to start.
 - You do **not** create `coga-clickhouse-tls-*` — Terraform generates the ClickHouse
-  TLS cert/key itself.
+  TLS cert/key itself, from keys it keeps in neither its state nor its plan (12.4).
+- Terraform reads `coga-postgres-password` during each plan and apply to set the database
+  owner's password, and keeps only the number of the version it read, not the value.
 - The `coga-admin-password` is the first login password of the admin user **`coga-admin`**,
   who signs in with the email `admin@<app_domain>` (Section 9).
 
@@ -483,7 +486,9 @@ Day-to-day you don't run Terraform by hand — GitHub Actions does it. The workf
 [.github/workflows/build.yml](../.github/workflows/build.yml):
 
 - **On a pull request:** it only runs `terraform fmt -check` + `terraform validate`
-  (no credentials, no changes). Safe to review.
+  (no credentials, no changes). Safe to review. This check and the deploy both run the
+  Terraform version the workflow pins (`terraform_version`), at least the 1.11 that
+  `terraform/versions.tf` requires.
 - **On push to `main` (or a published release):** it builds both images (stamping
   `APP_VERSION`/`GIT_SHA`), pushes them to Artifact Registry, then runs `terraform
   init/plan/apply` to deploy. A `main` build is tagged `main-<12-character commit>` and a
@@ -580,6 +585,21 @@ If the HPO ontology is missing there, the startup bootstrap downloads the same p
 release to a temporary directory, and imports it only if its SHA-256 is the vendored
 file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-download-fallback)).
 
+The repeat catalogue's `STRchive-loci.json` must be the repository's file of the version
+being deployed, byte for byte. If the bucket holds another file, or none, the backend does
+not start, and its log names the file, both SHA-256 digests and the fix
+([data-import.md](data-import.md#the-strchive-release)); a new revision that cannot start never
+receives traffic. Copying the file again is always safe:
+
+```bash
+gcloud storage cp data/ref-data/STRchive-loci.json "gs://${REFDATA}/"
+```
+
+A version that moves to another STRchive release ships its file and says so in its change
+record. Copy that file to the bucket just before you deploy the version: from then on an
+instance of the running version that starts (a scale-out or a restart) is refused, until the
+new revision serves.
+
 ---
 
 ## 12. Day-2 operations
@@ -592,6 +612,15 @@ file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-downloa
 
 Cloud Run rolls out a new revision with zero-downtime; if it fails its health check,
 traffic stays on the old revision.
+
+**A Postgres schema change** reaches the database with the new version: in owner mode its
+first start migrates the schema, and with the restricted role (12.8) the migration job does so
+before the rollout ([database.md](database.md#schema-migrations)). The migration is one
+transaction: when it fails, nothing of it is kept, the new revision does not start, and traffic
+stays on the old one. Before rolling out a version that adds a schema revision, take an
+on-demand backup, the restore point of the upgrade: `gcloud sql backups create --instance
+coga-postgres`. Revisions do not run backwards, and a version older than the database's
+revision refuses to start, so going back across a revision means restoring that backup (12.3).
 
 ### 12.2 Rotate a secret
 
@@ -608,7 +637,8 @@ value until the roll.
 
 For the **Postgres password**, Terraform sets the database user's password from the
 secret. Add the new version, run `terraform apply` (it changes the user's password, not
-the backend), then roll the backend as above. Between the two, running instances cannot
+the backend: it sees the new version by its number, the only part of the secret its state
+keeps), then roll the backend as above. Between the two, running instances cannot
 open new database connections, so do it at a quiet time. For `coga_app`'s password, see
 [db-runtime-role-runbook.md](db-runtime-role-runbook.md), "Google Cloud".
 
@@ -646,14 +676,38 @@ data disk first (above); to roll back, restore that snapshot.
 
 ### 12.4 ClickHouse TLS cert rotation
 
-Automatic: a daily `systemd` timer on the VM re-fetches the cert from Secret Manager
-and restarts ClickHouse only if it changed — no action needed for a server-cert
-re-issue. The VM has **no SSH ingress** (TF-13 S-8), so there is normally nothing to do
-by hand. If you must force a refresh, either wait for the daily timer, or add a
-temporary break-glass IAP SSH rule (source `35.235.240.0/20`, tcp/22, target tag
-`clickhouse`), run `sudo /etc/coga-clickhouse/refresh-certs.sh`, then remove the rule.
-Rotating the **CA** (10-year) is rare and needs a backend redeploy to pick up the new
-`CLICKHOUSE_CA_CERT`.
+Terraform generates the private keys of the CA and of the ClickHouse server during the run
+that issues their certificates, and keeps them in neither its state nor its plan
+([terraform/tls.tf](../terraform/tls.tf)). The CA's key is therefore gone once that run
+ends, so the CA and the server certificate are always issued together, in one apply. That
+happens:
+
+- when `clickhouse_tls_key_version` in `terraform/tls.tf` is raised, as a reviewed change
+  (to rotate the keys, for example after a suspected compromise);
+- when the VM's internal address changes (a new server key as well);
+- 30 days before the 10-year certificates expire: the CA renews and re-issues the server
+  certificate, for the same server key.
+
+The same apply rolls out a backend revision that trusts only the new CA, while the VM
+keeps serving the old certificate until it restarts or its daily `systemd` timer re-fetches
+the key and certificate from Secret Manager. Until then the app cannot reach ClickHouse.
+So plan such an apply for a quiet time, and restart the VM right after it (its shutdown
+script stops ClickHouse cleanly, and its startup script fetches the new key and
+certificate):
+
+```bash
+gcloud compute instances stop coga-clickhouse-vm --zone "$REGION-b"
+gcloud compute instances start coga-clickhouse-vm --zone "$REGION-b"
+```
+
+Then check that the app's health check is green and that a variant search answers. The VM
+has **no SSH ingress** (TF-13 S-8), which is why the restart, not a shell, is the way to
+make it reload.
+
+If an apply fails with `x509: provided PrivateKey doesn't match parent's PublicKey`, a change
+would have re-issued the server certificate without the CA (for example a new validity
+period on the server certificate alone). Raise `clickhouse_tls_key_version` in the same
+change, apply, and restart the VM.
 
 ### 12.5 Scaling
 
@@ -725,8 +779,8 @@ change-controlled deployment; the full procedure, verification and rollback are 
 3. Set `db_runtime_role = "coga_app"` (in CI: the `COGA_TFVARS` environment variable) and
    deploy.
 
-Terraform then runs the `coga-db-migrate` Cloud Run job as the owner. It applies the
-schema, seeds the admin user and enables `coga_app`'s login, and only then does the
+Terraform then runs the `coga-db-migrate` Cloud Run job as the owner. It migrates the
+schema (12.1), seeds the admin user and enables `coga_app`'s login, and only then does the
 backend roll out, connecting as `coga_app`. The job runs again with every new backend
 image. The API's service account loses access to the owner's password.
 
@@ -756,6 +810,62 @@ other outbound connection is denied. Before switching it on:
 With the lockdown on, Container-Optimized OS can no longer update itself in place. Patch
 it by recreating the VM on a current image; the data disk is separate and is kept.
 
+### 12.11 Once: clear the secrets out of a state written before OPS-10
+
+Up to the change that closed OPS-10, Terraform kept the database owner's password and the
+ClickHouse TLS private keys (the CA's and the server's) in its state. It no longer does:
+the configuration now needs Terraform 1.11 or later and version 8 of the google provider,
+and passes those values only through write-only arguments. An environment that was applied
+before that change still has them, in the current state file and in every older version the
+versioned state bucket keeps. **Skip this section if no environment was applied before the
+change** (none had been when it was made). Otherwise, once per environment:
+
+1. **Plan a quiet hour.** Step 3 leaves ClickHouse unreachable from the app for a few
+   minutes, and step 4 briefly stops the backend from opening new database connections.
+2. **Deploy the change as usual** (merge, then approve the `gcp-deploy` job; or by hand
+   with Terraform 1.11 or later, Section 7). No `terraform state rm` or import is needed:
+   the apply itself drops the old values from the current state. Read the plan before you
+   approve it. Expect this:
+   - `google_sql_user.coga` updated in place: the password moves to the write-only
+     argument. Terraform sets the same password again, so the backend notices nothing.
+   - `tls_private_key.ca` and `tls_private_key.clickhouse` destroyed. They existed only in
+     the state.
+   - `tls_self_signed_cert.ca`, `tls_cert_request.clickhouse`,
+     `tls_locally_signed_cert.clickhouse` and the versions of `coga-clickhouse-tls-key` and
+     `coga-clickhouse-tls-cert` replaced: new keys, a new CA and a new server certificate.
+     The old secret versions, with the old server key, are destroyed.
+   - `google_cloud_run_v2_service.backend` updated (the new CA in `CLICKHOUSE_CA_CERT`),
+     and the ClickHouse VM's metadata updated in place (a comment in its
+     certificate-refresh script). With the restricted database role (12.8),
+     `google_cloud_run_v2_job.db_migrate` updated as well (`deletion_protection = false`).
+
+   An in-place update that only records a default of the newer provider (for example
+   `send_age_if_zero` in a bucket's lifecycle rule) is harmless. Any other replacement or
+   destruction is not part of this change: stop and find out why before approving.
+3. **Restart the ClickHouse VM right after the apply** (12.4), so it loads the new key and
+   certificate; the backend's new revision trusts only the new CA. Then check that the
+   health check is green and that a variant search answers.
+4. **Rotate the owner's password**, because the older state versions still hold the old
+   one. Add a new version to `coga-postgres-password` (5.5), apply again so that Terraform
+   sets it on the database user, then roll the backend (both in 12.2). Once the app works
+   on the new password, disable the old version:
+   `gcloud secrets versions disable <old version> --secret=coga-postgres-password`.
+   The old ClickHouse keys need no such step: step 2 replaced them, and nothing trusts the
+   old CA any more.
+5. **Delete the older versions of the state file**, which still hold the old values, if
+   your retention rules allow deleting state history. After steps 3 and 4 those values open
+   nothing, so this only tidies up. Keep the live version:
+
+   ```bash
+   gcloud storage ls --all-versions "gs://${STATE_BUCKET}/coga/dev/default.tfstate"
+   # Delete each generation older than the live one (the live one has the highest number):
+   gcloud storage rm "gs://${STATE_BUCKET}/coga/dev/default.tfstate#<generation>"
+   ```
+
+6. **Delete any local copies** of the state or of plan files (`tfplan`) made before the
+   change, for example from a manual run (Section 7); they hold the same values. CI keeps
+   none: its plan file lives only on the runner.
+
 ---
 
 ## 13. Security & compliance
@@ -768,7 +878,7 @@ This deployment closes the deployment-level security items tracked in
 |------|----------------------|
 | **S-1** encryption at rest | CMEK on Cloud SQL, both disks, and both GCS buckets |
 | **S-2** TLS to datastores | Postgres via the Cloud SQL Connector (mTLS, verify-full grade); ClickHouse over HTTPS:8443 with a private CA the backend verifies |
-| **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images |
+| **S-3** secrets management | Secret Manager; values injected at runtime, not baked into images; no password or private key in the Terraform state or plan (write-only arguments, 12.4, 12.11) |
 | **S-4** byte-level PHI audit | GCS Data Access audit logs (set in the central infra repo) |
 | **S-8** network posture | Private IPs, no public DB ingress, no SSH to the ClickHouse VM, least-privilege service accounts, NAT/PGA, optional edge IP allowlist (12.9) and ClickHouse egress lockdown (12.10) |
 | DB privilege separation (#262) | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
@@ -820,6 +930,8 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 | ClickHouse VM has no data / won't start the container | No Cloud NAT egress to pull the image, or the data disk didn't mount. With the egress lockdown (12.10): the image is not in Artifact Registry, or the VM's account cannot read it. Check the VM serial console: `gcloud compute instances get-serial-port-output coga-clickhouse-vm --zone "$REGION-b"`. |
 | Deploy job fails at "Refuse to deploy without required reviewers" | The `gcp-deploy` environment has no required reviewer. Add one (Section 10) and re-run the job. |
 | `terraform apply` fails in `terraform_data.db_migrate` | The schema migration job failed (12.8); the running revision keeps serving. Read its logs: `gcloud run jobs executions list --job coga-db-migrate --region "$REGION"`, then `gcloud logging read 'resource.type="cloud_run_job" resource.labels.job_name="coga-db-migrate"' --limit 50`. The job loads the backend's settings first, so a "Refusing to start outside development/test…" line in its log has the cause given for that message above; once that is fixed, run the apply again. |
+| "The database is at schema revision …, which this version of CoGA does not have" | A newer version migrated the database, and an older one was rolled out on it. Roll the newer version out again, or restore the backup taken before that upgrade (12.1, 12.3). |
+| "The schema migration runs as the owner of the tables, not as coga_app…" | The API connects as `coga_app` (`POSTGRES_USER`) with `POSTGRES_RUN_SCHEMA_MIGRATIONS_ON_STARTUP` on, and only the owner migrates. `db_runtime_role = "coga_app"` sets both together and runs the migration job as the owner (12.8): remove any hand-set override of either and roll the backend. |
 | Postgres connector errors | The backend's service account lacks `roles/cloudsql.client`, or the Cloud SQL Admin API is off. Both come from the central infra repo (5.4), not from this configuration. |
 | Legitimate requests blocked | If you enabled `cloud_armor_waf_enforce`, review the WAF logs (12.6) and tune; revert to `false` to log-only. |
 | Frontend loads but API calls 404 | The LB path rule must route `/api/*` to the backend — re-`apply`; confirm the URL map exists. |
@@ -831,12 +943,17 @@ To reduce a **dev** environment's cost: `db_availability_type = "ZONAL"`, a smal
 **Destroying this environment deletes patient data.** Be certain, and export anything
 you must keep first.
 
-Two safety guards must be lifted manually:
+Three safety guards must be lifted manually:
 
 1. **Cloud SQL** has `deletion_protection = true`. Set it to `false` in
    `terraform/database.tf` and `apply` before you can destroy it.
 2. **GCS buckets** have `force_destroy = false`. Empty them (or set `force_destroy =
    true`) before destroy, or Terraform refuses to delete non-empty buckets.
+3. **The two Cloud Run services** are protected by the google provider's own
+   `deletion_protection`, on unless set. Add `deletion_protection = false` to
+   `coga-backend` and `coga-frontend` in `terraform/cloudrun.tf` and `apply` first. (The
+   `coga-db-migrate` job has it off already, because rolling back the switch of 12.8
+   removes the job.)
 
 Then:
 
@@ -860,9 +977,9 @@ data residency.
 
 **Why is ClickHouse on a VM, and what is not automated yet?**
 See the design notes and the known residuals in
-[terraform/README.md](../terraform/README.md) (for example the SQL-user password living
-in Terraform state — keep the state bucket locked down). The IVDR change-control and DPIA
-paperwork is a manual, required step.
+[terraform/README.md](../terraform/README.md) (for example the VM restart a ClickHouse
+certificate re-issue needs, 12.4). The IVDR change-control and DPIA paperwork is a manual,
+required step.
 
 ---
 
