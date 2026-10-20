@@ -567,7 +567,7 @@ describe('FamilyReportPage', () => {
     });
     const { container } = renderPage();
 
-    expect(await screen.findByText('Classification audit trail')).toBeInTheDocument();
+    expect(await screen.findByText('Clinical audit trail')).toBeInTheDocument();
     expect(
       screen.getByText(/Classification unclassified → VUS \(class 3\)/),
     ).toBeInTheDocument();
@@ -867,7 +867,7 @@ describe('FamilyReportPage', () => {
     expect(signOut).toHaveAttribute('title', expect.stringMatching(/you are a reader in this family/));
     expect(screen.getByRole('button', { name: 'Print report' })).toBeEnabled();
     expect(screen.getByText('Read-only access (reader)')).toBeInTheDocument();
-    expect(screen.getByText('Classification audit trail')).toBeInTheDocument();
+    expect(screen.getByText('Clinical audit trail')).toBeInTheDocument();
     expect(screen.getByText(/Not shown: the audit trail is for analysts and administrators/)).toBeInTheDocument();
     // The trail is not asked for: the server refuses it to a reader.
     expect(asked.some((url) => url.includes('clinical-audit'))).toBe(false);
@@ -1262,7 +1262,7 @@ describe('FamilyReportPage', () => {
       expect(note).toHaveTextContent('the segregation in the family, and the family’s members');
       expect(note).toHaveTextContent('the gene description, its associated conditions and its gene panels');
       expect(note).toHaveTextContent('the phenotype (HPO) terms and their overlap with the gene');
-      expect(note).toHaveTextContent('the classification audit trail and the analysis pipeline settings');
+      expect(note).toHaveTextContent('the clinical audit trail and the analysis pipeline settings');
       // Said on each variant card, which prints on its own.
       expect(
         screen.getAllByText('Not in the signed record: the variant description, segregation, gene and phenotype.'),

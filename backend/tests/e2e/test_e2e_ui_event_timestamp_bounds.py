@@ -13,7 +13,7 @@ The request runs over HTTP through an in-process ``httpx.ASGITransport`` client,
 admin, on one event loop (see test_e2e_api_contract.py for why). Without the lifespan no worker
 runs, so each event is written as its request runs; the worker's batch write is called with
 events the endpoint built for two users. The rows are read back from Postgres. The values are
-synthetic, and the rows are deleted at the end.
+synthetic. ``ui_events`` is append-only, so the rows stay, under labels of the run's own.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -55,85 +55,78 @@ async def _exercise(run: str) -> dict:
 
     prefix = f"ts-bounds-{run}"
     out: dict = {"sent": datetime.now(timezone.utc) - timedelta(seconds=2)}
-    try:
-        transport = ASGITransport(app=app, raise_app_exceptions=False)
-        async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
-            ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
-            out["request_before"] = datetime.now(timezone.utc)
-            resp = await ac.post(
-                "/api/ui-events",
-                json={
-                    "events": [
-                        {
-                            "event_type": "click",
-                            "label": f"{prefix} request kept",
-                            "occurred_at": out["sent"].isoformat(),
-                        },
-                        {
-                            "event_type": "click",
-                            "label": f"{prefix} request year 1",
-                            "occurred_at": _YEAR_1,
-                        },
-                        {
-                            "event_type": "navigation",
-                            "label": f"{prefix} request year 9999",
-                            "occurred_at": _YEAR_9999,
-                        },
-                    ]
-                },
-            )
-            out["request_after"] = datetime.now(timezone.utc)
-            out["response"] = {"status": resp.status_code, "text": resp.text}
-
-        # The worker's batch: one statement for the queued events of two users, one of them
-        # with the year 1. Built by the endpoint, as the queue receives them.
-        analyst_a = SimpleNamespace(id=None, email="analyst-a@example.org", role="viewer")
-        analyst_b = SimpleNamespace(id=None, email="analyst-b@example.org", role="viewer")
-        dropped_before = dropped_event_count("ui_event")
-        out["batch_before"] = datetime.now(timezone.utc)
-        batch = [
-            _payload_from_event(
-                UiEventIn.model_validate(
-                    {"event_type": "click", "label": f"{prefix} batch kept"}
-                ),
-                user=analyst_a,
-                remote_ip=None,
-                user_agent=None,
-            ),
-            _payload_from_event(
-                UiEventIn.model_validate(
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
+        ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
+        out["request_before"] = datetime.now(timezone.utc)
+        resp = await ac.post(
+            "/api/ui-events",
+            json={
+                "events": [
                     {
                         "event_type": "click",
-                        "label": f"{prefix} batch year 1",
+                        "label": f"{prefix} request kept",
+                        "occurred_at": out["sent"].isoformat(),
+                    },
+                    {
+                        "event_type": "click",
+                        "label": f"{prefix} request year 1",
                         "occurred_at": _YEAR_1,
-                    }
-                ),
-                user=analyst_b,
-                remote_ip=None,
-                user_agent=None,
-            ),
-        ]
-        out["batch_after"] = datetime.now(timezone.utc)
-        await write_event_batch_with_retry(_write_ui_event_batch, batch, name="ui_event")
-        out["batch_dropped"] = dropped_event_count("ui_event") - dropped_before
+                    },
+                    {
+                        "event_type": "navigation",
+                        "label": f"{prefix} request year 9999",
+                        "occurred_at": _YEAR_9999,
+                    },
+                ]
+            },
+        )
+        out["request_after"] = datetime.now(timezone.utc)
+        out["response"] = {"status": resp.status_code, "text": resp.text}
 
-        async with sessionmaker() as session:
-            rows = (
-                await session.execute(
-                    text(
-                        "SELECT label, user_email, occurred_at, detail FROM ui_events "
-                        "WHERE label LIKE :label"
-                    ),
-                    {"label": f"{prefix} %"},
-                )
-            ).mappings().all()
-            out["rows"] = {row["label"].removeprefix(f"{prefix} "): dict(row) for row in rows}
-    finally:
-        async with sessionmaker() as session:
+    # The worker's batch: one statement for the queued events of two users, one of them
+    # with the year 1. Built by the endpoint, as the queue receives them.
+    analyst_a = SimpleNamespace(id=None, email="analyst-a@example.org", role="viewer")
+    analyst_b = SimpleNamespace(id=None, email="analyst-b@example.org", role="viewer")
+    dropped_before = dropped_event_count("ui_event")
+    out["batch_before"] = datetime.now(timezone.utc)
+    batch = [
+        _payload_from_event(
+            UiEventIn.model_validate(
+                {"event_type": "click", "label": f"{prefix} batch kept"}
+            ),
+            user=analyst_a,
+            remote_ip=None,
+            user_agent=None,
+        ),
+        _payload_from_event(
+            UiEventIn.model_validate(
+                {
+                    "event_type": "click",
+                    "label": f"{prefix} batch year 1",
+                    "occurred_at": _YEAR_1,
+                }
+            ),
+            user=analyst_b,
+            remote_ip=None,
+            user_agent=None,
+        ),
+    ]
+    out["batch_after"] = datetime.now(timezone.utc)
+    await write_event_batch_with_retry(_write_ui_event_batch, batch, name="ui_event")
+    out["batch_dropped"] = dropped_event_count("ui_event") - dropped_before
+
+    async with sessionmaker() as session:
+        rows = (
             await session.execute(
-                text("DELETE FROM ui_events WHERE label LIKE :label"), {"label": f"{prefix} %"}
+                text(
+                    "SELECT label, user_email, occurred_at, detail FROM ui_events "
+                    "WHERE label LIKE :label"
+                ),
+                {"label": f"{prefix} %"},
             )
-            await session.commit()
+        ).mappings().all()
+        out["rows"] = {row["label"].removeprefix(f"{prefix} "): dict(row) for row in rows}
     return out
 
 

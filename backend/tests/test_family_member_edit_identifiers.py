@@ -40,6 +40,19 @@ FATHER, MOTHER, CHILD = "FATHER1", "MOTHER1", "CHILD1"
 NUL, TAB, LF, ESC, DEL, NBSP = "\x00", "\t", "\n", "\x1b", "\x7f", "\xa0"
 
 
+@pytest.fixture(autouse=True)
+def _no_pedigree_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An edit takes the family's pedigree lock before it reads the pedigree (SEC-7): a
+    statement on the session that reads and writes no row. These tests count every statement
+    as a read or a write of the IDs, so it is left out here."""
+
+    async def no_lock(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(members, "lock_family_pedigree", no_lock)
+    monkeypatch.setattr(structure, "lock_family_pedigree", no_lock)
+
+
 def _admin() -> CurrentUser:
     return CurrentUser(
         id="00000000-0000-0000-0000-000000000001",

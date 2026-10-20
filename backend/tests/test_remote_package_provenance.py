@@ -298,6 +298,8 @@ async def test_the_package_provenance_names_the_source_folder_not_the_staging_co
         bundle=bundle,
         validation=FamilyPackageValidationOut(valid=True, family_id="F1"),
         family_uuid="family-uuid",
+        family_identifier="F1",
+        user=SimpleNamespace(id=None, username="importer", email="importer@example.org"),  # type: ignore[arg-type]
     )
 
     assert session.family_metadata is not None

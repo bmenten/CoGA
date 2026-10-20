@@ -96,7 +96,7 @@ def _patch(monkeypatch: pytest.MonkeyPatch, *, data_counts: dict[str, int]) -> _
         # What the family held, and the assemblies whose ClickHouse data goes last: none here.
         return dict(data_counts), []
 
-    async def fake_record_version(_session, *, family_uuid, created_by=None, metadata=None):
+    async def fake_record_version(_session, *, family_uuid, metadata=None, **_kwargs):
         recorded.version_metadata = dict(metadata or {})
 
     async def fake_noop(*_args, **_kwargs):

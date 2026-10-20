@@ -17,6 +17,9 @@ class _FakeMappingResult:
     def all(self):
         return self._rows
 
+    def first(self):
+        return self._rows[0] if self._rows else None
+
 
 class _FakeScalarResult:
     def __init__(self, value):
@@ -80,9 +83,17 @@ class _RecordingSession:
             )
         if "FROM family_relationships" in sql:
             return _FakeMappingResult([])
+        # The structure version's and the audit event's chains (SEC-7): the family's lock,
+        # an empty chain head, the next version number and the two inserts.
+        if "pg_advisory_xact_lock" in sql:
+            return _FakeScalarResult(None)
+        if "SELECT created_at, row_hash" in sql:
+            return _FakeMappingResult([])
+        if "INSERT INTO family_structure_versions" in sql:
+            return _FakeMappingResult([{}])
         if "FROM family_structure_versions" in sql:
             return _FakeScalarResult(1)
-        if "INSERT INTO family_structure_versions" in sql:
+        if "INSERT INTO clinical_audit_events" in sql:
             return _FakeMappingResult([{}])
         raise AssertionError(f"Unexpected SQL: {sql}")
 
@@ -159,6 +170,38 @@ async def test_create_family_inserts_samples_one_by_one_for_returning_ids() -> N
         },
     ]
     assert result == {"family_id": "demo_family", "samples": ["father", "proband"]}
+
+
+@pytest.mark.asyncio
+async def test_create_family_records_its_first_structure_version_and_pedigree_event() -> None:
+    # SEC-7: the new family's pedigree is version 1 of its chained structure versions and the
+    # first event of its clinical audit trail, both under the family's own ID.
+    session = _RecordingSession()
+
+    await ped_service._create_family(
+        session,
+        family_id="demo_family",
+        pedigree="demo pedigree",
+        members=[
+            {"sample_id": "father", "sex": "male", "role": "father", "affected": False},
+            {"sample_id": "proband", "sex": "female", "role": "proband", "affected": True},
+        ],
+        project_id=None,
+        created_by="00000000-0000-0000-0000-0000000000aa",
+        actor="analyst-d",
+    )
+
+    locks = [params["k"] for sql, params in session.calls if "pg_advisory_xact_lock" in sql]
+    assert locks == ["fsv:demo_family", "fsv:demo_family", "cae:demo_family"]
+    [version] = [params for sql, params in session.calls if "INSERT INTO family_structure_versions" in sql]
+    assert (version["family_identifier"], version["version"], version["prev_hash"]) == ("demo_family", 1, None)
+    assert version["created_by"] == "00000000-0000-0000-0000-0000000000aa" and len(version["row_hash"]) == 64
+    [event] = [params for sql, params in session.calls if "INSERT INTO clinical_audit_events" in sql]
+    assert (event["action"], event["actor"], event["family_identifier"]) == ("pedigree", "analyst-d", "demo_family")
+    assert event["summary"] == (
+        "Pedigree recorded with 2 members: father (father, male, affected status unknown); "
+        "proband (proband, female, affected)"
+    )
 
 
 def test_ped_phenotype_conventions_follow_requested_mapping() -> None:

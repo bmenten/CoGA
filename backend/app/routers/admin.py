@@ -68,6 +68,7 @@ from ..services.qc_threshold_service import (
 )
 from ..services.clinical_audit_service import verify_clinical_audit_chain
 from ..services.family_metadata_context import build_family_metadata_context
+from ..services.family_structure_audit import verify_family_structure_chain
 from ..services.integrity_anchor_service import (
     AnchorVerification,
     create_integrity_anchor,
@@ -149,16 +150,20 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
-# Per-table verifiers for the append-only tamper-evidence hash chains (#261).
+# Per-table verifiers for the append-only tamper-evidence hash chains (#261), the
+# pedigree's structure versions among them (SEC-7).
 _INTEGRITY_VERIFIERS = {
     "report_signouts": verify_report_signout_chain,
     "clinical_audit_events": verify_clinical_audit_chain,
+    "family_structure_versions": verify_family_structure_chain,
 }
 
 
 @router.get("/integrity/verify", response_model=IntegrityVerifyOut)
 async def verify_integrity_chain(
-    table: str = Query(..., description="report_signouts | clinical_audit_events"),
+    table: str = Query(
+        ..., description="report_signouts | clinical_audit_events | family_structure_versions"
+    ),
     family_id: str = Query(..., description="Family identifier whose chain to verify"),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
@@ -768,6 +773,7 @@ async def delete_sample(
         session,
         sample_id,
         confirm,
+        user=user,
     )
 
 
@@ -782,6 +788,7 @@ async def delete_family(
         session,
         family_id,
         confirm,
+        user=user,
     )
 
 

@@ -11,8 +11,8 @@ refused row costs only itself.
 Each test runs the real worker against real Postgres: three events are queued, the worker drains
 them as one batch when it stops, and the rows are read back. The refused event is counted once
 and logged once with its payload; no log line quotes the database's error, which repeats the
-rows. The values are synthetic. The UI events are removed at the end; ``audit_log_events`` is
-append-only, so its rows stay, under a path of the run's own.
+rows. The values are synthetic. ``audit_log_events`` and ``ui_events`` are append-only, so
+their rows stay, under a path or a label of the run's own.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -170,28 +170,21 @@ def test_a_ui_event_whose_time_the_driver_cannot_encode_costs_only_itself(pipeli
 
     async def _exercise() -> list[str]:
         sessionmaker = get_postgres_sessionmaker()
-        try:
-            await _through_the_worker(
-                ui_event_pg.start_ui_event_worker,
-                ui_event_pg.stop_ui_event_worker,
-                ui_event_pg.write_ui_event,
-                events,
+        await _through_the_worker(
+            ui_event_pg.start_ui_event_worker,
+            ui_event_pg.stop_ui_event_worker,
+            ui_event_pg.write_ui_event,
+            events,
+        )
+        async with sessionmaker() as session:
+            result = await session.execute(
+                text(
+                    "SELECT label FROM ui_events WHERE label LIKE :prefix "
+                    "ORDER BY created_at, label"
+                ),
+                {"prefix": f"{prefix}%"},
             )
-            async with sessionmaker() as session:
-                result = await session.execute(
-                    text(
-                        "SELECT label FROM ui_events WHERE label LIKE :prefix "
-                        "ORDER BY created_at, label"
-                    ),
-                    {"prefix": f"{prefix}%"},
-                )
-                return [row.label for row in result]
-        finally:
-            async with sessionmaker() as session:
-                await session.execute(
-                    text("DELETE FROM ui_events WHERE label LIKE :prefix"), {"prefix": f"{prefix}%"}
-                )
-                await session.commit()
+            return [row.label for row in result]
 
     stored = _run(_exercise)
 

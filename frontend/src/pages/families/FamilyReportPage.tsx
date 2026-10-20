@@ -1054,7 +1054,7 @@ const LiveFamilyReport: React.FC = () => {
         // Said on screen and in print, so a reader's printout is not read as a report whose
         // trail holds no events.
         <section className="surface-card report-audit">
-          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <h2 className="report-audit-heading">Clinical audit trail</h2>
           <p className="report-paragraph report-audit-lead">
             Not shown: the audit trail is for analysts and administrators, and you have
             read-only access (reader) to this family&rsquo;s project.
@@ -1062,15 +1062,16 @@ const LiveFamilyReport: React.FC = () => {
         </section>
       ) : auditFailed ? (
         <section className="surface-card report-audit" role="alert">
-          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <h2 className="report-audit-heading">Clinical audit trail</h2>
           <p className="report-paragraph report-audit-lead">The audit trail could not be loaded.</p>
         </section>
       ) : auditTrail.events.length ? (
         <section className="surface-card report-audit">
-          <h2 className="report-audit-heading">Classification audit trail</h2>
+          <h2 className="report-audit-heading">Clinical audit trail</h2>
           <p className="report-paragraph report-audit-lead">
-            An immutable record of who classified, tagged or annotated each variant, and who
-            changed the family&rsquo;s phenotypes.
+            An immutable record of who classified, tagged or annotated each variant, reviewed a
+            compound-heterozygous pair, or changed the pedigree or the family&rsquo;s phenotypes,
+            and when.
           </p>
           {auditShownNotice ? (
             // Printed with the list, as the notice at the top of the page is.

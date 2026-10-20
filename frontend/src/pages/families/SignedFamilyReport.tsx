@@ -88,7 +88,7 @@ const notInRecord = (descriptions: boolean): string[] => [
   'the segregation in the family, and the family’s members',
   'the gene description, its associated conditions and its gene panels',
   'the phenotype (HPO) terms and their overlap with the gene',
-  'the classification audit trail and the analysis pipeline settings',
+  'the clinical audit trail and the analysis pipeline settings',
 ];
 const notInRecordPerVariant = (descriptions: boolean): string =>
   descriptions

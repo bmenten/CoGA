@@ -14,7 +14,8 @@ worker runs, so each audit row is written as its request ends; the worker's batc
 called directly. The rows are read back from Postgres: each request has its row, with every
 value Postgres refuses written as an escape and the escaped columns named under ``_escaped``.
 The UI-event log is checked the same way. The values are synthetic, and the project the
-requests change is the test's own, dropped at the end.
+requests change is the test's own, dropped at the end. The audit rows and the UI event stay
+(both logs are append-only), under paths and a label of the run's own.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
 """
@@ -170,8 +171,8 @@ async def _exercise(run: str) -> dict:
                 *await _audit_rows(session, method="GET", path=f"{batch_path}\\x00"),
             ]
     finally:
+        # The UI event stays: ui_events is append-only, as audit_log_events is.
         async with sessionmaker() as session:
-            await session.execute(text("DELETE FROM ui_events WHERE label LIKE :label"), {"label": f"audit-{run} %"})
             await session.execute(text("DELETE FROM projects WHERE id = CAST(:id AS uuid)"), {"id": project_id})
             await session.commit()
     return out

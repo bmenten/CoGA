@@ -1199,7 +1199,7 @@ def _wire_total_failure(monkeypatch: pytest.MonkeyPatch, *, created: bool, delet
     async def fake_import_dataset(session, *, summary, **_kwargs):
         raise RuntimeError("ClickHouse insert failed")
 
-    async def fake_delete_family_shell(session, family_context):
+    async def fake_delete_family_shell(session, family_context, *_args, **_kwargs):
         deleted.append(family_context.family_uuid)
 
     monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)

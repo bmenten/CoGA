@@ -16,7 +16,8 @@ the revision a database is at ([Schema Migrations](#schema-migrations)).
 `01_access.sql` also adds `users.azure_object_id` and `project_users.access_level` with
 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so a database made before Microsoft sign-in keeps its
 accounts (SEC-4), and one made before the reader level keeps its memberships, each as an
-analyst's (SEC-1).
+analyst's (SEC-1); revision `0005` runs the second statement too, for when the baselines are no
+longer re-applied.
 
 ### 01_access.sql: genome foundation and access
 
@@ -99,7 +100,7 @@ built-in reference file is recorded under its file name.
 | `family_members` | a sample's place in its family: role, clinical and carrier status, active flag |
 | `family_projects`, `sample_projects` | which projects can see a family or a sample |
 | `family_relationships` | explicit links between two samples: `parent_child` (with the role at each end), `couple`, or `relative` (`sample_id_b` is related through `sample_id_a` by an unknown degree, such as a PGT index known only to be on the mother's side); `source` says what made it (`pedigree`: the parents a pedigree gives; `manifest`: a package manifest's `family.relationships`; `manual`: a couple typed in, or an edit), `active = false` retires it |
-| `family_structure_versions` | one row per pedigree or phenotype change: the version, a `structure_hash` over roles, parentage and affected status, and the full snapshot |
+| `family_structure_versions` | **append-only**, hash-chained: one row per change of a family's pedigree (its creation, a structure or member edit, a package import that changes a member's affected or carrier status, a sample deleted with its data): the version, a `structure_hash` over the members (sex, role, affected and carrier status, active) and the relationships, the full snapshot, and the family's own ID (`family_identifier`), which stays when the family is deleted (below) |
 | `family_import_jobs` | package-import jobs: status, logs, validation issues and a summary per dataset, with its progress (when it started and ended; while it runs, the share of its files read and the time left). `family_id` is the family a job imports, committed with status `running` before the import writes anything of it (an import that cannot record it writes nothing); the report sign-out refuses a family while a job of it is queued, validating or running. A running job writes `heartbeat_at` every minute, stamped and judged by the database's clock (`now()`); a worker claims a job whose heartbeat is ten minutes old, runs it again if it was still `validating`, and ends it `failed` (interrupted) if it was `running`, adding a line to its log either way. An update that names a worker applies only while the job is that worker's: the heartbeat of an import whose job was ended so stops the import |
 | `individual_hpo` | per-person HPO terms, each `present`, `absent` or `unknown`; added, changed and removed by an analyst of the family's project or an admin, each change a `phenotype` event on the clinical audit trail |
 | `repeat_expansions` | TRGT repeat calls per sample |
@@ -182,10 +183,10 @@ was.
 | --- | --- |
 | `alembic_version` | the schema-migration ledger: one row, the revision the database is at. Only the migration step writes it, as the owner; `coga_app` may read it ([Schema Migrations](#schema-migrations)) |
 | `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped (below) |
-| `ui_events` | UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below) |
+| `ui_events` | **append-only** log of UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below). Not hash-chained (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below); an uploaded coverage BED's `metadata.content` says what it was declared to hold (TRACE-9) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
-| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, phenotype changes, the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after; one chain per family, and chains of their own for the NIPT artifact list (`system:nipt-artifacts`) and the repeat loci's counting-unit record (`system:repeat-loci`) |
+| `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, phenotype changes, compound-het pair reviews, pedigree changes, a family's deletion (its last event), the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after; one chain per family, and chains of their own for the NIPT artifact list (`system:nipt-artifacts`) and the repeat loci's counting-unit record (`system:repeat-loci`) |
 | `report_signouts` | **append-only**, hash-chained signed reports: each sign-out is a new version with a content hash and the frozen snapshot; its report code is made from the family identifier, the version and the content hash, so no column holds it ([clinical-traceability.md](clinical-traceability.md#the-report-code)) |
 | `integrity_anchors` | **append-only**, signed snapshots of every hash chain's head |
 
@@ -245,16 +246,38 @@ Its `audit_log_events` row keeps the difference: `request_meta.record_hidden` na
 What these records hold and how they are checked is in
 [clinical-traceability.md](clinical-traceability.md).
 
-Triggers in this file refuse UPDATE and DELETE on the five append-only tables
-(`audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors` and
-`qc_threshold_changes`). On the tables that name a user or a family, the one change they
-allow is the `ON DELETE SET NULL` unlink when that user or family is deleted; the rows keep a
-copy of the actor and the family identifier.
+Triggers in this file refuse UPDATE and DELETE on the seven append-only tables
+(`audit_log_events`, `ui_events`, `clinical_audit_events`, `report_signouts`,
+`integrity_anchors`, `qc_threshold_changes` and `family_structure_versions`; the last two
+tables are made in `03_assay.sql`). On the tables that name a user or a family, the one change they allow is
+the `ON DELETE SET NULL` unlink when that user or family is deleted; the rows keep a copy of
+the actor and the family identifier.
+
+**The structure versions' chain (SEC-7).** Each `family_structure_versions` row carries a
+`row_hash` over its content (its id, time, family identifier, version, structure hash, snapshot
+and metadata) and the previous row's hash, per family, like `clinical_audit_events`: the chain
+is partitioned and ordered on `family_identifier`, then `created_at` and `id`, so a family's
+deletion (which nulls `family_id`; it used to delete the versions) leaves it whole and
+verifiable. `GET /admin/integrity/verify?table=family_structure_versions&family_id=…` walks it,
+and the signed anchors record its head. Who made each change is in the matching `pedigree`
+event of the clinical audit trail: `created_by` is a user link the account's deletion nulls, so
+the chain does not bind it. Versions written before the chain have no `row_hash` and no
+`family_identifier`, and are not part of it. A database made before the chain gains its columns,
+the nullable `family_id` and the `ON DELETE SET NULL` link from upgrade statements in
+`03_assay.sql`, each a no-op on a new database, and from revision `0004` once the baselines are
+frozen ([Schema Migrations](#schema-migrations)). A family's deletion writes its last clinical
+audit event (`family_deleted`) before the family row goes, so the chains it leaves end with it.
+
+**Why `ui_events` is not chained.** A UI event is what the browser reports of itself (any signed
+in user can send any event), not the device's record of a clinical action, so a chain would
+prove only that nobody changed what a client claimed. The HTTP audit log beside it is
+append-only without a chain for the same reason, and the clinical actions are on the chained
+clinical audit trail.
 
 ### 05_grants.sql: the runtime role
 
 Creates the restricted role `coga_app` and grants it normal access to every table, except
-UPDATE, DELETE and TRUNCATE on the five append-only tables, and anything but SELECT on the
+UPDATE, DELETE and TRUNCATE on the seven append-only tables, and anything but SELECT on the
 ledger `alembic_version`. How and when the application switches to it is in
 [db-runtime-role-runbook.md](db-runtime-role-runbook.md).
 
@@ -285,6 +308,8 @@ applies whole or not at all:
 | `0001` | applies the five baseline files |
 | `0002` | gives `repeat_expansions` the baseline's `repeat_expansions_status_check`, with `review` and `premutation` (#763) and `not_assessed` (#826) |
 | `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (#747) and `target_coverage` (#749) |
+| `0004` | gives `family_structure_versions` its hash chain (`family_identifier`, `row_hash`, `prev_hash` and the chain's index), a nullable `family_id` that the family's deletion nulls, and with `ui_events` its append-only trigger and REVOKE (SEC-7), by running those statements of the baselines |
+| `0005` | gives `project_users` its `access_level` (`analyst` or `reader`, with its check), each stored membership an analyst's (SEC-1), by running the statement `01_access.sql` adds it with |
 
 A database the baselines created before the ledger existed has an empty one, so its first start
 with the ledger runs every revision. Each revision ends at the baseline's definition whatever

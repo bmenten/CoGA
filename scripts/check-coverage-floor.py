@@ -41,6 +41,7 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/coverage_content.py": 97.0,  # (100.0, measured when added for TRACE-9)
     "backend/app/services/coverage_read_depth.py": 97.0,  # (100.0, measured when added for CLIN-46)
     "backend/app/services/family_identifiers.py": 97.0,  # (100.0)
+    "backend/app/services/family_structure_audit.py": 93.0,  # (96.7, measured when added for SEC-7)
     "backend/app/services/family_variant_filters.py": 96.0,  # (99.3)
     "backend/app/services/family_variant_write_lock.py": 97.0,  # (100.0)
     "backend/app/services/genotypes.py": 97.0,  # (100.0)

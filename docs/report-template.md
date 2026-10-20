@@ -62,7 +62,7 @@ unit-tested on their own, so the wording can change safely.
 
 The report page also shows the case's provenance (the CoGA build and the annotation
 manifest's module versions, in the footer, with the device label), an amber banner for
-classifications whose evidence changed, the classification audit trail, and the **Sign out
+classifications whose evidence changed, the clinical audit trail, and the **Sign out
 report** action with its gates. What these record and how they work is in
 [clinical-traceability.md](clinical-traceability.md); how a
 lab user works with them is in the user guide's clinical report section
@@ -88,7 +88,7 @@ variant by its ID alone. Both views download the signed version as JSON.
 **Print report** on the live report, and **Print signed version N** on a signed version, open
 the browser's print dialog. The print styles hide the report's buttons and keep each card on one
 page, so it exports cleanly to PDF. Every printout of the live report starts with a notice
-that it is not the signed report; the notice also says when the classification audit trail shows
+that it is not the signed report; the notice also says when the clinical audit trail shows
 only its most recent events (**Show older events** on the page reads the rest, a page at a time).
 A signed version prints with a notice only when its record
 fails its content hash, a later version supersedes it, or the versions could not be listed.

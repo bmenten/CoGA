@@ -94,9 +94,14 @@ async def test_batch_metadata_update_ignores_unchanged_parent_fields(monkeypatch
         captured["update"] = kwargs["update"]
         return FamilyStructureUpdateOut(family=family, warnings=[])
 
+    async def no_pedigree_lock(*args, **kwargs):
+        # The family's pedigree lock (SEC-7) is a statement on the session; there is none here.
+        return None
+
     monkeypatch.setattr(service, "get_accessible_family_mapping", fake_accessible_family_mapping)
     monkeypatch.setattr(service, "get_family_record", fake_family_record)
     monkeypatch.setattr(service, "update_family_structure_for_admin", fake_structure_update)
+    monkeypatch.setattr(service, "lock_family_pedigree", no_pedigree_lock)
 
     response = await service.update_family_members_batch_for_admin(
         object(),

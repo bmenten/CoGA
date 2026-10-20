@@ -13,6 +13,42 @@ the child, the second partner or the relative). The family's PED text is rebuilt
 `families.pedigree` after every change, and each change adds a row to
 `family_structure_versions`.
 
+## What is recorded of a change
+
+Every change of a family's pedigree is kept twice, and neither record can be edited or
+deleted (SEC-7):
+
+- **a structure version**: the family's next `family_structure_versions` row, with the whole
+  pedigree as it then stood. The table is append-only and hash-chained per family, like the
+  clinical audit trail ([database.md](database.md#04_traceabilitysql-provenance-audit-and-integrity));
+- **a `pedigree` event on the clinical audit trail**: who made the change, when, and what
+  changed, as it was and as it is: each changed member (sex, role, affected status, carrier
+  status, type and evidence, whether it is active, its father, mother and other parents, and
+  its sample ID when it was renamed), and the couples and the links of unknown degree when any
+  of them changed. Its summary names the changes, five at most (*Pedigree changed: P1 renamed
+  P2: affected status unknown → affected*); the event holds them all. Its metadata names the
+  structure version, its hash and the change's reason.
+
+The edits on this page record both. So do the family's creation (a PED upload, a family made by
+hand or a package import: *Pedigree recorded with 3 members: …*), a package import into an
+existing family whose PED or manifest gives a member another affected or carrier status, and an
+admin's deletion of a sample with its data (Admin → Data). An edit that leaves the pedigree as
+it was (a clear of the imported data alone) adds a structure version and no event. A family's
+deletion is the last event of its clinical audit trail (`family_deleted`: who deleted it, its
+samples, its latest structure version, and the variants and variant reviews that went with it),
+written in the deletion's transaction before the family row goes, whether an admin deletes the
+family with its data (Admin → Data), a PED upload or a family made by hand replaces it with
+overwrite, or a package import that created it imported nothing. A deletion that fails records
+nothing. Both records stay after it, unlinked from the family row and still verifiable by the
+family's ID. HPO terms are not part of the pedigree.
+
+Changes of one family's pedigree run one at a time: each writer holds the family's pedigree
+lock from before it reads the pedigree until it commits (a writer that also holds the family's
+variant-write locks, such as a structure edit that clears the imported data, takes those
+first). A second change waits for the first, so its `expected_structure_version` check sees
+the first one's version, and its event records the pedigree the first one left, never the
+first one's change as its own.
+
 These also refer to a member:
 
 - `individual_hpo` (the person's HPO terms) and `sample_projects` (project visibility);
@@ -105,7 +141,8 @@ failure brought the family back without them.
 When it deleted data, the stale marker records `raw_datasets_preserved: false` and the
 sample-data scope, and the response warns that the data was cleared, also when the request
 changed nothing else. The new `family_structure_versions` row records how much of each kind
-it deleted (`cleared_data_counts`). A family without imported data has nothing to delete, so
+it deleted (`cleared_data_counts`); the pedigree event, when the pedigree changed too, does
+not. A family without imported data has nothing to delete, so
 its marker keeps `raw_datasets_preserved: true`.
 
 ```yaml

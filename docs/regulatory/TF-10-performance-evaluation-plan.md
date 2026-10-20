@@ -248,7 +248,10 @@ pull request updates this list only when it adds clinical behaviour that no area
   computes them, signed out from the NIPT page too, a failed NIPT quality check gating the
   sign-out with the Sample QC); the report code the EPD report quotes, its check
   symbol and its lookup; the device label and the build identity; every review,
-  classification and phenotype change on the clinical audit trail.
+  classification and phenotype change on the clinical audit trail,
+  a compound-het pair review, every change of a family's pedigree and members and a family's
+  deletion included, and the pedigree's structure versions, append-only and hash-chained per
+  family.
 - **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),
   dbNSFP 5.4, HPO releases, and T2T-CHM13v2.0 as an optional assembly outside the validated
   scope.

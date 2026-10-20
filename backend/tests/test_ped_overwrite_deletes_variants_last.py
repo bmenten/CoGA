@@ -76,12 +76,17 @@ def events(monkeypatch) -> list[tuple[Any, ...]]:
 
         return record
 
+    async def family_deleted(_session, *, family_uuid, source, **_kwargs) -> None:
+        # The replaced family's last clinical audit event (SEC-7).
+        recorded.append(("audit: family deleted", family_uuid, source))
+
     monkeypatch.setattr(ped_service, "_resolve_accessible_project_id", project)
     monkeypatch.setattr(ped_service, "_existing_family_rows", stored)
     monkeypatch.setattr(ped_service, "lock_family_variant_writes", lock)
     monkeypatch.setattr(ped_service, "_create_family", create)
     monkeypatch.setattr(ped_service, "delete_family_small_variants", delete("small variants"))
     monkeypatch.setattr(ped_service, "delete_family_structural_variants", delete("structural variants"))
+    monkeypatch.setattr(ped_service, "record_family_deleted", family_deleted)
     return recorded
 
 
@@ -126,7 +131,11 @@ async def test_a_ped_upload_refused_after_the_replacement_leaves_the_familys_var
     assert refused.value.status_code == status, case
     # The family's delete is the transaction's, which the refusal rolls back; its variants
     # are not deleted (before: deleted at once, so the family came back without them).
-    assert events == [("lock", "uuid-old"), ("delete family", "uuid-old")]
+    assert events == [
+        ("lock", "uuid-old"),
+        ("audit: family deleted", "uuid-old", "pedigree_replaced"),
+        ("delete family", "uuid-old"),
+    ]
 
 
 @pytest.mark.asyncio
@@ -143,6 +152,7 @@ async def test_a_ped_upload_that_replaces_a_family_deletes_its_variants_last(eve
     # Once the new family is written, before the commit (before: before the checks).
     assert events == [
         ("lock", "uuid-old"),
+        ("audit: family deleted", "uuid-old", "pedigree_replaced"),
         ("delete family", "uuid-old"),
         ("create family", "FAM1"),
         ("delete small variants", "GRCh38", "uuid-old"),
@@ -174,7 +184,11 @@ async def test_a_manual_family_refused_after_the_replacement_leaves_the_familys_
         )
 
     assert refused.value.status_code == 409
-    assert events == [("lock", "uuid-old"), ("delete family", "uuid-old")]
+    assert events == [
+        ("lock", "uuid-old"),
+        ("audit: family deleted", "uuid-old", "pedigree_replaced"),
+        ("delete family", "uuid-old"),
+    ]
 
 
 @pytest.mark.asyncio
