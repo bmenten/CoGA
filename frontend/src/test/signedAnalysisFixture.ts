@@ -97,6 +97,9 @@ export const SIGNED_ANALYSIS = {
   },
   repeat_expansions: {
     catalogue: { loci: 96, sources: ['CoGA built-in', 'STRchive'], digest: 'abcdef0123456789' },
+    // Since CoGA froze the near-boundary warnings (repeat_count_units.py): the margin in force,
+    // each locus's QA record of TRGT's counting units and each allele's warning.
+    count_unit_margin: 3,
     loci: [
       {
         locus_id: 'HD_HTT',
@@ -116,6 +119,12 @@ export const SIGNED_ANALYSIS = {
           pathogenic_max: null,
         },
         status: 'pathogenic',
+        count_units: {
+          validated: true,
+          reason: 'Validation report 7',
+          updated_by: 'qa-lead',
+          updated_at: '2026-10-15T09:00:00+00:00',
+        },
         calls: [
           {
             sample: 'PROBAND',
@@ -123,8 +132,73 @@ export const SIGNED_ANALYSIS = {
             status: 'pathogenic',
             note: null,
             alleles: [
-              { repeat_count: 18, bp_length: 54, support_reads: null, interruption_label: null, status: 'normal' },
-              { repeat_count: 40, bp_length: 120, support_reads: 12, interruption_label: null, status: 'pathogenic' },
+              {
+                repeat_count: 18,
+                bp_length: 54,
+                support_reads: null,
+                interruption_label: null,
+                status: 'normal',
+                count_unit_warning: null,
+              },
+              {
+                repeat_count: 40,
+                bp_length: 120,
+                support_reads: 12,
+                interruption_label: null,
+                status: 'pathogenic',
+                count_unit_warning: null,
+              },
+            ],
+          },
+        ],
+      },
+      {
+        // A grey-zone 53 at a locus QA has not validated: a premutation of 55 can read 53.
+        locus_id: 'FXS_FMR1',
+        gene: 'FMR1',
+        disease: 'Fragile X syndrome',
+        inheritance: 'XLD',
+        chrom: 'chrX',
+        start: 147912049,
+        end: 147912111,
+        motif: 'CGG',
+        thresholds: {
+          intermediate_min: 45,
+          premutation_min: 55,
+          pathogenic_min: 201,
+          benign_min: 5,
+          benign_max: 44,
+          pathogenic_max: 2000,
+        },
+        status: 'intermediate',
+        count_units: { validated: false, reason: null, updated_by: null, updated_at: null },
+        calls: [
+          {
+            sample: 'MOTHER',
+            genotype: '1/2',
+            status: 'intermediate',
+            note: null,
+            alleles: [
+              {
+                repeat_count: 30,
+                bp_length: 90,
+                support_reads: 20,
+                interruption_label: null,
+                status: 'normal',
+                count_unit_warning: null,
+              },
+              {
+                repeat_count: 53,
+                bp_length: 159,
+                support_reads: 18,
+                interruption_label: null,
+                status: 'intermediate',
+                count_unit_warning: {
+                  repeat_count: 53,
+                  margin: 3,
+                  boundaries: [{ repeat_count: 55, status: 'premutation' }],
+                },
+              },
             ],
           },
         ],
@@ -210,6 +284,22 @@ export const SIGNED_ANALYSIS = {
       'not a track',
     ],
   },
+};
+
+// The same repeat expansions as a record signed before CoGA froze the near-boundary warnings and
+// QA's records of TRGT's counting units holds them: no margin, no record per locus, no warning
+// beside an allele.
+export const SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS = {
+  catalogue: SIGNED_ANALYSIS.repeat_expansions.catalogue,
+  loci: SIGNED_ANALYSIS.repeat_expansions.loci.map((locus) => ({
+    ...Object.fromEntries(Object.entries(locus).filter(([key]) => key !== 'count_units')),
+    calls: locus.calls.map((call) => ({
+      ...call,
+      alleles: call.alleles.map((allele) =>
+        Object.fromEntries(Object.entries(allele).filter(([key]) => key !== 'count_unit_warning')),
+      ),
+    })),
+  })),
 };
 
 // A PGT family's embryo calls at the ROI, as its record freezes them since 2026-10-20

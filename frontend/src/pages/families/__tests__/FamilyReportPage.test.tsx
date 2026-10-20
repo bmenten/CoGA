@@ -10,6 +10,7 @@ import {
   SIGNED_ANALYSIS,
   SIGNED_PGT_ANALYSIS,
   SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
+  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
   SIGNED_STATEMENT,
 } from '../../../test/signedAnalysisFixture';
 
@@ -1386,6 +1387,49 @@ describe('FamilyReportPage', () => {
       expect(variant).toHaveTextContent(
         "The variant descriptions could not be read when version 2 was signed (The reported variants' descriptions could not be read.).",
       );
+    });
+
+    // Each repeat call's near-boundary warning and each locus's QA record of TRGT's counting
+    // units, as the record froze them (repeat_count_units.py): beside the call, on screen and in print.
+    it('shows a count near a boundary beside its call, and each locus’s counting units, as the record froze them', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      renderPage();
+
+      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
+      expect(repeats).toHaveTextContent(
+        'While QA had not validated TRGT’s counting units at a locus, a count within 3 repeats of a classification boundary was marked ⚠ Near a boundary: a difference of that size between TRGT’s count and the clinical repeat number could change its status. The status stands as classified.',
+      );
+      const items = within(repeats).getAllByRole('listitem');
+      expect(items.map((item) => item.textContent)).toEqual([
+        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+      ]);
+      // It prints: nothing of it is kept off the printout, and nothing is called not captured.
+      expect(repeats.closest('.no-print')).toBeNull();
+      expect(repeats.querySelector('.no-print')).toBeNull();
+      expect(repeats).not.toHaveTextContent('Not captured');
+    });
+
+    it('reads a repeat record signed before the warnings as it was signed, with nothing called not captured', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
+        },
+      });
+      renderPage();
+
+      const repeats = (await screen.findByRole('heading', { name: 'Repeat expansions (TRGT)' })).closest('section')!;
+      const items = within(repeats).getAllByRole('listitem');
+      expect(items.map((item) => item.textContent)).toEqual([
+        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic',
+        'FMR1 (FXS_FMR1), Fragile X syndrome: Grey zone (grey zone from 45, premutation from 55, pathogenic from 201; motif CGG). MOTHER 1/2: 30, 53 repeats — Grey zone',
+      ]);
+      expect(repeats).not.toHaveTextContent('Near a boundary');
+      expect(repeats).not.toHaveTextContent('counting units');
+      expect(repeats).not.toHaveTextContent('Not captured');
+      expect(repeats).not.toHaveTextContent('Not in the signed record');
     });
 
     // What each coverage track held (signed_record_sections.coverage_tracks, owner decision of

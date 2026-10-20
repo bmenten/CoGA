@@ -256,7 +256,17 @@ in the EPD refers to the signed version by its report code (*The report code* be
     at sign-out (as the repeat page classifies it), its alleles, and the thresholds behind it,
     and the catalogue it was classified against: how many loci, from which sources (STRchive,
     CoGA's built-in rows) and a SHA-256 digest of every locus's thresholds, since STRchive's
-    file states no release;
+    file states no release. Beside each allele, its near-boundary warning as the repeat page
+    serves it (`count_unit_warning`, `services/repeat_count_units.py`: the count, the nearest
+    count within the margin on each side that reads another status, and the margin; the
+    allele's own status is the one on its side of the boundary; null when there is none), and
+    per locus QA's record of TRGT's counting units there, as `repeat_locus_count_units` held it
+    (`count_units`: `validated`, the `reason`, who, `updated_by`, and when, `updated_at`; for a
+    locus without a record `validated: false` and the rest null), with the margin in force
+    (`count_unit_margin`). The warnings and the record never disagree: a validation or a
+    withdrawal that commits while the section is read is frozen with the warnings made again
+    against it, by the family table's own code. A locus validated or withdrawn since reads as a
+    change;
   - `paraphase`: every Paraphase result of the family's samples, with its status as CoGA reads
     it at sign-out, its copy numbers, the region's status rule and copy-number norm, and the
     catalogue of regions (how many, and a digest of their rules);
@@ -533,7 +543,10 @@ monogenic NIPT family its NIPT results (*NIPT results*: the fetal fraction and t
 checks with their verdicts, the coverage, the funnel and the categories, each reported variant
 as the NIPT analysis classified it, the recessive fetal risk, and what the analysis ran with);
 no other family's record shows or mentions either; the gene panels applied, the repeat
-expansions, the Paraphase results, the coverage tracks (*Coverage tracks*: per sample and caller,
+expansions (in a record that holds them, each count near a boundary marked beside its call,
+*⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation)*, and each locus's counting units,
+*TRGT’s counting units: not validated (no QA record)*, or validated or not with the reason, by
+whom and when), the Paraphase results, the coverage tracks (*Coverage tracks*: per sample and caller,
 what the track held, read depth, a log2 ratio or unknown, and the file it was loaded from, from
 where and when) and the reference-data releases; the drift, Sample QC, sequencing QC and import
 state, with the acknowledgements; the frozen modules, and the reference-data releases and the
@@ -594,6 +607,15 @@ and lists `pgt_analysis.qc_verdict` under `not_compared`, instead of calling the
 (`pgt_analysis.comparable_with_record`); a call that changed since still reads as a change. A
 record that holds the verdict is compared whole, so a verdict or a threshold changed since it was
 signed reads as a change.
+
+A record signed before CoGA froze the repeat calls' near-boundary warnings holds no
+`count_unit_margin`, no `count_units` per locus and no `count_unit_warning` per allele. The check
+compares its `repeat_expansions` on what it holds and lists `repeat_expansions.count_units` under
+`not_compared`, instead of calling the record changed
+(`signed_record_sections.repeat_expansions_comparable_with_record`); a call that changed since still
+reads as a change, and the signed version shows such a record as it was signed, with nothing called
+not captured. A record that holds them is compared whole, so a locus whose counting units QA
+validated or withdrew since it was signed reads as a change.
 
 A section CoGA has since computed differently reads as changed too. The Sample QC now counts a check
 that could not run as `warn`, with a note naming each sample whose sex could not be checked, so for a

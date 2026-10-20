@@ -30,6 +30,7 @@ import {
 import { formatCount, joinWithAnd } from '../../lib/format';
 import type { HaplotypeRiskState } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
+import { COUNT_UNIT_MARK } from '../../lib/repeatStatus';
 import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
 import { formatAlleleFrequency } from './reportNarrative';
 import { formatLocus } from './smallVariantResultUtils';
@@ -325,10 +326,44 @@ export interface SignedReferenceData {
   clinicalCnvs: SignedRecordSection<SignedCnvKnowledgebase | null>;
 }
 
+/** A boundary near a count: the nearest count on one side that reads another status. */
+export interface SignedCountBoundary {
+  repeatCount: number;
+  status: string;
+}
+
+/**
+ * A count within the margin of a classification boundary at a locus whose TRGT counting units
+ * QA had not validated when the version was signed (repeat_count_units.py): a difference of that
+ * size between TRGT's count and the clinical repeat number could change its status. The allele's
+ * own status is the one on its side of the boundary; the warning changed none.
+ */
+export interface SignedCountUnitWarning {
+  repeatCount: number | null;
+  margin: number | null;
+  boundaries: SignedCountBoundary[];
+  /** Boundaries the record holds that cannot be read here (kept in the downloaded record). */
+  unreadableBoundaries: number;
+}
+
 export interface SignedRepeatAllele {
   repeatCount: number | null;
   bpLength: number | null;
   status: string;
+  /** Null: no count near a boundary, or a record signed before CoGA froze the warnings. */
+  countUnitWarning: SignedCountUnitWarning | null;
+}
+
+/**
+ * QA's record of whether TRGT's count at the locus is the clinical repeat number, as
+ * `repeat_locus_count_units` held it when the version was signed. Without a record the locus
+ * was not validated, and the reason, who and when are null.
+ */
+export interface SignedCountUnits {
+  validated: boolean;
+  reason: string | null;
+  updatedBy: string | null;
+  updatedAt: string | null;
 }
 
 export interface SignedRepeatCall {
@@ -352,6 +387,8 @@ export interface SignedRepeatLocus {
     pathogenicMin: number | null;
   };
   status: string;
+  /** Null: a record signed before CoGA froze QA's records. */
+  countUnits: SignedCountUnits | null;
   calls: SignedRepeatCall[];
 }
 
@@ -364,6 +401,11 @@ export interface SignedCatalogue {
 
 export interface SignedRepeatExpansions {
   catalogue: SignedCatalogue | null;
+  /**
+   * How close to a boundary a count was marked, in repeats, while a locus was not validated;
+   * null: a record signed before CoGA froze the warnings and QA's records.
+   */
+  countUnitMargin: number | null;
   loci: SignedRepeatLocus[];
 }
 
@@ -1102,8 +1144,38 @@ const parseCatalogue = (value: unknown, entries: string): SignedCatalogue | null
     ? { entries: number(value[entries]), sources: strings(value.sources), digest: text(value.digest) }
     : null;
 
+/** A count's near-boundary warning as frozen: kept whenever the record holds one, even in part. */
+const parseCountUnitWarning = (value: unknown): SignedCountUnitWarning | null => {
+  if (!isObject(value)) return null;
+  const entries = Array.isArray(value.boundaries) ? (value.boundaries as unknown[]) : [];
+  const boundaries = entries.flatMap((entry): SignedCountBoundary[] => {
+    if (!isObject(entry)) return [];
+    const repeatCount = number(entry.repeat_count);
+    const status = text(entry.status);
+    return repeatCount !== null && status ? [{ repeatCount, status }] : [];
+  });
+  return {
+    repeatCount: number(value.repeat_count),
+    margin: number(value.margin),
+    boundaries,
+    unreadableBoundaries: entries.length - boundaries.length,
+  };
+};
+
+/** QA's record of a locus's counting units as frozen; null when the record holds none. */
+const parseCountUnits = (value: unknown): SignedCountUnits | null =>
+  isObject(value)
+    ? {
+        validated: value.validated === true,
+        reason: text(value.reason),
+        updatedBy: text(value.updated_by),
+        updatedAt: text(value.updated_at),
+      }
+    : null;
+
 const parseRepeatExpansions = (value: Json): SignedRepeatExpansions => ({
   catalogue: parseCatalogue(value.catalogue, 'loci'),
+  countUnitMargin: number(value.count_unit_margin),
   loci: objects(value.loci).map((locus) => {
     const thresholds = isObject(locus.thresholds) ? locus.thresholds : {};
     return {
@@ -1119,6 +1191,7 @@ const parseRepeatExpansions = (value: Json): SignedRepeatExpansions => ({
         pathogenicMin: number(thresholds.pathogenic_min),
       },
       status: text(locus.status) ?? 'unknown',
+      countUnits: parseCountUnits(locus.count_units),
       calls: objects(locus.calls).map((call) => ({
         sample: text(call.sample) ?? 'a sample',
         genotype: text(call.genotype),
@@ -1128,6 +1201,7 @@ const parseRepeatExpansions = (value: Json): SignedRepeatExpansions => ({
           repeatCount: number(allele.repeat_count),
           bpLength: number(allele.bp_length),
           status: text(allele.status) ?? 'unknown',
+          countUnitWarning: parseCountUnitWarning(allele.count_unit_warning),
         })),
       })),
     };
@@ -1693,15 +1767,74 @@ export const describeRepeatThresholds = (locus: SignedRepeatLocus): string => {
   return parts.length ? parts.join(', ') : 'no thresholds';
 };
 
-/** One sample's call: "PROBAND 0/1: 18, 40 repeats — Pathogenic". */
+/**
+ * A count near a boundary as the record froze it, in the repeat page's words
+ * (`describeCountUnitWarning`): "53 is within 3 repeats of 55 (Premutation)".
+ */
+export const describeSignedCountUnitWarning = (warning: SignedCountUnitWarning): string => {
+  const boundaries = warning.boundaries.map(
+    (boundary) => `${boundary.repeatCount} (${repeatStatusWords(boundary.status)})`,
+  );
+  if (warning.unreadableBoundaries) {
+    boundaries.push(
+      warning.unreadableBoundaries === 1
+        ? 'a boundary this view cannot read'
+        : `${warning.unreadableBoundaries} boundaries this view cannot read`,
+    );
+  }
+  return `${warning.repeatCount ?? 'a count'} is within ${warning.margin ?? '?'} repeats of ${
+    joinWithAnd(boundaries) || 'a boundary'
+  }`;
+};
+
+/**
+ * One sample's call: "PROBAND 0/1: 18, 40 repeats — Pathogenic", and beside it each of its counts
+ * the record froze near a boundary: "… — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of
+ * 55 (Premutation)".
+ */
 export const describeRepeatCall = (call: SignedRepeatCall): string => {
   const sizes = call.alleles
     .map((allele) => (allele.repeatCount !== null ? String(allele.repeatCount) : allele.bpLength !== null ? `${allele.bpLength} bp` : '?'))
     .join(', ');
+  const warnings = call.alleles
+    .map((allele) => allele.countUnitWarning)
+    .filter((warning): warning is SignedCountUnitWarning => warning !== null)
+    .map(describeSignedCountUnitWarning);
   return `${call.sample} ${call.genotype ?? 'no call'}${sizes ? `: ${sizes} repeats` : ''} — ${repeatStatusWords(call.status)}${
     call.note ? ` (${call.note})` : ''
-  }`;
+  }${warnings.length ? ` ⚠ ${COUNT_UNIT_MARK}: ${warnings.join(', ')}` : ''}`;
 };
+
+/**
+ * QA's record of a locus's counting units as the record froze it: "validated — Validation report
+ * 13 (qa-lead, 2026-10-20 09:30 UTC)", "not validated — New TRGT catalogue (…)", or "not validated
+ * (no QA record)".
+ */
+export const describeCountUnits = (units: SignedCountUnits): string => {
+  const state = units.validated ? 'validated' : 'not validated';
+  if (!units.reason) return `${state} (no QA record)`;
+  const recorded = [units.updatedBy, units.updatedAt ? formatReportTime(units.updatedAt) : null]
+    .filter((part): part is string => Boolean(part))
+    .join(', ');
+  return `${state} — ${units.reason}${recorded ? ` (${recorded})` : ''}`;
+};
+
+/**
+ * A locus's calls on one line, as the signed view lists them, and QA's record of TRGT's counting
+ * units there where the record holds it: "PROBAND 1/2: 30, 53 repeats — Grey zone ⚠ Near a
+ * boundary: …; MOTHER 1/2: 30, 40 repeats — Normal. TRGT’s counting units: not validated (no QA
+ * record)." A record signed before CoGA froze QA's records lists the calls alone, as it did.
+ */
+export const describeRepeatLocusCalls = (locus: SignedRepeatLocus): string => {
+  const calls = locus.calls.map(describeRepeatCall).join('; ');
+  if (!locus.countUnits) return calls;
+  const units = `TRGT’s counting units: ${describeCountUnits(locus.countUnits)}.`;
+  return calls ? `${calls}. ${units}` : units;
+};
+
+/** Why a count was marked near a boundary, said once for the section. */
+export const describeCountUnitMargin = (margin: number): string =>
+  `While QA had not validated TRGT’s counting units at a locus, a count within ${margin} repeats of a classification boundary was marked ⚠ ${COUNT_UNIT_MARK}: a difference of that size between TRGT’s count and the clinical repeat number could change its status. The status stands as classified.`;
 
 const PARAPHASE_STATUS_WORDS: Record<string, string> = {
   pathogenic: 'Pathogenic',

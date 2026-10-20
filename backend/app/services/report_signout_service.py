@@ -70,8 +70,10 @@ from .signed_record_nipt import nipt_signout_concerns
 from .signed_record_sections import (
     NIPT_RESULTS,
     RECORD_SECTIONS,
+    REPEAT_EXPANSIONS,
     build_record_sections,
     record_section_gaps,
+    repeat_expansions_comparable_with_record,
 )
 from .sample_integrity_qc import (
     MIN_MATERNAL_TRANSMISSION_SITES,
@@ -1663,7 +1665,9 @@ async def compare_report_with_latest_signout(
     version; on that version, whether the family's data changed since (#508). This
     rebuilds the snapshot body and compares it, section by section, with the frozen one. A
     section or reference module the signed record predates is listed in ``not_compared``
-    (a module as ``modules.<key>``) rather than reported as changed. A section of one
+    (a module as ``modules.<key>``) rather than reported as changed, and so is what a section
+    gained since (``pgt_analysis.qc_verdict``, ``repeat_expansions.count_units``): the rest of
+    such a section is compared on what the record holds. A section of one
     application that neither holds (``pgt_analysis`` of a family without an embryo, ``nipt``
     of a family that is no monogenic NIPT family) is neither compared nor listed.
     """
@@ -1719,6 +1723,11 @@ async def compare_report_with_latest_signout(
         if section == "pgt_analysis":
             # The embryos' QC verdict, which a record signed before it does not hold.
             current_value, predated = pgt_analysis_comparable_with_record(signed_value, current_value)
+            not_compared.extend(predated)
+        if section == REPEAT_EXPANSIONS.key:
+            # The near-boundary warnings and QA's counting-units records, which a record signed
+            # before them does not hold.
+            current_value, predated = repeat_expansions_comparable_with_record(signed_value, current_value)
             not_compared.extend(predated)
         if _section_fingerprint(signed_value) != _section_fingerprint(current_value):
             changed.append(section)
