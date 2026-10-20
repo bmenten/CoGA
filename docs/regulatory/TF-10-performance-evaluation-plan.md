@@ -249,7 +249,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   and Paraphase calls with their status, in a PGT family each embryo's call at the ROI as
   the family page shows it, and a monogenic NIPT family's NIPT results as the NIPT page
   computes them, signed out from the NIPT page too, a failed NIPT quality check gating the
-  sign-out with the Sample QC); the report code the EPD report quotes, its check
+  sign-out with the Sample QC; and what each coverage track held, read depth, a log2 ratio or
+  unknown, and where it was loaded from); the report code the EPD report quotes, its check
   symbol and its lookup; the device label and the build identity; every review,
   classification and phenotype change on the clinical audit trail,
   a compound-het pair review, every change of a family's pedigree and members and a family's

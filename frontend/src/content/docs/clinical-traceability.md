@@ -179,6 +179,12 @@ the clinical report in the EPD refers to:
   reads behind it, the chance the fetus inherited it and, for a de novo candidate, its priority), the
   recessive fetal risk of the reported variants' genes, and what the analysis ran with (the coverage
   tables, the artifact list and the model);
+- what each **coverage track** of the family's samples held, per sample and caller: read depth, a log2
+  ratio or unknown (a coverage BED what it declared when it was loaded, another caller's track what its
+  import recorded), with the file it was loaded from, whether a single-file upload or a package import
+  loaded it, and when. Only a track of read depth is read as depth (the mtDNA coverage, and the NIPT
+  coverage check without a per-target table), so the record says which kind of coverage a depth check
+  rested on;
 - a sentence that says what the record is (the analytical sign-off, referred to by the EPD);
 - the CoGA software version that produced it.
 
@@ -319,6 +325,9 @@ It shows what the record holds:
   meet its thresholds …*) and the thresholds in force. A call that did not meet them stands as called:
   the warning is not a gate;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
+- what each coverage track held (*Coverage tracks*): per sample and caller, read depth, a log2 ratio or
+  unknown, with the file it was loaded from, from where (a single-file upload or a package import) and
+  when;
 - for a monogenic NIPT family, its **NIPT results**: the fetal fraction and the quality checks with
   their verdicts, the coverage, the filter funnel and the categories, each reported variant as the NIPT
   analysis classified it, the recessive fetal risk and what the analysis ran with. A NIPT family's
@@ -326,19 +335,21 @@ It shows what the record holds:
   no NIPT results and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
-- the versions it was signed with and the reference-data releases, in the footer, with the report code.
+- the versions it was signed with, the reference-data releases and the coverage tracks on one line
+  (*Coverage tracks as signed: S1 coverage BED (package) — read depth; S1 WisecondorX (package) — log2
+  ratio; …*), in the footer, with the report code.
 
 The record does not hold the rest of what the live report shows: the population frequency and the in
 silico predictions, the segregation and the family's members, the gene description, conditions and
 panels, the phenotype match, the audit trail and the pipeline settings. The page says so, once for the
 report and on each variant, and never fills them in from current data. A part the record does not hold
 is marked *Not in the signed record*, never shown as empty: a version signed before CoGA recorded the
-variant description, the gene panels, the reference-data releases, the repeat expansions or the
-Paraphase results says so for each (*Not in the signed record: version 2 was signed before CoGA
-recorded …*), and so does a PGT family's version signed before CoGA recorded the embryo calls. A PGT
-family's version signed before CoGA checked the embryos' QC against thresholds reads as it was signed,
-with no verdict: nothing it predates is called *not captured*, and the sign-out check compares it on
-what it holds.
+variant description, the gene panels, the reference-data releases, the repeat expansions, the
+Paraphase results or what each coverage track holds says so for each (*Not in the signed record:
+version 2 was signed before CoGA recorded …*), and so does a PGT family's version signed before CoGA
+recorded the embryo calls. A PGT family's version signed before CoGA checked the embryos' QC against
+thresholds reads as it was signed, with no verdict: nothing it predates is called *not captured*, and
+the sign-out check compares it on what it holds.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,

@@ -255,7 +255,8 @@ BED declared as a log2 ratio. A manifest entry without `content` imports as *unk
 warns: such a track is drawn on its own range without an axis, with a note, and never read as depth.
 Each track these checks leave out is named, with the reason, on the mtDNA page and with the NIPT coverage.
 A coverage BED loaded before BEDs said what they hold reads as unknown too: load it again with what it
-holds.
+holds. A sign-out freezes what each coverage track held, and whether an upload or a package loaded it,
+in the signed record (*Coverage tracks*).
 
 **A file without a record fails its dataset, and nothing is replaced.** A file that holds nothing
 CoGA can store (a header alone, a file cut short before its first record, an empty file) used to

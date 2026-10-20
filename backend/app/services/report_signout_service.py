@@ -10,8 +10,9 @@ annotation/reference versions (the manifest), the reported variant list, each
 classification with its frozen evidence snapshot, and the evidence-drift state at the
 moment of sign-out; and what the analysis looked at (``signed_record_sections``): each
 reported variant's description, the gene-panel versions its searches applied, the
-reference-data releases, the family's repeat-expansion and Paraphase results, in a PGT
-family each embryo's call at the region of interest, and in a monogenic NIPT family its NIPT
+reference-data releases, the family's repeat-expansion and Paraphase results, what each of
+its coverage tracks holds, in a PGT family each embryo's call at the region of interest, and
+in a monogenic NIPT family its NIPT
 results (``signed_record_nipt``): a NIPT analysis is signed out through this same sign-out,
 from the NIPT page or the report page. The snapshot is content-hashed (SHA-256) and written
 append-only into ``report_signouts`` as a new version; the sign-out is recorded in the
@@ -963,8 +964,8 @@ async def build_report_snapshot(
     )
     # What the analysis looked at: each reported variant's description, the gene-panel
     # versions its searches applied, the reference-data releases, the family's repeat
-    # expansions and Paraphase results, a PGT family's embryo calls and a monogenic NIPT
-    # family's NIPT results (signed_record_sections, one key each).
+    # expansions and Paraphase results, what each coverage track holds, a PGT family's embryo
+    # calls and a monogenic NIPT family's NIPT results (signed_record_sections, one key each).
     sections = await build_record_sections(
         session,
         context=context,
@@ -1599,8 +1600,8 @@ REPORT_CONTENT_SECTIONS = (
     "import_unfinished",
     # What the analysis looked at (signed_record_sections): the variant descriptions, the
     # gene panels applied, the reference-data releases, the repeat expansions, the
-    # Paraphase results and, in a PGT family, the embryo calls, in a monogenic NIPT family,
-    # the NIPT results.
+    # Paraphase results, the coverage tracks and, in a PGT family, the embryo calls, in a
+    # monogenic NIPT family, the NIPT results.
     *(section.key for section in RECORD_SECTIONS),
 )
 # A section a record does not hold (one CoGA adds after it was signed) cannot be compared

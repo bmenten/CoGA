@@ -1388,6 +1388,92 @@ describe('FamilyReportPage', () => {
       );
     });
 
+    // What each coverage track held (signed_record_sections.coverage_tracks, owner decision of
+    // 2026-10-20): which kind of coverage a depth check rested on, on screen and in print.
+    it('shows what each coverage track held and where it came from, on screen and in print', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      const { container } = renderPage();
+
+      const coverage = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
+      // The checks that read a track as depth: a family that is no NIPT family hears nothing of NIPT.
+      expect(coverage).toHaveTextContent(
+        'Only a track of read depth is read as depth, by the mtDNA coverage and its depth verdict.',
+      );
+      expect(coverage).not.toHaveTextContent('NIPT');
+      const items = within(coverage).getAllByRole('listitem');
+      expect(items.map((item) => item.textContent)).toEqual([
+        'MOTHER coverage BED: unknown: it declares neither read depth nor a log2 ratio, so it is not read as depth. MOTHER.bed, from a package import, 2 rows, loaded 2026-10-01 09:00 UTC.',
+        'PROBAND coverage BED: read depth. PROBAND.upload.bed, from a single-file upload, 1,200 rows, loaded 2026-10-02 09:00 UTC.',
+        'PROBAND WisecondorX: log2 ratio, not read as depth. PROBAND_bins.bed, from a package import, 3,000 rows, loaded 2026-10-01 09:00 UTC.',
+      ]);
+      // One line in the footer, beside the reference data, with the report code.
+      const footer = container.querySelector('footer')!;
+      expect(footer).toHaveTextContent(
+        'Coverage tracks as signed: MOTHER coverage BED (package) — unknown; PROBAND coverage BED (upload) — read depth; PROBAND WisecondorX (package) — log2 ratio',
+      );
+      // Both print: neither is kept off the printout.
+      expect(coverage.closest('.no-print')).toBeNull();
+      expect(within(footer).getByText('Coverage tracks as signed:').closest('.no-print')).toBeNull();
+    });
+
+    it('names the NIPT coverage check among the depth readers in a NIPT family’s record', async () => {
+      const niptQc = { ...SIGNED_SNAPSHOT.sample_qc, application: 'nipt', application_label: 'Monogenic NIPT (cfDNA)' };
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: niptQc } });
+      renderPage();
+
+      const coverage = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
+      expect(coverage).toHaveTextContent(
+        'Only a track of read depth is read as depth, by the mtDNA coverage and by the NIPT coverage check without a per-target table.',
+      );
+    });
+
+    it('says a family held no coverage track, and what a record could not capture or predates', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, coverage_tracks: { tracks: [] } } });
+      const first = renderPage();
+      const none = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
+      expect(none).toHaveTextContent('The family’s samples had no coverage track.');
+      expect(first.container.querySelector('footer')).toHaveTextContent('Coverage tracks as signed: none');
+      first.unmount();
+
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          coverage_tracks: { unavailable: 'The coverage tracks could not be read.' },
+        },
+      });
+      const second = renderPage();
+      const missing = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
+      expect(missing).toHaveTextContent(
+        'Not captured: what each coverage track holds could not be read when version 2 was signed (The coverage tracks could not be read.).',
+      );
+      expect(second.container.querySelector('footer')).toHaveTextContent(
+        'Coverage tracks as signed: not captured (The coverage tracks could not be read.)',
+      );
+      second.unmount();
+
+      // A record signed before CoGA froze them: not in the record, never "not captured".
+      mockSignedCase();
+      const third = renderPage();
+      const older = (await screen.findByRole('heading', { name: 'Coverage tracks' })).closest('section')!;
+      expect(older).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded what each coverage track holds.',
+      );
+      expect(older).not.toHaveTextContent('Not captured');
+      expect(third.container.querySelector('footer')).toHaveTextContent('Coverage tracks as signed: not in the signed record');
+    });
+
+    it('names the coverage tracks when they changed since the latest signed version', async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS },
+        check: () => checkResult({ matches: false, changed_sections: ['coverage_tracks'] }),
+      });
+      renderPage();
+
+      const line = (await screen.findByText(/Changed since this version was signed:/)).closest('p')!;
+      expect(line).toHaveTextContent('⚠ Changed since this version was signed: coverage tracks.');
+    });
+
     // A monogenic NIPT family's record holds its NIPT results (signed_record_nipt); no other
     // family's does.
     const NIPT_SAMPLE_QC = {

@@ -489,6 +489,8 @@ async def import_bed_tracks(
                     # A coverage BED declares what it holds (TRACE-9): the demo's coverage
                     # bins are log2 ratios (its README).
                     content="log2_ratio" if bed_type == "coverage" else None,
+                    # Where the file came from, as this loader's other records say it.
+                    uploaded_from="demo-script",
                 )
         results[sample_id] = sample_results
     return results
