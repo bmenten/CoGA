@@ -80,7 +80,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
             "structural": {"checked": 0, "drifted_count": 0, "drifted": []},
         }
 
-    async def _qc(session, *, family_id, user, project_id=None):
+    async def _qc(session, *, family_id, user, project_id=None, shared_nipt=None):
         return SampleIntegrityReport(overall_status="pass")
 
     async def _sequencing_qc(session, context):

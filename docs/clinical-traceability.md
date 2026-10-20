@@ -364,8 +364,11 @@ makes no difference to what is frozen. The Sample QC's NIPT checks stay in `samp
 parents' sex, and their fixed notes), and the gene panels its NIPT searches applied in
 `gene_panels`. A NIPT variant whose review is tagged `report` is frozen in `reported_variants`
 and `variant_descriptions` like any reported small variant, with its classification, and in
-`nipt` with its category, reads and probabilities. Reading the NIPT section runs the NIPT
-analysis once more, beside the one the Sample QC runs.
+`nipt` with its category, reads and probabilities. The Sample QC's NIPT checks and the NIPT
+section read one run of the NIPT analysis (`nipt_service.SharedNiptAnalysis`, OPS-9): the same
+artifact list, which the lab curates apart from the family's data, and the same values. One that
+fails fails for both: the Sample QC notes that the NIPT cfDNA analysis could not run, and the
+section is frozen as unavailable.
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
 Versions are numbered per family ID: a family made again under the ID of a deleted family

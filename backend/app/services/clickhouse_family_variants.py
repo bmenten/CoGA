@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections import OrderedDict
@@ -1622,6 +1623,16 @@ async def fetch_genotype_site_sample(
     """
     params["sample_limit"] = max(int(limit), 0)
     rows = await _execute_clickhouse(query, params)
+    # Up to 90,000 rows, each with every sample's genotype: read in a worker thread, off the
+    # event loop (OPS-9).
+    return await asyncio.to_thread(_genotype_site_rows, rows, per_sample=per_sample)
+
+
+def _genotype_site_rows(
+    rows: Sequence[Sequence[Any]], *, per_sample: bool
+) -> list[tuple[str, int, str, str, list[str], list[str]]]:
+    """``fetch_genotype_site_sample``'s rows from its query's: one per variant, the genotypes
+    of a per-sample callset read from their allele depths."""
     sample: list[tuple[str, int, str, str, list[str], list[str]]] = []
     seen_keys: set[int] = set()
     for row in rows:

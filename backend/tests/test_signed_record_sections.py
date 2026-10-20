@@ -569,7 +569,7 @@ def _sections_of(session: _Session, monkeypatch, **reported: Any) -> dict[str, A
 def test_a_nipt_family_holds_its_nipt_results_read_for_its_reported_variants(monkeypatch) -> None:
     asked: list[dict[str, Any]] = []
 
-    async def _nipt(session, context, *, reported_ids):
+    async def _nipt(session, context, *, reported_ids, shared_nipt=None):
         asked.append({"family": context.family_id, "reported": list(reported_ids)})
         return {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
 
@@ -602,7 +602,7 @@ def test_a_family_that_is_no_nipt_family_holds_no_nipt_key(monkeypatch, analysis
 
 
 def test_nipt_results_that_cannot_be_read_are_frozen_as_unavailable_and_named(monkeypatch) -> None:
-    async def _fails(session, context, *, reported_ids):
+    async def _fails(session, context, *, reported_ids, shared_nipt=None):
         raise RuntimeError("SELECT ... WHERE sample = 'CFDNA_SECRET'")
 
     monkeypatch.setattr(srs, "nipt_results", _fails)
