@@ -171,7 +171,8 @@ class FamilyTrackAvailabilityOut(BaseModel):
 
 
 # A repeat allele's, call's or locus's status (repeat_expansion_pg.classify_repeat_count):
-# `not_assessed` is a call at a locus without thresholds (CLIN-26), `unknown` a no-call.
+# `not_assessed` is a call at a locus without thresholds (CLIN-26) whose count is outside any
+# benign range the catalogue states there (CLIN-36), `unknown` a no-call.
 RepeatStatus = Literal[
     "normal", "review", "not_assessed", "intermediate", "premutation", "pathogenic", "unknown"
 ]
@@ -206,7 +207,8 @@ class RepeatExpansionSampleCallOut(BaseModel):
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
     status: RepeatStatus = "unknown"
     # Why the call needs a second look beyond its allele sizes (a male with two
-    # different chrX alleles), or None.
+    # different chrX alleles), or why no catalogue locus classifies it (its TRID names
+    # several STRchive loci and its region does not pick one, CLIN-31), or None.
     note: Optional[str] = None
 
 

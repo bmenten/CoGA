@@ -19,6 +19,9 @@ reads that set from the catalogue and requires it to equal ``_APPEND_ONLY``, so 
 append-only table cannot ship without being exercised here, and so without its REVOKE in
 ``05_grants.sql`` (``qc_threshold_changes`` once shipped with its trigger but no REVOKE).
 
+The schema-migration ledger (``alembic_version``) is not append-only, since the migration step
+moves its one row on, but it is the owner's alone: coga_app may read it and nothing more.
+
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it. The
 test connects as the migration owner/superuser, which can ``SET ROLE`` to the NOLOGIN
 ``coga_app`` to exercise exactly its privilege set.
@@ -296,6 +299,41 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                 ).scalar_one()
                 assert unlinked == {"report_signouts": True, "family_structure_versions": True}, unlinked
                 assert remaining == 0, remaining
+        finally:
+            await close_postgres_engine()
+
+    asyncio.run(_run())
+
+
+def test_coga_app_can_read_the_schema_ledger_but_not_write_it() -> None:
+    """The ledger (``alembic_version``) records which schema revision ran; only the migration
+    step writes it, as the owner. coga_app may read it, and every write is refused by the
+    REVOKE in 05_grants.sql (the broad GRANT and the default privileges would allow it)."""
+
+    from backend.app.core.postgres import (
+        close_postgres_engine,
+        get_postgres_sessionmaker,
+        init_postgres_schema,
+    )
+
+    async def _run() -> None:
+        try:
+            await init_postgres_schema()
+            sm = get_postgres_sessionmaker()
+            async with sm() as s:
+                privileges = (await s.execute(text(_PRIVILEGES_SQL), {"t": "alembic_version"})).one()
+                assert tuple(privileges) == (True, False, False, False, False), privileges
+            async with sm() as s:
+                await s.execute(text("SET LOCAL ROLE coga_app"))
+                ledger = (await s.execute(text("SELECT version_num FROM alembic_version"))).all()
+                assert len(ledger) == 1, ledger
+            for sql in (
+                "INSERT INTO alembic_version (version_num) VALUES ('9999')",
+                "UPDATE alembic_version SET version_num = version_num",
+                "DELETE FROM alembic_version",
+                "TRUNCATE alembic_version",
+            ):
+                await _denied(sm, sql, "permission denied")
         finally:
             await close_postgres_engine()
 

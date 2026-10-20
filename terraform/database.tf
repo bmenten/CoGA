@@ -60,7 +60,10 @@ resource "google_sql_database" "coga" {
 resource "google_sql_user" "coga" {
   name     = "coga_admin"
   instance = google_sql_database_instance.postgres.name
-  password = data.google_secret_manager_secret_version.postgres_password.secret_data
+  # Write-only (secrets.tf): the state keeps the number of the secret's version, not the
+  # password, so adding a version to coga-postgres-password sets it on the next apply.
+  password_wo         = ephemeral.google_secret_manager_secret_version.postgres_password.secret_data
+  password_wo_version = tonumber(data.google_secret_manager_secret_version.postgres_password.version)
 }
 
 # ---- ClickHouse on Compute Engine (Container-Optimized OS) -----------------

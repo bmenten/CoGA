@@ -51,7 +51,12 @@
 ## Database Schema
 
 - Postgres: five idempotent baseline files in `backend/db/schema/postgres/` (`01_access` …
-  `05_grants`), re-applied on every boot; there is no migration ledger. ClickHouse: the SQL
+  `05_grants`), then the Alembic revisions in `backend/db/migrations/versions/`, recorded in
+  the ledger table `alembic_version` (`core/postgres_migrations.py`). Until the release
+  candidate every migration run re-applies the baselines first, so a baseline edit reaches
+  existing databases; a change to a table that already exists (a `CHECK`, a column) also
+  needs a revision, which must end at the baseline's definition. Migrations run as the table
+  owner, never as `coga_app`. ClickHouse: the SQL
   file only creates the database; the per-assembly tables are created at runtime
   (`clickhouse_variant_storage.py`, `clickhouse_interval_tracks.py`). `docs/database.md` is
   the table-by-table reference — treat it as the source of truth and keep it current.

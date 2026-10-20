@@ -93,7 +93,8 @@ def _patch(monkeypatch: pytest.MonkeyPatch, *, data_counts: dict[str, int]) -> _
 
     async def fake_clear(*_args, **_kwargs):
         recorded.cleared = True
-        return dict(data_counts)
+        # What the family held, and the assemblies whose ClickHouse data goes last: none here.
+        return dict(data_counts), []
 
     async def fake_record_version(_session, *, family_uuid, metadata=None, **_kwargs):
         recorded.version_metadata = dict(metadata or {})

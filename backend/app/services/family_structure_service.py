@@ -258,16 +258,20 @@ async def _clear_family_genomic_data(
     session: AsyncSession,
     *,
     family_uuid: str,
-) -> dict[str, int]:
+) -> tuple[dict[str, int], list[str]]:
+    """Clear the family's genomic data held in Postgres, in the structure change's
+    transaction, and return what the family held and the assemblies whose ClickHouse data
+    the caller deletes with ``_delete_family_clickhouse_data``, last, just before it commits.
+
+    ClickHouse has no transactions: deleted here, the variants and tracks were gone when a
+    write of the structure change after this failed (a member or relationship row, the
+    pedigree, the structure version) and the rollback brought the family back with its
+    reviews and its Postgres data (SAFE-28), as the PED upload's were before #859."""
     # Until the structure change commits, so no write that read the family's variants
     # before the clear writes them back after it.
     await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
     counts = await _family_genomic_data_counts(session, family_uuid=family_uuid)
     assembly_groups = await _family_assembly_groups(session, family_uuid=family_uuid)
-    for assembly_name in assembly_groups:
-        await delete_family_small_variants(assembly_name, family_uuid)
-        await delete_family_structural_variants(assembly_name, family_uuid)
-        await delete_interval_tracks(assembly_name, family_uuid=family_uuid)
     await delete_interval_track_sources(session, family_uuid=family_uuid)
     for table_name in (
         "repeat_expansions",
@@ -284,7 +288,19 @@ async def _clear_family_genomic_data(
             ),
             {"family_uuid": family_uuid},
         )
-    return counts
+    return counts, sorted(assembly_groups)
+
+
+async def _delete_family_clickhouse_data(family_uuid: str, assembly_names: list[str]) -> None:
+    """Delete the family's small variants, structural variants and interval tracks in
+    ClickHouse, for a structure change that clears its genomic data
+    (``_clear_family_genomic_data``): once everything else of the change is written, just
+    before its commit, so a write that fails before this leaves them, with the family the
+    rollback brings back. The variant-write locks the clear took are still held."""
+    for assembly_name in assembly_names:
+        await delete_family_small_variants(assembly_name, family_uuid)
+        await delete_family_structural_variants(assembly_name, family_uuid)
+        await delete_interval_tracks(assembly_name, family_uuid=family_uuid)
 
 
 async def _sample_id_conflicts(
@@ -1097,10 +1113,14 @@ async def update_family_structure_for_admin(
     relationships_changed = current_relationship_keys != target_relationship_keys
     data_counts: dict[str, int] = {}
     cleared_data_counts: dict[str, int] = {}
+    # The assemblies whose ClickHouse data the clear deletes, last (SAFE-28).
+    cleared_assemblies: list[str] = []
     if update.clear_existing_genomic_data:
         data_counts = await _family_genomic_data_counts(session, family_uuid=family_uuid)
         if _nonzero_counts(data_counts):
-            cleared_data_counts = await _clear_family_genomic_data(session, family_uuid=family_uuid)
+            cleared_data_counts, cleared_assemblies = await _clear_family_genomic_data(
+                session, family_uuid=family_uuid
+            )
 
     for member in true_new_members:
         await _insert_new_member(session, family_uuid=family_uuid, member=member)
@@ -1194,6 +1214,10 @@ async def update_family_structure_for_admin(
             "cleared_data_counts": cleared_data_counts,
         },
     )
+    # ClickHouse has no transactions: its data goes once everything else of the change is
+    # written, just before the commit, so a write that fails before this leaves the family's
+    # variants and tracks with the family the rollback brings back (SAFE-28).
+    await _delete_family_clickhouse_data(family_uuid, cleared_assemblies)
     await session.commit()
     family = await get_family_record(session, family_id, user)
     return FamilyStructureUpdateOut(

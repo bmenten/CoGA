@@ -236,8 +236,12 @@ pull request updates this list only when it adds clinical behaviour that no area
 - **Sign-out and the signed record** — the frozen snapshot and its drift gates (small
   variants, SVs and CNVs), sample-integrity, sample-QC, incomplete-import and assembly-scope
   gates; the signed view rendered from its record in the release-candidate format; the
-  software, annotation, reference, HPO and QC-limit versions it binds; the device label and
-  the build identity; every review and classification change on the clinical audit trail,
+  software, annotation, reference, HPO and QC-limit versions it binds; what the analysis
+  looked at, frozen with it (each reported variant's description and genotypes, the gene-panel
+  versions the family's searches applied, the reference-data releases, the repeat-expansion
+  and Paraphase calls with their status); the report code the EPD report quotes, its check
+  symbol and its lookup; the device label and the build identity; every review and
+  classification change on the clinical audit trail,
   a compound-het pair review and every change of a family's pedigree and members included,
   and the pedigree's structure versions, append-only and hash-chained per family.
 - **Reference data** — the gene reference (HGNC register, GENCODE loci, per-source releases),

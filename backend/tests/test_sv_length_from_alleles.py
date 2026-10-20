@@ -461,7 +461,7 @@ async def test_the_list_shows_and_measures_the_alleles_length(stored, prioritize
         context=_family(),
         page=1,
         page_size=100,
-        min_length=50,
+        filters=StructuralVariantQueryFilters(page=1, page_size=100, min_length=50),
         prioritize=prioritize,
     )
 
@@ -479,7 +479,7 @@ async def test_the_export_holds_the_svs_the_list_holds(stored) -> None:
     export = await export_family_structural_variants(
         None,  # type: ignore[arg-type]
         context=_family(),
-        length=350,
+        filters=StructuralVariantQueryFilters(page=1, page_size=0, length=350),
     )
 
     assert [(str(row.id), row.length) for row in export.rows] == [(_INSERTION_ID, 350)]

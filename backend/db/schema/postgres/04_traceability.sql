@@ -1,6 +1,19 @@
 -- 04_traceability.sql — Import-provenance + append-only, hash-chained clinical audit + integrity
 
 -- ---------------------------------------------------------------------------
+-- alembic_version — the schema-migration ledger
+-- ---------------------------------------------------------------------------
+-- One row: the Alembic revision (backend/db/migrations/versions) the database is at. Only
+-- the migration step writes it, as the owner (backend/app/core/postgres_migrations.py);
+-- 05_grants.sql leaves coga_app read access only. Alembic would create the same table; it is
+-- created here so that 05_grants.sql finds it. An empty ledger means a new database, or one
+-- created before the ledger: the migration then runs every revision.
+CREATE TABLE IF NOT EXISTS alembic_version (
+    version_num VARCHAR(32) NOT NULL,
+    CONSTRAINT alembic_version_pkc PRIMARY KEY (version_num)
+);
+
+-- ---------------------------------------------------------------------------
 -- audit_log_events — HTTP access audit trail (append-only)
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS audit_log_events (

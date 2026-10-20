@@ -79,7 +79,7 @@ Each layer is optional and switches on part of CoGA.
 | --- | --- |
 | **Small variants (SNV/indel)** | the small-variant page, its review, and the Sample QC page |
 | **Structural variants** | the structural-variant page, its review, CNV classification and the variant summary |
-| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). A call whose TRID names no catalogued locus, or a locus without thresholds, reads *Not assessed*, never normal |
+| **Repeat expansions (TRGT)** | the repeat-expansion page; a call is scored against STRchive's thresholds for the locus its TRID names: STRchive's locus ID (`HD_HTT`) or, for a gene with one STRchive locus, the gene (`HTT`). For a gene with several STRchive loci, a repeat tract each (ARX, HOXA13), the gene's name picks the locus the call's region overlaps. A call whose TRID names no catalogued locus, or a locus without thresholds, reads *Not assessed*, never normal (except a count inside the benign range STRchive states for a locus without thresholds, POLG: 10, which reads normal), as does a call whose region overlaps none of its gene's loci, or several |
 | **Paraphase** | resolution of paralogous genes and segmental duplications |
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
@@ -288,11 +288,13 @@ no mtDNA deletion): it removes that sample's earlier calls, as above.
   footer.
 - **A dataset that failed** ends the job as *failed*. If the family is left partly loaded, every family
   page shows *Import incomplete* until an import has imported each dataset that failed again, or an
-  upload has brought it again (an **update** will do; a dataset, or a sample, it skips because its data
-  is there is not imported again, and stays named), and its report can be signed out only with an
-  acknowledgement
-  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). An import that completes
-  without them leaves the warning, and says so in its log.
+  upload has brought it again, for each callset and each set of samples it failed for (an **update**
+  will do; a dataset, or a sample, it skips because its data is there is not imported again, and stays
+  named), and its report can be signed out only with an acknowledgement
+  ([Report traceability & sign-out](/docs/reference/clinical-traceability)). A dataset imported with
+  warnings counts, as does one the package carries nothing for that CoGA imports (phenotypes without
+  an HPO term, say), which the import only registers. An import that completes without them leaves
+  the warning, and says so in its log.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
   too, part of the family's data may be gone, whichever import or upload it came from: the warning
   then names every dataset of that import as failed, the ones that imported too, and every dataset
@@ -326,6 +328,16 @@ stored ones were deleted (the variant store failing part-way), the upload report
 family page shows *Import incomplete* for those calls, so the report can be signed out only with an
 acknowledgement, until they have been uploaded or imported again.
 
+The small-variant, structural-variant and interval-track uploads mark the family before they first
+write to the variant store, and remove the mark once they have finished. If the server stops in the
+middle of such an upload (it restarted, or ran out of memory), or the upload fails and cannot put back
+what it had deleted, the mark stays: every family page shows *Import incomplete* ("A single-file upload
+… began rewriting this family's data and has not finished"), naming what may be partly written or
+missing, and the report can be signed out only with an acknowledgement. Upload again with
+**overwrite** what it names: each sample's file for a structural-variant caller (the upload rewrites
+every sample's calls from that caller), the callset, or the sample's track; each goes from the warning
+as it is uploaded, or imported, again. An upload without **overwrite** removes nothing from it.
+
 A value the variant store cannot hold, or that is no number, never fails an upload or an import: it is
 stored as missing. A genotype quality written as `inf` or above 65,535, a negative phase set, or a
 QUAL beyond the store's largest decimal reads as absent, so a sample filter with a minimum genotype
@@ -342,7 +354,7 @@ calls apart:
   before it replaces them.
 - Replacing them changes only that sample's calls from that caller. The other samples' calls, and the
   calls of every other source (a package's NeedlR or HiFiCNV calls, another caller's upload), stay as
-  they are.
+  they are. If storing them fails, every sample's calls from that caller are put back as they were.
 - The caller and its version, as the file's header names them, are added to the family's annotation
   versions.
 - Uploads from two callers that report an SV with the same type and breakpoints each keep their own

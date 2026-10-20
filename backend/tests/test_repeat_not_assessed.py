@@ -10,13 +10,21 @@ keeps it, and the page counts such calls.
 
 A locus without thresholds has no intermediate, premutation or pathogenic threshold: no
 catalogue row matches the TRID, or the row it matches states none (STRchive's ADTKD_MUC1 and
-CPEO_POLG; POLG states a benign range, which is not a threshold). A row with one threshold
-keeps today's reading: normal below it.
+CPEO_POLG). A row with one threshold keeps today's reading: normal below it.
+
+Where such a row states a benign range, a count inside it reads ``normal`` (the owner's
+decision of 2026-10-14, CLIN-36): STRchive's CPEO_POLG states exactly 10 repeats and no
+threshold, so a POLG allele of 10 read not assessed from CLIN-26 on, and every family whose
+TRGT catalogue holds POLG showed it under *Aberrant only*. A count outside the range, above it
+or below it, stays not assessed (a benign range is not a threshold), as does every count at
+ADTKD_MUC1, which states nothing. The count is the one TRGT reports for the catalogue motif.
 
 - The classification, the ranking, and the known loci unchanged.
 - The import: the status stored with a call under an unknown TRID, a TRID spelled differently,
-  and a catalogue row without thresholds, through the catalogue a start seeds.
-- The family table: a call stored as ``normal`` before reads not assessed at once.
+  and a catalogue row without thresholds, through the catalogue a start seeds; at POLG, normal
+  inside its benign range only.
+- The family table: a call stored as ``normal`` before reads not assessed at once, and a POLG
+  call stored as ``not_assessed`` inside its benign range (CLIN-26 to CLIN-36) reads normal.
 - The genome tracks serve the stored status, ``not_assessed`` included.
 - The API models, the stored status's check constraint and the ranking list the same statuses.
 (integration/test_repeat_status_storage.py stores the status on Postgres.)
@@ -55,6 +63,8 @@ FMR1 = {
     "premutation_min": 55,
 }
 VWA1 = {"warning_min": None, "pathogenic_min": 1, "benign_min": 2, "benign_max": 2, "pathogenic_max": 3}
+# A pathogenic threshold and no grey zone, below it a benign range: ABCD3.
+ABCD3 = {"warning_min": None, "pathogenic_min": 118, "benign_min": 3, "benign_max": 44, "pathogenic_max": 694}
 # Rows that state no threshold: ADTKD_MUC1 states nothing, CPEO_POLG a benign count of 10.
 NO_RANGES = {"warning_min": None, "pathogenic_min": None, "benign_min": None, "benign_max": None, "pathogenic_max": None}
 POLG = {"warning_min": None, "pathogenic_min": None, "benign_min": 10, "benign_max": 10, "pathogenic_max": None}
@@ -70,15 +80,71 @@ def classify(count: int | None, locus: dict) -> str:
 
 
 @pytest.mark.parametrize("count", [0, 5, 10, 12, 300, 5000])
-@pytest.mark.parametrize("locus", [NO_RANGES, POLG], ids=["no catalogue row or no ranges", "benign range only (POLG)"])
-def test_a_called_allele_at_a_locus_without_thresholds_is_not_assessed(locus: dict, count: int) -> None:
+def test_a_called_allele_at_a_locus_without_thresholds_is_not_assessed(count: int) -> None:
     # "normal" before: a 5000-repeat expansion read as healthy as a 5-repeat allele.
-    assert classify(count, locus) == NOT_ASSESSED
+    assert classify(count, NO_RANGES) == NOT_ASSESSED
 
 
 def test_a_no_call_is_unknown_whether_or_not_the_locus_has_thresholds() -> None:
     assert classify(None, NO_RANGES) == "unknown"
+    assert classify(None, POLG) == "unknown"
     assert classify(None, HTT) == "unknown"
+
+
+# ---- A count inside a stated benign range (CLIN-36) -------------------------------------------
+
+
+def test_a_count_inside_the_benign_range_of_a_locus_without_thresholds_is_normal() -> None:
+    # STRchive's CPEO_POLG: benign exactly 10, no threshold. Not assessed from CLIN-26 on, so
+    # every family whose TRGT catalogue holds POLG showed it under Aberrant only.
+    assert classify(10, POLG) == "normal"
+
+
+@pytest.mark.parametrize("count", [0, 5, 9, 11, 12, 14, 300, 5000])
+def test_a_count_outside_the_benign_range_of_a_locus_without_thresholds_stays_not_assessed(count: int) -> None:
+    # Above the range or below it: a benign range is not a threshold, so nothing says whether
+    # such a count is harmful.
+    assert classify(count, POLG) == NOT_ASSESSED
+
+
+@pytest.mark.parametrize(
+    ("count", "status"), [(5, NOT_ASSESSED), (6, "normal"), (11, "normal"), (16, "normal"), (17, NOT_ASSESSED)]
+)
+def test_a_benign_range_holds_both_its_ends(count: int, status: str) -> None:
+    # A wider range than POLG's, as another STRchive release may state one: inclusive at both
+    # ends, as STRchive's ranges read.
+    assert classify(count, {**NO_RANGES, "benign_min": 6, "benign_max": 16}) == status
+
+
+@pytest.mark.parametrize(
+    "ends",
+    [{"benign_min": None, "benign_max": 10}, {"benign_min": 10, "benign_max": None}],
+    ids=["no lower end", "no upper end"],
+)
+@pytest.mark.parametrize("count", [0, 5, 10, 300])
+def test_a_benign_range_with_an_end_missing_is_not_stated(ends: dict, count: int) -> None:
+    # Half a range says nothing about the counts on its open side: not assessed, as at a row
+    # that states nothing.
+    assert classify(count, {**NO_RANGES, **ends}) == NOT_ASSESSED
+
+
+@pytest.mark.parametrize(
+    ("locus", "count", "status"),
+    [
+        (ABCD3, 2, "normal"),
+        (ABCD3, 44, "normal"),
+        # Between the benign range and the threshold, normal as before (CLIN-38 asks about it).
+        (ABCD3, 117, "normal"),
+        (ABCD3, 118, "pathogenic"),
+        ({**POLG, "warning_min": 20}, 5, "normal"),
+        ({**POLG, "warning_min": 20}, 15, "normal"),
+        ({**POLG, "warning_min": 20}, 20, "intermediate"),
+    ],
+)
+def test_a_benign_range_changes_nothing_at_a_locus_with_a_threshold(locus: dict, count: int, status: str) -> None:
+    # The thresholds decide there, a count outside the benign range included: only a locus
+    # without one reads its benign range.
+    assert classify(count, locus) == status
 
 
 @pytest.mark.parametrize(("count", "status"), [(39, "normal"), (40, "pathogenic"), (4000, "pathogenic")])
@@ -184,7 +250,8 @@ async def _catalogue_after_a_start(monkeypatch) -> dict[str, dict]:
     session = _RecordingSession()
     await repeat_expansion_pg.seed_builtin_repeat_catalog(session)
     rows: dict[str, dict] = {}
-    for _sql, params in session.statements:
+    # The upserts; the seed's last statement removes STRchive rows of another release (CLIN-31).
+    for _sql, params in (statement for statement in session.statements if "locus_id" in statement[1]):
         rows[params["locus_id"]] = {
             **{
                 column: params[column]
@@ -233,10 +300,12 @@ def _call(
     chrom: str = "chr2",
     pos: int = 1_000_000,
     motif: str = "CAG",
+    motifs: str | None = None,
     sex: str = "female",
     sample_field: str | None = None,
 ) -> dict:
-    """A TRGT call of two alleles of ``counts`` repeats, or of ``sample_field`` as given."""
+    """A TRGT call of two alleles of ``counts`` repeats, or of ``sample_field`` as given;
+    ``motifs`` is the record's MOTIFS when it lists more than ``motif``."""
     if sample_field is None:
         lengths = ",".join(str(count * len(motif)) for count in counts)
         sample_field = f"1/2:{lengths}:{counts[0]},{counts[1]}"
@@ -246,7 +315,7 @@ def _call(
         chrom=chrom,
         pos=str(pos),
         ref=motif,
-        info_field=f"TRID={trid};END={pos + 30};MOTIFS={motif}",
+        info_field=f"TRID={trid};END={pos + 30};MOTIFS={motifs or motif}",
         format_field="GT:AL:MC",
         sample_field=sample_field,
         header_sample="sample",
@@ -280,7 +349,18 @@ async def test_a_call_whose_trid_no_catalogue_row_names_is_stored_not_assessed(m
     assert (params["locus_id"], params["warning_min"], params["pathogenic_min"]) == (trid, None, None)
 
 
-@pytest.mark.parametrize(("trid", "counts"), [("ADTKD_MUC1", (25, 60)), ("CPEO_POLG", (10, 10)), ("CPEO_POLG", (10, 30))])
+@pytest.mark.parametrize(
+    ("trid", "counts"),
+    [
+        # MUC1 states nothing: every count, ten included.
+        ("ADTKD_MUC1", (25, 60)),
+        ("ADTKD_MUC1", (10, 10)),
+        # POLG states a benign count of 10: both alleles outside it, above and below.
+        ("CPEO_POLG", (11, 30)),
+        ("CPEO_POLG", (5, 9)),
+        ("POLG", (12, 14)),
+    ],
+)
 @pytest.mark.asyncio
 async def test_a_call_at_a_catalogue_row_without_thresholds_is_stored_not_assessed(
     monkeypatch, trid: str, counts: tuple[int, int]
@@ -291,8 +371,90 @@ async def test_a_call_at_a_catalogue_row_without_thresholds_is_stored_not_assess
 
     params = _call(lookup, trid=trid, counts=counts, motif=str(row["motif"]))
 
-    assert params["locus_id"] == trid
+    assert params["locus_id"] == row["locus_id"]
     assert _allele_statuses(params) == [NOT_ASSESSED, NOT_ASSESSED]
+    assert params["status"] == NOT_ASSESSED
+
+
+@pytest.mark.asyncio
+async def test_the_rows_a_start_seeds_without_thresholds_are_muc1_and_polg(monkeypatch) -> None:
+    """The loci CLIN-36's rule reaches: the seeded rows with no threshold. ADTKD_MUC1 states no
+    benign range, so every count there stays not assessed; CPEO_POLG states 10, the one count
+    that reads normal. No built-in row lacks a threshold, nor does any other STRchive row: a
+    release that adds such a row fails here, for QA to look at the range it states."""
+    rows = await _catalogue_after_a_start(monkeypatch)
+
+    def ranges(row: dict) -> dict:
+        metadata = row["metadata"]
+        return {key: metadata.get(key) for key in ("benign_min", "benign_max", "pathogenic_max", "premutation_min")}
+
+    without_thresholds = {
+        locus_id: row
+        for locus_id, row in rows.items()
+        if row["warning_min"] is None and row["pathogenic_min"] is None and row["metadata"].get("premutation_min") is None
+    }
+    assert {locus_id: ranges(row) for locus_id, row in without_thresholds.items()} == {
+        "ADTKD_MUC1": {"benign_min": None, "benign_max": None, "pathogenic_max": None, "premutation_min": None},
+        "CPEO_POLG": {"benign_min": 10, "benign_max": 10, "pathogenic_max": None, "premutation_min": None},
+    }
+    counts = range(0, 501)
+    read = {
+        locus_id: {count: classify_repeat_count(count, None, None, **ranges(row)) for count in counts}
+        for locus_id, row in without_thresholds.items()
+    }
+    assert {count for count, status in read["ADTKD_MUC1"].items() if status != NOT_ASSESSED} == set()
+    assert {count for count, status in read["CPEO_POLG"].items() if status != NOT_ASSESSED} == {10}
+    assert read["CPEO_POLG"][10] == "normal"
+
+
+@pytest.mark.parametrize("trid", ["CPEO_POLG", "POLG"])
+@pytest.mark.parametrize(
+    ("counts", "alleles", "status"),
+    [
+        ((10, 10), ["normal", "normal"], "normal"),
+        # The call reads its most severe allele: one outside the range keeps it not assessed.
+        ((10, 30), ["normal", NOT_ASSESSED], NOT_ASSESSED),
+        ((9, 10), [NOT_ASSESSED, "normal"], NOT_ASSESSED),
+    ],
+)
+@pytest.mark.asyncio
+async def test_a_polg_count_inside_its_benign_range_is_stored_normal(
+    monkeypatch, trid: str, counts: tuple[int, int], alleles: list[str], status: str
+) -> None:
+    """STRchive's locus ID and the gene name both find CPEO_POLG, benign exactly 10 (CLIN-36)."""
+    lookup = await _import_lookup(monkeypatch)
+    row = lookup[trid.lower()]
+    assert row["locus_id"] == "CPEO_POLG"
+    assert (row["metadata"]["benign_min"], row["metadata"]["benign_max"]) == (10, 10)
+
+    params = _call(lookup, trid=trid, counts=counts, chrom="chr15", pos=89_333_579, motif=str(row["motif"]))
+
+    assert _allele_statuses(params) == alleles
+    assert params["status"] == status
+    assert (params["locus_id"], params["warning_min"], params["pathogenic_min"]) == ("CPEO_POLG", None, None)
+
+
+@pytest.mark.asyncio
+async def test_a_polg_allele_is_read_by_the_count_trgt_reports_for_the_catalogue_motif(monkeypatch) -> None:
+    """TRGT counts the catalogue motif over the whole region its catalogue gives the locus.
+    The TRGT catalogue in use gives CPEO_POLG 50 bp (MOTIFS=GCT,GTT): two pairs of GCT and a
+    GTT ahead of the tract STRchive's benign count of 10 measures, so the common ten-repeat
+    allele (50 bp) reads 14 GCT copies and stays not assessed; an allele TRGT counts as 10 GCT
+    copies in all reads normal."""
+    lookup = await _import_lookup(monkeypatch)
+
+    params = _call(
+        lookup,
+        trid="CPEO_POLG",
+        chrom="chr15",
+        pos=89_333_579,
+        motif="GCT",
+        motifs="GCT,GTT",
+        sample_field="0/1:50,38:14_1,10_1",
+    )
+
+    alleles = json.loads(params["alleles_json"])
+    assert [(allele["repeat_count"], allele["status"]) for allele in alleles] == [(14, NOT_ASSESSED), (10, "normal")]
     assert params["status"] == NOT_ASSESSED
 
 
@@ -332,22 +494,46 @@ async def test_a_males_two_chrx_alleles_at_an_unknown_locus_stay_not_assessed(mo
     assert params["status"] == NOT_ASSESSED
 
 
+class _IngestSession:
+    """Answers the import's catalogue query with ``catalogue`` (none by default), every other
+    query with no rows, and records the rows the ingest inserts."""
+
+    def __init__(self, catalogue: list[dict] | None = None) -> None:
+        self.catalogue = catalogue or []
+        self.inserted: list[dict] = []
+
+    async def execute(self, statement, params=None):
+        sql = str(statement)
+        if "INSERT INTO repeat_expansions" in sql:
+            self.inserted.extend(params)
+        return _Result(self.catalogue if "FROM repeat_loci" in sql else [])
+
+    async def commit(self) -> None:
+        pass
+
+
+_TRGT_HEADER = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\t{columns}\n"
+
+
+def _polg_record(*sample_fields: str) -> str:
+    return (
+        "chr15\t89333579\t.\tGCT\t<TR>\t.\tPASS\tTRID=CPEO_POLG;END=89333629;MOTIFS=GCT\tGT:AL:MC\t"
+        + "\t".join(sample_fields)
+        + "\n"
+    )
+
+
+def _muc1_record(*sample_fields: str) -> str:
+    return (
+        "chr1\t155188505\t.\tGCC\t<TR>\t.\tPASS\tTRID=ADTKD_MUC1;END=155192239;MOTIFS=GCC\tGT:AL:MC\t"
+        + "\t".join(sample_fields)
+        + "\n"
+    )
+
+
 @pytest.mark.asyncio
 async def test_the_ingest_stores_not_assessed_for_an_uncatalogued_trid() -> None:
     """The whole per-sample ingest, with an empty catalogue: the row it inserts."""
-
-    class _IngestSession:
-        def __init__(self) -> None:
-            self.inserted: list[dict] = []
-
-        async def execute(self, statement, params=None):
-            if "INSERT INTO repeat_expansions" in str(statement):
-                self.inserted.extend(params)
-            return _Result([])
-
-        async def commit(self) -> None:
-            pass
-
     session = _IngestSession()
 
     await repeat_expansion_pg.ingest_trgt_text(
@@ -365,6 +551,67 @@ async def test_the_ingest_stores_not_assessed_for_an_uncatalogued_trid() -> None
     [record] = session.inserted
     assert record["status"] == NOT_ASSESSED
     assert [allele["status"] for allele in json.loads(record["alleles_json"])] == [NOT_ASSESSED, NOT_ASSESSED]
+
+
+@pytest.mark.asyncio
+async def test_the_ingest_stores_a_polg_call_inside_its_benign_range_as_normal(monkeypatch) -> None:
+    """The whole per-sample ingest, through the catalogue a start seeds: POLG 10/10 is stored
+    normal (CLIN-36); MUC1, which states nothing, stays not assessed."""
+    rows = await _catalogue_after_a_start(monkeypatch)
+    session = _IngestSession(list(rows.values()))
+
+    await repeat_expansion_pg.ingest_trgt_text(
+        session,
+        sample_context=_sample_context(),
+        text_value=(
+            _TRGT_HEADER.format(columns="sample")
+            + _polg_record("0/0:30,30:10,10")
+            + _muc1_record("0/0:30,30:10,10")
+        ),
+        metadata={"filename": "sample.trgt.vcf", "source": "trgt"},
+    )
+
+    stored = {
+        record["locus_id"]: (record["status"], _allele_statuses(record), record["warning_min"], record["pathogenic_min"])
+        for record in session.inserted
+    }
+    assert stored == {
+        "CPEO_POLG": ("normal", ["normal", "normal"], None, None),
+        "ADTKD_MUC1": (NOT_ASSESSED, [NOT_ASSESSED, NOT_ASSESSED], None, None),
+    }
+
+
+@pytest.mark.asyncio
+async def test_the_family_ingest_stores_each_members_polg_call_by_its_counts(monkeypatch) -> None:
+    """A family TRGT file: the mother's 10/10 is stored normal, the father's 10/13 not assessed."""
+    rows = await _catalogue_after_a_start(monkeypatch)
+    session = _IngestSession(list(rows.values()))
+    contexts = {
+        name: SampleMetadataContext(
+            sample_uuid=f"{name.lower()}-uuid",
+            sample_id=name,
+            family_uuid="family-uuid",
+            family_id="FAM1",
+            sex=sex,
+            project_ids=["project-uuid"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+        for name, sex in (("MOTHER", "female"), ("FATHER", "male"))
+    }
+
+    await repeat_expansion_pg.ingest_family_trgt_text(
+        session,
+        sample_contexts=contexts,
+        text_value=_TRGT_HEADER.format(columns="MOTHER\tFATHER") + _polg_record("0/0:30,30:10,10", "0/1:30,39:10,13"),
+        metadata={"filename": "family.trgt.vcf", "source": "trgt"},
+    )
+
+    stored = {record["sample_id"]: (record["status"], _allele_statuses(record)) for record in session.inserted}
+    assert stored == {
+        "mother-uuid": ("normal", ["normal", "normal"]),
+        "father-uuid": (NOT_ASSESSED, ["normal", NOT_ASSESSED]),
+    }
 
 
 # ---- The family table ------------------------------------------------------------------------------
@@ -476,25 +723,60 @@ async def test_the_family_table_reads_a_call_stored_as_normal_at_an_uncatalogued
 
 @pytest.mark.asyncio
 async def test_the_family_table_reads_a_catalogue_row_without_thresholds_as_not_assessed() -> None:
-    # The query took the matched row's thresholds: none (POLG states only its benign count).
+    # The query took the matched rows' thresholds: none. MUC1 states no benign range either;
+    # POLG states 10, so only its allele of 30 is not assessed (CLIN-36).
     rows = [
+        _table_row(
+            MOTHER_UUID,
+            locus_id="ADTKD_MUC1",
+            chrom="1",
+            start=155_188_505,
+            alleles=[{"repeat_count": 10, "status": "normal"}, {"repeat_count": 60, "status": "normal"}],
+            status="normal",
+        ),
         _table_row(
             MOTHER_UUID,
             locus_id="CPEO_POLG",
             chrom="15",
-            start=89_333_500,
+            start=89_333_579,
             alleles=[{"repeat_count": 10, "status": "normal"}, {"repeat_count": 30, "status": "normal"}],
             status="normal",
             benign_min=10,
             benign_max=10,
-        )
+        ),
+    ]
+
+    table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(rows), context=_context())
+
+    loci = {row.locus_id: row for row in table.loci}
+    muc1, polg = loci["ADTKD_MUC1"], loci["CPEO_POLG"]
+    assert [allele.status for allele in muc1.calls["MOTHER1"].alleles] == [NOT_ASSESSED, NOT_ASSESSED]
+    assert muc1.status == muc1.calls["MOTHER1"].status == NOT_ASSESSED
+    assert [allele.status for allele in polg.calls["MOTHER1"].alleles] == ["normal", NOT_ASSESSED]
+    assert polg.status == polg.calls["MOTHER1"].status == NOT_ASSESSED
+
+
+@pytest.mark.asyncio
+async def test_the_family_table_reads_a_polg_call_stored_not_assessed_inside_its_benign_range_as_normal() -> None:
+    """Imported from CLIN-26 to CLIN-36: POLG 10/10 stored as not assessed. The table classifies
+    it again at once, so the call is normal, and so is the locus when every call there is.
+    (The genome track shows the stored status until the call is imported again: CLIN-14.)"""
+    stored = [{"repeat_count": 10, "status": NOT_ASSESSED}, {"repeat_count": 10, "status": NOT_ASSESSED}]
+    polg = {"locus_id": "CPEO_POLG", "chrom": "15", "start": 89_333_579, "benign_min": 10, "benign_max": 10}
+    rows = [
+        _table_row(SON_UUID, alleles=stored, status=NOT_ASSESSED, **polg),
+        _table_row(MOTHER_UUID, alleles=stored, status=NOT_ASSESSED, **polg),
     ]
 
     table = await repeat_expansion_pg.get_family_repeat_expansion_table_response(_TableSession(rows), context=_context())
 
     [locus] = table.loci
-    assert [allele.status for allele in locus.calls["MOTHER1"].alleles] == [NOT_ASSESSED, NOT_ASSESSED]
-    assert locus.status == locus.calls["MOTHER1"].status == NOT_ASSESSED
+    for sample in ("SON1", "MOTHER1"):
+        call = locus.calls[sample]
+        assert [allele.status for allele in call.alleles] == ["normal", "normal"]
+        assert call.status == "normal"
+    assert locus.status == "normal"
+    assert (locus.warning_min, locus.pathogenic_min, locus.benign_min, locus.benign_max) == (None, None, 10, 10)
 
 
 @pytest.mark.asyncio

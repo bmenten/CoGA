@@ -27,13 +27,18 @@ and refers to exactly one signed version: the one it rests on.
 - The **Analysis pipeline settings** recorded at import.
 - An **Import incomplete** warning at the top when a data import left the family partly loaded, or
   has not finished: it is still running, or it stopped part-way (for example the server restarted).
-  It names the datasets that failed, or that the import had not finished, and the import job. The
-  same warning shows on every family page until an import has imported those datasets again.
+  It names the datasets that failed, or that the import had not finished, and the import job. A
+  single upload that has not finished, or that failed and could not put back what it deleted, is
+  named the same way, as a single-file upload. The same warning shows on every family page until an
+  import, or an upload, has brought those datasets again.
 
 ### Signing out
 
 **Sign out report** is your analytical sign-off: it closes the analysis and freezes the reported result
-into a numbered version with a unique fingerprint. It stops for five things:
+into a numbered version with a unique fingerprint, with what the analysis looked at: each reported
+variant's description as you reviewed it, the gene panels the family's searches applied, the
+reference-data releases, and the repeat-expansion and Paraphase results. The EPD refers to the signed
+version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
@@ -49,12 +54,15 @@ into a numbered version with a unique fingerprint. It stops for five things:
    update skips data that is already there, partly written data too. After a failed overwrite that
    could not put the family's data back, import the whole family again with **overwrite**, every
    dataset the warning names and not only those that failed, and upload again with **overwrite**
-   what an upload brought.
+   what an upload brought. After a single upload that did not finish, upload again with
+   **overwrite** what the warning names.
 
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten, and a clinical
 report that rests on the amended analysis refers to the new version. After signing out, the page shows
-the version you signed.
+the version you signed and its report code: quote that code in the EPD report. A mistyped code is
+refused as a typo, never taken for another record's. **Report codes** in the main menu finds the
+signed version a code names.
 
 > **Only people the laboratory authorises sign out.** CoGA lets any project member press **Sign out
 > report** and does not check that authority. The laboratory decides who may sign out an analysis;
@@ -63,11 +71,13 @@ the version you signed.
 ### Is this the signed report?
 
 Only the signed version is. A signed case opens on its **latest signed version**, drawn from the frozen
-record: *Signed version N — signed out by … on …*, with its fingerprint. It shows what was signed: each
-reported variant's classification, criteria, evidence and note, and the checks at sign-out. It says what
-the record does not hold — the variant description, the gene and phenotype context, the audit trail —
-and never fills that in from current data. **Print signed version N** prints it, and **Download signed
-version N (JSON)** returns the record itself. *Signed versions* lists the earlier ones.
+record: *Signed version N — signed out by … on …*, with its report code and fingerprint. It shows what
+was signed: each reported variant's description, classification, criteria, evidence and note, the gene
+panels applied, the repeat expansions and Paraphase results, the reference-data releases, and the checks
+at sign-out. It says what the record does not hold — the population frequencies and predictions, the
+gene and phenotype context, the audit trail — and never fills that in from current data. **Print
+signed version N** prints it, and **Download signed version N (JSON)** returns the record itself.
+*Signed versions* lists the earlier ones.
 
 **Open the live report** shows the current data. It says *This is the live report, not signed version
 N*, and whether it still matches: amber when something changed since (it names what), grey when the

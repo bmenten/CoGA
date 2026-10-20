@@ -58,6 +58,15 @@ _GIT_SHA_PATTERN = re.compile(r"[0-9a-f]{7,40}")
 HPO_PINNED_RELEASE = "hp/releases/2026-02-16"
 HPO_PINNED_ONTOLOGY_SHA256 = "8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd"
 HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}/hp.obo"
+# The STRchive release the repeat catalogue is built from (CLIN-31): the shipped
+# data/ref-data/STRchive-loci.json, validated with the built-in repeat loci, which carry its
+# thresholds (CLIN-22). The file states no release of its own, so its SHA-256 is its identity.
+# Every start reads the STRchive file (TRGT_STRCHIVE_LOCI_PATH, else the repository's copy)
+# only if its SHA-256 is this one, and refuses to start on any other file, or on none: no
+# setting overrides it. The pin moves only with the file, in a reviewed change
+# (docs/data-import.md, "The STRchive release"); test_strchive_release_pin.py fails until
+# the file, the pin and that section agree.
+STRCHIVE_PINNED_LOCI_SHA256 = "a0295e1fe3e25a9f375db25fa27c403c217c74047ec3fa4b4f8060d4868399e9"
 
 
 def _read_version_file() -> str:
@@ -465,6 +474,9 @@ class Settings(BaseSettings):
     # client address is taken that many entries from the right (#520). 0 leaves it to
     # uvicorn. Google's external Application Load Balancer appends two (client, LB).
     trusted_proxy_hops: int = Field(default=0, ge=0, le=5, alias="TRUSTED_PROXY_HOPS")
+    # The STRchive file the repeat catalogue reads first; the repository's copy when this one
+    # does not exist. Whichever is read must be the shipped release, byte for byte
+    # (STRCHIVE_PINNED_LOCI_SHA256), or the backend refuses to start (CLIN-31).
     trgt_strchive_loci_path: str | None = Field(
         default="/data/ref-data/STRchive-loci.json",
         alias="TRGT_STRCHIVE_LOCI_PATH",

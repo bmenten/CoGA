@@ -20,6 +20,13 @@ Covers the fail-clean plumbing without a live database:
     resolves it, so two imports, or an import and an upload, complete each other only for
     the same callset, and a scope still reading `auto` is completed by none; the SNV
     importer stores the file as that callset (SAFE-23).
+  * The flag keeps every scope a dataset failed for, each with its job, so a later failure
+    under another callset or other samples never replaces an earlier one (SAFE-26).
+  * An `auto` SNV import's update check and clean-up read the callset its import recorded,
+    never an assumed clair3 (SAFE-27).
+  * A dataset imported with warnings, or registered when its package carries nothing CoGA
+    imports for it, counts as brought again; nothing else that ends registered does
+    (SAFE-17).
 The SQL itself runs against Postgres in
 integration/test_import_crash_bookkeeping_integration.py.
 """
@@ -118,6 +125,12 @@ class _FamilyRow(_FakeSession):
         assert sql.startswith("UPDATE families"), sql
         if "entry" in params:
             self.unfinished = {**(self.unfinished or {}), params["import_key"]: json.loads(params["entry"])}
+        elif set(params) == {"family_uuid", "import_key"}:
+            # An entry removed alone: an import's that was put back, or a write's mark
+            # (SAFE-28).
+            if isinstance(self.unfinished, dict):
+                self.unfinished.pop(params["import_key"], None)
+                self.unfinished = self.unfinished or None
         elif "payload" in params:
             self.flag = json.loads(params["payload"])
             if isinstance(self.unfinished, dict):
@@ -185,8 +198,8 @@ async def test_flag_family_import_incomplete_records_datasets() -> None:
     assert row.flag["failed_datasets"] == ["snv"]
     assert row.flag["imported_datasets"] == ["sv_needlr"]
     assert "at" in row.flag
-    # What would import it again: the scope it failed for.
-    assert row.flag["scopes"] == {"snv": _SCOPES["snv"]}
+    # What would import it again: the scope it failed for (with its job: none here).
+    assert row.flag["failed_scopes"] == {"snv": [{"scope": _SCOPES["snv"], "job_id": None}]}
     select_sql, _ = row.executed[0]
     assert "FOR UPDATE" in select_sql  # merged under the row's lock
 
@@ -201,7 +214,9 @@ async def test_flag_family_import_incomplete_records_the_import_job() -> None:
     )
     assert row.flag["job_id"] == "job-uuid"
     assert row.flag["failed_jobs"] == {"snv": "job-uuid"}
-    assert set(row.flag) == {"at", "failed_datasets", "imported_datasets", "job_id", "failed_jobs", "scopes"}
+    assert set(row.flag) == {
+        "at", "failed_datasets", "imported_datasets", "job_id", "failed_jobs", "failed_scopes"
+    }
 
     # An import run outside a job records none.
     row = _FamilyRow()
@@ -234,7 +249,10 @@ async def test_a_later_failure_keeps_an_earlier_one_with_its_job() -> None:
     assert row.flag["failed_datasets"] == ["coverage", "sv_needlr"]
     assert row.flag["failed_jobs"] == {"coverage": "job-2", "sv_needlr": "job-1"}
     assert row.flag["job_id"] == "job-2"
-    assert row.flag["scopes"] == {"coverage": _SCOPES["coverage"], "sv_needlr": _SCOPES["sv_needlr"]}
+    assert row.flag["failed_scopes"] == {
+        "coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-2"}],
+        "sv_needlr": [{"scope": _SCOPES["sv_needlr"], "job_id": "job-1"}],
+    }
 
 
 @pytest.mark.asyncio
@@ -295,7 +313,7 @@ async def test_a_partial_reimport_shrinks_the_flag_to_what_is_still_missing() ->
     )
     assert row.flag["failed_datasets"] == ["coverage"]
     assert row.flag["failed_jobs"] == {"coverage": "job-2"}
-    assert row.flag["scopes"] == {"coverage": _SCOPES["coverage"]}
+    assert row.flag["failed_scopes"] == {"coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-2"}]}
     # When and by which job the import failed stay as they were.
     assert (row.flag["at"], row.flag["job_id"]) == ("2026-10-01T09:00:00+00:00", "job-2")
     assert left.failures.failed == {"coverage": "job-2"}
@@ -718,6 +736,8 @@ class _UploadFamily(_FamilyRow):
     def __init__(self, *, repeats: int = 0, **row) -> None:
         super().__init__(**row)
         self.repeats = repeats
+        # The marks the upload wrote on a connection of its own (_MarkConnection).
+        self.marks: dict[str, dict] = {}
 
     async def execute(self, statement, params=None):
         sql = " ".join(str(statement).split())
@@ -733,6 +753,33 @@ class _UploadFamily(_FamilyRow):
 
     def index(self, prefix: str) -> int:
         return next(i for i, (sql, _) in enumerate(self.executed) if sql.lstrip().startswith(prefix))
+
+
+class _MarkConnection:
+    """The connection a single-file upload writes its mark on
+    (``registration.mark_family_upload``, SAFE-28): its write applies to the family row at
+    once, committed whatever becomes of the upload's own transaction, and its statements are
+    kept apart from the upload's (``row.marks``: each mark's entry, by its key)."""
+
+    def __init__(self, row: "_UploadFamily") -> None:
+        self.row = row
+
+    async def __aenter__(self) -> "_MarkConnection":
+        return self
+
+    async def __aexit__(self, *_exc) -> bool:
+        return False
+
+    async def execute(self, statement, params=None):
+        sql = " ".join(str(statement).split())
+        assert sql.startswith("UPDATE families"), sql
+        entry = json.loads(params["entry"])
+        self.row.marks[params["import_key"]] = entry
+        self.row.unfinished = {**(self.row.unfinished or {}), params["import_key"]: entry}
+        return SimpleNamespace(rowcount=1)
+
+    async def commit(self) -> None:
+        return None
 
 
 def _upload_file(text: str, name: str):
@@ -762,6 +809,7 @@ def uploads(monkeypatch):
         assembly_id="assembly-1",
         assembly_name="GRCh38",
         sample_rows=_FAMILY_SAMPLES,
+        sample_uuid_to_name={row["sample_uuid"]: row["sample_id"] for row in _FAMILY_SAMPLES},
         relationship_rows=[],
         affected_sample_names=[],
     )
@@ -858,6 +906,9 @@ def uploads(monkeypatch):
 
         for module in (sv_router, trgt_router, bed_router):
             monkeypatch.setattr(module, "build_sample_metadata_context", sample_context)
+        # The upload's mark, written on a connection of its own before its first ClickHouse
+        # write (SAFE-28), applies to the family row at once.
+        monkeypatch.setattr(registration, "get_postgres_sessionmaker", lambda: lambda: _MarkConnection(row))
         if kind == "small_variants":
             glimpse2 = callset == "glimpse2"
             await snv_router.upload_family_small_variants(
@@ -1099,13 +1150,23 @@ async def test_an_upload_whose_record_cannot_be_written_fails_and_keeps_none_of_
         assert [name for name, _ in writes] == ["delete", "insert", "delete"]
         assert writes[-1][1] == {"source": "clair3"}
         # It had deleted the callset it replaces: the one commit is the flag that names
-        # it, so that the family does not read as complete (SAFE-25).
+        # it, so that the family does not read as complete (SAFE-25), and the upload's
+        # mark goes with it (SAFE-28).
         assert [sql for sql, _ in row.executed].count("COMMIT") == 1
         assert row.flag["failed_datasets"] == ["snv"]
-        assert row.flag["scopes"] == {"snv": {"source": "clair3", "samples": None}}
+        assert row.flag["failed_scopes"] == {"snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": None}]}
         assert row.flag["failed_jobs"] == {"snv": None} and row.flag["job_id"] is None
-    else:
+        assert len(row.marks) == 1 and row.unfinished is None
+    elif kind == "repeats":
+        # Postgres alone, in one transaction: no mark.
         assert ("COMMIT", None) not in row.executed
+        assert row.flag is None and row.marks == {}
+        assert writes == []
+    else:
+        # The mark written before the record (SAFE-28) goes again, in a transaction of its
+        # own: nothing was written.
+        assert [sql for sql, _ in row.executed].count("COMMIT") == 1
+        assert len(row.marks) == 1 and row.unfinished is None
         assert row.flag is None
         assert writes == []
     assert ("INSERT INTO repeat_expansions", {"sample": "S1"}) not in row.executed
@@ -1260,7 +1321,7 @@ async def test_an_auto_import_clears_an_auto_failure_only_for_the_same_callset(t
         job_id="job-1",
         scopes=registration.dataset_scopes(imputed, ["snv"]),
     )
-    assert row.flag["scopes"] == {"snv": _GLIMPSE2}
+    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
 
     # An import that imported the direct calls and failed in coverage keeps that failure
     # (before: dropped, as imported again).
@@ -1283,7 +1344,7 @@ async def test_an_auto_import_clears_an_auto_failure_only_for_the_same_callset(t
         row, _ctx(), imported={"snv": direct_scope, "coverage": _SCOPES["coverage"]}
     )
     assert left is not None and left.failures.failed == {"snv": "job-1"}
-    assert row.flag["scopes"] == {"snv": _GLIMPSE2}
+    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
 
     # ... and one that imports the imputed genotypes again clears it.
     left = await fpi._clear_family_import_incomplete(
@@ -1515,3 +1576,680 @@ async def test_an_import_records_the_callset_its_auto_snv_dataset_stores(monkeyp
     assert seen == [(_CLAIR3, {"snv": _CLAIR3}), (_GLIMPSE2, {"snv": _GLIMPSE2})]
     assert row.imported == {"snv": [_CLAIR3, _GLIMPSE2]}
     assert row.unfinished is None and row.flag is None
+
+
+# --- a failed dataset stays flagged for each scope it failed for (SAFE-26) -----------------
+#
+# The flag kept one scope per failed dataset: a later failure of the same dataset under
+# another scope -- another callset of the small variants, other samples of a per-sample
+# dataset -- replaced the earlier one, and bringing the later scope again cleared the flag
+# while the earlier one's data could still be missing. Since SAFE-23 two `auto` SNV imports
+# of different callsets reach it. The flag now keeps each scope a dataset failed for, with the
+# job that holds its error (`failed_scopes`), and a dataset leaves it only once each scope has
+# been brought again, by an import or an upload.
+
+_AT = "2026-10-14T09:00:00+00:00"
+
+
+@pytest.mark.asyncio
+async def test_two_auto_snv_imports_that_failed_for_different_callsets_both_stay_flagged(tmp_path) -> None:
+    imputed = registration.dataset_scopes(_package(tmp_path, "imputed", _IMPUTED_VCF), ["snv"])
+    direct = registration.dataset_scopes(_package(tmp_path, "direct", _DIRECT_VCF), ["snv"])
+    row = _FamilyRow()
+    # An import of the imputed genotypes failed in them, then one of the direct calls in those.
+    for job_id, scopes in (("job-1", imputed), ("job-2", direct)):
+        await fpi._flag_family_import_incomplete(
+            row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id=job_id, scopes=scopes
+        )
+    # Before: the direct calls' scope replaced the imputed genotypes'.
+    assert row.flag["failed_datasets"] == ["snv"]
+    assert row.flag["failed_scopes"] == {
+        "snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}, {"scope": _CLAIR3, "job_id": "job-2"}]
+    }
+    # The family pages and a sign-out name one job per dataset: its latest failure's.
+    assert (row.flag["failed_jobs"], row.flag["job_id"]) == ({"snv": "job-2"}, "job-2")
+    at = row.flag["at"]
+
+    # The direct calls imported again leave the imputed genotypes flagged (before: the flag
+    # went, the imputed genotypes still missing), and the flag names the job that holds their
+    # error, job-2's failure having been brought again; when it was set stays.
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=direct)
+    assert left is not None and left.failures.failed == {"snv": "job-1"}
+    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
+    assert (row.flag["failed_jobs"], row.flag["job_id"], row.flag["at"]) == ({"snv": "job-1"}, "job-1", at)
+    note = fpi._still_failed_message("F1", left.failures)
+    assert "(snv in import job job-1)" in note and "for the callset and samples that failed" in note
+
+    # The imputed genotypes imported again clear it.
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=imputed)
+    assert left is not None and left.failures.failed == {} and row.flag is None
+
+
+@pytest.mark.asyncio
+async def test_a_dataset_that_failed_for_other_samples_stays_flagged_for_each() -> None:
+    row = _FamilyRow()
+    # Coverage failed for S1, then, in a later import, for S2.
+    for job_id, sample in (("job-1", "S1"), ("job-2", "S2")):
+        await fpi._flag_family_import_incomplete(
+            row,
+            _ctx(),
+            failed_datasets=["coverage"],
+            imported_datasets=[],
+            job_id=job_id,
+            scopes={"coverage": _one(sample)},
+        )
+    assert row.flag["failed_scopes"] == {
+        "coverage": [{"scope": _one("S1"), "job_id": "job-1"}, {"scope": _one("S2"), "job_id": "job-2"}]
+    }
+
+    # S2's coverage imported again: S1's may still be missing (before: the flag went).
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _one("S2")})
+    assert left is not None and left.failures.failed == {"coverage": "job-1"}
+    assert row.flag["failed_scopes"] == {"coverage": [{"scope": _one("S1"), "job_id": "job-1"}]}
+
+    # Both samples' coverage imported again clears it.
+    await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _SCOPES["coverage"]})
+    assert row.flag is None
+
+
+def test_the_same_scope_failing_again_is_one_failure_with_its_latest_job() -> None:
+    flag = None
+    for job_id in ("job-1", "job-2"):
+        flag = registration.merged_import_failure(
+            flag,
+            at=_AT,
+            job_id=job_id,
+            failed=["snv"],
+            imported=[],
+            scopes={"snv": _CLAIR3},
+            imported_scopes={},
+        )
+    assert flag["failed_scopes"] == {"snv": [{"scope": _CLAIR3, "job_id": "job-2"}]}
+    assert flag["failed_jobs"] == {"snv": "job-2"}
+
+
+def test_a_later_failure_strikes_off_only_the_scope_it_imported_again() -> None:
+    # snv failed for the imputed genotypes (job-1) and the direct calls (job-2); a third
+    # import imported the direct calls again and failed in coverage.
+    flag = None
+    for job_id, scope in (("job-1", _GLIMPSE2), ("job-2", _CLAIR3)):
+        flag = registration.merged_import_failure(
+            flag, at=_AT, job_id=job_id, failed=["snv"], imported=[], scopes={"snv": scope}, imported_scopes={}
+        )
+    flag = registration.merged_import_failure(
+        flag,
+        at=_AT,
+        job_id="job-3",
+        failed=["coverage"],
+        imported=["snv"],
+        scopes=_SCOPES,
+        imported_scopes={"snv": _CLAIR3},
+    )
+    # Before: the direct calls' scope had replaced the imputed genotypes', and snv left the flag.
+    assert flag["failed_datasets"] == ["coverage", "snv"]
+    assert flag["failed_scopes"] == {
+        "coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-3"}],
+        "snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}],
+    }
+    assert flag["failed_jobs"] == {"coverage": "job-3", "snv": "job-1"}
+
+
+@pytest.mark.asyncio
+async def test_an_upload_brings_again_only_the_scope_it_brought_of_a_dataset_that_failed_for_several(
+    uploads, tmp_path
+) -> None:
+    imputed = registration.dataset_scopes(_package(tmp_path, "imputed", _IMPUTED_VCF), ["snv"])
+    row = _UploadFamily()
+    # An import of the imputed genotypes (auto) failed in them; then an upload of direct calls
+    # failed after it had deleted the stored ones (SAFE-25), under no job.
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-1", scopes=imputed
+    )
+    await registration.record_family_upload_failure(
+        row, family_uuid="uuid-1", family_id="F1", dataset="snv", scope=_CLAIR3
+    )
+    assert row.flag["failed_scopes"] == {
+        "snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}, {"scope": _CLAIR3, "job_id": None}]
+    }
+
+    # The direct calls uploaded again strike their own failure off, not the imputed
+    # genotypes' (before: the upload's failure had replaced theirs, and the flag went).
+    await uploads("small_variants", row, overwrite=True, rows=3)
+    assert row.flag["failed_scopes"] == {"snv": [{"scope": _GLIMPSE2, "job_id": "job-1"}]}
+    assert (row.flag["failed_jobs"], row.flag["job_id"]) == ({"snv": "job-1"}, "job-1")
+
+
+@pytest.mark.asyncio
+async def test_a_flag_written_with_one_scope_per_dataset_is_read_as_before() -> None:
+    old = _flag("job-1", ["coverage", "snv"])
+    assert "failed_scopes" not in old and old["scopes"]["snv"] == _CLAIR3
+    # Nothing of it brought again: it stays as it was stored.
+    row = _FamilyRow(flag=copy.deepcopy(old))
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _GLIMPSE2})
+    assert row.flag == old
+    assert left is not None and left.failures.failed == {"coverage": "job-1", "snv": "job-1"}
+
+    # A later failure of snv for the imputed genotypes keeps the direct calls' failure,
+    # each scope with its job (before: replaced).
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["snv"], imported_datasets=[], job_id="job-2", scopes={"snv": _GLIMPSE2}
+    )
+    assert row.flag["failed_scopes"] == {
+        "coverage": [{"scope": _SCOPES["coverage"], "job_id": "job-1"}],
+        "snv": [{"scope": _CLAIR3, "job_id": "job-1"}, {"scope": _GLIMPSE2, "job_id": "job-2"}],
+    }
+    assert "scopes" not in row.flag
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failed_scopes",
+    [
+        "garbage",
+        {"snv": []},
+        {"snv": "garbage"},
+        {"snv": [{"job_id": "job-1"}]},
+        {"coverage": [{"scope": None, "job_id": "job-1"}]},
+    ],
+)
+async def test_a_flag_whose_failed_scopes_are_not_as_written_stays(failed_scopes) -> None:
+    # Nothing shows what would complete it (before: read as the scope `scopes` records).
+    flag = {**_flag("job-1", ["snv"]), "failed_scopes": failed_scopes}
+    row = _FamilyRow(flag=copy.deepcopy(flag))
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"snv": _SCOPES["snv"]})
+    assert row.flag == flag
+    assert left is not None and left.failures.unreadable
+
+
+def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:
+    flag = registration.merged_import_failure(
+        None, at=_AT, job_id="job-1", failed=["snv"], imported=[], scopes={"snv": _GLIMPSE2}, imported_scopes={}
+    )
+    flag = registration.merged_import_failure(
+        flag,
+        at=_AT,
+        job_id="job-2",
+        failed=["coverage", "snv"],
+        imported=[],
+        scopes={**_SCOPES, "snv": _CLAIR3},
+        imported_scopes={},
+    )
+    left = registration.failures_left_after(flag, {"sv_needlr": _SCOPES["sv_needlr"]})
+    assert not left.changed and left.flag == flag
+    assert left.jobs == {"coverage": ["job-2"], "snv": ["job-1", "job-2"]}
+    # Before: snv was named with job-2 alone.
+    assert "(snv in import job job-1; coverage, snv in import job job-2)" in fpi._still_failed_message(
+        "F1", left
+    )
+
+
+# --- an auto SNV import's update check and clean-up read the callset it stores (SAFE-27) ----
+#
+# With source_format auto the SNV importer counted, and after a failure deleted, the family's
+# direct calls (clair3) whatever its family VCF held: an update of imputed genotypes was
+# skipped when the family held direct calls, and when it held none replaced the stored imputed
+# genotypes, in an update; a failed import of imputed genotypes deleted the direct calls,
+# which its flag (naming the imputed genotypes) did not name. Both now read the callset the
+# import recorded (SAFE-23), or, where it recorded none, the one its file reads as.
+
+
+def _snv_store(monkeypatch, *, held=None, fail=False):
+    """The family's small variants at the SNV importer's edge: ``held`` rows of each callset,
+    counted by source; the loader stores the file as it is told, or with ``fail`` fails after
+    it began. Records what is counted, stored and deleted, each by callset."""
+    from app.services import family_package_datasets
+
+    store = SimpleNamespace(counted=[], stored=[], deleted=[])
+
+    async def count(_assembly, _family, *, project_ids=None, source=None):
+        store.counted.append(source)
+        return (held or {}).get(source, 0)
+
+    async def load(_session, *, format_hint, **_kwargs):
+        store.stored.append(format_hint)
+        if fail:
+            raise RuntimeError("insert failed")
+        return {"inserted": 1, "source_format": format_hint}
+
+    async def delete(_assembly, _family, *, source):
+        store.deleted.append(source)
+
+    monkeypatch.setattr(family_package_datasets, "count_family_small_variants", count)
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", load)
+    monkeypatch.setattr(family_package_datasets, "delete_family_small_variants", delete)
+    return store
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("vcf", "scope", "held", "status", "callset"),
+    [
+        # Imputed genotypes, the family holding direct calls only: imported (before: skipped).
+        (_IMPUTED_VCF, _GLIMPSE2, {"clair3": 6}, "imported", "glimpse2"),
+        # ... holding imputed genotypes: skipped (before: imported, replacing them in an update).
+        (_IMPUTED_VCF, _GLIMPSE2, {"glimpse2": 4}, "skipped", "glimpse2"),
+        # Direct calls, as before.
+        (_DIRECT_VCF, _CLAIR3, {"glimpse2": 4}, "imported", "clair3"),
+        (_DIRECT_VCF, _CLAIR3, {"clair3": 6}, "skipped", "clair3"),
+        # A callset the import could not tell when it began, or an import without its
+        # bookkeeping: the one the file reads as.
+        (_IMPUTED_VCF, _UNRESOLVED, {"clair3": 6}, "imported", "glimpse2"),
+        (_IMPUTED_VCF, None, {"glimpse2": 4}, "skipped", "glimpse2"),
+    ],
+)
+async def test_an_update_of_an_auto_snv_dataset_counts_the_callset_it_stores(
+    monkeypatch, tmp_path, vcf, scope, held, status, callset
+) -> None:
+    import dataclasses
+
+    from app.services import family_package_datasets
+
+    store = _snv_store(monkeypatch, held=held)
+    job = dataclasses.replace(_snv_job(tmp_path, vcf, scope=scope), conflict_mode="update")
+    summary = await family_package_datasets.DATASET_IMPORTERS["snv"](job)
+
+    assert store.counted == [callset]
+    assert summary.status == status
+    assert store.stored == ([callset] if status == "imported" else [])
+    assert store.deleted == []
+    if status == "skipped":
+        assert f"small variants of the {callset} callset already exist" in summary.message
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("vcf", "scope", "declared", "callset"),
+    [
+        (_IMPUTED_VCF, _GLIMPSE2, {}, "glimpse2"),
+        (_DIRECT_VCF, _CLAIR3, {}, "clair3"),
+        (_IMPUTED_VCF, _UNRESOLVED, {}, "glimpse2"),
+        (_IMPUTED_VCF, None, {}, "glimpse2"),
+        # A declared callset is stored, and cleaned up, as declared.
+        (_IMPUTED_VCF, _CLAIR3, {"source_format": "clair3"}, "clair3"),
+    ],
+)
+async def test_a_failed_auto_snv_import_removes_only_the_callset_it_stores(
+    monkeypatch, tmp_path, vcf, scope, declared, callset
+) -> None:
+    from app.services import family_package_datasets
+
+    store = _snv_store(monkeypatch, fail=True)
+    with pytest.raises(RuntimeError, match="insert failed"):
+        await family_package_datasets.DATASET_IMPORTERS["snv"](_snv_job(tmp_path, vcf, scope=scope, **declared))
+    # Before: clair3 whatever the file held -- the direct calls, after a failed import of
+    # imputed genotypes, which its flag does not name.
+    assert store.stored == [callset] and store.deleted == [callset]
+
+
+@pytest.mark.asyncio
+async def test_an_snv_file_whose_callset_cannot_be_told_is_refused_before_anything_is_removed(
+    monkeypatch, tmp_path
+) -> None:
+    import dataclasses
+
+    from fastapi import HTTPException
+
+    from app.services import family_package_datasets
+
+    importer = family_package_datasets.DATASET_IMPORTERS["snv"]
+    store = _snv_store(monkeypatch, held={"clair3": 6, "glimpse2": 4})
+    # A family VCF the import could not read when it began, nor now: refused as the loader
+    # refuses it, before anything is counted, written or removed (before: the clean-up
+    # deleted the direct calls; an update counted them and skipped).
+    for mode in ("overwrite", "update"):
+        job = dataclasses.replace(_snv_job(tmp_path, _VCF_HEADER, scope=_UNRESOLVED), conflict_mode=mode)
+        with pytest.raises(HTTPException, match="No valid VCF records"):
+            await importer(job)
+        assert store.counted == store.stored == store.deleted == [], mode
+
+    # A file that read as imputed genotypes when its dataset began and as direct calls when
+    # the loader reads it changed meanwhile: refused before anything is written or removed.
+    reads = iter(["glimpse2", "clair3"])
+    monkeypatch.setattr(family_package_datasets, "_small_variant_callset", lambda _upload: next(reads))
+    with pytest.raises(family_package_datasets.SnvCallsetChanged, match="it read as when its dataset began"):
+        await importer(_snv_job(tmp_path, _IMPUTED_VCF, scope=_UNRESOLVED))
+    assert store.stored == store.deleted == []
+
+
+# --- a dataset registered with nothing to bring, or imported with warnings, counts (SAFE-17) -
+#
+# A failed dataset left the flag only on an import that ended it `imported`. One a later
+# import can only register -- a package's dataset that carries nothing CoGA imports: the
+# phenotypes without an HPO row, a per-sample GLIMPSE2 BCF, a family-level APCAD BED -- or
+# that imports with warnings never left it, and since #807 a restore that fails part-way
+# flags every dataset of its import, so such a family needed an acknowledgement at every
+# sign-out. Now (the owner's decision, 2026-10-14) an import that ends a dataset imported
+# with warnings, or registered when its package carries nothing for it (its scope `empty`),
+# brings it again. Never one registered for want of an assembly or of a file it could read,
+# nor an update's skip (SAFE-20); and a dataset that carries nothing brings nothing again of
+# data another import brought (the brief's one rule).
+
+_EMPTY_PER_SAMPLE = {"source": None, "samples": ["S1", "S2"], "empty": True}
+_EMPTY = {"source": None, "samples": None, "empty": True}
+
+
+def _bundle(tmp_path, **datasets):
+    """A package of ``datasets`` (dataset type: its manifest entry), and ``individuals``."""
+    from app.services.family_package_common import ManifestDataset, PackageManifest
+
+    individuals = datasets.pop("individuals", None)
+    extra = {"individuals": individuals} if individuals is not None else {}
+    manifest = PackageManifest(
+        family_id="F1",
+        datasets={name: ManifestDataset(**entry) for name, entry in datasets.items()},
+        **extra,
+    )
+    return SimpleNamespace(root=tmp_path, manifest=manifest)
+
+
+def test_a_dataset_that_carries_nothing_coga_imports_is_marked_empty(tmp_path) -> None:
+    files = {"S1": {"file": "S1.bcf"}, "S2": {"file": "S2.bcf"}}
+    scopes = registration.dataset_scopes(
+        _bundle(
+            tmp_path,
+            haplotypes={"per_sample": files},
+            apcad={"bed": "family.bed"},
+            pipeline_info={"execution_trace": "trace.txt"},
+            individuals={"S1": {"hpo": []}},
+        ),
+        ["haplotypes", "apcad", "pipeline_info", "phenotypes"],
+    )
+    # CoGA imports none of these: per-sample GLIMPSE2 BCFs, a family-level APCAD BED, a run
+    # record without its versions or parameters, phenotypes without an HPO row.
+    assert scopes == {
+        "haplotypes": _EMPTY_PER_SAMPLE,
+        "apcad": _EMPTY,
+        "pipeline_info": _EMPTY,
+        "phenotypes": _EMPTY,
+    }
+    # Each, declaring what CoGA imports, is not empty: a family VCF, the versions, an HPO
+    # term; nor are the datasets whose importer registers no empty package (Paraphase).
+    scopes = registration.dataset_scopes(
+        _bundle(
+            tmp_path,
+            haplotypes={"family_vcf": "phased.vcf"},
+            apcad={"family_vcf": "apcad.vcf"},
+            pipeline_info={"versions": "versions.yml"},
+            qc={"kinship": "family.kin0"},
+            paraphase={},
+            individuals={"S1": {"hpo": ["HP:0001250"]}},
+        ),
+        ["haplotypes", "apcad", "pipeline_info", "qc", "paraphase", "phenotypes"],
+    )
+    assert not any(scope.get("empty") for scope in scopes.values()), scopes
+
+
+def test_an_import_brings_again_what_it_imported_with_warnings_or_registered_carrying_nothing() -> None:
+    scopes = {
+        "snv": _CLAIR3,
+        "haplotypes": _EMPTY_PER_SAMPLE,
+        "coverage": _SCOPES["coverage"],
+        "cnv": _one("S1"),
+        "phenotypes": _EMPTY,
+    }
+    endings = [
+        ("snv", "warning"),  # imported with warnings
+        ("haplotypes", "registered"),  # carries nothing CoGA imports
+        ("coverage", "skipped"),  # an update's skip: its rows were there (SAFE-20)
+        ("cnv", "registered"),  # registered for want of what it needs: may lack data
+        ("phenotypes", "failed"),
+    ]
+    # Before: only `imported` counted.
+    assert registration.datasets_brought_again(endings, scopes) == ["haplotypes", "snv"]
+
+
+@pytest.mark.asyncio
+async def test_a_failure_of_a_dataset_that_carried_nothing_is_cleared_by_its_registration() -> None:
+    # A restore that failed part-way flagged every dataset of its import, the per-sample
+    # BCFs it only registered too; an import that registers them again clears them (before:
+    # never, as no import could end them `imported`).
+    row = _FamilyRow(
+        flag=registration.merged_import_failure(
+            None,
+            at=_AT,
+            job_id="job-1",
+            failed=["haplotypes", "snv"],
+            imported=[],
+            scopes={"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3},
+            imported_scopes={},
+        )
+    )
+    brought = registration.datasets_brought_again(
+        [("haplotypes", "registered"), ("snv", "warning")], {"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3}
+    )
+    imported = registration.imported_dataset_scopes(
+        brought, {"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3}, {}
+    )
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported=imported)
+    assert left is not None and left.failures.failed == {} and row.flag is None
+    # The family holds nothing of the dataset that carried nothing.
+    assert row.imported == {"snv": [_CLAIR3]}
+
+
+@pytest.mark.asyncio
+async def test_a_dataset_that_carries_nothing_brings_nothing_again_of_data_another_import_brought() -> None:
+    # The APCAD tracks once came from a family VCF, and failed; a later package carries a
+    # family-level APCAD BED, which CoGA does not import. Both are family-level: without the
+    # mark, its registration would clear the failure, the family's APCAD tracks still missing
+    # (the one rule). It leaves it.
+    flag = registration.merged_import_failure(
+        None,
+        at=_AT,
+        job_id="job-1",
+        failed=["apcad"],
+        imported=[],
+        scopes={"apcad": {"source": None, "samples": None}},
+        imported_scopes={},
+    )
+    row = _FamilyRow(flag=copy.deepcopy(flag))
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"apcad": _EMPTY})
+    assert left is not None and left.failures.failed == {"apcad": "job-1"}
+    assert row.flag == flag
+
+
+@pytest.mark.asyncio
+async def test_the_whole_family_entry_drops_a_dataset_that_carried_nothing_once_an_overwrite_registers_it() -> None:
+    # The restore of an overwrite that carried per-sample BCFs did not finish: its entry names
+    # them, one sample at a time and still marked empty, beside the family VCF's haplotypes an
+    # earlier import brought.
+    mark = registration.ImportMark.begin(
+        job_id="job-2", datasets=["haplotypes", "snv"], scopes={"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3}
+    )
+    entry = registration.whole_family_entry(
+        mark,
+        imported=registration.merged_imported_scopes(None, [("haplotypes", _SCOPES["haplotypes"])]),
+        unfinished={},
+        family_samples=["S1", "S2"],
+    )
+    assert entry["whole_family"] == [
+        {"dataset": "haplotypes", "scope": {"source": None, "samples": ["S1"], "empty": True}},
+        {"dataset": "haplotypes", "scope": {"source": None, "samples": ["S2"], "empty": True}},
+        {"dataset": "haplotypes", "scope": {"source": None, "samples": None}},
+        {"dataset": "snv", "scope": _CLAIR3},
+    ]
+    row = _FamilyRow(unfinished={mark.key: copy.deepcopy(entry)})
+    again = {"haplotypes": _EMPTY_PER_SAMPLE, "snv": _CLAIR3}
+
+    # An update registers them too, and replaces nothing: the entry stays whole.
+    await fpi._clear_family_import_incomplete(row, _ctx(), rewritten={}, imported=again)
+    assert row.unfinished[mark.key]["whole_family"] == entry["whole_family"]
+
+    # An overwrite that registers them again strikes them off (before: they stayed for good),
+    # and the direct calls it imported; not the haplotypes the family VCF brought.
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=again, imported=again)
+    assert left is not None
+    assert row.unfinished[mark.key]["whole_family"] == [
+        {"dataset": "haplotypes", "scope": {"source": None, "samples": None}}
+    ]
+    # The family VCF imported again with overwrite completes the family.
+    replaced = {"haplotypes": _SCOPES["haplotypes"]}
+    await fpi._clear_family_import_incomplete(row, _ctx(), rewritten=replaced, imported=replaced)
+    assert row.unfinished is None
+
+
+def test_what_carried_nothing_is_not_recorded_as_held() -> None:
+    assert registration.merged_imported_scopes(
+        None, [("haplotypes", _EMPTY_PER_SAMPLE), ("pipeline_info", _EMPTY), ("snv", _CLAIR3)]
+    ) == {"snv": [_CLAIR3]}
+
+
+@pytest.mark.asyncio
+async def test_phenotypes_without_an_hpo_row_are_registered(monkeypatch) -> None:
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import family_package_datasets
+
+    read = {"rows": [], "issues": []}
+    monkeypatch.setattr(
+        family_package_datasets,
+        "_manifest_hpo_rows",
+        lambda **_kwargs: (read["rows"], read["issues"], [], []),
+    )
+
+    async def import_rows(_session, *, rows, issues, **_kwargs):
+        # Each row stored; each issue a row refused.
+        return {"imported": len(rows), "skipped": len(issues), "samples": {}, "errors": list(issues)}
+
+    monkeypatch.setattr(family_package_datasets, "import_family_hpo_annotations", import_rows)
+
+    async def run():
+        return await family_package_datasets._import_dataset(
+            SimpleNamespace(),
+            bundle=SimpleNamespace(root=None, manifest=None),
+            summary=FamilyImportDatasetSummary(dataset_type="phenotypes", status="valid"),
+            family_context=SimpleNamespace(family_uuid="uuid-1", family_id="F1"),
+            sample_contexts={},
+        )
+
+    # Nothing to import: registered (before: skipped, as an update's skip reads).
+    assert (await run()).status == "registered"
+    # Rows, one of them refused: imported with warnings, which brings the phenotypes again.
+    read["rows"], read["issues"] = ["a row"], ["an issue"]
+    assert (await run()).status == "warning"
+
+
+def _carrying_package(root):
+    """A two-sample package: direct calls in a family VCF (source_format auto), imputed
+    haplotypes as per-sample GLIMPSE2 BCFs, which CoGA does not import, and a pipeline run
+    record of its execution trace alone, which CoGA does not read."""
+    for folder in ("snv", "haplotypes", "pipeline_info"):
+        (root / folder).mkdir(parents=True)
+    (root / "family.ped").write_text("F1\tS1\t0\t0\t1\t2\nF1\tS2\t0\t0\t2\t1\n", encoding="utf-8")
+    (root / "snv" / "family.vcf").write_text(_DIRECT_VCF, encoding="utf-8")
+    for sample in ("S1", "S2"):
+        (root / "haplotypes" / f"{sample}.bcf").write_bytes(b"BCF")
+        (root / "haplotypes" / f"{sample}.bcf.csi").write_bytes(b"CSI")
+    (root / "pipeline_info" / "execution_trace.txt").write_text("task_id\n", encoding="utf-8")
+    (root / "manifest.yaml").write_text(
+        "schema_version: 1\nfamily_id: F1\nped: family.ped\ndatasets:\n"
+        "  snv:\n    family_vcf: snv/family.vcf\n"
+        "  haplotypes:\n    per_sample:\n"
+        "      S1:\n        file: haplotypes/S1.bcf\n        index: haplotypes/S1.bcf.csi\n"
+        "      S2:\n        file: haplotypes/S2.bcf\n        index: haplotypes/S2.bcf.csi\n"
+        "  pipeline_info:\n    execution_trace: pipeline_info/execution_trace.txt\n",
+        encoding="utf-8",
+    )
+    return root
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("snv_ending", "snv_still_flagged"),
+    [
+        ("warning", False),  # imported with warnings: brought again
+        ("imported", False),
+        ("registered", True),  # registered for want of an assembly: may lack data
+    ],
+)
+async def test_an_import_clears_what_it_registered_carrying_nothing_or_imported_with_warnings(
+    monkeypatch, tmp_path, snv_ending, snv_still_flagged
+) -> None:
+    from contextlib import asynccontextmanager
+
+    from app.core.config import settings
+    from app.services import sv_gene_index_service, variant_ranking_cache
+    from app.services.family_metadata_context import FamilyMetadataContext
+
+    monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
+    root = _carrying_package(tmp_path / "package")
+    # A restore that failed part-way flagged every dataset of an earlier import of this
+    # package, and coverage, which this one does not carry.
+    flagged = {"snv": _CLAIR3, "haplotypes": _EMPTY_PER_SAMPLE, "pipeline_info": _EMPTY, "coverage": _one("S1")}
+    row = _FamilyRow(
+        flag=registration.merged_import_failure(
+            None, at=_AT, job_id="job-0", failed=sorted(flagged), imported=[], scopes=flagged, imported_scopes={}
+        )
+    )
+    context = FamilyMetadataContext(
+        family_uuid="uuid-1",
+        family_id="F1",
+        project_ids=["project-1"],
+        sample_rows=[
+            {"sample_uuid": "uuid-S1", "sample_id": "S1", "sex": "male", "role": "proband", "affected": True},
+            {"sample_uuid": "uuid-S2", "sample_id": "S2", "sex": "female", "role": "mother", "affected": False},
+        ],
+        sample_uuid_to_name={"uuid-S1": "S1", "uuid-S2": "S2"},
+        sample_name_to_uuid={"S1": "uuid-S1", "S2": "uuid-S2"},
+        affected_sample_names=["S1"],
+        assembly_id="assembly-1",
+        assembly_name="GRCh38",
+    )
+    endings = {"snv": snv_ending, "haplotypes": "registered", "pipeline_info": "registered"}
+    seen: dict[str, tuple] = {}
+
+    async def register(session, *, import_mark=None, **_kwargs):
+        await registration._mark_family_import_unfinished(session, family_uuid="uuid-1", mark=import_mark)
+        return context, False
+
+    @asynccontextmanager
+    async def hold(_family_uuid, **_kwargs):
+        yield
+
+    async def import_dataset(_session, *, summary, scope=None, **_kwargs):
+        entry = next(iter(row.unfinished.values()))
+        seen[summary.dataset_type] = (scope, set(entry["finished_datasets"]))
+        return summary.model_copy(update={"status": endings[summary.dataset_type], "message": "e"})
+
+    async def nothing(*_args, **_kwargs):
+        return None
+
+    async def no_warnings(*_args, **_kwargs):
+        return []
+
+    monkeypatch.setattr(fpi, "_ensure_family_from_ped", register)
+    monkeypatch.setattr(fpi, "hold_family_variant_writes", hold)
+    monkeypatch.setattr(fpi, "_existing_package_entity_warnings", no_warnings)
+    monkeypatch.setattr(fpi, "_import_dataset", import_dataset)
+    monkeypatch.setattr(variant_ranking_cache, "clear_family_ranking_cache", nothing)
+    monkeypatch.setattr(sv_gene_index_service, "clear_family_sv_gene_index", nothing)
+
+    result = await fpi.execute_family_package_import(
+        row,
+        folder_path=root,
+        project_id=None,
+        dry_run=False,
+        user=SimpleNamespace(id="admin"),
+        conflict_mode="update",
+        job_id="job-1",
+    )
+    assert result.completed, result.error
+    # What it registered carrying nothing, and the direct calls it imported, with warnings
+    # or not, leave the flag (before: the BCFs and the run record stayed flagged for good, as
+    # did direct calls imported with warnings); coverage stays, as do direct calls it could
+    # only register, which may lack data.
+    assert row.flag["failed_datasets"] == (["coverage", "snv"] if snv_still_flagged else ["coverage"])
+
+    # The import records the datasets that carry nothing as such, and hands each importer
+    # its scope; one that ended with warnings counts as finished in its entry.
+    assert {name: scope for name, (scope, _finished) in seen.items()} == {
+        "snv": _CLAIR3,
+        "haplotypes": _EMPTY_PER_SAMPLE,
+        "pipeline_info": _EMPTY,
+    }
+    order = list(seen)
+    assert seen[order[-1]][1] == set(order[:-1])
+    left = {"coverage": [{"scope": _one("S1"), "job_id": "job-0"}]}
+    if snv_still_flagged:
+        left["snv"] = [{"scope": _CLAIR3, "job_id": "job-0"}]
+    assert row.flag["failed_scopes"] == left
+    # The family holds the direct calls it brought, and nothing of what carried nothing.
+    assert row.imported == (None if snv_still_flagged else {"snv": [_CLAIR3]})

@@ -31,6 +31,7 @@ from .clickhouse_variant_records import (
 from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id
 from .clickhouse_variant_rows import _normalized_project_ids
 from .clickhouse_variant_storage import (
+    StructuralVariantsNotRestored,
     count_family_small_variants,
     delete_family_small_variants,
     fetch_family_small_variant_entries,
@@ -53,6 +54,9 @@ from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from .family_package_common import VcfSampleColumnError, known_vcf_sample_ids, per_sample_vcf_column
 from .family_package_registration import (
+    FamilyWriteMark,
+    end_family_write_mark,
+    mark_family_upload,
     record_family_upload,
     record_family_upload_failure,
     small_variant_upload_scope,
@@ -718,6 +722,14 @@ async def upload_family_small_variant_file(
     that failed. A package import passes ``check_before_replacing=False``: when one of its
     datasets fails it puts the family back from the snapshot it took first, and it reads a
     whole-genome callset once.
+
+    A single-file upload (``record_upload``) also marks the family before its first
+    ClickHouse write -- the delete of what it replaces, or with nothing stored its first
+    insert -- in a transaction of its own (``mark_family_upload``, SAFE-28): a process that
+    stops after that write (a restart, a crash, running out of memory) runs none of the
+    clean-up below, and leaves the family marked for the callset, which gates its sign-out.
+    The upload's commit removes the mark; a failure removes it once the clean-up has removed
+    what the upload wrote, with nothing stored before, or turns it into the flag above.
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -744,6 +756,11 @@ async def upload_family_small_variant_file(
     # Set as the upload begins deleting the stored rows it replaces: a failure from then on
     # leaves the family without them (SAFE-25).
     replacing = False
+    # A single-file upload's mark, written before its first ClickHouse write (SAFE-28); set
+    # as that write begins, and once the clean-up has removed what the upload wrote.
+    upload_mark: FamilyWriteMark | None = None
+    wrote = False
+    cleaned_up = False
     samples_scope = overwrite_scope == "samples"
     # A per-sample upload: the callset's rows as stored, which the rewrite at its end
     # merges the file's rows into.
@@ -1063,12 +1080,20 @@ async def upload_family_small_variant_file(
             if checked.haplotype_blocks is not None:
                 checked.haplotype_blocks.finish()
 
+        if replaces_stored and check_before_replacing:
+            # A file the upload refuses, or cannot read, is refused here, before the
+            # delete below: the stored rows stay as they were (SAFE-25).
+            await check_file()
+        if record_upload:
+            # Before the first ClickHouse write, committed whatever becomes of this
+            # transaction: a process that stops after it leaves the family marked for the
+            # callset (SAFE-28). An upload that cannot mark the family writes nothing.
+            upload_mark = await mark_family_upload(
+                family_uuid=context.family_uuid,
+                items=[small_variant_upload_scope(resolved_format)],
+            )
         if replaces_stored:
-            if check_before_replacing:
-                # A file the upload refuses, or cannot read, is refused here, before the
-                # delete below: the stored rows stay as they were (SAFE-25).
-                await check_file()
-            replacing = True
+            replacing = wrote = True
             await delete_family_small_variants(
                 context.assembly_name, context.family_uuid, source=resolved_format
             )
@@ -1085,6 +1110,7 @@ async def upload_family_small_variant_file(
         # that puts them back itself when it fails; cleaning the source would delete
         # every other sample's calls.
         mutation_started = not samples_scope
+        wrote = True
         read = await read_file(write=True)
         if samples_scope:
             # The rewrite also rebuilds the family summaries.
@@ -1134,6 +1160,7 @@ async def upload_family_small_variant_file(
                 dataset=dataset,
                 scope=scope,
                 overwrite=overwrite,
+                mark=upload_mark,
             )
         # Capture annotation/tool provenance from the VCF header into the family's
         # annotation manifest (best-effort; never fails the upload). Joins this
@@ -1200,6 +1227,7 @@ async def upload_family_small_variant_file(
                         assembly_name=context.assembly_name,
                         family_uuid=context.family_uuid,
                     )
+                cleaned_up = True
             except Exception:  # cleanup must not mask the original error
                 logger.warning(
                     "Failed to clean up partial small-variant rows for family %s "
@@ -1211,7 +1239,8 @@ async def upload_family_small_variant_file(
             # The upload had begun deleting the stored rows it replaces, and failed: the
             # family may hold neither those nor its own, so it is flagged import-incomplete
             # for what the upload was to bring, and does not read as complete (SAFE-25).
-            # Best-effort; the upload's own error is raised.
+            # The upload's mark goes with that write (SAFE-28). Best-effort; the upload's
+            # own error is raised.
             dataset, scope = small_variant_upload_scope(resolved_format)
             await record_family_upload_failure(
                 session,
@@ -1219,6 +1248,17 @@ async def upload_family_small_variant_file(
                 family_id=context.family_id,
                 dataset=dataset,
                 scope=scope,
+                mark=upload_mark,
+            )
+        elif upload_mark is not None and (cleaned_up or not wrote):
+            # Nothing stored was replaced, and what the upload wrote is removed again (or it
+            # wrote nothing): the family is as it was before the upload. Otherwise the mark
+            # stays, as the upload's rows may be left partly written (SAFE-28).
+            await end_family_write_mark(
+                session,
+                family_uuid=context.family_uuid,
+                family_id=context.family_id,
+                mark=upload_mark,
             )
         raise
     finally:
@@ -1348,6 +1388,25 @@ def _rows_with_uploaded_calls(
     return rows
 
 
+def _structural_variant_upload_items(
+    record_format: StructuralVariantRecordFormat,
+    rows: Sequence[StoredStructuralVariantRow],
+    family_context: FamilyMetadataContext,
+) -> list[tuple[str, dict[str, Any]]]:
+    """What a structural-variant upload's rewrite may leave partly written or missing if it
+    stops, or fails without putting the stored rows back: the caller's calls of each sample
+    the rewritten rows hold, the upload's own sample among them, each as an upload of that
+    sample's file from that caller records it (``structural_variant_upload_scope``). A
+    stored call names its sample by id or by uuid."""
+    samples = {
+        family_context.sample_uuid_to_name.get(call.sample, call.sample)
+        for row in rows
+        for call in row.record.calls
+        if call.sample
+    }
+    return [structural_variant_upload_scope(record_format, sample) for sample in sorted(samples)]
+
+
 def _structural_variant_header_provenance(text_value: str) -> dict[str, dict[str, Any]]:
     """The tool and database versions a structural-variant VCF's meta-header names: the
     caller (``##source=Sniffles2_2.2``, ``##source=Spectre``), ``##reference``, and the
@@ -1430,7 +1489,16 @@ async def upload_structural_variant_file(
 
     ``record_upload`` is for the single-file upload: what it brought is recorded for the
     family, and with ``overwrite`` struck off a whole-family entry, in the transaction that
-    commits its records (``record_family_upload``)."""
+    commits its records (``record_family_upload``).
+
+    The upload rewrites the source's rows of every sample: it deletes them, then writes
+    them back with this sample's calls changed. A rewrite that fails after its delete puts
+    the stored rows back (``rewrite_family_structural_variants``, SAFE-28). A single-file
+    upload also marks the family before it, for the source's calls of every sample the rows
+    hold (``mark_family_upload``): a process that stops in the rewrite, or a rewrite that
+    could not put the rows back, leaves the family marked, which gates its sign-out until
+    each sample's calls have been uploaded again with ``overwrite``. The upload's commit
+    removes the mark, and so does a failure that changed nothing of the family's SVs."""
     if not family_context.assembly_name:
         raise HTTPException(
             status_code=400,
@@ -1557,29 +1625,59 @@ async def upload_structural_variant_file(
     if processed == 0:
         raise HTTPException(status_code=400, detail="No valid structural-variant records found")
 
-    if record_upload:
-        # What the upload brings, recorded for the family (SAFE-19) before its rows are
-        # rewritten, in the transaction that commits them: a rewrite that fails takes the
-        # record with it, and a record that cannot be written stops the upload first.
-        dataset, scope = structural_variant_upload_scope(resolved_format, sample_context.sample_id)
-        await record_family_upload(
-            session,
-            family_uuid=family_context.family_uuid,
-            dataset=dataset,
-            scope=scope,
-            overwrite=overwrite,
-        )
-    await rewrite_family_structural_variants(
-        family_context.assembly_name,
-        family_context.family_uuid,
-        _rows_with_uploaded_calls(
-            stored_rows,
-            other_calls_by_row,
-            uploaded,
-            project_ids=_normalized_project_ids(family_context.project_ids),
-        ),
-        source=source_label,
+    rows = _rows_with_uploaded_calls(
+        stored_rows,
+        other_calls_by_row,
+        uploaded,
+        project_ids=_normalized_project_ids(family_context.project_ids),
     )
+    upload_mark: FamilyWriteMark | None = None
+    if record_upload:
+        # Before the rewrite, which deletes every sample's calls of this caller before it
+        # writes them back, committed whatever becomes of this transaction: a process that
+        # stops in the rewrite leaves the family marked for each of them (SAFE-28). Before
+        # the record below too, which locks the family row this write needs. An upload that
+        # cannot mark the family writes nothing.
+        upload_mark = await mark_family_upload(
+            family_uuid=family_context.family_uuid,
+            items=_structural_variant_upload_items(resolved_format, rows, family_context),
+        )
+    try:
+        if record_upload:
+            # What the upload brings, recorded for the family (SAFE-19) before its rows are
+            # rewritten, in the transaction that commits them: a rewrite that fails takes the
+            # record with it, and a record that cannot be written stops the upload first.
+            dataset, scope = structural_variant_upload_scope(resolved_format, sample_context.sample_id)
+            await record_family_upload(
+                session,
+                family_uuid=family_context.family_uuid,
+                dataset=dataset,
+                scope=scope,
+                overwrite=overwrite,
+                mark=upload_mark,
+            )
+        await rewrite_family_structural_variants(
+            family_context.assembly_name,
+            family_context.family_uuid,
+            rows,
+            source=source_label,
+            stored=stored_rows,
+        )
+    except StructuralVariantsNotRestored:
+        # The stored rows could not be put back: the mark stays, naming each sample's calls.
+        raise
+    except Exception:
+        if upload_mark is not None:
+            # Nothing of the family's SVs changed: the upload failed before its rewrite, or
+            # its rewrite put the stored rows back. (A failure after the rewrite keeps the
+            # mark: the new calls are stored, but this transaction does not record them.)
+            await end_family_write_mark(
+                session,
+                family_uuid=family_context.family_uuid,
+                family_id=family_context.family_id,
+                mark=upload_mark,
+            )
+        raise
     metadata_result = await session.execute(
         text("SELECT metadata FROM samples WHERE id = CAST(:sample_id AS uuid)"),
         {"sample_id": sample_context.sample_uuid},

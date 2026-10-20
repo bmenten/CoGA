@@ -242,7 +242,8 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
         rewrites.append(list(entries))
 
     async def no_structural_rows(contexts, _sample_row):
-        return [(context, []) for context in contexts]
+        # Each context's stored SV rows, as read, and those the delete writes back.
+        return [(context, [], []) for context in contexts]
 
     async def nothing(*_args, **_kwargs):
         return 0

@@ -149,7 +149,7 @@ class _Storage:
         self.reads.append(source)
         return [row for row in self.rows if source is None or row.record.source == source]
 
-    async def rewrite(self, _assembly, _family, rows, *, source=None) -> None:
+    async def rewrite(self, _assembly, _family, rows, *, source=None, stored=()) -> None:
         self.rewrites.append({"source": source, "rows": list(rows)})
 
     async def record_provenance(self, _session, **kwargs) -> None:
@@ -350,6 +350,7 @@ async def test_rewrite_writes_each_row_under_its_own_project(monkeypatch) -> Non
             _row(_record(_BND_60000, [_call("MOTHER", "0/1")]), "project-a"),
         ],
         source="sniffles",
+        stored=[],
     )
 
     assert deletes == ["sniffles"]

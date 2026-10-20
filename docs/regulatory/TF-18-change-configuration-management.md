@@ -20,7 +20,7 @@
 ## 1. Configuration items (what is under control)
 - **Source code** — Git repository; releases are tagged; every clinical build maps to a commit hash.
 - **Dependencies** — `backend/requirements.txt` (every package pinned and hash-verified, [TF-08 §A.1](TF-08-soup-register.md)), `frontend/package-lock.json`, container base-image digests.
-- **Database schema** — idempotent, domain-grouped SQL baselines (`backend/db/schema/postgres/01_access.sql`–`05_grants.sql`), applied in name order: by the API at startup in the default mode, or, once the API runs as the restricted database role, by the migration job before each rollout. There is no migration history: every file is re-applied each time.
+- **Database schema** — idempotent, domain-grouped SQL baselines (`backend/db/schema/postgres/01_access.sql`–`05_grants.sql`) and the Alembic revisions that bring an existing database to them (`backend/db/migrations/versions/`), applied as one migration step, as the table owner: by the API at startup in the default mode, or, once the API runs as the restricted database role, by the migration job before each rollout. The ledger table `alembic_version` records the revision each database is at, and a version older than that revision refuses to start on it. Until the release candidate every run re-applies the baselines first ([database.md](../database.md#schema-migrations)).
 - **Reference data & content** — assembly, ClinVar/gnomAD/dbNSFP/VEP/etc. releases (versioned via the manifest), gene panels and their source version, NIPT artifact lists, ACMG criterion-positioning rules.
 - **Configuration/secrets** — environment settings (secrets in a manager, not in VCS).
 - **Documentation** — this technical file and the per-feature design docs.
@@ -49,6 +49,18 @@ from the first release candidate.
 | **Release candidate** | Feature freeze; `VERSION` takes an `-rc.N` suffix and the tag follows it (§2). A documented, risk-based design and code review: every clinical-critical module (the ones the type-check and coverage gates single out: scoring, prioritisation and filters, NIPT, PGT, sample QC, traceability and sign-out) in full, the rest by sample and automated analysis. Bio-IT ingangsvalidatie on H11.1-F12.2 ([TF-09](TF-09-verification-validation.md)); security go-live ([TF-13 §3](TF-13-cybersecurity.md)); QA confirms the TF-10 §8 list as validation scope. | Full change control from here: every change is assessed (§4) and recorded (§8). |
 | **Beta — clinical validation** | Clinical validation per method on H11.1-F11 ([TF-10](TF-10-performance-evaluation-plan.md)), on the frozen release candidate, in parallel with the current validated workflow. CoGA results are not used for patient care until the validation concludes *voldoet*. | Bug fixes only, where possible. Each fix is a new `-rc.N` with its §4 level, and states which validation it leaves standing and which it re-opens. |
 | **Release (v1.0.0)** | Release approval by the lab director and the release record (§7); registration in CMGGMC (`Sxxxx`); the Art. 5(5)(e) declaration made public before first use; post-market surveillance ([TF-16](TF-16-post-market-surveillance-plan.md)). | §4–§8 as written: patch, minor or major per H11.1-OP5. |
+
+**Proposal for QA: the database schema at the release candidate.** Not adopted; QA confirms
+or changes it. Until the release candidate, pull requests edit the five Postgres baseline files,
+and every migration run re-applies them, so each edit reaches every database. The release
+candidate's pull request would freeze them: the migration step stops re-applying them
+(`REAPPLY_BASELINES_ON_EVERY_RUN = False` in `backend/app/core/postgres_migrations.py`), revision
+`0001` applies them to a new database only, and a test pins their SHA-256. From then on each
+schema change is a new Alembic revision only: its change record (§8) names the revision, its
+verification runs it on a database at the previous revision, the release record states the
+release's last revision, and it runs forward only, so going back means restoring the backup
+taken before the upgrade
+([database.md](../database.md#freezing-the-baselines-at-the-release-candidate)).
 
 ## 4. Significance assessment — semantic patch / minor / major (H11.1-OP5 §4.4.5, §5.4)
 

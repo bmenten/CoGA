@@ -282,7 +282,7 @@ class _SvStore:
         await self.interleaving.after_read()
         return rows
 
-    async def rewrite(self, _assembly, _family, rows, *, source=None) -> None:
+    async def rewrite(self, _assembly, _family, rows, *, source=None, stored=()) -> None:
         self._log("rewrite SVs")
         # The delete and the inserts are separate statements; nothing holds them together.
         self.rows = [row for row in self.rows if source is not None and row.record.source != source]
@@ -905,18 +905,23 @@ async def test_clearing_a_familys_data_takes_both_locks_before_deleting(monkeypa
     ):
         monkeypatch.setattr(family_structure_service, name, _recorder(postgres, name))
 
-    await family_structure_service._clear_family_genomic_data(
-        postgres.session("structure"),  # type: ignore[arg-type]
+    session = postgres.session("structure")
+    _counts, assemblies = await family_structure_service._clear_family_genomic_data(
+        session,  # type: ignore[arg-type]
         family_uuid=_FAMILY,
     )
+    # The ClickHouse data goes last, before the structure change commits (SAFE-28), under
+    # the locks the clear took, which its transaction still holds.
+    await family_structure_service._delete_family_clickhouse_data(_FAMILY, assemblies)
 
+    assert assemblies == ["GRCh38"]
     assert postgres.trace("structure") == [
         f"lock {_key(SMALL_VARIANTS)}",
         f"lock {_key(STRUCTURAL_VARIANTS)}",
+        "delete_interval_track_sources",
         "delete_family_small_variants",
         "delete_family_structural_variants",
         "delete_interval_tracks",
-        "delete_interval_track_sources",
     ]
 
 
