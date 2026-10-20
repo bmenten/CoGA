@@ -307,9 +307,39 @@ CREATE INDEX IF NOT EXISTS idx_report_signouts_family
 
 -- The chain is partitioned on the IMMUTABLE family_identifier (not family_id, which the
 -- ON DELETE SET NULL cascade nulls) so a deleted family's signed history stays
--- verifiable. Index it for the per-sign-out chain-head read and the verifier walk.
-CREATE INDEX IF NOT EXISTS idx_report_signouts_chain
-    ON report_signouts (family_identifier, version DESC);
+-- verifiable, and it is ordered by version. A family deleted and made again under its ID
+-- signs on the same chain, its versions numbered on from the deleted family's (TRACE-13),
+-- so a version names one signed record of the family ID, and so does its report code.
+-- This unique index holds that: UNIQUE (family_id, version) above cannot, as the family's
+-- deletion nulls family_id. It also serves the chain-head read and the verifier walk, for
+-- which idx_report_signouts_chain was made, and replaces it.
+--
+-- A database where a family ID already holds one version twice (a family made again under
+-- its ID and signed out in both, before TRACE-13) cannot take the index: the check before
+-- it stops the migration, with a message that names no family.
+DO $$
+DECLARE
+    repeated bigint;
+BEGIN
+    SELECT count(DISTINCT family_identifier) INTO repeated
+    FROM (
+        SELECT family_identifier
+        FROM report_signouts
+        WHERE family_identifier IS NOT NULL
+        GROUP BY family_identifier, version
+        HAVING count(*) > 1
+    ) AS taken_twice;
+    IF repeated > 0 THEN
+        RAISE EXCEPTION USING MESSAGE =
+            'report_signouts holds ' || repeated || ' family ID(s) with a sign-out version '
+            || 'taken twice, by a family made again under its ID before TRACE-13; see '
+            || 'docs/development.md, Troubleshooting.';
+    END IF;
+END
+$$;
+CREATE UNIQUE INDEX IF NOT EXISTS uq_report_signouts_family_identifier_version
+    ON report_signouts (family_identifier, version);
+DROP INDEX IF EXISTS idx_report_signouts_chain;
 
 -- Append-only at the database level (a signed-out report must never change). DELETE
 -- is blocked; UPDATE is blocked except the ON DELETE SET NULL cascades that null

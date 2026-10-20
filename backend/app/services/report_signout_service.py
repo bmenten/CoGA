@@ -1076,13 +1076,30 @@ async def build_report_snapshot(
     }
 
 
-async def _next_version(session: AsyncSession, family_uuid: str) -> int:
+# The highest version the family's ID has signed, in every family made under that ID, and
+# in this family's own row (a row stored without the ID counts too).
+_LAST_SIGNED_VERSION = text(
+    "SELECT COALESCE(MAX(version), 0) FROM report_signouts "
+    "WHERE family_identifier = :family_identifier "
+    "OR family_id = CAST(:family_uuid AS uuid)"
+)
+
+
+async def _next_version(session: AsyncSession, family_identifier: str, family_uuid: str) -> int:
+    """The version the family's next sign-out gets: one past every version its family ID
+    has signed (TRACE-13).
+
+    A family ID's sign-outs are one hash chain, in version order, whichever family row
+    signed them: a family deleted and made again under its ID signs on the chain of the
+    one it replaced. Numbered per family row, the new family's first sign-out took
+    version 1 again, so the chain's order tied, and the chain failed its verification as
+    if it had been tampered with. Numbered per family ID, a version and its report code
+    name one signed record of the family ID for good, and an existing chain keeps its
+    numbers: a family never deleted has only its own row's versions.
+    """
     result = await session.execute(
-        text(
-            "SELECT COALESCE(MAX(version), 0) FROM report_signouts "
-            "WHERE family_id = CAST(:family_uuid AS uuid)"
-        ),
-        {"family_uuid": family_uuid},
+        _LAST_SIGNED_VERSION,
+        {"family_identifier": family_identifier, "family_uuid": family_uuid},
     )
     return int(result.scalar_one() or 0) + 1
 
@@ -1300,7 +1317,9 @@ async def sign_out_report(
     # released on the commit/rollback below.
     # Partition the chain on the IMMUTABLE family_identifier (not the mutable family_id,
     # which an ON DELETE SET NULL cascade nulls), so a deleted family's signed history
-    # stays verifiable. family_id↔family_identifier are 1:1 so version ordering is intact.
+    # stays verifiable. One family ID can name several family rows over time (a family
+    # deleted and made again under its ID): the lock, the chain and the version numbers
+    # (_next_version) are the family ID's, so the version order is the chain's order.
     await session.execute(
         text("SELECT pg_advisory_xact_lock(hashtext(:k))"),
         {"k": f"rs:{context.family_id}"},
@@ -1317,7 +1336,7 @@ async def sign_out_report(
     ).scalar_one_or_none()
 
     now = datetime.now(timezone.utc)
-    version = await _next_version(session, context.family_uuid)
+    version = await _next_version(session, context.family_id, context.family_uuid)
     actor = getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
 
     def _snapshot_at(moment: datetime) -> dict[str, Any]:
@@ -1808,7 +1827,9 @@ async def verify_report_signout_chain(
     hash against its snapshot; report whether the signed-report history is intact.
 
     Partitioned on the immutable ``family_identifier`` so a family's signed history
-    stays verifiable after the family row is deleted (the cascade nulls ``family_id``).
+    stays verifiable after the family row is deleted (the cascade nulls ``family_id``). A
+    family made again under the ID signs on the same chain, its versions numbered on from
+    the deleted family's (:func:`_next_version`), so the walk covers both, in version order.
     """
     rows = [
         dict(row)
