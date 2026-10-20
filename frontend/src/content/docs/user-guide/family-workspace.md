@@ -3,7 +3,9 @@ Every case starts on its family page.
 ### The header
 
 **Status**, **Assigned to** and **Reviewed by** track the case's workflow; an analyst of the family's
-project can change them, a reader only sees them. The
+project can change them, a reader only sees them. **Assigned to** and **Reviewed by** offer the active
+analysts of the family's projects and the administrators, never a reader. Someone chosen before they
+became a reader (or left the family's projects) stays shown, marked *(not eligible)*, until you change it. The
 header also shows the assembly and the projects, and a *Not validated for clinical use* banner when the
 family is outside the validated scope.
 

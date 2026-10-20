@@ -13,6 +13,17 @@ export const READ_ONLY_HINT =
   "Read-only access: you are a reader in this family's project, so you can view and export it but not change it.";
 
 /**
+ * A case is assigned to, and recorded as reviewed by, an active analyst of one of the family's
+ * projects or an active administrator. One stored before its user became a reader (or left the
+ * family's projects) stays shown with this mark until it is changed.
+ */
+export const NOT_ASSIGNABLE_MARK = ' (not eligible)';
+
+/** What the picker of such a value says. */
+export const NOT_ASSIGNABLE_HINT =
+  "Not eligible: not an active analyst of this family's projects or an administrator. It stays until you change it.";
+
+/**
  * Whether the family on screen is read-only for the signed-in user. A family page provides it
  * from the family record; a control deep in the page reads it with `useFamilyReadOnly`.
  * Outside a provider nothing is read-only, so a control shown without one keeps working.

@@ -163,6 +163,26 @@ def test_list_users_endpoint(family_metadata_client) -> None:
     assert {item["id"] for item in body} == {"u1", "u2"}
 
 
+def test_the_case_pickers_read_the_familys_own_list(family_metadata_client) -> None:
+    # The family's analysts and the administrators (test_case_assignee_eligibility.py), asked
+    # for the family the page shows and as the signed-in user, so a family outside their
+    # projects answers 404.
+    client, monkeypatch = family_metadata_client
+    asked: dict = {}
+
+    async def fake_list(session, *, family_id, user):
+        asked.update(family_id=family_id, user=user.username)
+        return [{"id": "u1", "username": "ann", "email": "ann@example.com", "first_name": "Ann", "last_name": "Lee"}]
+
+    monkeypatch.setattr(families_router, "list_family_assignable_users", fake_list)
+
+    response = client.get("/api/families/FAM1/assignable-users")
+
+    assert response.status_code == 200
+    assert [item["id"] for item in response.json()] == ["u1"]
+    assert asked == {"family_id": "FAM1", "user": "viewer@example.com"}
+
+
 def test_admin_family_status_crud(family_metadata_client) -> None:
     client, monkeypatch = family_metadata_client
     deleted: dict = {}

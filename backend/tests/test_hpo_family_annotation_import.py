@@ -1,7 +1,27 @@
+from types import SimpleNamespace
+
 import pytest
 
 from backend.app.services import hpo_service as hs
-from backend.app.services.hpo_service import HpoAnnotationImportRow
+from backend.app.services.hpo_service import HpoAnnotationImportRow, PhenotypeImport
+
+# The import the rows come from; what it changes on the audit trail is tested in
+# test_imported_phenotype_audit.py, so here the audit is stubbed and the statements counted
+# are the import's own.
+ORIGIN = PhenotypeImport(user=SimpleNamespace(id="u1", username="admin"), via="package_import")
+
+
+@pytest.fixture(autouse=True)
+def _no_audit(monkeypatch):
+    async def no_states(_session, _family_uuid):
+        return {}
+
+    async def no_events(_session, **_kwargs):
+        return 0
+
+    monkeypatch.setattr(hs, "lock_family_phenotype_states", no_states)
+    monkeypatch.setattr(hs, "family_phenotype_states", no_states)
+    monkeypatch.setattr(hs, "record_imported_phenotype_changes", no_events)
 
 
 class _RecordingSession:
@@ -41,6 +61,7 @@ async def test_import_family_hpo_annotations_batches_inserts(monkeypatch) -> Non
         family_id="FAM1",
         sample_uuids_by_id={"IND1": "s1-uuid", "IND2": "s2-uuid"},
         rows=rows,
+        origin=ORIGIN,
     )
 
     # A single batched execute carries both rows (a list of param dicts), not one per row.
@@ -74,6 +95,7 @@ async def test_import_family_hpo_annotations_collapses_duplicate_conflict_keys(m
         family_id="FAM1",
         sample_uuids_by_id={"IND1": "s1-uuid"},
         rows=rows,
+        origin=ORIGIN,
     )
 
     # imported still counts every accepted row (unchanged behaviour) ...
@@ -101,6 +123,7 @@ async def test_import_family_hpo_annotations_skips_unknown_and_issues_no_insert(
         family_id="FAM1",
         sample_uuids_by_id={"IND1": "s1-uuid"},
         rows=rows,
+        origin=ORIGIN,
     )
 
     assert result["imported"] == 0

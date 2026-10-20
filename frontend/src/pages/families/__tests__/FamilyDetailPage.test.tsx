@@ -29,7 +29,12 @@ const mockApiState = vi.hoisted(() => ({
   analysisType: null as string | null,
   // The caller is a reader in the family's projects (SEC-1).
   readOnly: false,
+  // Whom the case pickers offer: the family's analysts and the administrators.
+  assignableUsers: [] as unknown[],
 }));
+
+const ANN = { id: 'u1', username: 'ann', email: 'ann@example.com', first_name: 'Ann', last_name: 'Lee' };
+const BOB = { id: 'u2', username: 'bob', email: 'bob@example.com', first_name: 'Bob', last_name: 'Ng' };
 
 vi.mock('../../../lib/api', () => ({
   default: {
@@ -207,13 +212,8 @@ vi.mock('../../../lib/api', () => ({
           ],
         });
       }
-      if (url === '/users') {
-        return Promise.resolve({
-          data: [
-            { id: 'u1', username: 'ann', email: 'ann@example.com', first_name: 'Ann', last_name: 'Lee' },
-            { id: 'u2', username: 'bob', email: 'bob@example.com', first_name: 'Bob', last_name: 'Ng' },
-          ],
-        });
+      if (url === '/families/F1/assignable-users') {
+        return Promise.resolve({ data: mockApiState.assignableUsers });
       }
       return Promise.resolve({ data: [] });
     }),
@@ -235,6 +235,7 @@ describe('FamilyDetailPage', () => {
     mockApiState.relationships = [];
     mockApiState.analysisType = null;
     mockApiState.readOnly = false;
+    mockApiState.assignableUsers = [ANN, BOB];
     vi.mocked(api.put).mockReset();
     vi.mocked(api.post).mockReset();
     vi.mocked(api.delete).mockReset();
@@ -302,6 +303,77 @@ describe('FamilyDetailPage', () => {
         expect.objectContaining({ status_key: 'solved' }),
       ),
     );
+  });
+
+  const renderFamily = () =>
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+  const optionTexts = (select: HTMLElement) =>
+    Array.from((select as HTMLSelectElement).options).map((option) => option.textContent);
+
+  it("offers the family's analysts and administrators in the assignee and reviewer pickers", async () => {
+    renderFamily();
+
+    const assigned = await screen.findByRole('combobox', { name: 'Assigned to' });
+    await waitFor(() => expect(optionTexts(assigned)).toEqual(['Unassigned', 'Ann Lee', 'Bob Ng']));
+    expect(optionTexts(screen.getByRole('combobox', { name: 'Reviewed by' }))).toEqual([
+      'Not reviewed',
+      'Ann Lee',
+      'Bob Ng',
+    ]);
+    // The family's own list, not every user of CoGA (a reader among them).
+    expect(api.get).toHaveBeenCalledWith('/families/F1/assignable-users');
+    expect(api.get).not.toHaveBeenCalledWith('/users');
+    expect(assigned).not.toHaveAttribute('title');
+  });
+
+  it('keeps an assignee who is no longer eligible, marked, until it is changed', async () => {
+    // Ann was assigned before she became a reader: the family's list no longer holds her.
+    mockApiState.assignableUsers = [BOB];
+    vi.mocked(api.put).mockResolvedValue({ data: { _id: 'fam1', family_id: 'F1', members: [], projects: ['p1'] } });
+    renderFamily();
+
+    const assigned = await screen.findByRole('combobox', { name: 'Assigned to' });
+    await waitFor(() => expect(assigned).toHaveDisplayValue('Ann Lee (not eligible)'));
+    expect(assigned).toHaveValue('u1');
+    expect(assigned).toBeEnabled();
+    expect(assigned).toHaveAttribute('title', expect.stringMatching(/^Not eligible: .* It stays until you change it\.$/));
+    expect(optionTexts(assigned)).toEqual(['Unassigned', 'Bob Ng', 'Ann Lee (not eligible)']);
+    // Nobody chose her again: the reviewer picker offers the list alone.
+    expect(optionTexts(screen.getByRole('combobox', { name: 'Reviewed by' }))).toEqual(['Not reviewed', 'Bob Ng']);
+    expect(api.put).not.toHaveBeenCalled();
+
+    fireEvent.change(assigned, { target: { value: 'u2' } });
+    await waitFor(() => expect(api.put).toHaveBeenCalledWith('/families/F1/metadata', { assigned_to: 'u2' }));
+  });
+
+  it('says why the server refused an assignee, and keeps the stored one', async () => {
+    vi.mocked(api.put).mockRejectedValue({
+      isAxiosError: true,
+      response: {
+        status: 422,
+        data: {
+          detail:
+            "Bob Ng cannot be assigned this case: they are a reader in this family's projects. Choose an analyst of one of the family's projects or an administrator.",
+        },
+      },
+    });
+    renderFamily();
+
+    const assigned = await screen.findByRole('combobox', { name: 'Assigned to' });
+    await waitFor(() => expect(assigned).toHaveValue('u1'));
+    fireEvent.change(assigned, { target: { value: 'u2' } });
+
+    expect(await screen.findByText(/Bob Ng cannot be assigned this case: they are a reader/)).toBeInTheDocument();
+    await waitFor(() => expect(assigned).toHaveValue('u1'));
   });
 
   it('lets admins edit the ROI from the family dashboard without structure edit controls', async () => {
@@ -919,6 +991,19 @@ describe('FamilyDetailPage', () => {
         expect(status).toHaveValue('analysis_in_progress');
         expect(status).toHaveDisplayValue('Analysis in progress');
         expect(status).toBeDisabled();
+      } finally {
+        restore();
+      }
+    });
+
+    it('marks no assignee as not eligible when the list of eligible users failed', async () => {
+      const restore = renderWithFailing((url) => url === '/families/F1/assignable-users');
+      try {
+        expect(await screen.findByText(/Could not load the user list — this is not an empty result/)).toBeInTheDocument();
+        const assigned = screen.getByRole('combobox', { name: 'Assigned to' });
+        // Whether Ann is still eligible is unknown: she is shown as she is stored.
+        expect(assigned).toHaveDisplayValue('Ann Lee');
+        expect(assigned).toBeDisabled();
       } finally {
         restore();
       }

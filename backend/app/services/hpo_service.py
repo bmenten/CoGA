@@ -25,6 +25,7 @@ from ..core.config import HPO_PINNED_ONTOLOGY_SHA256, HPO_PINNED_ONTOLOGY_URL, s
 from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid
 from .access_control import CurrentUser
 from .clinical_audit_service import record_clinical_event
+from .family_identifiers import visible as visible_text
 
 HPO_ID_PATTERN = re.compile(r"^HP:[0-9]{7}$", re.IGNORECASE)
 HPO_ID_SEARCH_PATTERN = re.compile(r"(?:HP[:_])([0-9]{7})", re.IGNORECASE)
@@ -1860,13 +1861,220 @@ async def _record_phenotype_change(
         family_uuid=family_uuid,
         family_identifier=family_identifier,
         variant_id=None,
-        actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+        actor=_audit_actor(user),
         actor_id=getattr(user, "id", None),
         action="phenotype",
         summary=phenotype_change_summary(before_state, after_state),
         before=before_state,
         after=after_state,
         metadata={"sample_id": changed["sample_id"], "annotation_id": annotation_id},
+    )
+
+
+def _audit_actor(user: Any) -> str:
+    """The name the clinical audit trail records for a user, as for every clinical event."""
+    return getattr(user, "username", None) or getattr(user, "email", "") or "unknown"
+
+
+# --- Phenotypes an import changes ------------------------------------------------------------
+#
+# A package import brings a family's phenotypes in (and a failed one puts them back as they
+# were, or removes the family it had created), and a PED upload or the Family Builder that
+# replaces a family deletes them with it. Each such change is on the family's clinical audit
+# trail like an edit on screen: ``phenotype`` events, in the transaction of the change, under
+# the family's phenotype lock. One event per member whose phenotypes changed, so the trail
+# reads as the edits do (each of their events concerns one member), while an import of many
+# terms does not bury it in one event per term: before is each of the member's phenotypes the
+# change altered or removed, as it was, and after each it added or altered, as it is.
+
+# How an import came to change a family's phenotypes (``source`` in the events' metadata).
+PACKAGE_IMPORT = "package_import"
+PED_UPLOAD = "ped_upload"
+FAMILY_BUILDER = "family_builder"
+
+# What it did to them (``change`` in the metadata).
+PHENOTYPES_IMPORTED = "imported"  # a package's phenotypes added or changed
+PHENOTYPES_PUT_BACK = "put_back"  # a failed import's restore put them back as they were
+PHENOTYPES_ROLLED_BACK = "rolled_back"  # deleted with the family a failed import had created
+PHENOTYPES_REPLACED = "replaced"  # deleted with the family a PED upload or the Family Builder replaced
+
+# A summary names at most this many changes; the event's before and after hold them all.
+_MAX_SUMMARY_PHENOTYPES = 5
+
+# A family's phenotype by member, term and status: what an import writes it by.
+PhenotypeKey = tuple[str, str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class PhenotypeImport:
+    """An import that changes a family's phenotypes, as their clinical audit events name it:
+    who ran it, how (``via``: ``PACKAGE_IMPORT``, ``PED_UPLOAD`` or ``FAMILY_BUILDER``), what
+    it read (``source``: the package's folder or bucket URI, or the uploaded PED file's name;
+    ``files``: the package's phenotype files) and the import job that ran it, if any."""
+
+    user: CurrentUser
+    via: str
+    source: str | None = None
+    files: tuple[str, ...] = ()
+    job_id: str | None = None
+
+
+async def family_phenotype_states(session: AsyncSession, family_uuid: str) -> dict[PhenotypeKey, dict[str, Any]]:
+    """The family's phenotypes as their audit events record them (``phenotype_audit_state``),
+    by member, term and status."""
+    states: dict[PhenotypeKey, dict[str, Any]] = {}
+    for annotation in await list_family_hpo_annotations(session, family_uuid=family_uuid):
+        state = phenotype_audit_state(annotation)
+        assert state is not None
+        states[(str(state["sample_id"]), str(state["hpo_id"]), str(state["status"]))] = state
+    return states
+
+
+async def lock_family_phenotype_states(
+    session: AsyncSession, family_uuid: str
+) -> dict[PhenotypeKey, dict[str, Any]]:
+    """Take the family's phenotype lock, the one each edit takes, until this transaction ends,
+    and read the family's phenotypes: what a change made in the transaction replaces."""
+    await _lock_family_phenotypes(session, family_uuid)
+    return await family_phenotype_states(session, family_uuid)
+
+
+def _without_label(state: Mapping[str, Any]) -> dict[str, Any]:
+    # The label is the term's name in the loaded HPO release, not part of the annotation.
+    return {name: value for name, value in state.items() if name != "label"}
+
+
+def imported_phenotype_changes(
+    before: Mapping[PhenotypeKey, Mapping[str, Any]],
+    after: Mapping[PhenotypeKey, Mapping[str, Any]],
+) -> dict[str, dict[str, list[Any]]]:
+    """What changed between two readings of a family's phenotypes, per member whose
+    phenotypes changed, in a fixed order: ``before``, each annotation that changed or went, as
+    it was; ``after``, each that changed or came, as it is; ``phrases``, one per change."""
+    changes: dict[str, dict[str, list[Any]]] = {}
+    for key in sorted(before.keys() | after.keys()):
+        was, now = before.get(key), after.get(key)
+        if was is not None and now is not None and _without_label(was) == _without_label(now):
+            continue
+        member = changes.setdefault(key[0], {"before": [], "after": [], "phrases": []})
+        if was is not None:
+            member["before"].append(dict(was))
+        if now is not None:
+            member["after"].append(dict(now))
+        if was is None:
+            assert now is not None
+            member["phrases"].append(f"added {_phenotype_term(now)} ({now['status']})")
+        elif now is None:
+            member["phrases"].append(f"removed {_phenotype_term(was)} ({was['status']})")
+        else:
+            fields = [
+                f"{name} {'added' if not was.get(name) else 'removed' if not now.get(name) else 'edited'}"
+                for name in _PHENOTYPE_TEXT_FIELDS
+                if was.get(name) != now.get(name)
+            ]
+            member["phrases"].append(f"changed {_phenotype_term(now)} ({now['status']}): {', '.join(fields)}")
+    return changes
+
+
+def _bounded_phrases(phrases: list[str]) -> str:
+    if len(phrases) > _MAX_SUMMARY_PHENOTYPES:
+        hidden = len(phrases) - _MAX_SUMMARY_PHENOTYPES
+        phrases = [*phrases[:_MAX_SUMMARY_PHENOTYPES], f"and {hidden} more"]
+    return "; ".join(phrases)
+
+
+def _package_name(source: str | None) -> str:
+    """The package as a summary names it: its folder's name (the whole path, or bucket URI,
+    is in the event's metadata)."""
+    text_value = visible_text(source or "").rstrip("/")
+    return text_value.rsplit("/", 1)[-1] or "unknown package"
+
+
+def imported_phenotypes_summary(sample_id: str, phrases: list[str], origin: PhenotypeImport, change: str) -> str:
+    """The one-line summary of what an import changed of a member's phenotypes."""
+    changes = _bounded_phrases(phrases)
+    package = f"a package import of {_package_name(origin.source)}"
+    if change == PHENOTYPES_IMPORTED:
+        files = f" ({', '.join(visible_text(name) for name in origin.files)})" if origin.files else ""
+        return f"Phenotypes imported for {sample_id} by {package}{files}: {changes}"
+    if change == PHENOTYPES_PUT_BACK:
+        return f"Phenotypes put back for {sample_id} after a failed {package.removeprefix('a ')}: {changes}"
+    if change == PHENOTYPES_ROLLED_BACK:
+        return (
+            f"Phenotypes removed for {sample_id} with the family a failed "
+            f"{package.removeprefix('a ')} had created: {changes}"
+        )
+    if origin.via == PED_UPLOAD:
+        upload = f"a PED upload ({visible_text(origin.source)})" if origin.source else "a PED upload"
+        return f"Phenotypes removed for {sample_id}: the family was replaced by {upload}: {changes}"
+    return f"Phenotypes removed for {sample_id}: the family was replaced in the Family Builder: {changes}"
+
+
+def _imported_phenotypes_metadata(sample_id: str, origin: PhenotypeImport, change: str) -> dict[str, Any]:
+    metadata: dict[str, Any] = {"sample_id": sample_id, "source": origin.via, "change": change}
+    if origin.source:
+        metadata["package" if origin.via == PACKAGE_IMPORT else "file"] = visible_text(origin.source)
+    if origin.files:
+        metadata["files"] = [visible_text(name) for name in origin.files]
+    if origin.job_id:
+        metadata["job_id"] = origin.job_id
+    return metadata
+
+
+async def record_imported_phenotype_changes(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family_identifier: str,
+    before: Mapping[PhenotypeKey, Mapping[str, Any]],
+    after: Mapping[PhenotypeKey, Mapping[str, Any]],
+    origin: PhenotypeImport,
+    change: str,
+) -> int:
+    """Record what an import changed of a family's phenotypes, ``before`` to ``after``, on the
+    family's hash-chained clinical audit trail, in the import's transaction (no commit): one
+    ``phenotype`` event per member whose phenotypes it changed, as the user who ran it. Returns
+    how many events it wrote: an import that changed no phenotype writes none."""
+    changes = imported_phenotype_changes(before, after)
+    for sample_id, member in changes.items():
+        await record_clinical_event(
+            session,
+            family_uuid=family_uuid,
+            family_identifier=family_identifier,
+            variant_id=None,
+            actor=_audit_actor(origin.user),
+            actor_id=getattr(origin.user, "id", None),
+            action="phenotype",
+            summary=imported_phenotypes_summary(sample_id, member["phrases"], origin, change),
+            before=member["before"],
+            after=member["after"],
+            metadata=_imported_phenotypes_metadata(sample_id, origin, change),
+        )
+    return len(changes)
+
+
+async def record_phenotypes_deleted_with_family(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family_identifier: str,
+    origin: PhenotypeImport,
+    change: str,
+) -> int:
+    """Before a family is deleted (``change``: ``PHENOTYPES_ROLLED_BACK`` or
+    ``PHENOTYPES_REPLACED``), record the phenotypes it goes with as removed, under the family's
+    phenotype lock, in the transaction of the deletion (no commit). The deletion unlinks the
+    events from the family as it does every event of its trail; the chain, on the family's ID,
+    keeps them."""
+    before = await lock_family_phenotype_states(session, family_uuid)
+    return await record_imported_phenotype_changes(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        before=before,
+        after={},
+        origin=origin,
+        change=change,
     )
 
 
@@ -2163,7 +2371,13 @@ async def import_family_hpo_annotations(
     sample_uuids_by_id: Mapping[str, str],
     rows: Iterable[HpoAnnotationImportRow],
     issues: Iterable[HpoAnnotationImportIssue] = (),
+    origin: PhenotypeImport,
 ) -> dict[str, Any]:
+    """Write a package's phenotype rows to the family (each one added, or the member's
+    annotation of its term and status updated), and record what that changed on the family's
+    clinical audit trail as made by ``origin``, in the same transaction, under the family's
+    phenotype lock. A row naming another family, an unknown member or a term the HPO release
+    does not hold is skipped with an issue."""
     row_list = list(rows)
     issue_list = list(issues)
     existing_terms = await _existing_hpo_terms(session, [row.hpo_id for row in row_list])
@@ -2226,6 +2440,9 @@ async def import_family_hpo_annotations(
         imported += 1
         imported_by_sample[row.individual_id] = imported_by_sample.get(row.individual_id, 0) + 1
     if insert_rows:
+        # What the rows replace, read under the lock each edit of the family's phenotypes
+        # takes, so the audit events say what this import changed and nothing else.
+        phenotypes_before = await lock_family_phenotype_states(session, family_uuid)
         await session.execute(
             text(
                 """
@@ -2245,6 +2462,15 @@ async def import_family_hpo_annotations(
                 """
             ),
             list(insert_rows.values()),
+        )
+        await record_imported_phenotype_changes(
+            session,
+            family_uuid=family_uuid,
+            family_identifier=family_id,
+            before=phenotypes_before,
+            after=await family_phenotype_states(session, family_uuid),
+            origin=origin,
+            change=PHENOTYPES_IMPORTED,
         )
     await session.commit()
     return {

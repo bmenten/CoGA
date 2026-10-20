@@ -26,6 +26,7 @@ from .family_metadata_context import (
     build_family_metadata_context,
 )
 from .family_variant_write_lock import hold_family_variant_writes
+from .hpo_service import PACKAGE_IMPORT, PhenotypeImport
 from .metadata_service import get_current_user_by_email
 from .access_control import CurrentUser
 from . import ped_service
@@ -483,19 +484,31 @@ async def _import_family_datasets(
     conflict_mode: str,
     progress: ProgressCallback | None,
     job_id: str | None,
+    user: CurrentUser,
     import_mark: ImportMark | None = None,
-    user: CurrentUser | None = None,
 ) -> PackageExecutionResult:
     """Import the package's datasets into the registered family, and leave it complete,
     restored to its state before the import, or flagged import-incomplete. ``user`` is the
-    import's, who a compensating deletion of a new family is recorded as made by.
+    import's, who a compensating deletion of a new family is recorded as made by (SEC-7).
 
     ``import_mark`` is this import's entry in the family's ``import_unfinished``: each
     dataset it finishes is recorded there as it goes, and the entry is removed when the
     import ends, whichever way, but one: after a restore that failed part-way it stays,
     naming every dataset of the family. If the import's process stops first, the entry
-    stays."""
+    stays.
+
+    Each change of the family's phenotypes it makes (the package's, a restore putting them
+    back, the family it created removed again) is on the family's clinical audit trail as
+    made by ``user``, who runs the import."""
     import_key = import_mark.key if import_mark is not None else None
+    # The import as the phenotypes' audit events name it: who runs it, the package (by the
+    # folder or bucket it was read from, as its log says) and its job.
+    phenotype_import = PhenotypeImport(
+        user=user,
+        via=PACKAGE_IMPORT,
+        source=bundle.source_uri or package_folder_path(bundle.root),
+        job_id=job_id,
+    )
     # What the import records each dataset as replacing (dataset_scopes), from before its
     # first write: each importer is handed its dataset's (an SNV family VCF is stored as
     # the callset its scope names, SAFE-23).
@@ -581,6 +594,7 @@ async def _import_family_datasets(
                 progress=dataset_progress,
                 skipped_samples=skipped_samples.setdefault(summary.dataset_type, set()),
                 scope=mark_scopes.get(summary.dataset_type),
+                phenotype_import=phenotype_import,
             )
             datasets[index] = imported.model_copy(update={"progress": timer.finish()})
             logs.append(f"Dataset {summary.dataset_type}: {datasets[index].status}.")
@@ -662,7 +676,7 @@ async def _import_family_datasets(
         # middle leaves a family part-removed.
         if import_mark is not None:
             await _record_family_import_finished(session, family_context, import_mark, ())
-        await _delete_family_shell(session, family_context, user)
+        await _delete_family_shell(session, family_context, user, phenotype_import=phenotype_import)
         await session.commit()
         compensated = True
         logs.append(
@@ -681,7 +695,12 @@ async def _import_family_datasets(
             if clickhouse_snapshot is not None:
                 await restore_family_clickhouse_state(clickhouse_snapshot)
             if postgres_snapshot is not None:
-                await restore_family_postgres_state(session, postgres_snapshot)
+                await restore_family_postgres_state(
+                    session,
+                    postgres_snapshot,
+                    family_identifier=family_context.family_id,
+                    phenotype_import=phenotype_import,
+                )
             restored = True
             logs.append(
                 "Import failed; atomically restored the family's data to its pre-import state."

@@ -21,6 +21,13 @@ from .family_structure_audit import (
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .upload_safety import decode_upload_text
+from .hpo_service import (
+    FAMILY_BUILDER,
+    PED_UPLOAD,
+    PHENOTYPES_REPLACED,
+    PhenotypeImport,
+    record_phenotypes_deleted_with_family,
+)
 from .access_control import (
     CurrentUser,
     RecordNotVisible,
@@ -409,13 +416,20 @@ async def _replace_existing_families(
     family_ids: list[str],
     overwrite: bool,
     user: CurrentUser,
+    *,
+    via: str,
+    source: str | None = None,
 ) -> list[tuple[str, str]]:
     """Delete the stored families of these IDs (with ``overwrite``; else refuse, 409), in
     the caller's transaction, and return their variants in ClickHouse, (assembly, family
     uuid), for the caller to delete with ``_delete_replaced_family_variants`` once the rest
     of the replacement is written, just before it commits. ClickHouse has no transactions:
     deleted here, the variants were gone when a check after this refused the upload, while
-    the rollback brought the family back (SAFE-25)."""
+    the rollback brought the family back (SAFE-25).
+
+    Before each family goes, the phenotypes it goes with are recorded as removed on its
+    clinical audit trail, then its deletion (SEC-7), as made by ``user`` through ``via`` (a PED
+    upload, its file ``source``, or the Family Builder)."""
     existing_rows = await _existing_family_rows(session, family_ids)
     if not existing_rows:
         return []
@@ -439,13 +453,22 @@ async def _replace_existing_families(
     for family_uuid in sorted(family_uuid_by_id.values()):
         await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
     replaced: list[tuple[str, str]] = []
+    replaced_by = PhenotypeImport(user=user, via=via, source=source)
     for family_id, family_uuid in family_uuid_by_id.items():
         replaced.extend(
             (assembly_name, family_uuid)
             for assembly_name in sorted(assembly_rows_by_family.get(family_id, set()))
         )
-        # The replaced family's last clinical audit event, in this transaction, before its
-        # row goes; the new family's pedigree follows it on the same chain (SEC-7).
+        # The phenotypes the replaced family goes with, then its deletion, its last clinical
+        # audit event, in this transaction, before its row goes; the new family's pedigree
+        # follows them on the same chain (SEC-7).
+        await record_phenotypes_deleted_with_family(
+            session,
+            family_uuid=family_uuid,
+            family_identifier=family_id,
+            origin=replaced_by,
+            change=PHENOTYPES_REPLACED,
+        )
         await record_family_deleted(
             session,
             family_uuid=family_uuid,
@@ -843,7 +866,9 @@ async def upload_ped_data(
     resolved_project_id = await _resolve_accessible_project_id(session, user, project_id)
     text_value = await decode_upload_text(file, kind="PED")
     families = _parse_ped_text(text_value)
-    replaced = await _replace_existing_families(session, list(families.keys()), overwrite, user)
+    replaced = await _replace_existing_families(
+        session, list(families.keys()), overwrite, user, via=PED_UPLOAD, source=file.filename
+    )
     sample_ids = sorted({member["iid"] for members in families.values() for member in members})
     await _ensure_sample_ids_are_available(session, sample_ids)
     inheritance = _normalize_inheritance_model(inheritance_model)
@@ -961,7 +986,9 @@ async def create_manual_family_data(
     family = family.model_copy(update={"family_id": family.family_id.strip()})
     resolved_project_id = await _resolve_accessible_project_id(session, user, family.project_id)
     normalized_members = _validate_manual_family(family)
-    replaced = await _replace_existing_families(session, [family.family_id], overwrite, user)
+    replaced = await _replace_existing_families(
+        session, [family.family_id], overwrite, user, via=FAMILY_BUILDER
+    )
     await _ensure_sample_ids_are_available(
         session,
         [member.sample_id for member in normalized_members],

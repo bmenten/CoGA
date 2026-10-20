@@ -26,6 +26,7 @@ from ..schemas import (
     HpoAnnotationUpdate,
     HpoFamilyQueryOut,
     PhenotypeMatchResultOut,
+    UserRefOut,
 )
 from ..services.family_metadata_context import build_family_metadata_context
 from ..services.family_service import (
@@ -39,7 +40,10 @@ from ..services.family_member_management_service import (
     update_family_members_batch_for_admin,
     update_family_member_for_admin,
 )
-from ..services.family_status_service import update_family_metadata_for_user
+from ..services.family_status_service import (
+    list_family_assignable_users,
+    update_family_metadata_for_user,
+)
 from ..services.family_structure_service import update_family_structure_for_admin
 from ..services.hpo_service import (
     create_individual_hpo_annotation,
@@ -111,6 +115,18 @@ async def update_family_metadata(
         update=update,
         user=user,
     )
+
+
+# The users the family's "Assigned to" and "Reviewed by" pickers offer: its projects' active
+# analysts and the active administrators, never a reader. Answered like the family: 404 for
+# one outside the caller's projects.
+@router.get("/{family_id}/assignable-users", response_model=List[UserRefOut])
+async def get_family_assignable_users(
+    family_id: str,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> List[UserRefOut]:
+    return await list_family_assignable_users(session, family_id=family_id, user=user)
 
 
 @router.put("/{family_id}/roi", response_model=FamilyOut)

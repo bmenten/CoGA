@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, suppress
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from functools import partial
 import json
 from math import log2
@@ -42,6 +42,7 @@ from .family_metadata_context import (
 )
 from .family_variant_write_lock import STRUCTURAL_VARIANTS, lock_family_variant_writes
 from .hpo_service import (
+    PhenotypeImport,
     import_family_hpo_annotations,
 )
 from .repeat_expansion_pg import (
@@ -94,7 +95,7 @@ from .family_package_qc import (
 )
 from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
-from .family_package_validation import _manifest_hpo_rows, _pcf_role_path
+from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
 from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -2706,6 +2707,17 @@ async def _import_pipeline_info_dataset(job: DatasetImportJob) -> FamilyImportDa
     )
 
 
+def _phenotype_files(bundle: FamilyPackageBundle, tsv_files: Sequence[str]) -> tuple[str, ...]:
+    """The package's files the phenotypes are read from: its phenotype TSV, and its manifest
+    when a member's HPO terms are written in it."""
+    individuals = _manifest_individuals(bundle.manifest)
+    inline = isinstance(individuals, Mapping) and any(
+        isinstance(entry, Mapping) and entry.get("hpo") is not None for entry in individuals.values()
+    )
+    manifest = [_display_path(bundle.root, bundle.manifest_path)] if inline else []
+    return tuple(dict.fromkeys([*tsv_files, *manifest]))
+
+
 async def _import_phenotypes_dataset(
     session: AsyncSession,
     *,
@@ -2713,8 +2725,12 @@ async def _import_phenotypes_dataset(
     summary: FamilyImportDatasetSummary,
     family_context: FamilyMetadataContext,
     sample_contexts: dict[str, SampleMetadataContext],
+    phenotype_import: PhenotypeImport | None = None,
 ) -> FamilyImportDatasetSummary:
-    rows, issues, _files, fatal_errors = _manifest_hpo_rows(
+    """Import the package's phenotypes (its phenotype TSV and the HPO terms its manifest gives
+    members). What they change is recorded on the family's clinical audit trail as made by
+    ``phenotype_import``, the import that runs this: without it nothing is written."""
+    rows, issues, tsv_files, fatal_errors = _manifest_hpo_rows(
         root=bundle.root,
         manifest=bundle.manifest,
         family_id=family_context.family_id,
@@ -2731,6 +2747,10 @@ async def _import_phenotypes_dataset(
         # Nothing to import: registered, as a dataset that carries nothing is, which an
         # import counts as brought again (SAFE-17; before: skipped, as an update's skip).
         return await _register_only(summary, "No HPO phenotype annotation rows were imported")
+    if phenotype_import is None:
+        # A clinical audit event names who changed a family's phenotypes: none is written
+        # without one.
+        raise RuntimeError("A phenotype import needs the import that runs it, for its audit events")
     result = await import_family_hpo_annotations(
         session,
         family_uuid=family_context.family_uuid,
@@ -2741,6 +2761,7 @@ async def _import_phenotypes_dataset(
         },
         rows=rows,
         issues=issues,
+        origin=replace(phenotype_import, files=_phenotype_files(bundle, tsv_files)),
     )
     status = "imported" if result["imported"] else "skipped"
     if result["errors"]:
@@ -2772,11 +2793,13 @@ async def _import_dataset(
     progress: DatasetProgressCallback | None = None,
     skipped_samples: set[str] | None = None,
     scope: Mapping[str, Any] | None = None,
+    phenotype_import: PhenotypeImport | None = None,
 ) -> FamilyImportDatasetSummary:
     """Import one dataset of the package through its registered importer. Each sample an
     update leaves as it was, its rows being there, is added to ``skipped_samples``
     (``DatasetImportJob.skipped_samples``); ``scope`` is what the import records the
-    dataset as replacing (``DatasetImportJob.scope``)."""
+    dataset as replacing (``DatasetImportJob.scope``); ``phenotype_import`` is the import
+    the phenotypes' audit events name."""
     if summary.dataset_type == "phenotypes":
         # Not a manifest dataset: the phenotypes come from the package's HPO rows.
         return await _import_phenotypes_dataset(
@@ -2785,6 +2808,7 @@ async def _import_dataset(
             summary=summary,
             family_context=family_context,
             sample_contexts=sample_contexts,
+            phenotype_import=phenotype_import,
         )
     dataset = bundle.manifest.datasets.get(summary.dataset_type)
     if dataset is None or not dataset.enabled:
