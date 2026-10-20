@@ -56,8 +56,8 @@ tag. It also stores every criterion with its strength and your note, for the aud
 is saved. Saving also freezes the evidence the criteria read, as the dialog shows it: the ClinVar
 significance, and the consequence, impact and LoF call (LOFTEE), the gnomAD and other population
 frequencies and counts, and the CADD, REVEL, SpliceAI, SIFT, PolyPhen and AlphaMissense values of the
-variant's primary transcript, with the gnomAD missense Z of its gene that PP2 reads. When one of them
-changes later, the report names it before sign-out.
+variant's primary transcript, with, for a missense variant, the gnomAD missense Z of its gene that PP2
+reads. When one of them changes later, the report names it before sign-out.
 
 ### VUS tiers: hot, warm, cold
 

@@ -28,8 +28,8 @@ the family genotypes, and scores them on the ClinGen points scale.
 - **Save classification** stores the class as the variant's classification and review tag, together
   with every criterion and your note; the server recomputes the class. It also freezes the evidence —
   the ClinVar significance, the consequence and LoF call, the population frequencies, the in-silico
-  scores and the gene's missense Z the dialog read — so the report can later tell whether it changed,
-  and what.
+  scores and, for a missense variant, the gene's missense Z the dialog read — so the report can later
+  tell whether it changed, and what.
 - Opening a classified variant again shows the criteria as you saved them.
 
 > **Decision support, not an autoclassifier.** The dialog pre-positions the criteria; you confirm them,

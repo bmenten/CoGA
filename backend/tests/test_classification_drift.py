@@ -289,7 +289,8 @@ def test_a_variant_without_annotation_freezes_every_value_as_none() -> None:
     assert set(snap["consequence"].values()) == {None}
     assert set(snap["frequencies"].values()) == {None}
     assert set(snap["in_silico"].values()) == {None}
-    assert snap["gene_constraint"] == {"gene_missense_z": None}
+    # Without a consequence it is no missense variant: PP2 reads no missense Z for it.
+    assert "gene_constraint" not in snap
 
 
 def test_a_value_jsonb_cannot_hold_is_frozen_as_none() -> None:
@@ -529,9 +530,13 @@ def test_the_snapshot_freezes_the_primary_transcripts_consequence_and_the_genes_
     snap = _freeze(_annotated("123", _OTHER, _MANE), gene_missense_z=3.52)
     assert snap["consequence"] == {"effect": "missense_variant", "impact": "MODERATE", "lof": None}
     assert snap["gene_constraint"] == {"gene_missense_z": 3.52}
-    lof = _freeze(_annotated("123", _csq(transcript="ENST00000000002"), _LOF))
+    # A stop gained is no missense variant: PP2 does not read its gene's missense Z, so none
+    # is frozen, whatever the gene's profile holds.
+    lof = _freeze(_annotated("123", _csq(transcript="ENST00000000002"), _LOF), gene_missense_z=3.52)
     assert lof["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "HC"}
-    assert lof["gene_constraint"] == {"gene_missense_z": None}
+    assert "gene_constraint" not in lof
+    # A missense variant's missense Z is frozen also without a value.
+    assert _freeze(_annotated("123", _MANE))["gene_constraint"] == {"gene_missense_z": None}
     # Every field is frozen, in the order the drift check names them, also without a value.
     assert tuple(snap["consequence"]) == EVIDENCE_CONSEQUENCE_FIELDS
     assert tuple(snap["gene_constraint"]) == EVIDENCE_GENE_CONSTRAINT_FIELDS
@@ -594,11 +599,15 @@ def test_a_save_freezes_the_missense_z_its_genes_profile_holds() -> None:
     snap = asyncio.run(freeze_evidence_snapshot(session, _annotated("h1", _MANE), _WHEN))
     assert snap["gene_constraint"] == {"gene_missense_z": 3.52}
     assert snap["consequence"]["effect"] == "missense_variant" and snap["captured_at"].startswith("2026-06-25")
-    # A variant without a gene asks for no profile and freezes no missense Z.
-    nothing = _GeneProfiles([])
-    assert asyncio.run(freeze_evidence_snapshot(nothing, _record("h1"), _WHEN))["gene_constraint"] == {
-        "gene_missense_z": None
-    }
+    # A missense variant whose gene has no profile freezes none.
+    assert asyncio.run(freeze_evidence_snapshot(_GeneProfiles([]), _annotated("h1", _MANE), _WHEN))[
+        "gene_constraint"
+    ] == {"gene_missense_z": None}
+    # A stop gained, and a variant without annotation, are no missense variants: their gene's
+    # profile is not asked for, and no missense Z is frozen.
+    nothing = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
+    for record in (_annotated("h1", _LOF), _record("h1")):
+        assert "gene_constraint" not in asyncio.run(freeze_evidence_snapshot(nothing, record, _WHEN))
     assert nothing.gene_queries == []
 
 
@@ -646,17 +655,62 @@ def test_a_changed_gene_missense_z_reads_as_drift_under_the_same_annotation_set(
     assert cds._diff(frozen, _now(_annotated("h1", _MANE), gene_missense_z=2.95))["status"] == "current"
 
 
+def test_a_gene_profile_refresh_is_drift_for_a_missense_variant_and_not_for_a_stop_gained_one() -> None:
+    # The owner's rule (2026-10-20): the gene's missense Z is frozen and compared only for a
+    # missense variant, the variant PP2 reads it for. Both genes' profiles move from 2.95 to
+    # 3.52 and neither variant's annotation changes.
+    missense = _stored(_freeze(_annotated("h1", _MANE), gene_missense_z=2.95))
+    moved = cds._diff(missense, _now(_annotated("h1", _MANE), gene_missense_z=3.52))
+    assert (moved["status"], moved["changed"]) == ("drifted", ["gene_missense_z"])
+    stop_gained = _stored(_freeze(_annotated("h1", _LOF), gene_missense_z=2.95))
+    assert "gene_constraint" not in stop_gained
+    unmoved = cds._diff(stop_gained, _now(_annotated("h1", _LOF), gene_missense_z=3.52))
+    assert (unmoved["status"], unmoved["changed"]) == ("current", [])
+    assert "gene_missense_z" not in unmoved["evidence_from"] and "gene_missense_z" not in unmoved["evidence_to"]
+
+
+def test_a_variant_no_longer_missense_names_its_consequence_and_its_missense_z_as_gone() -> None:
+    # Classified as a missense variant; a new release calls its change a stop gained. The
+    # current values are read as a classification saved now would freeze them: no missense Z.
+    frozen = _stored(_freeze(_annotated("h1", _MANE), gene_missense_z=2.95))
+    recalled = _csq(transcript="ENST00000000001", mane=True, consequence="stop_gained", impact="HIGH")
+    diff = cds._diff(frozen, _now(_annotated("h2", recalled), gene_missense_z=2.95))
+    assert diff["changed"] == ["effect", "impact", "gene_missense_z", "annotations"]
+    assert (diff["evidence_from"]["gene_missense_z"], diff["evidence_to"].get("gene_missense_z")) == (2.95, None)
+    # The other way round, the missense Z it did not freeze is not compared.
+    earlier = _stored(_freeze(_annotated("h1", recalled)))
+    became = cds._diff(earlier, _now(_annotated("h2", _MANE), gene_missense_z=3.52))
+    assert became["changed"] == ["effect", "impact", "annotations"]
+
+
+def test_only_a_missense_consequence_reads_the_gene_missense_z() -> None:
+    # As the ACMG dialog tells a missense variant for PP2: its consequence includes
+    # missense_variant, in any case and beside other terms.
+    from backend.app.services.small_variant_review_acmg import reads_gene_missense_z
+
+    def _with(effect: str | None):
+        return types.SimpleNamespace(annotations=[{"effect": effect}] if effect is not None else [])
+
+    for effect in ("missense_variant", "missense_variant&splice_region_variant", "MISSENSE_VARIANT"):
+        assert reads_gene_missense_z(_with(effect)), effect
+    for effect in ("stop_gained", "synonymous_variant", "inframe_deletion", "splice_region_variant", None):
+        assert not reads_gene_missense_z(_with(effect)), effect
+
+
 def test_the_drift_names_what_moved_in_the_order_a_reviewer_reads_it() -> None:
     frozen = _stored(_freeze(_annotated("h1", _MANE), gene_missense_z=2.95))
+    # Values chosen to move every frozen field at once (LOFTEE calls no missense variant),
+    # the variant still a missense one so that its missense Z is read.
     everything = _csq(
-        transcript="ENST00000000002", mane=True, consequence="stop_gained", impact="HIGH", lof="HC",
-        revel="0.951", gnomad_genomes="0.012",
+        transcript="ENST00000000002", mane=True, consequence="missense_variant&splice_region_variant",
+        impact="HIGH", lof="HC", revel="0.951", gnomad_genomes="0.012",
     )
     diff = cds._diff(frozen, _now(_annotated("h2", everything), gene_missense_z=3.52))
     assert diff["changed"] == [
         "transcript_id", "effect", "impact", "lof", "gnomad_af", "gnomad_genomes_af", "revel",
         "gene_missense_z", "annotations",
     ]
+    assert diff["evidence_to"]["gene_missense_z"] == 3.52
 
 
 def test_a_snapshot_from_before_the_consequence_was_frozen_is_compared_on_what_it_holds() -> None:
@@ -686,6 +740,10 @@ def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(m
         return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
 
     other_gene = _csq(transcript="ENST00000000009", mane=True, gene="GENE2", gene_id="ENSG00000000002")
+    stop_gained = _csq(
+        transcript="ENST00000000010", mane=True, consequence="stop_gained", impact="HIGH", lof="HC",
+        gene="GENE3", gene_id="ENSG00000000003",
+    )
     reviews = [
         {
             "variant_id": "1-100-A-G",
@@ -702,8 +760,21 @@ def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(m
             "updated_by": "bob",
             "updated_at": _WHEN,
         },
+        {
+            # A stop gained, whose gene's profile moved too: no missense Z was frozen and its
+            # gene is not looked up, so it is not listed.
+            "variant_id": "3-300-G-A",
+            "acmg_class": "acmg_class_5",
+            "acmg_evidence_snapshot": _stored(_freeze(_annotated("h3", stop_gained), gene_missense_z=2.95)),
+            "updated_by": "carol",
+            "updated_at": _WHEN,
+        },
     ]
-    current_by_variant = {"1-100-A-G": _annotated("h1", _MANE), "2-200-C-T": _annotated("h2", other_gene)}
+    current_by_variant = {
+        "1-100-A-G": _annotated("h1", _MANE),
+        "2-200-C-T": _annotated("h2", other_gene),
+        "3-300-G-A": _annotated("h3", stop_gained),
+    }
 
     async def _current(*, assembly_name, family_guid, variant_id):
         return current_by_variant[variant_id]
@@ -715,14 +786,20 @@ def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(m
     monkeypatch.setattr(cds, "get_small_variant_family_record", _current)
     monkeypatch.setattr(cds, "evaluate_structural_classification_drift", _structural)
 
-    # The gene profiles were refreshed since: GENE1's missense Z is 3.52 now.
-    session = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)], other=reviews)
+    # The gene profiles were refreshed since: GENE1's and GENE3's missense Z are 3.52 now.
+    session = _GeneProfiles(
+        [
+            _profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN),
+            _profile("GENE3", "ENSG00000000003", 3.52, when=_WHEN),
+        ],
+        other=reviews,
+    )
     out = asyncio.run(cds.evaluate_classification_drift(session, family_id="FAM1", user=None))
-    assert (out["checked"], out["drifted_count"]) == (2, 1)
+    assert (out["checked"], out["drifted_count"]) == (3, 1)
     [item] = out["drifted"]
     assert (item["variant_id"], item["status"], item["changed"]) == ("1-100-A-G", "drifted", ["gene_missense_z"])
     assert (item["evidence_from"]["gene_missense_z"], item["evidence_to"]["gene_missense_z"]) == (2.95, 3.52)
-    # One query for both variants' genes.
+    # One query, for the missense variants' genes only.
     assert session.gene_queries == [
         {"gene_symbols": ["GENE1", "GENE2"], "gene_ids": ["ENSG00000000001", "ENSG00000000002"]}
     ]

@@ -1604,16 +1604,17 @@ describe('FamilyReportPage', () => {
     it('shows the consequence, LoF call and gene missense Z frozen with a classification, and those that had moved', async () => {
       const [reported] = SIGNED_SNAPSHOT.reported_variants;
       mockSignedCase({
-        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'PVS1 re-reviewed' }],
+        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'PP2 re-reviewed' }],
         snapshot: {
           ...SIGNED_SNAPSHOT,
           reported_variants: [
             {
+              // A missense variant: its gene's missense Z, which PP2 reads, is frozen too.
               ...reported,
               evidence_snapshot: {
                 ...reported.evidence_snapshot,
                 transcript_id: 'ENST00000000001',
-                consequence: { effect: 'stop_gained', impact: 'HIGH', lof: 'LC' },
+                consequence: { effect: 'missense_variant', impact: 'MODERATE', lof: null },
                 gene_constraint: { gene_missense_z: 2.95 },
               },
             },
@@ -1627,15 +1628,15 @@ describe('FamilyReportPage', () => {
                 status: 'drifted',
                 clinvar_from: 'Likely_pathogenic',
                 clinvar_to: 'Likely_pathogenic',
-                changed: ['lof', 'gene_missense_z', 'annotations'],
-                evidence_from: { lof: 'LC', gene_missense_z: 2.95 },
-                evidence_to: { lof: 'HC', gene_missense_z: 3.52 },
+                changed: ['gene_missense_z'],
+                evidence_from: { gene_missense_z: 2.95 },
+                evidence_to: { gene_missense_z: 3.52 },
                 classified_by: 'alice',
               },
             ],
           },
           acknowledged_drift: true,
-          drift_acknowledgement_reason: 'PVS1 re-reviewed',
+          drift_acknowledgement_reason: 'PP2 re-reviewed',
         },
       });
       renderPage();
@@ -1643,12 +1644,10 @@ describe('FamilyReportPage', () => {
       await signedRecordCard();
       const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
       expect(variant).toHaveTextContent(
-        "Read from its primary transcript ENST00000000001: consequence stop_gained, impact HIGH and LoF LC. From its gene's profile: gnomAD missense Z 2.95.",
+        "Read from its primary transcript ENST00000000001: consequence missense_variant, impact MODERATE and LoF not annotated. From its gene's profile: gnomAD missense Z 2.95.",
       );
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
-      expect(drift).toHaveTextContent(
-        '17-43000000-A-G — LoF LC → HC; gnomAD missense Z 2.95 → 3.52 (classified by alice)',
-      );
+      expect(drift).toHaveTextContent('17-43000000-A-G — gnomAD missense Z 2.95 → 3.52 (classified by alice)');
     });
 
     it('shows the overrides frozen into the signed version', async () => {

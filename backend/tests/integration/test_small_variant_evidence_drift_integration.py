@@ -17,11 +17,13 @@ drift, on real Postgres + ClickHouse (CLIN-7; TF-09a REQ-TRACE-002, REQ-TRACE-00
   the frozen values of the reported classification and the drift naming what moved, and the
   sign-out check, computing both again, finds the live report still matching it. Saving the
   classification again freezes the values as they are now, and the drift clears.
-- The same for the consequence, impact and LOFTEE call of the primary transcript and the
-  gene's gnomAD missense Z, which the save reads from the gene's profile in Postgres through
-  the variant list's own gene lookup: a re-annotation that adds a consequence term and turns
-  LOFTEE's call from LC to HC, and a gene profile refresh that moves the missense Z, read as
-  drift naming each, while a snapshot stored before these values were frozen stays current.
+- The same for the consequence, impact and LOFTEE call of the primary transcript and, for a
+  missense variant only, the gene's gnomAD missense Z, which the save reads from the gene's
+  profile in Postgres through the variant list's own gene lookup: a gene profile refresh
+  that moves the missense Z reads as drift for the missense variant and not for a stop
+  gained of the same gene; a re-annotation that adds a consequence term to the stop gained
+  and turns LOFTEE's call from LC to HC reads as drift naming both; a snapshot stored before
+  these values were frozen stays current.
 
 The family context, the Sample QC and the QC cut-off lookup are stubbed, and the variant
 list's hydration (reviews, gene metrics, cohort) is left out; its gene lookup is called
@@ -387,20 +389,24 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
 
 # --- The consequence, the LoF call and the gene's missense Z --------------------------------------
 
-_LOF_CLASSIFIED = "12-40100301-C-T"
-_LOF_EARLIER = "12-40100401-G-A"
-_LOF_TRANSCRIPT = "ENST00000000108"
-_LOF_GENE = "GENE8"
-_LOF_GENE_ID = "ENSG00000000108"
-_LOF_REASON = "LOFTEE now calls the stop gained high-confidence; PVS1 and PP2 re-reviewed."
-_LOF_CSQ_HEADER = (
+# Three variants of one gene: a missense variant and a stop gained, both reported, and a
+# missense variant whose snapshot is stored in the format from before the consequence and
+# the missense Z were frozen.
+_MISSENSE = "12-40100301-C-T"
+_STOP_GAINED = "12-40100501-G-T"
+_EARLIER = "12-40100401-G-A"
+_GENE8_TRANSCRIPT = "ENST00000000108"
+_GENE8 = "GENE8"
+_GENE8_ID = "ENSG00000000108"
+_GENE8_REASON = "The gene's missense Z moved and LOFTEE now calls the stop gained HC; PP2 and PVS1 re-reviewed."
+_GENE8_CSQ_HEADER = (
     '##INFO=<ID=CSQ,Number=.,Type=String,Description="Consequence annotations from Ensembl VEP.'
     " Format: Allele|Consequence|IMPACT|SYMBOL|Gene|Feature_type|Feature|CANONICAL|MANE_SELECT"
     '|REVEL|gnomADe_AF|gnomADg_AF|LoF|CLIN_SIG">'
 )
 
 
-def _lof_annotations(*, consequence: str = "stop_gained", lof: str = "LC") -> list[dict[str, Any]]:
+def _gene8_annotations(*, consequence: str, impact: str, lof: str = "") -> list[dict[str, Any]]:
     from backend.app.services.variant_annotation_parser import (
         AnnotationHeaderState,
         extract_small_variant_annotations,
@@ -408,22 +414,22 @@ def _lof_annotations(*, consequence: str = "stop_gained", lof: str = "LC") -> li
     )
 
     state = AnnotationHeaderState()
-    update_annotation_header_state(state, _LOF_CSQ_HEADER)
+    update_annotation_header_state(state, _GENE8_CSQ_HEADER)
 
-    def _entry(transcript: str, *, mane: bool, consequence: str, lof: str) -> str:
+    def _entry(transcript: str, *, mane: bool, consequence: str, impact: str, lof: str) -> str:
         return "|".join(
             [
-                "T", consequence, "HIGH", _LOF_GENE, _LOF_GENE_ID, "Transcript", transcript,
+                "T", consequence, impact, _GENE8, _GENE8_ID, "Transcript", transcript,
                 "YES" if mane else "", "NM_000108.1" if mane else "",
                 "", "1.2e-05", "3.1e-05", lof, "uncertain_significance",
             ]
         )
 
     entries = [
-        # Another stop-gained transcript, which LOFTEE calls high-confidence: the primary
-        # transcript is the MANE Select one, and so is the call frozen.
-        _entry("ENST00000000109", mane=False, consequence="stop_gained", lof="HC"),
-        _entry(_LOF_TRANSCRIPT, mane=True, consequence=consequence, lof=lof),
+        # A stop-gained transcript LOFTEE calls high-confidence: the primary transcript is
+        # still the MANE Select one, and so are the consequence and the call frozen.
+        _entry("ENST00000000109", mane=False, consequence="stop_gained", impact="HIGH", lof="HC"),
+        _entry(_GENE8_TRANSCRIPT, mane=True, consequence=consequence, impact=impact, lof=lof),
     ]
     return extract_small_variant_annotations({"CSQ": ",".join(entries)}, state)
 
@@ -431,11 +437,13 @@ def _lof_annotations(*, consequence: str = "stop_gained", lof: str = "LC") -> li
 def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_drifts_when_they_move(
     monkeypatch,
 ) -> None:
-    """The consequence, impact and LoF call of the primary transcript and the gene's missense
-    Z: the real save freezes the values the variant list serves the ACMG dialog, the missense
-    Z from the gene's profile in Postgres; a re-annotation and a gene profile refresh read as
-    drift naming each, while a snapshot frozen before these values were stays current;
-    sign-out, the signed record and its check; saving again clears the drift."""
+    """The consequence, impact and LoF call of the primary transcript, and a missense
+    variant's gene missense Z: the real save freezes the values the variant list serves the
+    ACMG dialog, the missense Z from the gene's profile in Postgres and for the missense
+    variant only. A gene profile refresh reads as drift for the missense variant and not for
+    the stop gained (owner, 2026-10-20); a re-annotation of the stop gained names its
+    consequence and LoF call; a snapshot frozen before these values were stays current.
+    Sign-out, the signed record and its check; saving again clears the drift."""
     from backend.app.core.clickhouse import close_clickhouse_client
     from backend.app.core.postgres import (
         close_postgres_engine,
@@ -486,8 +494,21 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
     user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)
+    # PM2 supporting (1) + PP2 supporting (1) + PP3 moderate (2) + PP4 supporting (1) = 5: VUS.
+    missense_classification = SmallVariantReviewUpdate(
+        classification="VUS - class 3",
+        tags=["acmg_class_3", "report"],
+        acmg=AcmgClassificationPayload(
+            criteria=[
+                AcmgCriterionSelection(code="PM2", strength="supporting", accepted=True, auto_suggested=True),
+                AcmgCriterionSelection(code="PP2", strength="supporting", accepted=True),
+                AcmgCriterionSelection(code="PP3", strength="moderate", accepted=True),
+                AcmgCriterionSelection(code="PP4", strength="supporting", accepted=True, evidence="phenotype"),
+            ]
+        ),
+    )
     # PVS1 strong (4) + PM2 supporting (1) + PP4 supporting (1) = 6: Likely Pathogenic.
-    classification = SmallVariantReviewUpdate(
+    stop_classification = SmallVariantReviewUpdate(
         classification="Likely Pathogenic - class 4",
         tags=["acmg_class_4", "report"],
         acmg=AcmgClassificationPayload(
@@ -518,15 +539,18 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
         ).scalar_one()
         return json.loads(stored) if isinstance(stored, str) else stored
 
-    async def _import(*, consequence: str, lof: str) -> None:
+    async def _import(*, stop_consequence: str, stop_lof: str) -> None:
         await delete_family_small_variants(_ASSEMBLY, holder["uuid"], source="clair3")
         await insert_small_variant_records(
             _ASSEMBLY,
             holder["uuid"],
             [project],
             [
-                _record(_LOF_CLASSIFIED, _lof_annotations(consequence=consequence, lof=lof)),
-                _record(_LOF_EARLIER, _lof_annotations()),
+                _record(_MISSENSE, _gene8_annotations(consequence="missense_variant", impact="MODERATE")),
+                _record(
+                    _STOP_GAINED, _gene8_annotations(consequence=stop_consequence, impact="HIGH", lof=stop_lof)
+                ),
+                _record(_EARLIER, _gene8_annotations(consequence="missense_variant", impact="MODERATE")),
             ],
         )
 
@@ -537,9 +561,13 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 "UPDATE gene_info SET extra = CAST(:e AS jsonb), updated_at = now() "
                 "WHERE assembly_id = CAST(:a AS uuid) AND hgnc_symbol = :s"
             ),
-            {"e": json.dumps({"mis_z": value}), "a": holder["assembly"], "s": _LOF_GENE},
+            {"e": json.dumps({"mis_z": value}), "a": holder["assembly"], "s": _GENE8},
         )
         await session.commit()
+
+    async def _drift(session) -> tuple[dict[str, Any], dict[str, dict[str, Any]]]:
+        drift = await cds.evaluate_classification_drift(session, family_id=label, user=user)
+        return drift, {entry["variant_id"]: entry for entry in drift["drifted"]}
 
     async def _run() -> None:
         try:
@@ -587,81 +615,91 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                         "INSERT INTO gene_info (assembly_id, hgnc_symbol, gene_id, extra) "
                         "VALUES (CAST(:a AS uuid), :s, :g, CAST(:e AS jsonb))"
                     ),
-                    {
-                        "a": holder["assembly"],
-                        "s": _LOF_GENE,
-                        "g": _LOF_GENE_ID,
-                        "e": json.dumps({"mis_z": 2.95}),
-                    },
+                    {"a": holder["assembly"], "s": _GENE8, "g": _GENE8_ID, "e": json.dumps({"mis_z": 2.95})},
                 )
                 await s.commit()
-            await _import(consequence="stop_gained", lof="LC")
+            await _import(stop_consequence="stop_gained", stop_lof="LC")
 
-            # (a) The save freezes the primary transcript's consequence, impact and LoF call,
-            # as the variant list serves them, and the gene's missense Z as the list's gene
-            # lookup reads it from the gene's profile.
+            # (a) The saves freeze the primary transcript's consequence, impact and LoF call,
+            # as the variant list serves them, and the missense variant's gene missense Z as
+            # the list's gene lookup reads it from the gene's profile. The stop gained freezes
+            # no missense Z: PP2 does not read it.
             async with sm() as s:
                 await upsert_small_variant_review(
-                    s, context=_ctx_now(), variant_id=_LOF_CLASSIFIED, payload=classification, user=user
+                    s, context=_ctx_now(), variant_id=_MISSENSE, payload=missense_classification, user=user
                 )
             async with sm() as s:
-                frozen = await _frozen(s, _LOF_CLASSIFIED)
+                await upsert_small_variant_review(
+                    s, context=_ctx_now(), variant_id=_STOP_GAINED, payload=stop_classification, user=user
+                )
+            async with sm() as s:
+                frozen_missense = await _frozen(s, _MISSENSE)
+                frozen_stop = await _frozen(s, _STOP_GAINED)
                 page = await family_variants.get_family_small_variants_page(
                     s, context=_ctx_now(), page=1, page_size=10
                 )
-                served = {variant.id: variant for variant in page.variants}[_LOF_CLASSIFIED]
-                metrics = await family_variants._fetch_gene_constraint_metric_map(s, [served])
-            assert frozen["transcript_id"] == served.transcript_id == _LOF_TRANSCRIPT
-            assert frozen["consequence"] == {"effect": served.effect, "impact": served.impact, "lof": served.lof}
-            assert frozen["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "LC"}
-            assert frozen["gene_constraint"] == {"gene_missense_z": metrics[served.id]["gene_missense_z"]}
-            assert frozen["gene_constraint"] == {"gene_missense_z": 2.95}
+                served = {variant.id: variant for variant in page.variants}
+                metrics = await family_variants._fetch_gene_constraint_metric_map(
+                    s, [served[_MISSENSE], served[_STOP_GAINED]]
+                )
+            for frozen, variant_id in ((frozen_missense, _MISSENSE), (frozen_stop, _STOP_GAINED)):
+                variant = served[variant_id]
+                assert frozen["transcript_id"] == variant.transcript_id == _GENE8_TRANSCRIPT
+                assert frozen["consequence"] == {"effect": variant.effect, "impact": variant.impact, "lof": variant.lof}
+            assert frozen_missense["consequence"] == {"effect": "missense_variant", "impact": "MODERATE", "lof": None}
+            assert frozen_missense["gene_constraint"] == {"gene_missense_z": metrics[_MISSENSE]["gene_missense_z"]}
+            assert frozen_missense["gene_constraint"] == {"gene_missense_z": 2.95}
+            assert frozen_stop["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "LC"}
+            assert "gene_constraint" not in frozen_stop and metrics[_STOP_GAINED]["gene_missense_z"] == 2.95
 
             # A classification whose snapshot was stored before the consequence and the
             # missense Z were frozen: the transcript, frequencies and in-silico scores.
             async with sm() as s:
-                await upsert_small_variant_review(
-                    s, context=_ctx_now(), variant_id=_LOF_EARLIER, payload=earlier, user=user
-                )
+                await upsert_small_variant_review(s, context=_ctx_now(), variant_id=_EARLIER, payload=earlier, user=user)
             async with sm() as s:
-                stored_earlier = await _frozen(s, _LOF_EARLIER)
+                stored_earlier = await _frozen(s, _EARLIER)
                 del stored_earlier["consequence"], stored_earlier["gene_constraint"]
                 await s.execute(
                     text(
                         "UPDATE small_variant_reviews SET acmg_evidence_snapshot = CAST(:snap AS jsonb) "
                         "WHERE family_id = CAST(:f AS uuid) AND variant_id = :v"
                     ),
-                    {"snap": json.dumps(stored_earlier), "f": holder["uuid"], "v": _LOF_EARLIER},
+                    {"snap": json.dumps(stored_earlier), "f": holder["uuid"], "v": _EARLIER},
                 )
                 await s.commit()
 
             # (b) Read back from JSONB, unchanged evidence is current, the earlier snapshot too.
             async with sm() as s:
-                drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
-            assert (drift["checked"], drift["drifted_count"], drift["drifted"]) == (2, 0, [])
+                drift, _ = await _drift(s)
+            assert (drift["checked"], drift["drifted_count"], drift["drifted"]) == (3, 0, [])
 
-            # (c) A new VEP and LOFTEE release: the MANE Select transcript's consequence gains
-            # a term and LOFTEE calls it high-confidence; the gene profiles are refreshed and
-            # the gene's missense Z moves. The drift names each; the earlier snapshot holds
-            # none of them, and its own annotation did not change: it stays current.
-            await _import(consequence="stop_gained&splice_region_variant", lof="HC")
+            # (c) The gene profiles are refreshed: the gene's missense Z moves, no annotation
+            # does. Drift for the missense variant, under its unchanged hash; none for the stop
+            # gained, which froze no missense Z; none for the earlier snapshot, which froze none.
             async with sm() as s:
                 await _set_missense_z(s, 3.52)
             async with sm() as s:
-                drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
-            assert (drift["checked"], drift["drifted_count"]) == (2, 1)
-            [entry] = drift["drifted"]
-            assert (entry["variant_id"], entry["status"]) == (_LOF_CLASSIFIED, "drifted")
-            assert entry["changed"] == ["effect", "lof", "gene_missense_z", "annotations"]
-            assert (entry["evidence_from"]["effect"], entry["evidence_to"]["effect"]) == (
+                drift, by_variant = await _drift(s)
+            assert (drift["checked"], sorted(by_variant)) == (3, [_MISSENSE])
+            moved = by_variant[_MISSENSE]
+            assert (moved["status"], moved["changed"]) == ("drifted", ["gene_missense_z"])
+            assert (moved["evidence_from"]["gene_missense_z"], moved["evidence_to"]["gene_missense_z"]) == (2.95, 3.52)
+
+            # A new VEP and LOFTEE release: the stop gained's consequence gains a term and
+            # LOFTEE calls it high-confidence. The drift names both; still no missense Z.
+            await _import(stop_consequence="stop_gained&splice_region_variant", stop_lof="HC")
+            async with sm() as s:
+                drift, by_variant = await _drift(s)
+            assert (drift["checked"], sorted(by_variant)) == (3, sorted([_MISSENSE, _STOP_GAINED]))
+            stop = by_variant[_STOP_GAINED]
+            assert (stop["status"], stop["changed"]) == ("drifted", ["effect", "lof", "annotations"])
+            assert (stop["evidence_from"]["effect"], stop["evidence_to"]["effect"]) == (
                 "stop_gained",
                 "stop_gained&splice_region_variant",
             )
-            assert (entry["evidence_from"]["lof"], entry["evidence_to"]["lof"]) == ("LC", "HC")
-            assert (entry["evidence_from"]["gene_missense_z"], entry["evidence_to"]["gene_missense_z"]) == (
-                2.95,
-                3.52,
-            )
+            assert (stop["evidence_from"]["lof"], stop["evidence_to"]["lof"]) == ("LC", "HC")
+            assert "gene_missense_z" not in stop["evidence_from"] and "gene_missense_z" not in stop["evidence_to"]
+            assert by_variant[_MISSENSE]["changed"] == ["gene_missense_z"]
 
             # (d) Sign-out is refused until the drift is acknowledged; the signed record holds
             # the frozen values and what moved, and the sign-out check still matches it.
@@ -670,9 +708,10 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                     await rss.sign_out_report(s, family_id=label, user=user)
                 await s.rollback()
             assert refused.value.status_code == 409
+            assert "2 classification(s) have evidence" in refused.value.detail
             async with sm() as s:
                 v1 = await rss.sign_out_report(
-                    s, family_id=label, user=user, acknowledge_drift=True, drift_acknowledgement_reason=_LOF_REASON
+                    s, family_id=label, user=user, acknowledge_drift=True, drift_acknowledgement_reason=_GENE8_REASON
                 )
             assert v1["version"] == 1 and v1["drift_acknowledged"] is True
             async with sm() as s:
@@ -686,29 +725,27 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 assert (await rss.get_report_signout(s, family_id=label, version=1, user=user))["verified"] is True
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
                 assert check["version"] == 1 and check["matches"] is True, check
-            [reported] = signed["reported_variants"]
-            assert reported["variant_id"] == _LOF_CLASSIFIED
-            assert reported["evidence_snapshot"]["consequence"] == {
-                "effect": "stop_gained",
-                "impact": "HIGH",
-                "lof": "LC",
-            }
-            assert reported["evidence_snapshot"]["gene_constraint"] == {"gene_missense_z": 2.95}
-            [signed_drift] = signed["drift"]["drifted"]
-            assert signed_drift["changed"] == ["effect", "lof", "gene_missense_z", "annotations"]
-            assert signed_drift["evidence_to"]["gene_missense_z"] == 3.52
+            reported = {entry["variant_id"]: entry["evidence_snapshot"] for entry in signed["reported_variants"]}
+            assert sorted(reported) == sorted([_MISSENSE, _STOP_GAINED])
+            assert reported[_MISSENSE]["gene_constraint"] == {"gene_missense_z": 2.95}
+            assert reported[_STOP_GAINED]["consequence"] == {"effect": "stop_gained", "impact": "HIGH", "lof": "LC"}
+            assert "gene_constraint" not in reported[_STOP_GAINED]
+            signed_drift = {entry["variant_id"]: entry for entry in signed["drift"]["drifted"]}
+            assert signed_drift[_MISSENSE]["changed"] == ["gene_missense_z"]
+            assert signed_drift[_MISSENSE]["evidence_to"]["gene_missense_z"] == 3.52
+            assert signed_drift[_STOP_GAINED]["changed"] == ["effect", "lof", "annotations"]
 
             # (e) Re-reviewed: saving again freezes the values as they are now; the drift clears.
+            for variant_id, payload in ((_MISSENSE, missense_classification), (_STOP_GAINED, stop_classification)):
+                async with sm() as s:
+                    await upsert_small_variant_review(
+                        s, context=_ctx_now(), variant_id=variant_id, payload=payload, user=user
+                    )
             async with sm() as s:
-                await upsert_small_variant_review(
-                    s, context=_ctx_now(), variant_id=_LOF_CLASSIFIED, payload=classification, user=user
-                )
-            async with sm() as s:
-                refrozen = await _frozen(s, _LOF_CLASSIFIED)
-                drift = await cds.evaluate_classification_drift(s, family_id=label, user=user)
-            assert refrozen["consequence"]["lof"] == "HC"
-            assert refrozen["gene_constraint"] == {"gene_missense_z": 3.52}
-            assert (drift["checked"], drift["drifted_count"]) == (2, 0)
+                assert (await _frozen(s, _MISSENSE))["gene_constraint"] == {"gene_missense_z": 3.52}
+                assert (await _frozen(s, _STOP_GAINED))["consequence"]["lof"] == "HC"
+                drift, _ = await _drift(s)
+            assert (drift["checked"], drift["drifted_count"]) == (3, 0)
         finally:
             await close_postgres_engine()
             await close_clickhouse_client()

@@ -56,13 +56,13 @@ class ClassificationDriftItem(BaseModel):
     # population frequency ("gnomad_af", "gnomad_exomes_af", "gnomad_genomes_af",
     # "gnomad_popmax_af", "topmed_af", "gnomad_ac", "gnomad_hom_count",
     # "gnomad_hemi_count"); an in-silico score ("cadd_phred", "revel", "spliceai_max",
-    # "sift", "polyphen", "alpha_missense_class", "alpha_missense_pathogenicity"); the
-    # gene's "gene_missense_z"; or "annotations", the annotation set.
+    # "sift", "polyphen", "alpha_missense_class", "alpha_missense_pathogenicity"); a
+    # missense variant's gene "gene_missense_z"; or "annotations", the annotation set.
     changed: List[str] = Field(default_factory=list)
-    # The transcript, consequence, frequencies, in-silico scores and gene missense Z as
-    # frozen (None when the snapshot froze none, being older; a snapshot frozen before the
-    # consequence and missense Z were holds the others) and as they are now (None when
-    # the variant is gone).
+    # The transcript, consequence, frequencies, in-silico scores and (a missense variant's)
+    # gene missense Z as frozen (None when the snapshot froze none, being older; a snapshot
+    # frozen before the consequence and missense Z were holds the others) and as they are
+    # now (None when the variant is gone).
     evidence_from: Optional[Dict[str, Any]] = None
     evidence_to: Optional[Dict[str, Any]] = None
 

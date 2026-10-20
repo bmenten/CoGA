@@ -71,7 +71,10 @@ export interface SignedEvidence {
   consequence: SignedEvidenceValue[] | null;
   frequencies: SignedEvidenceValue[] | null;
   inSilico: SignedEvidenceValue[] | null;
-  /** The gene's missense Z, from its gene profile; null when the record holds none. */
+  /**
+   * The gene's missense Z, from its gene profile, which is frozen for a missense variant only;
+   * null when the record holds none.
+   */
   geneConstraint: SignedEvidenceValue[] | null;
 }
 
@@ -470,7 +473,8 @@ const IN_SILICO_FIELDS: EvidenceField[] = [
   { key: 'alpha_missense_pathogenicity', label: 'AlphaMissense score', format: 3 },
 ];
 
-// The gene's missense constraint the PP2 suggestion reads, from the gene's profile.
+// The gene's missense constraint the PP2 suggestion reads, from the gene's profile: frozen for a
+// missense variant only.
 const GENE_CONSTRAINT_FIELDS: EvidenceField[] = [{ key: 'gene_missense_z', label: 'gnomAD missense Z', format: 2 }];
 
 // A value of the wrong type for its field is not guessed: it reads as no value.

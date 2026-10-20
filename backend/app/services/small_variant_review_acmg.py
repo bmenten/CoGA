@@ -60,7 +60,9 @@ EVIDENCE_IN_SILICO_FIELDS: tuple[str, ...] = (
 )
 # The gene's missense constraint the PP2 suggestion reads (missense in a gene with a gnomAD
 # missense Z of 3.09 or more). It is the gene profile's, not the annotation's: looked up as
-# the variant list looks it up (``evidence_gene_missense_z``).
+# the variant list looks it up (``evidence_gene_missense_z``). Frozen only for a missense
+# variant, the one variant PP2 reads it for (``reads_gene_missense_z``): for any other
+# variant the group is left out, so a refresh of the gene profiles is never its drift.
 EVIDENCE_GENE_CONSTRAINT_FIELDS: tuple[str, ...] = ("gene_missense_z",)
 
 
@@ -152,6 +154,13 @@ def _primary_annotation(record: Any) -> dict[str, Any]:
     return _select_primary_annotation(list(getattr(record, "annotations", None) or []))
 
 
+def reads_gene_missense_z(record: Any) -> bool:
+    """Whether a classification of ``record`` reads its gene's missense Z: a missense
+    variant, as the ACMG dialog tells one for PP2 (its primary transcript's consequence
+    includes missense_variant, ``isMissense`` in lib/acmg/evaluate.ts)."""
+    return "missense_variant" in (_annotation_effect(_primary_annotation(record)) or "").lower()
+
+
 def evidence_gene(record: Any) -> tuple[str | None, str | None]:
     """The gene symbol and gene id whose constraint ``record`` is served with: its primary
     transcript's gene, else the variant's first gene symbol (``_small_variant_out``)."""
@@ -168,9 +177,12 @@ async def evidence_gene_missense_z(
 ) -> dict[str, float | None]:
     """The gene missense Z of each record, by its key: the value the variant list serves it
     with and the PP2 suggestion reads (``gene_constraint_metrics``); None when its gene's
-    profile holds none."""
+    profile holds none, and for a variant that is not a missense variant, whose gene is not
+    looked up."""
     genes: list[tuple[str, str | None, str | None]] = []
     for key, record in records.items():
+        if not reads_gene_missense_z(record):
+            continue
         symbol, gene_id = evidence_gene(record)
         genes.append((key, symbol, gene_id))
     found = await fetch_gene_constraint_metrics(session, genes)
@@ -179,15 +191,16 @@ async def evidence_gene_missense_z(
 
 def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dict[str, Any]:
     """The consequence, population frequencies and in-silico scores a classification of
-    ``record`` reads, the transcript they are read from (CLIN-7), and its gene's missense
-    constraint.
+    ``record`` reads, the transcript they are read from (CLIN-7), and, for a missense
+    variant, its gene's missense constraint.
 
     Read from the variant's primary transcript (MANE Select, then canonical, then the most
     severe impact) with the helpers the variant's fields are served with
     (``_small_variant_out``), so the frozen values are the ones the ACMG dialog was given.
     The gene's missense Z is not in the annotation: the caller looks it up in the gene
     profiles as the variant list does (``evidence_gene_missense_z``). Every field is
-    present, None without a value.
+    present, None without a value, except ``gene_constraint``, which only a missense
+    variant has (``reads_gene_missense_z``): PP2 reads it for no other variant.
     """
     annotation = _primary_annotation(record)
     population = _annotation_population_frequencies(annotation)
@@ -195,6 +208,11 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
     def _population(key: str) -> float | None:
         return _finite(population.get(key))
 
+    constraint = (
+        {"gene_constraint": {"gene_missense_z": _finite(gene_missense_z)}}
+        if reads_gene_missense_z(record)
+        else {}
+    )
     return {
         "transcript_id": _annotation_text(annotation, "transcript_id", "transcriptId"),
         "consequence": {
@@ -225,7 +243,7 @@ def small_variant_evidence(record: Any, *, gene_missense_z: float | None) -> dic
                 annotation, "alpha_missense_pathogenicity", "alphaMissensePathogenicity"
             ),
         },
-        "gene_constraint": {"gene_missense_z": _finite(gene_missense_z)},
+        **constraint,
     }
 
 
@@ -238,9 +256,9 @@ def build_evidence_snapshot(
     it changes whenever any annotation changes — alongside the ClinVar significance,
     the most decision-relevant value, read from the per-transcript annotations, and the
     consequence, population frequencies and in-silico scores the classification reads, with
-    the transcript they are read from, and the gene's missense Z (``small_variant_evidence``;
-    ``gene_missense_z`` as ``evidence_gene_missense_z`` reads it). The drift check compares
-    each value the snapshot froze, so it names what moved.
+    the transcript they are read from, and, for a missense variant, the gene's missense Z
+    (``small_variant_evidence``; ``gene_missense_z`` as ``evidence_gene_missense_z`` reads
+    it). The drift check compares each value the snapshot froze, so it names what moved.
     """
     clinvar = None
     for annotation in getattr(record, "annotations", None) or []:
@@ -261,8 +279,8 @@ def build_evidence_snapshot(
 async def freeze_evidence_snapshot(
     session: AsyncSession, record: Any, captured_at: datetime
 ) -> dict[str, Any]:
-    """The evidence snapshot a classification of ``record`` saved now freezes, its gene's
-    missense Z looked up as the variant list looks it up."""
+    """The evidence snapshot a classification of ``record`` saved now freezes, a missense
+    variant's gene missense Z looked up as the variant list looks it up."""
     gene_missense_z = (await evidence_gene_missense_z(session, {"record": record}))["record"]
     return build_evidence_snapshot(record, captured_at, gene_missense_z=gene_missense_z)
 

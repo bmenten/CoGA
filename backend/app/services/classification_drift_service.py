@@ -10,12 +10,16 @@ classified this" (see docs/clinical-traceability.md).
 The annotation-set hash is the authoritative drift key (it changes whenever any
 annotation changes); the ClinVar significance is reported as the human-readable
 specific when it is what moved, and so is each value the snapshot froze: the consequence,
-impact and LoF call, each population frequency and in-silico score (CLIN-7), and the
-gene's missense Z, which is the gene profile's and so is not under the hash: ``changed``
-names what moved, ``evidence_from`` and ``evidence_to`` hold the values. Only the fields a
-snapshot froze are compared, so a snapshot frozen before a field was (it holds none of its
-group) is never compared on it: one frozen before the frequencies were is compared by its
-hash and ClinVar significance alone.
+impact and LoF call, each population frequency and in-silico score (CLIN-7), and, for a
+missense variant, the gene's missense Z, which is the gene profile's and so is not under
+the hash: ``changed`` names what moved, ``evidence_from`` and ``evidence_to`` hold the
+values. Only the fields a snapshot froze are compared, so a snapshot frozen before a field
+was (it holds none of its group) is never compared on it: one frozen before the
+frequencies were is compared by its hash and ClinVar significance alone, and one of a
+variant that is not a missense variant, which holds no missense Z, never drifts on its
+gene's profile. The current values are read as a classification saved now would freeze
+them, so a missense variant no longer called missense names its consequence and its
+missense Z as gone.
 
 Structural-variant / CNV classifications are checked the same way, under ``structural``:
 each CNV (ClinGen) scoring's frozen ``cnv_evidence_snapshot`` against the row of the
@@ -127,13 +131,14 @@ def _diff(snapshot: dict[str, Any], current: dict[str, Any] | None) -> dict[str,
 
     status is one of: ``current`` (unchanged), ``drifted`` (the annotation set, the ClinVar
     significance or a frozen value changed: the consequence, impact or LoF call, a
-    frequency or in-silico score, or the gene's missense Z; ``changed`` names each,
-    ``annotations`` for the annotation set), ``unknown`` (nothing is seen to have moved,
-    but a hash is missing or a frozen group cannot be read, so the match cannot be
+    frequency or in-silico score, or a missense variant's gene missense Z; ``changed`` names
+    each, ``annotations`` for the annotation set), ``unknown`` (nothing is seen to have
+    moved, but a hash is missing or a frozen group cannot be read, so the match cannot be
     verified) and ``variant_missing`` (the variant is no longer present in the dataset).
     Only what the snapshot froze is compared: a snapshot frozen before the frequencies and
     in-silico scores were holds none, and its ``evidence_from`` is None; one frozen before
-    the consequence and the gene's missense Z were is compared on what it holds.
+    the consequence and the gene's missense Z were, or of a variant that is not a missense
+    variant (no missense Z), is compared on what it holds.
     """
     snap_hash = snapshot.get("annotation_set_hash")
     snap_clinvar = snapshot.get("clinvar")
@@ -229,7 +234,8 @@ async def evaluate_classification_drift(
                 variant_id=row["variant_id"],
             )
         compared.append((row, snapshot, current_record))
-    # The genes' missense Z as the variant list serves it now, read for every variant at once.
+    # The genes' missense Z as the variant list serves it now, read at once for every variant
+    # that is a missense variant now (no other variant's gene is looked up).
     missense_z = await evidence_gene_missense_z(
         session,
         {str(row["variant_id"]): record for row, _snapshot, record in compared if record is not None},
