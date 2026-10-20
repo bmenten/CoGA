@@ -63,6 +63,9 @@ MODULE_FLOORS: dict[str, float] = {
     # shows and a sign-out freezes, REG-2)
     "backend/app/services/pgt_analysis.py": 97.0,
     "backend/app/services/pgt_embryo_calls.py": 97.0,
+    # (100.0 measured locally when it was added: the phasing-QC thresholds and verdict of an
+    # embryo call, the owner's decision of 2026-10-20)
+    "backend/app/services/pgt_embryo_qc.py": 97.0,
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
     # (97.6 measured locally when it was added: the repeat count-unit warning and QA's record)
     "backend/app/services/repeat_count_units.py": 94.0,

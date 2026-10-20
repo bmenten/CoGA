@@ -6,7 +6,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyReportPage from '../FamilyReportPage';
 import { APP_VERSION_QUERY_KEY } from '../../../lib/appVersion';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import { SIGNED_ANALYSIS, SIGNED_PGT_ANALYSIS, SIGNED_STATEMENT } from '../../../test/signedAnalysisFixture';
+import {
+  SIGNED_ANALYSIS,
+  SIGNED_PGT_ANALYSIS,
+  SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
+  SIGNED_STATEMENT,
+} from '../../../test/signedAnalysisFixture';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -1597,6 +1602,55 @@ describe('FamilyReportPage', () => {
       const requested = apiMock.get.mock.calls.map(([url]) => String(url));
       expect(requested.filter((url) => url.includes('pgt-analysis'))).toEqual([]);
       print.mockRestore();
+    });
+
+    // The owner's decision of 2026-10-20: an embryo call whose phasing QC at the ROI does not meet
+    // its thresholds carries a warning; the record freezes the verdict and the thresholds in force.
+    it("shows each embryo's QC verdict and the thresholds the record froze, and prints them", async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: PGT_SAMPLE_QC, pgt_analysis: SIGNED_PGT_ANALYSIS },
+      });
+      const print = vi.spyOn(window, 'print').mockImplementation(() => undefined);
+      renderPage();
+
+      const pgt = await pgtSection();
+      expect(pgt).toHaveTextContent(
+        'Each embryo’s phasing QC at the ROI was checked against these thresholds: at least 50 informative sites, a Mendelian error rate of at most 2% and at least 6 markers on each parental side the call reads. A call that did not meet them carries a warning and stands as called.',
+      );
+      expect(pgt).toHaveTextContent(
+        "E1 (female): Affected / at risk. Inherited at the ROI: M1 and P2 (29,000,000–32,000,000). QC at the ROI: 40 informative sites, Mendelian error rate 2.5% (1 of 40); informative markers 22 paternal, 18 maternal. ⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on the father's side): 40 informative sites (fewer than 50); Mendelian error rate 2.5% (above 2%).",
+      );
+      expect(pgt).toHaveTextContent(
+        'QC at the ROI: not counted (the embryo is not recorded as a child of the couple). ⚠ The call was not checked against the QC thresholds.',
+      );
+      expect(pgt).toHaveTextContent(
+        "E3 (female): Unaffected. Inherited at the ROI: M2 and P1 (29,000,000–32,000,000). QC at the ROI: 120 informative sites, Mendelian error rate 0.0% (0 of 120); informative markers 40 paternal, 35 maternal. The phasing QC at the ROI met its thresholds (markers checked on the father's side).",
+      );
+      // On the printout too: the verdict is part of the record.
+      expect(pgt.closest('.no-print')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Print signed version 2' }));
+      expect(print).toHaveBeenCalledTimes(1);
+      print.mockRestore();
+    });
+
+    it("reads a PGT family's record signed before the QC verdict as before, nothing called not captured", async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          sample_qc: PGT_SAMPLE_QC,
+          pgt_analysis: SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
+        },
+      });
+      renderPage();
+
+      const pgt = await pgtSection();
+      const [e1] = within(pgt).getAllByRole('listitem');
+      expect(e1).toHaveTextContent(
+        /^E1 \(female\): Affected \/ at risk\. Inherited at the ROI: M1 and P2 \(29,000,000–32,000,000\)\. QC at the ROI: 40 informative sites, Mendelian error rate 2\.5% \(1 of 40\); informative markers 22 paternal, 18 maternal\.$/,
+      );
+      expect(pgt).not.toHaveTextContent(/thresholds|phasing QC/);
+      expect(pgt).not.toHaveTextContent(/not captured|Not in the signed record/i);
     });
 
     it('says when the family had no region of interest, so no embryo was called', async () => {

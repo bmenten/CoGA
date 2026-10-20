@@ -2173,6 +2173,17 @@ export interface PgtEmbryoOut {
   inherited: PgtInheritedHaplotypeOut[];
   recombinations: number[];
   qc: PgtEmbryoQcOut | null;
+  qc_verdict: PgtEmbryoQcVerdictOut | null;
+}
+
+/**
+ * A measure of the embryo's phasing QC at the ROI outside its threshold: a count below
+ * its minimum, or the Mendelian error rate above its maximum (``pgt_embryo_qc``).
+ */
+export interface PgtEmbryoQcFindingOut {
+  measure: "informative_sites" | "mendel_rate" | "paternal_markers" | "maternal_markers";
+  value: number;
+  threshold: number;
 }
 
 /** The embryo's phasing QC at the ROI, as the ROI marker review counts it (REQ-PGT-004). */
@@ -2182,6 +2193,17 @@ export interface PgtEmbryoQcOut {
   mendel_rate: number;
   paternal_markers: number;
   maternal_markers: number;
+}
+
+/**
+ * The embryo's phasing QC at the ROI checked against the thresholds (``pgt_embryo_qc``):
+ * a warning beside the call, never a gate. The call stands and the analyst decides (the
+ * owner's decision of 2026-10-20).
+ */
+export interface PgtEmbryoQcVerdictOut {
+  status: "pass" | "warning" | "not_counted";
+  sides: ("paternal" | "maternal")[];
+  findings: PgtEmbryoQcFindingOut[];
 }
 
 /** A member's stored haplotype blocks: the file they were built from and when. */
@@ -2236,6 +2258,16 @@ export interface PgtPhaseCorrectionOut {
   children: number;
 }
 
+/**
+ * The thresholds each embryo's phasing QC at the ROI is checked against
+ * (``pgt_embryo_qc``). Provisional: the laboratory director and QA are to confirm them.
+ */
+export interface PgtQcThresholdsOut {
+  min_informative_sites: number;
+  max_mendel_rate: number;
+  min_markers_per_side: number;
+}
+
 /** The family's region of interest, as set on the family page: the embryos are called there. */
 export interface PgtRegionOfInterestOut {
   query: string;
@@ -2246,11 +2278,15 @@ export interface PgtRegionOfInterestOut {
   end: number;
 }
 
-/** The distances the calls and their warnings were read with (``pgt_embryo_calls``). */
+/**
+ * The distances the calls and their warnings were read with (``pgt_embryo_calls``), and
+ * the thresholds each embryo's phasing QC was checked against (``pgt_embryo_qc``).
+ */
 export interface PgtRulesOut {
   window_flank: number;
   recombination_flank: number;
   phase_switch_uncertainty: number;
+  qc_thresholds: PgtQcThresholdsOut;
 }
 
 /** X-linked recessive, the embryo's sex not recorded: the call a son and a daughter would get. */

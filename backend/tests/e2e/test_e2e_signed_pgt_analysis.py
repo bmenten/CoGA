@@ -9,11 +9,16 @@ chr1, the inheritance model AD and an ROI on chr1), through the API, this:
   disease haplotype the affected father and index share, the embryo that carries it at risk,
   the other unaffected, each with the homologs it carries at the ROI and the phasing QC the
   ROI marker review counts, and the haplotype file the calls were read from;
+* reads each embryo's QC verdict against the thresholds (``pgt_embryo_qc``): six informative
+  sites and three markers on the father's side, below the provisional thresholds, so a warning
+  beside a call that stands; and the thresholds in force with the analysis's rules;
 * signs the family out and reads the record back: it holds those calls as served, verifies,
   and still matches right after it was signed, with nothing named as not captured;
 * signs out once more as a build from before the section (its key left out): that record
   verifies and reads, nothing it predates is "not captured", and the check names the
   section as not compared;
+* signs out once more as a build from before the QC verdict (the section without it): that
+  record verifies, reads and still matches, the verdict named as not compared;
 * answers a user outside the family's projects with the 404 of an unknown family.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``e2e`` job sets it.
@@ -214,6 +219,30 @@ async def _collect(root: Path, family_id: str) -> dict:
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
         )
 
+        # A record signed by a build from before the embryos' QC verdict: the section without
+        # each embryo's verdict and without the thresholds.
+        async def _pre_verdict_build(*args, **kwargs):
+            body = await real_build(*args, **kwargs)
+            analysis = body.get("pgt_analysis")
+            if isinstance(analysis, dict):
+                for embryo in analysis.get("embryos") or []:
+                    embryo.pop("qc_verdict", None)
+                (analysis.get("rules") or {}).pop("qc_thresholds", None)
+            return body
+
+        mp = pytest.MonkeyPatch()
+        mp.setattr(rss, "build_report_snapshot", _pre_verdict_build)
+        try:
+            r["pre_verdict_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        finally:
+            mp.undo()
+        pre_verdict_version = (r["pre_verdict_signout"]["json"] or {}).get("version")
+        r["pre_verdict_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{pre_verdict_version}"))
+        r["pre_verdict_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+        r["pre_verdict_chain"] = _cap(
+            await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
+        )
+
         outsider = await _outsider_client(transport, uuid4().hex[:10])
         try:
             r["outsider"] = _cap(await outsider.get(f"{family}/pgt-analysis"))
@@ -312,6 +341,57 @@ def test_a_pgt_record_signed_before_the_section_still_verifies_and_reads(pgt) ->
     assert check["version"] == old["version"]
     assert check["not_compared"] == ["pgt_analysis"]
     assert check["matches"] is True, check
+
+
+def test_each_embryo_call_carries_its_qc_verdict_and_the_record_freezes_it(pgt) -> None:
+    # The owner's decision of 2026-10-20: a call whose phasing QC at the ROI falls below a
+    # threshold gets a warning beside it, and stands.
+    analysis = _ok(pgt, "analysis")
+    assert analysis["rules"]["qc_thresholds"] == {
+        "min_informative_sites": 50,
+        "max_mendel_rate": 0.02,
+        "min_markers_per_side": 6,
+    }
+    embryos = _embryos(analysis)
+    names = pgt["names"]
+    assert (embryos[names["E_RISK"]]["call"], embryos[names["E_CLEAR"]]["call"]) == (
+        "affected_or_at_risk",
+        "unaffected_non_carrier",
+    )
+    for embryo in embryos.values():
+        # Six sites at the ROI, none a Mendelian error, three read on the father's side: the
+        # dominant haplotype is his, so his side alone is checked.
+        assert embryo["qc_verdict"] == {
+            "status": "warning",
+            "sides": ["paternal"],
+            "findings": [
+                {"measure": "informative_sites", "value": 6, "threshold": 50},
+                {"measure": "paternal_markers", "value": 3, "threshold": 6},
+            ],
+        }, embryo
+    # The signed record freezes the verdicts and the thresholds with the embryos' results.
+    held = _ok(pgt, "detail")["snapshot"]["pgt_analysis"]
+    assert [embryo["qc_verdict"] for embryo in held["embryos"]] == [
+        embryo["qc_verdict"] for embryo in analysis["embryos"]
+    ]
+    assert held["rules"]["qc_thresholds"] == analysis["rules"]["qc_thresholds"]
+
+
+def test_a_pgt_record_signed_before_the_qc_verdict_still_verifies_reads_and_matches(pgt) -> None:
+    signed = _ok(pgt, "pre_verdict_signout")
+    detail = _ok(pgt, "pre_verdict_detail")
+    assert detail["verified"] is True
+    held = detail["snapshot"]["pgt_analysis"]
+    assert held["embryos"] and all("qc_verdict" not in embryo for embryo in held["embryos"])
+    assert "qc_thresholds" not in held["rules"]
+    # Nothing it predates is "not captured".
+    assert [gap for gap in detail["not_captured"] if gap["section"] == "pgt_analysis"] == []
+    assert _ok(pgt, "pre_verdict_chain")["verified"] is True
+    # Compared on what it holds: it matches, and the verdict is named as not compared.
+    check = _ok(pgt, "pre_verdict_check")
+    assert check["version"] == signed["version"]
+    assert check["not_compared"] == ["pgt_analysis.qc_verdict"]
+    assert check["matches"] is True and check["changed_sections"] == [], check
 
 
 def test_a_user_outside_the_familys_projects_gets_the_404_of_an_unknown_family(pgt) -> None:

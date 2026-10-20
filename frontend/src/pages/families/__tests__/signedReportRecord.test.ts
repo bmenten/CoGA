@@ -26,10 +26,12 @@ import {
   describePgtInheritance,
   describePgtInputs,
   describePgtMembers,
+  describeQcThresholds,
   describeRepeatCall,
   describeRepeatThresholds,
   describeReportSections,
   describeSignedDrift,
+  describeSignedQcVerdict,
   describeSignedStructuralDrift,
   describeSmallVariantDescription,
   describeSmallVariantEvidenceChange,
@@ -48,7 +50,11 @@ import {
   type SignedPgtAnalysis,
   type SignedReport,
 } from '../signedReportRecord';
-import { SIGNED_ANALYSIS, SIGNED_PGT_ANALYSIS } from '../../../test/signedAnalysisFixture';
+import {
+  SIGNED_ANALYSIS,
+  SIGNED_PGT_ANALYSIS,
+  SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
+} from '../../../test/signedAnalysisFixture';
 
 // The evidence a small-variant classification froze since CLIN-7: the annotation identity,
 // ClinVar, and the primary transcript's frequencies and in-silico scores
@@ -905,6 +911,82 @@ describe('the PGT embryo results', () => {
     expect(describePgtInheritance({ ...unresolved, inheritance: { recorded: 'XLR', applied: 'XLR' } })).toBe('XLR');
     expect(describePgtInputs({ ...unresolved, sources: [], blocksRead: null })).toBe('no recorded haplotype file');
     expect(describePgtMembers([])).toBeNull();
+  });
+
+  // The owner's decision of 2026-10-20: an embryo call whose phasing QC at the ROI does not meet
+  // its thresholds carries a warning, and the record freezes the verdict and the thresholds.
+  it("reads each embryo's QC verdict and the thresholds it was checked against", () => {
+    const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS));
+    const [e1, e2, e3, unread] = analysis.embryos;
+
+    expect(analysis.qcThresholds).toEqual({ minInformativeSites: 50, maxMendelRate: 0.02, minMarkersPerSide: 6 });
+    expect(e1.qcVerdict).toEqual({
+      status: 'warning',
+      sides: ['paternal'],
+      findings: [
+        { measure: 'informative_sites', value: 40, threshold: 50 },
+        { measure: 'mendel_rate', value: 0.025, threshold: 0.02 },
+      ],
+      unreadableFindings: 0,
+    });
+    expect(e2.qcVerdict).toEqual({ status: 'not_counted', sides: ['paternal'], findings: [], unreadableFindings: 0 });
+    expect(e3.qcVerdict?.status).toBe('pass');
+    expect(unread.qcVerdict).toBeNull();
+
+    expect(describeQcThresholds(analysis.qcThresholds!)).toBe(
+      'at least 50 informative sites, a Mendelian error rate of at most 2% and at least 6 markers on each parental side the call reads',
+    );
+    expect(describeSignedQcVerdict(e1.qcVerdict!)).toBe(
+      "⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on the father's side): 40 informative sites (fewer than 50); Mendelian error rate 2.5% (above 2%).",
+    );
+    expect(describeSignedQcVerdict(e2.qcVerdict!)).toBe('⚠ The call was not checked against the QC thresholds.');
+    expect(describeSignedQcVerdict(e3.qcVerdict!)).toBe(
+      "The phasing QC at the ROI met its thresholds (markers checked on the father's side).",
+    );
+  });
+
+  it('keeps a verdict measure it cannot read, and says so', () => {
+    const analysis = recorded(
+      pgtRecord({
+        ...SIGNED_PGT_ANALYSIS,
+        embryos: [
+          {
+            sample: 'E1',
+            call: 'carrier',
+            qc_verdict: {
+              status: 'warning',
+              sides: ['paternal', 'maternal', 'a side'],
+              findings: [{ measure: 'maternal_markers', value: 2, threshold: 6 }, { measure: 'a measure', value: 1 }, 'not a finding'],
+            },
+          },
+          { sample: 'E2', call: 'carrier', qc_verdict: { status: 'a status' } },
+        ],
+        rules: { qc_thresholds: { min_informative_sites: 50 } },
+      }),
+    );
+    const [e1, e2] = analysis.embryos;
+    expect(e1.qcVerdict).toMatchObject({ sides: ['paternal', 'maternal'], unreadableFindings: 2 });
+    expect(describeSignedQcVerdict(e1.qcVerdict!)).toBe(
+      "⚠ The phasing QC at the ROI did not meet its thresholds (markers checked on both parents' sides): 2 markers on the mother's side (fewer than 6). 2 measures of it cannot be read here; the downloaded record holds them as stored.",
+    );
+    expect(e2.qcVerdict).toBeNull();
+    expect(describeQcThresholds(analysis.qcThresholds!)).toBe('at least 50 informative sites');
+    expect(describeQcThresholds({ minInformativeSites: null, maxMendelRate: null, minMarkersPerSide: null })).toBe(
+      'thresholds the record does not state',
+    );
+  });
+
+  it('reads a PGT record signed before the QC verdict as before: no verdict, no thresholds', () => {
+    const analysis = recorded(pgtRecord(SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT));
+    expect(analysis.qcThresholds).toBeNull();
+    expect(analysis.embryos.map((embryo) => embryo.qcVerdict)).toEqual([null, null, null, null]);
+    // The rest reads as it did.
+    expect(analysis.embryos.map((embryo) => embryo.call)).toEqual([
+      'affected_or_at_risk',
+      'uninformative',
+      'unaffected_non_carrier',
+      null,
+    ]);
   });
 
   it('reads a record without the section as absent, and one that could not capture it as unavailable', () => {

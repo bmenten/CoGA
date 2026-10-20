@@ -99,6 +99,22 @@ haplotype blocks over the ROI and 1 Mb on each side (`ROI_WINDOW_FLANK`), and th
 capped at 500,000 sites (`PHASED_FETCH_LIMIT`, `phased_marker_service.py`), beyond which the marker
 overlay is hidden.
 
+An embryo call's phasing QC at the ROI is checked against three thresholds, in one place
+(`backend/app/services/pgt_embryo_qc.py`). A call that does not meet one gets a warning beside it,
+never a gate (the owner's decision of 2026-10-20); the values are **provisional**, to be confirmed by
+the laboratory director and QA, and the in-app reference lists them for the lab (*Phasing QC at the
+ROI*):
+
+| Constant | Value | Role |
+| --- | --- | --- |
+| `MIN_INFORMATIVE_SITES` | 50 | sites at the ROI where both parents and the embryo are genotyped; fewer is a warning (1 / `MAX_MENDEL_RATE`: with fewer, one Mendelian error is above the maximum rate) |
+| `MAX_MENDEL_RATE` | 0.02 | a Mendelian error rate at the ROI above it is a warning (the Sample QC's warning rate, and the haplotype track's) |
+| `MIN_MARKERS_PER_SIDE` | 6 | sites where the homolog inherited from a parent is read, on each side the call reads (`pgt_embryo_calls.call_sides`); fewer is a warning (ESHRE PGT Consortium 2020: six informative SNPs on each side of the locus for markers-only testing) |
+
+`embryo_qc_verdict` makes the verdict (`pass`, `warning` with each measure outside its threshold, or
+`not_counted` when no QC was counted at the ROI); `pgt_analysis` adds it to each called embryo and
+serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
+
 ## Where this lives
 
 - **Pedigree IBD colouring** — `backend/app/services/haplotype_lineage_service.py` (`annotate_lineage`:
@@ -118,10 +134,11 @@ overlay is hidden.
   `backend/app/services/pgt_embryo_calls.py` (`infer_disease_haplotypes`; `assess_member`, the call
   and, when it is uninformative or depends on the sex, why; `call_embryos`, each embryo's call with
   the homologs it carries at the ROI and the recombinations near it; `lane_signature`, which treats the
-  lineage tags as authoritative over the flat `role`). `pgt_analysis.py` reads what the calls rest on
-  (the ROI, the inheritance model, the members, the blocks as `/haplotypes` serves them, the phase
-  corrections) and each embryo's phasing QC at the ROI (`phased_marker_service`), and serves them at
-  `GET /families/{family_id}/pgt-analysis`. The family page shows those calls
+  lineage tags as authoritative over the flat `role`; `call_sides`, the parental sides a call reads).
+  `pgt_analysis.py` reads what the calls rest on (the ROI, the inheritance model, the members, the
+  blocks as `/haplotypes` serves them, the phase corrections) and each embryo's phasing QC at the ROI
+  (`phased_marker_service`), checks that QC against the thresholds (`pgt_embryo_qc.py`), and serves
+  them at `GET /families/{family_id}/pgt-analysis`. The family page shows those calls
   (`frontend/src/lib/useEmbryoSegregation.ts`; `embryoSegregation.ts` reads and words them), and a
   sign-out freezes the same object (`pgt_analysis` in `signed_record_sections.py`). The haplotype
   tracks still draw the risk line and each member's risk state in the browser,
@@ -154,3 +171,12 @@ overlay is hidden.
 - **Behaviour to know:** when the ROI is not on the chromosome shown (or there is none), the chromosome
   view assesses the risk over the visible window (`defaultHaplotypeRiskRegion`); the genome overview
   and the family page need the ROI.
+- **chrX in the per-child QC:** `compute_phased_markers` reads every member as having two copies on
+  every chromosome, chrX outside the PARs too. A man's one-copy call written as a single allele is no
+  phased genotype: a site where the father's is one is skipped for every child, and a son's own are
+  skipped, so the counts show no informative sites. Written as two copies, a son's call is a Mendelian
+  error wherever his mother's allele is not his father's, and draws no marker. The ROI marker review
+  shows these counts and the embryo QC verdict (`pgt_embryo_qc.py`) warns on them, so at an X-linked
+  locus a call can carry *⚠ phasing QC* for that reason alone. Reading a father's non-PAR X as one copy
+  and counting a son's against his mother alone, as the single-parent mode counts a child, would fix
+  both.
