@@ -41,6 +41,7 @@ files = [
     "backend/app/services/coverage_content.py",
     "backend/app/services/coverage_read_depth.py",
     "backend/app/services/family_identifiers.py",
+    "backend/app/services/family_structure_audit.py",
     "backend/app/services/family_variant_filters.py",
     "backend/app/services/family_variant_write_lock.py",
     "backend/app/services/genotypes.py",

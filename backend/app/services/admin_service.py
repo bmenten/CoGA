@@ -51,8 +51,17 @@ from .clickhouse_variant_storage import (
     small_variant_entry_without_samples,
 )
 from .clickhouse_variant_records import StoredStructuralVariantRow
+from .access_control import CurrentUser
 from .family_metadata_context import FamilyMetadataContext
 from .family_package_registration import mark_family_deletion_not_restored
+from .family_structure_audit import (
+    ADMIN_DELETE,
+    SAMPLE_DELETED,
+    lock_family_pedigree,
+    read_structure_snapshot,
+    record_family_deleted,
+    record_structure_change,
+)
 from .family_variant_write_lock import (
     SMALL_VARIANTS,
     STRUCTURAL_VARIANTS,
@@ -945,7 +954,11 @@ async def delete_sample_with_data(
     session: AsyncSession,
     sample_id: str,
     confirm: bool,
+    user: CurrentUser | None = None,
 ) -> dict[str, Any]:
+    """Delete a sample with every dataset of it. The member leaves its family's pedigree:
+    that is stored as the family's next structure version and recorded on its clinical
+    audit trail as made by ``user`` (SEC-7)."""
     sample_row = await _sample_row_or_404(session, sample_id)
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
@@ -1029,9 +1042,21 @@ async def delete_sample_with_data(
         )
 
     raw_files_removed = await purge_sample_managed_files(session, sample_row["sample_uuid"])
+    # After the variant-write locks, as every writer that holds both takes them.
+    await lock_family_pedigree(session, sample_row["family_id"])
+    pedigree_before = await read_structure_snapshot(session, sample_row["family_uuid"])
     await session.execute(
         text("DELETE FROM samples WHERE id = CAST(:sample_uuid AS uuid)"),
         {"sample_uuid": sample_row["sample_uuid"]},
+    )
+    await record_structure_change(
+        session,
+        family_uuid=sample_row["family_uuid"],
+        family_identifier=sample_row["family_id"],
+        before_snapshot=pedigree_before,
+        user=user,
+        source=SAMPLE_DELETED,
+        metadata={"sample_id": sample_row["sample_id"]},
     )
     await session.commit()
     return {
@@ -1050,7 +1075,11 @@ async def delete_family_with_data(
     session: AsyncSession,
     family_id: str,
     confirm: bool,
+    user: CurrentUser | None = None,
 ) -> dict[str, Any]:
+    """Delete a family with every dataset of it. Its deletion is the last event of its
+    clinical audit trail, written in this transaction before anything of the family is
+    deleted, as made by ``user`` (SEC-7)."""
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
     family_uuid = await _resolve_family_uuid(session, family_id)
@@ -1080,6 +1109,19 @@ async def delete_family_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
+    # The family's last clinical audit event, before anything of it goes: a deletion that
+    # fails from here on rolls it back with the rest of the transaction.
+    await record_family_deleted(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_id,
+        user=user,
+        source=ADMIN_DELETE,
+        variant_counts={"small_variants": small_deleted, "structural_variants": structural_deleted},
+    )
+    for context in contexts:
+        if not context.assembly_name:
+            continue
         await delete_family_small_variants(context.assembly_name, context.family_uuid)
         await delete_family_structural_variants(context.assembly_name, context.family_uuid)
         await delete_interval_tracks(

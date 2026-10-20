@@ -3,8 +3,9 @@
 Records who classified / tagged / annotated which variant, when, and what changed
 (before -> after), in the same transaction as the change itself, into the
 append-only ``clinical_audit_events`` table (see docs/clinical-traceability.md).
-Small-variant and structural-variant (SV / CNV) review saves and report sign-out
-write here, all on the one per-family hash chain.
+Small-variant and structural-variant (SV / CNV) review saves, compound-het pair reviews,
+pedigree changes (``family_structure_audit``) and report sign-out write here, all on the
+one per-family hash chain.
 
 This is the clinical *action* log; ``audit_log_pg`` remains the HTTP *access* log.
 """
@@ -13,6 +14,8 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any
 from uuid import uuid4
@@ -616,6 +619,137 @@ async def _record_review_events(
             before=event["before"],
             after=event["after"],
             metadata=dict(metadata) if metadata else None,
+        )
+
+
+COMPOUND_HET_PAIR_ACTION = "compound_het_pair"
+
+
+def _pair_text(value: Any) -> str | None:
+    return str(value or "").strip() or None
+
+
+def compound_het_pair_state(review: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """The audited content of a compound-heterozygous pair review, as the review row of one
+    of its two variants holds it: the partner, the gene, the pair's classification, tags
+    and note, and its phase. ``None`` is no pair review."""
+    if not review or not review.get("compound_het_group_id"):
+        return None
+    return {
+        "partner_variant_ids": sorted(
+            {str(variant_id) for variant_id in review.get("compound_het_partner_variant_ids") or [] if variant_id is not None}
+        ),
+        "gene": _pair_text(review.get("compound_het_gene")),
+        "classification": _pair_text(review.get("compound_het_classification")),
+        "tags": sorted({str(tag).strip() for tag in review.get("compound_het_tags") or [] if str(tag).strip()}),
+        "note": _pair_text(review.get("compound_het_note")),
+        "phase_status": _pair_text(review.get("compound_het_phase_status")),
+    }
+
+
+def _pair_name(state: Mapping[str, Any]) -> str:
+    partners = state.get("partner_variant_ids") or []
+    return f"Compound-het pair with {', '.join(partners) if partners else 'no partner'}"
+
+
+def _pair_recorded_details(state: Mapping[str, Any]) -> list[str]:
+    details: list[str] = []
+    for key, label in (("gene", "gene"), ("classification", "classification")):
+        if state.get(key):
+            details.append(f"{label} {state[key]}")
+    if state.get("tags"):
+        details.append("tags " + ", ".join(state["tags"]))
+    if state.get("note"):
+        details.append("note added")
+    return details
+
+
+def diff_compound_het_pair(
+    before: Mapping[str, Any] | None, after: Mapping[str, Any] | None
+) -> dict[str, Any] | None:
+    """The clinical audit event a save of a compound-het pair review implies, before ->
+    after (``compound_het_pair_state``), or None when the pair review is unchanged.
+
+    A new pair names what it was recorded with, a removed pair names its partner, and a
+    changed one names each field that changed: an unchanged re-save writes nothing.
+    """
+    if before == after:
+        return None
+    if before is None:
+        assert after is not None
+        details = _pair_recorded_details(after)
+        summary = f"{_pair_name(after)} recorded" + (f": {'; '.join(details)}" if details else "")
+    elif after is None:
+        summary = f"{_pair_name(before)} removed"
+    else:
+        phrases: list[str] = []
+        if before["partner_variant_ids"] != after["partner_variant_ids"]:
+            phrases.append(
+                f"partner {', '.join(before['partner_variant_ids']) or 'none'} → "
+                f"{', '.join(after['partner_variant_ids']) or 'none'}"
+            )
+        for key, label in (("gene", "gene"), ("classification", "classification"), ("phase_status", "phase")):
+            if before[key] != after[key]:
+                phrases.append(f"{label} {before[key] or 'none'} → {after[key] or 'none'}")
+        added = [tag for tag in after["tags"] if tag not in before["tags"]]
+        removed = [tag for tag in before["tags"] if tag not in after["tags"]]
+        if added:
+            phrases.append("tags added " + ", ".join(added))
+        if removed:
+            phrases.append("tags removed " + ", ".join(removed))
+        if before["note"] != after["note"]:
+            phrases.append(
+                "note added" if not before["note"] else "note removed" if not after["note"] else "note updated"
+            )
+        summary = f"{_pair_name(after)}: {'; '.join(phrases)}"
+    return {
+        "action": COMPOUND_HET_PAIR_ACTION,
+        "summary": summary,
+        "before": dict(before) if before is not None else None,
+        "after": dict(after) if after is not None else None,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class CompoundHetPairChange:
+    """A compound-het pair review a save changed, as one of its variants' review row held
+    it (``variant_id``) before and holds it after, with the pair's group."""
+
+    variant_id: str
+    before: dict[str, Any] | None
+    after: dict[str, Any] | None
+    group_id: str | None = None
+
+
+async def record_compound_het_pair_changes(
+    session: AsyncSession,
+    *,
+    family_uuid: str | None,
+    family_identifier: str | None,
+    user: CurrentUser,
+    changes: Sequence[CompoundHetPairChange],
+) -> None:
+    """Record the compound-het pair reviews a small-variant review save changed (SEC-7): one
+    ``compound_het_pair`` event per pair that changed, on the family's one chain, in the
+    save's transaction. The event is filed under the variant whose review row held the
+    pair (the saved variant, or for a pair the save broke up, the variant that held it)
+    and names the partner; ``metadata.compound_het_group_id`` names the pair's group."""
+    for change in changes:
+        event = diff_compound_het_pair(change.before, change.after)
+        if event is None:
+            continue
+        await record_clinical_event(
+            session,
+            family_uuid=family_uuid,
+            family_identifier=family_identifier,
+            variant_id=change.variant_id,
+            actor=getattr(user, "username", None) or getattr(user, "email", "") or "unknown",
+            actor_id=getattr(user, "id", None),
+            action=event["action"],
+            summary=event["summary"],
+            before=event["before"],
+            after=event["after"],
+            metadata={"compound_het_group_id": change.group_id} if change.group_id else None,
         )
 
 

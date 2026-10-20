@@ -165,22 +165,59 @@ CREATE INDEX IF NOT EXISTS idx_family_relationships_sample_b ON family_relations
 -- ---------------------------------------------------------------------------
 -- family_structure_versions (final form; superseded 001 by 014)
 -- ---------------------------------------------------------------------------
+-- One row per pedigree change, append-only and hash-chained like the clinical audit trail
+-- (SEC-7): its immutability trigger is in 04_traceability, its REVOKE in 05_grants.
+-- row_hash binds each row's content to the previous row's hash, per family. The chain is
+-- partitioned and ordered on the immutable family_identifier (the family's own ID, kept
+-- when the family row is deleted, which nulls family_id) and on created_at, then id. Rows
+-- written before the chain keep NULL hashes and no family_identifier.
 CREATE TABLE IF NOT EXISTS family_structure_versions (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
-    family_id uuid NOT NULL,
+    family_id uuid,
+    family_identifier text,
     version integer NOT NULL,
     structure_hash text NOT NULL,
     snapshot jsonb NOT NULL,
     metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_by uuid,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    row_hash text,
+    prev_hash text,
     CONSTRAINT family_structure_versions_pkey PRIMARY KEY (id),
     CONSTRAINT family_structure_versions_family_id_version_key UNIQUE (family_id, version),
-    CONSTRAINT family_structure_versions_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
+    CONSTRAINT family_structure_versions_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE SET NULL,
     CONSTRAINT family_structure_versions_created_by_fkey FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Upgrade of a database made before the chain (SEC-7), each statement a no-op on one the
+-- CREATE TABLE above made: the chain's columns, family_id nullable, and the family's
+-- deletion nulling family_id instead of deleting the family's versions (an append-only
+-- row is never deleted). A migration revision carries the same change once the schema
+-- has a migration ledger.
+ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS family_identifier text;
+ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS row_hash text;
+ALTER TABLE family_structure_versions ADD COLUMN IF NOT EXISTS prev_hash text;
+ALTER TABLE family_structure_versions ALTER COLUMN family_id DROP NOT NULL;
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'family_structure_versions'::regclass
+          AND conname = 'family_structure_versions_family_id_fkey'
+          AND confdeltype <> 'n'
+    ) THEN
+        ALTER TABLE family_structure_versions
+            DROP CONSTRAINT family_structure_versions_family_id_fkey;
+        ALTER TABLE family_structure_versions
+            ADD CONSTRAINT family_structure_versions_family_id_fkey
+            FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE SET NULL;
+    END IF;
+END
+$$;
+
 CREATE INDEX IF NOT EXISTS idx_family_structure_versions_family ON family_structure_versions USING btree (family_id, version DESC);
+CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ON family_structure_versions USING btree (family_identifier, created_at DESC, id DESC);
 
 -- ---------------------------------------------------------------------------
 -- family_import_jobs

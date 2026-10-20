@@ -83,6 +83,15 @@ def apply_baselines(connection: Connection) -> None:
             connection.exec_driver_sql(statement)
 
 
+def baseline_statements(filename: str) -> list[str]:
+    """The statements of one baseline file, split as ``apply_baselines`` runs them. A revision
+    that brings an existing table to its baseline's definition runs the baseline's own
+    statements (revision 0004)."""
+
+    path = next(path for path in _schema_files() if path.name == filename)
+    return _split_sql_script(path.read_text())
+
+
 def migration_script() -> ScriptDirectory:
     return ScriptDirectory(str(MIGRATIONS_DIR))
 
@@ -131,6 +140,8 @@ def _alembic_config(connection: Connection) -> Config:
     config.attributes["connection"] = connection
     # Revision 0001 applies the baselines with the same function as step 3.
     config.attributes["apply_baselines"] = apply_baselines
+    # A revision that runs some of a baseline's own statements reads them split the same way.
+    config.attributes["baseline_statements"] = baseline_statements
     return config
 
 

@@ -1,7 +1,7 @@
 """External signed chain-head anchor (#263), the follow-up to the hash chains (#261).
 
-Periodically snapshot every per-family hash-chain HEAD (across ``report_signouts`` and
-``clinical_audit_events``) and seal the snapshot with an Ed25519 signature whose private
+Periodically snapshot every per-family hash-chain HEAD (across ``report_signouts``,
+``clinical_audit_events`` and ``family_structure_versions``) and seal the snapshot with an Ed25519 signature whose private
 key lives in app config/env — never in the database. This closes the part of the
 gap the in-DB chain cannot: an OWNER who DISABLEs the trigger can re-chain an interior
 edit or truncate a chain into a self-consistent state that ``verify_*_chain`` accepts, but
@@ -50,12 +50,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from . import hash_chain
 
-# The two append-only tables that carry per-family hash chains, mapped to the canonical
+# The append-only tables that carry per-family hash chains, mapped to the canonical
 # chain-order COLUMNS (ascending). The head is the LAST row in this order; the prefix check
 # reads the height-th row ascending. (Fixed set — never interpolate untrusted table names.)
+# An anchor made before a table joined the set holds no head of it, and verifies as before.
 _CHAIN_ORDER_COLS = {
     "report_signouts": ["version"],
     "clinical_audit_events": ["created_at", "id"],
+    "family_structure_versions": ["created_at", "id"],
 }
 _ANCHOR_LOCK_KEY = "integrity_anchor"
 

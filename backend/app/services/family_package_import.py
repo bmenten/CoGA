@@ -466,6 +466,7 @@ async def _execute_family_package_import_local(
             progress=progress,
             job_id=job_id,
             import_mark=import_mark,
+            user=user,
         )
 
 
@@ -483,9 +484,11 @@ async def _import_family_datasets(
     progress: ProgressCallback | None,
     job_id: str | None,
     import_mark: ImportMark | None = None,
+    user: CurrentUser | None = None,
 ) -> PackageExecutionResult:
     """Import the package's datasets into the registered family, and leave it complete,
-    restored to its state before the import, or flagged import-incomplete.
+    restored to its state before the import, or flagged import-incomplete. ``user`` is the
+    import's, who a compensating deletion of a new family is recorded as made by.
 
     ``import_mark`` is this import's entry in the family's ``import_unfinished``: each
     dataset it finishes is recorded there as it goes, and the entry is removed when the
@@ -659,7 +662,7 @@ async def _import_family_datasets(
         # middle leaves a family part-removed.
         if import_mark is not None:
             await _record_family_import_finished(session, family_context, import_mark, ())
-        await _delete_family_shell(session, family_context)
+        await _delete_family_shell(session, family_context, user)
         await session.commit()
         compensated = True
         logs.append(

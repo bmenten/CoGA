@@ -5,10 +5,14 @@ Verifying evidence for the privilege separation that closes the hash chains' own
 connection keeps the role) the test asserts, for every append-only table:
 - it MAY ``INSERT`` + ``SELECT`` them (the app's real access), and
 - it MAY still delete a user whose ``ON DELETE SET NULL`` cascade nulls an audit FK (so
-  account/family deletion keeps working without UPDATE on the append-only table), but
+  account/family deletion keeps working without UPDATE on the append-only table),
+- it MAY still delete a family whose ``ON DELETE SET NULL`` cascade nulls ``family_id`` on
+  the clinical audit trail, the sign-outs and the structure versions, which keep the
+  family's identifier, but
 - it may NOT ``UPDATE`` / ``DELETE`` / ``TRUNCATE`` them nor ``DISABLE`` their triggers —
   i.e. it cannot rewrite/remove audit rows, signed reports, integrity anchors, the QC
-  cut-off history or the hash-chain columns, and cannot re-chain an interior edit.
+  cut-off history, the pedigree's structure versions, the UI-event log or the hash-chain
+  columns, and cannot re-chain an interior edit.
 
 The append-only tables are the ones guarded by a ``*_block_mutation`` trigger. The test
 reads that set from the catalogue and requires it to equal ``_APPEND_ONLY``, so a new
@@ -40,6 +44,8 @@ _APPEND_ONLY = (
     "report_signouts",
     "integrity_anchors",
     "qc_threshold_changes",
+    "family_structure_versions",
+    "ui_events",
 )
 
 # A syntactically-valid UPDATE per table (a real column); the privilege check fires before
@@ -50,6 +56,8 @@ _UPDATE_SQL = {
     "report_signouts": "UPDATE report_signouts SET signed_out_by = signed_out_by",
     "integrity_anchors": "UPDATE integrity_anchors SET key_id = key_id",
     "qc_threshold_changes": "UPDATE qc_threshold_changes SET reason = reason",
+    "family_structure_versions": "UPDATE family_structure_versions SET version = version",
+    "ui_events": "UPDATE ui_events SET label = label",
 }
 
 # Every table with an append-only guard: each follows the ``<table>_block_mutation()``
@@ -188,8 +196,23 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                     ),
                     {"fl": label, "u": uid},
                 )
+                await s.execute(
+                    text(
+                        "INSERT INTO family_structure_versions (family_id, family_identifier, "
+                        "version, structure_hash, snapshot, created_by) VALUES "
+                        "(CAST(:f AS uuid), :fl, 1, 'deadbeef', '{}'::jsonb, CAST(:u AS uuid))"
+                    ),
+                    {"f": fam, "fl": label, "u": uid},
+                )
+                await s.execute(
+                    text(
+                        "INSERT INTO ui_events (event_type, label, user_id, user_email) "
+                        "VALUES ('click', :fl, CAST(:u AS uuid), 'x@x.org')"
+                    ),
+                    {"fl": label, "u": uid},
+                )
                 await s.commit()
-            async with sm() as s:  # as coga_app: the delete + 4-way cascade must succeed
+            async with sm() as s:  # as coga_app: the delete + 6-way cascade must succeed
                 await s.execute(text("SET LOCAL ROLE coga_app"))
                 await s.execute(
                     text("DELETE FROM users WHERE id = CAST(:u AS uuid)"), {"u": uid}
@@ -223,11 +246,59 @@ def test_coga_app_role_is_locked_out_of_append_only_mutations() -> None:
                         {"fl": label},
                     )
                 ).first()
+                fsv = (
+                    await s.execute(
+                        text(
+                            "SELECT created_by, family_id::text FROM family_structure_versions "
+                            "WHERE family_identifier = :fl"
+                        ),
+                        {"fl": label},
+                    )
+                ).first()
+                uie = (
+                    await s.execute(
+                        text("SELECT user_id, user_email FROM ui_events WHERE label = :fl"),
+                        {"fl": label},
+                    )
+                ).first()
                 assert cae is not None and cae[0] is None, cae
                 assert ale is not None and ale[0] is None, ale
                 assert rso is not None and rso[0] is None, rso
                 # Only the FK is nulled; the denormalised actor and the recorded value stay.
                 assert qtc is not None and tuple(qtc) == (None, "x@x.org", 10), qtc
+                assert fsv is not None and tuple(fsv) == (None, fam), fsv
+                assert uie is not None and tuple(uie) == (None, "x@x.org"), uie
+
+            # Deleting the family works for coga_app too: its ON DELETE SET NULL cascade nulls
+            # family_id on the clinical audit trail, the sign-outs and the structure versions
+            # without coga_app holding UPDATE on them, and each row keeps the family's
+            # identifier (the clinical audit row's family_identifier was never set here).
+            async with sm() as s:
+                await s.execute(text("SET LOCAL ROLE coga_app"))
+                await s.execute(
+                    text("DELETE FROM families WHERE id = CAST(:f AS uuid)"), {"f": fam}
+                )
+                await s.commit()
+            async with sm() as s:
+                unlinked = {}
+                for table in ("report_signouts", "family_structure_versions"):
+                    unlinked[table] = (
+                        await s.execute(
+                            text(
+                                f"SELECT family_id IS NULL FROM {table} "
+                                "WHERE family_identifier = :fl"
+                            ),
+                            {"fl": label},
+                        )
+                    ).scalar_one()
+                remaining = (
+                    await s.execute(
+                        text("SELECT count(*) FROM clinical_audit_events WHERE family_id = CAST(:f AS uuid)"),
+                        {"f": fam},
+                    )
+                ).scalar_one()
+                assert unlinked == {"report_signouts": True, "family_structure_versions": True}, unlinked
+                assert remaining == 0, remaining
         finally:
             await close_postgres_engine()
 

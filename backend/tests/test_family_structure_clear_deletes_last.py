@@ -168,8 +168,12 @@ async def test_a_structure_change_deletes_the_familys_clickhouse_data_last_befor
 
     assert result.cleared_data_counts == DATA
     # The Postgres-held data and every write of the change first, under the locks the clear
-    # took; then the variants and tracks in ClickHouse; then the commit.
+    # took; then the variants and tracks in ClickHouse; then the commit. The change takes the
+    # variant-write locks and then the family's pedigree lock (the SELECT) before it reads the
+    # pedigree (SEC-7); the clear takes the variant-write locks again, granted at once.
     assert events == [
+        "lock",
+        "SELECT",
         "lock",
         "delete interval track sources",
         "DELETE FROM repeat_expansions",

@@ -20,9 +20,11 @@ and refers to exactly one signed version: the one it rests on.
   a new ClinVar significance, a new REVEL score or gnomAD frequency (*REVEL 0.412 → 0.951*), a new
   consequence or LoF call (*LoF LC → HC*), a new missense Z for a missense variant's gene, or a
   structural variant that now overlaps other genes. Re-review those variants.
-- The **Classification audit trail**: who classified, tagged or annotated what, and who changed the
-  family's phenotypes, and when. Entries can never be changed or deleted. It is for analysts and
-  administrators: a reader of the family's project sees, on screen and in print, that it is not shown. It opens on the 200 most recent entries; when there are more, it says
+- The **Clinical audit trail**: who classified, tagged or annotated what, who reviewed a
+  compound-heterozygous pair, who changed the pedigree or the family's phenotypes, and when. Entries
+  can never be changed or deleted. It is for analysts and administrators: a reader of the family's
+  project sees, on screen and in print, that it is not shown. It opens on the 200 most recent
+  entries; when there are more, it says
   how many it shows, and **Show older events** loads the next 200. A printout that shows only part of
   the trail says so.
 - The **Analysis pipeline settings** recorded at import.
