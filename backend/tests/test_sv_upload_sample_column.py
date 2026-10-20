@@ -164,7 +164,7 @@ class _Store:
             if source is None or record.source == source
         ]
 
-    async def rewrite(self, _assembly, _family, rows, *, source=None) -> None:
+    async def rewrite(self, _assembly, _family, rows, *, source=None, stored=()) -> None:
         self.rewrites.append(list(rows))
 
     def written(self) -> dict[str, dict[str, tuple[str, int | None]]]:

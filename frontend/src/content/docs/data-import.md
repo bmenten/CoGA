@@ -328,6 +328,16 @@ stored ones were deleted (the variant store failing part-way), the upload report
 family page shows *Import incomplete* for those calls, so the report can be signed out only with an
 acknowledgement, until they have been uploaded or imported again.
 
+The small-variant, structural-variant and interval-track uploads mark the family before they first
+write to the variant store, and remove the mark once they have finished. If the server stops in the
+middle of such an upload (it restarted, or ran out of memory), or the upload fails and cannot put back
+what it had deleted, the mark stays: every family page shows *Import incomplete* ("A single-file upload
+… began rewriting this family's data and has not finished"), naming what may be partly written or
+missing, and the report can be signed out only with an acknowledgement. Upload again with
+**overwrite** what it names: each sample's file for a structural-variant caller (the upload rewrites
+every sample's calls from that caller), the callset, or the sample's track; each goes from the warning
+as it is uploaded, or imported, again. An upload without **overwrite** removes nothing from it.
+
 A value the variant store cannot hold, or that is no number, never fails an upload or an import: it is
 stored as missing. A genotype quality written as `inf` or above 65,535, a negative phase set, or a
 QUAL beyond the store's largest decimal reads as absent, so a sample filter with a minimum genotype
@@ -344,7 +354,7 @@ calls apart:
   before it replaces them.
 - Replacing them changes only that sample's calls from that caller. The other samples' calls, and the
   calls of every other source (a package's NeedlR or HiFiCNV calls, another caller's upload), stay as
-  they are.
+  they are. If storing them fails, every sample's calls from that caller are put back as they were.
 - The caller and its version, as the file's header names them, are added to the family's annotation
   versions.
 - Uploads from two callers that report an SV with the same type and breakpoints each keep their own
