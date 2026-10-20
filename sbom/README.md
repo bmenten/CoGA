@@ -17,14 +17,17 @@ Format: **CycloneDX 1.6 (JSON)**.
 - **In CI:** the `sbom` job in `.github/workflows/ci.yml` runs the same script
   (`--native`, with the job's Python and Node instead of containers) on every pull
   request and every push to `main`, and uploads both files as the artifact
-  `sbom-cyclonedx`. GitHub **deletes it after 90 days**, so for a release it
-  must be archived before then ([RELEASING.md §4](../RELEASING.md#4-capture-the-evidence)).
+  `sbom-cyclonedx`, which GitHub deletes after 90 days.
+- **For a release:** the `release-sbom` job in `.github/workflows/build.yml` runs the
+  same steps on the release commit and attaches both files, with their SHA-256 sums
+  (`sbom-sha256sums.txt`), to the GitHub release, where they stay as long as the
+  release ([RELEASING.md §4](../RELEASING.md#4-capture-the-evidence)).
 
 The `*.cdx.json` outputs are **git-ignored on purpose**: each generation embeds a
 fresh `serialNumber` and timestamp, so committing them would create noisy,
 non-reproducible diffs and risk going stale. The authoritative, point-in-time
-SBOM for a clinical release is the **CI artifact archived into the technical
-file / release record** per the change-control process (TF-18).
+SBOM for a release is the **pair attached to its GitHub release**, whose SHA-256
+sums the release record cites, per the change-control process (TF-18).
 
 ## Why this exists (regulatory)
 

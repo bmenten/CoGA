@@ -3,12 +3,14 @@
 # Assert that VERSION is a well-formed semantic version, and — when a tag ref is given —
 # that the tag being released is exactly `v<VERSION>`.
 #
-# Why this exists: the image build stamps `APP_VERSION=$(cat VERSION)` (build.yml), and that
-# value is what ends up in the signed clinical report footer and in `/api/version`. Nothing
-# previously tied it to the tag, so tagging `v0.1.0-beta.1` while VERSION still read `0.1.0`
-# would have produced a build labelled `0.1.0` — indistinguishable from every other build cut
-# from main. For a device where the report footer is the record of which software produced a
-# result (TF-18 §2), that is a traceability defect, not a cosmetic one.
+# Why this exists: the release build stamps VERSION into the image as APP_VERSION
+# (build.yml, through scripts/build-version.sh --release), and that value is what ends up in
+# the signed clinical report footer and in `/api/version`. Nothing previously tied it to the
+# tag, so tagging `v0.1.0-beta.1` while VERSION still read `0.1.0` would have produced a build
+# labelled `0.1.0`. For a device where the report footer is the record of which software
+# produced a result (TF-18 §2), that is a traceability defect, not a cosmetic one. Every
+# other build stamps VERSION with the pre-release identifier `dev` added, so VERSION itself
+# carries neither `dev` nor build metadata.
 #
 # VERSION stays the single source of truth; the tag mirrors it. The release commit bumps
 # VERSION, and the tag is then `v` + that value. frontend/package.json carries the same
@@ -44,6 +46,27 @@ if ! printf '%s' "$version" | grep -Eq "$SEMVER"; then
   echo "   Expected MAJOR.MINOR.PATCH with an optional pre-release, e.g. 0.1.0 or 0.1.0-beta.1"
   exit 1
 fi
+
+# A build that is not a release reports VERSION with the pre-release identifier `dev` added
+# (scripts/build-version.sh: 0.1.0 -> 0.1.0-dev, 0.1.0-rc.1 -> 0.1.0-rc.1.dev). VERSION names a
+# release, so it carries neither that identifier nor build metadata: no release can then
+# carry a version that a development build reports (TF-18 section 2).
+case "$version" in
+  *+*)
+    echo "❌ VERSION carries build metadata: '${version}'"
+    echo "   A release version is MAJOR.MINOR.PATCH with an optional pre-release (TF-18 section 2)."
+    exit 1
+    ;;
+  *-*)
+    # The pre-release: everything after the first hyphen, as dot-separated identifiers.
+    if printf '%s\n' "${version#*-}" | tr '.' '\n' | grep -qx 'dev'; then
+      echo "❌ VERSION carries the pre-release identifier 'dev': '${version}'"
+      echo "   'dev' marks a build that is not a release (scripts/build-version.sh), so no"
+      echo "   release may carry it. Use -beta.N or -rc.N (TF-18 section 2)."
+      exit 1
+    fi
+    ;;
+esac
 
 # npm writes package.json with two-space indentation, so this line is its top-level version.
 frontend_version="$(sed -n 's/^  "version": "\([^"]*\)",\{0,1\}$/\1/p' frontend/package.json | head -n 1)"
