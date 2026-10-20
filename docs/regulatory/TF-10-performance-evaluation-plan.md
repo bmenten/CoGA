@@ -229,7 +229,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   read as reference; the PGT pipeline layout, with the
   embryo roles and the index its PED lacks; the monogenic NIPT pair, one VCF per sample with
   the father's noise left out, and the per-target coverage tables; bucket sources;
-  snapshot/restore);
+  snapshot/restore); coverage BEDs that declare whether they hold read depth or a log2 ratio,
+  read as depth only when declared so, an undeclared one drawn without an axis;
   serialised per-family variant writes; per-sample and per-source rewrites and deletes that
   keep every other call; calls from two callsets or sources both kept; concurrent review
   saves refused when stale.

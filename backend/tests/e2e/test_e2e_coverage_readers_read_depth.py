@@ -5,7 +5,9 @@ loader keeps the others' tracks (SAFE-22): a coverage BED (``web``), WisecondorX
 bins (log2 ratios) and HiFiCNV's depth, stored as a log2 ratio to the sample's autosomal median,
 or as read when its file has no autosomal depth (its record names ``none``, TRACE-7). The mtDNA
 coverage summary, with its ``mtdna.mean_depth`` verdict, and the NIPT coverage check without a
-per-target table read every source's rows merged, as depth.
+per-target table read every source's rows merged, as depth. Each coverage BED here declares what
+it holds in its manifest entry (``content: read_depth``, TRACE-9), and its record keeps it; the
+readers name each track they leave out, with the reason.
 
 Here two packages (families of their own, new ids each run) go through the package import into
 real Postgres and ClickHouse:
@@ -159,7 +161,7 @@ def _mito_package(root: Path, family_id: str) -> Path:
         *(f"      {names[role]}: {{bins: {path}}}" for role, path in qdnaseq.items()),
         "  coverage:",
         "    per_sample:",
-        f"      {proband}: {{bed: {bed}}}",
+        f"      {proband}: {{bed: {bed}, content: read_depth}}",
         "  cnv:",
         "    per_sample:",
         *(
@@ -201,7 +203,7 @@ def _nipt_package(root: Path, family_id: str) -> Path:
         f"      {plasma}: {{bins: {bins}, segments: {segments}}}",
         "  coverage:",
         "    per_sample:",
-        f"      {plasma}: {{bed: {bed}}}",
+        f"      {plasma}: {{bed: {bed}, content: read_depth}}",
     ]
     _write(root, "manifest.yaml", "\n".join(lines) + "\n")
     return root
@@ -265,14 +267,15 @@ async def _exercise(base: Path, mito_family: str, nipt_family: str) -> dict[str,
                     )
                 ).mappings()
             }
-            records = {
-                (names[str(row["sample_uuid"])], str(row["source"])): row["normalization"]
+            recorded = [
+                (names[str(row["sample_uuid"])], str(row["source"]), row["normalization"], row["content"])
                 for row in (
                     await session.execute(
                         text(
                             """
                             SELECT sample_id::text AS sample_uuid, source,
-                                   metadata ->> 'normalization' AS normalization
+                                   metadata ->> 'normalization' AS normalization,
+                                   metadata ->> 'content' AS content
                             FROM sample_interval_track_sources
                             WHERE family_id = CAST(:f AS uuid) AND track_type = 'coverage'
                             """
@@ -280,7 +283,9 @@ async def _exercise(base: Path, mito_family: str, nipt_family: str) -> dict[str,
                         {"f": family_uuid},
                     )
                 ).mappings()
-            }
+            ]
+            records = {(name, source): normalization for name, source, normalization, _content in recorded}
+            contents = {(name, source): content for name, source, _normalization, content in recorded}
         stored[family_id] = {
             "sources": await get_interval_track_sources_by_sample(
                 _harness.ASSEMBLY,
@@ -290,6 +295,7 @@ async def _exercise(base: Path, mito_family: str, nipt_family: str) -> dict[str,
                 chromosomes=[chromosome],
             ),
             "records": records,
+            "contents": contents,
         }
     out["stored"] = stored
 
@@ -374,6 +380,14 @@ def test_both_packages_are_imported_with_every_callers_coverage(run) -> None:
         (f"FATHER_{mito}", "hificnv"): "none",
     }
     assert run["stored"][nipt]["sources"] == {f"CFDNA_{nipt}": ["web", "wisecondorx"]}
+    # Each coverage BED's record keeps what its manifest entry declared (TRACE-9); no other
+    # caller's record declares anything.
+    assert {key: value for key, value in run["stored"][mito]["contents"].items() if value} == {
+        (f"PROBAND_{mito}", "web"): "read_depth"
+    }
+    assert {key: value for key, value in run["stored"][nipt]["contents"].items() if value} == {
+        (f"CFDNA_{nipt}", "web"): "read_depth"
+    }
 
 
 def test_the_mtdna_coverage_reads_each_members_track_of_read_depth(run) -> None:
@@ -395,6 +409,14 @@ def test_the_mtdna_coverage_reads_each_members_track_of_read_depth(run) -> None:
     mean, minimum, maximum, _source = summary[f"FATHER_{mito}"]
     assert (round(mean, 2), minimum, maximum) == (70.0, 60.0, 80.0)
     assert round(coverage[f"FATHER_{mito}"]["breadth"], 3) == 0.121
+    # Each chrM track left out is named, with the reason (TRACE-9).
+    assert [note for note in run["mtdna"]["json"]["qc_notes"] if "not read as depth" in note] == [
+        f"FATHER_{mito}: the QDNAseq coverage holds log2 ratios, not read depth; it is not read as depth.",
+        f"MOTHER_{mito}: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.",
+        f"PROBAND_{mito}: the HiFiCNV coverage holds log2 ratios, not read depth; it is not read as depth.",
+        f"PROBAND_{mito}: the QDNAseq coverage holds log2 ratios, not read depth; it is not read as depth.",
+        f"PROBAND_{mito}: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.",
+    ]
 
 
 def test_the_mtdna_depth_verdict_judges_each_members_depth(run) -> None:
@@ -425,3 +447,8 @@ def test_the_nipt_coverage_check_reads_the_plasmas_coverage_bed(run) -> None:
     assert (region["median_coverage"], region["covered_bases"], region["target_bases"]) == (80.0, 8000, 10000)
     [low] = summary["low_coverage_regions"]
     assert (low["reason"], low["covered_fraction"], low["median_coverage"]) == ("partial_coverage", 0.8, 80.0)
+    # The bins left out are named, with the reason (TRACE-9).
+    plasma = f"CFDNA_{run['nipt_family']}"
+    assert summary["coverage_notes"] == [
+        f"{plasma}: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth."
+    ]

@@ -4,7 +4,8 @@ import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import {
   apcadAxisMax,
-  coverageNotDrawnNote,
+  coverageScale,
+  coverageScaleNote,
   coverageTrackLabel,
   orderCoverageSources,
 } from '../../lib/coverageSources';
@@ -32,6 +33,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { normalizeHaplotypeChrom, resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
+import CoverageScaleNote from './CoverageScaleNote';
 import ViewerMemberSection from './ViewerMemberSection';
 import ViewerTrackBlock, { TrackMeta, type ViewerRoiRange } from './ViewerTrackBlock';
 import ViewerInteractionSurface from './ViewerInteractionSurface';
@@ -63,8 +65,10 @@ interface ChromosomeTrackAvailability {
   coverage: boolean;
   /** The CNV callers with data, each drawn as its own stacked track. */
   coverageSources: string[];
-  /** The transforms each caller's coverage track records; decides whether it is drawn. */
+  /** The transforms each caller's coverage track records. */
   coverageNormalizations: Record<string, string[]>;
+  /** What each caller's coverage track holds (TRACE-9); decides the axis it is drawn on. */
+  coverageContents: Record<string, string>;
   /** Callers on the APCAD track; folded MAF needs a 0-0.5 axis, phased needs 0-1. */
   apcadSources: string[];
   apcad: boolean;
@@ -518,28 +522,28 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                 {trackVisibility.coverage &&
                   // One track per caller. They are independent measurements of the
                   // same thing, so a single merged track would average three
-                  // answers into one that is none of them. A track whose record says
-                  // its values are not a log2 ratio is left off the chart's log2-ratio
-                  // axis, and its place says why (TRACE-7).
+                  // answers into one that is none of them. A track of read depth is
+                  // drawn on a depth axis, and one whose values are of unknown kind (a
+                  // coverage BED that does not declare what it holds) on their own range,
+                  // without an axis; its head says why (TRACE-7, TRACE-9).
                   orderCoverageSources(availability[member.sample_id]?.coverageSources).map(
                     (coverageSource, _index, allSources) => {
                       const label = coverageTrackLabel(coverageSource, allSources.length);
-                      const notDrawn = coverageNotDrawnNote(
-                        availability[member.sample_id]?.coverageNormalizations[coverageSource],
-                      );
-                      if (notDrawn) {
-                        return (
-                          <ViewerTrackBlock key={`coverage-${coverageSource}`} label={label} width={trackWidth}>
-                            <p className="viz-not-drawn-note" role="note">
-                              {notDrawn}
-                            </p>
-                          </ViewerTrackBlock>
-                        );
-                      }
+                      const content = availability[member.sample_id]?.coverageContents[coverageSource];
+                      const scale = coverageScale(content);
                       return (
                         <ViewerTrackBlock
                           key={`coverage-${coverageSource}`}
                           label={label}
+                          meta={
+                            <CoverageScaleNote
+                              note={coverageScaleNote(
+                                coverageSource,
+                                content,
+                                availability[member.sample_id]?.coverageNormalizations[coverageSource],
+                              )}
+                            />
+                          }
                           width={trackWidth}
                           frameClassName="h-[120px]"
                           roiRange={regionRoiRange}
@@ -550,9 +554,15 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                             coverageUrls={[
                               `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${coverageSource}&format=json`,
                             ]}
-                            segmentsUrls={[
-                              `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
-                            ]}
+                            scale={scale}
+                            // Segments are log2 ratios: drawn on the log2-ratio axis only.
+                            segmentsUrls={
+                              scale === 'log2_ratio'
+                                ? [
+                                    `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
+                                  ]
+                                : undefined
+                            }
                             width={trackWidth}
                             height={TRACK_HEIGHT}
                             chroms={[chrom]}

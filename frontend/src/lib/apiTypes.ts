@@ -303,6 +303,9 @@ export interface ApiNiptCoverageSummary {
   low_coverage_regions?: ApiNiptCoverageLowRegion[];
   // The capture targets' QC, when the plasma has a per-target coverage table.
   targets?: NiptTargetCoverageOut | null;
+  // Without a table: why each of the plasma's coverage tracks over the regions was not read
+  // as depth (TRACE-9): a log2 ratio, or a coverage BED that does not declare what it holds.
+  coverage_notes?: string[];
 }
 
 export type QcStatus = 'pass' | 'warn' | 'fail' | 'skip';
@@ -648,10 +651,14 @@ export interface ApiChromosomeTrackAvailability {
   coverage_sources?: string[];
   /**
    * The transforms each caller's coverage track records, by caller; a caller whose
-   * records name none is absent. Decides whether a track is drawn on the log2-ratio axis
-   * (`coverageNotDrawnNote`).
+   * records name none is absent.
    */
   coverage_normalizations?: Record<string, string[]>;
+  /**
+   * What each caller's coverage track holds (TRACE-9): read depth, a log2 ratio, or
+   * unknown. Decides the axis it is drawn on (`coverageScale`).
+   */
+  coverage_contents?: Record<string, CoverageContent>;
   segments_sources?: string[];
   /** Which callers wrote the APCAD track; decides the axis (see MAF_AXIS_MAX). */
   apcad_sources?: string[];
@@ -663,11 +670,15 @@ export interface ApiChromosomeTrackAvailability {
   repeat_expansions: boolean;
 }
 
+/** What a coverage track holds, as the track availability serves it (TRACE-9). */
+export type CoverageContent = 'read_depth' | 'log2_ratio' | 'unknown';
+
 export interface ApiGenomeTrackAvailability {
   coverage: boolean;
   segments: boolean;
   coverage_sources?: string[];
   coverage_normalizations?: Record<string, string[]>;
+  coverage_contents?: Record<string, CoverageContent>;
   segments_sources?: string[];
   apcad_sources?: string[];
   apcad: boolean;

@@ -201,10 +201,15 @@ describe('FamilyNiptCoveragePage', () => {
       low_coverage_regions: [
         { label: 'ARID1B', chr: '6', median_coverage: 8, covered_fraction: 1, reason: 'low_depth' },
       ],
+      coverage_notes: ['CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.'],
     });
     renderPage('/families/NIPT001/nipt/coverage');
 
     const below = await screen.findByRole('table', { name: 'Regions below target' });
+    // A coverage track of the plasma's the check did not read as depth is named, with why (TRACE-9).
+    expect(screen.getByRole('note', { name: 'Coverage tracks not read as depth' })).toHaveTextContent(
+      'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.',
+    );
     expect(within(below).getByText('ARID1B')).toBeInTheDocument();
     expect(within(below).getByText('below · 8x median')).toBeInTheDocument();
     const above = screen.getByRole('table', { name: 'Regions above target' });

@@ -1,12 +1,14 @@
-"""The readers that take coverage as read depth read only a track of read depth (CLIN-46).
+"""The readers that take coverage as read depth read only a track of read depth (CLIN-46, TRACE-9).
 
 A sample's ``coverage`` track can come from several callers, each under its own source: a
 coverage BED (``web``), WisecondorX's and QDNAseq's bins and HiFiCNV's depth. The bins are log2
 ratios, and HiFiCNV's depth is stored as a log2 ratio to the sample's autosomal median unless
-its file gave none (its record then names ``none``: depths stored as read). The mtDNA coverage
-summary, with its ``mtdna.mean_depth`` verdict (REQ-QC-006), and the monogenic NIPT coverage
-check without a per-target table (REQ-NIPT-006) read every source's rows merged, as depth: a
-log2 ratio near 0 halved a chrM mean depth, and a configured limit failed on it.
+its file gave none (its record then names ``none``: depths stored as read). A coverage BED holds
+what it declared when it was loaded (its record's ``content``), and values of unknown kind when it
+declared nothing (TRACE-9). The mtDNA coverage summary, with its ``mtdna.mean_depth`` verdict
+(REQ-QC-006), and the monogenic NIPT coverage check without a per-target table (REQ-NIPT-006) read
+every source's rows merged, as depth: a log2 ratio near 0 halved a chrM mean depth, and a
+configured limit failed on it; and until TRACE-9 a coverage BED was read as depth whatever it held.
 
 Here the coverage store is a fake that keeps each sample's rows by source and the transforms
 each track's record names, and returns every source's rows merged when a reader names no
@@ -23,7 +25,9 @@ source, as ClickHouse does. The readers run through their public entries:
 * the NIPT fallback reads the plasma's coverage BED, not its WisecondorX bins: the BED's median
   and its uncovered stretch (before: the bins' log2 ratio as the median, and their rows covering
   the stretch); with a HiFiCNV log2 track only, it reports no coverage (before: the log2 ratio as
-  the median depth).
+  the median depth);
+* a coverage BED that declares nothing, or declares a log2 ratio, is not read as depth by either
+  reader, and each says why (before TRACE-9: it was read as depth, whatever it held).
 """
 
 from __future__ import annotations
@@ -41,24 +45,31 @@ from backend.app.services.family_metadata_context import FamilyMetadataContext
 
 LOG2_RATIO = "log2_ratio_to_autosomal_median"
 STORED_AS_READ = "none"
+# What a coverage BED declares it holds (TRACE-9).
+READ_DEPTH = "read_depth"
+LOG2_RATIO_CONTENT = "log2_ratio"
 MT_LENGTH = 16_569
 
 
 class _CoverageStore:
-    """Each sample's coverage rows by source, and the transforms each track's record names.
+    """Each sample's coverage rows by source, and what each track's records name.
 
     ``tracks`` maps (sample uuid, source) to its rows as (chromosome, start, end, value);
     ``normalizations`` maps (sample name, source) to the transforms its records name, and a
-    track without an entry records none (a coverage BED, WisecondorX's and QDNAseq's bins).
+    track without an entry records none (a coverage BED, WisecondorX's and QDNAseq's bins);
+    ``contents`` maps (sample name, source) to what a coverage BED's records declare it holds,
+    and a BED without an entry declares nothing.
     """
 
     def __init__(
         self,
         tracks: dict[tuple[str, str], list[tuple[str, int, int, float]]],
         normalizations: dict[tuple[str, str], list[str]] | None = None,
+        contents: dict[tuple[str, str], list[str]] | None = None,
     ) -> None:
         self.tracks = tracks
         self.normalizations = normalizations or {}
+        self.contents = contents or {}
 
     def install(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr(
@@ -66,6 +77,9 @@ class _CoverageStore:
         )
         monkeypatch.setattr(
             clickhouse_interval_tracks, "interval_track_normalizations_by_sample", self.normalizations_by_sample
+        )
+        monkeypatch.setattr(
+            clickhouse_interval_tracks, "interval_track_contents_by_sample", self.contents_by_sample
         )
         monkeypatch.setattr(mitochondrial_analysis, "fetch_interval_track_rows", self.fetch_rows)
         monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", self.fetch_rows)
@@ -89,12 +103,21 @@ class _CoverageStore:
     async def normalizations_by_sample(
         self, _session, *, family_uuid, sample_uuid_to_name, track_type
     ) -> dict[str, dict[str, list[str]]]:
+        return self._recorded(self.normalizations, sample_uuid_to_name, track_type)
+
+    async def contents_by_sample(
+        self, _session, *, family_uuid, sample_uuid_to_name, track_type
+    ) -> dict[str, dict[str, list[str]]]:
+        return self._recorded(self.contents, sample_uuid_to_name, track_type)
+
+    @staticmethod
+    def _recorded(values, sample_uuid_to_name, track_type) -> dict[str, dict[str, list[str]]]:
         assert track_type == "coverage"
         names = set(sample_uuid_to_name.values())
         recorded: dict[str, dict[str, list[str]]] = {}
-        for (name, source), transforms in self.normalizations.items():
+        for (name, source), named in values.items():
             if name in names:
-                recorded.setdefault(name, {})[source] = sorted(set(transforms))
+                recorded.setdefault(name, {})[source] = sorted(set(named))
         return recorded
 
     async def fetch_rows(
@@ -243,7 +266,8 @@ async def test_the_mtdna_coverage_reads_only_each_samples_track_of_read_depth(
 ) -> None:
     store = _CoverageStore(
         {
-            # The proband: a coverage BED of depths, and WisecondorX's bins (log2 ratios).
+            # The proband: a coverage BED declared as read depth, and WisecondorX's bins (log2
+            # ratios).
             ("uuid-proband", "web"): _whole_mt(400.0),
             ("uuid-proband", "wisecondorx"): _whole_mt(0.1),
             # The mother: HiFiCNV's depth only, stored as a log2 ratio to her autosomal median.
@@ -253,6 +277,7 @@ async def test_the_mtdna_coverage_reads_only_each_samples_track_of_read_depth(
             ("uuid-dad", "qdnaseq"): _whole_mt(-0.2),
         },
         {("MOM", "hificnv"): [LOG2_RATIO], ("DAD", "hificnv"): [STORED_AS_READ]},
+        {("PROBAND", "web"): [READ_DEPTH]},
     )
     records = [_mt_variant(("PROBAND", "0/1", 420, 0.46), ("MOM", "0/1", 390, 0.88), ("DAD", "0/0", 310, 0.0))]
 
@@ -288,6 +313,12 @@ async def test_the_mtdna_coverage_reads_only_each_samples_track_of_read_depth(
         "DAD": ("pass", 320.0),
     }
     assert not any(note.startswith("Mean mtDNA depth") for sample in response.samples for note in sample.qc.notes)
+    # Each track left out is named, with the reason (TRACE-9).
+    assert [note for note in response.qc_notes if "not read as depth" in note] == [
+        "DAD: the QDNAseq coverage holds log2 ratios, not read depth; it is not read as depth.",
+        "MOM: the HiFiCNV coverage holds log2 ratios, not read depth; it is not read as depth.",
+        "PROBAND: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.",
+    ]
 
 
 @pytest.mark.asyncio
@@ -300,7 +331,8 @@ async def test_a_family_whose_only_chrm_track_is_a_log2_ratio_has_no_mtdna_cover
     assert (await _mito_response(monkeypatch, bins_only, [], count_only=True)).has_coverage is False
 
     with_bed = _CoverageStore(
-        {("uuid-proband", "wisecondorx"): _whole_mt(0.1), ("uuid-proband", "web"): _whole_mt(400.0)}
+        {("uuid-proband", "wisecondorx"): _whole_mt(0.1), ("uuid-proband", "web"): _whole_mt(400.0)},
+        contents={("PROBAND", "web"): [READ_DEPTH]},
     )
     assert (await _mito_response(monkeypatch, with_bed, [], count_only=True)).has_coverage is True
 
@@ -325,6 +357,47 @@ async def test_a_mother_with_only_a_log2_ratio_track_on_chrm_is_not_taken_as_seq
 
     # Before: her bins counted as mtDNA coverage, and the variant read "not seen in mother".
     assert response.variants[0].maternal_transmission == "mother_not_assessed"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("declared", "reason"),
+    [
+        # A BED loaded without a declaration: a package entry without `content`, or a track
+        # stored before BEDs declared what they hold.
+        ([], "the coverage BED does not declare whether it holds read depth or a log2 ratio"),
+        (["unknown"], "the coverage BED does not declare whether it holds read depth or a log2 ratio"),
+        ([LOG2_RATIO_CONTENT], "the coverage BED holds log2 ratios, not read depth"),
+    ],
+)
+async def test_a_coverage_bed_not_declared_as_depth_is_not_read_as_mtdna_depth(
+    monkeypatch: pytest.MonkeyPatch, declared: list[str], reason: str
+) -> None:
+    store = _CoverageStore(
+        {("uuid-proband", "web"): _whole_mt(0.4), ("uuid-dad", "web"): _whole_mt(300.0)},
+        contents={("PROBAND", "web"): declared, ("DAD", "web"): [READ_DEPTH]},
+    )
+    records = [_mt_variant(("PROBAND", "0/1", 420, 0.46), ("MOM", "0/1", 390, 0.88))]
+
+    response = await _mito_response(monkeypatch, store, records)
+
+    coverage = {sample.sample_id: (sample.coverage.mean_depth, sample.coverage.source) for sample in response.samples}
+    # Before (TRACE-9): the proband's BED was read as depth, a mean of 0.4x, which failed the
+    # 250x limit. Now her depth is her calls', as for a sample without a coverage track; the
+    # father's BED, declared as read depth, is read.
+    assert coverage == {
+        "PROBAND": (420.0, "variant calls"),
+        "MOM": (390.0, "variant calls"),
+        "DAD": (300.0, "coverage"),
+    }
+    assert {sample.sample_id: sample.qc.status for sample in response.samples}["PROBAND"] == "pass"
+    # The page says why.
+    assert f"PROBAND: {reason}; it is not read as depth." in response.qc_notes
+    assert not any(note.startswith("DAD:") for note in response.qc_notes)
+    # Her BED alone does not make the family's chrM coverage: the father's does.
+    assert (await _mito_response(monkeypatch, store, [], count_only=True)).has_coverage is True
+    proband_only = _CoverageStore({("uuid-proband", "web"): _whole_mt(0.4)}, contents={("PROBAND", "web"): declared})
+    assert (await _mito_response(monkeypatch, proband_only, [], count_only=True)).has_coverage is False
 
 
 # --------------------------------------------------------------------------- #
@@ -375,7 +448,7 @@ async def _nipt_coverage(monkeypatch: pytest.MonkeyPatch, store: _CoverageStore)
         user=None,  # type: ignore[arg-type]
     )
     assert coverage.targets is None  # no per-target table: the coverage track over the ROI
-    return coverage.regions
+    return coverage
 
 
 @pytest.mark.asyncio
@@ -384,14 +457,17 @@ async def test_the_nipt_fallback_reads_the_plasmas_coverage_bed_not_its_bins(
 ) -> None:
     store = _CoverageStore(
         {
-            # The BED: 80x over the first 800 bp of the 1 kb ROI, nothing over the rest.
+            # The BED, declared as read depth: 80x over the first 800 bp of the 1 kb ROI,
+            # nothing over the rest.
             ("uuid-cfdna", "web"): [("1", 1000, 1800, 80.0)],
             # WisecondorX's bin over the whole ROI: a log2 ratio.
             ("uuid-cfdna", "wisecondorx"): [("1", 0, 100_000, 0.1)],
-        }
+        },
+        contents={("CFDNA1", "web"): [READ_DEPTH]},
     )
 
-    summary = await _nipt_coverage(monkeypatch, store)
+    coverage = await _nipt_coverage(monkeypatch, store)
+    summary = coverage.regions
 
     # Before: the median was the bin's 0.1 ("low depth"), and the bin's rows covered the
     # stretch the BED leaves uncovered (1800 of 1000 bases).
@@ -400,6 +476,9 @@ async def test_the_nipt_fallback_reads_the_plasmas_coverage_bed_not_its_bins(
     assert (region.median_coverage, region.covered_bases, region.target_bases) == (80.0, 800, 1000)
     [low] = summary.low_coverage_regions
     assert (low.reason, low.covered_fraction) == ("partial_coverage", 0.8)
+    assert coverage.notes == [
+        "CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth."
+    ]
 
 
 @pytest.mark.asyncio
@@ -411,10 +490,38 @@ async def test_the_nipt_fallback_reports_no_coverage_from_a_log2_ratio_track(
         {("CFDNA1", "hificnv"): [LOG2_RATIO]},
     )
 
-    summary = await _nipt_coverage(monkeypatch, store)
+    summary = (await _nipt_coverage(monkeypatch, store)).regions
 
     # Before: the log2 ratios read as depth, a median of 0.05x ("low depth").
     assert summary.overall_median_on_target is None
     [region] = summary.per_region
     assert (region.median_coverage, region.covered_bases) == (None, 0)
     assert [(low.label, low.reason) for low in summary.low_coverage_regions] == [("ROI", "no_coverage")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("declared", "reason"),
+    [
+        ([], "the coverage BED does not declare whether it holds read depth or a log2 ratio"),
+        ([LOG2_RATIO_CONTENT], "the coverage BED holds log2 ratios, not read depth"),
+    ],
+)
+async def test_the_nipt_fallback_reads_no_coverage_bed_not_declared_as_depth(
+    monkeypatch: pytest.MonkeyPatch, declared: list[str], reason: str
+) -> None:
+    # The plasma's BED over the whole ROI, declaring nothing or declaring a log2 ratio.
+    store = _CoverageStore(
+        {("uuid-cfdna", "web"): [("1", 1000, 2000, 80.0)]},
+        contents={("CFDNA1", "web"): declared},
+    )
+
+    coverage = await _nipt_coverage(monkeypatch, store)
+
+    # Before (TRACE-9): its values were read as depth, a median of 80x over the whole ROI.
+    summary = coverage.regions
+    assert summary.overall_median_on_target is None
+    assert [(low.label, low.reason) for low in summary.low_coverage_regions] == [("ROI", "no_coverage")]
+    # The check says why the region has no coverage.
+    assert coverage.notes == [f"CFDNA1: {reason}; it is not read as depth."]
+
