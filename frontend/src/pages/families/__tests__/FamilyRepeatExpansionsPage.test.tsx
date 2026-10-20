@@ -631,6 +631,215 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
   });
 });
 
+// TRGT's count need not be the clinical repeat number (FMR1 leaves out the AGG interruptions,
+// reading 1 to 3 below). Until QA validates a locus's counting units, a count within 3 repeats
+// of a boundary is marked, with the boundary in its tooltip; its status is unchanged (owner's
+// decision, 2026-10-14).
+describe('FamilyRepeatExpansionsPage — a count near a boundary while the counting units are not validated', () => {
+  const members = [
+    { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+    { sample_id: 'MOTHER', role: 'mother', affected: false, sex: 'female' },
+  ];
+  const FMR1_NOTE =
+    'TRGT counts the CGG copies only, not the AGG interruptions: an allele reads 1 to 3 below its clinical repeat number (about 31 triplets read 29).';
+  const near = (count: number, boundary: number, status: string) => ({
+    repeat_count: count,
+    margin: 3,
+    boundaries: [{ repeat_count: boundary, status }],
+  });
+  const call = (
+    sample: string,
+    status: string,
+    alleles: Array<{ repeat_count: number; status: string; count_unit_warning?: unknown }>,
+  ) => ({
+    sample,
+    role: sample === 'PROBAND' ? 'proband' : 'mother',
+    affected: sample === 'PROBAND',
+    sex: 'female',
+    genotype: '1/2',
+    allele_count: alleles.length,
+    status,
+    alleles,
+  });
+  const fmr1 = (validated: boolean) => ({
+    locus_id: 'FXS_FMR1',
+    gene: 'FMR1',
+    display_name: 'FMR1',
+    disease: 'Fragile X syndrome',
+    chr: 'X',
+    start: 147912049,
+    end: 147912111,
+    motif: 'CGG',
+    warning_min: 45,
+    pathogenic_min: 201,
+    premutation_min: 55,
+    count_units_validated: validated,
+    count_units_note: FMR1_NOTE,
+    status: 'intermediate',
+    calls: {
+      // 53 reads grey zone; a premutation of 55 with two AGG interruptions reads 53.
+      PROBAND: call('PROBAND', 'intermediate', [
+        { repeat_count: 30, status: 'normal' },
+        {
+          repeat_count: 53,
+          status: 'intermediate',
+          ...(validated ? {} : { count_unit_warning: near(53, 55, 'premutation') }),
+        },
+      ]),
+      // 40 is far from every boundary.
+      MOTHER: call('MOTHER', 'normal', [
+        { repeat_count: 30, status: 'normal' },
+        { repeat_count: 40, status: 'normal' },
+      ]),
+    },
+  });
+  // A normal HTT allele of 26, one below the grey zone.
+  const htt = {
+    locus_id: 'HD_HTT',
+    gene: 'HTT',
+    display_name: 'HTT',
+    disease: 'Huntington disease',
+    chr: '4',
+    start: 3074876,
+    end: 3074933,
+    motif: 'CAG',
+    warning_min: 27,
+    pathogenic_min: 36,
+    count_units_validated: false,
+    status: 'normal',
+    calls: {
+      PROBAND: call('PROBAND', 'normal', [
+        { repeat_count: 17, status: 'normal' },
+        { repeat_count: 26, status: 'normal', count_unit_warning: near(26, 27, 'intermediate') },
+      ]),
+    },
+  };
+  const atxn1 = {
+    locus_id: 'ATXN1',
+    gene: 'ATXN1',
+    display_name: 'ATXN1',
+    disease: 'Spinocerebellar ataxia type 1',
+    chr: '6',
+    start: 16327635,
+    end: 16327722,
+    motif: 'CAG',
+    warning_min: 36,
+    pathogenic_min: 39,
+    count_units_validated: false,
+    status: 'normal',
+    calls: { PROBAND: call('PROBAND', 'normal', [{ repeat_count: 29, status: 'normal' }]) },
+  };
+
+  const renderWith = (loci: unknown[]) => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members, projects: [] } });
+      }
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({ data: { samples: members, loci } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
+          <Routes>
+            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+  const callsNearABoundary = () =>
+    screen
+      .getByText('Calls near a boundary')
+      .closest('.family-workspace-stat')
+      ?.querySelector('.family-workspace-stat-value')?.textContent;
+
+  it('marks the FMR1 count of 53 and not the one of 40, with the boundary, the count and why in its tooltip', async () => {
+    renderWith([fmr1(false)]);
+
+    const row = await screen.findByRole('row', { name: /FMR1/ });
+    const [mark] = within(row).getAllByText('Near a boundary');
+    expect(within(row).getAllByText('Near a boundary')).toHaveLength(1);
+    // The proband's call carries it; the mother's 30 / 40 does not.
+    expect(mark.closest('.family-repeat-table-call-row')).toHaveTextContent('PROBAND');
+    // The status is the classification's, unchanged by the mark.
+    expect(within(row).getByText('30 / 53').closest('.family-repeat-table-call-chip')).toHaveTextContent('Grey zone');
+    expect(callsNearABoundary()).toBe('1');
+
+    fireEvent.mouseEnter(mark);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      `Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT's counting units are not yet validated for this locus, so its count may differ from the clinical repeat number by a few repeats. Known: ${FMR1_NOTE}`,
+    );
+    // Reachable without a mouse: the mark takes focus and is described by its tooltip.
+    expect(mark).toHaveAttribute('tabindex', '0');
+    expect(mark).toHaveAttribute('aria-describedby', screen.getByRole('tooltip').id);
+    fireEvent.mouseLeave(mark);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('marks nothing once QA has validated the locus', async () => {
+    renderWith([fmr1(true)]);
+
+    const row = await screen.findByRole('row', { name: /FMR1/ });
+    expect(within(row).queryByText('Near a boundary')).not.toBeInTheDocument();
+    expect(within(row).getByText('30 / 53').closest('.family-repeat-table-call-chip')).toHaveTextContent('Grey zone');
+    expect(callsNearABoundary()).toBe('0');
+  });
+
+  it('keeps a normal locus with a count near a boundary in the aberrant-only view', async () => {
+    renderWith([htt, atxn1]);
+
+    const row = await screen.findByRole('row', { name: /HTT/ });
+    expect(row).not.toHaveClass('family-repeat-table-row--abnormal');
+    expect(within(row).getByText('Near a boundary')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('Aberrant only'));
+    expect(screen.getByText('1 of 2 loci')).toBeInTheDocument();
+    expect(screen.getByRole('row', { name: /HTT/ })).toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: /ATXN1/ })).not.toBeInTheDocument();
+  });
+
+  it('names both boundaries of a count between two', async () => {
+    renderWith([
+      {
+        ...atxn1,
+        locus_id: 'OPMD_PABPN1',
+        gene: 'PABPN1',
+        display_name: 'PABPN1',
+        disease: 'Oculopharyngeal muscular dystrophy',
+        warning_min: 11,
+        pathogenic_min: 12,
+        status: 'intermediate',
+        calls: {
+          PROBAND: call('PROBAND', 'intermediate', [
+            {
+              repeat_count: 11,
+              status: 'intermediate',
+              count_unit_warning: {
+                repeat_count: 11,
+                margin: 3,
+                boundaries: [
+                  { repeat_count: 10, status: 'normal' },
+                  { repeat_count: 12, status: 'pathogenic' },
+                ],
+              },
+            },
+          ]),
+        },
+      },
+    ]);
+
+    const row = await screen.findByRole('row', { name: /PABPN1/ });
+    fireEvent.mouseEnter(within(row).getByText('Near a boundary'));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(
+      'Near a boundary: 11 is within 3 repeats of 10 (Normal) and 12 (Pathogenic).',
+    );
+    expect(screen.getByRole('tooltip')).not.toHaveTextContent('Known:');
+  });
+});
+
 describe('repeat cutoff labels', () => {
   // A locus that is pathogenic by contraction cannot be stated as a lower bound: VWA1
   // is normal at exactly 2, and "red ≥ 1" would mark every healthy call.

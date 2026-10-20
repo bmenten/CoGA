@@ -348,6 +348,50 @@ describe('GenomeRepeatExpansionTrack', () => {
     expect(document.body.querySelector('.viz-tooltip')).toBeNull();
   });
 
+  // Until QA validates TRGT's counting units at a locus, a count within 3 repeats of a boundary
+  // is marked (owner's decision, 2026-10-14): the tooltip says where, why, and what is known.
+  it('says on hover that a count is near a boundary while the counting units are not validated', () => {
+    const note =
+      'TRGT counts the CGG copies only, not the AGG interruptions: an allele reads 1 to 3 below its clinical repeat number (about 31 triplets read 29).';
+    serve({
+      data: {
+        items: [
+          locus({
+            locus_id: 'FXS_FMR1',
+            gene: 'FMR1',
+            display_name: 'FMR1',
+            disease: 'Fragile X syndrome',
+            chr: 'X',
+            status: 'intermediate',
+            allele_repeat_counts: [30, 53],
+            count_units_validated: false,
+            count_units_note: note,
+            count_unit_warnings: [
+              { repeat_count: 53, margin: 3, boundaries: [{ repeat_count: 55, status: 'premutation' }] },
+            ],
+          }),
+        ],
+      },
+    });
+    const { container } = render(track());
+    const lines = () =>
+      Array.from(document.body.querySelector('.viz-tooltip')?.children ?? []).map((line) => line.textContent);
+
+    fireEvent.mouseMove(container.querySelector('svg > rect') as Element, { clientX: 250, clientY: 10 });
+
+    expect(lines()).toEqual([
+      'FMR1',
+      'Fragile X syndrome',
+      '30 / 53 repeats',
+      'Near a boundary: 53 is within 3 repeats of 55 (Premutation)',
+      "TRGT's counting units are not yet validated for this locus, so its count may differ from the clinical repeat number by a few repeats.",
+      `Known: ${note}`,
+    ]);
+    expect(
+      screen.getByRole('img', { name: 'Repeat loci of S1 in view: 1, 1 intermediate, 1 near a boundary' }),
+    ).toBeInTheDocument();
+  });
+
   it('shows a loading overlay, not the empty message, while the loci load', () => {
     serve({ isLoading: true });
     render(track());

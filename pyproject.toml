@@ -59,6 +59,7 @@ files = [
     "backend/app/services/pgt_embryo_calls.py",
     "backend/app/services/pgt_embryo_qc.py",
     "backend/app/services/qc_threshold_service.py",
+    "backend/app/services/repeat_count_units.py",
     "backend/app/services/report_code.py",
     "backend/app/services/report_signout_service.py",
     "backend/app/services/review_pg_utils.py",

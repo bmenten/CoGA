@@ -206,6 +206,29 @@ describe('RepeatExpansionTrack', () => {
     expect(container.querySelector('[data-repeat-locus-id="chr1_100_110_CAG"]')).not.toBeNull();
   });
 
+  it('counts the loci with a count near a boundary while their counting units are not validated', () => {
+    useQueryMock.mockReturnValue({
+      data: {
+        items: [
+          {
+            ...locus('HTT', 100, 'normal'),
+            allele_repeat_counts: [17, 26],
+            count_unit_warnings: [
+              { repeat_count: 26, margin: 3, boundaries: [{ repeat_count: 27, status: 'intermediate' }] },
+            ],
+          },
+          { ...locus('ATXN1', 300, 'normal'), count_unit_warnings: [] },
+        ],
+      },
+      isLoading: false,
+    });
+    render(regionTrack(0, { chromosomeSize: 1000 }));
+
+    expect(
+      screen.getByRole('img', { name: 'Repeat loci of S1 on chr1: 2, all normal, 1 near a boundary' }),
+    ).toBeInTheDocument();
+  });
+
   it('names only the loci in the region outside chromosome view mode (#529)', () => {
     useQueryMock.mockReturnValue({
       data: { items: [locus('ATXN1', 100, 'normal'), locus('FMR1', 700, 'pathogenic')] },

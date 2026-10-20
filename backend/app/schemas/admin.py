@@ -117,3 +117,66 @@ class ClickHouseIntegrityMonitorOut(BaseModel):
     # Set when the last sweep could not list the assemblies; the results are then older.
     last_sweep_error: Optional[str] = None
     results: List[ClickHouseIntegrityMonitorResultOut] = Field(default_factory=list)
+
+
+class RepeatLocusCountUnitsOut(BaseModel):
+    """A repeat catalogue locus with QA's record of whether TRGT's count there is the
+    clinical repeat number its ranges count (services/repeat_count_units.py)."""
+
+    locus_id: str
+    gene: str
+    display_name: str
+    disease: str
+    motif: Optional[str] = None
+    warning_min: Optional[int] = None
+    pathogenic_min: Optional[int] = None
+    benign_min: Optional[int] = None
+    benign_max: Optional[int] = None
+    premutation_min: Optional[int] = None
+    # "STRchive", or "built-in" for a row of repeat_expansion_catalog.py.
+    source: str
+    # False until QA records otherwise; with the reason, who and when of the last record.
+    validated: bool = False
+    reason: Optional[str] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    # How many stored calls name this row: the rows the laboratory's TRGT catalogue uses.
+    call_count: int = 0
+    # What is known of TRGT's count at the gene (FMR1, HTT, POLG), or None.
+    known_difference: Optional[str] = None
+
+
+class RepeatLocusCountUnitsChangeOut(BaseModel):
+    """One change of the validation record, from its clinical audit chain."""
+
+    changed_at: datetime
+    changed_by: Optional[str] = None
+    locus_id: Optional[str] = None
+    gene: Optional[str] = None
+    validated: bool
+    summary: Optional[str] = None
+    reason: Optional[str] = None
+
+
+class RepeatLocusCountUnitsCatalogueOut(BaseModel):
+    # How close to a boundary a count is marked while its locus is not validated.
+    margin: int
+    loci: List[RepeatLocusCountUnitsOut] = Field(default_factory=list)
+    # Newest first.
+    changes: List[RepeatLocusCountUnitsChangeOut] = Field(default_factory=list)
+
+
+class RepeatLocusCountUnitsUpdate(BaseModel):
+    """Whether TRGT's counting units at a locus are validated, and why (required)."""
+
+    validated: bool
+    reason: str
+
+
+class RepeatLocusCountUnitsSetOut(BaseModel):
+    locus_id: str
+    gene: Optional[str] = None
+    validated: bool
+    reason: str
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None

@@ -117,6 +117,9 @@ const HpoTerminologyAdminPage = lazy(
 const MonarchDataAdminPage = lazy(
   () => import('./pages/admin/MonarchDataAdminPage')
 );
+const AdminRepeatLociPage = lazy(
+  () => import('./pages/admin/AdminRepeatLociPage')
+);
 const ProjectsPage = lazy(() => import('./pages/projects/ProjectsPage'));
 const ReferenceCatalogPage = lazy(
   () => import('./pages/reference/ReferenceCatalogPage')
@@ -299,6 +302,10 @@ ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
                 <Route
                   path="/admin/reference/monarch"
                   element={routeElement(<MonarchDataAdminPage />)}
+                />
+                <Route
+                  path="/admin/reference/repeat-loci"
+                  element={routeElement(<AdminRepeatLociPage />)}
                 />
                 <Route
                   path="/admin/hpo"

@@ -73,6 +73,20 @@ included, and the page header counts the calls not assessed. The genome tracks c
 the status its call was imported with, and keep it until the call is imported again; this page
 classifies every call again, against the catalogue as it is now.
 
+**Near a boundary.** TRGT counts the motif across the region its own catalogue gives a locus, which need
+not be the clinical repeat number the locus's ranges count. At FMR1 it leaves out the AGG
+interruptions, so an allele reads 1 to 3 below its clinical number (a premutation of 55 repeats can
+read 53, in the grey zone); at HTT it also counts the CAG after the CAA interruption, one above the
+usual count; at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14. Until
+QA and the laboratory director have validated a locus's counting units, a count within 3 repeats of a
+boundary the locus's classification uses is marked *Near a boundary* beside its call. Hover over or
+focus the mark for the count, the nearest count on each side that reads another status, and what is
+known of TRGT's count at the gene. The status itself is not changed: read the call with the mark in
+mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
+boundary, and a genome track says it in the locus's tooltip. An administrator records each locus's
+validation, with its reason, on the admin page **Repeat Catalogue**; a validated locus is no longer
+marked.
+
 ### mtDNA
 
 Each sample's card on the **mtDNA analysis** page gives its mean chrM depth and the share of chrM

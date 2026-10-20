@@ -67,6 +67,8 @@ MODULE_FLOORS: dict[str, float] = {
     # embryo call, the owner's decision of 2026-10-20)
     "backend/app/services/pgt_embryo_qc.py": 97.0,
     "backend/app/services/qc_threshold_service.py": 83.0,  # (86.2)
+    # (97.6 measured locally when it was added: the repeat count-unit warning and QA's record)
+    "backend/app/services/repeat_count_units.py": 94.0,
     # (100.0 measured locally when it was added: the report code the EPD report quotes)
     "backend/app/services/report_code.py": 97.0,
     "backend/app/services/report_signout_service.py": 92.0,  # (95.7)

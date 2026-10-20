@@ -87,6 +87,15 @@ Each layer is optional and switches on part of CoGA.
 | **Mitochondrial calls** | the mtDNA analysis (homoplasmy and heteroplasmy, and chrM deletions and duplications) |
 | **Coverage, segments, APCAD, haplotypes** | the tracks in the genome overview and chromosome view |
 
+TRGT's repeat count need not be the clinical repeat number the catalogue's ranges count: TRGT counts
+the motif across the region its own catalogue gives a locus. At FMR1 it leaves out the AGG
+interruptions (an allele reads 1 to 3 below its clinical number), at HTT it counts the CAG after the
+CAA interruption (one above) and at POLG four flanking GCT copies (the common 10-repeat allele reads
+14). Until QA validates a locus's counting units (admin page **Repeat Catalogue**), the repeat page and
+the genome tracks mark a count within 3 repeats of a boundary there as *Near a boundary*, without
+changing its status: see the [user guide](/docs), section *Structural variants, repeats, Paraphase and
+mtDNA*.
+
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
 recorded for the [report](/docs/reference/clinical-traceability).
 

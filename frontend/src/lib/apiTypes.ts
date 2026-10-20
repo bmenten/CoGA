@@ -1,4 +1,4 @@
-import type { NiptQcOut, NiptTargetCoverageOut } from './apiSchema.generated';
+import type { NiptQcOut, NiptTargetCoverageOut, RepeatCountUnitWarningOut } from './apiSchema.generated';
 
 export interface ApiPaginatedTotalResponse {
   total: number;
@@ -730,6 +730,9 @@ export interface ApiRepeatExpansionAllele {
   interrupted?: boolean;
   interruption_label?: string | null;
   status: ApiRepeatStatus;
+  // Set when the count is near a boundary at a locus whose TRGT counting units QA has not
+  // validated: a difference of a few repeats there could change the status.
+  count_unit_warning?: RepeatCountUnitWarningOut | null;
 }
 
 export interface ApiRepeatExpansionSampleCall {
@@ -763,6 +766,10 @@ export interface ApiRepeatExpansionRow {
   // The first count of a premutation (FMR1 55), between the grey zone and the pathogenic
   // threshold; absent for a locus without one.
   premutation_min?: number | null;
+  // Whether QA validated that TRGT's count at the locus is the clinical repeat number, and
+  // what is known of TRGT's count at the gene (FMR1, HTT, POLG).
+  count_units_validated?: boolean;
+  count_units_note?: string | null;
   status: ApiRepeatStatus;
   calls: Record<string, ApiRepeatExpansionSampleCall>;
 }
@@ -1007,6 +1014,10 @@ export interface ApiRepeatExpansionTrackItem {
   status: ApiRepeatStatus;
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
+  // As on the family table, against the thresholds stored with the call.
+  count_units_validated?: boolean;
+  count_units_note?: string | null;
+  count_unit_warnings?: RepeatCountUnitWarningOut[];
 }
 
 export interface ApiRepeatExpansionTrackResponse {
