@@ -462,6 +462,30 @@ describe('evaluateAcmg — in-silico availability', () => {
     expect(find(suggestions, 'PP3')?.disposition).toBe('not_applicable');
     expect(find(suggestions, 'BP4')?.disposition).toBe('not_applicable');
   });
+
+  it('reads the AlphaMissense class the variant is served with when REVEL and SpliceAI do not decide', () => {
+    // As the API serves it: the class as a field of its own (the value the classification's
+    // evidence snapshot freezes), and again in annotation_extra under the annotation's key.
+    // The evaluator read `annotation_extra.alphamissense_class`, which no variant holds, so
+    // it never found a class and ruled PP3 and BP4 out.
+    const served = {
+      effect: 'missense_variant',
+      alpha_missense_class: 'likely_pathogenic',
+      annotation_extra: { alpha_missense_class: 'likely_pathogenic' },
+    };
+    expect(find(evaluateAcmg(served), 'PP3')).toEqual({
+      code: 'PP3',
+      strength: 'supporting',
+      evidence: 'AlphaMissense class: likely pathogenic.',
+      disposition: 'applies',
+    });
+    const benign = evaluateAcmg({ effect: 'missense_variant', alpha_missense_class: 'likely_benign' });
+    expect(find(benign, 'BP4')).toMatchObject({ strength: 'supporting', disposition: 'applies' });
+    // REVEL still decides first.
+    const revel = evaluateAcmg({ effect: 'missense_variant', revel: 0.1, alpha_missense_class: 'likely_pathogenic' });
+    expect(find(revel, 'BP4')?.disposition).toBe('applies');
+    expect(find(revel, 'PP3')?.disposition).toBe('contraindicated');
+  });
 });
 
 describe('buildInitialSelections', () => {
