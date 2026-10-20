@@ -293,6 +293,62 @@ def test_the_nipt_variant_page_says_when_its_list_is_capped(
     assert (body["total_is_estimated"], body["count_limit"]) == expected
 
 
+def test_the_nipt_variant_page_takes_the_review_tag_filter(family_metadata_client) -> None:
+    # UI-4: the NIPT page could not list the variants tagged report, which its sign-out
+    # freezes. The review tags go to the analysis as sent; the selected variants it does not
+    # classify come back named, with why, as the signed record names a reported one.
+    client, monkeypatch = family_metadata_client
+    seen: list[dict] = []
+
+    async def fake_variants(_session, **kwargs):
+        seen.append(kwargs)
+        return NiptVariantsResult(
+            fetal_fraction=FetalFractionEstimate(
+                ff=0.1, ff_computed=0.1, ff_median=0.1, ci_low=0.09, ci_high=0.11, n_sites=40,
+                method="category7_pooled", low_confidence=False,
+            ),
+            total=0,
+            variants=[],
+            not_classified={"9-999-A-G": "not_in_data", "1-5-A-G": "artifact_list"} if kwargs["review_tags"] else {},
+        )
+
+    monkeypatch.setattr(families_nipt_router, "get_family_nipt_variants", fake_variants)
+
+    response = client.get(
+        "/api/families/FAM1/nipt/variants",
+        params=[("review_tag", "report"), ("review_tag", "review"), ("exclude_review_tag", "excluded")],
+    )
+
+    assert response.status_code == 200
+    assert (seen[0]["review_tags"], seen[0]["exclude_review_tags"]) == (["report", "review"], ["excluded"])
+    assert response.json()["not_classified"] == [
+        {"variant_id": "1-5-A-G", "reason": "artifact_list"},
+        {"variant_id": "9-999-A-G", "reason": "not_in_data"},
+    ]
+    # Without them, no review selection and nothing named.
+    unfiltered = client.get("/api/families/FAM1/nipt/variants")
+    assert (seen[1]["review_tags"], seen[1]["exclude_review_tags"]) == ([], [])
+    assert unfiltered.json()["not_classified"] == []
+
+
+def test_the_nipt_and_small_variant_lists_declare_the_review_tag_filter_alike() -> None:
+    # The same names and the same shape: a link or a saved search carries the filter from one
+    # list to the other.
+    paths = app.openapi()["paths"]
+
+    def review_parameters(path: str) -> dict[str, dict]:
+        return {
+            parameter["name"]: parameter
+            for parameter in paths[path]["get"]["parameters"]
+            if parameter["name"] in {"review_tag", "exclude_review_tag"}
+        }
+
+    nipt = review_parameters("/api/families/{family_id}/nipt/variants")
+    small = review_parameters("/api/families/{family_id}/small-variants")
+    assert set(nipt) == {"review_tag", "exclude_review_tag"}
+    assert nipt == small
+
+
 def test_the_coverage_page_opens_a_gene_s_targets(family_metadata_client) -> None:
     # A row of the NIPT coverage page, opened: every target of the gene, each saying whether
     # it is weak by the rule the NIPT page counts with (REQ-NIPT-006).

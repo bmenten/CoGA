@@ -36,6 +36,7 @@ from .clickhouse_family_variants import (
     _fetch_small_variant_rows,
     _hydrate_small_variant_outs,
     count_cfdna_carriers,
+    resolve_review_selection,
 )
 from .clickhouse_variant_queries import _parse_interval_regions, _small_variant_out, _split_gene_terms
 from .clickhouse_variant_records import (
@@ -540,6 +541,10 @@ class NiptVariantsResult:
     total_is_estimated: bool = False
     count_limit: int | None = None
     recessive_genes: list[RecessiveGeneRisk] = field(default_factory=list)
+    # The variants the review-tag filter selects that the analysis does not classify, so
+    # that no list shows them, whatever the other filters, and why (variant id -> reason,
+    # as the signed record names a reported one); empty without a review-tag filter.
+    not_classified: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -803,9 +808,11 @@ def _build_nipt_query_filters(query_filters: dict) -> SmallVariantQueryFilters:
 
     NIPT reuses the full small-variant filter form, so the same annotation /
     frequency / in-silico / pathogenicity / location filters apply. Per-sample
-    genotype, review-state, and phenotype-prioritisation filters do not apply to
-    cfDNA (the maternal/fetal call is inferred) and are not forwarded; the
-    maternal/fetal `category` filter and `inheritance` preset are applied on the
+    genotype and phenotype-prioritisation filters do not apply to cfDNA (the
+    maternal/fetal call is inferred) and are not forwarded, nor are the review
+    classification and saved-notes filters; the review tags are applied by variant id in
+    the variant load (``get_family_nipt_variants``), as the family search applies them.
+    The maternal/fetal `category` filter and `inheritance` preset are applied on the
     classification afterwards rather than here.
     """
     return SmallVariantQueryFilters(
@@ -1031,6 +1038,8 @@ async def get_family_nipt_variants(
     page: int = 1,
     page_size: int = 100,
     qc: NiptQualityThresholds | None = None,
+    review_tags: list[str] | None = None,
+    exclude_review_tags: list[str] | None = None,
 ) -> NiptVariantsResult:
     """The family's cfDNA variants in a search, classified, in an inheritance view:
 
@@ -1042,6 +1051,12 @@ async def get_family_nipt_variants(
       one, with each gene's fetal risk (``recessive_genes``).
 
     ``categories`` keeps the given maternal/fetal categories (within a view, both apply).
+    ``review_tags`` keeps the variants with one of the review tags, and
+    ``exclude_review_tags`` leaves out those with one of these, as the small-variant list
+    reads them (``resolve_review_selection``); a selected variant the analysis does not
+    classify is named in ``not_classified``, with why. With ``review_tags=["report"]`` and
+    no other filter, the list holds the variants a sign-out freezes, as it classifies them
+    (``get_family_nipt_record``).
     """
     qc = qc or NiptQualityThresholds()
     if inheritance and inheritance not in _INHERITANCE_VIEWS:
@@ -1069,6 +1084,11 @@ async def get_family_nipt_variants(
         if filters.exclude_gene
         else []
     )
+    # The review tags, as the family search selects by them: the ids go into the variant
+    # load itself, so a tagged variant is never one the classification limit cut off.
+    review = await resolve_review_selection(
+        session, context.family_uuid, tags=review_tags, exclude_tags=exclude_review_tags
+    )
 
     # Fetal fraction is estimated cohort-wide (the FF/2 category-7 sites are
     # rarely inside the clinical filter), exactly as the summary estimates it, then
@@ -1080,6 +1100,23 @@ async def get_family_nipt_variants(
         _estimate_cohort_fetal_fraction, data, trio, qc, removed
     )
 
+    # The selected variants no list can show, whatever the other filters: the analysis
+    # does not classify them. Read as the signed record reads the reported ones.
+    not_classified: dict[str, str] = {}
+    if review.include:
+        _selected, not_classified = await asyncio.to_thread(
+            _classify_selected,
+            review.include - review.exclude,
+            data,
+            trio,
+            listed,
+            removed,
+            ff_estimate,
+            qc,
+        )
+    if review.matches_nothing:
+        return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[])
+
     panel_constraints = PanelFilterConstraints()
     if filters.panel_id:
         # On the family's clinical audit trail before it is applied (REQ-CARR-003).
@@ -1090,7 +1127,9 @@ async def get_family_nipt_variants(
             session, filters.panel_id, assembly_id=context.assembly_id
         )
         if not panel_constraints.genes and not panel_constraints.regions:
-            return NiptVariantsResult(fetal_fraction=ff_estimate, total=0, variants=[])
+            return NiptVariantsResult(
+                fetal_fraction=ff_estimate, total=0, variants=[], not_classified=not_classified
+            )
 
     # One row past the limit tells a cut list from a complete one. The list used to stop
     # at the limit with a total that looked exact, so the page and the report read as
@@ -1100,6 +1139,8 @@ async def get_family_nipt_variants(
         context,
         filters,
         panel_constraints=panel_constraints,
+        include_variant_ids=sorted(review.include) if review.include is not None else None,
+        exclude_variant_ids=sorted(review.exclude),
         include_regions=include_regions,
         exclude_regions=exclude_regions,
         exclude_gene_regions=exclude_gene_regions,
@@ -1164,6 +1205,7 @@ async def get_family_nipt_variants(
         total_is_estimated=capped,
         count_limit=fetch_limit if capped else None,
         recessive_genes=recessive_genes,
+        not_classified=not_classified,
     )
 
 
@@ -1190,12 +1232,52 @@ class NiptFamilyRecord:
     recessive_genes: list[RecessiveGeneRisk]
 
 
-# Why a reported variant has no NIPT classification.
+# Why a reported variant, or one the variant list's review-tag filter selects, has no NIPT
+# classification.
 NOT_IN_DATA = "not_in_data"
 ON_ARTIFACT_LIST = "artifact_list"
 NO_PLASMA_CALL = "no_plasma_call"
 # The de novo triage's positions inside the family's fetal window.
 _FETAL_WINDOWS = frozenset({"strict", "loose"})
+
+
+def _classify_selected(
+    wanted: set[str],
+    data: _FamilyData,
+    trio: NiptTrio,
+    listed: set[str],
+    removed: set[str],
+    ff_estimate: FetalFractionEstimate,
+    qc: NiptQualityThresholds,
+) -> tuple[list[NiptClassifiedVariant], dict[str, str]]:
+    """``wanted`` among the family's variants, each classified as the variant list
+    classifies it against ``ff_estimate`` (no filter, no minimum confidence), and why the
+    analysis classifies none of the others (variant id -> reason): not in the family's
+    data, removed by the artifact list, or without a plasma call. The signed record's
+    reported variants and the variant list's review-tag selection both come from here."""
+    records = [record for record in data.records if record.variant_id in wanted]
+    classified = _classify_candidates(
+        records,
+        trio,
+        listed,
+        ff_estimate,
+        qc,
+        None,
+        plasma_targets=data.plasma_targets,
+        father_targets=data.father_targets,
+        family_records=data.records,
+    )
+    found = {record.variant_id for record in records}
+    classified_ids = {item.record.variant_id for item in classified}
+    unclassified: dict[str, str] = {}
+    for variant_id in sorted(wanted - classified_ids):
+        if variant_id not in found:
+            unclassified[variant_id] = NOT_IN_DATA
+        elif variant_id in removed:
+            unclassified[variant_id] = ON_ARTIFACT_LIST
+        else:
+            unclassified[variant_id] = NO_PLASMA_CALL
+    return classified, unclassified
 
 
 async def get_family_nipt_record(
@@ -1219,29 +1301,16 @@ async def get_family_nipt_record(
     removed, protected = family_artifact_ids(data.records, listed)
     summary = await _summarize_family(data, trio, qc, removed)
     wanted = {str(variant_id) for variant_id in variant_ids if variant_id}
-    records = [record for record in data.records if record.variant_id in wanted]
-    classified = await asyncio.to_thread(
-        _classify_candidates,
-        records,
+    classified, unclassified = await asyncio.to_thread(
+        _classify_selected,
+        wanted,
+        data,
         trio,
         listed,
+        removed,
         summary.analysis.fetal_fraction,
         qc,
-        None,
-        plasma_targets=data.plasma_targets,
-        father_targets=data.father_targets,
-        family_records=data.records,
     )
-    found = {record.variant_id for record in records}
-    classified_ids = {item.record.variant_id for item in classified}
-    unclassified: dict[str, str] = {}
-    for variant_id in sorted(wanted - classified_ids):
-        if variant_id not in found:
-            unclassified[variant_id] = NOT_IN_DATA
-        elif variant_id in removed:
-            unclassified[variant_id] = ON_ARTIFACT_LIST
-        else:
-            unclassified[variant_id] = NO_PLASMA_CALL
     candidates = [
         item
         for item in classified

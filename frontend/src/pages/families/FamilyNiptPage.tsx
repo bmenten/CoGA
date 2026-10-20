@@ -5,7 +5,11 @@ import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
-import type { ApiNiptCoverageSummary, ApiNiptSummary } from '../../lib/apiTypes';
+import type {
+  ApiNiptCoverageSummary,
+  ApiNiptSummary,
+  ApiSmallVariantReviewSummary,
+} from '../../lib/apiTypes';
 import {
   CATEGORY_LABELS,
   MONOGENIC_NIPT_ANALYSIS_TYPE,
@@ -16,7 +20,10 @@ import { parseCommaSeparatedValues } from '../../lib/sampleFilterState';
 import { parsePedigree } from '../../lib/pedigree';
 import {
   buildPresetPayload,
+  createEmptySmallFilters,
   NIPT_BUILT_IN_PRESETS,
+  NIPT_UNSUPPORTED_FILTERS,
+  REPORT_TAG_KEY,
   useSmallVariantSearchState,
   type GenePanel,
   type SmallFilterState,
@@ -57,6 +64,7 @@ import {
   formatReportTime,
   LIVE_REPORT_SIGN_OFF_STATEMENT,
   liveReportSignedState,
+  NIPT_NOT_CLASSIFIED_REASONS,
 } from './signedReportRecord';
 
 const PAGE_SIZE = 50;
@@ -95,8 +103,9 @@ const niptParamsSerializer = (params: Record<string, unknown>): string => {
 };
 
 // Map the shared small-variant filter state to the /nipt/variants params. Only
-// the NIPT-supported keys are emitted (no per-sample genotype / review-state /
-// phenotype params); the maternal/fetal category + inheritance preset + min
+// the NIPT-supported keys are emitted: the review tags and excluded review tags by the
+// small-variant list's names, but no per-sample genotype, review classification,
+// saved-notes or phenotype params; the maternal/fetal category + inheritance preset + min
 // confidence are NIPT-specific.
 const buildVariantParams = (f: SmallFilterState, page: number): Record<string, unknown> => {
   const params: Record<string, unknown> = { page, page_size: PAGE_SIZE };
@@ -135,6 +144,8 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
   listValues('effect', f.effect);
   listValues('clinvar', f.clinvar);
   listValues('exclude_clinvar', f.exclude_clinvar);
+  listValues('review_tag', f.review_tags);
+  listValues('exclude_review_tag', f.exclude_review_tags);
   flag('clinvar_overrides_frequency', f.clinvar_overrides_frequency);
   numeric('max_gnomad_af', f.max_gnomad_af);
   numeric('max_gnomad_exomes_af', f.max_gnomad_exomes_af);
@@ -217,6 +228,7 @@ const FamilyNiptPage: React.FC = () => {
     members,
     page,
     removeActiveFilterChip,
+    runSearch,
     sampleDraftFilters,
     sampleFilters,
     searchReady,
@@ -264,6 +276,19 @@ const FamilyNiptPage: React.FC = () => {
     queryKey: ['family', familyId, 'small-variant-tags', projectId || null],
     enabled: Boolean(familyId && isMonogenicNipt),
     queryFn: () => fetchFamilyReviewTags(familyId, projectId),
+  });
+
+  // How many variants are tagged report, for "Show reported": the family's review summary,
+  // which counts a tag's variants as the review-tag filter selects them (the family page's
+  // curation summary, under the same key).
+  const reviewSummaryKey = ['family', familyId, 'small-variant-review-summary'] as const;
+  const { data: reviewSummary } = useQuery<ApiSmallVariantReviewSummary>({
+    queryKey: reviewSummaryKey,
+    enabled: Boolean(familyId && isMonogenicNipt),
+    queryFn: async () => {
+      const res = await api.get(apiPath`/families/${familyId}/small-variant-review-summary`);
+      return res.data as ApiSmallVariantReviewSummary;
+    },
   });
 
   // Custom saved filter settings reuse the small-variant preset store (per
@@ -376,6 +401,8 @@ const FamilyNiptPage: React.FC = () => {
         );
       });
       void queryClient.invalidateQueries({ queryKey: niptVariantsKey });
+      // A tag added or removed changes the count "Show reported" gives.
+      void queryClient.invalidateQueries({ queryKey: reviewSummaryKey });
     },
     onError: (error, _variables, context) => {
       context?.snapshots.forEach(([key, snapshot]) => {
@@ -423,6 +450,12 @@ const FamilyNiptPage: React.FC = () => {
   const pedRows = useMemo(() => parsePedigree(family?.pedigree), [family?.pedigree]);
   // Unknown, not zero, while the summary could not be loaded (#606).
   const categoryCounts = summaryFailed ? null : (summary?.category_counts ?? {});
+  // The variants a sign-out freezes: those tagged report, every other filter cleared (the
+  // inheritance view, the categories and the minimum confidence too), each as this
+  // analysis classifies it. Unknown, not zero, until the review summary is in.
+  const reportedCount = reviewSummary ? (reviewSummary.tag_counts?.[REPORT_TAG_KEY] ?? 0) : null;
+  const showReported = () => runSearch({ ...createEmptySmallFilters(), review_tags: REPORT_TAG_KEY });
+  const notClassified = variantPage?.not_classified ?? [];
 
   if (familyLoading) {
     return <PageState loading kicker="Monogenic NIPT" title="Loading family" />;
@@ -609,6 +642,7 @@ const FamilyNiptPage: React.FC = () => {
           <SmallVariantFilterForm
             mode="nipt"
             familyAware={false}
+            unsupportedFilters={NIPT_UNSUPPORTED_FILTERS}
             categoryCounts={categoryCounts}
             categoryLabels={CATEGORY_LABELS}
             niptInheritancePresets={INHERITANCE_PRESETS}
@@ -694,6 +728,12 @@ const FamilyNiptPage: React.FC = () => {
           quality checks, the target coverage, and each variant tagged report as this analysis
           classifies it).
         </p>
+        <p className="table-subtle">
+          <button type="button" className="button-secondary" onClick={showReported}>
+            {reportedCount === null ? 'Show reported' : `Show reported (${reportedCount})`}
+          </button>{' '}
+          lists the variants tagged report, with every other filter cleared: those a sign-out would freeze.
+        </p>
       </section>
 
       {summary?.qc ? <NiptQcPanel qc={summary.qc} fetalFraction={summary.fetal_fraction} /> : null}
@@ -734,6 +774,30 @@ const FamilyNiptPage: React.FC = () => {
               : ''}
             , so the list stops part-way through the genome and its count is a lower bound. Narrow
             the search with a gene panel, a gene or a region.
+          </div>
+        ) : null}
+        {/* A variant with the selected review tags that the analysis does not classify is in
+            no list: named, with why, as the signed record names a reported one. */}
+        {!variantsFailed && notClassified.length ? (
+          <div
+            className="variant-workspace-feedback variant-workspace-feedback--warning mb-4"
+            role="status"
+            aria-label="Tagged variants not classified"
+          >
+            <p>
+              {notClassified.length === 1
+                ? '1 variant with the selected review tags is not in this list: the analysis does not classify it.'
+                : `${notClassified.length} variants with the selected review tags are not in this list: the analysis does not classify them.`}{' '}
+              A sign-out names a reported one as not classified, with why.
+            </p>
+            <ul className="list-disc pl-5">
+              {notClassified.map((entry) => (
+                <li key={entry.variant_id}>
+                  <strong>{entry.variant_id}</strong>: not classified —{' '}
+                  {NIPT_NOT_CLASSIFIED_REASONS[entry.reason] ?? entry.reason}.
+                </li>
+              ))}
+            </ul>
           </div>
         ) : null}
         {!variantsFailed && filters.inheritance === 'recessive_at_risk' && variantPage ? (

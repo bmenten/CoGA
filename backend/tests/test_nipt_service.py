@@ -849,6 +849,263 @@ async def test_a_variant_list_that_fits_the_classification_limit_is_complete(
 
 
 # --------------------------------------------------------------------------- #
+# The review-tag filter (UI-4): the small-variant list's review_tag and
+# exclude_review_tag, read from the family's reviews by the same code.
+# --------------------------------------------------------------------------- #
+
+class _ReviewRows:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def mappings(self) -> "_ReviewRows":
+        return self
+
+    def all(self) -> list[dict]:
+        return list(self._rows)
+
+
+class _ReviewSession:
+    """The family's small-variant reviews, as Postgres answers the review-tag lookup
+    (``list_matching_small_variant_review_ids``, which runs as it does in production)."""
+
+    def __init__(self, reviews: dict[str, dict]) -> None:
+        self.reviews = reviews
+        self.lookups = 0
+
+    async def execute(self, statement, params=None) -> _ReviewRows:
+        assert "FROM small_variant_reviews" in str(statement)
+        assert params == {"family_id": "family-uuid"}
+        self.lookups += 1
+        return _ReviewRows(
+            [
+                {
+                    "variant_id": variant_id,
+                    "classification": review.get("classification"),
+                    "tags": review.get("tags", []),
+                    "note": review.get("note"),
+                    "compound_het_classification": None,
+                    "compound_het_tags": review.get("compound_het_tags", []),
+                    "compound_het_note": None,
+                }
+                for variant_id, review in self.reviews.items()
+            ]
+        )
+
+
+def _family_records() -> list[SmallVariantRecord]:
+    # The FF sites, the de novo candidate (1-9000), the maternal allele (1-9100) and a
+    # second de novo candidate (1-9200), in genomic order.
+    return [*_cohort_cat7_records(), *_de_novo_and_cat3_records(), _a_third_record_after_the_others()]
+
+
+def _father_only_record() -> SmallVariantRecord:
+    # A joint callset's record without a plasma call: the analysis cannot classify it.
+    return _record("1-9300-A-G", start=9300, calls=[_call("father-1", "0/1", dp=50, ad=[25, 25])])
+
+
+def _wire_family_rows(
+    monkeypatch: pytest.MonkeyPatch, records: list[SmallVariantRecord], *, artifacts: set[str] | None = None
+) -> list[dict]:
+    """The variant load as ClickHouse answers it: the family's rows in genomic order,
+    the review selection's ids kept or left out, then the row limit. Each load's
+    selection is recorded."""
+    _wire_variants_mocks(monkeypatch, cohort=records, filtered=records, artifacts=artifacts)
+    loads: list[dict] = []
+
+    async def fetch(_context, _filters, *, limit=None, include_variant_ids=None, exclude_variant_ids=(), **_kwargs):
+        loads.append({"include": include_variant_ids, "exclude": list(exclude_variant_ids), "limit": limit})
+        rows = [
+            record
+            for record in records
+            if (include_variant_ids is None or record.variant_id in include_variant_ids)
+            and record.variant_id not in exclude_variant_ids
+        ]
+        return rows if limit is None else rows[:limit]
+
+    monkeypatch.setattr(nipt_service, "_fetch_small_variant_rows", fetch)
+    return loads
+
+
+async def _nipt_list(session, **kwargs):
+    return await get_family_nipt_variants(
+        session=session,
+        family_id="NIPT001",
+        user=None,  # type: ignore[arg-type]
+        page_size=500,
+        **kwargs,
+    )
+
+
+def _listed(result) -> list[str]:
+    return [item.record.variant_id for item in result.variants]
+
+
+@pytest.mark.asyncio
+async def test_the_review_tag_filter_keeps_exactly_the_tagged_variants(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The NIPT page had no review-tag filter: the variants a sign-out freezes, those tagged
+    # report, could not be listed (UI-4).
+    loads = _wire_family_rows(monkeypatch, _family_records())
+    session = _ReviewSession(
+        {
+            "1-5-A-G": {"tags": ["report"]},  # an FF site the fetus inherited, category 7
+            "1-9000-A-G": {"tags": ["report", "review"]},
+            "1-9100-A-G": {"tags": ["review"], "note": "maternal"},
+            "1-9200-A-G": {"tags": ["excluded"]},
+        }
+    )
+
+    reported = await _nipt_list(session, review_tags=["report"])
+
+    assert _listed(reported) == ["1-5-A-G", "1-9000-A-G"]
+    assert reported.total == 2
+    assert {item.record.variant_id: item.classification.category for item in reported.variants} == {
+        "1-5-A-G": 7,
+        "1-9000-A-G": 1,
+    }
+    assert reported.not_classified == {}
+    # The selection goes into the variant load itself, as ids, after the cohort load.
+    assert loads[-1] == {"include": ["1-5-A-G", "1-9000-A-G"], "exclude": [], "limit": 5001}
+    # Any of several tags, and the view and category filters still apply within it.
+    assert _listed(await _nipt_list(session, review_tags=["report", "review"])) == [
+        "1-5-A-G",
+        "1-9000-A-G",
+        "1-9100-A-G",
+    ]
+    assert _listed(await _nipt_list(session, review_tags=["report"], inheritance="de_novo")) == ["1-9000-A-G"]
+    assert _listed(await _nipt_list(session, review_tags=["report", "review"], categories=[3])) == ["1-9100-A-G"]
+
+
+@pytest.mark.asyncio
+async def test_an_excluded_review_tag_leaves_its_variants_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    loads = _wire_family_rows(monkeypatch, _family_records())
+    session = _ReviewSession({"1-9100-A-G": {"tags": ["excluded"]}, "1-9200-A-G": {"tags": ["review"]}})
+
+    listed = await _nipt_list(session, exclude_review_tags=["excluded"])
+
+    assert "1-9100-A-G" not in _listed(listed)
+    assert {"1-9000-A-G", "1-9200-A-G"} <= set(_listed(listed))
+    assert listed.total == len(_family_records()) - 1
+    assert loads[-1] == {"include": None, "exclude": ["1-9100-A-G"], "limit": 5001}
+    # With a review tag as well: the tagged variants without an excluded tag.
+    both = await _nipt_list(session, review_tags=["review", "excluded"], exclude_review_tags=["excluded"])
+    assert _listed(both) == ["1-9200-A-G"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("review_tags", [["report"], [" "]])
+async def test_a_review_tag_no_variant_has_lists_nothing(
+    monkeypatch: pytest.MonkeyPatch, review_tags: list[str]
+) -> None:
+    # As on the small-variant list: a tag no review holds, or a blank one, selects nothing,
+    # and the variant load is not run.
+    loads = _wire_family_rows(monkeypatch, _family_records())
+    session = _ReviewSession({"1-9000-A-G": {"tags": ["review"]}})
+
+    listed = await _nipt_list(session, review_tags=review_tags)
+
+    assert (listed.total, listed.variants, listed.not_classified) == (0, [], {})
+    assert [load["include"] for load in loads] == [None]  # the cohort load for the FF only
+
+
+@pytest.mark.asyncio
+async def test_a_tagged_variant_past_the_classification_limit_is_listed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The list classifies the first variants of its scope in genomic order. Read after the
+    # limit, the review tags would lose a reported variant beyond it; read by id in the
+    # load, they never do.
+    _wire_family_rows(monkeypatch, _family_records())
+    monkeypatch.setattr(nipt_service, "_NIPT_VARIANT_FETCH_LIMIT", 2)
+    session = _ReviewSession({"1-9200-A-G": {"tags": ["report"]}})
+
+    listed = await _nipt_list(session, review_tags=["report"])
+
+    assert _listed(listed) == ["1-9200-A-G"]
+    assert (listed.total_is_estimated, listed.count_limit) == (False, None)
+
+
+@pytest.mark.asyncio
+async def test_a_tagged_variant_the_analysis_does_not_classify_is_named_with_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # No list can show it, whatever the filters: the page names it, with the reason the
+    # signed record gives a reported one.
+    _wire_family_rows(monkeypatch, [*_family_records(), _father_only_record()], artifacts={"1-9100-A-G"})
+    session = _ReviewSession(
+        {
+            "1-9000-A-G": {"tags": ["report"]},
+            "1-9100-A-G": {"tags": ["report"]},
+            "1-9300-A-G": {"tags": ["report"]},
+            "9-999-A-G": {"tags": ["report"]},
+            "1-9200-A-G": {"tags": ["report", "excluded"]},
+        }
+    )
+
+    listed = await _nipt_list(session, review_tags=["report"], exclude_review_tags=["excluded"])
+
+    assert _listed(listed) == ["1-9000-A-G"]
+    assert listed.not_classified == {
+        "1-9100-A-G": "artifact_list",
+        "1-9300-A-G": "no_plasma_call",
+        "9-999-A-G": "not_in_data",
+    }
+    # The other filters narrow the list, not what the analysis cannot classify.
+    narrowed = await _nipt_list(session, review_tags=["report"], inheritance="paternal_dominant")
+    assert (_listed(narrowed), narrowed.not_classified) == ([], listed.not_classified)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("review_tags", "exclude_review_tags"),
+    [
+        (["report"], []),
+        (["report", "review"], ["excluded"]),
+        ([], ["excluded"]),
+        ([" "], []),
+        (["no-such-tag"], ["report"]),
+    ],
+)
+async def test_the_nipt_list_selects_by_review_tag_as_the_small_variant_list_does(
+    monkeypatch: pytest.MonkeyPatch, review_tags: list[str], exclude_review_tags: list[str]
+) -> None:
+    # The same names, the same rule: a variant's own tags or its compound-het pair's, any of
+    # the given ones; a blank tag still selects (nothing).
+    from backend.app.services import clickhouse_family_variants as family_variants
+    from backend.app.services.family_variant_filters import SmallVariantQueryFilters
+
+    reviews = {
+        "1-5-A-G": {"tags": ["report"]},
+        "1-9000-A-G": {"compound_het_tags": ["report"]},
+        "1-9100-A-G": {"tags": ["review", "excluded"]},
+        "1-9200-A-G": {"tags": ["excluded"]},
+    }
+    loads = _wire_family_rows(monkeypatch, _family_records())
+
+    await _nipt_list(_ReviewSession(reviews), review_tags=review_tags, exclude_review_tags=exclude_review_tags)
+    scope = await family_variants._resolve_small_variant_scope(
+        _ReviewSession(reviews),  # type: ignore[arg-type]
+        SimpleNamespace(family_uuid="family-uuid", assembly_id="assembly-uuid"),  # type: ignore[arg-type]
+        SmallVariantQueryFilters(page=1, page_size=100),
+        review_classifications=None,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
+        has_notes=False,
+    )
+
+    nipt_load = loads[-1] if len(loads) > 1 else None
+    if scope is None:
+        assert nipt_load is None  # nothing matches: no variant load at all
+        return
+    assert nipt_load is not None
+    row_filters = scope.row_filters()
+    expected_include = row_filters["include_variant_ids"]
+    assert nipt_load["include"] == (sorted(expected_include) if expected_include is not None else None)
+    assert nipt_load["exclude"] == sorted(row_filters["exclude_variant_ids"])
+
+
+# --------------------------------------------------------------------------- #
 # get_family_nipt_coverage (I/O mocked)
 # --------------------------------------------------------------------------- #
 
