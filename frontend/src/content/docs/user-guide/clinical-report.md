@@ -41,9 +41,10 @@ and refers to exactly one signed version: the one it rests on.
 into a numbered version with a unique fingerprint, with what the analysis looked at: each reported
 variant's description as you reviewed it, the gene panels the family's searches applied, the
 reference-data releases, the repeat-expansion and Paraphase results, in a PGT family each embryo's
-call at the region of interest as the family page shows it, and for a monogenic NIPT family its NIPT
-results (the NIPT page signs out through this same sign-out, see the NIPT chapter). The EPD refers to
-the signed version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
+call at the region of interest as the family page shows it, with its phasing QC and that QC's verdict
+against the thresholds, and for a monogenic NIPT family its NIPT results (the NIPT page signs out
+through this same sign-out, see the NIPT chapter). The EPD refers to the signed version by its
+**report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
@@ -63,6 +64,10 @@ the signed version by its **report code** (for example `7KQM2X-2-4PHT`). It stop
    what an upload brought. After a single upload that did not finish, upload again with
    **overwrite** what the warning names.
 
+A PGT embryo call whose phasing QC does not meet its thresholds (*⚠ phasing QC* on the family page)
+does not stop the sign-out: the call stands, you decide on it, and the signed version records the
+warning.
+
 A reason you give is frozen into the signed version and written to the audit trail. Signing out again
 creates a new version (**Amend sign-out**); earlier versions are never overwritten, and a clinical
 report that rests on the amended analysis refers to the new version. After signing out, the page shows
@@ -79,9 +84,9 @@ signed version a code names.
 Only the signed version is. A signed case opens on its **latest signed version**, drawn from the frozen
 record: *Signed version N — signed out by … on …*, with its report code and fingerprint. It shows what
 was signed: each reported variant's description, classification, criteria, evidence and note, in a PGT
-family the embryo calls (*PGT embryo results*), in a monogenic NIPT family its NIPT results (*NIPT
-results*), the gene panels applied, the repeat expansions and Paraphase results, the reference-data
-releases, and the checks at sign-out. It says what the record does not hold — the population frequencies and predictions, the
+family the embryo calls (*PGT embryo results*, with each call's QC verdict and the thresholds), in a
+monogenic NIPT family its NIPT results (*NIPT results*), the gene panels applied, the repeat expansions
+and Paraphase results, the reference-data releases, and the checks at sign-out. It says what the record does not hold — the population frequencies and predictions, the
 gene and phenotype context, the audit trail — and never fills that in from current data. **Print
 signed version N** prints it, and **Download signed version N (JSON)** returns the record itself.
 *Signed versions* lists the earlier ones.

@@ -28,6 +28,7 @@ from backend.app.schemas import (
     PgtAnalysisOut,
     PgtDiseaseHaplotypeOut,
     PgtEmbryoOut,
+    PgtEmbryoQcOut,
     PgtInheritanceModelOut,
     PgtRegionOfInterestOut,
     PgtRulesOut,
@@ -38,6 +39,7 @@ from backend.app.schemas import (
 )
 from backend.app.services import report_signout_service as rss
 from backend.app.services import signed_record_sections as srs
+from backend.app.services.pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict
 
 
 class _Result:
@@ -612,13 +614,29 @@ def _pgt_context(*roles: str) -> types.SimpleNamespace:
 
 
 def _analysis() -> PgtAnalysisOut:
+    # Twelve informative sites, one a Mendelian error, four markers on the father's side.
+    qc = PgtEmbryoQcOut(informative_sites=12, mendel_errors=1, mendel_rate=1 / 12, paternal_markers=4, maternal_markers=5)
     return PgtAnalysisOut(
         region_of_interest=PgtRegionOfInterestOut(query="GENE1", label="GENE1", source="gene", chrom="7", start=10, end=20),
         inheritance_model=PgtInheritanceModelOut(recorded="AD", applied="AD", mode="dominant"),
         disease_haplotype_resolved=True,
         disease_haplotypes=[PgtDiseaseHaplotypeOut(origin="paternal", homolog="1", kind="dominant")],
-        embryos=[PgtEmbryoOut(sample="E1", sex="female", call="affected_or_at_risk", recombinations=[15])],
-        rules=PgtRulesOut(window_flank=1_000_000, recombination_flank=250_000, phase_switch_uncertainty=2_000_000),
+        embryos=[
+            PgtEmbryoOut(
+                sample="E1",
+                sex="female",
+                call="affected_or_at_risk",
+                recombinations=[15],
+                qc=qc,
+                qc_verdict=embryo_qc_verdict(qc, ("paternal",)),
+            )
+        ],
+        rules=PgtRulesOut(
+            window_flank=1_000_000,
+            recombination_flank=250_000,
+            phase_switch_uncertainty=2_000_000,
+            qc_thresholds=QC_THRESHOLDS,
+        ),
     )
 
 
@@ -651,6 +669,23 @@ def test_a_pgt_familys_record_freezes_the_analysis_the_family_page_shows(monkeyp
     # The object the family page reads from GET /families/{id}/pgt-analysis, as JSON.
     assert sections["pgt_analysis"] == _analysis().model_dump(mode="json")
     assert asked == [context]
+    # Each embryo's QC verdict is frozen with its results, and the thresholds it was made
+    # against with the analysis's rules.
+    [embryo] = sections["pgt_analysis"]["embryos"]
+    assert embryo["qc_verdict"] == {
+        "status": "warning",
+        "sides": ["paternal"],
+        "findings": [
+            {"measure": "informative_sites", "value": 12, "threshold": 50},
+            {"measure": "mendel_rate", "value": 1 / 12, "threshold": 0.02},
+            {"measure": "paternal_markers", "value": 4, "threshold": 6},
+        ],
+    }
+    assert sections["pgt_analysis"]["rules"]["qc_thresholds"] == {
+        "min_informative_sites": 50,
+        "max_mendel_rate": 0.02,
+        "min_markers_per_side": 6,
+    }
     # Every section without an application, and the PGT one: this family is no NIPT family.
     assert set(sections) == {
         section.key for section in srs.RECORD_SECTIONS if section.application in (None, "pgt")

@@ -272,12 +272,16 @@ in the EPD refers to the signed version by its report code (*The report code* be
     whether an uninformative call is down to its own missing data at the ROI, both calls when an
     X-linked recessive call depends on a sex that is not recorded, the homologs it carries at the
     ROI with the extent of their blocks, the block boundaries inside the ROI or within 250 kb of
-    it (recombinations), and its phasing QC at the ROI as the ROI marker review counts it
+    it (recombinations), its phasing QC at the ROI as the ROI marker review counts it
     (informative sites, Mendelian errors and their rate, and the sites read on each parent's
-    side). Its inputs: the haplotype file each member's blocks were built from and when it was
-    loaded, the number of blocks read and a SHA-256 digest of them as read (lineage tags
-    included), and the distances the calls and warnings use. A family without an embryo has no
-    such key, so its record is as it was;
+    side), and that QC's verdict against the thresholds of `services/pgt_embryo_qc.py`
+    (`qc_verdict`: `pass`; `warning`, naming each measure that does not meet its threshold with
+    its value and the threshold; or `not_counted` when no QC was counted, which is no pass), with
+    the parental sides whose markers were checked, the sides the call reads. Its inputs: the
+    haplotype file each member's blocks were built from and when it was loaded, the number of
+    blocks read and a SHA-256 digest of them as read (lineage tags included), the distances the
+    calls and warnings use, and the QC thresholds in force (`rules.qc_thresholds`). A family
+    without an embryo has no such key, so its record is as it was;
   - `nipt`, a monogenic NIPT family's only (`services/signed_record_nipt.py`; REQ-NIPT-001,
     -004, -006, -010 to -013, -015): the NIPT analysis as the NIPT page computes it at
     sign-out, by the backend's code (`nipt_service`, `nipt_quality_checks`), never by the
@@ -506,7 +510,8 @@ sentence); each reported variant's description as reviewed, classification, acce
 evidence snapshot, tags and note; the reported SVs with their description and ClinGen CNV
 scoring; in a PGT family the embryo calls (*PGT embryo results*: the ROI, the inheritance model,
 the disease haplotype, and per embryo its call, the homologs it carries at the ROI as the track
-names them (P1, P2, M1, M2), its warnings, its QC at the ROI, and the haplotype file read); in a
+names them (P1, P2, M1, M2), its warnings, its QC at the ROI and, in a record that holds them, that
+QC's verdict and the thresholds it was checked against, and the haplotype file read); in a
 monogenic NIPT family its NIPT results (*NIPT results*: the fetal fraction and the quality
 checks with their verdicts, the coverage, the funnel and the categories, each reported variant
 as the NIPT analysis classified it, the recessive fetal risk, and what the analysis ran with);
@@ -562,6 +567,13 @@ lists `modules.<key>` under `not_compared` instead of calling the record changed
 `not_captured` names the missing version. A module in the list but not held was not loaded at
 sign-out, so one loaded since is a change. A snapshot without the list names no module, so every
 reference module it does not hold is listed as missing.
+
+A PGT family's record signed before CoGA checked each embryo's phasing QC against thresholds holds
+no `qc_verdict` and no `rules.qc_thresholds`. The check compares its `pgt_analysis` on what it holds
+and lists `pgt_analysis.qc_verdict` under `not_compared`, instead of calling the record changed
+(`pgt_analysis.comparable_with_record`); a call that changed since still reads as a change. A
+record that holds the verdict is compared whole, so a verdict or a threshold changed since it was
+signed reads as a change.
 
 A section CoGA has since computed differently reads as changed too. The Sample QC now counts a check
 that could not run as `warn`, with a note naming each sample whose sex could not be checked, so for a
@@ -693,8 +705,14 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 - The embryo calls are frozen as the backend makes them at sign-out; the genome overview's and
   the chromosome view's haplotype tracks show each member's risk state from the browser's
   implementation of the same rules, which the parity cases pin but do not prove equal on every
-  input. No threshold gates an embryo call on its QC (the informative sites and Mendelian error
-  rate at the ROI): the record freezes the numbers the analyst judged.
+  input.
+- No threshold gates an embryo call on its QC. A call whose phasing QC at the ROI does not meet
+  the thresholds of `services/pgt_embryo_qc.py` (at least 50 informative sites, a Mendelian error
+  rate of at most 2 %, at least 6 markers on each parental side the call reads) carries a warning
+  beside it on the family page and in the signed version, and so does one whose QC was not
+  counted; the call stands, the sign-out is not held up, and the analyst decides (the owner's
+  decision of 2026-10-20). The thresholds are provisional: the laboratory director and QA are to
+  confirm them. The markers are counted over the ROI as a whole, not on each flank of the locus.
 - A NIPT family's record freezes the NIPT classification of the variants tagged `report`, not
   every candidate the NIPT report or a view of the NIPT page lists, and their recessive fetal
   risk over the reported variants alone. It freezes the coverage of every capture target and
