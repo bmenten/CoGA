@@ -54,6 +54,9 @@ class NiptFetalSexOut(BaseModel):
     """The fetal sex from the father's X alleles in the plasma and from its chrY coverage."""
 
     call: Literal["female", "male", "indeterminate", "discordant"]
+    # The check's verdict: signals that disagree fail it, none that tells warns
+    # (nipt_quality_checks.fetal_sex_verdict).
+    status: Literal["pass", "warn", "fail"]
     paternal_x: str
     x_transmitted: int
     x_not_transmitted: int
@@ -144,6 +147,9 @@ class NiptQcOut(BaseModel):
 
     de_novo_window: Optional[NiptDeNovoWindowOut] = None
     paternity: NiptPaternityOut
+    # The fetal-fraction check: fail without an estimate, warn on a low-confidence one
+    # (nipt_quality_checks.fetal_fraction_verdict).
+    fetal_fraction_status: Literal["pass", "warn", "fail"]
     fetal_sex: NiptFetalSexOut
     plasma_profile_status: Literal["pass", "warn", "fail", "unknown"]
     plasma_profile_message: str

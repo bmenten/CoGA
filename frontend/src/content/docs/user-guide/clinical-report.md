@@ -36,8 +36,10 @@ and refers to exactly one signed version: the one it rests on.
 **Sign out report** is your analytical sign-off: it closes the analysis and freezes the reported result
 into a numbered version with a unique fingerprint, with what the analysis looked at: each reported
 variant's description as you reviewed it, the gene panels the family's searches applied, the
-reference-data releases, and the repeat-expansion and Paraphase results. The EPD refers to the signed
-version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
+reference-data releases, and the repeat-expansion and Paraphase results; for a monogenic NIPT family,
+also its NIPT results (the NIPT page signs out through this same sign-out, see the NIPT chapter). The
+EPD refers to the signed version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for
+five things:
 
 1. **An assembly outside the validated scope** (the page says *Not validated for clinical use*): the
    report cannot be signed out.
@@ -46,8 +48,9 @@ version by its **report code** (for example `7KQM2X-2-4PHT`). It stops for five 
 3. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
    re-review, or acknowledge with a reason.
-4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity: acknowledge with
-   a reason. Each concern names the sample, the pair or the child it is about.
+4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity, and for a NIPT
+   family a NIPT quality check that failed: acknowledge with a reason. Each concern names the sample,
+   the pair or the child it is about.
 5. **An incomplete import** (the page says *Import incomplete*): import what failed again, or
    acknowledge with a reason. After an import that stopped part-way, re-run it with **overwrite**: an
    update skips data that is already there, partly written data too. After a failed overwrite that
@@ -72,8 +75,8 @@ signed version a code names.
 Only the signed version is. A signed case opens on its **latest signed version**, drawn from the frozen
 record: *Signed version N — signed out by … on …*, with its report code and fingerprint. It shows what
 was signed: each reported variant's description, classification, criteria, evidence and note, the gene
-panels applied, the repeat expansions and Paraphase results, the reference-data releases, and the checks
-at sign-out. It says what the record does not hold — the population frequencies and predictions, the
+panels applied, the repeat expansions and Paraphase results, the reference-data releases, a NIPT
+family's NIPT results, and the checks at sign-out. It says what the record does not hold — the population frequencies and predictions, the
 gene and phenotype context, the audit trail — and never fills that in from current data. **Print
 signed version N** prints it, and **Download signed version N (JSON)** returns the record itself.
 *Signed versions* lists the earlier ones.

@@ -1755,6 +1755,7 @@ export interface NiptFetalFractionOut {
 /** The fetal sex from the father's X alleles in the plasma and from its chrY coverage. */
 export interface NiptFetalSexOut {
   call: "female" | "male" | "indeterminate" | "discordant";
+  status: "pass" | "warn" | "fail";
   paternal_x: string;
   x_transmitted: number;
   x_not_transmitted: number;
@@ -1817,6 +1818,7 @@ export interface NiptPaternityOut {
 export interface NiptQcOut {
   de_novo_window: NiptDeNovoWindowOut | null;
   paternity: NiptPaternityOut;
+  fetal_fraction_status: "pass" | "warn" | "fail";
   fetal_sex: NiptFetalSexOut;
   plasma_profile_status: "pass" | "warn" | "fail" | "unknown";
   plasma_profile_message: string;

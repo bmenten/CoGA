@@ -690,10 +690,17 @@ async def get_family_nipt_summary(
     listed = await _load_listed_artifacts(session, context, assay_key)
     data = await _load_family_data(context, trio)
     removed, _protected = family_artifact_ids(data.records, listed)
+    return await _summarize_family(data, trio, qc or NiptQualityThresholds(), removed)
+
+
+async def _summarize_family(
+    data: _FamilyData, trio: NiptTrio, qc: NiptQualityThresholds, removed: set[str]
+) -> NiptFamilySummary:
+    """The summary of the family's analysis, the NIPT page's and the signed record's."""
     # The whole family callset goes through the analysis: pure CPU work, so it runs in a
     # worker thread and other requests are served meanwhile (#527).
     analysis = await asyncio.to_thread(
-        _analyse_family_sites, data, trio, qc or NiptQualityThresholds(), removed.__contains__
+        _analyse_family_sites, data, trio, qc, removed.__contains__
     )
     target_coverage = summarize_target_coverage(data.plasma_targets) if data.plasma_targets else None
     sex_chromosomes = sex_chromosome_coverage(data.plasma_targets) if data.plasma_targets else None
@@ -932,17 +939,18 @@ def _recessive_view(
     return kept, genes
 
 
-async def _de_novo_view(
+async def _triage_de_novo_candidates(
     classified: list[NiptClassifiedVariant],
     ff_estimate: FetalFractionEstimate,
     *,
     assembly_name: str | None,
     carrier_samples: dict[str, str],
     family_uuid: str,
-    min_priority: str,
 ) -> list[NiptClassifiedVariant]:
-    """The de novo candidates in the family's fetal window, triaged (nipt_triage) and
-    ranked by score, from ``min_priority`` up."""
+    """The de novo candidates among ``classified``, each given its triage (nipt_triage) in
+    the family's fetal window, whatever its label; [] without a window. The de novo view
+    lists them from a priority up; the signed record freezes the triage of each reported
+    one."""
     window = de_novo_window(ff_estimate)
     candidates = [
         item
@@ -959,8 +967,7 @@ async def _de_novo_view(
             carrier_samples=carrier_samples,
             exclude_family_uuid=family_uuid,
         )
-    wanted = _DE_NOVO_PRIORITY_LABELS.get(min_priority, _DE_NOVO_PRIORITY_LABELS["low"])
-    kept: list[NiptClassifiedVariant] = []
+    triaged: list[NiptClassifiedVariant] = []
     for item in candidates:
         assert item.site is not None
         triage = triage_de_novo(
@@ -969,9 +976,37 @@ async def _de_novo_view(
             triage_annotation(item.record),
             other_cfdna_carriers=others.get(item.record.variant_id, 0),
         )
-        if triage is None or triage.label not in wanted:
+        if triage is None:  # pragma: no cover - a window always gives a triage
             continue
         item.de_novo = triage
+        triaged.append(item)
+    return triaged
+
+
+async def _de_novo_view(
+    classified: list[NiptClassifiedVariant],
+    ff_estimate: FetalFractionEstimate,
+    *,
+    assembly_name: str | None,
+    carrier_samples: dict[str, str],
+    family_uuid: str,
+    min_priority: str,
+) -> list[NiptClassifiedVariant]:
+    """The de novo candidates in the family's fetal window, triaged (nipt_triage) and
+    ranked by score, from ``min_priority`` up."""
+    wanted = _DE_NOVO_PRIORITY_LABELS.get(min_priority, _DE_NOVO_PRIORITY_LABELS["low"])
+    triaged = await _triage_de_novo_candidates(
+        classified,
+        ff_estimate,
+        assembly_name=assembly_name,
+        carrier_samples=carrier_samples,
+        family_uuid=family_uuid,
+    )
+    kept: list[NiptClassifiedVariant] = []
+    for item in triaged:
+        if item.de_novo is None or item.de_novo.label not in wanted:
+            item.de_novo = None
+            continue
         kept.append(item)
     kept.sort(key=lambda item: -(item.de_novo.score if item.de_novo else 0))
     return kept
@@ -1124,6 +1159,111 @@ async def get_family_nipt_variants(
         variants=page_items,
         total_is_estimated=capped,
         count_limit=fetch_limit if capped else None,
+        recessive_genes=recessive_genes,
+    )
+
+
+@dataclass(slots=True)
+class NiptFamilyRecord:
+    """What the signed analysis record freezes of a family's NIPT analysis
+    (``signed_record_nipt``): the summary the NIPT page shows, the artifact list it ran
+    with, and each reported variant as the NIPT variant list classifies it."""
+
+    summary: NiptFamilySummary
+    # The assay's artifact list (its allele ids), and what it removed from the family's
+    # analysis and what the family's own annotation kept in (variant id -> reason).
+    listed_artifacts: set[str]
+    removed_artifacts: set[str]
+    protected_artifacts: dict[str, str]
+    # Each reported variant the analysis classifies, with its de novo triage when it is a
+    # candidate in the fetal window (the ones the de novo view leaves out as recurrent too).
+    variants: list[NiptClassifiedVariant]
+    # Each reported variant it does not classify, and why: not_in_data, artifact_list or
+    # no_plasma_call.
+    unclassified: dict[str, str]
+    # The recessive fetal risk of the genes the reported variants make both parents carriers
+    # in, as the recessive view computes it over them.
+    recessive_genes: list[RecessiveGeneRisk]
+
+
+# Why a reported variant has no NIPT classification.
+NOT_IN_DATA = "not_in_data"
+ON_ARTIFACT_LIST = "artifact_list"
+NO_PLASMA_CALL = "no_plasma_call"
+# The de novo triage's positions inside the family's fetal window.
+_FETAL_WINDOWS = frozenset({"strict", "loose"})
+
+
+async def get_family_nipt_record(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    trio: NiptTrio,
+    assay_key: str,
+    variant_ids: Iterable[str],
+    qc: NiptQualityThresholds | None = None,
+) -> NiptFamilyRecord:
+    """The family's NIPT analysis as the NIPT page computes it, for the signed record: the
+    summary (``get_family_nipt_summary``) and each of ``variant_ids`` classified as the
+    NIPT variant list classifies it (``get_family_nipt_variants``), against the one fetal
+    fraction, with its de novo triage when it is a candidate in the fetal window, and the
+    recessive fetal risk of the genes they make both parents carriers in. One load of the
+    family's data serves every part."""
+    qc = qc or NiptQualityThresholds()
+    listed = await _load_listed_artifacts(session, context, assay_key)
+    data = await _load_family_data(context, trio)
+    removed, protected = family_artifact_ids(data.records, listed)
+    summary = await _summarize_family(data, trio, qc, removed)
+    wanted = {str(variant_id) for variant_id in variant_ids if variant_id}
+    records = [record for record in data.records if record.variant_id in wanted]
+    classified = await asyncio.to_thread(
+        _classify_candidates,
+        records,
+        trio,
+        listed,
+        summary.analysis.fetal_fraction,
+        qc,
+        None,
+        plasma_targets=data.plasma_targets,
+        father_targets=data.father_targets,
+        family_records=data.records,
+    )
+    found = {record.variant_id for record in records}
+    classified_ids = {item.record.variant_id for item in classified}
+    unclassified: dict[str, str] = {}
+    for variant_id in sorted(wanted - classified_ids):
+        if variant_id not in found:
+            unclassified[variant_id] = NOT_IN_DATA
+        elif variant_id in removed:
+            unclassified[variant_id] = ON_ARTIFACT_LIST
+        else:
+            unclassified[variant_id] = NO_PLASMA_CALL
+    candidates = [
+        item
+        for item in classified
+        if item.site is not None and is_de_novo_candidate(item.site, item.classification)
+    ]
+    if candidates:
+        triaged = await _triage_de_novo_candidates(
+            candidates,
+            summary.analysis.fetal_fraction,
+            assembly_name=context.assembly_name,
+            carrier_samples=await assay_cfdna_carrier_samples(session, assay_key=assay_key),
+            family_uuid=context.family_uuid,
+        )
+        for item in triaged:
+            # A de novo candidate is one in the fetal window (nipt_triage): a maternal
+            # allele above it, or a call below it, is none, and the page triages neither.
+            if item.de_novo is not None and item.de_novo.window not in _FETAL_WINDOWS:
+                item.de_novo = None
+    _carriers, recessive_genes = _recessive_view(classified, qc)
+    return NiptFamilyRecord(
+        summary=summary,
+        listed_artifacts=listed,
+        removed_artifacts=removed,
+        protected_artifacts=protected,
+        variants=classified,
+        unclassified=unclassified,
         recessive_genes=recessive_genes,
     )
 

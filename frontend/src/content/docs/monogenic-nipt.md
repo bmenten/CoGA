@@ -390,8 +390,33 @@ counts only the candidates it lists. Narrow the scope with a gene panel or a gen
 again.
 
 Its header carries the warnings of every family page when they apply, *Import incomplete* and
-*Not validated for clinical use*, and prints them: the report has no sign-out to stop on a partly
-imported family.
+*Not validated for clinical use*, and prints them: the report itself prints without a sign-out to
+stop on a partly imported family. It is a live report: beside the latest signed version it says
+*This is the live report, not signed version N*, or that the analysis has not been signed out, and
+every printout starts with *Draft* or *Not the signed report*, as the live family report's does.
+
+---
+
+## Sign-out
+
+**Sign out NIPT analysis** on the NIPT page signs the analysis out: the analyst's analytical sign-off,
+which closes and freezes the analysis into the family's signed record (the medical sign-off of the
+patient report happens in the EPD, which refers to the record by its report code). It is the family
+sign-out, with its checks and report code: one record per family, whether it is signed out here or from
+the family report. Once signed, the button reads **Amend sign-out**, and the page names the latest
+signed version, its report code, and whether the family's data still matches it.
+
+For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out: the
+fetal fraction and the quality checks with their verdicts, the coverage of the capture targets, the
+filter funnel and the category counts, each variant tagged *report* as this analysis classifies it (its
+category, reads, inheritance probabilities and, for a de novo candidate in the fetal window, its
+priority), the recessive fetal risk of the reported variants' genes, and what the analysis ran with
+(the coverage tables, the artifact list and the model). The signed version shows them.
+
+Sign-out stops at the family's checks. Besides the Sample QC, a NIPT quality check that failed stops it
+until you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, or male
+DNA given as the maternal plasma. Tag the variants you report before you sign out: a variant without
+the *report* tag is not frozen with its classification.
 
 ---
 

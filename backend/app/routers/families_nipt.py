@@ -36,9 +36,9 @@ from ..services.nipt_analysis import (
     NIPT_MODEL_REFERENCE,
     OVERDISPERSION,
     NiptQualityThresholds,
-    combined_fetal_sex,
 )
 from ..services.nipt_coverage import DEFAULT_MIN_DEPTH
+from ..services.nipt_quality_checks import nipt_quality_checks
 from ..services.nipt_service import (
     NiptClassifiedVariant,
     NiptFamilySummary,
@@ -48,8 +48,7 @@ from ..services.nipt_service import (
     get_family_nipt_variants,
 )
 from ..services.nipt_target_coverage import TargetCoverageRow, TargetCoverageSummary
-from ..services.nipt_triage import RecessiveGeneRisk, de_novo_window
-from ..services.sample_integrity_qc import evaluate_paternity
+from ..services.nipt_triage import RecessiveGeneRisk
 
 
 router = APIRouter()
@@ -109,37 +108,14 @@ def _target_coverage_out(summary: TargetCoverageSummary) -> NiptTargetCoverageOu
     )
 
 
-# The plasma's sex profile (nipt_target_coverage.sex_chromosome_coverage) as a QC verdict:
-# male DNA cannot be maternal plasma.
-_PLASMA_PROFILE_VERDICTS: dict[str, tuple[str, str]] = {
-    "female_no_chrY_signal": ("pass", "Female plasma; no chrY signal (a female fetus, or a low fetal fraction)."),
-    "female_with_male_fetal_signal": ("pass", "Female plasma with a male fetal chrY signal."),
-    "high_chrY_review": ("warn", "chrY coverage near the autosomal level: check that this is maternal plasma."),
-    "male_like_not_maternal_plasma": (
-        "fail",
-        "Male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.",
-    ),
-    "no_chrY_targets": ("unknown", "The panel has no chrY target: no sex profile."),
-}
-
-
 def _qc_out(summary: NiptFamilySummary) -> NiptQcOut:
-    analysis = summary.analysis
-    ff = analysis.fetal_fraction
-    window = de_novo_window(ff)
-    evidence = analysis.paternal_transmission
-    paternity = evaluate_paternity(
-        "father",
-        hom_alt_transmitted=evidence.hom_alt_transmitted,
-        hom_alt_not_transmitted=evidence.hom_alt_not_transmitted,
-        het_transmitted=evidence.het_transmitted,
-        het_not_transmitted=evidence.het_not_transmitted,
-    )
+    # The verdicts are made once, in nipt_quality_checks: the signed record freezes the same.
+    checks = nipt_quality_checks(summary)
+    window = checks.de_novo_window
+    evidence = checks.paternal_transmission
+    paternity = checks.paternity
+    fetal_sex = checks.fetal_sex
     sex = summary.sex_chromosomes
-    profile = sex.profile if sex is not None else None
-    status, message = _PLASMA_PROFILE_VERDICTS.get(
-        profile or "", ("unknown", "No per-target coverage: no sex profile.")
-    )
     qc = NiptQualityThresholds()
     return NiptQcOut(
         de_novo_window=(
@@ -162,25 +138,25 @@ def _qc_out(summary: NiptFamilySummary) -> NiptQcOut:
             status=paternity.status,
             message=paternity.message,
         ),
+        fetal_fraction_status=checks.fetal_fraction_check.status,
         fetal_sex=NiptFetalSexOut(
-            call=combined_fetal_sex(  # type: ignore[arg-type]
-                analysis.fetal_sex.inferred, profile, ff.ff_computed or 0.0
-            ),
-            paternal_x=analysis.fetal_sex.inferred,
-            x_transmitted=analysis.fetal_sex.x_transmitted,
-            x_not_transmitted=analysis.fetal_sex.x_not_transmitted,
-            informative_sites=analysis.fetal_sex.informative_sites,
-            chry_profile=profile,
+            call=fetal_sex.call,  # type: ignore[arg-type]
+            status=fetal_sex.status,
+            paternal_x=fetal_sex.paternal_x.inferred,
+            x_transmitted=fetal_sex.paternal_x.x_transmitted,
+            x_not_transmitted=fetal_sex.paternal_x.x_not_transmitted,
+            informative_sites=fetal_sex.paternal_x.informative_sites,
+            chry_profile=fetal_sex.chry_profile,
             y_ratio=sex.y_ratio if sex is not None else None,
             x_ratio=sex.x_ratio if sex is not None else None,
             chry_fetal_fraction=sex.fetal_fraction_estimate if sex is not None else None,
         ),
-        plasma_profile_status=status,  # type: ignore[arg-type]
-        plasma_profile_message=message,
+        plasma_profile_status=checks.plasma_sample.status,
+        plasma_profile_message=checks.plasma_sample.message,
         target_coverage=(
             _target_coverage_out(summary.target_coverage) if summary.target_coverage is not None else None
         ),
-        quality_failures=analysis.quality_failure_counts,
+        quality_failures=checks.quality_failures,
         model=NiptModelOut(
             reference=NIPT_MODEL_REFERENCE,
             overdispersion=OVERDISPERSION,

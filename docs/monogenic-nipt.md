@@ -108,6 +108,16 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
 - **Paternity** — `paternal_transmission_evidence` counts his hom-alt and het alleles seen and not seen
   where the mother does not carry them and `n × FF/2 ≥ 10`; `sample_integrity_qc.evaluate_paternity`
   turns the rates into a verdict.
+- **The verdicts** — `nipt_quality_checks.py` makes every verdict of the page's quality checks, once:
+  the fetal fraction (`fail` without an estimate, `warn` low-confidence), the fetal sex (`fail` when the
+  two signals disagree, `warn` when neither tells), paternity and the plasma sample's sex profile. The
+  summary endpoint serves them (`fetal_fraction_status`, `fetal_sex.status`; the page made the first two
+  in the browser before) and the signed record freezes them.
+- **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT page or the
+  report page; its record holds the section `nipt` (`signed_record_nipt.py`: the summary, the checks,
+  each reported variant as the variant list classifies it, from `nipt_service.get_family_nipt_record`,
+  and the inputs), and a failed fetal-fraction, fetal-sex or plasma check gates it under the Sample QC's
+  acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)).
 - **De novo triage** — `nipt_triage.py`: `is_de_novo_candidate`, `de_novo_window`, `triage_de_novo`
   (the R pipeline's score and priorities; other cfDNA carriers of the assay from
   `count_cfdna_carriers`, `clickhouse_family_variants.py`, over `assay_cfdna_carrier_samples`: a
@@ -187,7 +197,9 @@ These are described for lab users in the in-app reference.
 
 - Backend: `backend/app/services/nipt.py` (tags, trio), `nipt_analysis.py` (the model, pure),
   `nipt_triage.py` (de novo triage, recessive risk, pure), `nipt_target_coverage.py` (coverage tables,
-  pure), `nipt_service.py` (wiring to family data, the views), `family_package_nipt.py` (the pair
+  pure), `nipt_service.py` (wiring to family data, the views), `nipt_quality_checks.py` (the checks'
+  verdicts, pure), `signed_record_nipt.py` (the signed record's NIPT section),
+  `family_package_nipt.py` (the pair
   import), `vcf_call_metrics.py`, `nipt_artifact_pg.py`, `nipt_coverage.py` (the ROI fallback),
   `coverage_read_depth.py` (the coverage track the fallback reads as depth),
   `routers/families_nipt.py`, `schemas/nipt.py`.

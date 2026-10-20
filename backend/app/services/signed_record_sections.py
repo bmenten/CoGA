@@ -19,7 +19,11 @@ of its own:
 * ``repeat_expansions`` — each TRGT call of the family's samples, with its status as CoGA
   classifies it at sign-out and the thresholds and catalogue behind it;
 * ``paraphase`` — each Paraphase result of the family's samples, with its status as CoGA
-  classifies it at sign-out and the catalogue rule behind it.
+  classifies it at sign-out and the catalogue rule behind it;
+* ``nipt`` — a monogenic NIPT family's only: its NIPT analysis as the NIPT page shows it, the
+  reported variants' classification among it, and the inputs it ran with
+  (``signed_record_nipt``). A section with an ``application`` is held by that application's
+  families alone: another family's record holds no such key, and is as it was.
 
 Every section is built inside a savepoint. A section that cannot be read is frozen as
 ``{"unavailable": <a fixed sentence>}``, never as an empty one that would read as "nothing
@@ -69,6 +73,7 @@ from .paraphase_pg import (
     load_paraphase_medical_regions,
 )
 from .repeat_expansion_pg import get_family_repeat_expansion_table_response
+from .signed_record_nipt import is_nipt_family, nipt_results
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +89,9 @@ class RecordSection:
     key: str
     label: str
     unavailable: str
+    # The application whose families' records hold it (sample_integrity_qc's kinds, such as
+    # "nipt"); None: every family's. A family of another application holds no such key.
+    application: str | None = None
 
 
 VARIANT_DESCRIPTIONS = RecordSection(
@@ -107,6 +115,9 @@ REPEAT_EXPANSIONS = RecordSection(
 PARAPHASE = RecordSection(
     "paraphase", "Paraphase results", "The Paraphase results could not be read."
 )
+NIPT_RESULTS = RecordSection(
+    "nipt", "NIPT results", "The NIPT results could not be read.", application="nipt"
+)
 
 RECORD_SECTIONS: tuple[RecordSection, ...] = (
     VARIANT_DESCRIPTIONS,
@@ -114,6 +125,7 @@ RECORD_SECTIONS: tuple[RecordSection, ...] = (
     REFERENCE_DATA,
     REPEAT_EXPANSIONS,
     PARAPHASE,
+    NIPT_RESULTS,
 )
 
 # The parts of ``reference_data``, each frozen as unavailable on its own.
@@ -592,7 +604,8 @@ async def build_record_sections(
     reported: Sequence[Mapping[str, Any]],
     reported_structural: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any]:
-    """Every section of ``RECORD_SECTIONS``, keyed by its snapshot key."""
+    """Every section of ``RECORD_SECTIONS`` the family's record holds, keyed by its snapshot
+    key: each one without an application, and the NIPT section of a monogenic NIPT family."""
     descriptions = await _guarded(
         session,
         VARIANT_DESCRIPTIONS.unavailable,
@@ -603,7 +616,7 @@ async def build_record_sections(
             structural_ids=[str(entry.get("variant_id") or "") for entry in reported_structural],
         ),
     )
-    return {
+    sections = {
         VARIANT_DESCRIPTIONS.key: descriptions,
         GENE_PANELS.key: await _guarded(
             session,
@@ -620,6 +633,19 @@ async def build_record_sections(
             session, PARAPHASE.unavailable, lambda: paraphase_results(session, context)
         ),
     }
+    # Read outside a savepoint of its own: whether the record holds the key at all cannot be
+    # frozen as unavailable.
+    if await is_nipt_family(session, context):
+        sections[NIPT_RESULTS.key] = await _guarded(
+            session,
+            NIPT_RESULTS.unavailable,
+            lambda: nipt_results(
+                session,
+                context,
+                reported_ids=[str(entry.get("variant_id") or "") for entry in reported],
+            ),
+        )
+    return sections
 
 
 async def _gene_panels(session: AsyncSession, context: FamilyMetadataContext) -> dict[str, Any]:

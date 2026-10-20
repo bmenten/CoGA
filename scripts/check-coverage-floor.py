@@ -48,6 +48,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/mitochondrial_analysis.py": 72.0,  # (75.4)
     "backend/app/services/monarch_semsim.py": 65.0,  # (68.8)
     "backend/app/services/nipt_analysis.py": 94.0,  # (97.7)
+    # (100.0 measured locally when it was added: the NIPT quality checks' verdicts, which
+    # the NIPT page shows and the signed record freezes)
+    "backend/app/services/nipt_quality_checks.py": 97.0,
     "backend/app/services/nipt_service.py": 92.0,  # (95.9)
     "backend/app/services/nipt_target_coverage.py": 93.0,  # (95.6)
     "backend/app/services/nipt_triage.py": 93.0,  # (96.8)
@@ -61,6 +64,9 @@ MODULE_FLOORS: dict[str, float] = {
     "backend/app/services/review_pg_utils.py": 87.0,  # (90.2)
     "backend/app/services/sample_integrity_qc.py": 90.0,  # (93.4)
     "backend/app/services/sample_integrity_service.py": 91.0,  # (94.4) feeds the sign-out gate
+    # (100.0 measured locally when it was added: the NIPT section of the signed analysis
+    # record)
+    "backend/app/services/signed_record_nipt.py": 97.0,
     # (100.0 measured locally when it was added: what the signed analysis record freezes of
     # what the analysis looked at)
     "backend/app/services/signed_record_sections.py": 97.0,

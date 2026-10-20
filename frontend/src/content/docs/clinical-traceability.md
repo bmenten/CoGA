@@ -140,11 +140,25 @@ the clinical report in the EPD refers to:
   **reference-data releases** (the gene reference for the reported genes and the clinical CNV
   knowledgebase), and the family's **repeat expansions** (TRGT) and **Paraphase** results, each with
   its status as CoGA reads it at sign-out and the catalogue behind it;
+- for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out: the
+  fetal fraction, the quality checks with their verdicts (paternity, the fetal sex from both signals,
+  the maternal plasma sample), the coverage of the capture targets, the category counts and the
+  filter funnel, each variant tagged *report* as the NIPT analysis classifies it (its category, the
+  reads behind it, the chance the fetus inherited it and, for a de novo candidate, its priority), the
+  recessive fetal risk of the reported variants' genes, and what the analysis ran with (the coverage
+  tables, the artifact list and the model);
 - a sentence that says what the record is (the analytical sign-off, referred to by the EPD);
 - the CoGA software version that produced it.
 
 A signed version can never change; any later tampering would show as a fingerprint mismatch. A part
 that could not be read while the version was frozen is recorded as not captured, never as empty.
+
+A monogenic NIPT family is signed out from the NIPT page as well (**Sign out NIPT analysis**): the
+same sign-out, with the same checks and report code, into the family's one signed record. Where you
+sign out from makes no difference to what is frozen. The NIPT page names the latest signed version
+with its report code and says whether the family's data still matches it. The NIPT report is live,
+like the live family report: it says so on screen, and every printout of it starts with *Draft* or
+*Not the signed report*.
 
 ### The report code
 
@@ -172,7 +186,7 @@ Sign-out stops at each of these, in this order:
 | **Assembly scope** | The family is on an assembly outside the validated scope (GRCh38 unless the laboratory set otherwise). The pages carry *Not validated for clinical use*. | No override: the report cannot be signed out. |
 | **Data being written** | A data import of the family is queued or running, or its data are being written (an upload, or a deletion of its variants). | No override: sign out once it has finished. |
 | **Evidence drift** | A reported classification, of a small variant, a structural variant or a CNV, drifted (banner above), or has no frozen evidence. | Re-review, or acknowledge with a reason (*Evidence drift — acknowledgement required*). |
-| **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
+| **Sample QC** | Sample QC failed, or a check that confirms the pedigree or a sample's identity could not run for lack of data (a parent–child or sibling relationship, a Mendelian check, NIPT paternity or maternal lineage, or the sex of a sample that no relatedness check covers, such as a NIPT parent). For a NIPT family, also a NIPT quality check that failed: no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA given as the maternal plasma. | Acknowledge with a reason (*Sample-integrity QC — acknowledgement required*). |
 | **Incomplete import** | A data import for the family partly failed, or stopped part-way, so some of its data is missing or partly written. The pages carry *Import incomplete* (below). | Import what failed again, or acknowledge with a reason (*Incomplete import — acknowledgement required*). |
 
 An acknowledgement and its reason are frozen into the signed version and written to the audit trail,
@@ -199,7 +213,7 @@ If a data import fails for some datasets and leaves the family partly loaded, Co
 load and marks the family as incomplete. Every family page, the reports included, then shows
 *Import incomplete*: the datasets that failed and those that did import, when, and the import job
 whose record holds each dataset's error. The warning prints with the report, and with the NIPT
-report, which has no sign-out to stop on it.
+report, a live report that prints without a sign-out to stop on it.
 
 Results on such a family can lack whole datasets, for example all its structural variants. Import
 the datasets that failed again to complete the family: the warning goes once each has been imported
@@ -267,6 +281,11 @@ It shows what the record holds:
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
+- for a monogenic NIPT family, its **NIPT results**: the fetal fraction and the quality checks with
+  their verdicts, the coverage, the filter funnel and the categories, each reported variant as the NIPT
+  analysis classified it, the recessive fetal risk and what the analysis ran with. A NIPT family's
+  version signed before CoGA froze them says *Not in the signed record*; another family's record has
+  no NIPT results and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
 - the versions it was signed with and the reference-data releases, in the footer, with the report code.
