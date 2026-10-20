@@ -7,12 +7,13 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .core.azure import verify_azure_token
+from .core.azure import AzureTokenError, verify_azure_token
 from .core.config import settings
 from .core.postgres import get_postgres_session
 from .services.access_control import ADMIN_ROLES, CurrentUser, request_changes_records
 from .services.family_identifiers import request_value_problem
-from .services.metadata_service import get_current_user_by_email
+from .services.metadata_service import get_auth_user_mapping_by_email, get_current_user_by_email
+from .services.user_accounts import is_emergency_admin, microsoft_account_user
 
 logger = logging.getLogger(__name__)
 
@@ -48,62 +49,106 @@ def create_access_token(data: dict) -> str:
     return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
 
 
+# A refused bearer token, the same answer whatever the reason (no account, a bad signature, an
+# expired token): it tells a caller nothing about which accounts exist.
+_CREDENTIALS_DETAIL = "Could not validate credentials"
+# An account of a verified Microsoft sign-in that an administrator has deactivated.
+INACTIVE_MICROSOFT_ACCOUNT_DETAIL = (
+    "Your CoGA account is not active. Ask a CoGA administrator to activate it."
+)
+
+
+def _refused(detail: str = _CREDENTIALS_DETAIL) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=detail,
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _local_token_email(token: str) -> str | None:
+    """The account a token this server issued names (``sub``): HS256, signed with SECRET_KEY,
+    unexpired. Raises the 401 for any other token."""
+    try:
+        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+    except jwt.PyJWTError as exc:
+        raise _refused() from exc
+    email = payload.get("sub")
+    return email if isinstance(email, str) and email else None
+
+
+async def _microsoft_user(token: str, session: AsyncSession, request: Request | None) -> CurrentUser:
+    """The account a Microsoft access token signs in, made at its first sign-in (SEC-4)."""
+    try:
+        identity = await verify_azure_token(
+            token,
+            tenant_id=str(settings.azure_tenant_id),
+            client_id=str(settings.azure_client_id),
+            scope_name=settings.azure_api_scope_name,
+        )
+    except AzureTokenError as exc:
+        if str(exc) != "expired":
+            # Why, never the token: a refusal other than expiry usually means the app
+            # registration and CoGA's settings disagree (docs/deployment-gcp.md).
+            logger.warning("microsoft sign-in: token refused: %s", exc)
+        raise _refused() from exc
+    user, created = await microsoft_account_user(session, identity)
+    if created is not None and request is not None:
+        request.state.account_change = created
+    if not user.is_active:
+        raise _refused(INACTIVE_MICROSOFT_ACCOUNT_DETAIL)
+    return user
+
+
+async def _emergency_admin(token: str, session: AsyncSession, request: Request | None) -> CurrentUser:
+    """With Microsoft sign-in, a token this server issued signs in the emergency administrator
+    only, and only while AZURE_ADMIN_OVERRIDE is on; each use is logged and flagged in the
+    request audit (SEC-4)."""
+    if not settings.azure_admin_override:
+        raise _refused()
+    email = _local_token_email(token)
+    account = await get_auth_user_mapping_by_email(session, email) if email else None
+    if account is None or not account["is_active"] or not is_emergency_admin(account):
+        raise _refused()
+    user = await get_current_user_by_email(session, account["email"])
+    if user is None:
+        raise _refused()
+    logger.warning(
+        "azure_admin_override: the emergency administrator %s (role=%s) used a password "
+        "sign-in beside Microsoft sign-in; switch AZURE_ADMIN_OVERRIDE off when the emergency "
+        "is over",
+        user.id,
+        user.role,
+    )
+    if request is not None:
+        request.state.emergency_sign_in = True
+    return user
+
+
 async def get_current_user(
     token: str = Depends(oauth2_scheme),
     session: AsyncSession = Depends(get_postgres_session),
     request: Request = None,
 ) -> CurrentUser:
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    email = None
-    local_override = False
-    if settings.azure_client_id and settings.azure_tenant_id:
+    if settings.azure_ad_enabled:
+        # A Microsoft access token is RS256; a token this server issued is HS256. The header
+        # only picks the check: each check takes its own algorithm alone.
         try:
-            payload = verify_azure_token(
-                token, settings.azure_tenant_id, settings.azure_client_id
-            )
-            email = payload.get("preferred_username") or payload.get("email")
-        except Exception as azure_exc:
-            if settings.azure_admin_override:
-                try:
-                    payload = jwt.decode(
-                        token, settings.secret_key, algorithms=[settings.algorithm]
-                    )
-                    email = payload.get("sub")
-                    local_override = True
-                except jwt.PyJWTError as exc:
-                    raise credentials_exception from exc
-            else:
-                raise credentials_exception from azure_exc
-    else:
-        try:
-            payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
-            email = payload.get("sub")
+            algorithm = jwt.get_unverified_header(token).get("alg")
         except jwt.PyJWTError as exc:
-            raise credentials_exception from exc
-    if email is None:
-        raise credentials_exception
-    user = await get_current_user_by_email(session, email)
-    if user is None:
-        raise credentials_exception
-    if not user.is_active:
-        raise credentials_exception
-    if local_override and user.role not in ADMIN_ROLES:
-        raise credentials_exception
-    if local_override:
-        # The Azure-SSO break-glass path accepted a locally-issued HS256 token for
-        # an admin. This is gated (AZURE_ADMIN_OVERRIDE, default off) and admin-only,
-        # but every use must leave an audit trail so it can be caught if enabled in
-        # production by mistake.
-        logger.warning(
-            "azure_admin_override: accepted a locally-issued HS256 token for admin "
-            "user %s (role=%s); AZURE_ADMIN_OVERRIDE should be disabled in production",
-            user.email,
-            user.role,
-        )
+            raise _refused() from exc
+        if algorithm == "RS256":
+            user = await _microsoft_user(token, session, request)
+        elif algorithm == settings.algorithm:
+            user = await _emergency_admin(token, session, request)
+        else:
+            raise _refused()
+    else:
+        email = _local_token_email(token)
+        found = await get_current_user_by_email(session, email) if email else None
+        if found is None or not found.is_active:
+            raise _refused()
+        user = found
     request.state.current_user = user
     # Whether this request changes something a reader may not change (SEC-1). The family,
     # sample and project checkpoints read it, so every route that names a record is held to

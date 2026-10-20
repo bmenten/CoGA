@@ -55,6 +55,9 @@ class CurrentUser(BaseModel):
     first_name: str = ""
     last_name: str = ""
     affiliation: str = ""
+    # The Microsoft object ID of an account that signs in with Microsoft (SEC-4); None for a
+    # local account.
+    azure_object_id: str | None = None
     is_active: bool = True
     role: str
     projects: list[str] = Field(default_factory=list)

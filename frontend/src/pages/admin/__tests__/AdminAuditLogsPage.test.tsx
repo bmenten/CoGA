@@ -212,6 +212,60 @@ describe('AdminAuditLogsPage flags', () => {
     expect(within(odd).getByText('Escaped')).toBeInTheDocument();
   });
 
+  // SEC-4: an account made at a first Microsoft sign-in, an administrator's role or activation
+  // change (request_meta.account_change, each field from and to), and every request of the
+  // emergency administrator's password sign-in (request_meta.emergency_sign_in).
+  it('flags an account made or changed, and the emergency sign-in', async () => {
+    serve([
+      requestRow('evt-made', '/api/auth/me', {
+        request_meta: {
+          account_change: {
+            user_id: 'u-new',
+            email: 'new.colleague@example.org',
+            created: 'microsoft_sign_in',
+            role: { from: null, to: 'viewer' },
+          },
+        },
+      }),
+      requestRow('evt-role', '/api/auth/users/{user_id}', {
+        method: 'PATCH',
+        request_meta: {
+          emergency_sign_in: true,
+          account_change: {
+            user_id: 'u-new',
+            email: 'new.colleague@example.org',
+            role: { from: 'viewer', to: 'admin' },
+            is_active: { from: true, to: false },
+          },
+        },
+      }),
+      requestRow('evt-emergency', '/api/auth/login', {
+        method: 'POST',
+        request_meta: { emergency_sign_in: true },
+      }),
+      requestRow('evt-not-flags', '/api/projects', {
+        request_meta: { emergency_sign_in: 'yes', account_change: { user_id: 'u-new' } },
+      }),
+    ]);
+    renderPage();
+    await screen.findByText('/api/projects');
+
+    expect(flagsOf('/api/auth/me')).toHaveTextContent(
+      'Account new.colleague@example.org: made at its first Microsoft sign-in',
+    );
+    const role = flagsOf('/api/auth/users/{user_id}');
+    expect(within(role).getByText('Emergency sign-in')).toHaveAttribute(
+      'title',
+      expect.stringMatching(/emergency administrator’s password beside Microsoft sign-in/),
+    );
+    expect(
+      within(role).getByText('Account new.colleague@example.org: role viewer → admin, deactivated'),
+    ).toBeInTheDocument();
+    expect(flagsOf('/api/auth/login')).toHaveTextContent(/^Emergency sign-in$/);
+    // A value that is not the writer's own (a string, a change without any field) is no flag.
+    expect(flagsOf('/api/projects')).toHaveTextContent(/^—$/);
+  });
+
   it('flags a UI interaction stored with escaped values, and nothing a client could write itself', async () => {
     serve(
       [],

@@ -38,7 +38,6 @@ from backend.app.services.clickhouse_family_variants import (
     get_family_small_variants_page,
 )
 from backend.app.services.clickhouse_variant_queries import (
-    _PANEL_REGION_INLINE_LIMIT,
     _SMALL_INHERITANCE_MAX_CANDIDATE_ROWS,
     _call_has_alt,
     _call_is_het,
@@ -230,13 +229,12 @@ def _sql_prefilter(record: SmallVariantRecord, filters, context: FamilyMetadataC
 
 def _panel_sql_match(record: SmallVariantRecord, constraints: PanelFilterConstraints | None) -> bool:
     """The panel part of the SQL filter (``_small_panel_filter_condition``), as
-    test_ranking_cache_sub_panel.py models it."""
+    test_ranking_cache_sub_panel.py models it: a gene of the panel, or a region of it,
+    whatever its size."""
     if constraints is None or not (constraints.genes or constraints.regions):
         return True
     if constraints.genes and _small_record_hits_gene_terms(record, constraints.genes):
         return True
-    if constraints.genes and len(constraints.regions) > _PANEL_REGION_INLINE_LIMIT:
-        return False
     return _variant_overlaps_regions(record.chr, record.start, record.end, constraints.regions)
 
 

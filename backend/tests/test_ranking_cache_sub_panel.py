@@ -16,12 +16,15 @@ no loci: it keeps the variants annotated with the gene, wherever the reference p
 (ENG-1).
 
 CLIN-34 and CLIN-35: a served panel is what a fresh computation of that panel gives. The
-broader ranking must hold every variant the panel reaches: a panel of more than
-``_PANEL_REGION_INLINE_LIMIT`` regions (the Mendeliome) is matched on gene symbols alone,
-so its ranking lacks a variant a smaller panel reaches by position only. The ranks are
-numbered within the panel, and a compound-het pair whose partner the panel leaves out is no
-pair: such a ranking is not used, and the panel is computed afresh. These tests compare a
-served panel with a fresh computation of the same panel.
+broader ranking must hold every variant the panel reaches. Every panel is matched by its
+genes and its regions, the Mendeliome too (owner decision 2026-10-14: a panel of more than
+1,000 regions was matched on gene symbols alone, so its ranking lacked a variant a smaller
+panel reaches by position only), so the Mendeliome's ranking now holds the variants a
+sub-panel reaches through a gene's locus; it still lacks one a sub-panel reaches by a region
+of its own only (coordinates PanelApp gave for a gene). The ranks are numbered within the
+panel, and a compound-het pair whose partner the panel leaves out is no pair: such a ranking
+is not used, and the panel is computed afresh. These tests compare a served panel with a
+fresh computation of the same panel.
 
 Drives ``_prioritized_small_variants_page`` with the real cache keys, the real superset
 path and the real record filter, over an in-memory stand-in for the cache rows, the panel
@@ -40,7 +43,6 @@ from fastapi import HTTPException
 from backend.app.services import clickhouse_family_variants as cfv
 from backend.app.services import variant_ranking_cache as vrc
 from backend.app.services.clickhouse_variant_queries import (
-    _PANEL_REGION_INLINE_LIMIT,
     _parse_interval_regions,
     _segregation_modes_by_variant,
     _small_record_hits_gene_terms,
@@ -63,9 +65,9 @@ OTHER = "0b5e1c1e-0000-4000-8000-000000000003"
 MENDELIOME = "0b5e1c1e-0000-4000-8000-000000000004"
 
 # Genes of the Mendeliome stand-in besides GENE1-3, one locus each on chromosome 2, where the
-# family has no variant: with them it has more regions than the panel filter inlines, so,
-# like the real Mendeliome, it is matched on gene symbols alone.
-FILLER_GENES = tuple(f"FILLER{index:04d}" for index in range(_PANEL_REGION_INLINE_LIMIT))
+# family has no variant: with them it has more than 1,000 regions, as the real Mendeliome
+# has, above which a panel used to be matched on gene symbols alone.
+FILLER_GENES = tuple(f"FILLER{index:04d}" for index in range(1_000))
 
 
 def _variant(
@@ -158,17 +160,14 @@ def _trio_context() -> FamilyMetadataContext:
 
 def _panel_sql_match(record: SmallVariantRecord, constraints: PanelFilterConstraints | None) -> bool:
     """The panel part of the SQL filter (``_small_panel_filter_condition``): the variant's
-    gene symbols, or its position while the panel has at most
-    ``_PANEL_REGION_INLINE_LIMIT`` regions. Above that, a panel with genes is matched on its
-    gene symbols alone. The real condition is checked in test_clickhouse_family_variants.py
-    (``test_small_panel_filter_skips_region_inlining_for_large_gene_panels``,
-    ``test_small_panel_filter_keeps_regions_for_normal_panels``)."""
+    gene symbols, or its position, whatever the panel's size. The real condition is checked
+    in test_clickhouse_family_variants.py (``test_small_panel_filter_keeps_the_regions_of_large_gene_panels``,
+    ``test_small_panel_filter_keeps_regions_for_normal_panels``) and, on ClickHouse, in
+    integration/test_small_variant_filter_parity_clickhouse.py."""
     if constraints is None or not (constraints.genes or constraints.regions):
         return True
     if constraints.genes and _small_record_hits_gene_terms(record, constraints.genes):
         return True
-    if constraints.genes and len(constraints.regions) > _PANEL_REGION_INLINE_LIMIT:
-        return False
     return _variant_overlaps_regions(record.chr, record.start, record.end, constraints.regions)
 
 
@@ -192,8 +191,12 @@ class _World:
         # inputs_hash -> cache row, as family_variant_ranking_cache holds it
         self.cache: dict[str, dict[str, Any]] = {}
 
-    def set_panel(self, panel_id: str, *genes: str, version: int = 1) -> None:
-        self.panels[panel_id] = {"version": version, "genes": list(genes)}
+    def set_panel(
+        self, panel_id: str, *genes: str, version: int = 1, regions: tuple[Region, ...] = ()
+    ) -> None:
+        """A panel of ``genes``, with ``regions`` stored for it (as PanelApp's coordinates
+        are stored) besides its genes' loci in the gene reference."""
+        self.panels[panel_id] = {"version": version, "genes": list(genes), "regions": list(regions)}
 
     def row_for(self, panel_id: str | None) -> dict[str, Any]:
         rows = [row for row in self.cache.values() if row["panel_id"] == panel_id]
@@ -232,7 +235,10 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
         panel = state.panels.get(panel_id)
         if panel is None:
             raise HTTPException(status_code=404, detail="Panel not found")
-        regions = [region for gene in panel["genes"] for region in state.loci.get(gene, [])]
+        regions = [
+            *panel["regions"],
+            *(region for gene in panel["genes"] for region in state.loci.get(gene, [])),
+        ]
         return PanelFilterConstraints(genes=tuple(panel["genes"]), regions=tuple(regions))
 
     async def _fetch_gene_regions(_session, *, gene_query, assembly_id):
@@ -543,32 +549,62 @@ def test_a_ranking_computed_without_the_query_s_intervals_is_not_served_for_it(w
 
 
 def _mendeliome(world: _World) -> None:
-    """The Mendeliome stand-in: GENE1-3 and the fillers, more regions than the panel filter
-    inlines, so it is matched on gene symbols alone."""
+    """The Mendeliome stand-in: GENE1-3 and the fillers, more than 1,000 regions, as the
+    real Mendeliome has."""
     world.set_panel(MENDELIOME, "GENE1", "GENE2", "GENE3", *FILLER_GENES)
     regions = [region for gene in world.panels[MENDELIOME]["genes"] for region in world.loci[gene]]
-    assert len(regions) > _PANEL_REGION_INLINE_LIMIT
+    assert len(regions) > 1_000
 
 
-def test_a_variant_the_panel_reaches_by_position_is_not_lost_to_a_ranking_on_symbols(world) -> None:
+def test_the_mendeliome_reaches_a_variant_by_position_and_serves_the_panel_that_does(world) -> None:
     # The annotation names the gene by another symbol than the gene reference does (here a
     # previous symbol of GENE2), so a panel with GENE2 reaches the variant only by its
-    # position in GENE2's locus. The Mendeliome is matched on gene symbols alone, so its
-    # ranking does not hold the variant, and the panel served from it lost the variant.
+    # position in GENE2's locus. The Mendeliome was matched on gene symbols alone: its
+    # ranking lacked the variant, and the panel had to be computed for itself (CLIN-34).
+    # Matched by position too, the Mendeliome keeps the variant, and its ranking serves the
+    # panel as the panel's own computation ranks it (owner decision 2026-10-14).
     previous_symbol = _variant("1-3600-A-G", "GENE2_PREVIOUS", start=3600)
     world.records.append(previous_symbol)
     _mendeliome(world)
     world.set_panel(NARROW, "GENE2")
     mendeliome = _open(MENDELIOME)
-    assert _ids(mendeliome) == [GENE1_A.variant_id, GENE2_A.variant_id, GENE3_A.variant_id]
+    assert _ids(mendeliome) == [
+        GENE1_A.variant_id,
+        GENE2_A.variant_id,
+        previous_symbol.variant_id,
+        GENE3_A.variant_id,
+    ]
 
     narrow = _open(NARROW)
     fresh = _fresh(world, NARROW)
     assert _ids(fresh) == [GENE2_A.variant_id, previous_symbol.variant_id]
+    assert narrow.ranking_cached is True
     assert _ranked(narrow) == _ranked(fresh)
     assert narrow.total == fresh.total == 2
-    # Not served from the Mendeliome's ranking: computed for the panel itself.
+
+
+def test_a_variant_a_panel_reaches_by_a_region_of_its_own_is_not_lost_to_a_broader_ranking(
+    world,
+) -> None:
+    # A panel imported from PanelApp stores PanelApp's coordinates for GENE2, which reach
+    # further than the gene reference's locus: over a variant annotated with another gene
+    # that no gene or locus of the Mendeliome reaches. The Mendeliome holds GENE2, so it
+    # covers the panel's genes, but its ranking lacks the variant: the panel is computed
+    # for itself, with it, not served without it. Matching large panels by position does
+    # not make this check redundant.
+    beyond_the_locus = _variant("1-4500-A-G", "OTHER_GENE", start=4500)
+    world.records.append(beyond_the_locus)
+    _mendeliome(world)
+    world.set_panel(NARROW, "GENE2", regions=(Region(chr="chr1", start=3000, end=4800),))
+    mendeliome = _open(MENDELIOME)
+    assert beyond_the_locus.variant_id not in _ids(mendeliome)
+
+    narrow = _open(NARROW)
+    fresh = _fresh(world, NARROW)
+    assert _ids(fresh) == [GENE2_A.variant_id, beyond_the_locus.variant_id]
     assert narrow.ranking_cached is False
+    assert _ranked(narrow) == _ranked(fresh)
+    assert narrow.total == fresh.total == 2
 
 
 def test_a_panel_whose_every_variant_the_mendeliome_ranking_holds_is_served_from_it(world) -> None:

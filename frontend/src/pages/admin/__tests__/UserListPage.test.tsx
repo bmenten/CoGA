@@ -1,10 +1,11 @@
-// Pins the admin Users page: it reads /auth/users and /projects, lists each account with its
-// project names, and its only write — the activation checkbox — PATCHes nothing but is_active.
+// Pins the admin Users page: it reads /auth/users and /projects, lists each account with how it
+// signs in and its project names, and its two writes each PATCH one field: the activation
+// checkbox is_active, the role select (once confirmed) the role (SEC-4).
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import UserListPage from '../UserListPage';
 import api from '../../../lib/api';
@@ -24,6 +25,7 @@ type TestUser = {
   last_name?: string;
   affiliation?: string;
   role: string;
+  sign_in?: 'microsoft' | 'password';
   is_active: boolean;
   projects: string[];
   // The projects among `projects` where the user only reads (SEC-1).
@@ -37,6 +39,7 @@ const ANN: TestUser = {
   last_name: 'Lee',
   affiliation: 'CMGG',
   role: 'admin',
+  sign_in: 'microsoft',
   is_active: true,
   projects: ['p1', 'p2'],
 };
@@ -45,6 +48,7 @@ const PENDING: TestUser = {
   id: 'u2',
   email: 'new.registrant@example.com',
   role: 'viewer',
+  sign_in: 'password',
   is_active: false,
   projects: [],
 };
@@ -285,12 +289,12 @@ describe('UserListPage', () => {
     expect(screen.getByRole('checkbox', { name: 'Active: ann@example.com' })).toBeInTheDocument();
   });
 
-  it('has no role or project-access editor: the activation checkbox is the only control', async () => {
+  it('has no project-access editor: the activation checkbox and the role select are the only controls', async () => {
     renderPage();
     await screen.findByRole('table');
 
     expect(screen.getAllByRole('checkbox')).toHaveLength(USERS.length);
-    expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+    expect(screen.getAllByRole('combobox')).toHaveLength(USERS.length);
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument();
     expect(screen.queryByRole('button')).not.toBeInTheDocument();
     expect(
@@ -333,5 +337,113 @@ describe('UserListPage', () => {
     expect(await screen.findByRole('heading', { name: 'Could not load users' })).toBeInTheDocument();
     expect(screen.getByText('Projects unavailable')).toBeInTheDocument();
     expect(screen.queryByRole('table')).not.toBeInTheDocument();
+  });
+
+  describe('the role of an account (SEC-4)', () => {
+    let confirmSpy: ReturnType<typeof vi.spyOn>;
+
+    beforeEach(() => {
+      localStorage.clear();
+      confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    });
+
+    afterEach(() => {
+      confirmSpy.mockRestore();
+      localStorage.clear();
+    });
+
+    it('says how each account signs in', async () => {
+      renderPage();
+      await screen.findByRole('table');
+
+      expect(within(rowOf('ann@example.com')).getByText('Microsoft')).toBeInTheDocument();
+      expect(within(rowOf('new.registrant@example.com')).getByText('Password')).toBeInTheDocument();
+    });
+
+    it('shows each account’s role in a select of the three roles', async () => {
+      renderPage();
+      await screen.findByRole('table');
+
+      const annRole = screen.getByRole('combobox', { name: 'Role: ann@example.com' });
+      expect(annRole).toHaveValue('admin');
+      expect(within(annRole).getAllByRole('option').map((option) => option.textContent)).toEqual([
+        'viewer',
+        'superuser',
+        'admin',
+      ]);
+      expect(screen.getByRole('combobox', { name: 'Role: peeters@example.com' })).toHaveValue('viewer');
+    });
+
+    it('asks first, then PATCHes the role and nothing else, and shows the reloaded account', async () => {
+      const user = userEvent.setup();
+      mockedPatch.mockResolvedValue({ data: { ...SURNAME_ONLY, role: 'admin' } });
+      renderPage();
+      await screen.findByRole('table');
+
+      serve([ANN, PENDING, { ...SURNAME_ONLY, role: 'admin' }]);
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Role: peeters@example.com' }), 'admin');
+
+      expect(confirmSpy).toHaveBeenCalledWith('Change the role of peeters@example.com from viewer to admin?');
+      await waitFor(() => expect(mockedPatch).toHaveBeenCalledWith('/auth/users/u3', { role: 'admin' }));
+      expect(mockedPatch).toHaveBeenCalledTimes(1);
+      expect(await screen.findByRole('status')).toHaveTextContent('peeters@example.com is now admin.');
+      await waitFor(() =>
+        expect(screen.getByRole('combobox', { name: 'Role: peeters@example.com' })).toHaveValue('admin'),
+      );
+    });
+
+    it('sends nothing when the change is not confirmed', async () => {
+      const user = userEvent.setup();
+      confirmSpy.mockReturnValue(false);
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Role: peeters@example.com' }), 'superuser');
+
+      expect(confirmSpy).toHaveBeenCalledTimes(1);
+      expect(mockedPatch).not.toHaveBeenCalled();
+      expect(screen.getByRole('combobox', { name: 'Role: peeters@example.com' })).toHaveValue('viewer');
+    });
+
+    it('does not let the signed-in administrator change their own role', async () => {
+      localStorage.setItem('username', 'ann@example.com');
+      renderPage();
+      await screen.findByRole('table');
+
+      const own = screen.getByRole('combobox', { name: 'Role: ann@example.com' });
+      expect(own).toBeDisabled();
+      expect(own).toHaveAttribute('title', 'You cannot change your own role.');
+      expect(screen.getByRole('combobox', { name: 'Role: peeters@example.com' })).toBeEnabled();
+    });
+
+    it('says why a refused role change was refused, and keeps the stored role', async () => {
+      const user = userEvent.setup();
+      mockedPatch.mockRejectedValue({
+        response: { status: 403, data: { detail: 'The emergency administrator’s role cannot be changed.' } },
+      });
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Role: ann@example.com' }), 'viewer');
+
+      expect(await screen.findByRole('alert')).toHaveTextContent(
+        'Could not change the role of ann@example.com: The emergency administrator’s role cannot be changed.',
+      );
+      expect(screen.getByRole('combobox', { name: 'Role: ann@example.com' })).toHaveValue('admin');
+    });
+
+    it('sends the account id as one encoded path segment', async () => {
+      const user = userEvent.setup();
+      serve([{ ...SURNAME_ONLY, id: '../projects/p1' }]);
+      mockedPatch.mockResolvedValue({ data: {} });
+      renderPage();
+      await screen.findByRole('table');
+
+      await user.selectOptions(screen.getByRole('combobox', { name: 'Role: peeters@example.com' }), 'admin');
+
+      await waitFor(() =>
+        expect(mockedPatch).toHaveBeenCalledWith('/auth/users/..%2Fprojects%2Fp1', { role: 'admin' }),
+      );
+    });
   });
 });

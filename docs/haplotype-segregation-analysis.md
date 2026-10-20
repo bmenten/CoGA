@@ -91,10 +91,11 @@ the same for all, so the children's sharing (and every embryo call) is unchanged
 shows moves. It runs on the autosomes only. A chromosome an unsorted file splits keeps the corrections
 its first part found, so the blocks and the views swap the same sites. As the parent's phase may have
 switched up to 2 Mb before the correction (`PHASE_SWITCH_UNCERTAINTY` in
-`frontend/src/lib/haplotypePhaseCorrections.ts`), the embryo warning covers that stretch too.
+`backend/app/services/pgt_embryo_calls.py`), the embryo warning covers that stretch too.
 
 Elsewhere: the embryo recombination warning uses a 250 kb flank around the ROI
-(`ROI_RECOMBINATION_FLANK`, `frontend/src/lib/embryoSegregation.ts`), and the phased-marker fetch is
+(`ROI_RECOMBINATION_FLANK`, `backend/app/services/pgt_embryo_calls.py`), the embryo calls read the
+haplotype blocks over the ROI and 1 Mb on each side (`ROI_WINDOW_FLANK`), and the phased-marker fetch is
 capped at 500,000 sites (`PHASED_FETCH_LIMIT`, `phased_marker_service.py`), beyond which the marker
 overlay is hidden.
 
@@ -113,18 +114,28 @@ overlay is hidden.
 - **Raw phased markers and per-child QC** — `backend/app/services/phased_marker_service.py`
   (`compute_phased_markers`: per-site lane values for the couple's children, trio and single-parent
   modes, the informative-site count and Mendel-error rate, the fetch cap).
-- **Disease haplotype and embryo call** — `frontend/src/lib/haplotypeRisk.ts`: `inferDiseaseHaplotypes`;
-  `assessSampleHaplotypeRisk`, the call and, when it is uninformative or depends on the sex, why
-  (`interpretSampleHaplotypeRisk` returns the call alone); `getHaplotypeLaneSignature`, which treats the
-  backend's lineage tags as authoritative over the flat `role`. `frontend/src/lib/embryoSegregation.ts`
-  holds the family-page classification and its warnings.
-- **X-linked recessive, a female embryo** — `assessSampleHaplotypeRisk` reads her only on the sides a
-  disease haplotype was found on. With an unaffected father none is found on his side, so his X is
+- **Disease haplotype and embryo call** — the backend makes the embryo calls:
+  `backend/app/services/pgt_embryo_calls.py` (`infer_disease_haplotypes`; `assess_member`, the call
+  and, when it is uninformative or depends on the sex, why; `call_embryos`, each embryo's call with
+  the homologs it carries at the ROI and the recombinations near it; `lane_signature`, which treats the
+  lineage tags as authoritative over the flat `role`). `pgt_analysis.py` reads what the calls rest on
+  (the ROI, the inheritance model, the members, the blocks as `/haplotypes` serves them, the phase
+  corrections) and each embryo's phasing QC at the ROI (`phased_marker_service`), and serves them at
+  `GET /families/{family_id}/pgt-analysis`. The family page shows those calls
+  (`frontend/src/lib/useEmbryoSegregation.ts`; `embryoSegregation.ts` reads and words them), and a
+  sign-out freezes the same object (`pgt_analysis` in `signed_record_sections.py`). The haplotype
+  tracks still draw the risk line and each member's risk state in the browser,
+  `frontend/src/lib/haplotypeRisk.ts` (`inferDiseaseHaplotypes`, `assessSampleHaplotypeRisk`,
+  `getHaplotypeLaneSignature`): the same rules, which both sides prove on the parity cases of
+  `frontend/src/lib/__tests__/fixtures/pgtEmbryoCallCases.json` (`test_pgt_embryo_calls.py`,
+  `haplotypeRisk.test.ts`). A change to the rules is made on both sides and in that file.
+- **X-linked recessive, a female embryo** — `assess_member` (and `assessSampleHaplotypeRisk`) reads her
+  only on the sides a disease haplotype was found on. With an unaffected father none is found on his side, so his X is
   taken as not at risk and her call rests on her maternal X: *Carrier* with the mother's risk
   haplotype, *Unaffected* with the mother's other X seen across the ROI. This is the owner's confirmed
   rule for a fully penetrant X-linked recessive disorder (2026-10-14; CLIN-6, TF-09a REQ-PGT-005).
   `haplotypeRisk.test.ts` (*still calls a son from his maternal X alone, and a daughter carrier from
-  hers*) pins it.
+  hers*) pins it, and so does the parity case *X-linked recessive from an affected son* on both sides.
 - **Phase switches in a parent** — `backend/app/services/haplotype_phase_correction.py`
   (`find_phase_switches`: the densest clusters of the couple's children switching on one parent's
   side, one switch per child; `expected_chance_clusters`: the chance gate; `corrected_genotype_rows`:

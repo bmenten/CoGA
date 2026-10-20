@@ -16,9 +16,11 @@ CoGA kent precies drie rollen. De databank zelf laat geen andere waarde toe.
 
 **Waar in de code:** de toegestane rollen staan als `CHECK`-regel op de tabel `users` in `backend/db/schema/postgres/01_access.sql`. In de backend vormen `admin` en `superuser` samen de beheerders, via `ADMIN_ROLES` en `is_admin_user` in `backend/app/services/access_control.py`.
 
+**Een rol toekennen.** Een beheerder zet de rol van een account op de pagina *Users* (`PATCH /api/auth/users/{id}` met `role`), na een bevestiging. Niemand wijzigt zijn eigen rol, en de noodbeheerder (hoofdstuk 5) houdt zijn rol en blijft actief. Elke wijziging staat in de auditregel van het verzoek, met de rol ervoor en erna (`request_meta.account_change`). Wie zich met Microsoft voor het eerst aanmeldt, krijgt een account met de rol `viewer` en zonder project: hij ziet geen patiëntgegevens tot een beheerder hem aan een project toevoegt, net zoals een lokaal account (hoofdstuk 5).
+
 Er is geen aparte rechtentabel per gebruiker. Wat iemand mag zien, volgt volledig uit **projectlidmaatschap**: de koppeltabel `project_users`, die per lid ook zijn toegangsniveau in dat project bewaart. Een familie hangt via `family_projects` aan een of meer projecten, en een sample is zichtbaar via de projecten van zijn familie (`sample_projects` koppelt een sample daarnaast rechtstreeks aan projecten, o.a. voor de samplekeuzelijst van de Variant Explorer). Een viewer ziet dus precies de families waarvan minstens één project ook een van zijn projecten is.
 
-Het token draagt alleen de identiteit (het e-mailadres). De projectenlijst zit er **niet** in: bij elk verzoek laadt de backend de gebruiker, zijn projecten en zijn toegangsniveau in elk ervan vers uit Postgres. Intrekken werkt daardoor meteen. Een gedeactiveerde gebruiker, of iemand die uit een project wordt gehaald of er lezer wordt, verliest de toegang of het recht om te wijzigen bij het volgende verzoek, zonder te wachten tot het token verloopt.
+Het token draagt alleen de identiteit: het object-ID van de gebruiker bij een Microsoft-token, het e-mailadres bij een lokaal token. De projectenlijst zit er **niet** in: bij elk verzoek laadt de backend de gebruiker, zijn projecten en zijn toegangsniveau in elk ervan vers uit Postgres. Intrekken werkt daardoor meteen. Een gedeactiveerde gebruiker, of iemand die uit een project wordt gehaald of er lezer wordt, verliest de toegang of het recht om te wijzigen bij het volgende verzoek, zonder te wachten tot het token verloopt.
 
 ## Projectgebonden toegang: hoe elk dataverzoek wordt ingeperkt
 

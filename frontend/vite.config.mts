@@ -46,6 +46,10 @@ export default defineConfig({
           if (id.includes('/node_modules/d3') || id.includes('/node_modules/internmap')) {
             return 'd3-vendor';
           }
+          // MSAL (Microsoft sign-in, SEC-4): its own chunk, loaded only where it is used.
+          if (id.includes('/node_modules/@azure/')) {
+            return 'msal-vendor';
+          }
           return 'vendor';
         },
       },

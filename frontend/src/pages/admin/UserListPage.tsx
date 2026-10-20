@@ -3,18 +3,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { apiPath } from '../../lib/apiPath';
-import type { UserRead } from '../../lib/apiSchema.generated';
+import type { UserRead, UserUpdate } from '../../lib/apiSchema.generated';
+import { getStoredUsername } from '../../lib/auth';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { userAccountsQuery } from '../../lib/users';
 import { memberAccessLevel } from '../../lib/familyAccess';
 import type { ProjectOption } from './dataManagementTypes';
 
 type User = UserRead;
+type Role = NonNullable<UserUpdate['role']>;
+
+// The global roles (SEC-4): a viewer sees the records of their projects; an admin or a
+// superuser, every record, and the administration.
+const ROLES: Role[] = ['viewer', 'superuser', 'admin'];
+const SIGN_IN_LABELS: Record<User['sign_in'], string> = {
+  microsoft: 'Microsoft',
+  password: 'Password',
+};
 
 const UserListPage: React.FC = () => {
   const queryClient = useQueryClient();
-  // What the last (de)activation did: a refused one used to leave only a checkbox
-  // snapping back, with no word of why (#526).
+  // What the last role or activation change did: a refused (de)activation used to leave only
+  // a checkbox snapping back, with no word of why (#526).
   const [activationStatus, setActivationStatus] = React.useState<{
     tone: 'success' | 'error';
     text: string;
@@ -41,6 +51,34 @@ const UserListPage: React.FC = () => {
     },
     retry: false,
   });
+
+  // The administrator signed in here: nobody changes their own role.
+  const signedInAs = getStoredUsername();
+
+  const roleMutation = useMutation({
+    mutationFn: async ({ user, role }: { user: User; role: Role }) => {
+      const response = await api.patch(apiPath`/auth/users/${user.id}`, { role });
+      return response.data as User;
+    },
+    onMutate: () => setActivationStatus(null),
+    onSuccess: async (_updated, { user, role }) => {
+      setActivationStatus({ tone: 'success', text: `${user.email} is now ${role}.` });
+      await queryClient.invalidateQueries({ queryKey: userAccountsQuery.queryKey });
+    },
+    onError: (error, { user }) => {
+      setActivationStatus({
+        tone: 'error',
+        text: `Could not change the role of ${user.email}: ${getErrorMessage(error, 'the request failed')}`,
+      });
+    },
+  });
+
+  const changeRole = (user: User, role: Role) => {
+    if (role === user.role) return;
+    // A select changes with an arrow key too: a role is changed only once confirmed.
+    if (!window.confirm(`Change the role of ${user.email} from ${user.role} to ${role}?`)) return;
+    roleMutation.mutate({ user, role });
+  };
 
   const toggleActiveMutation = useMutation({
     mutationFn: async (user: User) => {
@@ -99,9 +137,9 @@ const UserListPage: React.FC = () => {
             <p className="page-kicker">Administration</p>
             <h1 className="catalog-card-title">Users</h1>
             <p className="catalog-card-copy">
-              Review activation state and current project access. Project access is managed from
-              the project settings view, where each member is an analyst, who reads and changes the
-              project&rsquo;s records, or a reader, who only reads them.
+              Set each account&apos;s role and activation, and review its project access. Project
+              access is managed from the project settings view, where each member is an analyst, who
+              reads and changes the project&rsquo;s records, or a reader, who only reads them.
             </p>
           </div>
         </div>
@@ -124,6 +162,7 @@ const UserListPage: React.FC = () => {
               <th>Email</th>
               <th>Name</th>
               <th>Affiliation</th>
+              <th>Sign-in</th>
               <th>Role</th>
               <th>Active</th>
               <th>Project access</th>
@@ -135,8 +174,24 @@ const UserListPage: React.FC = () => {
                 <td>{u.email}</td>
                 <td>{`${u.first_name ?? ''} ${u.last_name ?? ''}`.trim() || '—'}</td>
                 <td>{u.affiliation || '—'}</td>
+                <td>{SIGN_IN_LABELS[u.sign_in] ?? u.sign_in}</td>
                 <td>
-                  <span className="table-chip">{u.role}</span>
+                  <select
+                    aria-label={`Role: ${u.email}`}
+                    value={u.role}
+                    title={u.email === signedInAs ? 'You cannot change your own role.' : undefined}
+                    disabled={
+                      u.email === signedInAs ||
+                      (roleMutation.isPending && roleMutation.variables?.user.id === u.id)
+                    }
+                    onChange={(event) => changeRole(u, event.target.value as Role)}
+                  >
+                    {ROLES.map((role) => (
+                      <option key={role} value={role}>
+                        {role}
+                      </option>
+                    ))}
+                  </select>
                 </td>
                 <td className="table-cell-center">
                   <input

@@ -25,9 +25,15 @@ db_availability_type    = "ZONAL"
 clickhouse_machine_type = "e2-standard-4"
 clickhouse_data_disk_gb = 200
 
-# Optional Azure AD / Entra institutional login.
+# Microsoft sign-in (Azure AD / Entra ID, SEC-4): the directory (tenant) ID and the application
+# (client) ID IT gives you (docs/deployment-gcp.md §12.12). Both or neither.
 azure_ad_tenant_id = ""
 azure_ad_client_id = ""
+# CoGA's API scope; empty is api://<azure_ad_client_id>/access_as_user.
+# azure_ad_api_scope = ""
+# The emergency (break-glass) password sign-in of coga-admin beside Microsoft sign-in. Keep it
+# false; true only for an emergency, as its own change-controlled deploy.
+# azure_admin_override = false
 
 # Who the alert policies email (monitoring.tf, docs/monitoring.md). Empty, incidents open in
 # Cloud Monitoring but nobody is told.

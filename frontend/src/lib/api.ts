@@ -1,10 +1,11 @@
 import axios from 'axios';
-import { clearSession, getAuthToken } from './auth';
+import { clearSession, getAuthToken, getSessionSignIn, updateSessionToken } from './auth';
 import { buildApiUnavailableMessage, isNetworkTransportError } from './errorMessage';
 
 const DEFAULT_API_BASE_URL = '/api';
 export const apiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim() || DEFAULT_API_BASE_URL;
-const AUTH_EXCLUDED_PATHS = new Set(['/auth/login', '/auth/signup']);
+// Asked without a session's token: the sign-in, the sign-up and how users sign in.
+const AUTH_EXCLUDED_PATHS = new Set(['/auth/login', '/auth/signup', '/auth/config']);
 
 export const isAbsoluteUrl = (value: string): boolean => /^https?:\/\//i.test(value);
 
@@ -57,12 +58,23 @@ export const resolveApiUrl = (
   base: string = api.defaults.baseURL ?? apiBaseUrl,
 ): string => (isAbsoluteUrl(value) ? value : `${base}${value}`);
 
-api.interceptors.request.use((config) => {
-  const token = getAuthToken();
-  if (token && shouldAttachStoredToken(config.url, config.headers)) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
+api.interceptors.request.use(async (config) => {
+  let token = getAuthToken();
+  if (!token || !shouldAttachStoredToken(config.url, config.headers)) {
+    return config;
   }
+  if (getSessionSignIn() === 'microsoft') {
+    // Microsoft's access token lives about an hour: MSAL hands back the one it holds, or a
+    // renewed one when that is about to expire (SEC-4).
+    const { freshMicrosoftAccessToken } = await import('./microsoftSignIn');
+    const fresh = await freshMicrosoftAccessToken();
+    if (fresh && fresh !== token) {
+      updateSessionToken(fresh);
+      token = fresh;
+    }
+  }
+  config.headers = config.headers ?? {};
+  config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
 
@@ -72,7 +84,8 @@ api.interceptors.response.use(
     normalizeApiTransportError(error, api.defaults.baseURL);
     if (error?.response?.status === 401) {
       clearSession();
-      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+      // Not from a sign-in page (/login, /login/emergency): it shows the refusal itself.
+      if (typeof window !== 'undefined' && !/^\/login(\/|$)/.test(window.location.pathname)) {
         window.location.replace('/login');
       }
     }

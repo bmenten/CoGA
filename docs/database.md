@@ -13,8 +13,10 @@ final form, and the Alembic revisions in
 already exists to that form. One migration step applies both, as the table owner, on every
 start in the default mode (see "Startup Behavior"); the ledger table `alembic_version` records
 the revision a database is at ([Schema Migrations](#schema-migrations)).
-`01_access.sql` also adds `project_users.access_level` with `ALTER TABLE … ADD COLUMN IF NOT
-EXISTS`, so a database made before it keeps its memberships, each as an analyst's.
+`01_access.sql` also adds `users.azure_object_id` and `project_users.access_level` with
+`ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so a database made before Microsoft sign-in keeps its
+accounts (SEC-4), and one made before the reader level keeps its memberships, each as an
+analyst's (SEC-1).
 
 ### 01_access.sql: genome foundation and access
 
@@ -23,7 +25,7 @@ EXISTS`, so a database made before it keeps its memberships, each as an analyst'
 | `species` | organisms: name, common name, NCBI taxonomy id |
 | `assemblies` | genome assemblies per species |
 | `chromosomes` | chromosome sizes and cytobands per assembly |
-| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`), active flag |
+| `users` | accounts: username, password hash, role (`admin`, `superuser` or `viewer`), active flag, and for an account made at its first Microsoft sign-in the user's object ID in Microsoft Entra ID (`azure_object_id`, unique), by which every later sign-in finds it; such an account has no password (`hashed_password` holds a marker no password matches). A local account, such as the emergency administrator, has none (SEC-4) |
 | `projects` | projects, each bound to one species and assembly |
 | `project_users` | which users belong to which project, and each member's `access_level`: `analyst` (reads and changes the project's records, the default) or `reader` (reads them only; SEC-1). Data access is scoped by project; an admin has every right in every project |
 | `auth_login_attempts` | failed-login counts and back-off per email and per client address, and sign-up attempts per address |
