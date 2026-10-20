@@ -398,6 +398,8 @@ async def family_phenotype_match(
     )
 
 
+# A family's phenotypes are changed by an analyst of its project or an admin: the family
+# checkpoint refuses a reader (SEC-1), and each change is on the clinical audit trail.
 @router.post("/{family_id}/members/{sample_id}/hpo", response_model=HpoAnnotationOut)
 async def create_family_member_hpo(
     family_id: str,
@@ -415,8 +417,10 @@ async def create_family_member_hpo(
     result = await create_individual_hpo_annotation(
         session,
         family_uuid=context.family_uuid,
+        family_identifier=context.family_id,
         sample_id=sample_id,
         payload=annotation,
+        user=user,
     )
     # Phenotypes changed: warm the prioritised-ranking cache so the next open is fast.
     background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
@@ -440,8 +444,10 @@ async def update_family_hpo(
     result = await update_individual_hpo_annotation(
         session,
         family_uuid=context.family_uuid,
+        family_identifier=context.family_id,
         annotation_id=annotation_id,
         payload=annotation,
+        user=user,
     )
     background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
     return result
@@ -463,7 +469,9 @@ async def delete_family_hpo(
     await delete_individual_hpo_annotation(
         session,
         family_uuid=context.family_uuid,
+        family_identifier=context.family_id,
         annotation_id=annotation_id,
+        user=user,
     )
     background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
     return Response(status_code=204)

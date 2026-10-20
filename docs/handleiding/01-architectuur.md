@@ -102,7 +102,7 @@ Wat de backend bij het opstarten doet (schema, eerste beheerder, referentiedata,
 - **Frontend:** React, TypeScript, Vite, Tailwind CSS, react-router, TanStack Query (servertoestand en caching), axios, D3 (visualisaties) en igv (de ingebedde IGV-genoombrowser); tests met Vitest en Playwright.
 - **Backend:** FastAPI met Uvicorn, SQLAlchemy (asynchroon) met asyncpg voor Postgres, clickhouse-connect voor ClickHouse, Pydantic (validatie en instellingen), PyJWT (tokens), bcrypt (wachtwoorden) en cryptography (o.a. de handtekening van de integriteitsankers).
 
-De exacte versies staan in `frontend/package-lock.json` en `backend/requirements.txt`; het SOUP-register (`docs/regulatory/TF-08-soup-register.md`) houdt ze bij voor het technisch dossier. De productversie staat in `VERSION`. Het veld `app_version` in de backend is de build-identiteit: die wordt bij het bouwen van de image ingevuld en in elk ondertekend rapport bevroren (hoofdstuk 11).
+De exacte versies staan in `frontend/package-lock.json` en `backend/requirements.txt`; het SOUP-register (`docs/regulatory/TF-08-soup-register.md`) houdt ze bij voor het technisch dossier. De productversie staat in `VERSION`. Het veld `app_version` in de backend is de build-identiteit: die wordt bij het bouwen van de image ingevuld en in elk ondertekend rapport bevroren (hoofdstuk 11). Alleen de release-build krijgt de versie uit `VERSION` zelf; elke andere build (een build van `main`, een manuele of lokale build) krijgt die versie met `dev` erbij (`0.1.0-dev`, of `0.1.0-rc.1.dev` na de releasekandidaat), zodat ze nooit voor een release kan doorgaan (`scripts/build-version.sh`).
 
 ## Belangrijkste bestanden
 

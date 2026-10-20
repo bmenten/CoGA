@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import FamilyPageBanners, { type FamilyAssemblyScope } from '../../components/FamilyPageBanners';
 import Pedigree from '../../components/visualizations/Pedigree';
 import { parsePedigree } from '../../lib/pedigree';
+import { READ_ONLY_HINT } from '../../lib/familyAccess';
 
 /**
  * The top card every family-scoped page opens with.
@@ -27,6 +28,8 @@ export interface FamilyPageHeaderFamily {
   members?: readonly unknown[];
   relationships?: readonly unknown[];
   metadata?: Record<string, unknown> | null | unknown;
+  /** The caller is a reader in the family's projects (SEC-1). */
+  read_only?: boolean;
 }
 
 const FamilyPageHeader: React.FC<{
@@ -86,6 +89,12 @@ const FamilyPageHeader: React.FC<{
                   </Link>
                 )}
               </h1>
+              {/* On every family page, so a reader knows why nothing can be changed. */}
+              {family?.read_only ? (
+                <span className="badge-chip" title={READ_ONLY_HINT}>
+                  Read-only access (reader)
+                </span>
+              ) : null}
             </div>
             {actions ? <div className="inline-actions">{actions}</div> : null}
           </div>

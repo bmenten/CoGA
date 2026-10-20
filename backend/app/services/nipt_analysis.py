@@ -63,6 +63,12 @@ PATERNITY_MIN_EXPECTED_READS = 10.0
 # site's allele balance fits no fetal genotype (site-specific capture bias, a copy-number
 # change): the R validation's confident "not inherited" errors were such sites.
 ALLELE_BALANCE_OUTLIER_Z = 4.0
+# The fetal-fraction estimate (REQ-NIPT-001): none from fewer than FF_HARD_FLOOR category-7
+# sites; low-confidence below FF_MIN_SITES or with a 95% interval wider than
+# +/- FF_MAX_CI_HALFWIDTH.
+FF_HARD_FLOOR = 5
+FF_MIN_SITES = 30
+FF_MAX_CI_HALFWIDTH = 0.03
 
 _CATEGORY_LABELS: dict[int, str] = {
     1: "de novo in fetus",
@@ -522,9 +528,9 @@ def estimate_fetal_fraction(
     qc: NiptQualityThresholds,
     *,
     vaf_ceiling: float = MATERNAL_ALLELE_VAF_BOUNDARY,
-    min_sites: int = 30,
-    hard_floor: int = 5,
-    max_ci_halfwidth: float = 0.03,
+    min_sites: int = FF_MIN_SITES,
+    hard_floor: int = FF_HARD_FLOOR,
+    max_ci_halfwidth: float = FF_MAX_CI_HALFWIDTH,
 ) -> FetalFractionEstimate:
     """Estimate FF from category-7 sites.
 
@@ -1117,6 +1123,17 @@ def run_nipt_analysis(
 CHRY_FEMALE_MIN_FF = 0.04
 
 
+def chry_fetal_sex(chry_profile: str | None, ff: float) -> str:
+    """The fetal sex the plasma's chrY coverage alone reads: ``male`` with a male fetal chrY
+    signal, ``female`` without one at an FF of ``CHRY_FEMALE_MIN_FF`` or more, else
+    ``indeterminate``."""
+    if chry_profile == "female_with_male_fetal_signal":
+        return "male"
+    if chry_profile == "female_no_chrY_signal" and ff >= CHRY_FEMALE_MIN_FF:
+        return "female"
+    return "indeterminate"
+
+
 def combined_fetal_sex(paternal_x: str, chry_profile: str | None, ff: float) -> str:
     """The fetal sex from the two independent signals: the father's X alleles in the plasma
     (``infer_fetal_sex``) and the plasma's chrY coverage (``nipt_target_coverage``).
@@ -1124,12 +1141,7 @@ def combined_fetal_sex(paternal_x: str, chry_profile: str | None, ff: float) -> 
     ``female`` or ``male`` when they agree or one is indeterminate, ``discordant`` when they
     disagree, ``indeterminate`` when neither tells.
     """
-    if chry_profile == "female_with_male_fetal_signal":
-        chry = "male"
-    elif chry_profile == "female_no_chrY_signal" and ff >= CHRY_FEMALE_MIN_FF:
-        chry = "female"
-    else:
-        chry = "indeterminate"
+    chry = chry_fetal_sex(chry_profile, ff)
     calls = {call for call in (paternal_x, chry) if call in ("female", "male")}
     if len(calls) > 1:
         return "discordant"

@@ -27,20 +27,39 @@ def test_cors_origins_support_comma_separated_env_values() -> None:
     ]
 
 
-def test_unstamped_build_reports_the_version_file(monkeypatch, tmp_path) -> None:
+@pytest.mark.parametrize(
+    ("version", "reported"), [("1.4.0-rc.2", "1.4.0-rc.2.dev"), ("1.4.0", "1.4.0-dev")]
+)
+def test_unstamped_build_reports_the_version_file_as_a_development_build(
+    monkeypatch, tmp_path, version, reported
+) -> None:
     # No APP_VERSION, or the empty one the image carries when no build-arg was given: the
-    # build names the version it was built from (TF-18 §2). The commit stays "unknown".
+    # build names the version it was built from, marked as a development build, since only
+    # a release build stamps a release's version (TF-18 §2). A local build of the release
+    # candidate's commit, or of any later one, is never taken for that release in
+    # /api/version, the footers or a signed report. The commit stays "unknown".
     version_file = tmp_path / "VERSION"
-    version_file.write_text("1.4.0-rc.2\n", encoding="utf-8")
+    version_file.write_text(f"{version}\n", encoding="utf-8")
     monkeypatch.setattr(config, "_VERSION_FILE", version_file)
     monkeypatch.delenv("APP_VERSION", raising=False)
     monkeypatch.delenv("GIT_SHA", raising=False)
-    assert Settings(_env_file=None).app_version == "1.4.0-rc.2"
+    assert Settings(_env_file=None).app_version == reported
     assert Settings(_env_file=None).git_sha == "unknown"
     monkeypatch.setenv("APP_VERSION", "")
-    assert Settings(_env_file=None).app_version == "1.4.0-rc.2"
+    assert Settings(_env_file=None).app_version == reported
     monkeypatch.setenv("APP_VERSION", "  ")
-    assert Settings(_env_file=None).app_version == "1.4.0-rc.2"
+    assert Settings(_env_file=None).app_version == reported
+
+
+def test_a_stamped_version_is_reported_as_stamped(monkeypatch, tmp_path) -> None:
+    # The release build stamps its tag's version, which the build reports exactly; a build of
+    # main stamps the development version, which it reports as it is (scripts/build-version.sh).
+    version_file = tmp_path / "VERSION"
+    version_file.write_text("1.4.0-rc.2\n", encoding="utf-8")
+    monkeypatch.setattr(config, "_VERSION_FILE", version_file)
+    for stamped in ("1.4.0-rc.2", "1.4.0-rc.2.dev"):
+        monkeypatch.setenv("APP_VERSION", stamped)
+        assert Settings(_env_file=None).app_version == stamped
 
 
 def test_unstamped_build_without_a_version_file_records_the_sentinel(monkeypatch, tmp_path) -> None:

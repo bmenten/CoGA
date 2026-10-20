@@ -16,12 +16,12 @@ variable "zone" {
 }
 
 variable "backend_image" {
-  description = "Full backend container image URL, e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-backend:<tag>."
+  description = "Full backend container image URL, by digest so the revision runs exactly the image that was built: e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-backend@sha256:<digest>. build.yml passes the digest its build pushed."
   type        = string
 }
 
 variable "frontend_image" {
-  description = "Full frontend container image URL, e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-frontend:<tag>."
+  description = "Full frontend container image URL, by digest: e.g. europe-west1-docker.pkg.dev/<project>/<repo>/coga-frontend@sha256:<digest>. build.yml passes the digest its build pushed."
   type        = string
 }
 

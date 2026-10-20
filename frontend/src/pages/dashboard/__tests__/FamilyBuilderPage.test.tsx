@@ -47,6 +47,60 @@ describe('FamilyBuilderPage', () => {
     storage.clear();
   });
 
+  // SEC-1: a family is added to a project by an analyst of it or an admin.
+  it('offers only the projects where the user is an analyst, and says so to a reader', async () => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    const project = (id: string, name: string, readOnly: boolean) => ({
+      id,
+      name,
+      read_only: readOnly,
+      families: [],
+      samples: [],
+    });
+    get.mockImplementation((url: string) =>
+      url === '/projects'
+        ? Promise.resolve({
+            data: [
+              project('22222222-2222-2222-2222-222222222222', 'Teaching cohort', true),
+              project('11111111-1111-1111-1111-111111111111', 'Accessible Project', false),
+            ],
+          })
+        : working(url),
+    );
+    try {
+      renderPage();
+      const select = screen.getAllByLabelText(/^project$/i)[0];
+      await waitFor(() => expect(select).toHaveValue('11111111-1111-1111-1111-111111111111'));
+      expect(screen.queryByRole('option', { name: 'Teaching cohort' })).not.toBeInTheDocument();
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
+  it('tells a user who reads all their projects that they cannot add a family', async () => {
+    const get = api.get as unknown as Mock;
+    const working = get.getMockImplementation()!;
+    get.mockImplementation((url: string) =>
+      url === '/projects'
+        ? Promise.resolve({
+            data: [{ id: '22222222-2222-2222-2222-222222222222', name: 'Teaching cohort', read_only: true, families: [], samples: [] }],
+          })
+        : working(url),
+    );
+    try {
+      renderPage();
+      expect(
+        await screen.findByText(
+          'You have read-only access (reader) to each of your projects, so you cannot add a family.',
+        ),
+      ).toBeInTheDocument();
+      expect(screen.getAllByLabelText(/^project$/i)[0]).toBeDisabled();
+    } finally {
+      get.mockImplementation(working);
+    }
+  });
+
   it('renders the family builder workspace with a dashboard back link', () => {
     renderPage();
 

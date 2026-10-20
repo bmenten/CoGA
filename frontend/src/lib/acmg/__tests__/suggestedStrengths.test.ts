@@ -97,8 +97,8 @@ describe('the strength the dialog starts a criterion at', () => {
     for (const effect of ['missense_variant', 'synonymous_variant', 'splice_region_variant']) {
       for (const revel of [undefined, 0.01, 0.1, 0.25, 0.5, 0.7, 0.8, 0.95]) {
         for (const spliceai_max of [undefined, 0.05, 0.3, 0.6]) {
-          for (const alphamissense_class of [null, 'likely_pathogenic', 'likely_benign']) {
-            const variant: AcmgVariantInput = { effect, revel, spliceai_max, annotation_extra: { alphamissense_class } };
+          for (const alpha_missense_class of [null, 'likely_pathogenic', 'likely_benign']) {
+            const variant: AcmgVariantInput = { effect, revel, spliceai_max, alpha_missense_class };
             check(evaluateAcmg(variant));
           }
         }

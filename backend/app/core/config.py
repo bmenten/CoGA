@@ -23,6 +23,11 @@ API_PATH_PREFIX = "/api"
 _VERSION_FILE = Path(__file__).resolve().parents[3] / "VERSION"
 # The version of a build that could not establish one: never blank, and never a real release.
 _UNKNOWN_APP_VERSION = "0.0.0+unknown"
+# The SemVer pre-release identifier that marks a build that is not a release (TF-18 §2). Only
+# a release build stamps VERSION as it is (scripts/build-version.sh --release); every other
+# build reports VERSION with this identifier added, so it is never mistaken for a release.
+# scripts/check-release-version.sh refuses a VERSION that carries it.
+_DEVELOPMENT_IDENTIFIER = "dev"
 
 _DEVELOPMENT_ENVIRONMENTS = {"dev", "development", "local", "test"}
 _INSECURE_SECRET_VALUES = {"secret", "change-me"}
@@ -77,6 +82,10 @@ HPO_PINNED_ONTOLOGY_URL = f"https://purl.obolibrary.org/obo/{HPO_PINNED_RELEASE}
 # (docs/data-import.md, "The STRchive release"); test_strchive_release_pin.py fails until
 # the file, the pin and that section agree.
 STRCHIVE_PINNED_LOCI_SHA256 = "a0295e1fe3e25a9f375db25fa27c403c217c74047ec3fa4b4f8060d4868399e9"
+# The upstream STRchive release that file is: byte-identical to the `STRchive-loci-v2.18.0.json`
+# STRchive published with release v2.18.0 (2026-04-28), found on 2026-10-20 by comparing the
+# SHA-256 with the loci file of every published STRchive release. It moves with the pin.
+STRCHIVE_PINNED_RELEASE = "v2.18.0"
 
 
 def _read_version_file() -> str:
@@ -86,6 +95,28 @@ def _read_version_file() -> str:
     except (OSError, UnicodeDecodeError):
         return _UNKNOWN_APP_VERSION
     return version or _UNKNOWN_APP_VERSION
+
+
+def _development_version(version: str) -> str:
+    """``version`` as a build that is not a release reports it: with the SemVer pre-release
+    identifier ``dev`` added, ``0.1.0`` → ``0.1.0-dev``, ``0.1.0-rc.1`` → ``0.1.0-rc.1.dev``.
+
+    The rule of ``scripts/build-version.sh``, for an image built without APP_VERSION. Build
+    metadata, which VERSION never carries, stays at the end.
+    """
+    release, plus, metadata = version.partition("+")
+    separator = "." if "-" in release else "-"
+    return f"{release}{separator}{_DEVELOPMENT_IDENTIFIER}{plus}{metadata}"
+
+
+def _unstamped_app_version() -> str:
+    """The version of a build that stamped no APP_VERSION: the VERSION file's, as a build that
+    is not a release, since only a release build stamps one (TF-18 §2). The unknown sentinel
+    when there is no VERSION file to read."""
+    version = _read_version_file()
+    if version == _UNKNOWN_APP_VERSION:
+        return version
+    return _development_version(version)
 
 
 def _is_loopback_host(host: str | None) -> bool:
@@ -131,8 +162,10 @@ class Settings(BaseSettings):
 
     app_env: str = Field(default="production", alias="APP_ENV")
     # Build identity, injected at image-build time via the APP_VERSION/GIT_SHA
-    # build-args. A build that stamps no APP_VERSION reports the VERSION file's, so a
-    # local build names the version it was built from. Free-form strings with permissive
+    # build-args. Only a release build stamps the release's version; every other build
+    # stamps, or (without APP_VERSION) reports, the VERSION file's version marked as a
+    # development build (0.1.0-dev), so a local build names the version it was built from
+    # and is never taken for that release. Free-form strings with permissive
     # defaults so a missing/malformed value never crash-loops the clinical app; "unknown"
     # is recorded honestly (and frozen into every signed report's content hash).
     app_version: str = Field(default="", alias="APP_VERSION", validate_default=True)
@@ -619,9 +652,9 @@ class Settings(BaseSettings):
     @classmethod
     def default_app_version_to_version_file(cls, value: str) -> str:
         # No APP_VERSION, or the empty one the image carries when no build-arg was given:
-        # report the VERSION file's version (TF-18 §2). The commit stays GIT_SHA's, "unknown"
-        # unless stamped, so an unstamped build is still told apart from a released one.
-        return value.strip() or _read_version_file()
+        # report the VERSION file's version as a development build (TF-18 §2), never as the
+        # release it names: only a release build stamps APP_VERSION with that.
+        return value.strip() or _unstamped_app_version()
 
     @field_validator("storage_backend", mode="before")
     @classmethod

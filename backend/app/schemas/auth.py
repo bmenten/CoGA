@@ -41,7 +41,10 @@ class UserRead(BaseModel):
     sign_in: Literal["microsoft", "password"] = "password"
     is_active: bool
     role: str
+    # The projects the user is a member of, and those among them where they are a reader
+    # (SEC-1); in the others they are an analyst.
     projects: List[str] = Field(default_factory=list)
+    reader_projects: List[str] = Field(default_factory=list)
     created_at: datetime
 
 

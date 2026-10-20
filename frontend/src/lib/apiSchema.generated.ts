@@ -610,6 +610,7 @@ export interface FamilyOut {
   assigned_to: UserRefOut | null;
   reviewed_by: UserRefOut | null;
   metadata: Record<string, unknown>;
+  read_only: boolean;
 }
 
 /** A family package discovered under the configured import roots. */
@@ -1763,6 +1764,7 @@ export interface NiptFetalFractionOut {
 /** The fetal sex from the father's X alleles in the plasma and from its chrY coverage. */
 export interface NiptFetalSexOut {
   call: "female" | "male" | "indeterminate" | "discordant";
+  status: "pass" | "warn" | "fail";
   paternal_x: string;
   x_transmitted: number;
   x_not_transmitted: number;
@@ -1825,6 +1827,7 @@ export interface NiptPaternityOut {
 export interface NiptQcOut {
   de_novo_window: NiptDeNovoWindowOut | null;
   paternity: NiptPaternityOut;
+  fetal_fraction_status: "pass" | "warn" | "fail";
   fetal_sex: NiptFetalSexOut;
   plasma_profile_status: "pass" | "warn" | "fail" | "unknown";
   plasma_profile_message: string;
@@ -2353,6 +2356,7 @@ export interface ProjectCreate {
   species_id: string;
   assembly_id: string;
   user_ids?: string[];
+  reader_user_ids?: string[];
 }
 
 export interface ProjectDashboardOut {
@@ -2362,6 +2366,8 @@ export interface ProjectDashboardOut {
   species_id: string;
   assembly_id: string;
   user_ids: string[];
+  reader_user_ids: string[];
+  read_only: boolean;
   metadata: Record<string, unknown>;
   species_name: string | null;
   assembly_name: string | null;
@@ -2378,6 +2384,8 @@ export interface ProjectOut {
   species_id: string;
   assembly_id: string;
   user_ids: string[];
+  reader_user_ids: string[];
+  read_only: boolean;
   metadata: Record<string, unknown>;
 }
 
@@ -2387,6 +2395,7 @@ export interface ProjectUpdate {
   species_id?: string | null;
   assembly_id?: string | null;
   user_ids?: string[] | null;
+  reader_user_ids?: string[] | null;
 }
 
 export interface ProjectsUpdate {
@@ -3324,6 +3333,7 @@ export interface UserRead {
   is_active: boolean;
   role: string;
   projects: string[];
+  reader_projects: string[];
   created_at: string;
 }
 

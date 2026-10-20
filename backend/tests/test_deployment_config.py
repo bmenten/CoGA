@@ -18,7 +18,10 @@ import pytest
 import yaml
 from pydantic import ValidationError
 
-from app.core.config import Settings
+from app.core.config import Settings, _development_version
+from backend.tests._release_repo import GIT_ENV as _GIT_ENV
+from backend.tests._release_repo import commit as _commit
+from backend.tests._release_repo import init_release_repo
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -133,22 +136,12 @@ def _build_workflow() -> dict:
     return yaml.safe_load((REPO / ".github" / "workflows" / "build.yml").read_text())
 
 
-# git in a throwaway repository: no user or system configuration, a fixed identity.
-_GIT_ENV = {
-    "PATH": os.environ["PATH"],
-    "GIT_CONFIG_GLOBAL": os.devnull,
-    "GIT_CONFIG_NOSYSTEM": "1",
-    "GIT_AUTHOR_NAME": "CI",
-    "GIT_AUTHOR_EMAIL": "ci@example.org",
-    "GIT_COMMITTER_NAME": "CI",
-    "GIT_COMMITTER_EMAIL": "ci@example.org",
-}
-
-
 def _run_build_metadata(repo: Path, *, ref_name: str, ref_type: str) -> dict[str, str]:
-    """Run the workflow's build-metadata step in ``repo``, as the runner would; return its outputs."""
+    """Run the workflow's build-metadata step in ``repo`` (a repository from
+    ``init_release_repo``, which holds the scripts it runs), as the runner would; return its
+    outputs."""
     step = next(s for s in _build_workflow()["jobs"]["prepare"]["steps"] if s.get("id") == "meta")
-    outputs = repo / "github_output"
+    outputs, summary = repo.parent / "github_output", repo.parent / "step_summary"
     outputs.write_text("")
     env = {
         "PATH": os.environ["PATH"],
@@ -156,36 +149,35 @@ def _run_build_metadata(repo: Path, *, ref_name: str, ref_type: str) -> dict[str
         "REF_NAME": ref_name,
         "REF_TYPE": ref_type,
         "GITHUB_OUTPUT": str(outputs),
+        "GITHUB_STEP_SUMMARY": str(summary),
     }
     subprocess.run(["bash", "--noprofile", "--norc", "-eo", "pipefail", "-c", step["run"]], cwd=repo, env=env, check=True)
     return dict(line.split("=", 1) for line in outputs.read_text().splitlines())
 
 
-def test_each_main_build_deploys_an_image_tag_of_its_own(tmp_path: Path) -> None:
-    # Terraform deploys the image string it is given. A tag every main build reuses
-    # (`:main`) leaves it no change to apply: Cloud Run keeps the image it runs, and the
-    # db-migrate job, keyed on the backend image, never runs again after the first deploy.
-    def commit() -> None:
-        subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "change"], cwd=tmp_path, env=_GIT_ENV, check=True)
-
-    subprocess.run(["git", "init", "-q"], cwd=tmp_path, env=_GIT_ENV, check=True)
-    (tmp_path / "VERSION").write_text("1.4.0\n")
-    commit()
-    first = _run_build_metadata(tmp_path, ref_name="main", ref_type="branch")
-    commit()
-    second = _run_build_metadata(tmp_path, ref_name="main", ref_type="branch")
+def test_each_main_build_pushes_an_image_of_its_own_and_deploys_it_by_digest(tmp_path: Path) -> None:
+    # Terraform deploys the image string it is given. One every main build reuses (`:main`)
+    # leaves it no change to apply: Cloud Run keeps the image it runs, and the db-migrate job,
+    # keyed on the backend image, never runs again after the first deploy. Each build pushes
+    # its image under a tag of its own, and deploy hands Terraform the digest the build pushed
+    # (test_release_mechanics.py), which every build changes.
+    repo = init_release_repo(tmp_path / "repo", "1.4.0")
+    first = _run_build_metadata(repo, ref_name="main", ref_type="branch")
+    _commit(repo)
+    second = _run_build_metadata(repo, ref_name="main", ref_type="branch")
 
     assert first["tag"] == f"main-{first['git_sha']}" and len(first["git_sha"]) == 12
-    assert second["tag"] != first["tag"], "two commits on main must deploy two different images"
-    assert _run_build_metadata(tmp_path, ref_name="v1.4.0", ref_type="tag")["tag"] == "v1.4.0"
+    assert second["tag"] != first["tag"], "two commits on main must push two different images"
+    assert _run_build_metadata(repo, ref_name="v1.4.0", ref_type="tag")["tag"] == "v1.4.0"
 
-    # The images are built and deployed under that tag.
+    # The images are pushed under that tag, and deployed by the digest of what was pushed.
     jobs = _build_workflow()["jobs"]
     image_tag = ":${{ needs.prepare.outputs.tag }}"
     for job in ("build-backend", "build-frontend"):
         assert any(image_tag in step.get("run", "") for step in jobs[job]["steps"]), job
-    plan = next(step for step in jobs["deploy"]["steps"] if step.get("name") == "Terraform Plan")["run"]
-    assert plan.count(image_tag) == 2, "both images reach Terraform with the build's tag"
+    plan = next(step for step in jobs["deploy"]["steps"] if step.get("name") == "Terraform Plan")
+    assert image_tag not in plan["run"], "no image reaches Terraform by its tag"
+    assert '-backend@${BACKEND_DIGEST}"' in plan["run"] and '-frontend@${FRONTEND_DIGEST}"' in plan["run"]
     assert "triggers_replace = [var.backend_image]" in _terraform("migrate.tf")
 
 
@@ -255,13 +247,10 @@ def test_ci_builds_the_production_images_as_the_release_build_does(tmp_path: Pat
     # Google Cloud is configured. The CI `images` job builds them on every pull request, and
     # that proves something only while it is the release build: the same Dockerfile, target,
     # context and build arguments, the backend stamped with what build.yml's prepare job
-    # computes (TF-18 §2).
-    repo = tmp_path / "repo"
-    repo.mkdir()
-    subprocess.run(["git", "init", "-q"], cwd=repo, env=_GIT_ENV, check=True)
-    (repo / "VERSION").write_text("1.4.0\n")
-    subprocess.run(["git", "commit", "-q", "--allow-empty", "-m", "change"], cwd=repo, env=_GIT_ENV, check=True)
+    # computes for a build of main (TF-18 §2): VERSION as a development build.
+    repo = init_release_repo(tmp_path / "repo", "1.4.0")
     release = _run_build_metadata(repo, ref_name="main", ref_type="branch")
+    assert release["app_version"] == "1.4.0-dev"
 
     built = {}
     for step in _ci_images_job()["steps"]:
@@ -388,7 +377,7 @@ def test_an_unstamped_image_reports_the_version_file() -> None:
     # Settings reads VERSION from the directory above backend/ (app/core/config.py's
     # parents[3]). In the image config.py is /app/app/core/config.py, so that is /, where the
     # Dockerfile copies VERSION. Compose leaves APP_VERSION empty unless it is exported, so
-    # a local build names the version it was built from (TF-18 §2).
+    # a local build names the version it was built from, as a development build (TF-18 §2).
     dockerfile = (REPO / "backend" / "Dockerfile").read_text()
     assert "COPY VERSION /VERSION" in dockerfile
     assert "WORKDIR /app" in dockerfile and "COPY backend/app ./app" in dockerfile
@@ -637,8 +626,9 @@ def _image_environment() -> dict[str, str]:
     workflow = (REPO / ".github" / "workflows" / "build.yml").read_text()
     stamp = "_APP_VERSION=${{ needs.prepare.outputs.app_version }},_GIT_SHA=${{ needs.prepare.outputs.git_sha }}"
     assert stamp in workflow, "build.yml no longer stamps the backend image with its version and commit"
-    # The VERSION file and `git rev-parse --short=12 HEAD`, as build.yml's metadata step reads them.
-    return {"APP_VERSION": (REPO / "VERSION").read_text().strip(), "GIT_SHA": token_hex(6)}
+    # What build.yml's metadata step stamps into a build of main: VERSION as a development
+    # build (scripts/build-version.sh), and `git rev-parse --short=12 HEAD`.
+    return {"APP_VERSION": _development_version((REPO / "VERSION").read_text().strip()), "GIT_SHA": token_hex(6)}
 
 
 def _load_settings(monkeypatch: pytest.MonkeyPatch, environment: dict[str, str]) -> Settings:

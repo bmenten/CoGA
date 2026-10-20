@@ -64,9 +64,24 @@ coverage of the targets in scope, and the classified variants grouped as *De nov
 was made and the CoGA version that made it. Its *Scope* names the panel and genes you selected; your
 other filters do not apply. It lists up to 500 variants. When there are more, it says how many it lists
 of how many and where the list stops, on screen and in print: narrow the scope with a panel or a gene.
-**Print report** prints it. A NIPT report has no sign-out: an *Import incomplete* or
-*Not validated for clinical use* warning heads it, on screen and in print, whenever the family page
-would show one.
+**Print report** prints it. An *Import incomplete* or *Not validated for clinical use* warning heads
+it, on screen and in print, whenever the family page would show one. The report is live, never the
+signed record: it says so beside the latest signed version, and every printout starts with *Draft* or
+*Not the signed report*.
+
+### Signing the NIPT analysis out
+
+**Sign out NIPT analysis** on the NIPT page is the analytical sign-off: it freezes the analysis into
+the family's signed record, which the EPD report refers to by its report code. It is the family's own
+sign-out, with the same checks and report code, so the family has one signed record whether you sign
+out here or from the family report. The record holds the NIPT results as CoGA computed them: the fetal
+fraction and the quality checks, the coverage, and each variant tagged *report* with its category,
+reads and probabilities. Tag the variants you report first. Besides the Sample QC, a NIPT quality
+check that failed (no fetal-fraction estimate, fetal-sex signals that disagree, or male DNA as the
+maternal plasma) stops the sign-out until you record a reason. Afterwards the signed version opens,
+with its report code; the NIPT page then shows **Amend sign-out** and says whether the data still
+matches the signed version. A reader of the family's project cannot sign out, here or on the report:
+the button says why.
 
 > **Screening, not diagnosis.** A NIPT call must be confirmed by an invasive diagnostic test. Check the
 > fetal fraction and the quality checks before you read any variant, and a de novo candidate's absence
