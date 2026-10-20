@@ -16,8 +16,8 @@ the revision a database is at ([Schema Migrations](#schema-migrations)).
 `01_access.sql` also adds `users.azure_object_id` and `project_users.access_level` with
 `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, so a database made before Microsoft sign-in keeps its
 accounts (SEC-4), and one made before the reader level keeps its memberships, each as an
-analyst's (SEC-1); revision `0005` runs the second statement too, for when the baselines are no
-longer re-applied.
+analyst's (SEC-1); revisions `0006` and `0005` run these statements too, for when the baselines
+are no longer re-applied.
 
 ### 01_access.sql: genome foundation and access
 
@@ -293,6 +293,7 @@ applies whole or not at all:
 | `0003` | gives `family_relationships` and `sample_interval_track_sources` the baseline's checks, with `relative` (#747) and `target_coverage` (#749) |
 | `0004` | gives `family_structure_versions` its hash chain (`family_identifier`, `row_hash`, `prev_hash` and the chain's index), a nullable `family_id` that the family's deletion nulls, and with `ui_events` its append-only trigger and REVOKE (SEC-7), by running those statements of the baselines |
 | `0005` | gives `project_users` its `access_level` (`analyst` or `reader`, with its check), each stored membership an analyst's (SEC-1), by running the statement `01_access.sql` adds it with |
+| `0006` | gives `users` its `azure_object_id` (a unique UUID, empty for a password account) for Microsoft sign-in (SEC-4), each stored account kept without one, by running the statement `01_access.sql` adds it with |
 
 A database the baselines created before the ledger existed has an empty one, so its first start
 with the ledger runs every revision. Each revision ends at the baseline's definition whatever
