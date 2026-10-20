@@ -28,12 +28,6 @@ const CHRY_PROFILE_COPY: Record<string, string> = {
   no_chrY_targets: 'no chrY target in the panel',
 };
 
-const fetalSexStatus = (call: string): QcStatus => {
-  if (call === 'discordant') return 'fail';
-  if (call === 'indeterminate') return 'warn';
-  return 'pass';
-};
-
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
   <span className={QC_STATUS_CHIP[status]}>{QC_STATUS_LABEL[status]}</span>
 );
@@ -64,7 +58,8 @@ interface NiptQcPanelProps {
  * The NIPT quality checks a reader confirms before reading any variant: the fetal
  * fraction, the fetal sex from two independent signals, paternity, the plasma sample's
  * sex profile, the capture targets' coverage and why cfDNA calls failed the quality
- * filter.
+ * filter. Each verdict is the backend's (`nipt_quality_checks`), the one the signed record
+ * freezes: the page made the fetal-fraction and the fetal-sex verdicts itself before.
  */
 const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
   const paternity = qc.paternity;
@@ -75,7 +70,7 @@ const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
     <section className="surface-card space-y-2" aria-label="NIPT quality checks">
       <h2 className="section-title">Quality checks</h2>
       <Row
-        status={ff.ff_computed == null ? 'fail' : ff.low_confidence ? 'warn' : 'pass'}
+        status={qc.fetal_fraction_status}
         title={
           ff.ff_computed == null
             ? 'Fetal fraction: not estimated'
@@ -98,7 +93,7 @@ const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
           {ff.low_confidence ? ' Low confidence: too few sites or a wide interval.' : ''}
         </p>
       </Row>
-      <Row status={fetalSexStatus(sex.call)} title={`Fetal sex: ${FETAL_SEX_COPY[sex.call] ?? sex.call}`}>
+      <Row status={sex.status} title={`Fetal sex: ${FETAL_SEX_COPY[sex.call] ?? sex.call}`}>
         <p className="table-subtle">
           Paternal X: {sex.x_transmitted} of the father&apos;s X alleles seen, {sex.x_not_transmitted} absent (
           {sex.paternal_x}). chrY coverage:{' '}

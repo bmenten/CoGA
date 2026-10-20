@@ -17,6 +17,11 @@ import {
   describeGenotype,
   describeInherited,
   describeModuleVersions,
+  describeNiptCoverage,
+  describeNiptFetalFraction,
+  describeNiptFetalSex,
+  describeNiptFunnel,
+  describeNiptVariant,
   describeNoCall,
   describePgtInheritance,
   describePgtInputs,
@@ -32,6 +37,10 @@ import {
   describeStructuralEvidenceChange,
   describeStructuralVariantDescription,
   homologLabel,
+  isNiptRecord,
+  liveReportSignedNotice,
+  liveReportSignedState,
+  NIPT_NOT_CLASSIFIED_REASONS,
   paraphaseStatusWords,
   parseSignedReport,
   parseSignedVersionParam,
@@ -906,5 +915,212 @@ describe('the PGT embryo results', () => {
     });
     // The Sample QC says which application read the family: a PGT family's older record is told apart.
     expect(parseSignedReport({ ...SNAPSHOT, sample_qc: { overall_status: 'pass', application: 'pgt' } })!.sampleQc?.application).toBe('pgt');
+  });
+});
+
+// A monogenic NIPT family's record holds its NIPT results (signed_record_nipt); no other
+// family's does, and the signed view then says nothing of them.
+describe('a NIPT family’s NIPT results', () => {
+  const NIPT = {
+    samples: { father: 'FATHER1', maternal_plasma: 'CFDNA1', fetus: null },
+    fetal_fraction: {
+      ff: 0.0,
+      ff_computed: null,
+      ff_median: 0.05,
+      ci_low: null,
+      ci_high: null,
+      n_sites: 3,
+      method: 'category7_pooled',
+      low_confidence: true,
+      status: 'fail',
+      message: 'Not estimated, from 3 category-7 sites (an estimate needs at least 5).',
+    },
+    de_novo_window: null,
+    category_counts: { '7': 3, '1': 0, '10': 'not a count', x: 2 },
+    filter_counts: { total_in: 10, failed_quality: 2, failed_artifact: 0, passed: 8, paternal_only: 2 },
+    quality_failures: { low_vaf: 2, few_alt_reads: 1 },
+    checks: {
+      paternity: { status: 'warn', message: 'Too few paternal-informative sites.' },
+      fetal_sex: { call: 'indeterminate', status: 'warn', message: 'Indeterminate.', paternal_x: 'indeterminate', chry: null },
+      plasma_sample: { status: 'fail', message: 'Male DNA.' },
+    },
+    target_coverage: null,
+    variants: [
+      {
+        variant_id: '7-400-C-T',
+        source: 'nipt',
+        genes: ['GENEB'],
+        category: null,
+        category_label: 'undetermined',
+        maternal_state: 'hom_ref',
+        fetal_inheritance: 'paternal_not_transmitted',
+        expected_vaf: 0.1,
+        observed_vaf: 0,
+        confidence: 0.99,
+        paternal_transmission_probability: 0.000001,
+        flags: [],
+        plasma: { alt_reads: 0, depth: 1500, depth_estimated: true },
+        father: { state: 'het', vaf: 0.5, depth: 300 },
+        de_novo: null,
+      },
+      'not an entry',
+    ],
+    not_classified: [{ variant_id: '7-300-A-G', reason: 'artifact_list' }, { reason: 'no_plasma_call' }],
+    recessive_genes: [{ gene: 'GENEB', risk: 0.0001, risk_uses_prior: true }],
+    inputs: { target_tables: [], artifact_list: null },
+    model: {},
+  };
+
+  it('reads the section the record holds', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      sample_qc: { ...SNAPSHOT.sample_qc, application: 'nipt' },
+      nipt: NIPT,
+    })!;
+    expect(isNiptRecord(record)).toBe(true);
+    expect(record.sampleQc?.application).toBe('nipt');
+    expect(record.nipt.state).toBe('recorded');
+    if (record.nipt.state !== 'recorded') return;
+    const nipt = record.nipt.value;
+    expect(nipt.samples).toEqual({ father: 'FATHER1', maternalPlasma: 'CFDNA1', fetus: null });
+    expect(nipt.fetalFraction).toMatchObject({ status: 'fail', ffComputed: null, nSites: 3, lowConfidence: true });
+    // Counts only, in category order; a count that is not a number is left out.
+    expect(nipt.categoryCounts).toEqual([
+      [1, 0],
+      [7, 3],
+    ]);
+    expect(nipt.qualityFailures).toEqual([
+      ['few_alt_reads', 1],
+      ['low_vaf', 2],
+    ]);
+    expect(nipt.plasmaSample).toEqual({ status: 'fail', message: 'Male DNA.' });
+    expect(nipt.fetalSex).toMatchObject({ call: 'indeterminate', status: 'warn', paternalX: 'indeterminate', chry: null });
+    expect(nipt.targetCoverage).toBeNull();
+    // An entry that cannot be read is skipped, never shown as a variant.
+    expect(nipt.variants).toHaveLength(1);
+    expect(nipt.variants[0]).toMatchObject({
+      variantId: '7-400-C-T',
+      category: null,
+      plasma: { altReads: 0, depth: 1500, depthEstimated: true },
+      father: { state: 'het', vaf: 0.5, depth: 300 },
+      deNovo: null,
+    });
+    expect(nipt.notClassified).toEqual([
+      { variantId: '7-300-A-G', reason: 'artifact_list' },
+      { variantId: 'a variant', reason: 'no_plasma_call' },
+    ]);
+    expect(nipt.recessiveGenes).toEqual([
+      { gene: 'GENEB', risk: 0.0001, riskUsesPrior: true, maternalVariantId: null, paternalVariantId: null },
+    ]);
+    expect(nipt.artifactList).toBeNull();
+    expect(nipt.modelReference).toBeNull();
+  });
+
+  it('reads a record without the section by whose it is', () => {
+    // Another family's record: no NIPT results, and nothing to say of them.
+    const other = parseSignedReport(SNAPSHOT)!;
+    expect(other.nipt).toEqual({ state: 'absent' });
+    expect(isNiptRecord(other)).toBe(false);
+    // A NIPT family's record signed before CoGA froze them: absent, and said so.
+    const before = parseSignedReport({ ...SNAPSHOT, sample_qc: { ...SNAPSHOT.sample_qc, application: 'nipt' } })!;
+    expect(before.nipt).toEqual({ state: 'absent' });
+    expect(isNiptRecord(before)).toBe(true);
+    // Results that could not be read: not captured, with the reason.
+    const unread = parseSignedReport({ ...SNAPSHOT, nipt: { unavailable: 'The NIPT results could not be read.' } })!;
+    expect(unread.nipt).toEqual({ state: 'unavailable', reason: 'The NIPT results could not be read.' });
+    expect(isNiptRecord(unread)).toBe(true);
+  });
+
+  it('words the results as the NIPT page does', () => {
+    const record = parseSignedReport({ ...SNAPSHOT, nipt: NIPT })!;
+    if (record.nipt.state !== 'recorded') throw new Error('not recorded');
+    const nipt = record.nipt.value;
+    expect(describeNiptFetalFraction(nipt.fetalFraction!)).toBe('not estimated, from 3 category-7 sites');
+    expect(
+      describeNiptFetalFraction({
+        ...nipt.fetalFraction!,
+        ffComputed: 0.12,
+        ciLow: 0.109,
+        ciHigh: 0.131,
+        ffMedian: 0.118,
+        nSites: 1,
+      }),
+    ).toBe('12.0% (95% CI 10.9%–13.1%) from 1 category-7 site; per-site median 11.8%');
+    expect(describeNiptFetalSex(nipt.fetalSex!)).toBe(
+      "Indeterminate (the father's X alleles read indeterminate; the plasma's chrY coverage reads nothing)",
+    );
+    expect(describeNiptFunnel(nipt.filterCounts)).toBe(
+      '10 cfDNA calls: 2 quality-filtered, 0 artifact-filtered, 8 analysed; 2 paternal alleles without a plasma call of their own',
+    );
+    expect(describeNiptFunnel({ total_in: 1, passed: 1 })).toBe(
+      '1 cfDNA calls: 0 quality-filtered, 0 artifact-filtered, 1 analysed',
+    );
+    expect(
+      describeNiptCoverage({
+        targets: 60000,
+        medianMean: 800,
+        belowCritical: 1500,
+        belowAdvisory: 40000,
+        incomplete: 1000,
+        criticalMeanDepth: 300,
+        weakGenes: [],
+      }),
+    ).toBe('median 800x over 60,000 targets; 1,500 below 300x, 1,000 with uncovered bases');
+    expect(describeNiptVariant(nipt.variants[0])).toBe(
+      'Unclassified (undetermined), confidence 0.99: maternal hom_ref, fetal paternal_not_transmitted; VAF 0.0% (expected 10.0%); plasma reads no call at ~1500× (target coverage); father het · 50.0% · 300×. paternal inherited 0.0%.',
+    );
+    expect(NIPT_NOT_CLASSIFIED_REASONS.artifact_list).toBe(
+      'it is on the assay’s recurrent-artifact list, which the analysis leaves out',
+    );
+    // The sign-out check names a changed section in words.
+    expect(describeReportSections(['nipt', 'sample_qc'])).toBe('NIPT results and sample-integrity QC');
+  });
+});
+
+// The family's live report and the NIPT report say alike how they stand to the latest
+// signed version (TF-06 H9): never the signed report.
+describe('a live report beside the latest signed version', () => {
+  const state = (overrides: Partial<Parameters<typeof liveReportSignedState>[0]>) =>
+    liveReportSignedState({
+      signoutsFailed: false,
+      signoutsPending: false,
+      latestVersion: 2,
+      checkFailed: false,
+      check: { version: 2, matches: true },
+      ...overrides,
+    });
+
+  it('reads the state from the signed versions and the check', () => {
+    expect(state({ signoutsFailed: true })).toBe('unknown');
+    expect(state({ signoutsPending: true })).toBe('loading');
+    expect(state({ latestVersion: null })).toBe('none');
+    expect(state({ checkFailed: true })).toBe('unverified');
+    expect(state({ check: undefined })).toBe('checking');
+    expect(state({ check: { version: 1, matches: true } })).toBe('unverified');
+    expect(state({ check: { version: 2, matches: null } })).toBe('unverified');
+    expect(state({})).toBe('matches');
+    expect(state({ check: { version: 2, matches: false } })).toBe('changed');
+  });
+
+  it('heads every printout with what it is', () => {
+    expect(liveReportSignedNotice('none', null)).toBe('Draft — this report has not been signed.');
+    expect(liveReportSignedNotice('matches', 2)).toBe(
+      'Not the signed report — this is the live report. Print signed version 2 from its record.',
+    );
+    expect(liveReportSignedNotice('changed', 2)).toBe(
+      'Not the signed report — the content differs from signed version 2.',
+    );
+    expect(liveReportSignedNotice('unverified', 2)).toBe(
+      'Not verified against signed version 2 — do not use as the signed report.',
+    );
+    expect(liveReportSignedNotice('checking', 2)).toBe(
+      'Not verified against signed version 2 — do not use as the signed report.',
+    );
+    expect(liveReportSignedNotice('unknown', null)).toBe(
+      'The sign-out record could not be loaded — do not use as the signed report.',
+    );
+    expect(liveReportSignedNotice('loading', null)).toBe(
+      'The sign-out record is still loading — do not use as the signed report.',
+    );
   });
 });
