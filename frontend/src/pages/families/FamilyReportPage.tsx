@@ -147,7 +147,8 @@ const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
   );
 
 // What moved in the evidence of a small variant's classification: its ClinVar significance,
-// its frozen frequencies and in-silico scores, else its annotation set.
+// its frozen consequence, frequencies, in-silico scores and gene missense Z, else its
+// annotation set.
 const describeClassificationDrift = (item: ApiClassificationDriftItem): string => {
   if (item.status === 'variant_missing') return 'no longer present in the dataset';
   return (

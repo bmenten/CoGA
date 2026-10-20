@@ -7,7 +7,8 @@ import HeaderMenu from './HeaderMenu';
 import ModalDialog from './ModalDialog';
 import PageState from './PageState';
 import { formatBuild, useAppVersion } from '../lib/appVersion';
-import { clearSession, getStoredUsername } from '../lib/auth';
+import { clearSession, getSessionSignIn, getStoredUsername } from '../lib/auth';
+import { forgetMicrosoftAccount } from '../lib/microsoftSignIn';
 import { DEVICE_MANUFACTURER, DEVICE_NAME, DEVICE_STATUS } from '../lib/deviceLabel';
 import { githubRepositoryUrl } from '../lib/githubLinks';
 import { currentProblemReportLink } from '../lib/problemReport';
@@ -32,9 +33,15 @@ const Layout: React.FC = () => {
     // The logout click and anything still queued go out under this session first,
     // then nothing of this user's may stay behind for the next person at this tab:
     // the query cache held their family data for up to ten minutes (#521).
+    const microsoft = getSessionSignIn() === 'microsoft';
     flushUiEventsNow();
     queryClient.clear();
     clearSession();
+    if (microsoft) {
+      // And no Microsoft token either: MSAL could otherwise renew one without asking. The
+      // sign-in page then offers to sign out of Microsoft too (SEC-4).
+      void forgetMicrosoftAccount();
+    }
     navigate('/login?logged_out=1', { replace: true });
   };
 

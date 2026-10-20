@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router';
 import api from '../../lib/api';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
+import { fetchSignInConfig } from '../../lib/microsoftSignIn';
 
 // The backend's minimum (UserCreate, NIST SP 800-63B-4): checked here first, so the form
 // says so before a request is made.
@@ -19,6 +20,20 @@ const SignupPage: React.FC = () => {
   // says so: it used to go straight to the login page, where signing in then failed as
   // "User not active" with no word of why (#526).
   const [acknowledgement, setAcknowledgement] = useState<string | null>(null);
+  // With Microsoft sign-in there is no sign-up: the first sign-in makes the account (SEC-4).
+  const [microsoftSignIn, setMicrosoftSignIn] = useState(false);
+
+  useEffect(() => {
+    let current = true;
+    fetchSignInConfig()
+      .then((config) => {
+        if (current) setMicrosoftSignIn(Boolean(config.microsoft));
+      })
+      .catch(() => undefined);
+    return () => {
+      current = false;
+    };
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -62,7 +77,13 @@ const SignupPage: React.FC = () => {
               Use your professional details so administrators can assign the right access.
             </p>
           </div>
-          {acknowledgement ? (
+          {microsoftSignIn ? (
+            <p className="status-note status-note--info" role="status">
+              There is no sign-up: your first sign-in with the Microsoft account of your hospital or
+              university makes your CoGA account. An administrator then gives you access to your
+              projects.
+            </p>
+          ) : acknowledgement ? (
             <div className="space-y-4" role="status">
               <p className="status-note status-note--success">{acknowledgement}</p>
               <p className="page-subtitle">

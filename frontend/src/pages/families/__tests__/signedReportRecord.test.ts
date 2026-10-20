@@ -262,14 +262,17 @@ describe('parseSignedReport', () => {
     expect(classified.criteria[0].name).not.toBe('PS3');
     // An entry that cannot be read is counted, not dropped.
     expect(classified.unreadableCriteria).toBe(1);
-    // Frozen before CoGA froze the frequencies and in-silico scores: the record holds none.
+    // Frozen before CoGA froze the consequence, frequencies, in-silico scores and gene
+    // missense Z: the record holds none.
     expect(classified.evidence).toEqual({
       clinvar: 'Likely_pathogenic',
       annotationVersion: 'v1',
       capturedAt: '2026-06-20T08:30:00+00:00',
       transcriptId: null,
+      consequence: null,
       frequencies: null,
       inSilico: null,
+      geneConstraint: null,
     });
 
     // No ACMG criteria: the class its classification tag names; no evidence was frozen.
@@ -329,6 +332,83 @@ describe('parseSignedReport', () => {
     // A record frozen before them holds none, and says nothing of them.
     const older = parseSignedReport(SNAPSHOT)!.reportedVariants![0].evidence!;
     expect(describeFrozenEvidenceValues(older)).toBeNull();
+    // Nor does one frozen before the consequence and the gene's missense Z were: no group
+    // of them is read, so none is said to be "not annotated".
+    expect(variant.evidence?.consequence).toBeNull();
+    expect(variant.evidence?.geneConstraint).toBeNull();
+  });
+
+  it('reads the consequence, the LoF call and the gene missense Z frozen with a classification', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '17-43000000-A-G',
+          acmg_class: 'acmg_class_4',
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: {
+            ...FROZEN_EVIDENCE,
+            consequence: { effect: 'missense_variant', impact: 'MODERATE', lof: null },
+            gene_constraint: { gene_missense_z: 3.521 },
+          },
+        },
+        {
+          // A stop gained: no missense Z is frozen for it, as PP2 does not read one.
+          variant_id: '17-43000100-C-T',
+          acmg_class: 'acmg_class_5',
+          acmg: null,
+          tags: ['report'],
+          note: null,
+          evidence_snapshot: {
+            ...FROZEN_EVIDENCE,
+            consequence: { effect: 'stop_gained', impact: 'HIGH', lof: 'HC' },
+          },
+        },
+      ],
+    })!;
+    const [variant, stopGained] = record.reportedVariants!;
+
+    expect(variant.evidence?.consequence).toEqual([
+      { label: 'consequence', value: 'missense_variant' },
+      { label: 'impact', value: 'MODERATE' },
+      { label: 'LoF', value: null },
+    ]);
+    expect(variant.evidence?.geneConstraint).toEqual([{ label: 'gnomAD missense Z', value: '3.52' }]);
+    // The consequence first, read from the primary transcript; the missense Z is the gene's.
+    expect(describeFrozenEvidenceValues(variant.evidence!)).toBe(
+      'Read from its primary transcript ENST00000000001: consequence missense_variant, impact MODERATE and LoF ' +
+        'not annotated; population frequencies gnomAD AF 3.10e-5, gnomAD exomes AF 1.20e-5, gnomAD genomes AF ' +
+        '3.10e-5, gnomAD popmax AF 0.0002, TOPMed AF not annotated, gnomAD allele count 4, gnomAD homozygotes 0 ' +
+        'and gnomAD hemizygotes not annotated; in silico scores CADD 24.3, REVEL 0.412, SpliceAI 0.02, SIFT ' +
+        'deleterious(0.01), PolyPhen probably_damaging(0.981), AlphaMissense class not annotated and ' +
+        "AlphaMissense score not annotated. From its gene's profile: gnomAD missense Z 3.52.",
+    );
+    // The stop gained's record holds no missense Z, and says nothing of one.
+    expect(stopGained.evidence?.geneConstraint).toBeNull();
+    expect(describeFrozenEvidenceValues(stopGained.evidence!)).toMatch(
+      /^Read from its primary transcript ENST00000000001: consequence stop_gained, impact HIGH and LoF HC; .*score not annotated\.$/,
+    );
+    // A missense Z the gene's profile did not hold, or one of the wrong type, reads as none.
+    const without = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '17-43000000-A-G',
+          tags: ['report'],
+          evidence_snapshot: {
+            transcript_id: null,
+            consequence: { effect: 7, impact: 'MODERATE' },
+            gene_constraint: { gene_missense_z: 'high' },
+          },
+        },
+      ],
+    })!.reportedVariants![0].evidence!;
+    expect(describeFrozenEvidenceValues(without)).toBe(
+      "Read from its primary transcript: consequence not annotated and impact MODERATE. From its gene's " +
+        'profile: gnomAD missense Z not annotated.',
+    );
   });
 
   it('reads what moved in a classification’s frozen values when the version was signed', () => {
@@ -517,6 +597,62 @@ describe('the signed report’s wording', () => {
     // Only the annotation set moved: nothing to name.
     expect(describeSmallVariantEvidenceChange(['annotations'], {}, {})).toBeNull();
     expect(describeSmallVariantEvidenceChange(['revel'], null, null)).toBe('REVEL n/a → n/a');
+  });
+
+  it('names a moved consequence, LoF call or gene missense Z, in the order a reviewer reads them', () => {
+    // A missense variant called a stop gained now: the missense Z is read for no other
+    // variant, so it is gone, not moved.
+    expect(
+      describeSmallVariantEvidenceChange(
+        ['effect', 'impact', 'lof', 'revel', 'gene_missense_z', 'annotations'],
+        { effect: 'missense_variant', impact: 'MODERATE', lof: null, revel: 0.412, gene_missense_z: 2.95 },
+        { effect: 'stop_gained', impact: 'HIGH', lof: 'HC', revel: 0.951 },
+      ),
+    ).toBe(
+      'consequence missense_variant → stop_gained; impact MODERATE → HIGH; LoF n/a → HC; REVEL 0.412 → 0.951; ' +
+        'gnomAD missense Z 2.95 → n/a',
+    );
+    // Two values that differ past the two digits a missense Z is written with are written in full.
+    expect(describeSmallVariantEvidenceChange(['gene_missense_z'], { gene_missense_z: 3.091 }, { gene_missense_z: 3.089 })).toBe(
+      'gnomAD missense Z 3.091 → 3.089',
+    );
+  });
+
+  it('reads a moved consequence, LoF call and gene missense Z in the drift a version was signed with', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      drift: {
+        checked: 2,
+        drifted_count: 2,
+        drifted: [
+          {
+            // A missense variant whose gene's profile was refreshed.
+            variant_id: '12-40100301-C-T',
+            status: 'drifted',
+            clinvar_from: 'uncertain_significance',
+            clinvar_to: 'uncertain_significance',
+            changed: ['gene_missense_z'],
+            evidence_from: { effect: 'missense_variant', gene_missense_z: 2.95 },
+            evidence_to: { effect: 'missense_variant', gene_missense_z: 3.52 },
+            classified_by: 'alice',
+          },
+          {
+            // A stop gained, re-annotated: it froze no missense Z.
+            variant_id: '12-40100501-G-T',
+            status: 'drifted',
+            clinvar_from: 'uncertain_significance',
+            clinvar_to: 'uncertain_significance',
+            changed: ['effect', 'lof', 'annotations'],
+            evidence_from: { effect: 'stop_gained', lof: 'LC' },
+            evidence_to: { effect: 'stop_gained&splice_region_variant', lof: 'HC' },
+            classified_by: 'alice',
+          },
+        ],
+      },
+    })!;
+    const [missense, stopGained] = record.drift!.drifted;
+    expect(describeSignedDrift(missense)).toBe('gnomAD missense Z 2.95 → 3.52');
+    expect(describeSignedDrift(stopGained)).toBe('consequence stop_gained → stop_gained&splice_region_variant; LoF LC → HC');
   });
 
   it('says why an SV/CNV classification counted as drift when the version was signed', () => {

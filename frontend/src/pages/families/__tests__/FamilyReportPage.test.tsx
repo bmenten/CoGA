@@ -399,6 +399,66 @@ describe('FamilyReportPage', () => {
     expect(items).toContain('2-200-C-T — annotation set changed (classified by alice)');
   });
 
+  it('names a moved consequence, LoF call or gene missense Z since a classification', async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
+      }
+      if (url.startsWith('/families/F1/small-variants')) {
+        return Promise.resolve({ data: { variants: [], total: 0 } });
+      }
+      if (url === '/families/F1/classification-drift') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            checked: 2,
+            drifted_count: 2,
+            drifted: [
+              {
+                variant_id: '1-100-A-G',
+                acmg_class: 'acmg_class_4',
+                classified_by: 'alice',
+                classified_at: null,
+                status: 'drifted',
+                annotation_version_from: 'v1',
+                annotation_version_to: 'v2',
+                clinvar_from: null,
+                clinvar_to: null,
+                changed: ['effect', 'lof', 'annotations'],
+                evidence_from: { effect: 'stop_gained', lof: 'LC' },
+                evidence_to: { effect: 'stop_gained&splice_region_variant', lof: 'HC' },
+              },
+              {
+                // The gene profiles were refreshed; the variant's annotation was not.
+                variant_id: '2-200-C-T',
+                acmg_class: 'acmg_class_3',
+                classified_by: 'bob',
+                classified_at: null,
+                status: 'drifted',
+                annotation_version_from: 'v1',
+                annotation_version_to: 'v1',
+                clinvar_from: null,
+                clinvar_to: null,
+                changed: ['gene_missense_z'],
+                evidence_from: { gene_missense_z: 2.95 },
+                evidence_to: { gene_missense_z: 3.52 },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    renderPage();
+
+    expect(await screen.findByText(/2 classifications have evidence changes since being made/)).toBeInTheDocument();
+    const items = screen.getAllByRole('listitem').map((listItem) => listItem.textContent ?? '');
+    expect(items).toContain(
+      '1-100-A-G — consequence stop_gained → stop_gained&splice_region_variant; LoF LC → HC (classified by alice)',
+    );
+    expect(items).toContain('2-200-C-T — gnomAD missense Z 2.95 → 3.52 (classified by bob)');
+  });
+
   it('lists the structural variants and CNVs whose classification evidence moved', async () => {
     const evidence = {
       source: 'needlr',
@@ -1794,6 +1854,57 @@ describe('FamilyReportPage', () => {
       const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
       expect(drift).toHaveTextContent('17-43000000-A-G — REVEL 0.412 → 0.951 (classified by alice)');
       expect(drift).toHaveTextContent('Signed out over it, with the reason: REVEL re-reviewed.');
+      // Frozen before the consequence and the gene's missense Z were: nothing is said of them.
+      expect(variant).not.toHaveTextContent(/consequence|missense Z/);
+    });
+
+    it('shows the consequence, LoF call and gene missense Z frozen with a classification, and those that had moved', async () => {
+      const [reported] = SIGNED_SNAPSHOT.reported_variants;
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, drift_acknowledged: true, drift_acknowledgement_reason: 'PP2 re-reviewed' }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_variants: [
+            {
+              // A missense variant: its gene's missense Z, which PP2 reads, is frozen too.
+              ...reported,
+              evidence_snapshot: {
+                ...reported.evidence_snapshot,
+                transcript_id: 'ENST00000000001',
+                consequence: { effect: 'missense_variant', impact: 'MODERATE', lof: null },
+                gene_constraint: { gene_missense_z: 2.95 },
+              },
+            },
+          ],
+          drift: {
+            checked: 1,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '17-43000000-A-G',
+                status: 'drifted',
+                clinvar_from: 'Likely_pathogenic',
+                clinvar_to: 'Likely_pathogenic',
+                changed: ['gene_missense_z'],
+                evidence_from: { gene_missense_z: 2.95 },
+                evidence_to: { gene_missense_z: 3.52 },
+                classified_by: 'alice',
+              },
+            ],
+          },
+          acknowledged_drift: true,
+          drift_acknowledgement_reason: 'PP2 re-reviewed',
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent(
+        "Read from its primary transcript ENST00000000001: consequence missense_variant, impact MODERATE and LoF not annotated. From its gene's profile: gnomAD missense Z 2.95.",
+      );
+      const drift = screen.getByRole('heading', { name: 'Evidence drift at sign-out' }).closest('section')!;
+      expect(drift).toHaveTextContent('17-43000000-A-G — gnomAD missense Z 2.95 → 3.52 (classified by alice)');
     });
 
     it('shows the overrides frozen into the signed version', async () => {

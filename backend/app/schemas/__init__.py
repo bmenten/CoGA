@@ -31,6 +31,8 @@ from .auth import (
     Token,
     SignupAck,
     UserRefOut,
+    MicrosoftSignInOut,
+    SignInConfigOut,
 )
 from .hpo import (
     HpoTermOut,
@@ -379,6 +381,8 @@ __all__ = [
     "UserUpdate",
     "Token",
     "SignupAck",
+    "MicrosoftSignInOut",
+    "SignInConfigOut",
     "UserRefOut",
     "HpoTermOut",
     "HpoTermRelationOut",
