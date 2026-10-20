@@ -97,10 +97,11 @@ export const pendingDatasets = (entry: FamilyImportUnfinished): string[] =>
 /**
  * What wrote an `import_unfinished` entry, read from its key, as the server reads it
  * (family_package_registration.unfinished_entry_writer): a single-file upload marks the
- * family before its first ClickHouse write (`upload-…`), and an admin's deletion of a
- * sample's data whose rewrite could not put the family's structural variants back leaves a
- * mark (`deletion-…`); any other key is a package import's (its job, or a run of its own).
- * The signed record keeps the key with the entry, so it says the same.
+ * family before its first ClickHouse write (`upload-…`), and so does a deletion of the
+ * family's data there (`deletion-…`: an admin's deletion of a sample, of its structural
+ * variants or of the family, a PED upload or manual family that replaces the family, or a
+ * structure change that clears its data); any other key is a package import's (its job, or
+ * a run of its own). The signed record keeps the key with the entry, so it says the same.
  */
 export type UnfinishedWriter = 'import' | 'upload' | 'deletion';
 
@@ -110,7 +111,7 @@ export const unfinishedWriter = (key: string): UnfinishedWriter =>
 /** A single-file upload's or a deletion's mark, as a sentence starts it. */
 export const WRITER_LABELS: Record<Exclude<UnfinishedWriter, 'import'>, string> = {
   upload: 'A single-file upload',
-  deletion: 'A deletion of a sample’s data',
+  deletion: 'A deletion of this family’s data',
 };
 
 /**
@@ -120,11 +121,11 @@ export const WRITER_LABELS: Record<Exclude<UnfinishedWriter, 'import'>, string> 
  * when it ends (family_package_registration.ImportMark). So an entry is an import still
  * running, or one whose process stopped part-way (a restart, a crash, running out of memory)
  * and left what it had not finished partly written. Only an import that imports that again
- * with overwrite removes it. A single-file upload marks the family the same way before its
- * first ClickHouse write, and a deletion that could not put the family's structural variants
- * back leaves a mark (FamilyWriteMark); each item of a mark goes once an upload or an import
- * with overwrite has brought it again. As on the server, a value that is set but not in the
- * shape an import writes still counts, with nothing to name.
+ * with overwrite removes it. A single-file upload, and a deletion of the family's data, mark
+ * the family the same way before their first ClickHouse write (FamilyWriteMark); each item of
+ * a mark goes once an upload or an import with overwrite has brought it again. As on the
+ * server, a value that is set but not in the shape an import writes still counts, with
+ * nothing to name.
  */
 export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnfinished[] => {
   if (!metadata || typeof metadata !== 'object') return [];
@@ -183,8 +184,8 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
   const pending = pendingDatasets(entry);
   const writer = unfinishedWriter(entry.key);
   if (writer !== 'import') {
-    // A single-file upload marks the family before its first ClickHouse write; a deletion
-    // leaves a mark once it could not put the family's SVs back (SAFE-28). No import job.
+    // A single-file upload (SAFE-28), and a deletion of the family's data (SAFE-31), mark the
+    // family before their first ClickHouse write. No import job.
     const when = entry.at ? ` (${bannerTime(entry.at)})` : '';
     return (
       <>
@@ -192,7 +193,7 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
         {when}
         {writer === 'upload'
           ? ' began rewriting this family’s data and has not finished: it is still running, or it stopped or failed part-way.'
-          : ' failed, and putting this family’s structural variants back as they were did not finish.'}
+          : ' began and has not finished: it is still running, or it stopped or failed part-way.'}
         {pending.length ? ` ${joinWithAnd(pending)} may be partly written or missing.` : ''}{' '}
       </>
     );
@@ -239,7 +240,7 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
  * loaded, naming what failed, and while an import of it has not finished (it is running,
  * or it stopped part-way), naming what it had not finished; after a failed overwrite whose
  * restore did not finish, naming every dataset of the family still to import again in full;
- * and while a single-file upload, or a deletion of a sample's data, has not finished,
+ * and while a single-file upload, or a deletion of the family's data, has not finished,
  * naming what it may have left partly written or missing.
  * Printed with the report, like the assembly-scope label. Sign-out refuses such a family
  * unless the signer acknowledges it with a reason, whatever this banner does.

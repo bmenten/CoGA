@@ -380,6 +380,15 @@ missing, and the report can be signed out only with an acknowledgement. Upload a
 every sample's calls from that caller), the callset, or the sample's track; each goes from the warning
 as it is uploaded, or imported, again. An upload without **overwrite** removes nothing from it.
 
+A deletion of the family's data marks the family the same way before it first writes to the variant
+store: an administrator's deletion of a sample with its data, of a sample's structural variants or of
+the family, a PED upload or a family built by hand that replaces the family, and a structure change
+that clears its data. Its end removes the mark. If it fails, the warning ("A deletion of this family's
+data … began and has not finished") names exactly what may be partly written or missing; if the
+server stops in it, everything it could have reached. Deleting a sample again, once it completes,
+removes that sample's part of the warning. An import whose SNV or imputed-genotype file is refused
+before anything is written (a VEP table without its header row) leaves the callset the family held.
+
 A value the variant store cannot hold, or that is no number, never fails an upload or an import: it is
 stored as missing. A genotype quality written as `inf` or above 65,535, a negative phase set, or a
 QUAL beyond the store's largest decimal reads as absent, so a sample filter with a minimum genotype

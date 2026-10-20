@@ -493,7 +493,7 @@ export const useReportSignOut = (
                       {unfinishedWriter(entry.key) === 'upload'
                         ? ' (single-file upload)'
                         : unfinishedWriter(entry.key) === 'deletion'
-                          ? ' (deletion of a sample’s data)'
+                          ? ' (deletion of this family’s data)'
                           : entry.jobId
                             ? ` (import job ${entry.jobId})`
                             : ''}

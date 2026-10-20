@@ -128,5 +128,6 @@ async def test_batch_metadata_update_ignores_unchanged_parent_fields(monkeypatch
 def test_family_structure_update_query_reason_parameter_is_typed() -> None:
     import backend.app.services.family_structure_service as family_structure_service
 
-    source = inspect.getsource(family_structure_service.update_family_structure_for_admin)
+    # The change itself, which update_family_structure_for_admin runs (SAFE-31).
+    source = inspect.getsource(family_structure_service._update_family_structure)
     assert "'reason', CAST(:reason AS text)" in source

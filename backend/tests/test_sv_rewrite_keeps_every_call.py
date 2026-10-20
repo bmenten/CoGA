@@ -32,6 +32,7 @@ from backend.app.services.clickhouse_variant_records import (
     StructuralVariantRecord,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 # FATHER is not in the context's sample map: an inactive member the family view hides.
 _ACTIVE = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother"}
@@ -511,6 +512,8 @@ async def test_admin_delete_writes_back_every_other_call_and_field(monkeypatch) 
     monkeypatch.setattr(admin_service, "fetch_family_structural_variant_rows", fake.fetch)
     monkeypatch.setattr(admin_service, "count_family_structural_variants", count)
     monkeypatch.setattr(admin_service, "rewrite_family_structural_variants", fake.rewrite)
+    # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
+    monkeypatch.setattr(admin_service, "FamilyDeletion", UnmarkedDeletion)
 
     await admin_service.delete_sample_data_by_type(
         _Session(),  # type: ignore[arg-type]

@@ -52,7 +52,12 @@ from .clickhouse_interval_tracks import (
 )
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
-from .family_package_common import VcfSampleColumnError, known_vcf_sample_ids, per_sample_vcf_column
+from .family_package_common import (
+    DatasetLeftMissing,
+    VcfSampleColumnError,
+    known_vcf_sample_ids,
+    per_sample_vcf_column,
+)
 from .family_package_registration import (
     FamilyWriteMark,
     end_family_write_mark,
@@ -566,7 +571,11 @@ async def _rewrite_with_sample_calls(
     uploaded ones (see :func:`_entries_with_uploaded_calls`).
 
     ClickHouse writes are not transactional, so when the rewrite fails after its delete the
-    rows as they were read are written back, and the original error is raised.
+    rows as they were read are written back, and the original error is raised. When they
+    cannot be written back either, every sample's calls of the callset may be partly written
+    or missing, not only the file's: ``DatasetLeftMissing`` is raised from the original
+    error, naming each sample whose calls the rows held, and the import flags its dataset for
+    each of them (SAFE-31).
     """
     assembly_name = context.assembly_name or ""
     rows = _entries_with_uploaded_calls(stored, replaced, uploaded)
@@ -574,19 +583,39 @@ async def _rewrite_with_sample_calls(
         await rewrite_family_small_variant_entries(
             assembly_name, context.family_uuid, rows, source=source
         )
-    except Exception:
+    except Exception as write_error:
         try:
             await rewrite_family_small_variant_entries(
                 assembly_name, context.family_uuid, stored, source=source
             )
-        except Exception:  # the restore must not mask the original error
+        except Exception:
             logger.warning(
                 "Failed to restore the %s small-variant rows of family %s after a failed rewrite",
                 scrub_log(source),
                 scrub_log(context.family_id),
                 exc_info=True,
             )
+            raise DatasetLeftMissing(
+                f"The {source} calls could not be written, nor put back as they were: those of "
+                "every sample may be partly written or missing",
+                samples={
+                    context.sample_uuid_to_name.get(str(sample), str(sample))
+                    for entry in (*stored, *rows)
+                    for sample in entry.get("calls.sampleId") or []
+                },
+            ) from write_error
         raise
+
+
+@dataclass
+class SmallVariantWriteState:
+    """Whether a load of a small-variant VCF (``upload_family_small_variant_file``'s
+    ``write_state``) has begun writing ClickHouse: its delete of the stored rows it replaces,
+    or with none its first insert. A caller's clean-up after the load failed deletes only
+    what a load that began may have replaced or partly written: one refused before that
+    (an annotation file it cannot read, the lock, a check) replaced nothing (SAFE-32)."""
+
+    began: bool = False
 
 
 @dataclass
@@ -627,6 +656,7 @@ async def upload_family_small_variant_file(
     sample_column: str | None = None,
     record_upload: bool = False,
     check_before_replacing: bool = True,
+    write_state: SmallVariantWriteState | None = None,
 ) -> dict[str, Any]:
     """Load a family's small-variant VCF into ClickHouse.
 
@@ -697,6 +727,10 @@ async def upload_family_small_variant_file(
     clean-up below, and leaves the family marked for the callset, which gates its sign-out.
     The upload's commit removes the mark; a failure removes it once the clean-up has removed
     what the upload wrote, with nothing stored before, or turns it into the flag above.
+
+    ``write_state`` is told when the load begins writing ClickHouse (``began``), at the same
+    point: a package import's clean-up after a failed load deletes its callset only then,
+    never after a file the load refused before it replaced anything (SAFE-32).
     """
     if not context.assembly_name:
         raise HTTPException(
@@ -1061,6 +1095,8 @@ async def upload_family_small_variant_file(
             )
         if replaces_stored:
             replacing = wrote = True
+            if write_state is not None:
+                write_state.began = True
             await delete_family_small_variants(
                 context.assembly_name, context.family_uuid, source=resolved_format
             )
@@ -1078,6 +1114,8 @@ async def upload_family_small_variant_file(
         # every other sample's calls.
         mutation_started = not samples_scope
         wrote = True
+        if write_state is not None:
+            write_state.began = True
         read = await read_file(write=True)
         if samples_scope:
             # The rewrite also rebuilds the family summaries.

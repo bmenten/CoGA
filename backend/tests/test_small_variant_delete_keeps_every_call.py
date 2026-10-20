@@ -23,6 +23,7 @@ from backend.app.services.clickhouse_variant_storage import (
     small_variant_entry_without_samples,
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
+from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 _CALL_COLUMNS = (
     "calls.sampleId",
@@ -264,9 +265,11 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
         "count_family_small_variants": nothing,
         "count_family_structural_variants": nothing,
         "purge_sample_managed_files": nothing,
-        # The pedigree change of the delete is not what this test reads.
+        # The pedigree change of the delete is not what this test reads, nor its mark
+        # (test_deletions_mark_the_family.py, SAFE-31).
         "read_structure_snapshot": no_pedigree,
         "record_structure_change": nothing,
+        "FamilyDeletion": UnmarkedDeletion,
     }.items():
         monkeypatch.setattr(admin_service, name, fake)
 

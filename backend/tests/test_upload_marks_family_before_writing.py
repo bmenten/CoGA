@@ -494,7 +494,7 @@ def test_the_gate_message_names_a_deletion_and_an_import_apart() -> None:
 
     assert "an import (2026-10-13T09:00:00+00:00) stopped before it finished, so coverage" in message
     assert (
-        "Also, a deletion of a sample's data (2026-10-14T09:00:00+00:00) did not finish, so cnv, "
+        "Also, a deletion of this family's data (2026-10-14T09:00:00+00:00) did not finish, so cnv, "
         "sv_needlr may be partly written or missing." in message
     )
     assert (

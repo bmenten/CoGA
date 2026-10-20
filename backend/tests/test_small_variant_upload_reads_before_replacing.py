@@ -517,6 +517,44 @@ async def test_a_caller_that_puts_the_family_back_itself_reads_the_file_once(sto
     ]
 
 
+@pytest.mark.asyncio
+async def test_a_caller_is_told_whether_the_load_began_writing(stores) -> None:
+    # A package import's clean-up deletes its callset after a failed load only once the load
+    # began writing (SAFE-32): one refused before that -- here its VEP table, which has no
+    # header -- replaced nothing, and the callset is as it was.
+    database = _Postgres()
+    refused = variant_upload_service.SmallVariantWriteState()
+
+    with pytest.raises(HTTPException, match="missing a header row"):
+        await variant_upload_service.upload_family_small_variant_file(
+            database,  # type: ignore[arg-type]
+            context=_FAMILY,
+            sample_contexts=snv_router._family_sample_contexts(_FAMILY),
+            file=UploadFile(file=BytesIO((_HEADER + _calls(2)).encode()), filename="family.vcf"),
+            annotation_file=UploadFile(file=BytesIO(b"## ENSEMBL VARIANT EFFECT PREDICTOR\n"), filename="vep.tsv"),
+            overwrite=True,
+            format_hint="clair3",
+            check_before_replacing=False,
+            write_state=refused,
+        )
+
+    assert refused.began is False
+    _as_stored_before(stores, database)
+
+    loaded = variant_upload_service.SmallVariantWriteState()
+    await variant_upload_service.upload_family_small_variant_file(
+        database,  # type: ignore[arg-type]
+        context=_FAMILY,
+        sample_contexts=snv_router._family_sample_contexts(_FAMILY),
+        file=UploadFile(file=BytesIO((_HEADER + _calls(2)).encode()), filename="family.vcf"),
+        overwrite=True,
+        format_hint="clair3",
+        check_before_replacing=False,
+        write_state=loaded,
+    )
+    assert loaded.began is True
+
+
 # --- a write that fails after the delete -------------------------------------------------
 
 

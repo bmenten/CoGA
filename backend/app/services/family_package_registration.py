@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Collection, Iterable, Mapping
-from dataclasses import dataclass, field
+from collections.abc import AsyncIterator, Collection, Iterable, Mapping
+from contextlib import asynccontextmanager
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import json
 import logging
@@ -30,6 +31,8 @@ from .clickhouse_interval_tracks import (
     delete_interval_tracks,
 )
 from .clickhouse_variant_storage import (
+    SmallVariantsNotRestored,
+    StructuralVariantsNotRestored,
     delete_family_small_variants,
     delete_family_structural_variants,
 )
@@ -2122,24 +2125,50 @@ def interval_track_upload_scope(
 # write, committed on a connection of its own (``mark_family_upload``). The upload's commit
 # removes it (``record_family_upload``), and so does a failure that left nothing missing
 # (``end_family_write_mark``); an upload that flags its failure turns it into the flag
-# (``record_family_upload_failure``). An admin's deletion of a sample's data whose rewrite of
-# the family's structural variants could not put them back leaves one too
-# (``mark_family_deletion_not_restored``).
+# (``record_family_upload_failure``).
+#
+# So does every deletion of the family's data that deletes or rewrites ClickHouse rows
+# (SAFE-31; ``FamilyDeletion``): an admin's deletion of a sample with its data, of a sample's
+# structural variants or of the family, a PED upload or a manual family that replaces the
+# family, and a structure change that clears its data. Its mark lists what it may leave
+# partly written or missing if it stops anywhere after its first ClickHouse write; it goes
+# with the deletion's commit (with the family, for one that deletes the family), and a
+# deletion that fails leaves it listing exactly what it may have left so, given how far it
+# got (``FamilyDeletion.failed``), or removes it when that is nothing.
 UPLOAD_MARK_PREFIX = "upload-"
 DELETION_MARK_PREFIX = "deletion-"
 
 
 def unfinished_entry_writer(key: Any) -> str:
     """What wrote an ``import_unfinished`` entry, read from its key: ``upload`` (a
-    single-file upload, ``UPLOAD_MARK_PREFIX``), ``deletion`` (an admin's deletion of a
-    sample's data, ``DELETION_MARK_PREFIX``), or else ``import`` (a package import, keyed by
-    its job or by a run of its own)."""
+    single-file upload, ``UPLOAD_MARK_PREFIX``), ``deletion`` (a deletion of the family's
+    data, ``DELETION_MARK_PREFIX``: an admin's deletion of a sample, of its structural
+    variants or of the family, the replacement of the family by a PED upload or a manual
+    family, or a structure change that clears its data), or else ``import`` (a package
+    import, keyed by its job or by a run of its own)."""
     if isinstance(key, str):
         if key.startswith(UPLOAD_MARK_PREFIX):
             return "upload"
         if key.startswith(DELETION_MARK_PREFIX):
             return "deletion"
     return "import"
+
+
+# An item of a deletion's mark that stands for one sample's part of a dataset that holds every
+# sample's data in one file (its scope names no sample: a family VCF), as against the whole
+# dataset: the deletion of that sample removed its part, and nothing of the others'. An
+# upload or an import that brings the dataset again with overwrite strikes it as any item
+# (``_scope_covers`` reads the scope alone), and so does the deletion of that sample once it
+# commits (``FamilyDeletion.finished``): nothing of a sample that is gone can be missing.
+ITEM_SAMPLE_KEY = "sample"
+
+
+def _listed_items(items: Iterable[Mapping[str, Any]]) -> tuple[dict[str, Any], ...]:
+    """Each item once, in a stable order."""
+    listed: dict[str, dict[str, Any]] = {}
+    for item in items:
+        listed[_canonical(item)] = dict(item)
+    return tuple(listed[key] for key in sorted(listed))
 
 
 @dataclass(frozen=True)
@@ -2155,14 +2184,17 @@ class FamilyWriteMark:
 
     @classmethod
     def begin(cls, prefix: str, items: Iterable[tuple[str, Any]]) -> "FamilyWriteMark":
-        listed: dict[str, dict[str, Any]] = {}
-        for dataset, scope in items:
-            for item in _scope_items(str(dataset), scope):
-                listed[_canonical(item)] = item
+        return cls.listing(
+            prefix, (item for dataset, scope in items for item in _scope_items(str(dataset), scope))
+        )
+
+    @classmethod
+    def listing(cls, prefix: str, items: Iterable[Mapping[str, Any]]) -> "FamilyWriteMark":
+        """A mark listing ``items`` as given (``{"dataset": …, "scope": …}``)."""
         return cls(
             key=f"{prefix}{uuid4().hex}",
             at=datetime.now(timezone.utc).isoformat(),
-            items=tuple(listed[key] for key in sorted(listed)),
+            items=_listed_items(items),
         )
 
     def entry(self) -> dict[str, Any]:
@@ -2189,11 +2221,17 @@ async def mark_family_upload(
     write would wait for that lock. Raises: an upload that cannot mark the family writes
     nothing."""
     mark = FamilyWriteMark.begin(UPLOAD_MARK_PREFIX, items)
+    await _write_mark(family_uuid, mark)
+    return mark
+
+
+async def _write_mark(family_uuid: str, mark: FamilyWriteMark) -> None:
+    """Write ``mark`` into the family's ``import_unfinished``, committed on a connection of
+    its own. Raises."""
     async with get_postgres_sessionmaker()() as session:
         await _write_unfinished_entry(
             session, family_uuid=family_uuid, key=mark.key, entry=mark.entry()
         )
-    return mark
 
 
 async def end_family_write_mark(
@@ -2226,66 +2264,331 @@ async def end_family_write_mark(
             pass
 
 
-def _bears_structural_variants(dataset: str) -> bool:
-    """Whether a dataset's data, as ``imported_scopes`` records it, is held in part by the
-    family's structural-variant rows: an SV upload's (``sv_<caller>``), and a package's
-    NeedlR (``sv_needlr``), HiFiCNV (``cnv``) and mitochondrial (``mito``: its chrM SVs)
-    datasets."""
-    return dataset.startswith("sv_") or dataset in {"cnv", "mito"}
+# Where ClickHouse holds a family's data, store by store: its small variants, its structural
+# variants, and its interval tracks (each sample's).
+SMALL_VARIANT_DATA = "small_variants"
+STRUCTURAL_VARIANT_DATA = "structural_variants"
+INTERVAL_TRACK_DATA = "interval_tracks"
+_CLICKHOUSE_STORES = frozenset({SMALL_VARIANT_DATA, STRUCTURAL_VARIANT_DATA, INTERVAL_TRACK_DATA})
+
+# Which of those stores hold each dataset's data, as ``imported_scopes`` names the dataset: a
+# package's dataset (an upload of small variants or imputed genotypes records ``snv`` or
+# ``haplotypes``), and an upload's own (``sv_<caller>``, ``bed_<type>``:
+# ``dataset_clickhouse_stores``). The repeat calls, the paraphase results, the QC, the
+# alignments' registration, the pipeline's run record and the phenotypes are Postgres's alone.
+_DATASET_CLICKHOUSE_STORES: dict[str, frozenset[str]] = {
+    "snv": frozenset({SMALL_VARIANT_DATA}),
+    # The imputed genotypes, and the haplotype blocks made from them.
+    "haplotypes": frozenset({SMALL_VARIANT_DATA, INTERVAL_TRACK_DATA}),
+    # The chrM calls, and the chrM structural variants.
+    "mito": frozenset({SMALL_VARIANT_DATA, STRUCTURAL_VARIANT_DATA}),
+    "sv_needlr": frozenset({STRUCTURAL_VARIANT_DATA}),
+    # HiFiCNV's calls, and its copy-number, depth and allele-fraction tracks.
+    "cnv": frozenset({STRUCTURAL_VARIANT_DATA, INTERVAL_TRACK_DATA}),
+    "wisecondorx": frozenset({INTERVAL_TRACK_DATA}),
+    "qdnaseq": frozenset({INTERVAL_TRACK_DATA}),
+    "apcad": frozenset({INTERVAL_TRACK_DATA}),
+    "pcf": frozenset({INTERVAL_TRACK_DATA}),
+    "coverage": frozenset({INTERVAL_TRACK_DATA}),
+    "repeats_trgt": frozenset(),
+    "paraphase": frozenset(),
+    "qc": frozenset(),
+    "alignments": frozenset(),
+    "pipeline_info": frozenset(),
+    "phenotypes": frozenset(),
+}
 
 
-async def mark_family_deletion_not_restored(
-    session: AsyncSession,
-    *,
-    family_uuid: str,
-    family_id: str,
-    removed_samples: Collection[str],
-) -> None:
-    """Mark the family after an admin's deletion of a sample's data whose rewrite of the
-    family's structural variants failed and could not put back the rows it had deleted
-    (``StructuralVariantsNotRestored``): every source's structural variants may be partly
-    written or missing. The mark lists each dataset the family holds that they hold
-    (``imported_scopes``; ``_bears_structural_variants``), with its scope, one sample at a
-    time, but for the samples the deletion removed (``removed_samples``, sample ids): their
-    calls were to go.
+def dataset_clickhouse_stores(dataset: str) -> frozenset[str]:
+    """The ClickHouse stores that hold ``dataset``'s data (``_DATASET_CLICKHOUSE_STORES``). A
+    dataset of no known kind counts as held in each: a deletion marks it rather than miss
+    it."""
+    known = _DATASET_CLICKHOUSE_STORES.get(dataset)
+    if known is not None:
+        return known
+    if dataset.startswith("sv_"):
+        return frozenset({STRUCTURAL_VARIANT_DATA})
+    if dataset.startswith("bed_"):
+        return frozenset({INTERVAL_TRACK_DATA})
+    return _CLICKHOUSE_STORES
 
-    The deletion's transaction is rolled back first; the mark is written, and committed, in
-    a transaction of its own under the family row's lock. Best-effort: the deletion's own
-    error is what the caller raises."""
-    removed = {str(sample) for sample in removed_samples}
-    try:
-        await session.rollback()
+
+@dataclass(frozen=True)
+class DataReach:
+    """What a deletion's write reaches of the family's data in one ClickHouse store
+    (``store``): every sample's data of each dataset the store holds; with ``sample``, that
+    sample's alone -- its own items, and its part of a dataset whose scope names no sample
+    (``ITEM_SAMPLE_KEY``); with ``but``, every sample's but that one's own items, a
+    deletion of whose data was to remove them."""
+
+    store: str
+    sample: str | None = None
+    but: str | None = None
+
+
+def _item_samples(item: Mapping[str, Any]) -> set[str] | None:
+    """The samples an item's scope names, or None for a dataset of one family-level file (or
+    a scope not in the shape ``dataset_scopes`` gives, which holds any sample's data)."""
+    scope = item.get("scope")
+    samples = scope.get("samples") if isinstance(scope, Mapping) else None
+    if isinstance(samples, list):
+        named = {str(sample) for sample in samples if sample}
+        if named:
+            return named
+    return None
+
+
+def reached_items(
+    items: Iterable[Mapping[str, Any]], reaches: Iterable[DataReach]
+) -> tuple[dict[str, Any], ...]:
+    """Of ``items`` (as a whole-family entry lists them), what ``reaches`` reach: each item of
+    a dataset held in a reached store, and of a reached sample. An item reached for one
+    sample's part alone (a dataset whose scope names no sample, reached for that sample)
+    names it (``ITEM_SAMPLE_KEY``); one that already names a sample's part is reached for
+    that part or not at all. Never more than ``items``: what a mark lists only shrinks."""
+    reaches = tuple(reaches)
+    reached: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, Mapping) or not item.get("dataset"):
+            continue
+        dataset = str(item["dataset"])
+        stores = dataset_clickhouse_stores(dataset)
+        samples = _item_samples(item)
+        part = item.get(ITEM_SAMPLE_KEY)
+        whole = False
+        parts: set[str] = set()
+        for reach in reaches:
+            if reach.store not in stores:
+                continue
+            if reach.sample is not None:
+                if samples is None:
+                    parts.add(reach.sample)
+                elif reach.sample in samples:
+                    whole = True
+            elif not (reach.but is not None and samples is not None and samples <= {reach.but}):
+                whole = True
+        base = {"dataset": dataset, "scope": item.get("scope")}
+        if part is not None:
+            if whole or str(part) in parts:
+                reached.append({**base, ITEM_SAMPLE_KEY: str(part)})
+        elif whole:
+            reached.append(base)
+        else:
+            reached.extend({**base, ITEM_SAMPLE_KEY: sample} for sample in sorted(parts))
+    return _listed_items(reached)
+
+
+def _without_sample(entry: Any, sample: str) -> Any:
+    """A whole-family entry without the items of ``sample``, a sample that is deleted: its
+    own items and its part of a family-level dataset (``ITEM_SAMPLE_KEY``). None when nothing
+    is left of a list that had items; the entry itself when none is struck, or when it is
+    not a whole-family entry (an import's own entry lists datasets, not samples)."""
+    listed = entry.get(WHOLE_FAMILY_KEY) if isinstance(entry, Mapping) else None
+    if not isinstance(listed, list):
+        return entry
+    left = [
+        item
+        for item in listed
+        if not (
+            isinstance(item, Mapping)
+            and (item.get(ITEM_SAMPLE_KEY) == sample or _item_samples(item) == {sample})
+        )
+    ]
+    if len(left) == len(listed):
+        return entry
+    if not left:
+        return None
+    return {
+        **entry,
+        "datasets": sorted(
+            {str(item["dataset"]) for item in left if isinstance(item, Mapping) and item.get("dataset")}
+        ),
+        "finished_datasets": [],
+        WHOLE_FAMILY_KEY: left,
+    }
+
+
+_UNFINISHED_ROW = """
+SELECT metadata -> 'import_unfinished' AS unfinished
+FROM families
+WHERE id = CAST(:family_uuid AS uuid)
+FOR NO KEY UPDATE
+"""
+# The family's metadata with import_unfinished set to :unfinished (a JSON null removes it).
+_WITH_UNFINISHED = """
+CASE
+    WHEN CAST(:unfinished AS jsonb) = 'null'::jsonb
+        THEN COALESCE(metadata, '{}'::jsonb) - 'import_unfinished'
+    ELSE jsonb_set(COALESCE(metadata, '{}'::jsonb), '{import_unfinished}', CAST(:unfinished AS jsonb), true)
+END
+"""
+
+
+@dataclass
+class FamilyDeletion:
+    """A deletion of a family's data that deletes or rewrites its rows in ClickHouse
+    (SAFE-31), from its mark to its end.
+
+    ``begin`` writes the deletion's mark (``FamilyWriteMark``, ``DELETION_MARK_PREFIX``)
+    before its first ClickHouse write, committed on a connection of its own, listing each
+    dataset the family holds (``imported_scopes``) that the deletion may leave partly
+    written or missing (``DataReach``): a process that stops anywhere after that write
+    leaves the family marked for all of it. As it writes, the deletion records what each
+    write reached (``reach``, ``rewrite``). It removes the mark in its own transaction, which
+    commits it with everything the deletion changed (``finished``; a deletion of the family
+    removes the family, and the mark with it). One that fails leaves the mark listing exactly
+    what it may have left partly written or missing, given how far it got, or removes it
+    when that is nothing (``failed``)."""
+
+    family_uuid: str
+    family_id: str
+    mark: FamilyWriteMark
+    _reached: list[DataReach] = field(default_factory=list)
+
+    @classmethod
+    async def begin(
+        cls,
+        session: AsyncSession,
+        *,
+        family_uuid: str,
+        family_id: str,
+        reaches: Iterable[DataReach],
+    ) -> "FamilyDeletion":
+        """Mark the family for what the deletion may reach (``reaches``). The family's
+        ``imported_scopes`` is read in the caller's transaction, which must hold the
+        family's variant-write locks and must not yet have locked the family row: the mark
+        is written on a connection of its own, which would wait for that lock. An item of a
+        sample that is no longer the family's is left out, as a restore's entry leaves it
+        out (``whole_family_entry``): nothing can bring it again. Raises: a deletion that
+        cannot mark the family deletes nothing."""
         row = (
-            await session.execute(text(_FAILURE_ROW_BY_UUID), {"family_uuid": family_uuid})
-        ).mappings().first()
-        if row is None:  # the family is gone, and with it what the deletion rewrote
-            await session.rollback()
-            return
-        items = [
-            (dataset, scope)
-            for dataset, scopes in merged_imported_scopes(row.get("imported_scopes"), ()).items()
-            if _bears_structural_variants(dataset)
-            for scope in scopes
-            if not (
-                isinstance(scope, Mapping)
-                and isinstance(scope.get("samples"), list)
-                and {str(sample) for sample in scope["samples"]} <= removed
+            await session.execute(
+                text(
+                    "SELECT f.metadata -> 'imported_scopes' AS imported_scopes, "
+                    "ARRAY(SELECT s.sample_id FROM samples s WHERE s.family_id = f.id) AS sample_ids "
+                    "FROM families f WHERE f.id = CAST(:family_uuid AS uuid)"
+                ),
+                {"family_uuid": family_uuid},
             )
+        ).mappings().first()
+        members = row.get("sample_ids") if row is not None else None
+        family_samples = {str(sample) for sample in members} if isinstance(members, (list, tuple)) else None
+        held = [
+            {"dataset": dataset, "scope": scope}
+            for dataset, scopes in merged_imported_scopes(
+                row.get("imported_scopes") if row is not None else None, ()
+            ).items()
+            for scope in scopes
         ]
-        mark = FamilyWriteMark.begin(DELETION_MARK_PREFIX, items)
-        await _write_unfinished_entry(
-            session, family_uuid=family_uuid, key=mark.key, entry=mark.entry()
+        if family_samples is not None:
+            held = [
+                item
+                for item in held
+                if (samples := _item_samples(item)) is None or samples & family_samples
+            ]
+        mark = FamilyWriteMark.listing(DELETION_MARK_PREFIX, reached_items(held, reaches))
+        await _write_mark(family_uuid, mark)
+        return cls(family_uuid=family_uuid, family_id=family_id, mark=mark)
+
+    def reach(self, reach: DataReach) -> None:
+        """A write that may leave ``reach`` partly written or missing begins (a delete): it
+        counts from now on, whatever becomes of it."""
+        self._reached.append(reach)
+
+    @asynccontextmanager
+    async def rewrite(self, *, failed: DataReach, done: DataReach | None = None) -> AsyncIterator[None]:
+        """A rewrite that deletes rows and writes them back changed, putting them back when
+        it fails (``rewrite_family_structural_variants``; the admin's rewrite of a sample's
+        small variants). While it runs, and once it could not put them back, it may leave
+        ``failed`` partly written or missing; once it completes, ``done`` (what it
+        removed); once it put them back, nothing."""
+        self._reached.append(failed)
+        try:
+            yield
+        except (StructuralVariantsNotRestored, SmallVariantsNotRestored):
+            raise
+        except Exception:
+            self._reached.remove(failed)
+            raise
+        self._reached.remove(failed)
+        if done is not None:
+            self._reached.append(done)
+
+    async def finished(self, session: AsyncSession, *, deleted_sample: str | None = None) -> None:
+        """Remove the mark, in the deletion's own transaction (no commit), which commits it
+        with everything the deletion changed. With ``deleted_sample`` (a sample the deletion
+        removed), its items go from every whole-family entry too (``_without_sample``):
+        nothing of a sample that is gone can be missing. Raises: a deletion whose mark
+        cannot be removed fails."""
+        row = (
+            await session.execute(text(_UNFINISHED_ROW), {"family_uuid": self.family_uuid})
+        ).mappings().first()
+        if row is None:  # the family is gone, and the mark with it
+            return
+        entries = _unfinished_entries(row["unfinished"])
+        changed = entries.pop(self.mark.key, None) is not None
+        if deleted_sample is not None:
+            for key, entry in list(entries.items()):
+                left = _without_sample(entry, deleted_sample)
+                if left is entry:
+                    continue
+                changed = True
+                if left is None:
+                    del entries[key]
+                else:
+                    entries[key] = left
+        if not changed:
+            return
+        await session.execute(
+            text(f"UPDATE families SET metadata = {_WITH_UNFINISHED} WHERE id = CAST(:family_uuid AS uuid)"),
+            {"family_uuid": self.family_uuid, "unfinished": json.dumps(entries or None)},
         )
-    except Exception:  # the deletion's own error is what the caller raises
-        logger.warning(
-            "Failed to mark family %s after a deletion could not put its structural variants back",
-            family_id,
-            exc_info=True,
-        )
+
+    async def failed(self, session: AsyncSession) -> None:
+        """After the deletion failed: its transaction is rolled back, and its mark lists
+        exactly what its writes may have left partly written or missing (``reached_items``
+        of what they reached), or goes when that is nothing (it failed before its first
+        ClickHouse write, or each rewrite put back what it deleted). The mark is read and
+        written under the family row's lock, and only ever shrinks, so it never lists again
+        what a write since struck off. Best-effort: a mark left as written lists more, the
+        safe side; the deletion's own error is what the caller raises."""
         try:
             await session.rollback()
-        except Exception:  # noqa: BLE001 - best-effort; nothing else to do
-            pass
+            row = (
+                await session.execute(text(_UNFINISHED_ROW), {"family_uuid": self.family_uuid})
+            ).mappings().first()
+            entries = _unfinished_entries(row["unfinished"] if row is not None else None)
+            entry = entries.get(self.mark.key)
+            if not isinstance(entry, Mapping):  # the family is gone, or the mark is
+                await session.rollback()
+                return
+            listed = entry.get(WHOLE_FAMILY_KEY)
+            items = reached_items(listed if isinstance(listed, list) else (), self._reached)
+            if items:
+                entries[self.mark.key] = replace(self.mark, at=str(entry.get("at") or self.mark.at), items=items).entry()
+            else:
+                del entries[self.mark.key]
+            await session.execute(
+                text(f"UPDATE families SET metadata = {_WITH_UNFINISHED} WHERE id = CAST(:family_uuid AS uuid)"),
+                {"family_uuid": self.family_uuid, "unfinished": json.dumps(entries or None)},
+            )
+            await session.commit()
+        except Exception:  # the mark stays as written: the family stays marked
+            logger.warning(
+                "Failed to narrow the mark of a failed deletion of family %s's data",
+                self.family_id,
+                exc_info=True,
+            )
+            try:
+                await session.rollback()
+            except Exception:  # noqa: BLE001 - best-effort; nothing else to do
+                pass
+
+
+async def end_failed_deletions(session: AsyncSession, deletions: Iterable[FamilyDeletion]) -> None:
+    """``FamilyDeletion.failed`` for each deletion a failed request began."""
+    for deletion in deletions:
+        await deletion.failed(session)
 
 
 # The family row an upload's bookkeeping reads, locked as an UPDATE of its metadata locks

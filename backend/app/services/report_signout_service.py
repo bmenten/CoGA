@@ -527,11 +527,11 @@ async def _import_unfinished_state(
     it only by importing those again with overwrite. Frozen into the snapshot beside
     ``import_incomplete`` and gating sign-out with it, as one gate.
 
-    A single-file upload marks the family the same way before its first ClickHouse write,
-    and an admin's deletion of a sample's data whose rewrite could not put the family's
-    structural variants back leaves a mark (``family_package_registration.FamilyWriteMark``,
-    SAFE-28): an entry under a key that says which (``unfinished_entry_writer``), with no
-    job, listing what may be partly written or missing. It reads and gates as an import's.
+    A single-file upload marks the family the same way before its first ClickHouse write
+    (``family_package_registration.FamilyWriteMark``, SAFE-28), and so does a deletion of the
+    family's data that deletes or rewrites ClickHouse rows (SAFE-31): an entry under a key
+    that says which (``unfinished_entry_writer``), with no job, listing what may be partly
+    written or missing. It reads and gates as an import's.
 
     Fails safe like that flag: a value that is set but not in the shape an import writes
     still counts, with nothing to name. Dataset lists are frozen sorted, for a stable hash.
@@ -568,8 +568,8 @@ async def _import_unfinished_state(
 
 
 def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
-    """One unfinished import, as the gate message names it. An entry a single-file upload,
-    or an admin's deletion of a sample's data, left (SAFE-28) is named for what wrote it,
+    """One unfinished import, as the gate message names it. An entry a single-file upload
+    (SAFE-28), or a deletion of the family's data (SAFE-31), left is named for what wrote it,
     which its key says (``family_package_registration.unfinished_entry_writer``): the
     snapshot freezes the key with the entry."""
     when = f" ({entry['at']})" if entry.get("at") else ""
@@ -577,7 +577,7 @@ def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
     pending = [name for name in entry.get("datasets") or [] if name not in finished]
     writer = unfinished_entry_writer(key)
     if writer != "import":
-        what = "a single-file upload" if writer == "upload" else "a deletion of a sample's data"
+        what = "a single-file upload" if writer == "upload" else "a deletion of this family's data"
         what += f"{when} did not finish"
         if pending:
             what += f", so {', '.join(pending)} may be partly written or missing"

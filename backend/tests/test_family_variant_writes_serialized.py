@@ -72,6 +72,7 @@ from backend.app.services.family_variant_write_lock import (
     hold_family_variant_writes,
     lock_family_variant_writes,
 )
+from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 _FAMILY = "family-uuid"
 _SAMPLES = {"PROBAND": "uuid-proband", "MOTHER": "uuid-mother", "FATHER": "uuid-father"}
@@ -558,6 +559,8 @@ def _admin_family(monkeypatch: pytest.MonkeyPatch, store: _SvStore | None = None
     monkeypatch.setattr(admin_service, "_sample_rows_by_family", rows_by_family)
     monkeypatch.setattr(admin_service, "_family_assembly_contexts", contexts)
     monkeypatch.setattr(admin_service, "count_family_structural_variants", count)
+    # The deletions' marks are test_deletions_mark_the_family.py's (SAFE-31).
+    monkeypatch.setattr(admin_service, "FamilyDeletion", UnmarkedDeletion)
 
 
 async def _admin_sv_delete(postgres: _Postgres, sample: str) -> dict[str, Any]:

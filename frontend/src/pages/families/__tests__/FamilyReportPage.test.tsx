@@ -2941,9 +2941,9 @@ describe('FamilyReportPage', () => {
       expect(checks).not.toHaveTextContent('imported completely');
     });
 
-    // A single-file upload marks the family before its first ClickHouse write, and a deletion
-    // leaves a mark when it could not put the family's SVs back (SAFE-28): entries of their
-    // own in `import_unfinished`, with no job, named by their key.
+    // A single-file upload (SAFE-28), and a deletion of the family's data (SAFE-31), mark the
+    // family before their first ClickHouse write: entries of their own in
+    // `import_unfinished`, with no job, named by their key.
     const UPLOAD_KEY = 'upload-0a1b2c3d4e5f60718293a4b5c6d7e8f9';
     const DELETION_KEY = 'deletion-9f8e7d6c5b4a39281706f5e4d3c2b1a0';
     const WRITE_MARKS = {
@@ -2990,7 +2990,7 @@ describe('FamilyReportPage', () => {
       ).toBeInTheDocument();
       expect(
         within(dialog).getByText(
-          'Not finished (deletion of a sample’s data): cnv, sv_needlr may be partly written or missing',
+          'Not finished (deletion of this family’s data): cnv, sv_needlr may be partly written or missing',
         ),
       ).toBeInTheDocument();
       expect(within(dialog).queryByText(/import job/)).not.toBeInTheDocument();
@@ -3014,7 +3014,7 @@ describe('FamilyReportPage', () => {
         'A single-file upload (begun 2026-10-14 08:30 UTC) had not finished: sv_sniffles may have been partly written or missing.',
       );
       expect(checks).toHaveTextContent(
-        'A deletion of a sample’s data (begun 2026-10-14 09:00 UTC) had not finished: cnv and sv_needlr may have been partly written or missing.',
+        'A deletion of this family’s data (begun 2026-10-14 09:00 UTC) had not finished: cnv and sv_needlr may have been partly written or missing.',
       );
       expect(checks).not.toHaveTextContent(/An import \(begun 2026-10-14/);
     });

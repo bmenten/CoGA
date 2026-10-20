@@ -24,7 +24,8 @@ from fastapi import HTTPException, UploadFile
 import pytest
 
 from backend.app.schemas import ManualPedFamilyCreate, ManualPedMemberCreate
-from backend.app.services import ped_service
+from backend.app.services import family_package_registration, ped_service
+from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 _STORED = {"family_uuid": "uuid-old", "family_id": "FAM1", "project_id": "project-1", "assembly_name": "GRCh38"}
 
@@ -94,6 +95,8 @@ def events(monkeypatch) -> list[tuple[Any, ...]]:
         return 0
 
     monkeypatch.setattr(ped_service, "record_phenotypes_deleted_with_family", record_phenotypes)
+    # The replaced family's mark is test_deletions_mark_the_family.py's (SAFE-31).
+    monkeypatch.setattr(family_package_registration, "FamilyDeletion", UnmarkedDeletion)
     return recorded
 
 
