@@ -11,6 +11,7 @@ export const repeatStatusLabel = (status: ApiRepeatStatus): string => {
     case 'not_assessed':
       // A locus without thresholds: no catalogue row names the call's TRID, or the row
       // states none. Read as normal before, so an expansion there could not be seen (CLIN-26).
+      // A count inside the benign range the row states there reads normal (CLIN-36).
       return 'Not assessed';
     case 'intermediate':
       return 'Grey zone';

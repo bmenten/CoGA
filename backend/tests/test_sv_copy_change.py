@@ -332,7 +332,7 @@ async def test_a_track_reads_the_copy_change_of_its_own_samples_call(
             context=_context(),
             page=1,
             page_size=0,
-            samples=samples,
+            filters=StructuralVariantQueryFilters(page=1, page_size=0, selected_samples=samples),
             track_mode=track_mode,
         )
         return {str(variant.id): variant.copy_change for variant in page.variants}

@@ -679,8 +679,8 @@ export interface ApiGenomeTrackAvailability {
 
 /**
  * A repeat allele's, call's or locus's status. `not_assessed` is a call at a locus without
- * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26); `unknown` a
- * no-call.
+ * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26) whose count is
+ * outside any benign range the row states (CLIN-36); `unknown` a no-call.
  */
 export type ApiRepeatStatus =
   | 'normal'

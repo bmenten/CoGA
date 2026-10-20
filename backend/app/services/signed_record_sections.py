@@ -61,6 +61,7 @@ from .clickhouse_family_variants import (
     get_family_structural_variants_page,
 )
 from .family_metadata_context import FamilyMetadataContext
+from .family_variant_filters import StructuralVariantQueryFilters
 from .panel_use_audit import applied_gene_panels
 from .paraphase_pg import (
     _paraphase_region_for_gene,
@@ -276,7 +277,9 @@ async def variant_descriptions(
             context=context,
             page=1,
             page_size=MAX_VARIANT_PAGE_SIZE,
-            review_tags=[REPORT_TAG],
+            filters=StructuralVariantQueryFilters(
+                page=1, page_size=MAX_VARIANT_PAGE_SIZE, review_tags=[REPORT_TAG]
+            ),
         )
         structural = [
             _structural_description(variant)
