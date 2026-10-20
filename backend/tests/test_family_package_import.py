@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -24,6 +25,8 @@ from backend.app.services.family_variant_filters import StructuralVariantQueryFi
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.access_control import CurrentUser
 from backend.app.services.import_progress import DatasetTimer
+from backend.app.services.family_package_source import package_folder_path
+from backend.app.services.hpo_service import PhenotypeImport
 
 
 @pytest.fixture(autouse=True)
@@ -1292,6 +1295,82 @@ async def test_a_failed_import_flags_the_family_with_its_import_job(
 
     assert [flag["job_id"] for flag in flagged] == ["job-uuid", None]
     assert flagged[0]["failed_datasets"] == ["snv"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("created", [False, True])
+async def test_the_import_names_who_runs_it_its_package_and_its_job_to_the_phenotypes_it_changes(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, created: bool
+) -> None:
+    """The phenotypes an import changes are on the family's clinical audit trail as made by the
+    user who runs it, naming its package and its job (test_imported_phenotype_audit.py): the
+    phenotype dataset, the restore of a failed overwrite and the removal of a family the
+    import created are each handed the same import."""
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    admin = _current_admin()
+    seen: dict[str, Any] = {}
+
+    async def fake_ensure_family_from_ped(session, **_kwargs):
+        return _single_sample_context(), created
+
+    def fake_enabled_dataset_summaries(_validation):
+        return [FamilyImportDatasetSummary(dataset_type="snv", status="valid")]
+
+    async def fake_import_dataset(session, *, summary, phenotype_import, **_kwargs):
+        # Every dataset is handed the import; the phenotypes' importer is the one that uses it.
+        seen["dataset"] = phenotype_import
+        raise RuntimeError("injected failure after the dataset was written")
+
+    async def snapshot(*_args, **_kwargs) -> str:
+        return "snapshot"
+
+    async def restore_postgres(_session, _snapshot, **kwargs) -> None:
+        seen["restore"] = kwargs
+
+    async def delete_shell(_session, _context, user=None, **kwargs) -> None:
+        seen["delete_shell"] = {"user": user, **kwargs}
+
+    async def nothing(*_args, **_kwargs) -> None:
+        return None
+
+    monkeypatch.setattr(package_import, "_ensure_family_from_ped", fake_ensure_family_from_ped)
+    monkeypatch.setattr(package_import, "_enabled_dataset_summaries", fake_enabled_dataset_summaries)
+    monkeypatch.setattr(package_import, "_import_dataset", fake_import_dataset)
+    monkeypatch.setattr(package_import, "snapshot_family_postgres_state", snapshot)
+    monkeypatch.setattr(package_import, "snapshot_family_clickhouse_state", snapshot)
+    monkeypatch.setattr(package_import, "restore_family_clickhouse_state", nothing)
+    monkeypatch.setattr(package_import, "restore_family_postgres_state", restore_postgres)
+    monkeypatch.setattr(package_import, "discard_family_clickhouse_snapshot", nothing)
+    monkeypatch.setattr(package_import, "_mark_family_import_restoring", nothing)
+    monkeypatch.setattr(package_import, "_delete_family_shell", delete_shell)
+
+    result = await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=admin,
+        conflict_mode="overwrite",
+        job_id="job-7",
+    )
+
+    assert result.completed is False
+    origin = seen["dataset"]
+    assert origin == PhenotypeImport(
+        user=admin,
+        via="package_import",
+        source=package_folder_path(package_root),
+        job_id="job-7",
+    )
+    if created:
+        # Nothing imported into a family the import created: it goes, with its phenotypes.
+        assert seen["delete_shell"] == {"user": admin, "phenotype_import": origin}
+        assert "restore" not in seen
+    else:
+        # A failed overwrite of an existing family: the restore puts its phenotypes back.
+        assert seen["restore"] == {"family_identifier": "FAM001", "phenotype_import": origin}
+        assert "delete_shell" not in seen
 
 
 @pytest.mark.asyncio

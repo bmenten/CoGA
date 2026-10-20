@@ -50,6 +50,7 @@ from .family_metadata_context import (
     build_family_metadata_context,
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
+from .hpo_service import PHENOTYPES_ROLLED_BACK, PhenotypeImport, record_phenotypes_deleted_with_family
 from .access_control import CurrentUser
 from . import ped_service
 from .raw_import_files_pg import record_raw_import_file
@@ -1703,6 +1704,8 @@ async def _delete_family_shell(
     session: AsyncSession,
     family_context: FamilyMetadataContext,
     user: CurrentUser | None = None,
+    *,
+    phenotype_import: PhenotypeImport,
 ) -> None:
     """Compensating cleanup for a failed import that created a fresh family.
 
@@ -1710,13 +1713,22 @@ async def _delete_family_shell(
     (samples / members / other family-scoped rows cascade via ``ON DELETE
     CASCADE``) so a failed import leaves no orphan partial state. Mirrors the
     deletion recipe in ``ped_service``. The deletion is the family's last clinical audit
-    event, as made by ``user``, the import's (SEC-7).
+    event, as made by ``user``, the import's (SEC-7); the phenotypes the family goes with are
+    recorded as removed just before it, as made by ``phenotype_import``, the failed import.
     """
     assembly_name = family_context.assembly_name
     family_uuid = family_context.family_uuid
     # The import that calls this holds the lock already; any other caller takes it here.
     await lock_family_variant_writes(session, family_uuid, VARIANT_TYPES)
-    # Before anything of the family goes, in the transaction that deletes it.
+    # Before anything of the family goes, in the transaction that deletes it: the
+    # phenotypes it goes with, then its deletion, the last event of its chain.
+    await record_phenotypes_deleted_with_family(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_context.family_id,
+        origin=phenotype_import,
+        change=PHENOTYPES_ROLLED_BACK,
+    )
     await record_family_deleted(
         session,
         family_uuid=family_uuid,

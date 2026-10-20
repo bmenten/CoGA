@@ -87,6 +87,13 @@ def events(monkeypatch) -> list[tuple[Any, ...]]:
     monkeypatch.setattr(ped_service, "delete_family_small_variants", delete("small variants"))
     monkeypatch.setattr(ped_service, "delete_family_structural_variants", delete("structural variants"))
     monkeypatch.setattr(ped_service, "record_family_deleted", family_deleted)
+
+    async def record_phenotypes(_session, *, family_uuid, change, **_kwargs) -> int:
+        # The phenotypes the replaced family goes with, before its deletion's event.
+        recorded.append(("audit: phenotypes removed", family_uuid, change))
+        return 0
+
+    monkeypatch.setattr(ped_service, "record_phenotypes_deleted_with_family", record_phenotypes)
     return recorded
 
 
@@ -133,6 +140,7 @@ async def test_a_ped_upload_refused_after_the_replacement_leaves_the_familys_var
     # are not deleted (before: deleted at once, so the family came back without them).
     assert events == [
         ("lock", "uuid-old"),
+        ("audit: phenotypes removed", "uuid-old", "replaced"),
         ("audit: family deleted", "uuid-old", "pedigree_replaced"),
         ("delete family", "uuid-old"),
     ]
@@ -152,6 +160,7 @@ async def test_a_ped_upload_that_replaces_a_family_deletes_its_variants_last(eve
     # Once the new family is written, before the commit (before: before the checks).
     assert events == [
         ("lock", "uuid-old"),
+        ("audit: phenotypes removed", "uuid-old", "replaced"),
         ("audit: family deleted", "uuid-old", "pedigree_replaced"),
         ("delete family", "uuid-old"),
         ("create family", "FAM1"),
@@ -186,6 +195,7 @@ async def test_a_manual_family_refused_after_the_replacement_leaves_the_familys_
     assert refused.value.status_code == 409
     assert events == [
         ("lock", "uuid-old"),
+        ("audit: phenotypes removed", "uuid-old", "replaced"),
         ("audit: family deleted", "uuid-old", "pedigree_replaced"),
         ("delete family", "uuid-old"),
     ]

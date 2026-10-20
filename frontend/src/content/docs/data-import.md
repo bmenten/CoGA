@@ -25,7 +25,8 @@ region of interest, and loading or replacing data are for administrators.
 **Replacing a family** with a PED file or the Family Builder deletes its small variants and structural
 variants with it, once the family has been saved again: a replacement refused before then (a sample ID
 another family has, a PED phenotype other than 0, -9, 1 or 2, such as a header line's) leaves the family
-and its variants as they were.
+and its variants as they were. Its HPO terms go with it: each is recorded as removed in the clinical audit
+trail, as made by whoever replaced the family, before the family is deleted.
 
 **Family and sample IDs** are printable text without spaces, whichever way a family comes in or is
 edited. The spaces around an ID are dropped. An ID with a space or a control character inside (a line
@@ -33,7 +34,8 @@ break, a tab, an escape: characters a copied ID can carry without showing them) 
 anything is saved; it would otherwise reach the pedigree, the report and the audit trail.
 
 The PED carries only affected or unaffected. Detailed phenotypes are HPO terms on each person, added in
-the family member dialog.
+the family member dialog or brought in by a package import. Either way each change is in the family's
+audit trail (on its report), naming who made it.
 
 ---
 
@@ -306,6 +308,11 @@ file (most samples carry no mtDNA deletion): it removes that sample's earlier ch
   drop-out or drop-in (*Fail ADO 14.2%*) or its Mendelian concordance, in %; one that was not
   assessed reads *Not run* alone. The cell shows **-** only when the sample has no sequencing QC to
   show.
+- **Phenotypes** the package brought in are in the audit trail on the family's report: one entry per
+  person whose HPO terms the import added or changed, naming who ran it and the package
+  (*Phenotypes imported for S1 by a package import of FAM1 (phenotypes.tsv): added HP:0001250 Seizure
+  (present)*). Importing the same phenotypes again adds no entry. A failed overwrite that puts the
+  family back adds one for the phenotypes it put back.
 - **Analysis pipeline settings** — the pipeline's configuration (genome build, which caller produced
   what, VEP cache, repeat catalogue, stages run) is recorded at import. It shows in a panel on the family
   page and in the same section of the family report. Tool versions are in the report's provenance

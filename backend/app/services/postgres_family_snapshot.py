@@ -31,6 +31,14 @@ from dataclasses import dataclass, field
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from .hpo_service import (
+    PHENOTYPES_PUT_BACK,
+    PhenotypeImport,
+    family_phenotype_states,
+    lock_family_phenotype_states,
+    record_imported_phenotype_changes,
+)
+
 
 # Family-scoped tables the dataset importers write during the import loop. Every one
 # has a `family_id uuid` column and a plain `gen_random_uuid()` PK (not GENERATED
@@ -112,17 +120,25 @@ async def snapshot_family_postgres_state(
 
 
 async def restore_family_postgres_state(
-    session: AsyncSession, snapshot: FamilyPostgresSnapshot
+    session: AsyncSession,
+    snapshot: FamilyPostgresSnapshot,
+    *,
+    family_identifier: str,
+    phenotype_import: PhenotypeImport,
 ) -> None:
     """Roll the loop-modified tables back to the snapshot, then commit.
 
     Runs as one transaction: each table's current family rows are deleted and the
     snapshotted rows re-inserted verbatim, then `samples.metadata` and the loop's
-    `families.metadata` keys are restored.
+    `families.metadata` keys are restored. What that changes of the family's phenotypes
+    (`individual_hpo`) is recorded on its clinical audit trail, in the same transaction, as
+    made by the failed import (``phenotype_import``) whose restore it is.
     Raises on any failure so the caller can roll back and fall back to the
     incomplete flag.
     """
     fid = snapshot.family_uuid
+    # The phenotypes the restore replaces, under the lock each change of them takes.
+    phenotypes_before = await lock_family_phenotype_states(session, fid)
     for table, rows_json in snapshot.tables.items():
         await session.execute(
             text(f"DELETE FROM {table} WHERE family_id = CAST(:fid AS uuid)"),
@@ -152,5 +168,14 @@ async def restore_family_postgres_state(
             "keys": list(_LOOP_MODIFIED_FAMILY_METADATA_KEYS),
             "captured": snapshot.family_metadata,
         },
+    )
+    await record_imported_phenotype_changes(
+        session,
+        family_uuid=fid,
+        family_identifier=family_identifier,
+        before=phenotypes_before,
+        after=await family_phenotype_states(session, fid),
+        origin=phenotype_import,
+        change=PHENOTYPES_PUT_BACK,
     )
     await session.commit()

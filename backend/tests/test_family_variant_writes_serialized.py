@@ -63,6 +63,7 @@ from backend.app.services.clickhouse_variant_storage import SMALL_VARIANT_ENTRY_
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 from backend.app.services.family_package_common import ManifestDataset
 from backend.app.services.family_package_datasets import DatasetImportJob
+from backend.app.services.hpo_service import PhenotypeImport
 from backend.app.services.family_variant_write_lock import (
     SMALL_VARIANTS,
     STRUCTURAL_VARIANTS,
@@ -847,6 +848,9 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
     monkeypatch.setattr(ped_service, "delete_family_small_variants", _recorder(postgres, "delete small variants"))
     monkeypatch.setattr(ped_service, "delete_family_structural_variants", _recorder(postgres, "delete SVs"))
     monkeypatch.setattr(ped_service, "record_family_deleted", no_event)
+    monkeypatch.setattr(
+        ped_service, "record_phenotypes_deleted_with_family", _recorder(postgres, "record the phenotypes")
+    )
     session = postgres.session("ped")
 
     replaced = await ped_service._replace_existing_families(
@@ -854,22 +858,26 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
         ["FAM_B", "FAM_A"],
         True,
         _admin_user(),
+        via="ped_upload",
     )
 
     # The variants are not deleted yet: the upload deletes them last, before its commit, so
-    # a check that refuses it leaves them (SAFE-25).
+    # a check that refuses it leaves them (SAFE-25). Each family's phenotypes are recorded
+    # as removed under its locks, before it is deleted.
     assert postgres.trace("ped") == [
         f"lock {_key(SMALL_VARIANTS, 'uuid-a')}",
         f"lock {_key(STRUCTURAL_VARIANTS, 'uuid-a')}",
         f"lock {_key(SMALL_VARIANTS, 'uuid-b')}",
         f"lock {_key(STRUCTURAL_VARIANTS, 'uuid-b')}",
+        "record the phenotypes",
+        "record the phenotypes",
     ]
     assert replaced == [("GRCh38", "uuid-b"), ("GRCh38", "uuid-a")]
 
     await ped_service._delete_replaced_family_variants(replaced)
 
     # Under the locks the replacement took, which its transaction still holds.
-    assert postgres.trace("ped")[4:] == ["delete small variants", "delete SVs"] * 2
+    assert postgres.trace("ped")[6:] == ["delete small variants", "delete SVs"] * 2
     assert len(session.held) == 4
 
 
@@ -916,7 +924,12 @@ async def test_clearing_a_familys_data_takes_both_locks_before_deleting(monkeypa
 @pytest.mark.asyncio
 async def test_an_import_shell_delete_takes_both_locks_before_deleting(monkeypatch: pytest.MonkeyPatch) -> None:
     postgres = _Postgres()
-    for name in ("delete_family_small_variants", "delete_family_structural_variants", "delete_interval_tracks"):
+    for name in (
+        "delete_family_small_variants",
+        "delete_family_structural_variants",
+        "delete_interval_tracks",
+        "record_phenotypes_deleted_with_family",
+    ):
         monkeypatch.setattr(family_package_registration, name, _recorder(postgres, name))
 
     async def no_event(*_args, **_kwargs):
@@ -928,11 +941,14 @@ async def test_an_import_shell_delete_takes_both_locks_before_deleting(monkeypat
     await family_package_registration._delete_family_shell(
         postgres.session("import"),  # type: ignore[arg-type]
         _family_context(),
+        phenotype_import=PhenotypeImport(user=_admin_user(), via="package_import"),
     )
 
+    # The phenotypes the family goes with are recorded under its locks, before anything goes.
     assert postgres.trace("import") == [
         f"lock {_key(SMALL_VARIANTS)}",
         f"lock {_key(STRUCTURAL_VARIANTS)}",
+        "record_phenotypes_deleted_with_family",
         "delete_family_small_variants",
         "delete_family_structural_variants",
         "delete_interval_tracks",

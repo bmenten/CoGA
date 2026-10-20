@@ -7,7 +7,9 @@ HPO terms are kept per person. An analyst of the family's project or an administ
 the person's sample name on the family page, and under **HPO Phenotypes** search a term, choose
 *present*, *absent* or *unknown*, and press **Add phenotype**; **Remove** takes one off. Only *present*
 terms are used for matching. Each term added, changed or removed is an entry on the family's
-**Clinical audit trail**. A reader sees the terms but cannot change them.
+**Clinical audit trail**. A package import can bring terms in too; what it adds or changes is an
+entry per person, naming who ran the import and the package. A reader sees the terms but cannot change
+them.
 
 ### Gene panels
 

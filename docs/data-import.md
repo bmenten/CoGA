@@ -1074,7 +1074,9 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
 - `POST /ped/upload`: admins upload a PED file, with an optional region of interest,
   inheritance model and carrier lists.
 - Only admins can replace an existing family or sample (`overwrite=true`).
-- Replacing a family deletes it and its small variants and structural variants. The variants
+- Replacing a family deletes it and its small variants and structural variants. Its phenotypes
+  go with it, each recorded as removed on the family's clinical audit trail before the family is
+  deleted ([clinical-traceability.md](clinical-traceability.md)). The variants
   go last, once the family has been written again, just before the commit: a replacement
   refused before that leaves the family as it was, its variants included. What can still
   refuse it then: a sample ID another family has (409), a phenotype other than `0`, `-9`, `1`
@@ -1106,8 +1108,17 @@ A row naming an unknown person, or an HPO term that is not loaded, is skipped wi
 The **HPO terms** and **Notes** fields on the Package Import page go into the manifest's
 `metadata` and are kept with the import record; they are not per-person phenotypes.
 
+What an import changes of a family's phenotypes is on the family's clinical audit trail, as made
+by the user who ran the import: one `phenotype` event per member whose phenotypes it added or
+changed, naming the package and its phenotype file, with what it added and what it changed
+(before and after). An import that changes no phenotype, such as the same package again, writes
+none. A failed overwrite whose restore puts the phenotypes back records that too, and so does a
+failed import that removes the family it had created
+([clinical-traceability.md](clinical-traceability.md)).
+
 After import, phenotypes are edited per person
-(`/families/{family_id}/hpo`, `/families/{family_id}/members/{sample_id}/hpo`). Family and
+(`/families/{family_id}/hpo`, `/families/{family_id}/members/{sample_id}/hpo`), each edit a
+`phenotype` event on the trail too. Family and
 member edits are described in [family-member-management.md](family-member-management.md); how
 the haplotype risk colours are derived is in
 [haplotype-segregation-analysis.md](haplotype-segregation-analysis.md).
