@@ -6,10 +6,14 @@ import {
   getRenderableHaplotypeLanes,
   inferDiseaseHaplotypes,
   interpretSampleHaplotypeRisk,
+  resolveHaplotypeInheritanceModel,
   type HaplotypeMemberLike,
+  type HaplotypeRiskRegion,
+  type HaplotypeRiskState,
   type HaplotypeSampleLike,
   type HaplotypeSegmentLike,
 } from '../haplotypeRisk';
+import parityCases from './fixtures/pgtEmbryoCallCases.json';
 
 const region = { chr: '1', start: 40, end: 60 };
 
@@ -800,5 +804,62 @@ describe('degraded / empty input fails safe (REQ-PERF-003)', () => {
       region,
     });
     expect(risk).toBe('uninformative');
+  });
+});
+
+// The embryo calls the family page shows, and a sign-out freezes, are made by the backend
+// (backend/app/services/pgt_embryo_calls.py); the haplotype tracks draw the risk line and each
+// member's risk state with the rules here. Both answer these cases alike:
+// backend/tests/test_pgt_embryo_calls.py runs the same file through the backend.
+interface ParityCall {
+  state: HaplotypeRiskState;
+  roi_not_covered: boolean;
+  sex_dependent: { if_male: HaplotypeRiskState; if_female: HaplotypeRiskState } | null;
+}
+
+interface ParityCase {
+  name: string;
+  inheritance_model: string | null;
+  region: HaplotypeRiskRegion;
+  members: HaplotypeMemberLike[];
+  /** Members called but not read by the disease-haplotype inference. */
+  assessed_only?: HaplotypeMemberLike[];
+  samples: HaplotypeSampleLike[];
+  model: { mode: string; informative: boolean; signatures: { origin: string; value: string; kind: string }[] };
+  calls: Record<string, ParityCall>;
+}
+
+describe('parity with the backend embryo calls (fixtures/pgtEmbryoCallCases.json)', () => {
+  const { cases } = parityCases as unknown as { cases: ParityCase[] };
+
+  it('holds cases for every model', () => {
+    expect(cases.length).toBeGreaterThanOrEqual(20);
+    expect(new Set(cases.map((entry) => entry.model.mode))).toEqual(
+      new Set(['dominant', 'recessive', 'x_linked_dominant', 'x_linked_recessive']),
+    );
+  });
+
+  it.each(cases.map((entry) => [entry.name, entry] as const))('%s', (_name, entry) => {
+    const model = inferDiseaseHaplotypes({
+      samples: entry.samples,
+      members: entry.members,
+      inheritanceModel: resolveHaplotypeInheritanceModel(entry.inheritance_model, entry.members),
+      region: entry.region,
+    });
+    expect({ mode: model.mode, informative: model.informative, signatures: model.signatures }).toEqual(entry.model);
+    const bySample = new Map([...entry.members, ...(entry.assessed_only ?? [])].map((member) => [member.sample_id, member]));
+    Object.entries(entry.calls).forEach(([sample, expected]) => {
+      const member = bySample.get(sample);
+      expect(member, sample).toBeDefined();
+      const out = assessSampleHaplotypeRisk({ model, samples: entry.samples, member: member!, region: entry.region });
+      expect(
+        {
+          state: out.state,
+          roi_not_covered: out.roiNotCovered,
+          sex_dependent: out.sexDependent ? { if_male: out.sexDependent.ifMale, if_female: out.sexDependent.ifFemale } : null,
+        },
+        sample,
+      ).toEqual(expected);
+    });
   });
 });

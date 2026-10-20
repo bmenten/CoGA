@@ -1,0 +1,1321 @@
+{
+  "description": "The PGT embryo-call parity cases (REQ-PGT-005): haplotypeRisk.test.ts runs them through frontend/src/lib/haplotypeRisk.ts and backend/tests/test_pgt_embryo_calls.py through backend/app/services/pgt_embryo_calls.py; both must give each case's model and calls. The inheritance model is resolved first (resolveHaplotypeInheritanceModel / resolve_inheritance_model). Synthetic: no person, sample or family is real.",
+  "cases": [
+    {
+      "name": "dominant: an affected father and child share paternal homolog 1",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "EMBRYO1", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "EMBRYO1",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "PROBAND": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "EMBRYO1": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "dominant: one affected member resolves no haplotype",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true}
+      ],
+      "samples": [
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {"mode": "dominant", "informative": false, "signatures": []},
+      "calls": {
+        "PROBAND": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "recessive: an affected child resolves paternal 1 and maternal 0",
+      "inheritance_model": "AR",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "EMBRYO_RISK", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "EMBRYO_CARRIER", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "EMBRYO_CLEAR", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "EMBRYO_RISK",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "EMBRYO_CARRIER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "EMBRYO_CLEAR",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "recessive-paternal"},
+          {"origin": "maternal", "value": "0", "kind": "recessive-maternal"}
+        ]
+      },
+      "calls": {
+        "PROBAND": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "EMBRYO_RISK": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "EMBRYO_CARRIER": {"state": "carrier", "roi_not_covered": false, "sex_dependent": null},
+        "EMBRYO_CLEAR": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "recessive, a donor family: one side resolves, so no embryo is called",
+      "inheritance_model": "AR",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "EMBRYO", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "."}
+          ]
+        },
+        {
+          "sample": "EMBRYO",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "recessive-paternal"}
+        ]
+      },
+      "calls": {
+        "EMBRYO": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "X-linked recessive: an affected son, a carrier daughter and an unaffected son",
+      "inheritance_model": "XLR",
+      "region": {"chr": "X", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "AFFECTED_SON", "role": "proband", "sex": "male", "affected": true},
+        {"sample_id": "CARRIER_DAUGHTER", "role": "sibling", "sex": "female", "affected": false, "carrier_status": "carrier"},
+        {"sample_id": "CLEAR_SON", "role": "sibling", "sex": "male", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "AFFECTED_SON",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "CARRIER_DAUGHTER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "CLEAR_SON",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "x_linked_recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "maternal", "value": "1", "kind": "x-linked"}
+        ]
+      },
+      "calls": {
+        "AFFECTED_SON": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "CARRIER_DAUGHTER": {"state": "carrier", "roi_not_covered": false, "sex_dependent": null},
+        "CLEAR_SON": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "lineage tags: the father's mother, stored as a mother, carries his paternal homolog",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "GM", "role": "mother", "sex": "female", "affected": true}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "GM",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hap1_lineage": "untransmitted", "hap2_lineage": "paternal"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "GM": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "dominant: an affected relative grey on both lanes does not collapse the call",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "GM", "role": "mother", "sex": "female", "affected": true}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "GM",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hap1_lineage": "unknown", "hap2_lineage": "untransmitted"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "0", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "PROBAND": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "GM": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "recessive: an affected relative grey on both lanes does not zero a side",
+      "inheritance_model": "AR",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "AUNT", "role": "mother", "sex": "female", "affected": true}
+      ],
+      "samples": [
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "AUNT",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hap1_lineage": "untransmitted", "hap2_lineage": "unknown"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "recessive-paternal"},
+          {"origin": "maternal", "value": "0", "kind": "recessive-maternal"}
+        ]
+      },
+      "calls": {
+        "PROBAND": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "AUNT": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "dominant: a negative call needs the embryo's own haplotype across the ROI",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_OFF_ROI", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_NO_BLOCKS", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_EMPTY", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_PART", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_GREY", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_GREY_RISK_SIDE", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_UNCONFIRMED", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_DELETED", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_GAP", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_RISK_PART", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_ADJACENT", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_ABUTTING", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_DONOR", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_OFF_ROI",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 30, "hap1": "0", "hap2": "1"},
+            {"chr": "1", "start": 70, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {"sample": "E_EMPTY", "segments": []},
+        {
+          "sample": "E_PART",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 50, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_GREY",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hap1_lineage": "unknown", "hap2_lineage": "unknown"}
+          ]
+        },
+        {
+          "sample": "E_GREY_RISK_SIDE",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hap1_lineage": "untransmitted", "hap2_lineage": "maternal"}
+          ]
+        },
+        {
+          "sample": "E_UNCONFIRMED",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "?", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_DELETED",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": ".", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_GAP",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 45, "hap1": "0", "hap2": "1"},
+            {"chr": "1", "start": 55, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_RISK_PART",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 50, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_ADJACENT",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 50, "hap1": "0", "hap2": "1"},
+            {"chr": "1", "start": 50, "end": 100, "hap1": "0", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_ABUTTING",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 49, "hap1": "0", "hap2": "1"},
+            {"chr": "1", "start": 50, "end": 100, "hap1": "0", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_DONOR",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "0", "hap1_lineage": "paternal", "hap2_lineage": "untransmitted"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "PROBAND": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_OFF_ROI": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_NO_BLOCKS": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_EMPTY": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_PART": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_GREY": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_GREY_RISK_SIDE": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_UNCONFIRMED": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_DELETED": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_GAP": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_RISK_PART": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_ADJACENT": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_ABUTTING": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_DONOR": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "dominant: an unconfirmed side two affected children share is no disease haplotype",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "SIB", "role": "sibling", "sex": "male", "affected": true},
+        {"sample_id": "EMBRYO", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "?", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "SIB",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "?", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "EMBRYO",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {"mode": "dominant", "informative": false, "signatures": []},
+      "calls": {
+        "EMBRYO": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "dominant: a single-position ROI is read from the block around it",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 50, "end": 50},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_AROUND", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_AFTER", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_AROUND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_AFTER",
+          "segments": [
+            {"chr": "1", "start": 60, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "E_AROUND": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_AFTER": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "recessive: a carrier or unaffected call needs the other side seen across the ROI",
+      "inheritance_model": "AR",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_NONE", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_OUTSIDE", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_NO_MATERNAL", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_GREY_PATERNAL", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_CARRIER_NO_OTHER", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_CARRIER_PART", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_AFFECTED", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_AFFECTED_PART", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_CARRIER", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_CLEAR", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_MATERNAL_CARRIER", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_OTHER_CHROMOSOME", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_OUTSIDE",
+          "segments": [
+            {"chr": "1", "start": 70, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_NO_MATERNAL",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "."}
+          ]
+        },
+        {
+          "sample": "E_GREY_PATERNAL",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hap1_lineage": "unknown", "hap2_lineage": "maternal"}
+          ]
+        },
+        {
+          "sample": "E_CARRIER_NO_OTHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "."}
+          ]
+        },
+        {
+          "sample": "E_CARRIER_PART",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 50, "hap1": "1", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_AFFECTED",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_AFFECTED_PART",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 50, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_CARRIER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_CLEAR",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E_MATERNAL_CARRIER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_OTHER_CHROMOSOME",
+          "segments": [
+            {"chr": "2", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "recessive-paternal"},
+          {"origin": "maternal", "value": "0", "kind": "recessive-maternal"}
+        ]
+      },
+      "calls": {
+        "E_NONE": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_OUTSIDE": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_NO_MATERNAL": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_GREY_PATERNAL": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_CARRIER_NO_OTHER": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_CARRIER_PART": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_AFFECTED": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_AFFECTED_PART": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_CARRIER": {"state": "carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_CLEAR": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_MATERNAL_CARRIER": {"state": "carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_OTHER_CHROMOSOME": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "X-linked recessive from an affected son: a son on his maternal X, a daughter carrier on hers",
+      "inheritance_model": "X-linked recessive",
+      "region": {"chr": "chrX", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "SON", "role": "proband", "sex": "male", "affected": true},
+        {"sample_id": "E_MALE_OUT", "role": "embryo", "sex": "male", "affected": false},
+        {"sample_id": "E_MALE_UNCONFIRMED", "role": "embryo", "sex": "male", "affected": false},
+        {"sample_id": "E_FEMALE_NO_MATERNAL", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_MALE_CLEAR", "role": "embryo", "sex": "1", "affected": false},
+        {"sample_id": "E_MALE_RISK", "role": "embryo", "sex": "M", "affected": false},
+        {"sample_id": "E_FEMALE_CARRIER", "role": "embryo", "sex": "2", "affected": false},
+        {"sample_id": "E_FEMALE_CLEAR", "role": "embryo", "sex": "F", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "SON",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_MALE_OUT",
+          "segments": [
+            {"chr": "X", "start": 70, "end": 100, "hap1": "?", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_MALE_UNCONFIRMED",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "?", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_FEMALE_NO_MATERNAL",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": ".", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_MALE_CLEAR",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_MALE_RISK",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_FEMALE_CARRIER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_FEMALE_CLEAR",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "x_linked_recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "maternal", "value": "1", "kind": "x-linked"}
+        ]
+      },
+      "calls": {
+        "SON": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_MALE_OUT": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_MALE_UNCONFIRMED": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_FEMALE_NO_MATERNAL": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null},
+        "E_MALE_CLEAR": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_MALE_RISK": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_FEMALE_CARRIER": {"state": "carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_FEMALE_CLEAR": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "X-linked dominant from an affected father and daughter: a son on his maternal X",
+      "inheritance_model": "XLD",
+      "region": {"chr": "X", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "DAUGHTER", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_SON_CLEAR", "role": "embryo", "sex": "male", "affected": false},
+        {"sample_id": "E_SON_OUT", "role": "embryo", "sex": "male", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "DAUGHTER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_SON_CLEAR",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_SON_OUT",
+          "segments": [
+            {"chr": "X", "start": 70, "end": 100, "hap1": "?", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "x_linked_dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "x-linked"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "DAUGHTER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_SON_CLEAR": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_SON_OUT": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "X-linked recessive, sex not recorded, from an affected son",
+      "inheritance_model": "XLR",
+      "region": {"chr": "X", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "SON", "role": "proband", "sex": "male", "affected": true},
+        {"sample_id": "E_RISK", "role": "embryo", "sex": "unknown", "affected": false},
+        {"sample_id": "E_OTHER", "role": "embryo", "sex": "und", "affected": false},
+        {"sample_id": "E_MISSING", "role": "embryo", "sex": null, "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "SON",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_RISK",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_OTHER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_MISSING",
+          "segments": [
+            {"chr": "X", "start": 70, "end": 100, "hap1": "?", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "x_linked_recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "maternal", "value": "1", "kind": "x-linked"}
+        ]
+      },
+      "calls": {
+        "E_RISK": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": {"if_male": "affected_or_at_risk", "if_female": "carrier"}},
+        "E_OTHER": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_MISSING": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "X-linked recessive, sex not recorded, from an affected father",
+      "inheritance_model": "XLR",
+      "region": {"chr": "X", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "E1", "role": "embryo", "sex": "unknown", "affected": false},
+        {"sample_id": "E2", "role": "embryo", "sex": "unknown", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E1",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E2",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "x_linked_recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "x-linked"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E1": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": {"if_male": "unaffected_non_carrier", "if_female": "carrier"}},
+        "E2": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": {"if_male": "unaffected_non_carrier", "if_female": "uninformative"}}
+      }
+    },
+    {
+      "name": "pseudo-autosomal dominant: a son is read on both copies in PAR1",
+      "inheritance_model": "AD",
+      "region": {"chr": "X", "start": 600000, "end": 650000},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "DAUGHTER", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_SON_RISK", "role": "embryo", "sex": "male", "affected": false},
+        {"sample_id": "E_SON_CLEAR", "role": "embryo", "sex": "male", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "X", "start": 10001, "end": 2781479, "hap1": "1", "hap2": "0", "hap1_lineage": "paternal", "hap2_lineage": "paternal", "hemizygous_in_males": false}
+          ]
+        },
+        {
+          "sample": "DAUGHTER",
+          "segments": [
+            {"chr": "X", "start": 10001, "end": 2781479, "hap1": "1", "hap2": "0", "hap1_lineage": "paternal", "hap2_lineage": "maternal", "hemizygous_in_males": false}
+          ]
+        },
+        {
+          "sample": "E_SON_RISK",
+          "segments": [
+            {"chr": "X", "start": 10001, "end": 2781479, "hap1": "1", "hap2": "0", "hap1_lineage": "paternal", "hap2_lineage": "maternal", "hemizygous_in_males": false}
+          ]
+        },
+        {
+          "sample": "E_SON_CLEAR",
+          "segments": [
+            {"chr": "X", "start": 10001, "end": 2781479, "hap1": "0", "hap2": "1", "hap1_lineage": "paternal", "hap2_lineage": "maternal", "hemizygous_in_males": false}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "E_SON_RISK": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_SON_CLEAR": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "pseudo-autosomal dominant: an ROI across the PAR1 boundary needs the son's paternal side throughout",
+      "inheritance_model": "AD",
+      "region": {"chr": "X", "start": 2700000, "end": 2900000},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "DAUGHTER", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_SON", "role": "embryo", "sex": "male", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "X", "start": 10001, "end": 2781479, "hap1": "1", "hap2": "0", "hap1_lineage": "paternal", "hap2_lineage": "paternal", "hemizygous_in_males": false}
+          ]
+        },
+        {
+          "sample": "DAUGHTER",
+          "segments": [
+            {"chr": "X", "start": 10001, "end": 2781479, "hap1": "1", "hap2": "0", "hap1_lineage": "paternal", "hap2_lineage": "maternal", "hemizygous_in_males": false}
+          ]
+        },
+        {
+          "sample": "E_SON",
+          "segments": [
+            {"chr": "X", "start": 10001, "end": 2781479, "hap1": "0", "hap2": "1", "hap1_lineage": "paternal", "hap2_lineage": "maternal", "hemizygous_in_males": false},
+            {"chr": "X", "start": 2781480, "end": 5000000, "hap1": "0", "hap2": "1", "hap1_lineage": "paternal", "hap2_lineage": "maternal", "hemizygous_in_males": true}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "DAUGHTER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_SON": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "X-linked dominant where the assembly's PARs are not known: a son is read on both lanes",
+      "inheritance_model": "XLD",
+      "region": {"chr": "X", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "DAUGHTER", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_SON", "role": "embryo", "sex": "male", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "DAUGHTER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_SON",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "0"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "x_linked_dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "x-linked"}
+        ]
+      },
+      "calls": {
+        "E_SON": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "no members and no blocks: nothing is resolved and the embryo is uninformative",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [],
+      "samples": [],
+      "model": {"mode": "dominant", "informative": false, "signatures": []},
+      "calls": {
+        "EMBRYO": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": null}
+      },
+      "assessed_only": [
+        {"sample_id": "EMBRYO", "role": "embryo", "sex": "female", "affected": false}
+      ]
+    },
+    {
+      "name": "dominant: an obligate carrier counts, and a member recorded as no carrier removes a candidate",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": " Father ", "sex": "male", "affected": false, "carrier_status": "carrier", "carrier_type": "obligate"},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "SIB", "role": "sibling", "sex": "female", "affected": false, "carrier_status": "not_carrier"},
+        {"sample_id": "E1", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E2", "role": "Embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 50, "hap1": "1", "hap2": "0"},
+            {"chr": "1", "start": 51, "end": 100, "hap1": "0", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "SIB",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E1",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E2",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "FATHER": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "PROBAND": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "SIB": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E1": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E2": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "dominant: two shared candidates and no member recorded as no carrier resolve nothing",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": false, "carrier_status": "carrier", "carrier_type": "obligate"},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "SIB", "role": "sibling", "sex": "female", "affected": false, "carrier_status": "unknown"},
+        {"sample_id": "E1", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 50, "hap1": "1", "hap2": "0"},
+            {"chr": "1", "start": 51, "end": 100, "hap1": "0", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "SIB",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E1",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E2",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {"mode": "dominant", "informative": false, "signatures": []},
+      "calls": {
+        "E1": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "no model recorded and a member marked a carrier: recessive",
+      "inheritance_model": null,
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": false, "carrier_status": "carrier", "carrier_type": "proven"},
+        {"sample_id": "E1", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E1",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "recessive-paternal"},
+          {"origin": "maternal", "value": "0", "kind": "recessive-maternal"}
+        ]
+      },
+      "calls": {
+        "E1": {"state": "carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "a model CoGA does not read, and no carrier: dominant",
+      "inheritance_model": "mitochondrial",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E1", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E1",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "E1": {"state": "unaffected_non_carrier", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "X-linked recessive from affected females: a risk haplotype on each side",
+      "inheritance_model": "XLR",
+      "region": {"chr": "X", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "MOTHER", "role": "mother", "sex": "female", "affected": true},
+        {"sample_id": "DAUGHTER", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_F", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_F2", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_M", "role": "embryo", "sex": "male", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "MOTHER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "0", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "DAUGHTER",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_F",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "0", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_F2",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "1", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        },
+        {
+          "sample": "E_M",
+          "segments": [
+            {"chr": "X", "start": 0, "end": 100, "hap1": "?", "hap2": "1", "hemizygous_in_males": true}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "x_linked_recessive",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "x-linked"},
+          {"origin": "maternal", "value": "1", "kind": "x-linked"}
+        ]
+      },
+      "calls": {
+        "E_F": {"state": "carrier", "roi_not_covered": false, "sex_dependent": null},
+        "E_F2": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_M": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "recessive without an affected member: nothing is resolved",
+      "inheritance_model": "AR",
+      "region": {"chr": "1", "start": 40, "end": 60},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": false, "carrier_status": "carrier"},
+        {"sample_id": "E1", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "E1",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {"mode": "recessive", "informative": false, "signatures": []},
+      "calls": {
+        "E1": {"state": "uninformative", "roi_not_covered": false, "sex_dependent": null}
+      }
+    },
+    {
+      "name": "an ROI whose end lies before its start: no negative call",
+      "inheritance_model": "AD",
+      "region": {"chr": "1", "start": 60, "end": 40},
+      "members": [
+        {"sample_id": "FATHER", "role": "father", "sex": "male", "affected": true},
+        {"sample_id": "PROBAND", "role": "proband", "sex": "female", "affected": true},
+        {"sample_id": "E_RISK", "role": "embryo", "sex": "female", "affected": false},
+        {"sample_id": "E_CLEAR", "role": "embryo", "sex": "female", "affected": false}
+      ],
+      "samples": [
+        {
+          "sample": "FATHER",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        },
+        {
+          "sample": "PROBAND",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_RISK",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "1", "hap2": "0"}
+          ]
+        },
+        {
+          "sample": "E_CLEAR",
+          "segments": [
+            {"chr": "1", "start": 0, "end": 100, "hap1": "0", "hap2": "1"}
+          ]
+        }
+      ],
+      "model": {
+        "mode": "dominant",
+        "informative": true,
+        "signatures": [
+          {"origin": "paternal", "value": "1", "kind": "dominant"}
+        ]
+      },
+      "calls": {
+        "E_RISK": {"state": "affected_or_at_risk", "roi_not_covered": false, "sex_dependent": null},
+        "E_CLEAR": {"state": "uninformative", "roi_not_covered": true, "sex_dependent": null}
+      }
+    }
+  ]
+}
