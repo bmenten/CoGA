@@ -400,8 +400,9 @@ export interface ApiAnnotationManifest {
   modules: ApiAnnotationModule[];
 }
 
-// The primary transcript, population frequencies and in-silico scores a small-variant
-// classification rested on, as frozen and as they are now, by field (backend
+// The primary transcript, its consequence, the population frequencies and in-silico scores, and
+// (for a missense variant) the gene's missense Z a small-variant classification rested on, as
+// frozen and as they are now, by field (backend
 // services/small_variant_review_acmg.py::small_variant_evidence).
 export type ApiSmallVariantEvidence = Record<string, unknown>;
 
@@ -415,8 +416,9 @@ export interface ApiClassificationDriftItem {
   annotation_version_to: string | null;
   clinvar_from: string | null;
   clinvar_to: string | null;
-  // What moved: 'clinvar', 'transcript_id', a frequency or in-silico field ('gnomad_af',
-  // 'revel', …) or 'annotations' (the annotation set).
+  // What moved: 'clinvar', 'transcript_id', a consequence, frequency or in-silico field
+  // ('effect', 'lof', 'gnomad_af', 'revel', …), a missense variant's gene 'gene_missense_z' or
+  // 'annotations' (the annotation set).
   changed: string[];
   evidence_from: ApiSmallVariantEvidence | null;
   evidence_to: ApiSmallVariantEvidence | null;
