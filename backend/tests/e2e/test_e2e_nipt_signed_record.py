@@ -351,6 +351,15 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     assert any("paternity" in reason.lower() for reason in detail["unverifiable_checks"])
     # The NIPT page's checks passed, warned or could not run: none failed.
     assert detail["nipt_failed_checks"] == []
+    # The refusal lists each group of concerns once, as the sign-out dialog shows them, and
+    # the acknowledged sign-out's audit event records the same groups: what the
+    # acknowledgement covered (CLIN-58).
+    assert not set(detail["warning_checks"]) & set(detail["unverifiable_checks"])
+    event = next(event for event in _ok(signed, "audit")["events"] if event["action"] == "sign_out")
+    assert event["after"]["qc_failed"] == detail["failed_checks"]
+    assert event["after"]["qc_unverifiable"] == detail["unverifiable_checks"]
+    assert event["after"]["nipt_failed_checks"] == detail["nipt_failed_checks"]
+    assert event["after"]["qc_warnings"] == detail["warning_checks"]
 
 
 # ------------------------------------------------------------------ the signed record
