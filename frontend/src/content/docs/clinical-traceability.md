@@ -166,7 +166,9 @@ the clinical report in the EPD refers to:
   family's searches applied (each version, with PanelApp's version of a PanelApp panel), the
   **reference-data releases** (the gene reference for the reported genes and the clinical CNV
   knowledgebase), and the family's **repeat expansions** (TRGT) and **Paraphase** results, each with
-  its status as CoGA reads it at sign-out and the catalogue behind it;
+  its status as CoGA reads it at sign-out and the catalogue behind it; beside each repeat count near a
+  classification boundary its *Near a boundary* warning, and for each repeat locus whether QA had
+  validated TRGT's counting units there, with the reason, by whom and when;
 - in a PGT family, the **embryo calls** at the region of interest, the calls the family page shows: the
   ROI, the inheritance model, the disease haplotype, and for each embryo its call, the haplotypes it
   inherited at the ROI, its warnings (missing data, an unrecorded sex, a recombination or a parent's
@@ -327,6 +329,10 @@ It shows what the record holds:
   meet its thresholds …*) and the thresholds in force. A call that did not meet them stands as called:
   the warning is not a gate;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
+  in the repeat expansions, each count near a boundary is marked beside its call (*⚠ Near a boundary: 53
+  is within 3 repeats of 55 (Premutation)*), and each locus says whether QA had validated TRGT's counting
+  units there (*TRGT’s counting units: not validated (no QA record)*, or validated or not, with the
+  reason, by whom and when);
 - what each coverage track held (*Coverage tracks*): per sample and caller, read depth, a log2 ratio or
   unknown, with the file it was loaded from, from where (a single-file upload or a package import) and
   when;
@@ -351,7 +357,8 @@ Paraphase results or what each coverage track holds says so for each (*Not in th
 version 2 was signed before CoGA recorded …*), and so does a PGT family's version signed before CoGA
 recorded the embryo calls. A PGT family's version signed before CoGA checked the embryos' QC against
 thresholds reads as it was signed, with no verdict: nothing it predates is called *not captured*, and
-the sign-out check compares it on what it holds.
+the sign-out check compares it on what it holds. So does a version signed before CoGA froze the repeat
+calls' near-boundary warnings and QA's records of the counting units: it shows its calls without them.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,
@@ -360,8 +367,9 @@ when the versions could not be listed.
 
 *Signed versions* at the top lists every version; an earlier one names the version that replaces it.
 On the latest version the page says whether the family's current data still matches it, or what has
-changed since (a review, a report tag, a re-import, a QC cut-off). That line is not printed: the
-version stays what was signed. Sign out again to issue a new version.
+changed since (a review, a report tag, a re-import, a QC cut-off, QA's validation of a repeat locus's
+counting units). That line is not printed: the version stays what was signed. Sign out again to issue
+a new version.
 
 **Download signed version N (JSON)** returns the frozen record itself.
 

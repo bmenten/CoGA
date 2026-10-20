@@ -77,7 +77,9 @@ so a start keeps QA's record; `locus_id` references `repeat_loci` (a row for a l
 catalogue lacks is refused), and a `CHECK` refuses a blank `reason`. An admin sets it
 (`PUT /api/admin/repeat-loci/{locus_id}/count-units`, with a required reason); each change
 is a hash-chained `clinical_audit_events` row on a chain of its own,
-`family_identifier = system:repeat-loci`, with the record before and after. The corrections
+`family_identifier = system:repeat-loci`, with the record before and after. A sign-out freezes
+the row of each locus the family's calls are classified under into the signed record, beside the
+warnings it led to (`repeat_expansions`, [clinical-traceability.md](clinical-traceability.md)). The corrections
 QA will supply (an offset per locus, or at FMR1 the AGG interruptions TRGT reports beside
 the CGG copies) are not stored yet: they belong in this table, applied to the count before it
 is classified, and until then a locus whose count needs a correction stays not validated.

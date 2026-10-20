@@ -17,7 +17,9 @@ of its own:
   CNV knowledgebase (TRACE-5). PanelApp states a release per panel, which ``gene_panels``
   holds;
 * ``repeat_expansions`` — each TRGT call of the family's samples, with its status as CoGA
-  classifies it at sign-out and the thresholds and catalogue behind it;
+  classifies it at sign-out and the thresholds and catalogue behind it; beside each allele its
+  near-boundary warning, and per locus QA's record of TRGT's counting units there
+  (``repeat_count_units``), each as they stood at sign-out;
 * ``paraphase`` — each Paraphase result of the family's samples, with its status as CoGA
   classifies it at sign-out and the catalogue rule behind it;
 * ``coverage_tracks`` — each coverage track of the family's samples, per sample and caller:
@@ -69,7 +71,7 @@ from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..schemas import VariantOut
+from ..schemas import RepeatExpansionRowOut, RepeatExpansionSampleCallOut, VariantOut
 from .clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     get_family_small_variants_page,
@@ -86,7 +88,8 @@ from .paraphase_pg import (
     get_family_paraphase_table_response,
     load_paraphase_medical_regions,
 )
-from .repeat_expansion_pg import get_family_repeat_expansion_table_response
+from .repeat_count_units import COUNT_UNIT_MARGIN
+from .repeat_expansion_pg import _with_count_unit_warnings, get_family_repeat_expansion_table_response
 from .signed_record_nipt import is_nipt_family, nipt_results
 
 logger = logging.getLogger(__name__)
@@ -510,13 +513,114 @@ async def repeat_catalogue_identity(session: AsyncSession) -> dict[str, Any]:
     }
 
 
+# QA's record of whether TRGT's count at a catalogue locus is the clinical repeat number
+# (``repeat_count_units``), for the loci the family's calls are classified under.
+_REPEAT_COUNT_UNITS_SQL = text(
+    """
+    SELECT locus_id, validated, reason, updated_by_name, updated_at
+    FROM repeat_locus_count_units
+    WHERE locus_id = ANY(CAST(:locus_ids AS text[]))
+    """
+)
+
+# The section-level key that says the record holds the near-boundary warnings and QA's records:
+# the margin they were made with. A record signed before CoGA froze them holds neither.
+COUNT_UNIT_MARGIN_KEY = "count_unit_margin"
+# What the check names as not compared for such a record (``repeat_expansions_comparable_with_record``).
+COUNT_UNITS_NOT_COMPARED = "repeat_expansions.count_units"
+
+
+async def _repeat_count_units_records(
+    session: AsyncSession, locus_ids: Iterable[str | None]
+) -> dict[str, dict[str, Any]]:
+    wanted = sorted({str(locus_id) for locus_id in locus_ids if locus_id})
+    if not wanted:
+        return {}
+    rows = (await session.execute(_REPEAT_COUNT_UNITS_SQL, {"locus_ids": wanted})).mappings().all()
+    return {str(row["locus_id"]): dict(row) for row in rows}
+
+
+def _count_units(record: Mapping[str, Any] | None) -> dict[str, Any]:
+    """QA's record of a locus's counting units as the record freezes it: validated or not, the
+    reason, by whom and when. A locus without a record is not validated, and the rest is null."""
+    if record is None:
+        return {"validated": False, "reason": None, "updated_by": None, "updated_at": None}
+    return {
+        "validated": bool(record.get("validated")),
+        "reason": _text(record.get("reason")),
+        "updated_by": _text(record.get("updated_by_name")),
+        "updated_at": _iso(record.get("updated_at")),
+    }
+
+
+def _allele_count_unit_warnings(
+    locus: RepeatExpansionRowOut, call: RepeatExpansionSampleCallOut, *, validated: bool
+) -> list[dict[str, Any] | None]:
+    """Each allele's near-boundary warning, against the record frozen beside it.
+
+    The family table made its warnings from QA's record as its own statement read it. A
+    validation or a withdrawal that commits between that read and the record's makes the
+    warnings again here, by the table's own function and the locus's thresholds, so a record
+    never holds a warning at a locus it says is validated, nor misses one at a locus it says is
+    not. Only a catalogued locus can have a record, and every call classified under one is
+    classified by that one row's thresholds, which the locus states.
+    """
+    if validated == locus.count_units_validated:
+        return [
+            allele.count_unit_warning.model_dump(mode="json") if allele.count_unit_warning else None
+            for allele in call.alleles
+        ]
+    marked = _with_count_unit_warnings(
+        [{"repeat_count": allele.repeat_count} for allele in call.alleles],
+        validated=validated,
+        warning_min=locus.warning_min,
+        pathogenic_min=locus.pathogenic_min,
+        benign_min=locus.benign_min,
+        benign_max=locus.benign_max,
+        pathogenic_max=locus.pathogenic_max,
+        premutation_min=locus.premutation_min,
+    )
+    return [allele["count_unit_warning"] for allele in marked]
+
+
 async def repeat_expansion_calls(
     session: AsyncSession, context: FamilyMetadataContext
 ) -> dict[str, Any]:
-    """Every TRGT call of the family's samples as the repeat page classifies it now."""
+    """Every TRGT call of the family's samples as the repeat page classifies it now.
+
+    Beside each allele its near-boundary warning (``count_unit_warning``: the count, the nearest
+    count within the margin on each side that reads another status, and the margin; null when
+    there is none), and per locus QA's record of TRGT's counting units there (``count_units``) as
+    ``repeat_locus_count_units`` holds it, with the margin in force (``count_unit_margin``). The
+    warning changes no status: the allele's own status is the one on its side of the boundary.
+    """
     table = await get_family_repeat_expansion_table_response(session, context=context)
+    records = await _repeat_count_units_records(session, (locus.locus_id for locus in table.loci))
     loci: list[dict[str, Any]] = []
     for locus in table.loci:
+        count_units = _count_units(records.get(locus.locus_id))
+        calls: list[dict[str, Any]] = []
+        for _sample, call in sorted(locus.calls.items()):
+            warnings = _allele_count_unit_warnings(locus, call, validated=count_units["validated"])
+            calls.append(
+                {
+                    "sample": call.sample,
+                    "genotype": call.genotype,
+                    "status": call.status,
+                    "note": call.note,
+                    "alleles": [
+                        {
+                            "repeat_count": allele.repeat_count,
+                            "bp_length": allele.bp_length,
+                            "support_reads": allele.support_reads,
+                            "interruption_label": allele.interruption_label,
+                            "status": allele.status,
+                            "count_unit_warning": warning,
+                        }
+                        for allele, warning in zip(call.alleles, warnings, strict=True)
+                    ],
+                }
+            )
         loci.append(
             {
                 "locus_id": locus.locus_id,
@@ -536,29 +640,70 @@ async def repeat_expansion_calls(
                     "pathogenic_max": locus.pathogenic_max,
                 },
                 "status": locus.status,
-                "calls": [
-                    {
-                        "sample": call.sample,
-                        "genotype": call.genotype,
-                        "status": call.status,
-                        "note": call.note,
-                        "alleles": [
-                            {
-                                "repeat_count": allele.repeat_count,
-                                "bp_length": allele.bp_length,
-                                "support_reads": allele.support_reads,
-                                "interruption_label": allele.interruption_label,
-                                "status": allele.status,
-                            }
-                            for allele in call.alleles
-                        ],
-                    }
-                    for _sample, call in sorted(locus.calls.items())
-                ],
+                "count_units": count_units,
+                "calls": calls,
             }
         )
     loci.sort(key=lambda entry: (str(entry["chrom"]), int(entry["start"]), str(entry["locus_id"])))
-    return {"catalogue": await repeat_catalogue_identity(session), "loci": loci}
+    return {
+        "catalogue": await repeat_catalogue_identity(session),
+        COUNT_UNIT_MARGIN_KEY: COUNT_UNIT_MARGIN,
+        "loci": loci,
+    }
+
+
+def _without_count_units(locus: Any) -> Any:
+    """A frozen locus as a record signed before the warnings holds it: no ``count_units``, and no
+    ``count_unit_warning`` on its alleles."""
+    if not isinstance(locus, Mapping):
+        return locus
+    held = {key: value for key, value in locus.items() if key != "count_units"}
+    calls = held.get("calls")
+    if isinstance(calls, list):
+        held["calls"] = [
+            {
+                **call,
+                "alleles": [
+                    {key: value for key, value in allele.items() if key != "count_unit_warning"}
+                    if isinstance(allele, Mapping)
+                    else allele
+                    for allele in call["alleles"]
+                ],
+            }
+            if isinstance(call, Mapping) and isinstance(call.get("alleles"), list)
+            else call
+            for call in calls
+        ]
+    return held
+
+
+def repeat_expansions_comparable_with_record(signed: Any, current: Any) -> tuple[Any, list[str]]:
+    """The current ``repeat_expansions`` to compare with a signed record's, and what of it the
+    record predates.
+
+    A record signed before CoGA froze the near-boundary warnings holds no ``count_unit_margin``,
+    no ``count_units`` per locus and no ``count_unit_warning`` per allele. Like a section a
+    record predates, these are left out of the comparison and named as not compared
+    (``COUNT_UNITS_NOT_COMPARED``), rather than every such record reading as changed; the calls,
+    their statuses and the thresholds are compared on what the record holds. A record that holds
+    them is compared whole, so a locus validated or withdrawn since it was signed reads as a
+    change, and so is a section the record froze as unavailable.
+    """
+    if (
+        not isinstance(signed, Mapping)
+        or "unavailable" in signed
+        or COUNT_UNIT_MARGIN_KEY in signed
+        or not isinstance(current, Mapping)
+    ):
+        return current, []
+    comparable = {key: value for key, value in current.items() if key != COUNT_UNIT_MARGIN_KEY}
+    predated = len(comparable) != len(current)
+    loci = comparable.get("loci")
+    if isinstance(loci, list):
+        held = [_without_count_units(locus) for locus in loci]
+        predated = predated or held != loci
+        comparable["loci"] = held
+    return comparable, [COUNT_UNITS_NOT_COMPARED] if predated else []
 
 
 # --- Paraphase --------------------------------------------------------------------

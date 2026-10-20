@@ -378,10 +378,28 @@ def test_each_repeat_call_is_frozen_with_its_status_and_the_thresholds_behind_it
         ("FATHER", "normal"),
         ("PROBAND", "pathogenic"),
     ]
+    # Neither count is near a boundary (repeat_count_units): no warning beside either allele.
     assert locus["calls"][1]["alleles"] == [
-        {"repeat_count": 18, "bp_length": 54, "support_reads": None, "interruption_label": None, "status": "normal"},
-        {"repeat_count": 40, "bp_length": 120, "support_reads": 12, "interruption_label": None, "status": "pathogenic"},
+        {
+            "repeat_count": 18,
+            "bp_length": 54,
+            "support_reads": None,
+            "interruption_label": None,
+            "status": "normal",
+            "count_unit_warning": None,
+        },
+        {
+            "repeat_count": 40,
+            "bp_length": 120,
+            "support_reads": 12,
+            "interruption_label": None,
+            "status": "pathogenic",
+            "count_unit_warning": None,
+        },
     ]
+    # No QA record for the locus: not validated.
+    assert locus["count_units"] == {"validated": False, "reason": None, "updated_by": None, "updated_at": None}
+    assert out["count_unit_margin"] == 3
     catalogue = out["catalogue"]
     assert catalogue["loci"] == 2
     assert catalogue["sources"] == ["CoGA built-in", "STRchive"]

@@ -85,7 +85,9 @@ known of TRGT's count at the gene. The status itself is not changed: read the ca
 mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
 boundary, and a genome track says it in the locus's tooltip. An administrator records each locus's
 validation, with its reason, on the admin page **Repeat Catalogue**; a validated locus is no longer
-marked.
+marked. Signing out freezes the mark beside its call, and for each locus whether QA had validated its
+counting units, with the reason, by whom and when: a locus validated or withdrawn after sign-out makes
+the report say the repeat expansions changed since.
 
 ### mtDNA
 

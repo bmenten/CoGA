@@ -37,6 +37,7 @@ import {
   describeCoverageContent,
   describeCoverageFiles,
   describeCoverageTracks,
+  describeCountUnitMargin,
   describeDiseaseHaplotypes,
   describeEmbryoCall,
   describeEmbryoQc,
@@ -56,7 +57,7 @@ import {
   describePgtInputs,
   describePgtMembers,
   describeQcThresholds,
-  describeRepeatCall,
+  describeRepeatLocusCalls,
   describeRepeatThresholds,
   describeReportSections,
   describeSignedDrift,
@@ -823,6 +824,10 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
             Each call’s status as CoGA classified it when this version was signed, against the
             repeat catalogue of {describeCatalogue(repeats.catalogue, 'loci')}.
           </p>
+          {/* A record signed before CoGA froze the near-boundary warnings reads as it was signed. */}
+          {repeats.countUnitMargin !== null ? (
+            <p className="report-paragraph">{describeCountUnitMargin(repeats.countUnitMargin)}</p>
+          ) : null}
           {repeats.loci.length ? (
             <ul className="report-signed-list">
               {repeats.loci.map((locus, index) => (
@@ -833,7 +838,7 @@ const AnalysisSections: React.FC<{ record: SignedReport; version: number }> = ({
                   </strong>
                   {locus.disease ? `, ${locus.disease}` : ''}: {repeatStatusWords(locus.status)} ({describeRepeatThresholds(locus)}
                   {locus.motif ? `; motif ${locus.motif}` : ''}).{' '}
-                  {locus.calls.map(describeRepeatCall).join('; ')}
+                  {describeRepeatLocusCalls(locus)}
                 </li>
               ))}
             </ul>

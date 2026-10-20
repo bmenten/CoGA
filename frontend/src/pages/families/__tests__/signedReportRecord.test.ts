@@ -13,6 +13,8 @@ import {
   describeCoverageFiles,
   describeCoverageTrack,
   describeCoverageTracks,
+  describeCountUnitMargin,
+  describeCountUnits,
   describeDiseaseHaplotypes,
   describeEmbryoCall,
   describeEmbryoQc,
@@ -33,9 +35,11 @@ import {
   describePgtMembers,
   describeQcThresholds,
   describeRepeatCall,
+  describeRepeatLocusCalls,
   describeRepeatThresholds,
   describeReportSections,
   describeSignedDrift,
+  describeSignedCountUnitWarning,
   describeSignedQcVerdict,
   describeSignedStructuralDrift,
   describeSmallVariantDescription,
@@ -54,12 +58,15 @@ import {
   reportViewSearch,
   type SignedCoverageTrack,
   type SignedPgtAnalysis,
+  type SignedRepeatExpansions,
   type SignedReport,
 } from '../signedReportRecord';
+import { describeCountUnitWarning } from '../../../lib/repeatStatus';
 import {
   SIGNED_ANALYSIS,
   SIGNED_PGT_ANALYSIS,
   SIGNED_PGT_ANALYSIS_BEFORE_QC_VERDICT,
+  SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
 } from '../../../test/signedAnalysisFixture';
 
 // The evidence a small-variant classification froze since CLIN-7: the annotation identity,
@@ -839,6 +846,138 @@ describe('what the analysis looked at', () => {
     expect(paraphaseStatusWords('no_call')).toBe('No-call');
     expect(paraphaseStatusWords('none')).toBe('No change');
     expect(paraphaseStatusWords(null)).toBe('Not assessed');
+  });
+});
+
+// Each repeat call's near-boundary warning and each locus's QA record of TRGT's counting units,
+// frozen with the calls (signed_record_sections.repeat_expansion_calls, repeat_count_units.py).
+describe('the repeat calls’ near-boundary warnings', () => {
+  const repeatsOf = (snapshot: Record<string, unknown>): SignedRepeatExpansions => {
+    const section = parseSignedReport(snapshot)!.repeatExpansions;
+    expect(section.state).toBe('recorded');
+    if (section.state !== 'recorded') throw new Error('not recorded');
+    return section.value;
+  };
+
+  it('reads each allele’s warning, each locus’s QA record and the margin', () => {
+    const repeats = repeatsOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS });
+    expect(repeats.countUnitMargin).toBe(3);
+    const [htt, fmr1] = repeats.loci;
+    expect(htt.countUnits).toEqual({
+      validated: true,
+      reason: 'Validation report 7',
+      updatedBy: 'qa-lead',
+      updatedAt: '2026-10-15T09:00:00+00:00',
+    });
+    expect(htt.calls[0].alleles.map((allele) => allele.countUnitWarning)).toEqual([null, null]);
+    expect(fmr1.countUnits).toEqual({ validated: false, reason: null, updatedBy: null, updatedAt: null });
+    expect(fmr1.calls[0].alleles.map((allele) => allele.countUnitWarning)).toEqual([
+      null,
+      { repeatCount: 53, margin: 3, boundaries: [{ repeatCount: 55, status: 'premutation' }], unreadableBoundaries: 0 },
+    ]);
+  });
+
+  it('says the warning beside the call in the repeat page’s words, and each locus’s record', () => {
+    const [htt, fmr1] = repeatsOf({ ...SNAPSHOT, ...SIGNED_ANALYSIS }).loci;
+    expect(describeRepeatCall(fmr1.calls[0])).toBe(
+      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation)',
+    );
+    // As the repeat page words the same warning.
+    const [, frozen] = fmr1.calls[0].alleles;
+    expect(describeSignedCountUnitWarning(frozen.countUnitWarning!)).toBe(
+      describeCountUnitWarning({ repeat_count: 53, margin: 3, boundaries: [{ repeat_count: 55, status: 'premutation' }] }),
+    );
+    expect(describeRepeatLocusCalls(fmr1)).toBe(
+      'MOTHER 1/2: 30, 53 repeats — Grey zone ⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation). TRGT’s counting units: not validated (no QA record).',
+    );
+    expect(describeRepeatLocusCalls(htt)).toBe(
+      'PROBAND 0/1: 18, 40 repeats — Pathogenic. TRGT’s counting units: validated — Validation report 7 (qa-lead, 2026-10-15 09:00 UTC).',
+    );
+    // A validation QA withdrew: its reason, by whom and when.
+    expect(
+      describeCountUnits({
+        validated: false,
+        reason: 'New TRGT catalogue',
+        updatedBy: 'qa-lead',
+        updatedAt: '2026-10-21T08:00:00+00:00',
+      }),
+    ).toBe('not validated — New TRGT catalogue (qa-lead, 2026-10-21 08:00 UTC)');
+    expect(describeCountUnitMargin(3)).toBe(
+      'While QA had not validated TRGT’s counting units at a locus, a count within 3 repeats of a classification boundary was marked ⚠ Near a boundary: a difference of that size between TRGT’s count and the clinical repeat number could change its status. The status stands as classified.',
+    );
+  });
+
+  it('reads a record signed before the warnings as it was signed', () => {
+    const repeats = repeatsOf({
+      ...SNAPSHOT,
+      ...SIGNED_ANALYSIS,
+      repeat_expansions: SIGNED_REPEAT_EXPANSIONS_BEFORE_COUNT_UNITS,
+    });
+    expect(repeats.countUnitMargin).toBeNull();
+    expect(repeats.loci.map((locus) => locus.countUnits)).toEqual([null, null]);
+    expect(
+      repeats.loci.flatMap((locus) => locus.calls.flatMap((call) => call.alleles.map((allele) => allele.countUnitWarning))),
+    ).toEqual([null, null, null, null]);
+    // Its calls read as they always did: no warning, nothing of QA's records.
+    expect(repeats.loci.map(describeRepeatLocusCalls)).toEqual([
+      'PROBAND 0/1: 18, 40 repeats — Pathogenic',
+      'MOTHER 1/2: 30, 53 repeats — Grey zone',
+    ]);
+  });
+
+  it('keeps a warning or a record it cannot fully read, and says so', () => {
+    const repeats = repeatsOf({
+      ...SNAPSHOT,
+      repeat_expansions: {
+        count_unit_margin: 'three',
+        loci: [
+          {
+            locus_id: 'L1',
+            count_units: { validated: 'yes', reason: '  ', updated_by: 7 },
+            calls: [
+              {
+                sample: 'S1',
+                alleles: [
+                  {
+                    repeat_count: 53,
+                    count_unit_warning: {
+                      repeat_count: 53,
+                      margin: 3,
+                      boundaries: [{ repeat_count: 55, status: 'premutation' }, { repeat_count: 52 }, 'a boundary'],
+                    },
+                  },
+                  { repeat_count: 12, count_unit_warning: { boundaries: 'none' } },
+                  { repeat_count: 40, count_unit_warning: 'not a warning' },
+                ],
+              },
+            ],
+          },
+          { locus_id: 'L2', count_units: 'not a record', calls: [] },
+        ],
+      },
+    });
+    expect(repeats.countUnitMargin).toBeNull();
+    const [l1, l2] = repeats.loci;
+    // Only `true` is validated; a reason that is blank is none.
+    expect(l1.countUnits).toEqual({ validated: false, reason: null, updatedBy: null, updatedAt: null });
+    expect(l2.countUnits).toBeNull();
+    const [kept, bare, none] = l1.calls[0].alleles.map((allele) => allele.countUnitWarning);
+    expect(kept).toEqual({
+      repeatCount: 53,
+      margin: 3,
+      boundaries: [{ repeatCount: 55, status: 'premutation' }],
+      unreadableBoundaries: 2,
+    });
+    expect(describeSignedCountUnitWarning(kept!)).toBe(
+      '53 is within 3 repeats of 55 (Premutation) and 2 boundaries this view cannot read',
+    );
+    expect(describeSignedCountUnitWarning(bare!)).toBe('a count is within ? repeats of a boundary');
+    expect(
+      describeSignedCountUnitWarning({ repeatCount: 11, margin: 3, boundaries: [], unreadableBoundaries: 1 }),
+    ).toBe('11 is within 3 repeats of a boundary this view cannot read');
+    expect(none).toBeNull();
+    // A locus without calls says its record alone.
+    expect(describeRepeatLocusCalls({ ...l1, calls: [] })).toBe('TRGT’s counting units: not validated (no QA record).');
   });
 });
 

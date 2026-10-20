@@ -3263,6 +3263,133 @@ def test_signout_check_reads_a_changed_qc_verdict_or_threshold_as_a_change(monke
     assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["pgt_analysis"], [])
 
 
+# --- The repeat calls' near-boundary warnings and QA's counting-units records ---------------
+#
+# Since the record froze them (signed_record_sections.repeat_expansion_calls), each allele carries
+# its near-boundary warning and each locus QA's record of TRGT's counting units there
+# (repeat_count_units). The sections are built in test_signed_record_repeat_count_units.py; here
+# the check reads them.
+
+_NOT_VALIDATED = {"validated": False, "reason": None, "updated_by": None, "updated_at": None}
+_VALIDATED = {
+    "validated": True,
+    "reason": "Validation report 13",
+    "updated_by": "qa-lead",
+    "updated_at": "2026-10-20T09:30:00+00:00",
+}
+_WITHDRAWN = {**_VALIDATED, "validated": False, "reason": "New TRGT catalogue", "updated_at": "2026-10-21T08:00:00+00:00"}
+_WARNING_53 = {"repeat_count": 53, "margin": 3, "boundaries": [{"repeat_count": 55, "status": "premutation"}]}
+
+
+def _repeat_section(count_units: dict, *, count: int = 53, warning: dict | None = None) -> dict:
+    """``repeat_expansions`` with a woman's FMR1 call of 30 and ``count`` (53: grey zone, near the
+    premutation at 55), at a locus with QA's record ``count_units``."""
+    return {
+        "catalogue": {"loci": 1, "sources": ["STRchive"], "digest": "1" * 64},
+        "count_unit_margin": 3,
+        "loci": [
+            {
+                "locus_id": "FXS_FMR1",
+                "gene": "FMR1",
+                "disease": "Fragile X syndrome",
+                "inheritance": "XLD",
+                "chrom": "chrX",
+                "start": 147912049,
+                "end": 147912111,
+                "motif": "CGG",
+                "thresholds": {
+                    "intermediate_min": 45,
+                    "premutation_min": 55,
+                    "pathogenic_min": 201,
+                    "benign_min": 5,
+                    "benign_max": 44,
+                    "pathogenic_max": 2000,
+                },
+                "status": "intermediate",
+                "count_units": count_units,
+                "calls": [
+                    {
+                        "sample": "S1",
+                        "genotype": "1/2",
+                        "status": "intermediate",
+                        "note": None,
+                        "alleles": [
+                            {"repeat_count": 30, "bp_length": 90, "support_reads": 20, "interruption_label": None, "status": "normal", "count_unit_warning": None},
+                            {"repeat_count": count, "bp_length": count * 3, "support_reads": 18, "interruption_label": None, "status": "intermediate", "count_unit_warning": warning},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+
+
+def _before_count_units(section: dict) -> dict:
+    """``repeat_expansions`` as a record signed before CoGA froze the warnings holds it."""
+    old = copy.deepcopy(section)
+    old.pop("count_unit_margin")
+    for locus in old["loci"]:
+        locus.pop("count_units")
+        for call in locus["calls"]:
+            for allele in call["alleles"]:
+                allele.pop("count_unit_warning")
+    return old
+
+
+def _check_against(monkeypatch, signed_section: dict, current_section: dict) -> dict:
+    _with_sections(monkeypatch, repeat_expansions=signed_section)
+    signed = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    _with_sections(monkeypatch, repeat_expansions=current_section)
+    return asyncio.run(
+        rss.compare_report_with_latest_signout(_CheckSession(_signed_row(signed)), family_id="FAM1", user=_user())
+    )
+
+
+def test_signout_check_reads_a_locus_validated_since_sign_out_as_a_change(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    signed_section = _repeat_section(_NOT_VALIDATED, warning=_WARNING_53)
+    out = _check_against(monkeypatch, signed_section, signed_section)
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (True, [], [])
+
+    # QA validates TRGT's counting units at FMR1 after sign-out: the 53 is no longer marked, and
+    # the record held it marked at a locus not validated.
+    out = _check_against(monkeypatch, signed_section, _repeat_section(_VALIDATED))
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["repeat_expansions"], [])
+
+
+def test_signout_check_reads_a_withdrawn_validation_as_a_change(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    out = _check_against(monkeypatch, _repeat_section(_VALIDATED), _repeat_section(_WITHDRAWN, warning=_WARNING_53))
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["repeat_expansions"], [])
+
+
+def test_signout_check_compares_a_repeat_record_signed_before_the_warnings_on_what_it_holds(monkeypatch) -> None:
+    # Signed before CoGA froze the warnings: the record still matches, the warnings and QA's
+    # records are named as not compared, and nothing is "not captured".
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    old = _before_count_units(_repeat_section(_NOT_VALIDATED))
+    out = _check_against(monkeypatch, old, _repeat_section(_NOT_VALIDATED, warning=_WARNING_53))
+    assert out["matches"] is True, out
+    assert out["changed_sections"] == []
+    assert out["not_compared"] == ["repeat_expansions.count_units"]
+    assert out["not_captured"] == []
+
+    # What it holds is still compared: a count that changed since reads as a change.
+    out = _check_against(monkeypatch, old, _repeat_section(_NOT_VALIDATED, count=56, warning=None))
+    assert (out["matches"], out["changed_sections"]) == (False, ["repeat_expansions"])
+    assert out["not_compared"] == ["repeat_expansions.count_units"]
+
+
+def test_signout_check_compares_a_repeat_section_not_captured_at_sign_out_whole(monkeypatch) -> None:
+    _patch_check(monkeypatch, reviews=[_REVIEW])
+    unavailable = {"unavailable": "The repeat-expansion calls could not be read."}
+    out = _check_against(monkeypatch, unavailable, _repeat_section(_NOT_VALIDATED, warning=_WARNING_53))
+    assert (out["matches"], out["changed_sections"], out["not_compared"]) == (False, ["repeat_expansions"], [])
+    assert out["not_captured"] == [
+        {"section": "repeat_expansions", "item": "Repeat expansions (TRGT)", "reason": unavailable["unavailable"]}
+    ]
+
+
 def test_a_sign_out_carries_its_report_code(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
     captured = _capture_audit(monkeypatch)
