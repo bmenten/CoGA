@@ -124,7 +124,7 @@ Met Microsoft-aanmelding bestaat registreren niet: `POST /auth/signup` antwoordt
 
 ## Aanmelden met Microsoft (Azure AD / Entra ID)
 
-Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (SEC-4). Microsoft Entra ID (vroeger Azure AD) controleert dan het wachtwoord en de tweede factor (MFA); IT regelt het opnieuw instellen van een wachtwoord en het afsluiten van wie vertrekt. De backend zet het aan zodra `AZURE_TENANT_ID` (het ID van de organisatie) en `AZURE_CLIENT_ID` (het ID van de app-registratie van CoGA) zijn ingesteld. Beide of geen van beide: de helft ervan, een tenant die geen GUID is (zoals `common`) of de noodoverride zonder Microsoft laat de backend niet starten. Wat IT daarvoor aanmaakt, staat in `docs/deployment-gcp.md` §12.11.
+Bij de ingebruikname meldt iedereen zich aan met zijn Microsoft-account van het ziekenhuis of de universiteit (SEC-4). Microsoft Entra ID (vroeger Azure AD) controleert dan het wachtwoord en de tweede factor (MFA); IT regelt het opnieuw instellen van een wachtwoord en het afsluiten van wie vertrekt. De backend zet het aan zodra `AZURE_TENANT_ID` (het ID van de organisatie) en `AZURE_CLIENT_ID` (het ID van de app-registratie van CoGA) zijn ingesteld. Beide of geen van beide: de helft ervan, een tenant die geen GUID is (zoals `common`) of de noodoverride zonder Microsoft laat de backend niet starten. Wat IT daarvoor aanmaakt, staat in `docs/deployment-gcp.md` §12.12.
 
 **De aanmelding in vogelvlucht.**
 

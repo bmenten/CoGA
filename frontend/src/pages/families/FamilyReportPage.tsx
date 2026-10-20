@@ -32,6 +32,7 @@ import {
   describeSmallVariantDrift,
   describeStructuralEvidenceChange,
   formatReportTime,
+  LIVE_REPORT_SIGN_OFF_STATEMENT,
   parseSignedVersionParam,
   reportViewSearch,
 } from './signedReportRecord';
@@ -70,6 +71,7 @@ import {
   importIncompleteFromMetadata,
   importUnfinishedFromMetadata,
   pendingDatasets,
+  unfinishedWriter,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
@@ -543,9 +545,13 @@ const LiveFamilyReport: React.FC = () => {
       setDriftReason('');
       setQcReason('');
       setImportReason('');
-      // Show the signer what was signed: the new version, rendered from its record.
+      // Show the signer what was signed: the new version, rendered from its record, with the
+      // report code the EPD report quotes (the signed view confirms it once).
       if (typeof signed?.version === 'number') {
-        navigate({ search: reportViewSearch(location.search, { version: signed.version }) });
+        navigate(
+          { search: reportViewSearch(location.search, { version: signed.version }) },
+          { state: { signedOut: { version: signed.version } } },
+        );
       }
     } catch (error) {
       const response = (
@@ -997,10 +1003,19 @@ const LiveFamilyReport: React.FC = () => {
                 ) : importGate.jobId ? (
                   <li>Import job: {importGate.jobId}</li>
                 ) : null}
-                {/* An import that stopped part-way: its record shows how far it got. */}
+                {/* An import that stopped part-way: its record shows how far it got. A
+                    single-file upload's or a deletion's mark has no job: its writer is named. */}
                 {importGate.unfinished.map((entry) => (
                   <li key={entry.key}>
-                    Not finished{entry.jobId ? ` (import job ${entry.jobId})` : ''}:{' '}
+                    Not finished
+                    {unfinishedWriter(entry.key) === 'upload'
+                      ? ' (single-file upload)'
+                      : unfinishedWriter(entry.key) === 'deletion'
+                        ? ' (deletion of a sample’s data)'
+                        : entry.jobId
+                          ? ` (import job ${entry.jobId})`
+                          : ''}
+                    :{' '}
                     {pendingDatasets(entry).length
                       ? `${pendingDatasets(entry).join(', ')} may be partly written or missing`
                       : entry.datasets.length
@@ -1086,8 +1101,9 @@ const LiveFamilyReport: React.FC = () => {
             This is the live report, not signed version {latestSignout.version}.
           </p>
           <p className="report-signout-status">
-            Signed version {latestSignout.version} was signed out by{' '}
-            <strong>{latestSignout.signed_out_by}</strong> on{' '}
+            Signed version {latestSignout.version}
+            {latestSignout.report_code ? ` (report code ${latestSignout.report_code})` : ''} was
+            signed out by <strong>{latestSignout.signed_out_by}</strong> on{' '}
             {formatReportTime(latestSignout.signed_out_at)}.{' '}
             {signedState === 'checking'
               ? `Checking this page against signed version ${latestSignout.version}…`
@@ -1145,6 +1161,7 @@ const LiveFamilyReport: React.FC = () => {
           ACMG/AMP classifications are decision support and must be confirmed by a qualified clinical
           scientist before clinical use.
         </p>
+        <p className="report-disclaimer">{LIVE_REPORT_SIGN_OFF_STATEMENT}</p>
       </section>
 
       {driftFailed ? (

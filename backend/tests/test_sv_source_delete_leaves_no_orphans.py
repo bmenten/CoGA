@@ -336,6 +336,7 @@ async def test_an_overwrite_that_drops_an_sv_leaves_no_row_for_it(tables) -> Non
         _FAMILY,
         [StoredStructuralVariantRow(project_id=_PROJECT, record=_sniffles_del(variant_key=stored_key))],
         source="sniffles",
+        stored=[],
     )
     for suffix in _SV_TABLES:
         sniffles = [row for row in tables.identities(suffix) if row[:2] == (_FAMILY, "sniffles")]

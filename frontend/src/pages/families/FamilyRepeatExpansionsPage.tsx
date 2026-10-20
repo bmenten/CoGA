@@ -19,6 +19,9 @@ import { apiPath } from '../../lib/apiPath';
 
 
 
+// A catalogued range of counts: "10" for a single count, "6-26" otherwise.
+const formatCountRange = (min: number, max: number): string => (min === max ? `${min}` : `${min}-${max}`);
+
 /**
  * How the catalog defines abnormal at this locus.
  *
@@ -41,22 +44,25 @@ export const formatCutoff = (row: {
   const hasBenignRange = benignMin != null && benignMax != null;
 
   if (hasBenignRange && pathogenicMin != null && benignMax >= pathogenicMin) {
-    const normal = benignMin === benignMax ? `${benignMin}` : `${benignMin}-${benignMax}`;
     const abnormal =
       pathogenicMax != null && pathogenicMax !== pathogenicMin
         ? `${pathogenicMin}-${pathogenicMax}`
         : `${pathogenicMin}`;
-    return `normal ${normal} · red ${abnormal}`;
+    return `normal ${formatCountRange(benignMin, benignMax)} · red ${abnormal}`;
   }
 
   // Each threshold the locus has, in order; a premutation range (FMR1) splits the grey zone
-  // from the alleles that can expand. A locus with none reads Not assessed (CLIN-26).
+  // from the alleles that can expand.
   const thresholds = [
     warningMin != null ? `orange ≥ ${warningMin}` : null,
     row.premutation_min != null ? `premutation ≥ ${row.premutation_min}` : null,
     pathogenicMin != null ? `red ≥ ${pathogenicMin}` : null,
   ].filter((part): part is string => part !== null);
-  return thresholds.length ? thresholds.join(' · ') : 'No reference cutoff';
+  if (thresholds.length) return thresholds.join(' · ');
+  // A locus without thresholds: a count inside the benign range the catalogue states there
+  // reads Normal (POLG 10, CLIN-36), any other count Not assessed (CLIN-26).
+  if (hasBenignRange) return `normal ${formatCountRange(benignMin, benignMax)} · no threshold`;
+  return 'No reference cutoff';
 };
 
 const omimSearchHref = (disease: string): string =>
@@ -95,6 +101,7 @@ const repeatStatusLabel = (status: ApiRepeatStatus): string => {
     case 'not_assessed':
       // A locus without thresholds: no catalogue row names the call's TRID, or the row
       // states none. Read as normal before, so an expansion there could not be seen (CLIN-26).
+      // A count inside the benign range the row states there reads normal (CLIN-36).
       return 'Not assessed';
     case 'intermediate':
       return 'Grey zone';
@@ -237,8 +244,9 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
       }),
     [aberrantOnly, diseaseFilter, geneFilter, repeatTable?.loci],
   );
-  // The members' calls at loci without thresholds, which the catalogue cannot classify
-  // (CLIN-26): counted over the whole table, whatever the filters show.
+  // The members' calls not assessed: at a locus without thresholds, outside any benign range
+  // the catalogue states there (CLIN-26, CLIN-36). Counted over the whole table, whatever the
+  // filters show.
   const notAssessedCalls = useMemo(
     () =>
       (repeatTable?.loci || []).reduce(
@@ -317,7 +325,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                 <strong className="family-workspace-stat-value">{repeatTable.loci.length}</strong>
               </div>
               <div className="family-workspace-stat">
-                <span className="stat-label">Calls at loci without thresholds</span>
+                <span className="stat-label">Calls not assessed</span>
                 <strong className="family-workspace-stat-value">{notAssessedCalls}</strong>
               </div>
             </div>
@@ -329,8 +337,8 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
             <h2 className="section-title">TRGT repeat table</h2>
             <p className="catalog-card-copy">
               Grey marks normal loci, orange grey-zone alleles, deep orange a premutation (an FMR1 allele of 55–200 repeats, which
-              can expand in a child), and red pathogenic expansions. Blue marks a call at a locus without thresholds: the
-              catalogue gives no cutoff there, so the call is not assessed.
+              can expand in a child), and red pathogenic expansions. Blue marks a call that is not assessed: the catalogue
+              gives its locus no threshold, and the count is outside any benign range the catalogue states there.
             </p>
           </div>
         </div>

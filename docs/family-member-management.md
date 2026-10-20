@@ -93,6 +93,12 @@ variants, interval tracks, repeat expansions, Paraphase results, and the small- 
 structural-variant reviews. It is the only edit that deletes data. The web interface never
 sends it.
 
+ClickHouse has no transactions, so the variants and tracks it holds go last: once every other
+write of the edit is done (the Postgres-held data, the members, the relationships, the
+pedigree, the structure version), just before the commit. An edit that fails before then rolls
+back with the family's variants and tracks still stored; before, they were deleted first, and a
+failure brought the family back without them.
+
 When it deleted data, the stale marker records `raw_datasets_preserved: false` and the
 sample-data scope, and the response warns that the data was cleared, also when the request
 changed nothing else. The new `family_structure_versions` row records how much of each kind

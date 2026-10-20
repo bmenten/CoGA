@@ -208,7 +208,7 @@ administrator's role that CoGA will not change, and active: CoGA will not deacti
 the break-glass sign-in works whenever the override is switched on. Its password is `ADMIN_PASSWORD` (Secret
 Manager): the seed replaces the stored hash whenever it no longer matches, so rotating the
 secret rotates the password. It signs in with that password at `/login/emergency`, and only
-while `AZURE_ADMIN_OVERRIDE` is on (default off, deployment-gcp.md §12.11); any other
+while `AZURE_ADMIN_OVERRIDE` is on (default off, deployment-gcp.md §12.12); any other
 account's password, and any local token not its own, is refused. Every such sign-in and every
 request made with it is logged (`azure_admin_override`, WARNING) and flagged in its audit row
 (`request_meta.emergency_sign_in`, *Emergency sign-in* on the *Audit logs* page). While the
@@ -221,7 +221,7 @@ into CoGA.
 any signed-in user, for the reviewer picker. CoGA is installed for one lab, where all users
 are colleagues, so there is no tenant boundary to protect. With Microsoft sign-in this holds
 only while the app registration requires assignment to the lab's group (deployment-gcp.md
-§12.11): any other member of the directory who could sign in would get an account, and so
+§12.12): any other member of the directory who could sign in would get an account, and so
 see the roster, though no patient data.
 
 ## 2. Access / audit logging
@@ -350,7 +350,7 @@ project yet. Each item below is therefore written and reviewable, without deploy
 | --- | --- |
 | S-1 encryption at rest | 🟡 CMEK on the database, the disks and both buckets, in Terraform |
 | S-2 TLS to the datastores | 🟡 supported by the app; set in Terraform |
-| S-3 secrets | 🟡 seven application secrets in Secret Manager (the metrics token among them), their values added by hand, plus the ClickHouse TLS key and certificate that Terraform generates; Cloud Run reads them by reference; no rotation automation |
+| S-3 secrets | 🟡 seven application secrets in Secret Manager (the metrics token among them), their values added by hand, plus the ClickHouse TLS key and certificate that Terraform generates; Cloud Run reads them by reference; the Terraform state and plan hold no password or private key (the owner's password and the TLS keys pass through write-only arguments); no rotation automation |
 | S-4 byte-level download audit | ⛔ open: configured only in the central infra template, and PHI is not yet served from a bucket |
 | S-8 network | 🟡 private database and ClickHouse, no SSH, Cloud Run reachable only through the load balancer, Cloud Armor; the WAF enforcement, the institutional IP allowlist and the ClickHouse egress lockdown are go-live switches |
 

@@ -167,7 +167,7 @@ variable "frontend_max_instances" {
 # ---------------------------------------------------------------------------
 
 variable "azure_ad_tenant_id" {
-  description = "Directory (tenant) ID of the organisation, a GUID, for Microsoft sign-in (SEC-4; docs/deployment-gcp.md §12.11). Set together with azure_ad_client_id, or leave both empty for the password sign-in."
+  description = "Directory (tenant) ID of the organisation, a GUID, for Microsoft sign-in (SEC-4; docs/deployment-gcp.md §12.12). Set together with azure_ad_client_id, or leave both empty for the password sign-in."
   type        = string
   default     = ""
 
@@ -200,7 +200,7 @@ variable "azure_ad_api_scope" {
 }
 
 variable "azure_admin_override" {
-  description = "Emergency (break-glass) sign-in: true lets the emergency administrator (the coga-admin account) sign in with its password at /login/emergency beside Microsoft sign-in, every use logged and flagged in the audit. Keep false; switch on only for an emergency, as a change-controlled deploy (docs/deployment-gcp.md §12.11)."
+  description = "Emergency (break-glass) sign-in: true lets the emergency administrator (the coga-admin account) sign in with its password at /login/emergency beside Microsoft sign-in, every use logged and flagged in the audit. Keep false; switch on only for an emergency, as a change-controlled deploy (docs/deployment-gcp.md §12.12)."
   type        = bool
   default     = false
 }

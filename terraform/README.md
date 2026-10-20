@@ -19,11 +19,19 @@ configuration addresses are tracked in [TF-13 §3](../docs/regulatory/TF-13-cybe
   on a Container-Optimized OS VM, with a dedicated CMEK data disk that is snapshotted daily.
   The VM reads its password and TLS material from Secret Manager at boot, never from
   instance metadata, and serves HTTPS on 8443 with a private CA (`tls.tf`) that the backend
-  verifies. A daily timer re-fetches the server certificate; a new CA needs a backend
-  redeploy.
+  verifies. Terraform keeps the CA's key nowhere, so it issues the CA and the server
+  certificate together; the backend gets the new CA in that apply, and the VM must then be
+  restarted (a daily timer re-fetches the certificate otherwise).
 - **Secrets.** This configuration creates the Secret Manager containers; the values are
   added by hand ([deployment-gcp.md §5.5](../docs/deployment-gcp.md)), so application
   secrets never pass through Terraform variables. Cloud Run reads them by reference.
+- **No secret in the state.** Terraform reads the owner's password from Secret Manager
+  through an ephemeral resource and sets it on the Cloud SQL user through a write-only
+  argument (`secrets.tf`, `database.tf`); the ClickHouse CA and server keys are ephemeral,
+  passed only to write-only arguments, and the server key reaches Secret Manager the same
+  way (`tls.tf`). The state and the plan hold no password or private key: only the version
+  numbers that tell Terraform when to send a new one. That needs Terraform 1.11 or later
+  and the google provider 8.x (`versions.tf`).
 - **Storage.** A PHI bucket and a reference-data bucket, both CMEK-encrypted, with uniform
   bucket-level access and public access prevention. The backend's account reads both
   (`roles/storage.objectViewer`) and writes neither; the reference-data bucket is mounted
@@ -92,13 +100,14 @@ deployment-gcp.md §12.7 and §12.9.
 - **ClickHouse graceful shutdown.** Best-effort `docker stop -t 90` on VM shutdown +
   `MIGRATE` on maintenance. For a guaranteed 5-min flush window, move ClickHouse to a
   GKE StatefulSet with `terminationGracePeriodSeconds = 300`.
-- **State holds the SQL user password and the ClickHouse TLS keys.** The Cloud SQL owner
-  password is read from Secret Manager into state, and the private CA and server keys are
-  generated in it (`tls.tf`). App secrets and `coga_app`'s password are *not* in state
-  (referenced by `secret_key_ref`). Keep the state bucket private, versioned and CMEK, with
-  tight IAM. Keeping these values out of state needs Terraform 1.11+ write-only arguments,
-  which means moving off the pinned 5.x google provider: a separate, change-controlled
-  upgrade. Until then this is an accepted residual risk for the owner to confirm (#364).
+- **A ClickHouse certificate re-issue needs a VM restart.** The CA's key exists only during
+  the apply that creates the CA, so every re-issue (key rotation, a new VM address,
+  renewal) brings a new CA, which the backend trusts from that apply on. The app cannot
+  reach ClickHouse until the VM restarts or its daily timer runs
+  ([deployment-gcp.md §12.4](../docs/deployment-gcp.md)).
+- **Older state versions.** An environment applied before OPS-10 still has the owner's
+  password and the old TLS keys in its older state versions: rotate and tidy up once
+  ([deployment-gcp.md §12.11](../docs/deployment-gcp.md)).
 - **Bucket grants are bucket-wide.** The backend's read access covers each whole bucket, not
   a prefix.
 - **No secret rotation automation.** Rotating a secret is a manual step

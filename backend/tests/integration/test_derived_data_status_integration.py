@@ -95,7 +95,8 @@ def test_a_structure_update_records_whether_it_kept_the_data(monkeypatch: pytest
 
     async def fake_clear(_session, *, family_uuid):
         cleared.append(family_uuid)
-        return dict(DATA)
+        # What the family held, and the assemblies whose ClickHouse data goes last: none here.
+        return dict(DATA), []
 
     monkeypatch.setattr(service, "_family_genomic_data_counts", fake_counts)
     monkeypatch.setattr(service, "_clear_family_genomic_data", fake_clear)

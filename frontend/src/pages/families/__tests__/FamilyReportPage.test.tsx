@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import FamilyReportPage from '../FamilyReportPage';
 import { APP_VERSION_QUERY_KEY } from '../../../lib/appVersion';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { SIGNED_ANALYSIS, SIGNED_STATEMENT } from '../../../test/signedAnalysisFixture';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
@@ -880,6 +881,7 @@ describe('FamilyReportPage', () => {
     signed_out_by: 'lab-signer',
     signed_out_at: '2026-06-25T10:00:00Z',
     content_hash: 'abc123def456',
+    report_code: '7KQM2X-2-4PHT',
     software_version: '0.1.0',
     git_sha: 'abc1234def567',
     qc_status: 'pass',
@@ -899,6 +901,7 @@ describe('FamilyReportPage', () => {
     signed_out_by: 'alice',
     signed_out_at: '2026-06-20T09:00:00Z',
     content_hash: 'v1hash',
+    report_code: '7KQM2X-1-B3HV',
   };
 
   // What was signed. It differs from the live data of mockApi (BRCA1, its gene profile, its
@@ -1174,6 +1177,136 @@ describe('FamilyReportPage', () => {
       expect(
         screen.getAllByText('Not in the signed record: the variant description, segregation, gene and phenotype.'),
       ).toHaveLength(2);
+    });
+
+    // The signed analysis record (owner decisions of 2026-10-14): what the analysis looked at,
+    // what the record is, and the report code the EPD report quotes, all from the record.
+    it('shows what the analysis looked at, as the record froze it', async () => {
+      mockSignedCase({ snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS } });
+      const { container } = renderPage();
+
+      const card = await signedRecordCard();
+      // What the record is, and the code the EPD report refers to it by: printed, not only shown.
+      expect(card).toHaveTextContent(SIGNED_STATEMENT);
+      const code = within(card).getByText('Report code').closest('p')!;
+      expect(code).toHaveTextContent('Report code 7KQM2X-2-4PHT');
+      expect(code.closest('.no-print')).toBeNull();
+
+      // Each reported variant as the analyst reviewed it: gene, transcript, HGVS, consequence,
+      // and each sample's genotype.
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      const description = within(variant).getByRole('heading', { name: 'Variant description as reviewed' }).parentElement!;
+      expect(description).toHaveTextContent('GENE_PATH c.10A>G p.(Lys4Arg), missense variant (MODERATE)');
+      expect(description).toHaveTextContent('17:43,000,000 A → G · transcript ENST01 (MANE Select) · callset clair3');
+      expect(description).toHaveTextContent('MOTHER 0/0 (depth 28, GQ 60)');
+      expect(description).toHaveTextContent('PROBAND 0/1 (depth 30, AD 15,15, VAF 0.5)');
+      const sv = screen.getByRole('heading', { name: 'Structural variant 2-1000-50000-DEL---' }).closest('article')!;
+      expect(sv).toHaveTextContent('Deletion (copy loss), 2:1,000-50,000, 49,000 bp, genes GENE_DEL, 2p25.3, caller needlr');
+      expect(sv).toHaveTextContent('PROBAND 0/1 (copy number 1, 18 supporting reads)');
+      // The record now holds the description; it still lacks the rest of the live report.
+      expect(screen.getAllByText('Not in the signed record: the segregation, gene and phenotype.')).toHaveLength(2);
+      const absent = screen.getByRole('heading', { name: 'Not in the signed record' }).closest('section')!;
+      expect(absent).toHaveTextContent('its description as the analyst reviewed it');
+      expect(absent).toHaveTextContent('the population frequency and the in silico predictions the live report shows');
+      expect(absent).not.toHaveTextContent('the variant description:');
+
+      const section = (name: string) => screen.getByRole('heading', { name }).closest('section')!;
+      expect(section('Gene panels applied')).toHaveTextContent(
+        'Epilepsy, version 2, 120 genes; PanelApp panel 402, version 3.1 (confidence levels 3), imported 2026-09-01 08:00 UTC; first applied 2026-10-10 09:00 UTC by analyst',
+      );
+      expect(section('Repeat expansions (TRGT)')).toHaveTextContent(
+        'HTT (HD_HTT), Huntington disease: Pathogenic (grey zone from 27, pathogenic from 36; motif CAG). PROBAND 0/1: 18, 40 repeats — Pathogenic',
+      );
+      expect(section('Repeat expansions (TRGT)')).toHaveTextContent(
+        'against the repeat catalogue of 96 loci (CoGA built-in, STRchive), digest abcdef012345',
+      );
+      expect(section('Paraphase')).toHaveTextContent(
+        'SMN1 (SMN1/SMN2) — status by smn1_cn: pathogenic = 0, carrier = 1, normal ≥ 2. PROBAND: Carrier (SMN1 CN 1), copy-number change',
+      );
+      expect(section('Paraphase')).toHaveTextContent('GBA (GBA/GBAP1) — no automatic call. No sample has a result.');
+      const reference = section('Reference-data releases');
+      expect(reference).toHaveTextContent(
+        'Gene reference, for the reported variants’ genes: ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01',
+      );
+      expect(reference).toHaveTextContent('Not in the gene reference: NOT_LOADED.');
+      expect(reference).toHaveTextContent(
+        'Clinical CNV knowledgebase: clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated)',
+      );
+
+      // Beside the modules in the footer, with the code.
+      const footer = container.querySelector('footer')!;
+      expect(footer).toHaveTextContent('Signed version 2 · signed out 2026-06-25 10:00 UTC · report code 7KQM2X-2-4PHT');
+      expect(footer).toHaveTextContent(
+        'Reference data as signed: gene reference ClinGen dosage 2026-09-30 and 2026-08-30 · HGNC 2026-09-01; clinical CNV knowledgebase clinical-cnv-kb, loaded 2026-10-01 09:00 UTC (release not stated); PanelApp Epilepsy 3.1',
+      );
+
+      // Still nothing of the family's current data.
+      const requested = apiMock.get.mock.calls.map(([url]) => String(url));
+      LIVE_ONLY_REQUESTS.forEach((live) =>
+        expect(requested.filter((url) => url.startsWith(live))).toEqual([]),
+      );
+    });
+
+    it('says which of these a record signed before them does not hold, and still shows it', async () => {
+      mockSignedCase();
+      const { container } = renderPage();
+
+      const card = await signedRecordCard();
+      // Its code is made from fields every record holds; the sentence says what it is.
+      expect(within(card).getByText('Report code').closest('p')).toHaveTextContent('Report code 7KQM2X-2-4PHT');
+      expect(card).toHaveTextContent(SIGNED_STATEMENT);
+      const section = (name: string) => screen.getByRole('heading', { name }).closest('section')!;
+      expect(section('Gene panels applied')).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the gene panels the analysis applied.',
+      );
+      expect(section('Repeat expansions (TRGT)')).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the repeat-expansion calls.',
+      );
+      expect(section('Paraphase')).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the Paraphase results.',
+      );
+      expect(section('Reference-data releases')).toHaveTextContent(
+        'Not in the signed record: version 2 was signed before CoGA recorded the reference-data releases.',
+      );
+      expect(screen.queryByRole('heading', { name: 'Variant description as reviewed' })).not.toBeInTheDocument();
+      expect(container.querySelector('footer')).toHaveTextContent('Reference data as signed: not in the signed record');
+    });
+
+    it('says what a record could not capture of what the analysis looked at', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          paraphase: { unavailable: 'The Paraphase results could not be read.' },
+          variant_descriptions: { unavailable: "The reported variants' descriptions could not be read." },
+        },
+      });
+      renderPage();
+
+      const paraphase = (await screen.findByRole('heading', { name: 'Paraphase' })).closest('section')!;
+      expect(paraphase).toHaveTextContent(
+        'Not captured: the Paraphase results could not be read when version 2 was signed (The Paraphase results could not be read.).',
+      );
+      const variant = screen.getByRole('heading', { name: '17-43000000-A-G' }).closest('article')!;
+      expect(variant).toHaveTextContent(
+        "The variant descriptions could not be read when version 2 was signed (The reported variants' descriptions could not be read.).",
+      );
+    });
+
+    it('says when the record holds no description of a reported variant', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          variant_descriptions: { small: [], structural: [] },
+        },
+      });
+      renderPage();
+
+      const variant = (await screen.findByRole('heading', { name: '17-43000000-A-G' })).closest('article')!;
+      expect(variant).toHaveTextContent(
+        'The record holds no description of this variant: it was not in the family’s data when version 2 was signed.',
+      );
     });
 
     it('prints the signed version: the page Print prints is the record', async () => {
@@ -1587,7 +1720,9 @@ describe('FamilyReportPage', () => {
       // Live data: the variant description and gene context the signed record does not hold.
       expect(await screen.findByRole('heading', { name: /BRCA1 c\.123A>G/ })).toBeInTheDocument();
       expect(await screen.findByText('This is the live report, not signed version 2.')).toBeInTheDocument();
-      expect(await screen.findByText(/This page still matches signed version 2\./)).toBeInTheDocument();
+      expect(await screen.findByText(/This page still matches signed version 2\./)).toHaveTextContent(
+        'Signed version 2 (report code 7KQM2X-2-4PHT) was signed out by lab-signer on 2026-06-25 10:00 UTC.',
+      );
       expect(screen.getByText('Clinical report — live, not the signed version')).toBeInTheDocument();
       expect(screen.queryByText(/✓/)).not.toBeInTheDocument();
       expect(container.querySelector('.report-print-notice')?.textContent).toBe(
@@ -1674,7 +1809,7 @@ describe('FamilyReportPage', () => {
 
   it('shows the signer the version just signed, from its record', async () => {
     let signed = false;
-    const V1_SIGNED = { ...SIGNED_ENTRY, version: 1 };
+    const V1_SIGNED = { ...SIGNED_ENTRY, version: 1, report_code: '7KQM2X-1-B3HV' };
     mockApi();
     const base = apiMock.get.getMockImplementation()!;
     apiMock.get.mockImplementation((url: string, config?: unknown) => {
@@ -1701,9 +1836,29 @@ describe('FamilyReportPage', () => {
     expect(await screen.findByText('Clinical report — draft, not signed')).toBeInTheDocument();
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
 
-    expect(await signedRecordCard(1)).toHaveTextContent('Signed version 1 — signed out by lab-signer on 2026-06-25 10:00 UTC');
+    const card = await signedRecordCard(1);
+    expect(card).toHaveTextContent('Signed version 1 — signed out by lab-signer on 2026-06-25 10:00 UTC');
+    // The sign-out confirmed, with the report code the EPD report is to quote; on screen only.
+    // (The refreshed sign-out list can draw the version a moment before the page has moved to
+    // it, so the confirmation is waited for.)
+    const confirmation = await within(card).findByRole('status');
+    expect(confirmation).toHaveTextContent(
+      'Signed out as version 1. Report code 7KQM2X-1-B3HV: the EPD report refers to this record by it.',
+    );
+    expect(confirmation).toHaveClass('no-print');
+    expect(within(card).getByText('Report code').closest('p')).toHaveTextContent('Report code 7KQM2X-1-B3HV');
     expect(await screen.findByText('The family’s current data still matches this signed version.')).toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: /BRCA1/ })).not.toBeInTheDocument();
+  });
+
+  it('says on the live report what a sign-out is, and names the signed version’s report code', async () => {
+    mockApi();
+    renderPage();
+    expect(
+      await screen.findByText(
+        'Signing out is the analytical sign-off in CoGA, which closes and freezes the analysis; the medical sign-off of the patient report happens in the EPD, which refers to the signed record by its report code.',
+      ),
+    ).toBeInTheDocument();
   });
 
   it('marks an unsigned report as a draft in print', async () => {
@@ -2114,6 +2269,84 @@ describe('FamilyReportPage', () => {
         `An import (begun 2026-10-02 09:12 UTC), import job ${STOPPED_JOB_ID}, had begun writing the family’s data and had not finished: haplotypes may have been partly written or missing (apcad and qdnaseq had finished). Signed out over it, with the reason: ${REASON}`,
       );
       expect(checks).not.toHaveTextContent('imported completely');
+    });
+
+    // A single-file upload marks the family before its first ClickHouse write, and a deletion
+    // leaves a mark when it could not put the family's SVs back (SAFE-28): entries of their
+    // own in `import_unfinished`, with no job, named by their key.
+    const UPLOAD_KEY = 'upload-0a1b2c3d4e5f60718293a4b5c6d7e8f9';
+    const DELETION_KEY = 'deletion-9f8e7d6c5b4a39281706f5e4d3c2b1a0';
+    const WRITE_MARKS = {
+      [UPLOAD_KEY]: {
+        job_id: null,
+        at: '2026-10-14T08:30:00+00:00',
+        datasets: ['sv_sniffles'],
+        finished_datasets: [],
+      },
+      [DELETION_KEY]: {
+        job_id: null,
+        at: '2026-10-14T09:00:00+00:00',
+        datasets: ['cnv', 'sv_needlr'],
+        finished_datasets: [],
+      },
+    };
+
+    it('lists an upload and a deletion that did not finish in the acknowledgement dialog', async () => {
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'import_incomplete',
+                message:
+                  "This family's data is incomplete: a single-file upload (2026-10-14T08:30:00+00:00) did not finish, so sv_sniffles may be partly written or missing.",
+                import_incomplete: null,
+                import_unfinished: WRITE_MARKS,
+              },
+            },
+          },
+        }),
+      );
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(
+        within(dialog).getByText('Not finished (single-file upload): sv_sniffles may be partly written or missing'),
+      ).toBeInTheDocument();
+      expect(
+        within(dialog).getByText(
+          'Not finished (deletion of a sample’s data): cnv, sv_needlr may be partly written or missing',
+        ),
+      ).toBeInTheDocument();
+      expect(within(dialog).queryByText(/import job/)).not.toBeInTheDocument();
+    });
+
+    it('shows on the signed record an upload and a deletion that had not finished', async () => {
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_unfinished: WRITE_MARKS,
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        'A single-file upload (begun 2026-10-14 08:30 UTC) had not finished: sv_sniffles may have been partly written or missing.',
+      );
+      expect(checks).toHaveTextContent(
+        'A deletion of a sample’s data (begun 2026-10-14 09:00 UTC) had not finished: cnv and sv_needlr may have been partly written or missing.',
+      );
+      expect(checks).not.toHaveTextContent(/An import \(begun 2026-10-14/);
     });
 
     it('names a change in unfinished imports since sign-out', async () => {
