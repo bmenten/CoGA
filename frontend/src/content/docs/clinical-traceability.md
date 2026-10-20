@@ -170,8 +170,10 @@ the clinical report in the EPD refers to:
 - in a PGT family, the **embryo calls** at the region of interest, the calls the family page shows: the
   ROI, the inheritance model, the disease haplotype, and for each embryo its call, the haplotypes it
   inherited at the ROI, its warnings (missing data, an unrecorded sex, a recombination or a parent's
-  phase correction near the ROI), its QC at the ROI (informative sites and Mendelian error rate), and
-  the haplotype file the calls were read from;
+  phase correction near the ROI), its QC at the ROI (informative sites and Mendelian error rate) and
+  that QC's verdict against the thresholds in force (met; not met, with each measure, its value and
+  its threshold; or not counted), with those thresholds, and the haplotype file the calls were read
+  from;
 - for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out: the
   fetal fraction, the quality checks with their verdicts (paternity, the fetal sex from both signals,
   the maternal plasma sample), the coverage of the capture targets, the category counts and the
@@ -314,7 +316,10 @@ It shows what the record holds:
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
 - in a PGT family, the embryo calls (*PGT embryo results*): each embryo's call at the ROI, the
-  haplotypes it inherited there as the track names them (P1, P2, M1, M2), its warnings and its QC;
+  haplotypes it inherited there as the track names them (P1, P2, M1, M2), its warnings, its QC and,
+  since CoGA checks it against thresholds, that QC's verdict (*⚠ The phasing QC at the ROI did not
+  meet its thresholds …*) and the thresholds in force. A call that did not meet them stands as called:
+  the warning is not a gate;
 - the gene panels applied, the repeat expansions, the Paraphase results and the reference-data releases;
 - for a monogenic NIPT family, its **NIPT results**: the fetal fraction and the quality checks with
   their verdicts, the coverage, the filter funnel and the categories, each reported variant as the NIPT
@@ -332,7 +337,10 @@ report and on each variant, and never fills them in from current data. A part th
 is marked *Not in the signed record*, never shown as empty: a version signed before CoGA recorded the
 variant description, the gene panels, the reference-data releases, the repeat expansions or the
 Paraphase results says so for each (*Not in the signed record: version 2 was signed before CoGA
-recorded …*), and so does a PGT family's version signed before CoGA recorded the embryo calls.
+recorded …*), and so does a PGT family's version signed before CoGA recorded the embryo calls. A PGT
+family's version signed before CoGA checked the embryos' QC against thresholds reads as it was signed,
+with no verdict: nothing it predates is called *not captured*, and the sign-out check compares it on
+what it holds.
 
 **Print signed version N** prints this view. The printout starts with a notice when the version is not
 the latest, intact record: *Do not use — …* when the stored record does not match its fingerprint,

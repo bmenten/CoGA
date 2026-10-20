@@ -135,6 +135,8 @@ class EmbryoCall:
     inherited: tuple[Homolog, ...]
     # Where the embryo's blocks change within ROI_RECOMBINATION_FLANK of the ROI.
     recombinations: tuple[int, ...]
+    # The parental sides the call reads (``call_sides``): its phasing QC is checked there.
+    sides: tuple[Origin, ...] = ()
 
 
 # --- Reading members and blocks ---------------------------------------------------
@@ -452,6 +454,44 @@ def infer_disease_haplotypes(
 # --- A member's call --------------------------------------------------------------
 
 
+def _risk_sides(model: DiseaseModel, member: Member, segments: SegmentMap, region: Region) -> list[Origin]:
+    """The parental sides a call reads: those a disease haplotype was resolved on, or for a
+    male whose blocks over the region are all one-copy, his one X's side."""
+    blocks = [
+        segment for segment in segments.get(str(member.get("sample_id")), []) if _overlaps(segment, region)
+    ]
+    one_x = bool(blocks) and all(_male_with_one_x(member, segment, region.chr) for segment in blocks)
+    if one_x:
+        return [_male_x_origin(member)]
+    return list(dict.fromkeys(signature.origin for signature in model.signatures))
+
+
+def call_sides(
+    *,
+    model: DiseaseModel,
+    samples: Iterable[Mapping[str, Any]],
+    member: Member,
+    region: Region,
+) -> tuple[Origin, ...]:
+    """The parental sides the member's call reads at the region, paternal first: the sides a
+    disease haplotype was resolved on (both in a recessive family), and for a male read on
+    his one X (chrX outside the PARs) his mother's. Under X-linked recessive, a member whose
+    sex is not recorded is called as a son and as a daughter, and reads the sides of both
+    calls. No side without a resolved disease haplotype: no call is made."""
+    if not model.informative:
+        return ()
+    sample_list = list(samples)
+    if model.mode == "x_linked_recessive" and normalize_sex(member.get("sex")) == "unknown":
+        read = {
+            side
+            for sex in ("male", "female")
+            for side in call_sides(model=model, samples=sample_list, member={**member, "sex": sex}, region=region)
+        }
+    else:
+        read = set(_risk_sides(model, member, segment_map(sample_list), region))
+    return tuple(side for side in _SIDES if side in read)
+
+
 def assess_member(
     *,
     model: DiseaseModel,
@@ -499,15 +539,7 @@ def assess_member(
             return Assessment(state)
         return Assessment("uninformative", roi_not_covered=True)
 
-    blocks = [
-        segment for segment in segments.get(str(member.get("sample_id")), []) if _overlaps(segment, region)
-    ]
-    one_x = bool(blocks) and all(_male_with_one_x(member, segment, region.chr) for segment in blocks)
-    risk_sides: list[Origin] = (
-        [_male_x_origin(member)]
-        if one_x
-        else list(dict.fromkeys(signature.origin for signature in model.signatures))
-    )
+    risk_sides = _risk_sides(model, member, segments, region)
 
     if model.mode in ("dominant", "x_linked_dominant"):
         kind: Kind = "dominant" if model.mode == "dominant" else "x-linked"
@@ -665,6 +697,7 @@ def call_embryos(
                 assessment=assess_member(model=model, samples=sample_list, member=member, region=region),
                 inherited=tuple(homologs_in_region(member, segments, region)),
                 recombinations=tuple(recombinations_near(own, region)),
+                sides=call_sides(model=model, samples=sample_list, member=member, region=region),
             )
         )
     return model, calls

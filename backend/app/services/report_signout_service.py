@@ -56,6 +56,7 @@ from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_package_registration import unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
+from .pgt_analysis import comparable_with_record as pgt_analysis_comparable_with_record
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible
 from .report_code import (
@@ -1714,6 +1715,10 @@ async def compare_report_with_latest_signout(
         if section == "modules" and isinstance(current_value, list):
             current_value, postdating = _modules_comparable_with(signed, current_value)
             not_compared.extend(f"modules.{key}" for key in postdating)
+        if section == "pgt_analysis":
+            # The embryos' QC verdict, which a record signed before it does not hold.
+            current_value, predated = pgt_analysis_comparable_with_record(signed_value, current_value)
+            not_compared.extend(predated)
         if _section_fingerprint(signed_value) != _section_fingerprint(current_value):
             changed.append(section)
     return {

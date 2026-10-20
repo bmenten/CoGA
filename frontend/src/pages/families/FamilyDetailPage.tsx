@@ -5,7 +5,7 @@ import api from '../../lib/api';
 import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
 import { describePhaseCorrection, phaseCorrectionsFromMetadata } from '../../lib/haplotypePhaseCorrections';
 import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
-import { segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
+import { qcVerdictWarning, segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
 import InfoTip from '../../components/InfoTip';
 import FamilyMemberDetailDialog from './FamilyMemberDetailDialog';
 import type {
@@ -1509,6 +1509,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                   String(displayMember.role).toLowerCase() === 'embryo'
                     ? embryoSegregation.get(member.sample_id)
                     : undefined;
+                const qcWarning = embryoClass
+                  ? qcVerdictWarning(embryoClass.qcVerdict, embryoClass.qcNotCountedReason)
+                  : null;
                 return (
                   <tr key={member.sample_id}>
                     <td>
@@ -1739,6 +1742,13 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                               label="Derived from the haplotype analysis at the ROI — not entered by an analyst."
                             >
                               {segregationStateLabel(embryoClass.state)}
+                            </InfoTip>
+                          )}
+                          {/* The phasing QC at the ROI does not meet its thresholds, or was not
+                              counted: a warning beside the call, which stands (pgt_embryo_qc.py). */}
+                          {qcWarning && (
+                            <InfoTip className="segregation-warning" label={qcWarning}>
+                              {embryoClass?.qcVerdict?.status === 'not_counted' ? '⚠ QC not counted' : '⚠ phasing QC'}
                             </InfoTip>
                           )}
                           {embryoClass?.recombinationNearRoi && (

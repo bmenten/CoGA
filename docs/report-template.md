@@ -76,7 +76,8 @@ says whether it still matches.
 A signed version is rendered from its frozen record alone: its report code, each reported
 variant's description as reviewed (gene, transcript, HGVS c. and p., consequence, each sample's
 genotype), classification, criteria, frozen evidence, tags and note, in a PGT family the embryo
-calls at the region of interest (*PGT embryo results*, which the live report does not show), the
+calls at the region of interest (*PGT embryo results*, which the live report does not show), each
+with its phasing QC and that QC's verdict against the thresholds the record states, the
 gene panels applied, the repeat-expansion and Paraphase results, the reference-data releases, and
 the checks at sign-out. The record holds none of the other prose inputs above (the population frequency and in
 silico predictions, segregation, gene and phenotype context), so a signed version says what its

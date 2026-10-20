@@ -5,8 +5,10 @@ model, its members' roles, sexes and statuses, the haplotype blocks over the ROI
 each side as ``GET /families/{family_id}/haplotypes`` serves them (lineage-tagged, each block
 marked one-copy in males or not), and the parents' phase corrections. It calls each embryo
 with ``pgt_embryo_calls`` and adds each embryo's phasing QC at the ROI (the informative sites
-and Mendelian errors the ROI marker review counts, REQ-PGT-004) and the inputs' identity: the
-haplotype files each member's blocks were built from, and a digest of the blocks read.
+and Mendelian errors the ROI marker review counts, REQ-PGT-004), that QC's verdict against the
+thresholds of ``pgt_embryo_qc`` (a warning beside the call, never a gate), and the inputs'
+identity: the haplotype files each member's blocks were built from, and a digest of the
+blocks read.
 
 The family page shows these calls (``GET /families/{family_id}/pgt-analysis``), and a sign-out
 of a PGT family freezes the same object into the signed record (``signed_record_sections``),
@@ -54,13 +56,19 @@ from .pgt_embryo_calls import (
     phase_corrections_near,
     resolve_inheritance_model,
 )
+from .pgt_embryo_qc import QC_THRESHOLDS, embryo_qc_verdict
 from .phased_marker_service import get_family_phased_markers_response
 
 RULES = PgtRulesOut(
     window_flank=ROI_WINDOW_FLANK,
     recombination_flank=ROI_RECOMBINATION_FLANK,
     phase_switch_uncertainty=PHASE_SWITCH_UNCERTAINTY,
+    qc_thresholds=QC_THRESHOLDS,
 )
+
+# What the QC verdict added to the analysis on 2026-10-20: each embryo's ``qc_verdict`` and the
+# thresholds in ``rules``. A record signed before holds neither (``comparable_with_record``).
+QC_VERDICT_NOT_COMPARED = "pgt_analysis.qc_verdict"
 
 # A block as the calls read it: what the digest of the blocks read covers.
 _BLOCK_FIELDS = ("chr", "start", "end", "hap1", "hap2", "ps", "hap1_lineage", "hap2_lineage", "hemizygous_in_males")
@@ -228,6 +236,8 @@ def _embryo(
         ),
         recombinations=sorted(call.recombinations),
         qc=qc,
+        # Against the thresholds the analysis states in its rules.
+        qc_verdict=embryo_qc_verdict(qc, call.sides, RULES.qc_thresholds),
     )
 
 
@@ -304,3 +314,34 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
     ]
     analysis.inputs.markers_truncated = truncated
     return analysis
+
+
+def comparable_with_record(signed: Any, current: Any) -> tuple[Any, list[str]]:
+    """The current analysis to compare with a signed record's ``pgt_analysis``, and what of it
+    the record predates.
+
+    A record signed before CoGA checked each embryo's phasing QC against thresholds holds no
+    ``qc_verdict`` and no ``rules.qc_thresholds``. Like a section a record predates, these are
+    left out of the comparison and named as not compared (``QC_VERDICT_NOT_COMPARED``), rather
+    than every such record reading as changed; the rest of the analysis is compared on what the
+    record holds. A record that holds them is compared whole, so a verdict or a threshold that
+    changed since it was signed reads as a change.
+    """
+    signed_rules = signed.get("rules") if isinstance(signed, Mapping) else None
+    if not isinstance(signed_rules, Mapping) or "qc_thresholds" in signed_rules or not isinstance(current, Mapping):
+        return current, []
+    comparable = dict(current)
+    predated = False
+    rules = comparable.get("rules")
+    if isinstance(rules, Mapping) and "qc_thresholds" in rules:
+        comparable["rules"] = {key: value for key, value in rules.items() if key != "qc_thresholds"}
+        predated = True
+    embryos = comparable.get("embryos")
+    if isinstance(embryos, list):
+        held = [
+            {key: value for key, value in embryo.items() if key != "qc_verdict"} if isinstance(embryo, Mapping) else embryo
+            for embryo in embryos
+        ]
+        predated = predated or held != embryos
+        comparable["embryos"] = held
+    return comparable, [QC_VERDICT_NOT_COMPARED] if predated else []

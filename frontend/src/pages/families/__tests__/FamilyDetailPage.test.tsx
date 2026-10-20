@@ -711,10 +711,16 @@ describe('FamilyDetailPage', () => {
       inherited: [],
       recombinations: [],
       qc: null,
+      qc_verdict: null,
       ...embryo,
     })),
     inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false },
-    rules: { window_flank: 1_000_000, recombination_flank: 250_000, phase_switch_uncertainty: 2_000_000 },
+    rules: {
+      window_flank: 1_000_000,
+      recombination_flank: 250_000,
+      phase_switch_uncertainty: 2_000_000,
+      qc_thresholds: { min_informative_sites: 50, max_mendel_rate: 0.02, min_markers_per_side: 6 },
+    },
     ...overrides,
   });
 
@@ -913,6 +919,68 @@ describe('FamilyDetailPage', () => {
       // The call itself stands: E1 shares the affected haplotype, E2 does not.
       expect(within(await rowOf('E1')).getByText('Affected / at risk')).toBeInTheDocument();
       expect(within(await rowOf('E2')).getByText('Unaffected')).toBeInTheDocument();
+    } finally {
+      restore();
+    }
+  });
+
+  // The owner's decision of 2026-10-20: an embryo call whose phasing QC at the ROI does not meet
+  // its thresholds (backend/app/services/pgt_embryo_qc.py) gets a clear warning beside it; the
+  // call stays shown and the analyst decides.
+  it('warns beside an embryo call whose phasing QC does not meet its thresholds, and keeps the call', async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
+      { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
+      { sample_id: 'E2', role: 'embryo', affected: false, sex: 'female' },
+      { sample_id: 'E3', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    const restore = renderWithAnalysis(
+      pgtAnalysis([
+        {
+          sample: 'E1',
+          call: 'affected_or_at_risk',
+          qc: { informative_sites: 6, mendel_errors: 1, mendel_rate: 1 / 6, paternal_markers: 3, maternal_markers: 3 },
+          qc_verdict: {
+            status: 'warning',
+            sides: ['paternal'],
+            findings: [
+              { measure: 'informative_sites', value: 6, threshold: 50 },
+              { measure: 'mendel_rate', value: 1 / 6, threshold: 0.02 },
+              { measure: 'paternal_markers', value: 3, threshold: 6 },
+            ],
+          },
+        },
+        { sample: 'E2', call: 'unaffected_non_carrier', qc_verdict: { status: 'pass', sides: ['paternal'], findings: [] } },
+        { sample: 'E3', call: 'unaffected_non_carrier', qc_verdict: { status: 'not_counted', sides: ['paternal'], findings: [] } },
+      ]),
+    );
+    try {
+      const e1 = await rowOf('E1');
+      // The call is shown as made, with the warning beside it.
+      expect(await within(e1).findByText('Affected / at risk')).toHaveClass('segregation-badge--affected_or_at_risk');
+      // In words, not colour alone: the chip says it, and its accessible name names each
+      // measure with its value and its threshold.
+      const warning = within(e1).getByRole('button', { name: /The phasing QC at the ROI does not meet its thresholds/ });
+      expect(warning).toHaveTextContent('⚠ phasing QC');
+      expect(warning).toHaveAccessibleName(
+        "The phasing QC at the ROI does not meet its thresholds: 6 informative sites (fewer than 50); Mendelian error rate 16.7% (above 2%); 3 markers on the father's side (fewer than 6). The call stands: review the ROI markers before relying on it.",
+      );
+
+      // A QC that meets its thresholds raises nothing.
+      const e2 = await rowOf('E2');
+      expect(within(e2).getByText('Unaffected')).toBeInTheDocument();
+      expect(within(e2).queryByText(/phasing QC|QC not counted/)).not.toBeInTheDocument();
+
+      // A QC that was not counted is no pass: the call was not checked.
+      const e3 = await rowOf('E3');
+      expect(within(e3).getByText('Unaffected')).toBeInTheDocument();
+      expect(
+        within(e3).getByRole('button', {
+          name: /QC at the ROI was not counted \(the embryo is not recorded as a child of the couple\), so this call was not checked/,
+        }),
+      ).toHaveTextContent('⚠ QC not counted');
     } finally {
       restore();
     }
