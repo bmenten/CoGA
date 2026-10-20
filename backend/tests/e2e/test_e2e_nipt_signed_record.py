@@ -98,10 +98,10 @@ async def _import_demo(root: Path) -> dict:
 
 def _prepare_copy(parent: Path) -> dict[str, str]:
     """Copy the demo package under ``parent`` with every hardcoded id suffixed, and the maternal
-    plasma on an assay panel of this run's own; the new ids and the panel (``assay_key``)."""
+    plasma on an assay panel of this run's own; the new ids and the panel (``panel``)."""
     suffix = uuid4().hex[:8]
     ids = {token: f"{token}_{suffix}" for token in _TOKENS}
-    assay_key = f"e2e-nipt-signed-record-{suffix}"
+    panel = f"e2e-nipt-signed-record-{suffix}"
     root = parent / ids["FAM_NIPT_DEMO"]
     shutil.copytree(_DEMO, root)
     for name in ("manifest.yaml", "nipt_trio.ped", "nipt_combined.vcf"):
@@ -113,12 +113,12 @@ def _prepare_copy(parent: Path) -> dict[str, str]:
             # The panel is the scope of the artifact list and of the de novo recurrence.
             plasma = f"  {ids['CFDNA_NIPT']}:\n    assay: nipt_cfdna\n"
             assert content.count(plasma) == 1, content
-            content = content.replace(plasma, f"{plasma}    assay_panel: {assay_key}\n")
+            content = content.replace(plasma, f"{plasma}    assay_panel: {panel}\n")
         path.write_text(content, encoding="utf-8")
-    return {"root": str(root), "assay_key": assay_key, **ids}
+    return {"root": str(root), "panel": panel, **ids}
 
 
-async def _collect(root: Path, family_id: str, assay_key: str) -> dict:
+async def _collect(root: Path, family_id: str, panel: str) -> dict:
     from httpx import ASGITransport, AsyncClient
 
     from backend.app.main import app
@@ -131,7 +131,8 @@ async def _collect(root: Path, family_id: str, assay_key: str) -> dict:
     async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
-        scope = {"assembly_id": out["import"]["assembly_id"], "assay_key": assay_key}
+        # The artifact-list scope: the assembly and the run's assay panel.
+        scope = {"assembly_id": out["import"]["assembly_id"], "assay_key": panel}
 
         # The run's own artifact list: the demo's recurrent artifact, listed through the admin
         # API, and the list as it reads back, which the record is compared with.
@@ -219,7 +220,7 @@ def signed(tmp_path_factory, request) -> dict:
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
     request.addfinalizer(mp.undo)
 
-    out = _harness.run_async(lambda: _collect(root, copy["FAM_NIPT_DEMO"], copy["assay_key"]))
+    out = _harness.run_async(lambda: _collect(root, copy["FAM_NIPT_DEMO"], copy["panel"]))
     assert out["import"]["completed"] is True, out["import"]
     out["ids"] = copy
     return out
@@ -302,7 +303,7 @@ def test_the_record_holds_the_artifact_list_the_analysis_applied(signed) -> None
     listed = sorted(entry["variant_id"] for entry in _ok(signed, "artifacts"))
     assert listed == [ARTIFACT]
     frozen = _nipt(signed)["inputs"]["artifact_list"]
-    assert frozen["assay_key"] == signed["ids"]["assay_key"]
+    assert frozen["assay_key"] == signed["ids"]["panel"]
     assert (frozen["entries"], frozen["digest"]) == (len(listed), canonical_hash(listed))
     # The plasma carries the listed allele: the analysis left it out, as its funnel counts it,
     # and the family's annotation protects none of it.
