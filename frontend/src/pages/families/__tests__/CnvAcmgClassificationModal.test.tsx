@@ -270,15 +270,18 @@ describe('CnvAcmgClassificationModal', () => {
     const onSave = vi.fn(async (payload: StructuralVariantReviewSavePayload) => {
       saves.push(payload);
     });
-    // Two callers' rows of one SV share its id; each dialog names its own row's caller.
+    // Two callers' rows of one SV share its id; each dialog names its own row's caller, in its
+    // header too (TRACE-12: the header named none, so the two dialogs looked the same).
     const { unmount } = render(
       <CnvAcmgClassificationModal variant={{ ...variant, source: 'needlr' }} onClose={vi.fn()} onSave={onSave} />,
     );
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/· GENEX · needlr call$/);
     await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
     unmount();
     render(
       <CnvAcmgClassificationModal variant={{ ...variant, source: 'sniffles' }} onClose={vi.fn()} onSave={onSave} />,
     );
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/· GENEX · sniffles call$/);
     await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
 
     expect(saves.map((payload) => payload.source)).toEqual(['needlr', 'sniffles']);
@@ -295,6 +298,8 @@ describe('CnvAcmgClassificationModal', () => {
         }}
       />,
     );
+    // Its header names no caller either.
+    expect(screen.getByRole('heading', { level: 2 })).toHaveTextContent(/· GENEX$/);
     await userEvent.click(screen.getByRole('button', { name: /save classification/i }));
     expect(saved?.source).toBeNull();
   });

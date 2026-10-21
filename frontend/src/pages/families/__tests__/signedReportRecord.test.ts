@@ -677,7 +677,14 @@ describe('the signed report’s wording', () => {
   it('says why an SV/CNV classification counted as drift when the version was signed', () => {
     const evidence = { chrom: '18', start: 55000000, end: 55400000, gene_symbols: ['TCF4', 'TXNL1'], pli: 0.99, sv_type: 'DEL', source: 'needlr', inheritance: 'de_novo' };
     const item = { variantId: 'sv', changed: [], evidenceFrom: evidence, evidenceTo: evidence, classifiedBy: null };
-    expect(describeSignedStructuralDrift({ ...item, status: 'variant_missing' })).toBe('no longer present in the data');
+    // A missing SV names the caller whose call is gone: another caller may still call it under
+    // the same id (TRACE-12; it read as gone whoever called it).
+    expect(describeSignedStructuralDrift({ ...item, status: 'variant_missing' })).toBe(
+      'its needlr call is no longer present in the data',
+    );
+    expect(describeSignedStructuralDrift({ ...item, status: 'variant_missing', evidenceFrom: null })).toBe(
+      'no longer present in the data',
+    );
     expect(describeSignedStructuralDrift({ ...item, status: 'no_snapshot' })).toBe(
       'no frozen evidence (no CNV scoring saved)',
     );

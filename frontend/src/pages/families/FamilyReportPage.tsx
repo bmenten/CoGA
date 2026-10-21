@@ -22,6 +22,7 @@ import { signOutRefusal, useReportSignOut } from './reportSignOut';
 import {
   describeModuleVersions,
   describeReportSections,
+  describeMissingStructuralCall,
   describeSmallVariantDrift,
   describeStructuralEvidenceChange,
   formatReportTime,
@@ -162,9 +163,10 @@ const describeClassificationDrift = (item: ApiClassificationDriftItem): string =
   );
 };
 
-// What moved in the evidence of an SV/CNV classification, in the words of its inputs.
+// What moved in the evidence of an SV/CNV classification, in the words of its inputs. A missing
+// one names the caller whose call is gone: another caller may still call the SV (TRACE-12).
 const describeStructuralDrift = (item: ApiStructuralClassificationDriftItem): string => {
-  if (item.status === 'variant_missing') return 'no longer present in the dataset';
+  if (item.status === 'variant_missing') return `${describeMissingStructuralCall(item.evidence_from)} in the dataset`;
   if (item.status === 'unknown') return 'its frozen evidence cannot be compared';
   return (
     describeStructuralEvidenceChange(item.changed, item.evidence_from, item.evidence_to) ??

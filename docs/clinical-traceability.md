@@ -203,7 +203,9 @@ with the SV as the SV page reads it now, in the row of the caller the snapshot n
 (`evidence.source`): another caller's call of the SV is other evidence, not a change to this
 one. `drifted` names what moved in `changed` (`gene_symbols`, `pli`, `inheritance`, `sv_type`,
 `locus`, or `annotations` for any other annotation), with the evidence from → to; `variant_missing`
-means that caller's call is no longer in the data, even while another caller still calls the SV.
+means that caller's call is no longer in the data, even while another caller still calls the SV,
+and the drift banner and the signed version name that caller (*its needlr call is no longer
+present*; TRACE-12: they named none, so an SV another caller still lists read as gone).
 Only the fields a snapshot froze are compared. Frozen evidence that cannot be read, or that names
 no caller, is `unknown`, never `current`.
 
