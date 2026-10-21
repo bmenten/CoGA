@@ -10,7 +10,11 @@ guide ([Data import](../frontend/src/content/docs/data-import.md), shown in the 
 
 A family gets into CoGA in one of two ways:
 
-- **Family Builder** (`/family-builder`): a pedigree typed in by hand. Metadata only.
+- **Family Builder** (`/family-builder`): a pedigree typed in by hand. Metadata only. Its
+  request may mark the family as a monogenic NIPT family (`analysis_type: monogenic_nipt`)
+  and a sample as the mother's cfDNA (`assay: nipt_cfdna`), and nothing else: the keys an
+  import or an audited edit writes (the annotation manifest, a sample's sequencing QC, the
+  import state) are refused with 400 (SAFE-12).
 - **Package Import** (`/package-import`, admins): one folder with the PED, the assay files and
   a manifest. One job imports the family and all its data.
 
