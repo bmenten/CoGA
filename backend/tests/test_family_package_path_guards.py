@@ -54,7 +54,7 @@ import yaml
 
 from backend.app.core.config import settings
 from backend.app.schemas import FamilyPackageManifestBuildOut, FamilyPackageManifestBuildRequest
-from backend.app.services.family_package_common import _package_path_or_none, _resolve_package_path, package_path_within
+from backend.app.services.family_package_common import NUL_IN_PATH, _package_path_or_none, _resolve_package_path, package_path_within
 from backend.app.services.family_package_discovery import discover_family_package_manifest, write_family_package_manifest
 from backend.app.services.family_package_source import scan_family_import_packages
 from backend.app.services.family_package_validation import load_validated_family_package, validate_family_package
@@ -876,3 +876,135 @@ def test_the_package_list_route_leaves_out_a_folder_linked_out_of_the_import_roo
     assert [(issue["code"], issue["message"]) for issue in typed.json()["errors"]] == [
         ("package_folder_not_allowed", f"Family import path is outside configured FAMILY_IMPORT_ROOTS: {imports.resolve()}")
     ]
+
+
+# --------------------------------------------------------------------------- #
+# A NUL in a path (SAFE-5)
+# --------------------------------------------------------------------------- #
+
+
+def _nul_message(written: str) -> str:
+    return f"Package manifest path '{written}' {NUL_IN_PATH}"
+
+
+def test_a_manifest_path_holding_a_nul_is_refused(tmp_path: Path) -> None:
+    root = tmp_path / "PKG"
+    root.mkdir()
+
+    with pytest.raises(HTTPException) as refused:
+        _resolve_package_path(root, "snv/x\x00.vcf")
+
+    # os.path.realpath raised ValueError ("embedded null byte"): a 500.
+    assert (refused.value.status_code, refused.value.detail) == (400, _nul_message("snv/x\\x00.vcf"))
+    assert _package_path_or_none(root, "snv/x\x00.vcf") is None
+
+
+@pytest.mark.parametrize(
+    ("manifest", "written"),
+    [
+        ({"ped": "family\x00.ped"}, "family\\x00.ped"),
+        ({"datasets": {"snv": {"family_vcf": "x\x00.vcf"}}}, "x\\x00.vcf"),
+        ({"phenotypes": {"file": "x\x00.tsv"}}, "x\\x00.tsv"),
+    ],
+    ids=["ped", "dataset", "phenotypes"],
+)
+def test_validation_refuses_a_manifest_path_holding_a_nul(imports: Path, manifest: dict[str, Any], written: str) -> None:
+    package = _package(imports, manifest=manifest)
+
+    with pytest.raises(HTTPException) as refused:
+        validate_family_package(package)
+
+    assert (refused.value.status_code, refused.value.detail) == (400, _nul_message(written))
+
+
+def test_discover_answers_for_a_manifest_naming_a_path_holding_a_nul(imports: Path) -> None:
+    package = _package(imports, manifest={"datasets": {"snv": {"family_vcf": "x\x00.vcf.gz"}}})
+
+    answer = _discover(package)
+
+    assert answer.manifest_yaml
+    assert [(item.path, item.exists) for item in _dataset(answer, "snv").files] == [("x\x00.vcf.gz", False)]
+
+
+def test_discover_refuses_a_requested_ped_path_holding_a_nul(imports: Path) -> None:
+    package = _package(imports)
+
+    with pytest.raises(HTTPException) as refused:
+        _discover(package, ped_path="family\x00.ped")
+
+    assert (refused.value.status_code, refused.value.detail) == (400, _nul_message("family\\x00.ped"))
+
+
+def test_a_package_folder_holding_a_nul_is_refused(imports: Path) -> None:
+    folder = f"{imports}/FAM\x001"
+
+    answer = _discover(folder)
+    validation, bundle = load_validated_family_package(folder)
+    with pytest.raises(HTTPException) as refused:
+        _write(folder)
+
+    # Path.resolve raised ValueError: Discover, validation and Write manifest failed (500).
+    message = f"Family import path '{imports}/FAM\\x001' {NUL_IN_PATH}"
+    assert [(issue.code, issue.message) for issue in answer.errors] == [("package_folder_not_allowed", message)]
+    assert [(issue.code, issue.message) for issue in validation.errors] == [("package_folder_not_allowed", message)]
+    assert bundle is None
+    assert (refused.value.status_code, refused.value.detail) == (400, message)
+
+
+@pytest.mark.parametrize(
+    ("manifest_yaml", "where"),
+    [
+        (MANIFEST_YAML.replace("ped: family.ped", 'ped: "family\\0.ped"'), "ped"),
+        (MANIFEST_YAML + 'datasets:\n  snv:\n    family_vcf: "x\\0.vcf"\n', "datasets.snv.family_vcf"),
+        (MANIFEST_YAML + 'samples:\n  - id: "C\\01"\n', "samples[0].id"),
+    ],
+    ids=["ped", "dataset", "sample"],
+)
+def test_write_manifest_refuses_a_nul_and_writes_nothing(imports: Path, manifest_yaml: str, where: str) -> None:
+    package = _package(imports)
+
+    with pytest.raises(HTTPException) as refused:
+        write_family_package_manifest(folder_path=package, manifest_yaml=manifest_yaml, overwrite=True)
+
+    # The manifest was written, then validation raised ValueError on the NUL: a 500.
+    assert (refused.value.status_code, refused.value.detail) == (
+        400,
+        f"Manifest YAML holds a NUL character at {where}, which no path or name can hold",
+    )
+    assert not (package / "manifest.yaml").exists()
+
+
+def test_the_routes_refuse_a_nul_without_a_500(imports: Path) -> None:
+    package = _package(imports, "NULFAM", manifest={"datasets": {"snv": {"family_vcf": "x\x00.vcf"}}})
+    before = (package / "manifest.yaml").read_bytes()
+
+    with _admin_client() as client:
+        validate = client.post("/api/family-imports/validate", json={"folder_path": str(package)})
+        discover_ped = client.post(
+            "/api/family-imports/manifest/discover",
+            json={"folder_path": str(package), "ped_path": "family\x00.ped"},
+        )
+        discover_folder = client.post(
+            "/api/family-imports/manifest/discover", json={"folder_path": f"{imports}/FAM\x001"}
+        )
+        write = client.post(
+            "/api/family-imports/manifest/write",
+            json={
+                "folder_path": str(package),
+                "manifest_yaml": MANIFEST_YAML.replace("ped: family.ped", 'ped: "family\\0.ped"'),
+                "overwrite": True,
+            },
+        )
+
+    # Each was a 500 (ValueError: embedded null byte), Write manifest after writing the file.
+    assert (validate.status_code, validate.json()) == (400, {"detail": _nul_message("x\\x00.vcf")})
+    assert (discover_ped.status_code, discover_ped.json()) == (400, {"detail": _nul_message("family\\x00.ped")})
+    assert discover_folder.status_code == 200, discover_folder.text
+    assert [(issue["code"], issue["message"]) for issue in discover_folder.json()["errors"]] == [
+        ("package_folder_not_allowed", f"Family import path '{imports}/FAM\\x001' {NUL_IN_PATH}")
+    ]
+    assert (write.status_code, write.json()) == (
+        400,
+        {"detail": "Manifest YAML holds a NUL character at ped, which no path or name can hold"},
+    )
+    assert (package / "manifest.yaml").read_bytes() == before
