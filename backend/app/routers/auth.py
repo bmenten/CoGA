@@ -9,6 +9,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.azure import authority as azure_authority
+from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.postgres import get_postgres_session
 from ..core.sql import require_uuid
@@ -92,10 +93,12 @@ def _request_remote_ip(request: Request) -> str | None:
 
 
 def notify_admin(email: str) -> None:
-    # Only when ADMIN_EMAIL is configured: its default is the seed admin's placeholder.
+    # Only when ADMIN_EMAIL is configured: its default is the seed admin's placeholder. The log
+    # names neither the new account's address nor the mail server's error text, which can quote
+    # the addresses (SEC-11).
     admin_email = settings.admin_email.strip() if "admin_email" in settings.model_fields_set else ""
     if not admin_email:
-        logging.info("ADMIN_EMAIL not set; skipping notification for %s", email)
+        logger.info("ADMIN_EMAIL not set; no sign-up notification sent")
         return
     msg = EmailMessage()
     msg["Subject"] = "New user signup"
@@ -106,7 +109,7 @@ def notify_admin(email: str) -> None:
         with smtplib.SMTP(settings.smtp_host) as server:
             server.send_message(msg)
     except Exception as exc:  # noqa: BLE001 - the notification is best-effort; the sign-up stands
-        logging.error("Failed to send signup notification: %s", exc)
+        logger.error("Failed to send the sign-up notification: %s", describe_error(exc))
 
 
 async def _authenticate_and_issue_token(
