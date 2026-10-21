@@ -42,7 +42,7 @@ type StructuralVariantPage = CandidateCapFlags & {
 };
 
 const buildStructuralVariantReviewPath = (familyId: string, variantId: string): string =>
-  `/families/${encodeURIComponent(familyId)}/structural-variants/${encodeURIComponent(variantId)}/review`;
+  apiPath`/families/${familyId}/structural-variants/${variantId}/review`;
 
 const hasReviewContent = (review: StructuralVariantReview | null | undefined): boolean =>
   Boolean(review?.classification || review?.tags?.length || review?.note);

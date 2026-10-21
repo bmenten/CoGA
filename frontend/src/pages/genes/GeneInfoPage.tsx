@@ -88,7 +88,6 @@ interface GeneAssemblyLocation {
 interface GeneClingenCurationCounts {
   gene_disease_validity?: number | null;
   dosage_sensitivity?: number | null;
-  cpic_pharmgkb?: string | null;
 }
 
 interface GeneClingenFacts {

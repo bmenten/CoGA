@@ -373,6 +373,48 @@ describe('ChromosomeViewWorkspace', () => {
     );
   });
 
+  it('encodes the caller it asks the coverage and segments for (ENG-7)', () => {
+    // A caller's name went into the BED URLs as written: one with an `&` or a `#` would have
+    // ended the parameter there.
+    const member = { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' };
+    coverageSegmentsChartMock.mockClear();
+    renderWorkspace(vi.fn(), {
+      familyMembers: [member],
+      visibleMembers: [member],
+      membersWithData: [member],
+      availability: {
+        S1: {
+          coverage: true,
+          coverageSources: ['cnv&kit#2'],
+          coverageNormalizations: {},
+          coverageContents: { 'cnv&kit#2': 'log2_ratio' },
+          apcadSources: [],
+          apcad: false,
+          apcadPcf: false,
+          variants: false,
+          smallVariants: false,
+          haplotypes: false,
+          repeatExpansions: false,
+        },
+      },
+      trackVisibility: {
+        coverage: true,
+        apcad: false,
+        variants: false,
+        smallVariants: false,
+        haplotypes: false,
+        phasedMarkers: false,
+        repeatExpansions: false,
+      },
+    });
+
+    const [[props]] = coverageSegmentsChartMock.mock.calls as [[{ coverageUrls: string[]; segmentsUrls?: string[] }]];
+    for (const url of [props.coverageUrls[0], props.segmentsUrls?.[0] ?? '']) {
+      const params = new URL(url, 'http://test').searchParams;
+      expect([params.get('source'), params.get('format')]).toEqual(['cnv&kit#2', 'json']);
+    }
+  });
+
   it('jumps to a resolved gene window', async () => {
     const onJumpToRegion = vi.fn();
     (api.get as unknown as Mock).mockImplementation((url: string) => {

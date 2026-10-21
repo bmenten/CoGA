@@ -19,6 +19,7 @@ import {
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
 import { intervalListProblems, parseGeneOrRegionInput } from '../../lib/variantSearch';
+import { reviewTagLabel } from '../../lib/reviewTags';
 import type { AcmgMitoContext } from '../../lib/acmg';
 import { setLocationParams } from './variantFilterFormUtils';
 
@@ -2003,8 +2004,7 @@ export const addableTagDefinitions = (tags: SmallVariantTagDefinition[]) =>
   tags.filter((tag) => tag.is_active !== false);
 
 /** A tag's label as a review shows it: a deleted tag is marked, it can no longer be added. */
-export const tagDefinitionLabel = (tag: SmallVariantTagDefinition) =>
-  tag.is_active === false ? `${tag.label} (deleted)` : tag.label;
+export const tagDefinitionLabel = (tag: SmallVariantTagDefinition) => reviewTagLabel(tag, tag.key);
 
 /**
  * Options for the tag keys a review or a filter holds that the offered options leave out: a

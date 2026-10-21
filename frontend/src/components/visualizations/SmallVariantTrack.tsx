@@ -16,6 +16,7 @@ import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
+import { reviewTagLabel } from '../../lib/reviewTags';
 import {
   SMALL_VARIANT_MARKS,
   markDrawRank,
@@ -471,13 +472,7 @@ const SmallVariantTrack: React.FC<Props> = ({
           {tooltip.variant.review?.tags?.length ? (
             <div>
               Tags:{' '}
-              {tooltip.variant.review.tags
-                .map((tagKey) => {
-                  const tag = tagByKey.get(tagKey);
-                  const label = tag?.label || tagKey;
-                  return tag?.is_active === false ? `${label} (deleted)` : label;
-                })
-                .join(', ')}
+              {tooltip.variant.review.tags.map((tagKey) => reviewTagLabel(tagByKey.get(tagKey), tagKey)).join(', ')}
             </div>
           ) : null}
           {originMode ? <div>{ORIGIN_LABEL[tooltip.variant.origin]}</div> : null}

@@ -3,6 +3,7 @@
 // (gene overlap, gene constraint, annotated inheritance). The analyst confirms and
 // completes the rest in the modal.
 
+import { svKind } from '../svKind';
 import { cnvCriterionMap } from './criteria';
 import type { CnvKind, CnvSuggestion } from './types';
 
@@ -31,12 +32,10 @@ export const cnvGeneCountTier = (
   return { code: '3A', points: 0 };
 };
 
-// The SV type without its subtypes, in capitals: DEL:ME is DEL and DUP:TANDEM is DUP, as the
-// server reads an SV's type (sv_copy_change.sv_kind). The exact type was matched, so a
-// tandem duplication opened on the loss criteria, with 2H pre-selected in a constrained
-// gene (CLIN-47).
-const svKind = (type?: string | null): string => (type || '').trim().toUpperCase().split(':')[0];
-
+// An SV's type is read without its subtypes (`svKind`): DEL:ME is DEL and DUP:TANDEM is DUP,
+// as the server reads it (sv_copy_change.sv_kind). The exact type was matched, so a tandem
+// duplication opened on the loss criteria, with 2H pre-selected in a constrained gene
+// (CLIN-47).
 const GAIN_TYPES = new Set(['DUP', 'GAIN', 'CNV_GAIN', 'INS']);
 
 export const cnvKindForType = (type?: string | null): CnvKind =>
