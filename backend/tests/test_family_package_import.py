@@ -1237,6 +1237,52 @@ async def test_total_failure_on_new_family_rolls_back_shell(
 
 
 @pytest.mark.asyncio
+async def test_a_new_family_keeps_a_dataset_imported_with_warnings_when_the_rest_fails(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A dataset that ended `warning` imported its data (the rows its input got wrong left
+    out, each named in the job's record), so a new family holding it is no empty shell: it is
+    kept and flagged with that dataset as imported, not deleted with it (SAFE-34, found with a
+    family's phenotypes)."""
+    package_root = tmp_path / "FAM001"
+    _write_minimal_package(package_root)
+    deleted: list[str] = []
+    flagged: list[dict] = []
+    _wire_total_failure(monkeypatch, created=True, deleted=deleted)
+
+    def two_datasets(_validation):
+        return [
+            FamilyImportDatasetSummary(dataset_type="repeats_trgt", status="valid"),
+            FamilyImportDatasetSummary(dataset_type="snv", status="valid"),
+        ]
+
+    async def import_dataset(session, *, summary, **_kwargs):
+        if summary.dataset_type == "snv":
+            raise RuntimeError("ClickHouse insert failed")
+        return summary.model_copy(update={"status": "warning"})
+
+    async def fake_flag(session, family_context, **kwargs):
+        flagged.append(kwargs)
+
+    monkeypatch.setattr(package_import, "_enabled_dataset_summaries", two_datasets)
+    monkeypatch.setattr(package_import, "_import_dataset", import_dataset)
+    monkeypatch.setattr(package_import, "_flag_family_import_incomplete", fake_flag)
+
+    result = await package_import.execute_family_package_import(
+        _CommitRollbackSession(),  # type: ignore[arg-type]
+        folder_path=package_root,
+        project_id="project-uuid",
+        dry_run=False,
+        user=_current_admin(),
+    )
+
+    assert result.completed is False
+    # Counted only `imported`: the family was deleted with the repeats it had imported.
+    assert deleted == []
+    assert [(flag["failed_datasets"], flag["imported_datasets"]) for flag in flagged] == [(["snv"], ["repeats_trgt"])]
+
+
+@pytest.mark.asyncio
 async def test_total_failure_on_existing_family_is_not_rolled_back(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
