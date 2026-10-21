@@ -94,7 +94,11 @@ async def _get_json(
         response.raise_for_status()
     except httpx.HTTPError as exc:
         _raise_upstream_error(url, exc)
-    payload = response.json()
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        # A 200 whose body is no JSON: a fault upstream like a failed request (DATA-4).
+        raise HTTPException(status_code=502, detail=f"Unexpected response from {url}") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=502, detail=f"Unexpected response from {url}")
     return payload

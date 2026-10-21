@@ -95,12 +95,22 @@ class _Association:
         return bool(self.predicates & _CAUSAL_PREDICATES)
 
 
+class MonarchSourceError(RuntimeError):
+    """Monarch's files or release could not be used: a download too large, not gzip, not
+    UTF-8 or without one association, or a release that cannot be read. A fault upstream, as
+    a failed download is: the refresh router answers it 502, and the tables stay as they were
+    (DATA-4)."""
+
+
 async def _download_gzip_tsv(url: str) -> str:
     async with httpx.AsyncClient(timeout=120.0, follow_redirects=True) as client:
         raw = await download_bounded_bytes(client, url, source=url)
-    if url.endswith(".gz"):
-        raw = gunzip_bounded(raw, source=url)
-    return raw.decode("utf-8")
+    try:
+        if url.endswith(".gz"):
+            raw = gunzip_bounded(raw, source=url)
+        return raw.decode("utf-8")
+    except ValueError as exc:  # too large, no complete gzip, or not UTF-8
+        raise MonarchSourceError(str(exc)) from exc
 
 
 async def _fetch_release_version() -> str | None:
@@ -132,7 +142,7 @@ async def _resolve_release_version(release_version: str | None) -> str:
     if release_version is None:
         release_version = await _fetch_release_version()
     if not release_version:
-        raise RuntimeError(
+        raise MonarchSourceError(
             "Refusing to load Monarch data with an unknown release version: the KG "
             "metadata (version:) could not be read. Retry when it is reachable, or pass "
             "an explicit release_version."
@@ -261,6 +271,10 @@ async def refresh_monarch_gene_disease(
         files_loaded += 1
 
     records = list(associations.values())
+    if not records:
+        # A download that parses to nothing (a changed format, an empty file) would empty the
+        # table (#859): refused, and the loaded release kept.
+        raise MonarchSourceError("Monarch's gene-disease files hold no human gene-disease association")
     written = await _replace_gene_disease_rows(
         session,
         associations=records,
@@ -405,6 +419,8 @@ async def refresh_monarch_disease_phenotype(
     parse_disease_phenotype_tsv(text_value, phenotypes=phenotypes)
 
     records = list(phenotypes.values())
+    if not records:
+        raise MonarchSourceError("Monarch's disease-phenotype file holds no disease-phenotype association")
     written = await _replace_disease_phenotype_rows(
         session,
         phenotypes=records,
