@@ -355,8 +355,9 @@ def test_another_user_neither_lists_nor_deletes_the_owners_presets(presets) -> N
     viewer = presets["viewer"]
     assert viewer["listed"]["status"] == 200, viewer
     assert viewer["listed"]["json"] == []
-    assert viewer["delete"]["status"] == 403, viewer
-    assert "Not authorized to delete this preset" in viewer["delete"]["text"]
+    # Another user's preset answers as an unknown one does (SEC-9); a 403 told them it exists.
+    assert viewer["delete"]["status"] == 404, viewer
+    assert viewer["delete"]["text"] == '{"detail":"Preset not found"}'
 
 
 def test_a_preset_is_deleted_through_a_family_that_lists_it(presets) -> None:

@@ -413,6 +413,15 @@ export const structuralLocationProblem = (filters: Pick<StructuralFilterState, '
   return parsed?.kind === 'invalid' ? parsed.problem : null;
 };
 
+/** A request's query with the page's project, which picks the assembly the SVs are read on, as
+ * the export already had it (UI-5); the query as it is without a project. */
+export const withProjectId = (query: string, projectId: string | undefined): string => {
+  if (!projectId) return query;
+  const params = new URLSearchParams(query);
+  params.set('project_id', projectId);
+  return params.toString();
+};
+
 export const buildStructuralVariantQueryParams = (
   currentFilters: StructuralFilterState,
   currentSampleFilters: Record<string, StructuralSampleFilter>,

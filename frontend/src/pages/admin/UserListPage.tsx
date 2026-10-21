@@ -52,7 +52,8 @@ const UserListPage: React.FC = () => {
     retry: false,
   });
 
-  // The administrator signed in here: nobody changes their own role.
+  // The administrator signed in here: nobody changes their own role or deactivates their own
+  // account (the backend refuses both).
   const signedInAs = getStoredUsername();
 
   const roleMutation = useMutation({
@@ -198,9 +199,10 @@ const UserListPage: React.FC = () => {
                     type="checkbox"
                     aria-label={`Active: ${u.email}`}
                     checked={u.is_active}
+                    title={u.email === signedInAs ? 'You cannot deactivate your own account.' : undefined}
                     disabled={
-                      toggleActiveMutation.isPending &&
-                      toggleActiveMutation.variables?.id === u.id
+                      u.email === signedInAs ||
+                      (toggleActiveMutation.isPending && toggleActiveMutation.variables?.id === u.id)
                     }
                     onChange={() => toggleActiveMutation.mutate(u)}
                   />

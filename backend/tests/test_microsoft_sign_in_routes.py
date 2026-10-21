@@ -445,6 +445,8 @@ def test_a_change_that_changes_nothing_records_nothing(
         pytest.param(
             EMERGENCY, {"is_active": False}, auth_router.EMERGENCY_ACTIVE_DETAIL, id="the-emergency-admin-deactivated"
         ),
+        # SEC-32: an administrator who deactivated their own account locked themselves out.
+        pytest.param(LOCAL_ADMIN, {"is_active": False}, auth_router.OWN_ACTIVE_DETAIL, id="your-own-account-deactivated"),
     ],
 )
 def test_some_roles_are_not_changed(

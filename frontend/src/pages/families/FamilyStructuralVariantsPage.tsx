@@ -19,6 +19,7 @@ import {
   buildStructuralPresetPayload,
   structuralLocationProblem,
   useStructuralVariantSearchState,
+  withProjectId,
   type StructuralGenePanel,
   type StructuralSummary,
   type StructuralVariant,
@@ -192,14 +193,26 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
 
+  // The list and its total are read in the page's project, as the export is: the project
+  // picks the assembly, so a family of projects on two assemblies answered the list 400
+  // where the export worked (UI-5). They wait for the family and its reference, which the
+  // page waits for before it shows them anyway, so the search runs once, in that project.
+  const projectKnown = Boolean(familyData) && !referenceLoading;
+  const listQueryString = useMemo(() => withProjectId(requestQueryString, projectId), [requestQueryString, projectId]);
+  const totalQueryString = useMemo(
+    () => withProjectId(new URLSearchParams({ page: '1', page_size: '1' }).toString(), projectId),
+    [projectId],
+  );
+
   const { data, isLoading, isFetching, isError, error, refetch } = useQuery<StructuralVariantPage>({
-    queryKey: ['family', familyId, 'structural-variants', requestQueryString],
+    queryKey: ['family', familyId, 'structural-variants', listQueryString],
+    enabled: projectKnown,
     queryFn: async () => {
       // A location from the URL that reads as neither a gene nor a region fails the
       // search: sent on, it was searched as a gene name and read as no SVs (#604).
       const locationProblem = structuralLocationProblem(filters);
       if (locationProblem) throw new Error(locationProblem);
-      const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(requestQueryString)}`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(listQueryString)}`);
       return res.data as StructuralVariantPage;
     },
     // Keep the previous page's results on screen while the next page/filter loads
@@ -208,10 +221,10 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   });
 
   const { data: allData, isError: allDataFailed } = useQuery<{ total: number }>({
-    queryKey: ['family', familyId, 'structural-variants', 'total'],
+    queryKey: ['family', familyId, 'structural-variants', 'total', projectId || null],
+    enabled: projectKnown,
     queryFn: async () => {
-      const params = new URLSearchParams({ page: '1', page_size: '1' });
-      const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(params.toString())}`);
+      const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(totalQueryString)}`);
       return { total: res.data.total };
     },
   });

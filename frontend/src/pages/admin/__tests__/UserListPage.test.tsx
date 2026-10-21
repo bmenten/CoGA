@@ -416,6 +416,18 @@ describe('UserListPage', () => {
       expect(screen.getByRole('combobox', { name: 'Role: peeters@example.com' })).toBeEnabled();
     });
 
+    it('does not let the signed-in administrator deactivate their own account', async () => {
+      // SEC-32: the backend refuses it too; the box said nothing until the request failed.
+      localStorage.setItem('username', 'ann@example.com');
+      renderPage();
+      await screen.findByRole('table');
+
+      const own = screen.getByRole('checkbox', { name: 'Active: ann@example.com' });
+      expect(own).toBeDisabled();
+      expect(own).toHaveAttribute('title', 'You cannot deactivate your own account.');
+      expect(screen.getByRole('checkbox', { name: 'Active: peeters@example.com' })).toBeEnabled();
+    });
+
     it('says why a refused role change was refused, and keeps the stored role', async () => {
       const user = userEvent.setup();
       mockedPatch.mockRejectedValue({

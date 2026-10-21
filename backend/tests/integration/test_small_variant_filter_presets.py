@@ -90,7 +90,8 @@ def test_a_preset_is_saved_listed_replaced_and_deleted_by_its_owner() -> None:
 
                 with pytest.raises(HTTPException) as refused:
                     await delete_small_variant_filter_preset_for_owner(s, preset_id=first.id, user=other)
-                assert refused.value.status_code == 403
+                # Another user's preset answers as an unknown one does (SEC-9).
+                assert (refused.value.status_code, refused.value.detail) == (404, "Preset not found")
 
                 await delete_small_variant_filter_preset_for_owner(s, preset_id=first.id, user=owner)
                 assert await list_small_variant_filter_presets_for_owner(s, user=owner) == []

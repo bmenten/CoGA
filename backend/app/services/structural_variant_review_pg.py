@@ -19,7 +19,7 @@ from ..schemas import (
 from . import cnv_acmg_points
 from .clinical_audit_service import record_structural_review_changes
 from .family_metadata_context import FamilyMetadataContext
-from .access_control import CurrentUser
+from .access_control import CurrentUser, RecordNotVisible
 from .review_pg_utils import (
     _added_tags,
     _has_stored_record,
@@ -659,7 +659,8 @@ async def delete_structural_variant_filter_preset(
     if row is None:
         raise HTTPException(status_code=404, detail="Preset not found")
     if row["owner"] != user.username:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this preset")
+        # Another user's preset answers as an unknown one does (SEC-9, REQ-SEC-001).
+        raise RecordNotVisible("filter_preset", "Preset not found")
     if row["scope"] == "family" and row["family_id"] != family_uuid:
         raise HTTPException(status_code=404, detail="Preset not found")
     await session.execute(
