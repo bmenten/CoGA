@@ -552,14 +552,14 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
                         >
                           <CoverageSegmentsChart
                             coverageUrls={[
-                              `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${coverageSource}&format=json`,
+                              `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/coverage?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&window=${detailWindow}&limit=${binLimit}&source=${encodeURIComponent(coverageSource)}&format=json`,
                             ]}
                             scale={scale}
                             // Segments are log2 ratios: drawn on the log2-ratio axis only.
                             segmentsUrls={
                               scale === 'log2_ratio'
                                 ? [
-                                    `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${coverageSource}&format=json`,
+                                    `${api.defaults.baseURL}/bed/${encodeURIComponent(member.sample_id)}/segments?chrom=${encodeURIComponent(chrom)}&start=${regionStartParam}&end=${regionEndParam}&limit=${segmentLimit}&source=${encodeURIComponent(coverageSource)}&format=json`,
                                   ]
                                 : undefined
                             }

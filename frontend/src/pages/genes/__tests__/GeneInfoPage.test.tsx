@@ -366,7 +366,6 @@ describe('GeneInfoPage', () => {
                 clingen_curation_counts: {
                   gene_disease_validity: 12,
                   dosage_sensitivity: 3,
-                  cpic_pharmgkb: '6',
                 },
                 clingen_gene_facts: {
                   hgnc_name: 'BRCA1 DNA repair associated',

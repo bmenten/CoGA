@@ -1,5 +1,8 @@
 import { cssVar } from '../../lib/colors';
 import type { VariantOut } from '../../lib/apiSchema.generated';
+import { svKind } from '../../lib/svKind';
+
+export { svKind };
 
 // The rows the SV tracks draw, in this order: one per type, and OTHER, in the neutral colour,
 // for an SV of a type none of them names. Every SV the list shows is drawn in one of them
@@ -15,9 +18,6 @@ export type SvTypeKey = (typeof SV_TYPE_ORDER)[number];
  * The track payload leaves it out when it is neither.
  */
 export type SvCopyChange = VariantOut['copy_change'];
-
-/** The SV type without its subtypes, in capitals: DEL:ME is DEL, as the server reads it (`sv_kind`). */
-export const svKind = (type?: string | null): string => (type ?? '').trim().toUpperCase().split(':')[0];
 
 const TYPE_ROWS: ReadonlySet<string> = new Set(['DEL', 'DUP', 'INV', 'INS', 'BND']);
 

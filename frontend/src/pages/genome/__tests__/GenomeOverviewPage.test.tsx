@@ -190,6 +190,50 @@ describe('GenomeOverviewPage', () => {
     );
   });
 
+  it('sends, and lists as the tracks’ filters, only the SV filters the routes take (ENG-7)', async () => {
+    (api.get as unknown as Mock).mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' }],
+            projects: ['p1'],
+          },
+        });
+      }
+      if (url === '/chromosomes/GRCh38') {
+        return Promise.resolve({ data: [{ chr: '1', size: 1000 }] });
+      }
+      if (url.startsWith('/families/F1/track-availability?')) {
+        return Promise.resolve({
+          data: { samples: { PROBAND: { coverage: false, segments: false, apcad: false, haplotypes: false, variants: true } } },
+        });
+      }
+      return Promise.resolve({ data: {} });
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/genome?type=DEL&qual=30&read_support=5&filter=PASS']}>
+          <Routes>
+            <Route path="/families/:familyId/genome" element={<GenomeOverviewPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId('genome-workspace')).toHaveTextContent('PROBAND'));
+    // `qual`, `read_support` and `filter` were sent, and listed among each track's filters,
+    // though neither the SV route nor the track availability takes them.
+    const availabilityCall = (api.get as unknown as Mock).mock.calls
+      .map(([url]) => String(url))
+      .find((url) => url.startsWith('/families/F1/track-availability?'));
+    expect(availabilityCall).toContain('type=DEL');
+    for (const unused of ['qual=30', 'read_support=5', 'filter=PASS']) {
+      expect(availabilityCall).not.toContain(unused);
+    }
+    expect(workspaceSpy.mock.calls.at(-1)?.[0].variantFilters).toEqual({ type: 'DEL' });
+  });
+
   it('navigates to a chromosome region when genome workspace requests a regional jump', async () => {
     (api.get as unknown as Mock).mockImplementation((url: string) => {
       if (url === '/families/F1') {

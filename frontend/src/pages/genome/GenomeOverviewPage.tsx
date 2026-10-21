@@ -89,12 +89,12 @@ const GenomeOverviewPage: React.FC = () => {
   const sampleFilters = useMemo(() => searchParams.getAll('sample'), [searchParams]);
   const baseVariantParams = useMemo(() => {
     const source = new URLSearchParams(location.search);
+    // The SV filters the SV route and the track availability take. `qual`, `read_support` and
+    // `filter` were sent too, and listed in each track's filters, though neither route takes
+    // them (ENG-7).
     const allowed = [
       'type',
       'source',
-      'qual',
-      'read_support',
-      'filter',
       'length',
       'min_length',
       'remote_chr',
