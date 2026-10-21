@@ -238,3 +238,15 @@ def test_the_list_serves_each_presets_scope_and_family(client_for) -> None:
         ("00000000-0000-0000-0000-0000000000a2", "global", None),
     ]
     assert [params for _sql, params in session.executed] == [{"family_id": FAMILY_UUID, "owner": "reviewer"}]
+
+
+def test_another_users_preset_answers_as_an_unknown_one_and_is_kept(client_for) -> None:
+    session = _Session(listed=[{"owner": "someone.else", "scope": "family", "family_id": FAMILY_UUID}])
+    with client_for(session) as client:
+        response = client.delete(f"{PRESETS}/{PRESET_ID}")
+
+    # It answered 403 "Not authorized to delete this preset", telling the caller it exists (SEC-9).
+    assert response.status_code == 404, response.text
+    assert response.json() == {"detail": "Preset not found"}
+    assert not any(sql.startswith("DELETE") for sql, _params in session.executed)
+    assert session.commits == 0

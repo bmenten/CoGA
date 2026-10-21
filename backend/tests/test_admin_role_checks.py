@@ -32,7 +32,7 @@ from backend.app.services import (
     ped_service,
     small_variant_review_tags,
 )
-from backend.app.services.access_control import CurrentUser
+from backend.app.services.access_control import CurrentUser, RecordNotVisible
 
 APP_DIR = pathlib.Path(__file__).resolve().parents[1] / "app"
 ADMIN_ROLES = ["admin", "superuser"]
@@ -155,6 +155,39 @@ async def test_a_viewer_reads_gene_profiles_in_their_own_projects_only(monkeypat
     assert (unknown.value.status_code, unknown.value.detail) == (404, "Project not found")
 
 
+@pytest.mark.asyncio
+async def test_a_family_gene_profile_reads_the_first_of_its_projects_the_user_sees(monkeypatch) -> None:
+    hidden = "33333333-3333-3333-3333-333333333333"
+    asked: list[dict[str, Any]] = []
+
+    async def family(session: Any, family_id: str, user: CurrentUser) -> dict[str, Any]:
+        return {"id": "family-uuid", "family_id": family_id, "project_ids": [hidden, PROJECT]}
+
+    class _Recording:
+        async def execute(self, statement: Any, params: Any = None) -> _Result:
+            asked.append(dict(params or {}))
+            return _Result([{"id": PROJECT, "assembly_id": "a1"}])
+
+    async def next_step(session: Any) -> None:
+        raise _PastTheProjectCheck
+
+    monkeypatch.setattr(gene_metadata_service, "get_accessible_family_mapping", family)
+    monkeypatch.setattr(gene_metadata_service, "_get_human_context", next_step)
+
+    with pytest.raises(_PastTheProjectCheck):
+        await gene_metadata_service.build_gene_profile(
+            _Recording(),  # type: ignore[arg-type]
+            symbol="GENE1",
+            assembly_id=None,
+            family_id="FAM1",
+            project_id=None,
+            user=_user("viewer", [PROJECT]),
+        )
+
+    # It took the family's first project, another team's, and read that project's assembly (SEC-9).
+    assert asked == [{"project_id": PROJECT}]
+
+
 # --- families from a PED file or by hand ---------------------------------------------------
 
 
@@ -215,11 +248,20 @@ async def test_every_admin_role_sees_every_import_job(role: str) -> None:
 @pytest.mark.asyncio
 async def test_a_viewer_sees_only_their_own_import_jobs() -> None:
     viewer = _user("viewer")
-    with pytest.raises(HTTPException) as refused:
+    with pytest.raises(RecordNotVisible) as refused:
         await family_package_jobs.get_family_import_job(
             _Session(_Result([_job("other@example.org")])), job_id=JOB_ID, user=viewer
         )
-    assert refused.value.status_code == 403
+    # Another user's job answers as an unknown one does: 404, its kind only in the audit row
+    # (SEC-9); a 403 told the viewer the job exists.
+    assert (refused.value.status_code, refused.value.detail, refused.value.kind) == (
+        404,
+        "Family import job not found",
+        "import_job",
+    )
+    with pytest.raises(HTTPException) as unknown:
+        await family_package_jobs.get_family_import_job(_Session(_Result([])), job_id=JOB_ID, user=viewer)
+    assert (unknown.value.status_code, unknown.value.detail) == (404, "Family import job not found")
     listing = _Session(_Result([]))
     await family_package_jobs.list_family_import_jobs(listing, user=viewer)
     assert "requested_by = :requested_by" in listing.statements[0]

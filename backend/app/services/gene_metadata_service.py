@@ -436,8 +436,14 @@ async def build_gene_profile(
         if family_row is not None and requested_project_id not in (family_row.get("project_ids") or []):
             raise HTTPException(status_code=400, detail="Project is not linked to this family")
     elif family_row is not None:
-        family_project_ids = family_row.get("project_ids") or []
-        if family_project_ids:
+        # The first of the family's projects the caller may see: another of its projects tells
+        # them nothing, not even its assembly (SEC-9).
+        visible_project_ids = [
+            project
+            for project in family_row.get("project_ids") or []
+            if user_can_access_metadata_projects([project], user)
+        ]
+        if visible_project_ids:
             project_result = await session.execute(
                 text(
                     """
@@ -446,7 +452,7 @@ async def build_gene_profile(
                     WHERE id = CAST(:project_id AS uuid)
                     """
                 ),
-                {"project_id": family_project_ids[0]},
+                {"project_id": visible_project_ids[0]},
             )
             project_row = project_result.mappings().first()
 

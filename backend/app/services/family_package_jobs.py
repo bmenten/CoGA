@@ -15,7 +15,7 @@ from ..schemas import (
     FamilyPackageImportJobOut,
     FamilyPackageValidationOut,
 )
-from .access_control import CurrentUser, is_admin_user
+from .access_control import CurrentUser, RecordNotVisible, is_admin_user
 
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_package_source import package_folder_path
@@ -212,7 +212,8 @@ async def get_family_import_job(
     if row is None:
         raise HTTPException(status_code=404, detail=_JOB_NOT_FOUND)
     if not is_admin_user(user) and str(row["requested_by"]) != user.email:
-        raise HTTPException(status_code=403, detail="Not authorized for this import job")
+        # Another user's job answers as an unknown one does (SEC-9, REQ-SEC-001).
+        raise RecordNotVisible("import_job", _JOB_NOT_FOUND)
     return _serialize_job(dict(row))
 
 
