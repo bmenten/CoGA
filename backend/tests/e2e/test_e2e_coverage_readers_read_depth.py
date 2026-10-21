@@ -333,6 +333,15 @@ async def _exercise(base: Path, mito_family: str, nipt_family: str) -> dict[str,
         out["mtdna_count_only"] = {"status": response.status_code, "json": response.json()}
         response = await ac.get(f"/api/families/{nipt_family}/nipt/coverage")
         out["nipt_coverage"] = {"status": response.status_code, "json": response.json()}
+        # The proband's chrM coverage through the BED endpoint, without naming a caller and
+        # naming the coverage BED (TRACE-10).
+        read = {"chrom": "chrM", "window": "1000", "format": "json"}
+        unnamed = await ac.get(f"/api/bed/PROBAND_{mito_family}/coverage", params=read)
+        named = await ac.get(f"/api/bed/PROBAND_{mito_family}/coverage", params={**read, "source": "web"})
+        out["bed_reads"] = {
+            "unnamed": (unnamed.status_code, unnamed.json()),
+            "named": (named.status_code, named.json()),
+        }
     return out
 
 
@@ -388,6 +397,21 @@ def test_both_packages_are_imported_with_every_callers_coverage(run) -> None:
     assert {key: value for key, value in run["stored"][nipt]["contents"].items() if value} == {
         (f"CFDNA_{nipt}", "web"): "read_depth"
     }
+
+
+def test_a_coverage_read_names_its_caller_where_the_sample_holds_several(run) -> None:
+    # The proband's chrM coverage comes from four callers. Without a caller named, the window
+    # averaged her BED's 120x with three callers' log2 ratios; the read is refused now, naming
+    # them (TRACE-10). Named, it reads the BED's depth alone.
+    status, body = run["bed_reads"]["unnamed"]
+    assert (status, body["detail"]) == (
+        400,
+        "The sample holds coverage of several callers here (hificnv, qdnaseq, web, wisecondorx): "
+        "name one with source",
+    )
+    status, body = run["bed_reads"]["named"]
+    assert status == 200, body
+    assert {item["value"] for item in body["items"]} == {120.0}
 
 
 def test_the_mtdna_coverage_reads_each_members_track_of_read_depth(run) -> None:
