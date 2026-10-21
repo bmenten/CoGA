@@ -464,6 +464,11 @@ def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, An
     return record
 
 
+def _rows_to_dicts(rows: Iterable[Any]) -> list[dict[str, Any]]:
+    folders = readable_folders()
+    return [_row_to_dict(row, folders) for row in rows]
+
+
 async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
     result = await session.execute(
         text(
@@ -494,8 +499,9 @@ async def list_raw_import_files(session: AsyncSession, family_uuid: str) -> list
         ),
         {"family_uuid": family_uuid},
     )
-    folders = readable_folders()
-    return [_row_to_dict(row, folders) for row in result.mappings().all()]
+    # Each local file is looked up on the file system: in a worker thread, off the event loop
+    # (SEC-14), as a family can hold many files on a slow mount.
+    return await asyncio.to_thread(_rows_to_dicts, result.mappings().all())
 
 
 async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, Any] | None:
@@ -527,7 +533,10 @@ async def get_raw_import_file(session: AsyncSession, file_id: str) -> dict[str, 
         {"file_id": file_uuid},
     )
     row = result.mappings().first()
-    return _row_to_dict(row) if row else None
+    if row is None:
+        return None
+    # Its file is looked up on the file system: off the event loop (SEC-14).
+    return await asyncio.to_thread(_row_to_dict, row)
 
 
 # Inline checksum verification is bounded so a multi-GB CRAM/BAM can't tie up a
