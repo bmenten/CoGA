@@ -112,6 +112,7 @@ from ..services.clinical_cnv_kb_jobs import (
 from ..services.ped_service import build_pedigree_text
 from ..services.panel_metadata_service import regenerate_mendeliome
 from ..services.monarch_ingest import (
+    MonarchSourceError,
     monarch_status,
     refresh_monarch,
     search_monarch_associations,
@@ -951,6 +952,12 @@ async def refresh_monarch_associations(
         raise HTTPException(
             status_code=502,
             detail=f"Failed to download Monarch data: {exc}",
+        ) from exc
+    except MonarchSourceError as exc:
+        # Nothing was committed: the loaded release stays (DATA-4).
+        raise HTTPException(
+            status_code=502,
+            detail=f"Monarch data could not be loaded, and the loaded release was kept: {exc}",
         ) from exc
     # A new Monarch release means a new Mendeliome: re-version the generated panel
     # (a no-op if the gene set is unchanged). It never fails the refresh, but the admin

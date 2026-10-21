@@ -171,6 +171,51 @@ async def test_resolve_release_version_raises_when_unknown(monkeypatch) -> None:
         return None
 
     monkeypatch.setattr(monarch, "_fetch_release_version", _fake_fetch_none)
-    # An unresolvable release version must hard-fail rather than load NULL-version data.
-    with pytest.raises(RuntimeError, match="unknown release version"):
+    # An unresolvable release version must hard-fail rather than load NULL-version data,
+    # as a fault upstream the refresh router answers 502 (DATA-4).
+    with pytest.raises(monarch.MonarchSourceError, match="unknown release version"):
         await _resolve_release_version(None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("url", "body"),
+    [
+        ("https://example.org/gene_disease.tsv.gz", b"not gzip at all"),
+        ("https://example.org/gene_disease.tsv.gz", b"\x1f\x8b\x08\x00 cut short"),
+        ("https://example.org/gene_disease.tsv", b"subject\t\xff\xfe not UTF-8\n"),
+    ],
+    ids=["not-gzip", "truncated-gzip", "not-utf8"],
+)
+async def test_a_download_that_cannot_be_read_is_a_monarch_source_error(monkeypatch, url: str, body: bytes) -> None:
+    async def download(_client, _url, **_kwargs) -> bytes:
+        return body
+
+    monkeypatch.setattr(monarch, "download_bounded_bytes", download)
+
+    # A ValueError from the gunzip or the decode, which the refresh router did not catch: a 500.
+    with pytest.raises(monarch.MonarchSourceError):
+        await monarch._download_gzip_tsv(url)
+
+
+class _RecordingSession:
+    def __init__(self) -> None:
+        self.statements: list[str] = []
+
+    async def execute(self, statement, *_args, **_kwargs):
+        self.statements.append(str(statement))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("refresh", ["refresh_monarch_gene_disease", "refresh_monarch_disease_phenotype"])
+async def test_a_download_without_one_association_empties_no_table(monkeypatch, refresh: str) -> None:
+    async def header_only(_url: str) -> str:
+        return _HEADER + "\n"
+
+    monkeypatch.setattr(monarch, "_download_gzip_tsv", header_only)
+    session = _RecordingSession()
+
+    # It deleted every row and wrote none: the refresh emptied the table (#859).
+    with pytest.raises(monarch.MonarchSourceError, match="no .* association"):
+        await getattr(monarch, refresh)(session, release_version="2026-06-08")
+    assert session.statements == []
