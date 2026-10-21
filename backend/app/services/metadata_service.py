@@ -37,8 +37,50 @@ from .access_control import (
     visible_metadata_project_ids,
 )
 from .assembly_scope import is_validated_assembly
+from .pedigree_text import PedMember, pedigree_text
 
 logger = logging.getLogger(__name__)
+
+
+def _structure_pedigree_text(
+    family_id: str,
+    members: Iterable[FamilyMemberOut],
+    relationships: Iterable[FamilyRelationshipOut],
+    stored: str | None,
+) -> str | None:
+    """The family's PED text as its stored structure has it (SAFE-8): its active members and
+    their parents, as the family page draws them; None without a member. The text stored on
+    the family (``stored``), its last import's or Family Builder save's, could disagree with
+    the structure, and the drawing showed what it said. Only its order of the members is kept,
+    which the drawing places siblings and couples by."""
+    order = [fields[1] for fields in (line.split() for line in (stored or "").splitlines()) if len(fields) > 1]
+    fathers: dict[str, str] = {}
+    mothers: dict[str, str] = {}
+    for relationship in relationships:
+        if relationship.relationship_type != "parent_child":
+            continue
+        if relationship.role_a == "father":
+            fathers[relationship.sample_id_b] = relationship.sample_id_a
+        elif relationship.role_a == "mother":
+            mothers[relationship.sample_id_b] = relationship.sample_id_a
+    text_value = pedigree_text(
+        family_id,
+        (
+            PedMember(
+                sample_id=member.sample_id,
+                sex=member.sex,
+                clinical_status=member.clinical_status,
+                role=member.role,
+            )
+            for member in members
+            if member.active
+        ),
+        fathers=fathers,
+        mothers=mothers,
+        order=order,
+    )
+    return text_value or None
+
 
 def _string_list(values: Iterable[Any] | None) -> list[str]:
     result: list[str] = []
@@ -189,7 +231,9 @@ def _family_out_from_mapping(
         members=members,
         relationships=relationships or [],
         structure_version=structure_version,
-        pedigree=family_mapping.get("pedigree"),
+        pedigree=_structure_pedigree_text(
+            family_mapping["family_id"], members, relationships or [], family_mapping.get("pedigree")
+        ),
         roi=roi,
         projects=project_ids,
         status=_family_status_ref_from_mapping(family_mapping),

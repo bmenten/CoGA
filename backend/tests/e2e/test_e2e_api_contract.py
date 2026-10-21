@@ -63,6 +63,7 @@ async def _collect_api_responses(root: Path) -> dict:
         ac.headers["Authorization"] = f"Bearer {token}"
         aid = facts["assembly_id"]
 
+        r["family"] = _cap(await ac.get(f"/api/families/{FAMILY}"))
         r["small_full"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 100}))
         r["small_paged"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"page": 1, "page_size": 2}))
         r["comp_het"] = _cap(await ac.get(f"/api/families/{FAMILY}/small-variants", params={"inheritance": "compound_het"}))
@@ -269,6 +270,28 @@ def test_shared_structural_variant_counts_symmetric(api):
     for a in matrix:
         for b, n in matrix[a].items():
             assert matrix.get(b, {}).get(a) == n, (a, b, matrix)
+
+
+# ------------------------------------------------------------------- Pedigree
+
+
+def test_the_family_pedigree_text_is_its_stored_structure(api):
+    # The text the family page draws is written from the family's members and their parents
+    # (SAFE-8), one row of six fields per member, as the stored structure has it.
+    family = _resp(api, "family")
+    assert family["status"] == 200, family["text"]
+    body = family["json"]
+    rows = [row.split() for row in body["pedigree"].splitlines()]
+    assert all(len(row) == 6 and row[0] == FAMILY for row in rows), rows
+    by_sample = {row[1]: row for row in rows}
+    assert set(by_sample) == {member["sample_id"] for member in body["members"] if member["active"]}
+    parents = {
+        (link["sample_id_b"], link["role_a"]): link["sample_id_a"]
+        for link in body["relationships"]
+        if link["relationship_type"] == "parent_child"
+    }
+    for sample, row in by_sample.items():
+        assert (row[2], row[3]) == (parents.get((sample, "father"), "0"), parents.get((sample, "mother"), "0"))
 
 
 # ------------------------------------------------------------------------- BED

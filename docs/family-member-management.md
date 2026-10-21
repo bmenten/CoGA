@@ -11,7 +11,10 @@ membership, role, clinical and carrier status), `samples` and `family_relationsh
 parent, the first partner or the member a link of unknown degree goes through, `sample_id_b`
 the child, the second partner or the relative). The family's PED text is rebuilt into
 `families.pedigree` after every change, and each change adds a row to
-`family_structure_versions`.
+`family_structure_versions`. The family response does not serve that stored text: it writes
+the PED text the pages draw from the members and parent-child relationships it serves
+(`pedigree_text.py`), so the drawing is always the stored structure's (SAFE-8). Only the stored
+text's order of the members is kept, which the drawing places siblings and couples by.
 
 ## What is recorded of a change
 

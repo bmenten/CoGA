@@ -100,7 +100,7 @@ built-in reference file is recorded under its file name.
 | Table | Holds |
 | --- | --- |
 | `family_statuses` | the admin-managed workflow statuses; `families.status_id` points here. Seeded: `solved`, `strong_candidate`, `reviewed_no_candidate`, `closed`, `analysis_in_progress`, `data_ready`, `waiting_for_data`, `loading_failed`, `no_data_expected` |
-| `families` | a family: its `family_id`, PED text, region of interest, status, assignee and `metadata` (below) |
+| `families` | a family: its `family_id`, PED text, region of interest, status, assignee and `metadata` (below). The PED text (`pedigree`) is the one the family's last import or Family Builder save wrote; the family response serves a PED text written from the family's stored members and parent-child relationships instead (`pedigree_text.py`, as the PED download does), in the stored text's order of the members, which the pages draw: the stored text could disagree with the structure (SAFE-8: a package import of an existing family replaces it but not the relationships or sexes, and a Family Builder request with a parent ID of spaces alone wrote a row of five fields) |
 | `samples` | a sample: its `sample_id`, family, sex and `metadata` (below) |
 | `family_members` | a sample's place in its family: role, clinical and carrier status, active flag |
 | `family_projects`, `sample_projects` | which projects can see a family or a sample |
