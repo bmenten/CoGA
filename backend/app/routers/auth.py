@@ -74,6 +74,7 @@ SIGNUP_OFF_DETAIL = (
     "Accounts are made at the first sign-in with a Microsoft account: there is no sign-up."
 )
 OWN_ROLE_DETAIL = "You cannot change your own role: ask another administrator."
+OWN_ACTIVE_DETAIL = "You cannot deactivate your own account: ask another administrator."
 EMERGENCY_ROLE_DETAIL = "The emergency administrator's role cannot be changed."
 EMERGENCY_ACTIVE_DETAIL = (
     "The emergency administrator cannot be deactivated: its sign-in is switched on and off "
@@ -376,6 +377,9 @@ async def update_user(
                 raise HTTPException(status_code=403, detail=OWN_ROLE_DETAIL)
             if is_emergency_admin_account(target):
                 raise HTTPException(status_code=403, detail=EMERGENCY_ROLE_DETAIL)
+        if update.is_active is False and str(target["id"]) == current.id:
+            # An administrator deactivating their own account locks themselves out (SEC-32).
+            raise HTTPException(status_code=403, detail=OWN_ACTIVE_DETAIL)
         if update.is_active is False and target["is_active"] and is_emergency_admin_account(target):
             raise HTTPException(status_code=403, detail=EMERGENCY_ACTIVE_DETAIL)
     updated, changes = await update_user_account(

@@ -275,3 +275,20 @@ def test_a_refused_download_leaves_the_file_on_disk_as_it_was(
 
     assert target.read_bytes() == kept
     assert [path.name for path in target.parent.iterdir()] == ["hp.obo"]
+
+
+def test_the_download_follows_a_redirect_only_to_another_https_url() -> None:
+    from urllib.error import URLError
+    from urllib.request import Request
+
+    handler = hpo_service._HttpsOnlyRedirects()
+    request = Request(HPO_PINNED_ONTOLOGY_URL)
+
+    # The PURL redirects to the release on GitHub: followed.
+    onward = handler.redirect_request(request, None, 302, "Found", {}, "https://github.com/obophenotype/hp.obo")
+    assert onward.full_url == "https://github.com/obophenotype/hp.obo"
+    # A redirect to plain HTTP was followed too (SEC-32); it is refused before any request.
+    with pytest.raises(URLError, match="not HTTPS"):
+        handler.redirect_request(request, None, 302, "Found", {}, "http://mirror.example.org/hp.obo")
+    # The download's opener is the one with this handler.
+    assert any(isinstance(each, hpo_service._HttpsOnlyRedirects) for each in hpo_service.urlopen.__self__.handlers)
