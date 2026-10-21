@@ -87,7 +87,7 @@ def test_a_review_saved_with_acmg_criteria_comes_back_through_the_list(monkeypat
                 ).scalar_one()
                 await s.commit()
             context = SimpleNamespace(
-                family_uuid=family_uuid, family_id=label, project_ids=[], assembly_name="GRCh38"
+                family_uuid=family_uuid, family_id=label, project_ids=[], assembly_name="GRCh38", assembly_id=None
             )
             user = SimpleNamespace(id=None, username="reviewer", email="reviewer@x.org")
 
@@ -191,7 +191,7 @@ def test_a_review_holding_only_an_acmg_record_counts_as_reviewed(monkeypatch) ->
                 ).scalar_one()
                 await s.commit()
             context = SimpleNamespace(
-                family_uuid=family_uuid, family_id=label, project_ids=[], assembly_name="GRCh38"
+                family_uuid=family_uuid, family_id=label, project_ids=[], assembly_name="GRCh38", assembly_id=None
             )
             async with sm() as s:
                 await svr.upsert_small_variant_review(

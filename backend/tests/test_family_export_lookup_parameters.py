@@ -37,6 +37,8 @@ from backend.app.services.structural_variant_review_pg import get_structural_var
 from backend.app.services.sv_gene_index_service import get_sv_second_hits
 
 _FAMILY = "00000000-0000-0000-0000-00000000da73"
+# The family's assembly, whose gene profiles the constraint lookup reads (TRACE-15).
+_ASSEMBLY = "00000000-0000-0000-0000-0000000a55e7"
 # What an export reads: its 50,000-row cap and one row more (#512).
 _EXPORT_READ = 50_001
 # The most parameters asyncpg sends in one statement.
@@ -134,12 +136,14 @@ def test_the_gene_constraint_lookup_binds_any_number_of_genes_as_one_parameter_p
         for index in range(_EXPORT_READ)
     ]
     session = _RecordingSession()
-    asyncio.run(cfv._fetch_gene_constraint_metric_map(session, variants))
+    asyncio.run(cfv._fetch_gene_constraint_metric_map(session, variants, assembly_id=_ASSEMBLY))
 
     statement, params = session.calls[0]
     names, values = _sent(statement, params)
-    # One array of symbols and one of gene ids; before, 100,002 parameters.
-    assert names == ["gene_symbols", "gene_ids"]
+    # The family's assembly, one array of symbols and one of gene ids; before, 100,002
+    # parameters.
+    assert names == ["assembly_id", "gene_symbols", "gene_ids"]
+    assert values["assembly_id"] == _ASSEMBLY
     assert values["gene_symbols"] == sorted(f"G{index}" for index in range(_EXPORT_READ))
     assert values["gene_ids"] == sorted(f"ENSG{index:011d}" for index in range(_EXPORT_READ))
 
@@ -161,14 +165,18 @@ def test_the_gene_constraint_lookup_maps_its_rows_back_to_the_variants_as_before
     ]
     session = _RecordingSession(rows)
 
-    metrics = asyncio.run(cfv._fetch_gene_constraint_metric_map(session, variants))
+    metrics = asyncio.run(cfv._fetch_gene_constraint_metric_map(session, variants, assembly_id=_ASSEMBLY))
 
     assert metrics == {
         "by-id": {"gene_pli": 0.9, "gene_missense_z": None},
         "by-symbol": {"gene_pli": None, "gene_missense_z": 3.1},
     }
     _statement, params = session.calls[0]
-    assert params == {"gene_symbols": ["GENEB", "GENEC", "OTHER"], "gene_ids": ["ENSG01", "ENSG03"]}
+    assert params == {
+        "assembly_id": _ASSEMBLY,
+        "gene_symbols": ["GENEB", "GENEC", "OTHER"],
+        "gene_ids": ["ENSG01", "ENSG03"],
+    }
 
 
 def test_the_sv_second_hit_lookup_binds_any_number_of_genes_as_one_parameter() -> None:
@@ -210,7 +218,7 @@ def _context() -> FamilyMetadataContext:
         sample_uuid_to_name={"22222222-2222-2222-2222-222222222222": "S1"},
         sample_name_to_uuid={"S1": "22222222-2222-2222-2222-222222222222"},
         affected_sample_names=["S1"],
-        assembly_id=None,
+        assembly_id=_ASSEMBLY,
         assembly_name="GRCh38",
     )
 

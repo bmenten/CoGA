@@ -56,6 +56,14 @@ A request whose inputs differ from every cached row misses, so an exact hit is n
 ranking computed on other inputs. The page number is not part of the key: the whole order is
 cached and each page is a slice of it.
 
+The scoring reads each gene's pLI and missense Z from the gene profiles of the family's
+assembly, the profiles the key's `gene_info.updated_at` covers, with the gene's symbol matched
+in any case ([gene_constraint_metrics.py](../backend/app/services/gene_constraint_metrics.py)).
+Until TRACE-15 it read the newest profile of any assembly, which a refresh of another
+assembly's profiles could change without changing the key, and a symbol written otherwise
+than its profile found no constraint. `_ALGORITHM_VERSION` 7 retires the rankings computed
+then.
+
 ## Resolving a panel
 
 A panel filter applies the panel's genes, the regions the panel stores for the family's

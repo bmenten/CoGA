@@ -360,7 +360,9 @@ async def upsert_small_variant_review(
         normalized_acmg, acmg_point_total, acmg_class = _normalize_acmg_payload(payload.acmg)
         # Freeze the evidence the classification was based on (None if it was cleared).
         acmg_evidence_snapshot = (
-            await freeze_evidence_snapshot(session, variant, now) if normalized_acmg else None
+            await freeze_evidence_snapshot(session, variant, now, assembly_id=context.assembly_id)
+            if normalized_acmg
+            else None
         )
     else:
         normalized_acmg = (existing or {}).get("acmg")

@@ -250,7 +250,7 @@ class _Session:
 
 
 _CONTEXT = types.SimpleNamespace(
-    family_uuid="u1", family_id="FAM1", project_ids=["p1"], assembly_name="GRCh38"
+    family_uuid="u1", family_id="FAM1", project_ids=["p1"], assembly_name="GRCh38", assembly_id="assembly-uuid"
 )
 
 

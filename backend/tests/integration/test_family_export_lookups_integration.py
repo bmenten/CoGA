@@ -143,7 +143,7 @@ async def _seed_postgres(session_factory) -> dict[str, str]:
                 {"a": assembly, "s": symbol, "g": gene_id, "e": json.dumps({"pLI": pli})},
             )
         await session.commit()
-    return {"family": family, "label": label}
+    return {"family": family, "label": label, "assembly": assembly}
 
 
 def test_the_lookups_take_more_ids_than_a_statement_has_parameters() -> None:
@@ -183,7 +183,7 @@ def test_the_lookups_take_more_ids_than_a_statement_has_parameters() -> None:
         async with session_factory() as session:
             reviews = await get_small_variant_review_map(session, family_uuid=family, variant_ids=small_ids)
             sv_reviews = await get_structural_variant_review_map(session, family_uuid=family, variant_ids=sv_ids)
-            metrics = await _fetch_gene_constraint_metric_map(session, variants)
+            metrics = await _fetch_gene_constraint_metric_map(session, variants, assembly_id=seeded["assembly"])
             second_hits = await get_sv_second_hits(session, family_uuid=family, gene_symbols=set(genes))
 
         # Exactly the rows seeded for the ids asked for, one past the 32,767th among them.
@@ -273,7 +273,9 @@ def _sv_record(index: int):
     )
 
 
-def _context(family_uuid: str, family_id: str, project: str):
+def _context(family_uuid: str, family_id: str, project: str, assembly_id: str):
+    """The family's context; its gene constraint is read from the gene profiles of
+    ``assembly_id`` (TRACE-15), the assembly ``_seed_postgres`` made."""
     from backend.app.services.family_metadata_context import FamilyMetadataContext
 
     return FamilyMetadataContext(
@@ -284,7 +286,7 @@ def _context(family_uuid: str, family_id: str, project: str):
         sample_uuid_to_name={_SAMPLE: _SAMPLE},
         sample_name_to_uuid={_SAMPLE: _SAMPLE},
         affected_sample_names=[_SAMPLE],
-        assembly_id=None,
+        assembly_id=assembly_id,
         assembly_name=_ASSEMBLY,
     )
 
@@ -335,7 +337,7 @@ def test_a_family_export_past_its_cap_is_cut_at_the_cap_and_says_so(monkeypatch)
         session_factory = get_postgres_sessionmaker()
         seeded = await _seed_postgres(session_factory)
         family, label, project = seeded["family"], seeded["label"], str(uuid4())
-        context = _context(family, label, project)
+        context = _context(family, label, project, seeded["assembly"])
 
         async def _family_context(*_args, **_kwargs):
             return context

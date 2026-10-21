@@ -223,9 +223,13 @@ async def evaluate_classification_drift(
 
     compared: list[tuple[Any, dict[str, Any], Any]] = []
     for row in rows:
-        snapshot = row["acmg_evidence_snapshot"]
-        if not isinstance(snapshot, dict):
-            continue
+        stored = row["acmg_evidence_snapshot"]
+        # A snapshot that is not a JSON object, which the writer never stores, froze nothing
+        # that can be read: it is compared as one that froze nothing, so it reads as unknown
+        # (or as variant_missing), as an unreadable SV/CNV snapshot does. It was skipped, and
+        # so counted neither as checked nor, at sign-out, as without a snapshot: it cleared
+        # the drift gate unexamined (TRACE-15).
+        snapshot = stored if isinstance(stored, dict) else {}
         current_record = None
         if context.assembly_name:
             current_record = await get_small_variant_family_record(
@@ -239,6 +243,7 @@ async def evaluate_classification_drift(
     missense_z = await evidence_gene_missense_z(
         session,
         {str(row["variant_id"]): record for row, _snapshot, record in compared if record is not None},
+        assembly_id=context.assembly_id,
     )
 
     drifted: list[dict[str, Any]] = []

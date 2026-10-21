@@ -62,8 +62,9 @@ is one whose consequence includes `missense_variant`, as the dialog tells one fo
 group is left out and the gene's profile is not read (the owner's decision, 2026-10-20). The
 missense Z is not in the variant's annotation but in the gene's profile (`gene_info`), so it is
 read with the variant list's own lookup (`gene_constraint_metrics.fetch_gene_constraint_metrics`),
-for the gene the variant is served with: the primary transcript's gene id, else its symbol, else
-the variant's first gene. Every field is frozen, `null` without a value, so a value that appears
+in the profiles of the family's assembly, for the gene the variant is served with: the primary
+transcript's gene id, else its symbol, in any case, else the variant's first gene. Until TRACE-15
+the lookup read the newest profile of any assembly, and matched a symbol only as written. Every field is frozen, `null` without a value, so a value that appears
 later is a change; a value JSONB cannot hold (NaN, infinity) is frozen as `null`. A snapshot taken
 before these values were frozen (CLIN-7) holds none of them; one taken before the consequence and
 the missense Z were holds `transcript_id`, `frequencies` and `in_silico` only.
@@ -184,7 +185,10 @@ the variant's current annotation:
   `annotations` when the hash moved; `evidence_from` and `evidence_to` hold the transcript,
   consequence, frequencies, in-silico scores and missense Z as frozen and as they are now;
 - `unknown`: nothing is seen to have moved, but a hash is missing or a frozen group cannot be
-  read, so the match cannot be verified;
+  read, so the match cannot be verified. A stored snapshot that is not a JSON object, which the
+  writer never stores, is compared as one that froze nothing, and so is `unknown` too (or
+  `variant_missing`); until TRACE-15 it was skipped, and counted neither as checked nor, at
+  sign-out, as without a snapshot;
 - `variant_missing`: the variant is no longer in the data.
 
 Only the values a snapshot froze are compared, numbers by value (JSONB keeps a number's digits,

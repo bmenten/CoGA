@@ -68,7 +68,10 @@ from .hpo_service import get_loaded_hpo_release
 #    one of its regions as well as one annotated with one of its genes (owner decision
 #    2026-10-14, reversing CLIN-34's limit). A ranking cached before on such a panel lacks
 #    the variants it reaches by position only; its digest of the panel is unchanged.
-_ALGORITHM_VERSION = "6"
+# 7: a variant's gene pLI and missense Z, which its score reads, come from the gene profiles
+#    of the family's assembly, its symbol matched in any case (TRACE-15). A ranking cached
+#    before may have scored a gene on another assembly's profile, or without its constraint.
+_ALGORITHM_VERSION = "7"
 # Keep only the few most-recent distinct query signatures per family.
 _MAX_CACHE_ROWS_PER_FAMILY = 6
 
