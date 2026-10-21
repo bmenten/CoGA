@@ -24,7 +24,15 @@ from ..core.object_storage import (
 from ..schemas import FamilyImportValidationIssue
 
 from .family_identifiers import visible
-from .family_package_common import PED_FOLDER, PackageManifest, _issue, package_path_within, runs_through_symlink_loop
+from .family_package_common import (
+    NUL,
+    NUL_IN_PATH,
+    PED_FOLDER,
+    PackageManifest,
+    _issue,
+    package_path_within,
+    runs_through_symlink_loop,
+)
 from .family_package_long_read import long_read_sample_ids
 
 
@@ -242,6 +250,9 @@ def _ensure_authorized_package_path(path: Path) -> Path:
     so the authorized folder is looked up to find one, and a loop is refused on every version.
     """
     written = str(path)
+    if NUL in written:
+        # Every look-up of the path raised ValueError on it: a 500 (SAFE-5).
+        raise HTTPException(status_code=400, detail=f"Family import path '{visible(written)}' {NUL_IN_PATH}")
     if os.path.expanduser(written).startswith("~"):
         raise HTTPException(
             status_code=400,

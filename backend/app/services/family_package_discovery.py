@@ -19,7 +19,7 @@ from ..schemas import (
 )
 
 from .family_identifiers import visible
-from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
+from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, nul_location, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
 from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
@@ -2039,6 +2039,14 @@ def write_family_package_manifest(
         raise HTTPException(status_code=400, detail=f"Manifest YAML does not parse: {exc}") from exc
     if not isinstance(payload, dict):
         raise HTTPException(status_code=400, detail="Manifest YAML must contain a mapping/object")
+    # Refused before it is written: no path or name holds one, and every look-up of a path
+    # with one raised ValueError (SAFE-5).
+    nul_at = nul_location(payload)
+    if nul_at is not None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Manifest YAML holds a NUL character at {nul_at}, which no path or name can hold",
+        )
     PackageManifest.model_validate(payload)
     manifest_path.write_text(manifest_yaml, encoding="utf-8")
     return FamilyPackageManifestWriteOut(

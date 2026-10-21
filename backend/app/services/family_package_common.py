@@ -584,6 +584,31 @@ def runs_through_symlink_loop(path: str | os.PathLike[str]) -> bool:
     return False
 
 
+NUL = "\x00"
+NUL_IN_PATH = "holds a NUL character, which no file or folder name can hold"
+
+
+def nul_location(value: Any, where: str = "") -> str | None:
+    """Where a NUL character sits in a parsed manifest, as the keys and positions that lead
+    to it (``datasets.snv.vcf``, ``samples[0].id``), or None when it holds none."""
+    if isinstance(value, str):
+        return (where or "the document") if NUL in value else None
+    if isinstance(value, dict):
+        for key, item in value.items():
+            name = f"{where}.{visible(str(key))}" if where else visible(str(key))
+            if NUL in str(key):
+                return name
+            found = nul_location(item, name)
+            if found is not None:
+                return found
+    if isinstance(value, list):
+        for position, item in enumerate(value):
+            found = nul_location(item, f"{where}[{position}]")
+            if found is not None:
+                return found
+    return None
+
+
 def _resolve_package_path(root: Path, value: str | None) -> Path | None:
     """The path a manifest names (or Discover's requested ``ped_path``) in the package folder
     ``root``, its ``..`` and symlinks resolved; None for an empty value.
@@ -598,6 +623,9 @@ def _resolve_package_path(root: Path, value: str | None) -> Path | None:
     if value is None or not str(value).strip():
         return None
     written = str(value).strip()
+    if NUL in written:
+        # Every look-up of the path raised ValueError on it: a 500 (SAFE-5).
+        raise HTTPException(status_code=400, detail=f"Package manifest path '{visible(written)}' {NUL_IN_PATH}")
     if written.startswith("~"):
         raise HTTPException(
             status_code=400,
