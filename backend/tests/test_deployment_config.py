@@ -17,7 +17,7 @@ from secrets import token_hex, token_urlsafe
 
 import pytest
 import yaml
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from app.core.config import Settings, _development_version
 from backend.tests._release_repo import GIT_ENV as _GIT_ENV
@@ -675,13 +675,28 @@ def test_terraform_gives_every_container_of_the_backend_image_no_cross_origin_ac
         assert environment.get("CORS_ORIGIN_REGEX") == "", address
 
 
-def _frontend_hsts_switch() -> str:
-    """The ENABLE_HSTS value with which the frontend server sends HSTS. securityHeaders.mjs
-    compares the variable with one string, where the backend's settings read it as a boolean:
-    "1" or "True" would turn on the API's HSTS and not the page's."""
-    switches = re.findall(r"process\.env\.ENABLE_HSTS === '([^']*)'", (REPO / "frontend" / "securityHeaders.mjs").read_text())
-    assert len(switches) == 1, f"the frontend server no longer reads ENABLE_HSTS as this test expects: {switches}"
-    return switches[0]
+def _frontend_hsts_switches() -> set[str]:
+    """The ENABLE_HSTS values, lower-cased, with which the frontend server sends HSTS
+    (``HSTS_ON`` in securityHeaders.mjs, compared in any case)."""
+    found = re.findall(r"const HSTS_ON = new Set\(\[([^\]]*)\]\)", (REPO / "frontend" / "securityHeaders.mjs").read_text())
+    assert len(found) == 1, f"the frontend server no longer reads ENABLE_HSTS as this test expects: {found}"
+    return {value.strip().strip("'") for value in found[0].split(",")}
+
+
+def test_the_frontend_reads_enable_hsts_as_the_backend_does() -> None:
+    # Compose hands both containers the one ENABLE_HSTS from .env. The frontend compared it with
+    # the one string `true`, where the backend's settings read it as a boolean: "1", "True" or
+    # "yes" sent HSTS from the API and not from the page (SEC-23).
+    reads_true = TypeAdapter(bool)
+
+    def backend_true(value: str) -> bool:
+        try:
+            return reads_true.validate_python(value) is True
+        except ValidationError:
+            return False
+
+    candidates = ["0", "1", "2", "f", "t", "n", "y", "no", "yes", "off", "on", "false", "true", "maybe", "enabled"]
+    assert _frontend_hsts_switches() == {value for value in candidates if backend_true(value)}
 
 
 def _hsts_policy(source: str) -> str:
@@ -700,7 +715,7 @@ def test_the_app_page_and_the_api_both_send_hsts_on_google_cloud(monkeypatch) ->
     assert "google_cloud_run_v2_service.frontend" in frontend
     for address, container in frontend.items():
         environment = _environment(container, optional=False)
-        assert environment.get("ENABLE_HSTS") == _frontend_hsts_switch(), f"{address} sends no HSTS"
+        assert str(environment.get("ENABLE_HSTS")).lower() in _frontend_hsts_switches(), f"{address} sends no HSTS"
     backend = _backend_containers()["google_cloud_run_v2_service.backend"]
     settings = _load_settings(monkeypatch, {**_image_environment(), **_environment(backend, optional=False)})
     assert settings.enable_hsts is True, "the API sends no HSTS"

@@ -58,6 +58,16 @@ export const PERMISSIONS_POLICY = [
   'display-capture=()',
 ].join(', ');
 
+// The values of ENABLE_HSTS that switch HSTS on: those the backend's setting reads as true
+// (pydantic's booleans, any case). Compose hands both containers the one value from .env, and
+// the frontend took only an exact `true`, so `1`, `True` or `yes` sent HSTS from the API alone
+// (SEC-23).
+const HSTS_ON = new Set(['1', 'on', 't', 'true', 'y', 'yes']);
+
+export function hstsEnabled(value = process.env.ENABLE_HSTS) {
+  return HSTS_ON.has(String(value ?? '').trim().toLowerCase());
+}
+
 /**
  * Express middleware that sets the SPA security headers. HSTS is read at call time
  * (opt-in via ENABLE_HSTS) so it is only emitted behind a TLS-terminating proxy.
@@ -69,7 +79,7 @@ export function securityHeaders(_req, res, next) {
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader('Permissions-Policy', PERMISSIONS_POLICY);
-  if (process.env.ENABLE_HSTS === 'true') {
+  if (hstsEnabled()) {
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   }
   next();
