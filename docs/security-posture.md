@@ -61,7 +61,9 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   `audit_log_events` row of such a request names the kind in `request_meta.record_hidden`
   (`family`, `sample` or `project`), which the response never carries
   (`main._answer_record_not_visible`), and the admin *Audit logs* page shows it in its
-  *Flags* column (§2).
+  *Flags* column (§2). Another user's filter preset, on delete, and import job, on read,
+  answer the same way (`404 Preset not found`, `404 Family import job not found`), their rows
+  naming `filter_preset` or `import_job` (SEC-9).
   `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` asks every route with a
   family or sample ID in its path, on real Postgres, for a family of another project and for
   an unknown one, and requires the same status and body. Refusals because of the caller's

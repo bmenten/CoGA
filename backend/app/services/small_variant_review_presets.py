@@ -12,7 +12,7 @@ from ..schemas import (
     SmallVariantFilterPresetCreate,
     SmallVariantFilterPresetOut,
 )
-from .access_control import CurrentUser
+from .access_control import CurrentUser, RecordNotVisible
 from .review_pg_utils import _json_payload
 
 # A small-variant preset is its owner's, reusable in every family they can open (#681).
@@ -160,7 +160,8 @@ async def delete_small_variant_filter_preset_for_owner(
     if row is None:
         raise HTTPException(status_code=404, detail="Preset not found")
     if row["owner"] != user.username:
-        raise HTTPException(status_code=403, detail="Not authorized to delete this preset")
+        # Another user's preset answers as an unknown one does (SEC-9, REQ-SEC-001).
+        raise RecordNotVisible("filter_preset", "Preset not found")
     await session.execute(
         text("DELETE FROM small_variant_filter_presets WHERE id = CAST(:preset_id AS uuid)"),
         {"preset_id": preset_uuid},
