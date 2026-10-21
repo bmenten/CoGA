@@ -21,6 +21,7 @@ from .family_structure_audit import (
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from .nipt import FAMILY_ANALYSIS_TYPE_KEY, MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
+from .pedigree_text import PedMember, pedigree_text, phenotype_code, sex_code
 from .upload_safety import decode_upload_text
 from .hpo_service import (
     FAMILY_BUILDER,
@@ -77,16 +78,10 @@ def _parse_ped_text(text_value: str) -> dict[str, list[dict[str, str]]]:
     return families
 
 
-def _sex_code_from_label(sex: str) -> str:
-    return {"male": "1", "female": "2"}.get(sex, "0")
-
-
-def _phenotype_code_from_clinical_status(clinical_status: str) -> str:
-    if clinical_status == "affected":
-        return "2"
-    if clinical_status == "unaffected":
-        return "1"
-    return "0"
+# PED's sex and phenotype columns, by the one rule the family's PED text is written with
+# (``pedigree_text``).
+_sex_code_from_label = sex_code
+_phenotype_code_from_clinical_status = phenotype_code
 
 
 def _pedigree_status_from_phenotype(phenotype: str) -> str:
@@ -166,7 +161,8 @@ async def build_pedigree_text(session: AsyncSession, *, family_id: str) -> str:
 
     Uses the live ``family_members`` / ``family_relationships`` / ``samples`` rows
     rather than the stored ``families.pedigree`` blob, so the result reflects any
-    edits made through the family workspace after the original import.
+    edits made through the family workspace after the original import: the text the
+    family page draws (``pedigree_text``, SAFE-8).
     """
     member_result = await session.execute(
         text(
@@ -181,15 +177,6 @@ async def build_pedigree_text(session: AsyncSession, *, family_id: str) -> str:
             JOIN samples s ON s.id = fm.sample_id
             WHERE f.family_id = :family_id
               AND fm.active IS NOT FALSE
-            ORDER BY
-                CASE fm.role
-                    WHEN 'father' THEN 0
-                    WHEN 'mother' THEN 1
-                    WHEN 'proband' THEN 2
-                    WHEN 'sibling' THEN 3
-                    ELSE 4
-                END,
-                lower(s.sample_id)
             """
         ),
         {"family_id": family_id},
@@ -227,20 +214,20 @@ async def build_pedigree_text(session: AsyncSession, *, family_id: str) -> str:
         elif row["role_a"] == "mother":
             mother_by_child[row["child_id"]] = row["parent_id"]
 
-    lines = [
-        " ".join(
-            [
-                family_id,
-                member["sample_id"],
-                father_by_child.get(member["sample_id"], "0"),
-                mother_by_child.get(member["sample_id"], "0"),
-                _sex_code_from_label(member["sex"]),
-                _phenotype_code_from_clinical_status(member["clinical_status"] or "unknown"),
-            ]
-        )
-        for member in members
-    ]
-    return "\n".join(lines) + "\n"
+    return pedigree_text(
+        family_id,
+        (
+            PedMember(
+                sample_id=member["sample_id"],
+                sex=member["sex"],
+                clinical_status=member["clinical_status"],
+                role=member["role"],
+            )
+            for member in members
+        ),
+        fathers=father_by_child,
+        mothers=mother_by_child,
+    )
 
 
 def _manual_clinical_status(member: ManualPedMemberCreate) -> str:
