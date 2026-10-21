@@ -1139,7 +1139,8 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
             else import_result
         )
         if not import_result:
-            # Read as a BED, into this dataset's own track: a BED upload's APCAD stays.
+            # Read as a BED, into this dataset's own track: a BED upload's APCAD stays. Its
+            # record says a package loaded it, as every package loader's does (TRACE-17).
             async with _local_upload(bed_path) as upload:
                 sample_results[sample_id] = await upload_bed_data(
                     session,
@@ -1148,6 +1149,7 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                     file=upload,
                     overwrite=True,
                     source=APCAD_SOURCE,
+                    uploaded_from="family_package",
                 )
         if reporter is not None:
             await reporter({})
@@ -1405,7 +1407,12 @@ async def _import_target_coverage_table(
         source=TARGET_COVERAGE_SOURCE,
         filename=table_path.name,
         row_count=len(rows),
-        metadata={"format": "per_target_coverage_table", "targets": len(rows)},
+        # Where the table came from, as every package loader's record says (TRACE-17).
+        metadata={
+            "format": "per_target_coverage_table",
+            "targets": len(rows),
+            "uploaded_from": "family_package",
+        },
     )
     return {"inserted": len(rows), "track_type": TARGET_COVERAGE_TRACK_TYPE}
 

@@ -48,8 +48,31 @@ const text = (value: unknown): string | null =>
   typeof value === 'string' && value.trim() ? value : null;
 const number = (value: unknown): number | null =>
   typeof value === 'number' && Number.isFinite(value) ? value : null;
-const strings = (value: unknown): string[] =>
-  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+// While a section of what the analysis looked at is parsed (`parseRecordSection`): how many of
+// its lists the record holds malformed, a value that is no list where one belongs, or an entry
+// of a list that is not of its kind. The parse reads such a list as empty and leaves such an
+// entry out, so the section says that part of it cannot be read here, rather than reading as if
+// it held nothing (TRACE-17). Null outside a section's parse.
+let malformedInSection: number | null = null;
+
+const noteMalformed = (count = 1): void => {
+  if (malformedInSection !== null && count > 0) malformedInSection += count;
+};
+
+/** A list as the record holds it: [] when it is not there, and when it is no list (noted). */
+const list = (value: unknown): unknown[] => {
+  if (Array.isArray(value)) return value;
+  if (value !== undefined && value !== null) noteMalformed();
+  return [];
+};
+
+const strings = (value: unknown): string[] => {
+  const entries = list(value);
+  const kept = entries.filter((item): item is string => typeof item === 'string');
+  noteMalformed(entries.length - kept.length);
+  return kept;
+};
 const has = (record: Json, key: string): boolean => Object.prototype.hasOwnProperty.call(record, key);
 
 /** An override of a sign-out gate, as frozen: `null` when the record holds none. */
@@ -224,11 +247,14 @@ export const LIVE_REPORT_SIGN_OFF_STATEMENT =
  * record signed before CoGA recorded it, `unavailable` when it could not be read at sign-out
  * (the reason frozen in its place), else `recorded`. Adding a section: parse it with
  * `parseRecordSection` and render it with `RecordSectionBlock` (SignedFamilyReport.tsx).
+ *
+ * A recorded section's `malformed` counts the lists of it this view cannot read: a value that
+ * is no list, or an entry not of its list's kind, each read as empty or left out (TRACE-17).
  */
 export type SignedRecordSection<T> =
   | { state: 'absent' }
   | { state: 'unavailable'; reason: string }
-  | { state: 'recorded'; value: T };
+  | { state: 'recorded'; value: T; malformed?: number };
 
 export interface SignedGenotype {
   sample: string;
@@ -1043,13 +1069,34 @@ export const parseRecordSection = <T>(
   if (!isObject(value)) return { state: 'unavailable', reason: UNREADABLE_SECTION };
   const reason = text(value.unavailable);
   if (reason) return { state: 'unavailable', reason };
-  return { state: 'recorded', value: parse(value) };
+  const outer = malformedInSection;
+  malformedInSection = 0;
+  try {
+    const parsed = parse(value);
+    const malformed = malformedInSection;
+    return malformed ? { state: 'recorded', value: parsed, malformed } : { state: 'recorded', value: parsed };
+  } finally {
+    // A section read within another (the reference data's parts) counts for that one too.
+    malformedInSection = outer === null ? null : outer + (malformedInSection ?? 0);
+  }
 };
 
-const numbers = (value: unknown): number[] | null =>
-  Array.isArray(value) ? value.filter((item): item is number => number(item) !== null) : null;
+/** Numbers as the record holds them: null when not there; a missing (null) entry left out. */
+const numbers = (value: unknown): number[] | null => {
+  if (!Array.isArray(value)) {
+    if (value !== undefined && value !== null) noteMalformed();
+    return null;
+  }
+  noteMalformed(value.filter((item) => item !== null && number(item) === null).length);
+  return value.filter((item): item is number => number(item) !== null);
+};
 
-const objects = (value: unknown): Json[] => (Array.isArray(value) ? value.filter(isObject) : []);
+const objects = (value: unknown): Json[] => {
+  const entries = list(value);
+  const kept = entries.filter(isObject);
+  noteMalformed(entries.length - kept.length);
+  return kept;
+};
 
 const parseGenotypes = (value: unknown): SignedGenotype[] =>
   objects(value).map((genotype) => ({
@@ -1147,7 +1194,9 @@ const parseCatalogue = (value: unknown, entries: string): SignedCatalogue | null
 /** A count's near-boundary warning as frozen: kept whenever the record holds one, even in part. */
 const parseCountUnitWarning = (value: unknown): SignedCountUnitWarning | null => {
   if (!isObject(value)) return null;
-  const entries = Array.isArray(value.boundaries) ? (value.boundaries as unknown[]) : [];
+  // Each boundary that cannot be read is counted below (`unreadableBoundaries`); a value that is
+  // no list is noted as malformed.
+  const entries = list(value.boundaries);
   const boundaries = entries.flatMap((entry): SignedCountBoundary[] => {
     if (!isObject(entry)) return [];
     const repeatCount = number(entry.repeat_count);
@@ -1274,7 +1323,9 @@ const parseQcVerdict = (value: unknown): SignedPgtQcVerdict | null => {
   if (!isObject(value)) return null;
   const status = QC_VERDICT_STATUSES.find((candidate) => candidate === value.status);
   if (!status) return null;
-  const entries = Array.isArray(value.findings) ? (value.findings as unknown[]) : [];
+  // Each finding that cannot be read is counted below (`unreadableFindings`); a value that is no
+  // list is noted as malformed.
+  const entries = list(value.findings);
   const findings = entries.flatMap((entry): PgtEmbryoQcFindingOut[] => {
     if (!isObject(entry)) return [];
     const measure = QC_MEASURES.find((candidate) => candidate === entry.measure);
@@ -1284,8 +1335,9 @@ const parseQcVerdict = (value: unknown): SignedPgtQcVerdict | null => {
   });
   return {
     status,
-    sides: (Array.isArray(value.sides) ? (value.sides as unknown[]) : []).flatMap((side) => {
+    sides: list(value.sides).flatMap((side) => {
       const read = parentSide(side);
+      if (!read) noteMalformed();
       return read ? [read] : [];
     }),
     findings,

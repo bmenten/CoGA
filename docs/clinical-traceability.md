@@ -590,7 +590,12 @@ coverage tracks beside them in the footer (*Coverage tracks as signed: S1 covera
 — read depth; S1 WisecondorX (package) — log2 ratio; …*) with the report code; and
 `not_captured`. A section the snapshot lacks is shown as not in the
 record (*Not in the signed record: version N was signed before CoGA recorded …*), never as
-empty, and one frozen as unavailable as not captured, with its reason. A record without
+empty, and one frozen as unavailable as not captured, with its reason. A list of a section that
+the view cannot read (a value that is no list, an entry not of the list's kind) is left out, and
+the section says so (*Part of … cannot be read here (N lists or entries): it is left out below,
+and the downloaded record holds it as stored*); it used to read as empty (TRACE-17). A reported
+variant without a description it can read, in a record holding descriptions it cannot read,
+names both causes rather than one. A record without
 `pgt_analysis` says so only when its Sample QC read the family as a PGT family
 (`sample_qc.application`); the record of any other family shows no PGT section. What no snapshot holds is
 said on the page: the population frequencies and in silico predictions the live report shows,

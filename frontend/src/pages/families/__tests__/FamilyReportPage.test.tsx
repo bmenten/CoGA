@@ -1546,6 +1546,26 @@ describe('FamilyReportPage', () => {
       // Both print: neither is kept off the printout.
       expect(coverage.closest('.no-print')).toBeNull();
       expect(within(footer).getByText('Coverage tracks as signed:').closest('.no-print')).toBeNull();
+      // The record's entry that is no track is said, not passed over as if there were none
+      // (TRACE-17).
+      expect(coverage).toHaveTextContent(
+        'Part of what each coverage track holds cannot be read here (1 list or entry): it is left out below, and the downloaded record holds it as stored.',
+      );
+    });
+
+    it('says a section’s list it cannot read, rather than reading it as empty (TRACE-17)', async () => {
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, gene_panels: { applied: 'not a list' } },
+      });
+      renderPage();
+
+      const panels = (await screen.findByRole('heading', { name: 'Gene panels applied' })).closest('section')!;
+      expect(within(panels).getByRole('note')).toHaveTextContent(
+        'Part of the gene panels the analysis applied cannot be read here (1 list or entry): it is left out below, and the downloaded record holds it as stored.',
+      );
+      // A section read in full says nothing of the kind.
+      const paraphase = (await screen.findByRole('heading', { name: 'Paraphase' })).closest('section')!;
+      expect(paraphase).not.toHaveTextContent('cannot be read here');
     });
 
     it('names the NIPT coverage check among the depth readers in a NIPT family’s record', async () => {
@@ -1777,6 +1797,23 @@ describe('FamilyReportPage', () => {
       const variant = (await screen.findByRole('heading', { name: '17-43000000-A-G' })).closest('article')!;
       expect(variant).toHaveTextContent(
         'The record holds no description of this variant: it was not in the family’s data when version 2 was signed.',
+      );
+    });
+
+    it('claims no cause for a missing description when the record holds descriptions it cannot read (TRACE-17)', async () => {
+      // Which variant an unreadable entry describes cannot be told: it may be this one's.
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          variant_descriptions: { small: ['not an entry'], structural: [] },
+        },
+      });
+      renderPage();
+
+      const variant = (await screen.findByRole('heading', { name: '17-43000000-A-G' })).closest('article')!;
+      expect(variant).toHaveTextContent(
+        'The record holds no description of this variant that this view can read: it was not in the family’s data when version 2 was signed, or its description is among those this view cannot read (1 list or entry; the downloaded record holds them as stored).',
       );
     });
 

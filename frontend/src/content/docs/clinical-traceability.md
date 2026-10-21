@@ -193,7 +193,9 @@ the clinical report in the EPD refers to:
 - the CoGA software version that produced it.
 
 A signed version can never change; any later tampering would show as a fingerprint mismatch. A part
-that could not be read while the version was frozen is recorded as not captured, never as empty.
+that could not be read while the version was frozen is recorded as not captured, never as empty. A
+part of a section this page cannot read is said too (*Part of … cannot be read here*), never shown
+as empty: the downloaded record holds it as stored.
 
 A monogenic NIPT family is signed out from the NIPT page as well (**Sign out NIPT analysis**): the
 same sign-out, with the same checks and report code, into the family's one signed record. Where you
