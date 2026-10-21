@@ -401,14 +401,14 @@ def test_the_mtdna_coverage_reads_each_members_track_of_read_depth(run) -> None:
     # Before: the proband's 120x BED blended with her bins and HiFiCNV's log2 ratio (about 32x,
     # minimum -0.1), the mother's bins as her depth (0.1x), the father's depths with his QDNAseq
     # bins (about 7x, minimum -0.2).
-    assert summary[f"PROBAND_{mito}"] == (120.0, 120.0, 120.0, "coverage")
+    assert summary[f"PROBAND_{mito}"] == (120.0, 120.0, 120.0, "coverage BED")
     assert coverage[f"PROBAND_{mito}"]["breadth"] == 1.0
     # The mother has no track of read depth: her calls' depth, as without a coverage track.
     assert summary[f"MOTHER_{mito}"] == (500.0, 500.0, 500.0, "variant calls")
-    # The father's HiFiCNV depths stored as read: 60x over 1-1000 and 80x over 1000-2000.
-    mean, minimum, maximum, _source = summary[f"FATHER_{mito}"]
-    assert (round(mean, 2), minimum, maximum) == (70.0, 60.0, 80.0)
-    assert round(coverage[f"FATHER_{mito}"]["breadth"], 3) == 0.121
+    # The father's HiFiCNV depths stored as read: 60x over chrM's first 1,000 bases and 80x over
+    # the next 1,000, each bin counted over its 1,000 bases (CLIN-56; before: 1,000 and 1,001).
+    assert summary[f"FATHER_{mito}"] == (70.0, 60.0, 80.0, "HiFiCNV coverage")
+    assert coverage[f"FATHER_{mito}"]["breadth"] == pytest.approx(2_000 / MT_LENGTH)
     # Each chrM track left out is named, with the reason (TRACE-9).
     assert [note for note in run["mtdna"]["json"]["qc_notes"] if "not read as depth" in note] == [
         f"FATHER_{mito}: the QDNAseq coverage holds log2 ratios, not read depth; it is not read as depth.",

@@ -31,6 +31,7 @@ from .clickhouse_variant_queries import _parent_child_links
 from .coverage_read_depth import (
     COVERAGE_TRACK_TYPE,
     SampleCoverageTracks,
+    coverage_track_label,
     coverage_tracks_by_sample,
     not_read_as_depth_note,
 )
@@ -48,6 +49,10 @@ HETEROPLASMY_THRESHOLD = 0.02
 HOMOPLASMY_THRESHOLD = 0.95
 MITOMAP_ALLELE_SEARCH_URL = "https://www.mitomap.org/cgi-bin/search_allele"
 MAX_MTDNA_VARIANTS = 5_000
+# The most chrM coverage rows read for a sample: those of its one track of read depth. A track
+# whose rows do not overlap holds at most one row per base of chrM, so this does not cut one
+# short. Until #852 it held for the family's rows together, and cut per-base tracks short.
+MAX_MT_COVERAGE_ROWS = 50_000
 
 MT_LOCI: tuple[dict[str, Any], ...] = (
     {"gene": "MT-CR", "region": "control region", "category": "control", "start": 1, "end": 576},
@@ -624,34 +629,46 @@ def _structural_variant_out(
     )
 
 
-def _coverage_from_rows(rows: Sequence[dict[str, Any]]) -> MitoDNACoverageOut:
+def _coverage_from_rows(rows: Sequence[dict[str, Any]], source: str) -> MitoDNACoverageOut:
+    """A sample's chrM coverage from the rows of its one coverage track of read depth, stored
+    under ``source`` (``_coverage_by_sample``), named after that track.
+
+    A row is stored as a BED line states it, half-open and 0-based: it covers the
+    ``end - start`` bases from ``start``, cut to chrM's length, and a row that covers no base
+    of chrM counts for nothing. Each row counted one base more (CLIN-56), so a per-base track
+    read about twice its breadth, and a row past chrM's end one base. The mean depth is over
+    the bases the rows cover. The breadth is the share of chrM's bases a row gives a depth
+    above 0: a coverage BED's row of depth 0 counts no more than the bins without reads that
+    HiFiCNV's track leaves out (``skip_zero``); it counted as covered.
+    """
     if not rows:
         return MitoDNACoverageOut()
     weighted_total = 0.0
+    measured_bases = 0
     covered_bases = 0
     values: list[float] = []
-    sources: list[str] = []
     for row in rows:
         value = _float(row.get("value"))
         if value is None:
             continue
-        start = max(_int(row.get("start")) or 0, 1)
-        end = min(_int(row.get("end")) or start, MT_GENOME_LENGTH)
-        width = max(end - start + 1, 1)
-        covered_bases += width
+        start = max(_int(row.get("start")) or 0, 0)
+        end = min(_int(row.get("end")) or 0, MT_GENOME_LENGTH)
+        width = end - start
+        if width <= 0:
+            continue
+        measured_bases += width
         weighted_total += value * width
+        if value > 0:
+            covered_bases += width
         values.append(value)
-        source = _text(row.get("origin")) or _text(row.get("record_id"))
-        if source and source not in sources:
-            sources.append(source)
     if not values:
         return MitoDNACoverageOut(regions=len(rows))
     return MitoDNACoverageOut(
-        mean_depth=weighted_total / max(covered_bases, 1),
+        mean_depth=weighted_total / measured_bases,
         min_depth=min(values),
         max_depth=max(values),
         breadth=min(covered_bases / MT_GENOME_LENGTH, 1.0),
-        source=", ".join(sources[:3]) if sources else "coverage",
+        source=coverage_track_label(source),
         regions=len(rows),
     )
 
@@ -737,14 +754,14 @@ async def _coverage_by_sample(
                 track_type=COVERAGE_TRACK_TYPE,
                 chromosomes=MT_CHROMOSOMES,
                 source=source,
-                limit=50_000,
+                limit=MAX_MT_COVERAGE_ROWS,
             )
             for _sample_name, sample_uuid, source in samples
         )
     )
     return {
-        sample_name: _coverage_from_rows(rows)
-        for (sample_name, _sample_uuid, _source), rows in zip(samples, fetched)
+        sample_name: _coverage_from_rows(rows, source)
+        for (sample_name, _sample_uuid, source), rows in zip(samples, fetched)
         if rows
     }, notes
 
