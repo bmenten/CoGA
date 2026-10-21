@@ -87,7 +87,8 @@ banner lists every classification whose evidence changed:
   position. It says *annotation changed* when only its other annotation changed, and *its frozen
   evidence cannot be compared* when the frozen evidence cannot be read or does not name its caller;
 - the variant is no longer in the data (for a structural variant: the call of the caller its evidence
-  was frozen from, even when another caller still calls the event).
+  was frozen from, even when another caller still calls the event, and the line names that caller:
+  *its needlr call is no longer present in the dataset*).
 
 Re-review a listed variant before sign-out. Saving its classification again freezes the evidence as it
 is now.

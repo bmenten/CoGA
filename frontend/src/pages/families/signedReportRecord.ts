@@ -2200,9 +2200,17 @@ export const describeStructuralEvidenceChange = (
   return parts.length ? parts.join('; ') : null;
 };
 
+/**
+ * What is gone when an SV/CNV classification's variant is missing: the call of the caller its
+ * evidence was frozen from ("its needlr call is no longer present"), which another caller may
+ * still call under the same id (TRACE-12). Unnamed when the frozen evidence names no caller.
+ */
+export const describeMissingStructuralCall = (evidence: ApiStructuralEvidence | null): string =>
+  evidence?.source ? `its ${evidence.source} call is no longer present` : 'no longer present';
+
 /** Why an SV/CNV classification counted as drift when the version was signed. */
 export const describeSignedStructuralDrift = (item: SignedStructuralDriftItem): string => {
-  if (item.status === 'variant_missing') return 'no longer present in the data';
+  if (item.status === 'variant_missing') return `${describeMissingStructuralCall(item.evidenceFrom)} in the data`;
   if (item.status === 'no_snapshot') {
     return 'no frozen evidence (no CNV scoring saved)';
   }

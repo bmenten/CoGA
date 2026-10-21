@@ -532,8 +532,9 @@ describe('FamilyReportPage', () => {
       'sv-genes (structural variant) — genes TCF4, TXNL1 → TCF4; pLI 0.990 → 0.410 (classified by bob)',
     );
     expect(items).toContain('sv-annotation (structural variant) — annotation changed (classified by bob)');
+    // The caller whose call is gone is named: another caller may still call the SV (TRACE-12).
     expect(items).toContain(
-      'sv-gone (structural variant) — no longer present in the dataset (classified by bob)',
+      'sv-gone (structural variant) — its needlr call is no longer present in the dataset (classified by bob)',
     );
     expect(items).toContain(
       'sv-unreadable (structural variant) — its frozen evidence cannot be compared (classified by bob)',
