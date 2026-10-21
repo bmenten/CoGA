@@ -64,3 +64,12 @@ export function clearSession(): void {
   storage.removeItem(AUTH_STORAGE_KEYS.role);
   storage.removeItem(AUTH_STORAGE_KEYS.signIn);
 }
+
+/**
+ * The sign-in page that returns to `page` (a path with its query string and hash, as the
+ * browser holds it) once the user has signed in. The sign-in follows only a page of this site
+ * (LoginPage, REQ-UI-006).
+ */
+export function signInPath(page: string): string {
+  return `/login?next=${encodeURIComponent(page)}`;
+}
