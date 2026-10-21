@@ -29,6 +29,20 @@ describe('rewriteProxyLocation', () => {
     expect(rewriteProxyLocation(external, BACKEND)).toBe(external);
   });
 
+  it('keeps a backend path on this site, never naming another host (UI-3)', () => {
+    // `//host` and `/\host` are read by a browser as another host (a protocol-relative URL).
+    expect(rewriteProxyLocation('http://backend:8000//evil.example/x', BACKEND)).toBe('/evil.example/x');
+    expect(rewriteProxyLocation('http://backend:8000/\\evil.example/x', BACKEND)).toBe('/evil.example/x');
+    expect(rewriteProxyLocation('http://backend:8000/api//x', BACKEND)).toBe('/api//x');
+    // The backend's origin itself, with a query or a fragment.
+    expect(rewriteProxyLocation('http://backend:8000', BACKEND)).toBe('/');
+    expect(rewriteProxyLocation('http://backend:8000?next=1', BACKEND)).toBe('/?next=1');
+    expect(rewriteProxyLocation('http://backend:8000#top', BACKEND)).toBe('/#top');
+    // A host whose name merely starts with the backend's is another host's.
+    const lookalike = 'http://backend:8000.example/x';
+    expect(rewriteProxyLocation(lookalike, BACKEND)).toBe(lookalike);
+  });
+
   it('passes through missing / non-string values', () => {
     expect(rewriteProxyLocation(undefined, BACKEND)).toBeUndefined();
     expect(rewriteProxyLocation('', BACKEND)).toBe('');

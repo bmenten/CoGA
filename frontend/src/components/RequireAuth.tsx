@@ -1,6 +1,6 @@
 import React from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router';
-import { isAuthenticated } from '../lib/auth';
+import { isAuthenticated, signInPath } from '../lib/auth';
 
 const RequireAuth: React.FC = () => {
   const location = useLocation();
@@ -8,8 +8,7 @@ const RequireAuth: React.FC = () => {
     return <Outlet />;
   }
 
-  const next = `${location.pathname}${location.search}${location.hash}`;
-  return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  return <Navigate to={signInPath(`${location.pathname}${location.search}${location.hash}`)} replace />;
 };
 
 export default RequireAuth;

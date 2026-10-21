@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { clearSession, getAuthToken, getSessionSignIn, updateSessionToken } from './auth';
+import { clearSession, getAuthToken, getSessionSignIn, signInPath, updateSessionToken } from './auth';
 import { buildApiUnavailableMessage, isNetworkTransportError } from './errorMessage';
 
 const DEFAULT_API_BASE_URL = '/api';
@@ -78,16 +78,28 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+type PageLocation = Pick<Location, 'pathname' | 'search' | 'hash' | 'replace'>;
+
+/**
+ * A session the API refused (401): cleared, and the user sent to sign in, which returns to the
+ * page the session expired on, as a sign-in RequireAuth sends does (UI-3: it opened the
+ * dashboard). Not from a sign-in page (/login, /login/emergency): it shows the refusal itself.
+ */
+export const endExpiredSession = (
+  location: PageLocation | undefined = typeof window !== 'undefined' ? window.location : undefined,
+): void => {
+  clearSession();
+  if (location && !/^\/login(\/|$)/.test(location.pathname)) {
+    location.replace(signInPath(`${location.pathname}${location.search}${location.hash}`));
+  }
+};
+
 api.interceptors.response.use(
   (response) => response,
   (error) => {
     normalizeApiTransportError(error, api.defaults.baseURL);
     if (error?.response?.status === 401) {
-      clearSession();
-      // Not from a sign-in page (/login, /login/emergency): it shows the refusal itself.
-      if (typeof window !== 'undefined' && !/^\/login(\/|$)/.test(window.location.pathname)) {
-        window.location.replace('/login');
-      }
+      endExpiredSession();
     }
     return Promise.reject(error);
   }
