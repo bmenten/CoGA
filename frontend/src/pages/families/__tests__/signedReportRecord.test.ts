@@ -988,6 +988,50 @@ describe('the repeat calls’ near-boundary warnings', () => {
   });
 });
 
+// A list in a section that this view cannot read (TRACE-17): read as empty, or its entry left
+// out, it read as if the section held nothing there.
+describe('a section’s lists this view cannot read', () => {
+  it('counts each list that is no list, and each entry not of its list’s kind', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      ...SIGNED_ANALYSIS,
+      gene_panels: { applied: 'not a list' },
+      reference_data: {
+        ...SIGNED_ANALYSIS.reference_data,
+        gene_reference: { ...SIGNED_ANALYSIS.reference_data.gene_reference, genes: 'GENE1', not_in_reference: [7] },
+      },
+    })!;
+    expect(record.genePanels).toEqual({ state: 'recorded', value: [], malformed: 1 });
+    // A part's lists count for the part and for the section that holds it.
+    expect(record.referenceData).toMatchObject({ state: 'recorded', malformed: 2 });
+    if (record.referenceData.state === 'recorded') {
+      expect(record.referenceData.value.geneReference).toMatchObject({ state: 'recorded', malformed: 2 });
+      expect(record.referenceData.value.clinicalCnvs).not.toHaveProperty('malformed');
+    }
+    // The fixture's entries that are not of their list's kind: a variant description, a track.
+    expect(record.variantDescriptions).toMatchObject({ state: 'recorded', malformed: 1 });
+    expect(record.coverageTracks).toMatchObject({ state: 'recorded', malformed: 1 });
+    // A section read in full counts none.
+    expect(record.paraphase.state).toBe('recorded');
+    expect(record.paraphase).not.toHaveProperty('malformed');
+  });
+
+  it('counts a missing number as no malformed entry, and a word among numbers as one', () => {
+    const descriptions = (genotype: Record<string, unknown>) =>
+      parseSignedReport({
+        ...SNAPSHOT,
+        ...SIGNED_ANALYSIS,
+        variant_descriptions: {
+          small: [{ ...(SIGNED_ANALYSIS.variant_descriptions.small[0] as Record<string, unknown>), genotypes: [genotype] }],
+          structural: [],
+        },
+      })!.variantDescriptions;
+    expect(descriptions({ sample: 'PROBAND', gt: '0/1', ad: [15, null] })).not.toHaveProperty('malformed');
+    expect(descriptions({ sample: 'PROBAND', gt: '0/1', ad: [15, 'x'] })).toMatchObject({ malformed: 1 });
+    expect(descriptions({ sample: 'PROBAND', gt: '0/1', ad: '15,15' })).toMatchObject({ malformed: 1 });
+  });
+});
+
 // What each coverage track held, frozen since 2026-10-20 (signed_record_sections.coverage_tracks):
 // which kind of coverage a depth check rested on (TRACE-9).
 describe('what each coverage track held', () => {

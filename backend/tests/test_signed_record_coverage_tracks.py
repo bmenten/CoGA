@@ -636,3 +636,80 @@ async def test_a_package_coverage_bed_records_that_a_package_loaded_it(stores: _
     assert result.status == "imported"
     record = stores.records[(_uuid("S1"), "coverage", "web")]
     assert (record["uploaded_from"], record["content"], record["filename"]) == ("family_package", "read_depth", "S1.bed")
+
+
+def _package_job(tmp_path: Path, stores: _Stores, name: str, dataset: ManifestDataset):
+    """A package import's job for one dataset of the family, writing records into ``stores``."""
+    family = _context()
+    return family_package_datasets.DatasetImportJob(
+        session=_StoreSession(stores),  # type: ignore[arg-type]
+        bundle=FamilyPackageBundle(
+            root=tmp_path,
+            manifest_path=tmp_path / "manifest.yaml",
+            manifest=PackageManifest(ped="family.ped", datasets={name: dataset}),
+            ped_path=tmp_path / "family.ped",
+            ped=ParsedPed(family_ids=[FAMILY], members=[], sample_ids=list(SAMPLES), text=""),
+        ),
+        dataset=dataset,
+        summary=FamilyImportDatasetSummary(dataset_type=name, status="valid"),
+        family_context=family,
+        sample_contexts=registration._family_sample_contexts(family),
+        conflict_mode="overwrite",
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_packages_apcad_bed_records_that_a_package_loaded_it(
+    stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # An APCAD file the VCF reader finds no record in is read as a BED, into the dataset's own
+    # track. Its record now says a package loaded it, as every other package loader's does
+    # (TRACE-17; it said nothing).
+    async def no_vcf_records(*_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        return {}
+
+    monkeypatch.setattr(family_package_datasets, "_import_apcad_track_file", no_vcf_records)
+    path = tmp_path / "apcad" / "S1.bed"
+    path.parent.mkdir(parents=True)
+    path.write_text("chr1\t100\t200\tsnp1\t0.4\tpat\n", encoding="utf-8")
+    dataset = ManifestDataset(per_sample={"S1": {"bed": "apcad/S1.bed"}})
+
+    result = await family_package_datasets.DATASET_IMPORTERS["apcad"](_package_job(tmp_path, stores, "apcad", dataset))
+
+    assert result.status == "imported"
+    record = stores.records[(_uuid("S1"), "apcad", "apcad")]
+    assert (record["uploaded_from"], record["filename"]) == ("family_package", "S1.bed")
+
+
+@pytest.mark.asyncio
+async def test_a_packages_per_target_coverage_table_records_that_a_package_loaded_it(
+    stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A capture panel's per-target coverage table (monogenic NIPT): its record now says a
+    # package loaded it, as every other package loader's does (TRACE-17; it said nothing).
+    from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def insert(_assembly: str, rows: list[dict[str, Any]]) -> None:
+        stores.rows.extend(rows)
+
+    monkeypatch.setattr(family_package_datasets, "_delete_sample_interval_source", nothing)
+    monkeypatch.setattr(family_package_datasets, "insert_interval_track_rows", insert)
+    path = tmp_path / "coverage" / "S1.targets.tsv"
+    path.parent.mkdir(parents=True)
+    path.write_text("chromosome\tstart\tend\tattribute\tmean\nchr1\t100\t200\tGENE1\t80\n", encoding="utf-8")
+    dataset = ManifestDataset(per_sample={"S1": {"target_table": "coverage/S1.targets.tsv"}})
+
+    result = await family_package_datasets.DATASET_IMPORTERS["coverage"](
+        _package_job(tmp_path, stores, "coverage", dataset)
+    )
+
+    assert result.status == "imported"
+    record = stores.records[(_uuid("S1"), TARGET_COVERAGE_TRACK_TYPE, TARGET_COVERAGE_SOURCE)]
+    assert (record["uploaded_from"], record["format"], record["targets"]) == (
+        "family_package",
+        "per_target_coverage_table",
+        1,
+    )

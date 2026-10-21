@@ -105,8 +105,9 @@ const notInRecordPerVariant = (descriptions: boolean): string =>
 /**
  * A section of what the analysis looked at, in each of its states: not in a record signed
  * before CoGA recorded it, not captured when it could not be read, else as `children` renders
- * it. Every section of signed_record_sections.py is shown through this, so none drops out of
- * the signed view without a trace.
+ * it, said first when part of it cannot be read here (a malformed list, TRACE-17). Every
+ * section of signed_record_sections.py is shown through this, so none drops out of the signed
+ * view without a trace.
  */
 function RecordSectionBlock<T>({
   title,
@@ -134,7 +135,16 @@ function RecordSectionBlock<T>({
           Not captured: {what} could not be read when version {version} was signed ({section.reason}).
         </p>
       ) : (
-        children(section.value)
+        <>
+          {section.malformed ? (
+            <p className="report-paragraph" role="note">
+              Part of {what} cannot be read here ({section.malformed}{' '}
+              {section.malformed === 1 ? 'list or entry' : 'lists or entries'}): it is left out below, and
+              the downloaded record holds it as stored.
+            </p>
+          ) : null}
+          {children(section.value)}
+        </>
       )}
     </section>
   );
@@ -190,10 +200,22 @@ const VariantDescription: React.FC<{
           {descriptions.reason}).
         </p>
       ) : !entries.length ? (
-        <p className="report-paragraph">
-          The record holds no description of this variant: it was not in the family’s data when
-          version {version} was signed.
-        </p>
+        descriptions.state === 'recorded' && descriptions.malformed ? (
+          // Its entry may be one this view cannot read (TRACE-17): which variant such an entry
+          // describes cannot be told, so neither cause is claimed.
+          <p className="report-paragraph" role="note">
+            The record holds no description of this variant that this view can read: it was not
+            in the family’s data when version {version} was signed, or its description is among
+            those this view cannot read ({descriptions.malformed}{' '}
+            {descriptions.malformed === 1 ? 'list or entry' : 'lists or entries'}; the downloaded
+            record holds them as stored).
+          </p>
+        ) : (
+          <p className="report-paragraph">
+            The record holds no description of this variant: it was not in the family’s data when
+            version {version} was signed.
+          </p>
+        )
       ) : (
         entries.map((entry, index) => (
           <div key={`${entry.source ?? 'entry'}-${index}`} className="report-signed-description">
