@@ -34,7 +34,7 @@ import pytest
 
 from backend.app import dependencies
 from backend.app.core.azure import AzureIdentity
-from backend.app.core.config import settings
+from backend.app.core.config import LOCAL_TOKEN_ALGORITHM, Settings, settings
 from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
 from backend.app.middleware import request_logging
@@ -269,6 +269,18 @@ def test_the_token_issued_at_sign_in_is_hs256_with_an_expiry_and_signs_its_user_
 
     assert me.status_code == 200, me.text
     assert (me.json()["email"], me.json()["role"], me.json()["sign_in"]) == (VIEWER, "viewer", "password")
+
+
+def test_the_local_token_algorithm_is_fixed_not_a_setting(monkeypatch: pytest.MonkeyPatch) -> None:
+    # SEC-12: an ALGORITHM in the environment changed the algorithm CoGA signed and checked its
+    # own tokens with. It is a constant now, and the settings read no such variable.
+    monkeypatch.setenv("ALGORITHM", "HS512")
+    monkeypatch.setattr(settings, "secret_key", _LOCAL_SIGNER)
+
+    assert "algorithm" not in Settings.model_fields
+    assert not hasattr(Settings(_env_file=None, APP_ENV="test"), "algorithm")
+    assert LOCAL_TOKEN_ALGORITHM == "HS256"
+    assert jwt.get_unverified_header(dependencies.create_access_token({"sub": VIEWER}))["alg"] == "HS256"
 
 
 @pytest.mark.parametrize(

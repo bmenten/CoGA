@@ -31,7 +31,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.config import settings
+from ..core.config import LOCAL_TOKEN_ALGORITHM, settings
 from ..core.family_folders import PACKAGES_FOLDER, family_folders, path_in_family_folder
 from ..core.object_storage import object_exists, object_key, presigned_get_url, storage_is_remote
 from ..core.postgres import get_postgres_session
@@ -69,13 +69,13 @@ def _qc_report_token(family_id: str, sample_id: str) -> str:
             "exp": datetime.now(timezone.utc) + QC_REPORT_LINK_TTL,
         },
         settings.secret_key,
-        algorithm=settings.algorithm,
+        algorithm=LOCAL_TOKEN_ALGORITHM,
     )
 
 
 def _verify_qc_report_token(token: str, family_id: str, sample_id: str) -> None:
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[LOCAL_TOKEN_ALGORITHM])
     except jwt.PyJWTError as exc:
         raise HTTPException(status_code=403, detail="QC report link is invalid or expired") from exc
     if (
