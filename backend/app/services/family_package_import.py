@@ -68,6 +68,7 @@ from .family_package_registration import (
     FailuresLeft,
     ImportMark,
     _FINISHED_DATASET_STATUSES,
+    _IMPORTED_DATASET_STATUSES,
     _end_import_failed_before_datasets,
     _mark_family_import_unfinished,
     dataset_scopes,
@@ -624,7 +625,12 @@ async def _import_family_datasets(
             await progress(validation, datasets, logs, family_context.family_id)
 
     failed_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "failed"]
-    imported_datasets = [dataset.dataset_type for dataset in datasets if dataset.status == "imported"]
+    # Imported in full, or with warnings (the rows its input got wrong left out, each named in
+    # the job's record): either way its data is the family's now, so a new family holding it is
+    # kept and flagged, never deleted with it, and the flag names it as imported (SAFE-34).
+    imported_datasets = [
+        dataset.dataset_type for dataset in datasets if dataset.status in _IMPORTED_DATASET_STATUSES
+    ]
     # What each dataset it brought again replaced (dataset_scopes): an earlier import's
     # failure or unfinished entry for the same scope is completed by it. Brought again:
     # imported, imported with warnings, or registered when the package carries nothing for
