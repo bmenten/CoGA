@@ -26,7 +26,7 @@ the [admin dashboard](/admin), grouped in six areas.
   first Microsoft sign-in makes their account, a viewer in no project. Set an account's role in its
   **Role** list (CoGA asks you to confirm; you cannot change your own). Activate a new account
   here; deactivate one to revoke access without
-  deleting its history.
+  deleting its history (not your own: another administrator does that).
 - **Projects & Access** — the projects (each tied to an assembly) and which families, samples and users
   belong to them. A user sees only the data of their projects, and the cohort counts in the explorers
   follow the same scope. Tick a user to make them a member and choose their level next to their name:

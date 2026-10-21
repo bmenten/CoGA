@@ -116,7 +116,7 @@ Iedereen kan zich registreren via `POST /auth/signup` (pagina `frontend/src/page
 - Het antwoord is altijd hetzelfde ("Registration received …"), of het adres nu nieuw is of al bestaat. Ook dat voorkomt het opsommen van accounts. Alleen bij een echt nieuw adres krijgt de beheerder een e-mail, als `ADMIN_EMAIL` is ingesteld.
 - De pagina toont die bevestiging: het account wacht op activatie.
 
-Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders). Hetzelfde endpoint zet ook de globale rol (`viewer`, `superuser` of `admin`), op de pagina *Users* via een keuzelijst die eerst om bevestiging vraagt. Niemand wijzigt zijn eigen rol, en de rol van de noodbeheerder verandert niet; hij kan ook niet worden gedeactiveerd. De auditregel van het verzoek legt vast wat er veranderde, elk veld van en naar (`request_meta.account_change`). Projecttoegang regelt een beheerder in de projectinstellingen.
+Een gebruiker kan pas inloggen nadat een beheerder het account activeert (`PATCH /auth/users/{user_id}`, alleen voor beheerders). Hetzelfde endpoint zet ook de globale rol (`viewer`, `superuser` of `admin`), op de pagina *Users* via een keuzelijst die eerst om bevestiging vraagt. Niemand wijzigt zijn eigen rol of deactiveert zijn eigen account, en de rol van de noodbeheerder verandert niet; hij kan ook niet worden gedeactiveerd. De auditregel van het verzoek legt vast wat er veranderde, elk veld van en naar (`request_meta.account_change`). Projecttoegang regelt een beheerder in de projectinstellingen.
 
 Met Microsoft-aanmelding bestaat registreren niet: `POST /auth/signup` antwoordt `403`, en de eerste aanmelding met Microsoft maakt het account (hieronder).
 

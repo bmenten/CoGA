@@ -14,7 +14,8 @@ import re
 import tempfile
 from typing import Any, Iterable, Mapping
 from urllib.parse import urlparse
-from urllib.request import Request, urlopen
+from urllib.error import URLError
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam, text
@@ -50,6 +51,21 @@ _HPO_DOWNLOAD_CHUNK = 1 << 20
 _SHA256_HEX_PATTERN = re.compile(r"[0-9a-f]{64}")
 
 logger = logging.getLogger(__name__)
+
+
+class _HttpsOnlyRedirects(HTTPRedirectHandler):
+    """urllib's redirect handling, following a redirect only to another HTTPS URL: the
+    ontology is fetched over TLS only, and a redirect from HTTPS to plain HTTP was followed
+    (SEC-32). The pinned SHA-256 is checked whatever the transport."""
+
+    def redirect_request(self, req: Any, fp: Any, code: int, msg: str, headers: Any, newurl: str) -> Any:
+        if urlparse(newurl).scheme.lower() != "https":
+            raise URLError(f"redirected to {newurl}, which is not HTTPS")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+# The HPO download's opener: urllib's, with HTTPS-only redirects.
+urlopen = build_opener(_HttpsOnlyRedirects).open
 
 
 @dataclass(slots=True)
