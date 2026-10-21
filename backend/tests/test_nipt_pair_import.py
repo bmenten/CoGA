@@ -32,6 +32,7 @@ from backend.app.services.family_package_common import (
     PedMember,
 )
 from backend.app.services.family_package_datasets import DatasetImportJob
+from backend.app.services.family_package_manifest import _normalize_manifest_samples
 from backend.app.services.family_package_nipt import (
     NIPT_PATERNAL_KEEP_MIN_VAF,
     call_alt_fraction,
@@ -346,6 +347,17 @@ def test_the_plasma_sample_is_the_tagged_one_else_the_mother(tmp_path: Path) -> 
     assert nipt_package_cfdna_sample(_bundle(tmp_path)) == "CFDNA1"
     assert nipt_import_order("CFDNA1", ["FATHER1", "CFDNA1"]) == ["CFDNA1", "FATHER1"]
     assert nipt_import_order(None, ["FATHER1", "CFDNA1"]) == ["FATHER1", "CFDNA1"]
+
+
+@pytest.mark.parametrize("key", ["sample_id", "id"])
+def test_the_plasma_sample_is_read_from_a_samples_list_as_registration_reads_it(tmp_path: Path, key: str) -> None:
+    # A tube that is not the PED's mother, so the fall-back to the mother cannot hide a miss.
+    samples = [{key: "FATHER1"}, {key: "PLASMA2", "assay": "nipt_cfdna"}]
+
+    # An entry keyed "id", which registration accepts and tags as the plasma, was skipped: the
+    # import filtered the paternal calls by the PED's mother instead (SAFE-6).
+    assert nipt_package_cfdna_sample(_bundle(tmp_path, samples)) == "PLASMA2"
+    assert _normalize_manifest_samples(samples)["PLASMA2"]["assay"] == "nipt_cfdna"
 
 
 def _write_gz(path: Path, text: str) -> None:

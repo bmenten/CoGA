@@ -23,11 +23,12 @@ from dataclasses import dataclass, field
 import glob
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Iterable, Sequence
+from typing import TYPE_CHECKING, Iterable, Sequence
 
 from .clickhouse_variant_records import SmallVariantCall
 from .data_scope import normalize_chromosome
 from .family_package_common import FamilyPackageBundle, ParsedPed, _display_path, package_path_within, package_text_handle, read_vcf_sample_columns
+from .family_package_manifest import _normalize_manifest_samples
 from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
 
 if TYPE_CHECKING:
@@ -95,21 +96,14 @@ def paternal_record_filter(
     return keep
 
 
-def _manifest_sample_entries(bundle: FamilyPackageBundle) -> dict[str, dict[str, Any]]:
-    samples = bundle.manifest.samples
-    if isinstance(samples, dict):
-        return {str(key): value for key, value in samples.items() if isinstance(value, dict)}
-    entries: dict[str, dict[str, Any]] = {}
-    for item in samples or []:
-        if isinstance(item, dict) and item.get("sample_id"):
-            entries[str(item["sample_id"])] = item
-    return entries
-
-
 def nipt_package_cfdna_sample(bundle: FamilyPackageBundle) -> str | None:
     """The package's maternal-plasma sample: the one tagged ``assay: nipt_cfdna``, else the
-    PED's mother of a child (as ``resolve_nipt_trio`` falls back to the mother)."""
-    for sample_id, entry in _manifest_sample_entries(bundle).items():
+    PED's mother of a child (as ``resolve_nipt_trio`` falls back to the mother).
+
+    The manifest's ``samples`` are read as registration reads them, a mapping or a list of
+    entries keyed ``sample_id`` or ``id``, so the sample the import filters the paternal calls
+    by is the one registration tags as the plasma (SAFE-6)."""
+    for sample_id, entry in _normalize_manifest_samples(bundle.manifest.samples).items():
         if str(entry.get(SAMPLE_ASSAY_KEY) or "").strip() == NIPT_CFDNA_ASSAY:
             return sample_id
     for member in bundle.ped.members:
