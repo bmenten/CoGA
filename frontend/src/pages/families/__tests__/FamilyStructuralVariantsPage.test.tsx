@@ -512,6 +512,44 @@ describe('FamilyStructuralVariantsPage', () => {
       await findAssemblyScopeBanner();
     });
 
+    it('reads the list and its total in the page’s project, as the export does (UI-5)', async () => {
+      // A family of two projects on two assemblies: the project picks the assembly, and a
+      // list without one answered 400 where the export, which sent it, worked.
+      get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return (workingGet!(url) as Promise<{ data: Record<string, unknown> }>).then(({ data }) => ({
+            data: { ...data, projects: ['p1', 'p2'] },
+          }));
+        }
+        if (url === '/projects') {
+          return Promise.resolve({
+            data: [
+              offScopeProject('p1'),
+              { ...offScopeProject('p2'), assembly_id: 'assembly-38', assembly_name: 'GRCh38', assembly_validated: true },
+            ],
+          });
+        }
+        return workingGet!(url);
+      });
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={['/families/F1/structural-variants?project_id=p2']}>
+            <Routes>
+              <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+      expect(await screen.findByText('1p36.33')).toBeInTheDocument();
+      const searched = get.mock.calls
+        .map(([url]) => String(url))
+        .filter((url) => url.startsWith('/families/F1/structural-variants?'));
+      expect(searched.length).toBe(2); // the list and its total, each once
+      // Each in the page's project: none ran without it first.
+      expect(searched.map((url) => new URLSearchParams(url.split('?')[1]).get('project_id'))).toEqual(['p2', 'p2']);
+    });
+
     it('says the family could not be loaded, shows none of the SVs, and loads them on retry', async () => {
       let familyFails = true;
       get.mockImplementation((url: string) =>
