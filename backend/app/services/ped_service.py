@@ -20,6 +20,7 @@ from .family_structure_audit import (
     record_structure_version,
 )
 from .family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
+from .nipt import FAMILY_ANALYSIS_TYPE_KEY, MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
 from .upload_safety import decode_upload_text
 from .hpo_service import (
     FAMILY_BUILDER,
@@ -320,8 +321,32 @@ def _resolve_manual_family_roles(
     return roles
 
 
+# The metadata the Family Builder may set, with the values each key may take: what its page sends
+# for a monogenic NIPT family and the mother's cfDNA sample (SAFE-12). Every other key is written
+# by an import or by an edit the audit trail records (a family's annotation manifest, a sample's
+# sequencing QC, the import state), and is trusted where it is read, so a request does not set it.
+MANUAL_FAMILY_METADATA: dict[str, frozenset[str]] = {
+    FAMILY_ANALYSIS_TYPE_KEY: frozenset({MONOGENIC_NIPT_ANALYSIS_TYPE}),
+}
+MANUAL_SAMPLE_METADATA: dict[str, frozenset[str]] = {
+    SAMPLE_ASSAY_KEY: frozenset({NIPT_CFDNA_ASSAY}),
+}
+
+
+def _require_manual_metadata(metadata: dict[str, Any], allowed: dict[str, frozenset[str]], what: str) -> None:
+    for key, value in metadata.items():
+        values = allowed.get(key)
+        if values is None or not isinstance(value, str) or value not in values:
+            accepted = "; ".join(f"{name}: {', '.join(sorted(names))}" for name, names in allowed.items())
+            raise HTTPException(
+                status_code=400,
+                detail=f"{what} metadata may hold only {accepted}; other keys are set by an import or an audited edit",
+            )
+
+
 def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemberCreate]:
     _require_storable_id(family.family_id, kind="Family ID")
+    _require_manual_metadata(family.metadata, MANUAL_FAMILY_METADATA, "Family")
     normalized_members: list[ManualPedMemberCreate] = []
     sample_ids: list[str] = []
     for member in family.members:
@@ -329,6 +354,7 @@ def _validate_manual_family(family: ManualPedFamilyCreate) -> list[ManualPedMemb
         if not sample_id:
             raise HTTPException(status_code=400, detail="Sample id is required for every member")
         _require_storable_id(sample_id, kind="Sample ID")
+        _require_manual_metadata(member.metadata, MANUAL_SAMPLE_METADATA, f"Sample {sample_id}")
         clinical_status = _manual_clinical_status(member)
         carrier_status = _normalize_carrier_status(member.carrier_status, member.carrier_type)
         normalized_members.append(
