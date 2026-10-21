@@ -125,6 +125,24 @@ describe('FamilyStructuralVariantsPage', () => {
     expect(screen.getAllByRole('button', { name: /clear all filters/i }).length).toBeGreaterThan(0);
   });
 
+  it('shows the Source column by default, since several callers call one SV under one id', async () => {
+    // Each caller's call is a row of its own, with its own evidence and drift (TRACE-11): the
+    // table hid the column that tells them apart (TRACE-12).
+    const queryClient = createTestQueryClient();
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/families/F1/structural-variants']}>
+          <Routes>
+            <Route path="/families/:familyId/structural-variants" element={<FamilyStructuralVariantsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+    await waitFor(() => expect(screen.getByText(/Showing 1/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('tab', { name: 'Table' }));
+    expect(await screen.findByRole('columnheader', { name: /^Source/ })).toBeInTheDocument();
+  });
+
   it('opens the genome workspaces in a new tab so the filtered list is not re-run on every look', async () => {
     const queryClient = createTestQueryClient();
     render(

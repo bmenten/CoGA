@@ -150,6 +150,9 @@ export default function CnvAcmgClassificationModal({
               {variant.type || 'SV'} · {variant.chr}:{variant.start.toLocaleString()}-
               {variant.end.toLocaleString()}
               {variant.gene ? ` · ${variant.gene}` : ''}
+              {/* The caller whose row this is: another caller's call of the SV is evidence of its
+                  own, and the save freezes this row's (TRACE-11, TRACE-12). */}
+              {variant.source ? ` · ${variant.source} call` : ''}
             </h2>
             <p className="variant-review-modal-subtitle">
               Semi-automatic decision support (Riggs et al., 2020). Confirm every criterion before

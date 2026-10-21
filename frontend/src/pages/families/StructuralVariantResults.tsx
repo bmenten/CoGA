@@ -92,7 +92,9 @@ export default function StructuralVariantResults({
     end: true,
     length: true,
     type: true,
-    source: false,
+    // Shown: several callers' calls of one SV are rows of their own, under one id, each with
+    // its own evidence and drift (TRACE-11, TRACE-12).
+    source: true,
     gene: true,
     cytoband: true,
     inheritance: true,
