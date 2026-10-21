@@ -111,8 +111,9 @@ async def fetch_bed_batch(
     format: Literal["text", "json"] = "text",
     limit: int = Query(100000, ge=1, le=1000000),
     # Which caller's rows to return. A sample can carry HiFiCNV, WisecondorX and
-    # QDNAseq coverage at once; omitting this returns all of them merged, which for
-    # a windowed coverage read means averaging three independent measurements.
+    # QDNAseq coverage at once; merged, a windowed coverage read averaged three
+    # independent measurements. A coverage read without this is refused (400) where
+    # the sample holds several callers' coverage (TRACE-10).
     source: str | None = Query(None, max_length=64),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),
@@ -157,8 +158,8 @@ async def fetch_bed(
     end: int | None = Query(None, ge=0),
     format: Literal["text", "json"] = "text",
     limit: int = Query(100000, ge=1, le=1000000),
-    # See the batch endpoint above: without this, a sample carrying three CNV
-    # callers returns all three merged.
+    # See the batch endpoint above: a coverage read without this is refused where the
+    # sample holds several callers' coverage.
     source: str | None = Query(None, max_length=64),
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_user),

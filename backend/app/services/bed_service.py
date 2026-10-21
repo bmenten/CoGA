@@ -355,11 +355,52 @@ async def upload_bed_data(
 
 
 def _bed_header(bed_type: str) -> str:
+    """The text format's header. The value column is ``value``, as the JSON names it: what it
+    holds is the track's (a read depth, a log2 ratio, an allele fraction), which the track
+    availability serves (``coverage_contents``). It was ``ratio`` whatever the track held
+    (TRACE-10)."""
     if bed_type == "coverage":
-        return "chr\tstart\tend\tid\tratio"
+        return "chr\tstart\tend\tid\tvalue"
     if bed_type == "segments":
-        return "chr\tstart\tend\tratio"
-    return "chr\tstart\tend\tid\tratio\torigin"
+        return "chr\tstart\tend\tvalue"
+    return "chr\tstart\tend\tid\tvalue\torigin"
+
+
+async def _require_one_coverage_source(
+    sample_context: SampleMetadataContext,
+    *,
+    bed_type: str,
+    source: str | None,
+    chroms: list[str],
+    start: int | None,
+    end: int | None,
+) -> None:
+    """Refuse (400) a read of coverage that names no caller (``source``) where the sample holds
+    coverage of several there (TRACE-10). Their rows came back merged, and a window averaged
+    them: independent measurements, a depth and log2 ratios, made one value that is none of
+    them. The views always name the caller (#852); a read where the sample holds one caller's
+    coverage is answered as before."""
+    if bed_type != "coverage" or source is not None or not sample_context.assembly_name:
+        return
+    sources = (
+        await get_interval_track_sources_by_sample(
+            sample_context.assembly_name,
+            family_uuid=sample_context.family_uuid,
+            sample_uuid_to_name={sample_context.sample_uuid: sample_context.sample_id},
+            track_type="coverage",
+            chromosomes=chroms,
+            start=start,
+            end=end,
+        )
+    ).get(sample_context.sample_id, [])
+    if len(sources) > 1:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"The sample holds coverage of several callers here ({', '.join(sorted(sources))}): "
+                "name one with source"
+            ),
+        )
 
 
 def _serialize_bed_record(track_type: str, row: dict[str, Any]) -> dict[str, Any]:
@@ -450,6 +491,9 @@ async def _fetch_bed_records_for_chrom(
     source: str | None = None,
 ) -> list[dict[str, Any]]:
     chrom_clean = normalize_chromosome(chrom)
+    await _require_one_coverage_source(
+        sample_context, bed_type=bed_type, source=source, chroms=[chrom_clean], start=start, end=end
+    )
     if bed_type == "coverage" and window:
         rows = await _fetch_raw_track_rows(
             session,
@@ -522,6 +566,9 @@ async def _fetch_bed_records_for_chroms(
             ordered.append(chrom_clean)
     if not ordered or not sample_context.assembly_name:
         return []
+    await _require_one_coverage_source(
+        sample_context, bed_type=bed_type, source=source, chroms=ordered, start=start, end=end
+    )
 
     # Map every chromosome alias (e.g. "chr1"/"1", "M"/"MT") back to the
     # requested chromosome, mirroring fetch_interval_track_rows' own alias
