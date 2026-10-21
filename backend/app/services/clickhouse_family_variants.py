@@ -536,11 +536,16 @@ async def _structural_search_panel(
 async def _fetch_gene_constraint_metric_map(
     session: AsyncSession,
     variants: Sequence[VariantOut],
+    *,
+    assembly_id: str | None,
 ) -> dict[str, dict[str, float | None]]:
-    """Each variant's gene pLI and missense Z, by variant id, from the gene profiles: the
-    lookup an ACMG classification freezes the missense Z with (gene_constraint_metrics)."""
+    """Each variant's gene pLI and missense Z, by variant id, from the gene profiles of the
+    family's assembly: the lookup an ACMG classification freezes the missense Z with
+    (gene_constraint_metrics)."""
     return await fetch_gene_constraint_metrics(
-        session, [(str(variant.id), variant.gene, variant.gene_id) for variant in variants]
+        session,
+        [(str(variant.id), variant.gene, variant.gene_id) for variant in variants],
+        assembly_id=assembly_id,
     )
 
 
@@ -983,7 +988,7 @@ async def _hydrate_small_variant_outs(
     for variant in variants:
         variant.internal_cohort = internal_map.get(str(variant.id))
 
-    metric_map = await _fetch_gene_constraint_metric_map(session, variants)
+    metric_map = await _fetch_gene_constraint_metric_map(session, variants, assembly_id=context.assembly_id)
     for variant in variants:
         metrics = metric_map.get(str(variant.id))
         if not metrics:
@@ -2280,8 +2285,8 @@ async def _rank_small_variants(
         else {}
     )
     # Gene-level constraint (pLI / missense-Z) from gene_info, for all candidates (the
-    # hydrate step only covers the page).
-    constraint_map = await _fetch_gene_constraint_metric_map(session, variants)
+    # hydrate step only covers the page), in the family's assembly.
+    constraint_map = await _fetch_gene_constraint_metric_map(session, variants, assembly_id=context.assembly_id)
 
     for variant in variants:
         metrics = constraint_map.get(str(variant.id))

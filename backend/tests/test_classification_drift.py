@@ -8,6 +8,8 @@ from backend.app.services import classification_drift_service as cds
 from backend.app.services.small_variant_review_acmg import build_evidence_snapshot
 
 _WHEN = datetime(2026, 6, 25, tzinfo=timezone.utc)
+# The family's assembly, whose gene profiles the constraint lookup reads (TRACE-15).
+_ASSEMBLY_ID = "assembly-uuid"
 
 
 def _freeze(record, gene_missense_z: float | None = None) -> dict:
@@ -78,7 +80,9 @@ def test_diff_missing_hash_is_unknown_not_false_current() -> None:
 
 def test_evaluate_classification_drift_reports_only_changed(monkeypatch) -> None:
     async def _context(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
+        return types.SimpleNamespace(
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+        )
 
     class _Result:
         def mappings(self):
@@ -403,7 +407,9 @@ def test_a_missing_variant_keeps_its_frozen_values() -> None:
 
 def test_evaluate_classification_drift_names_the_moved_value(monkeypatch) -> None:
     async def _context(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
+        return types.SimpleNamespace(
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+        )
 
     rows = [
         {
@@ -583,31 +589,55 @@ def test_the_frozen_missense_z_is_the_one_the_variant_list_serves() -> None:
         ]
     )
     served = _served(annotations)
-    served_z = asyncio.run(cfv._fetch_gene_constraint_metric_map(session, [served]))[served.id]["gene_missense_z"]
+    served_z = asyncio.run(cfv._fetch_gene_constraint_metric_map(session, [served], assembly_id=_ASSEMBLY_ID))[
+        served.id
+    ]["gene_missense_z"]
     record = types.SimpleNamespace(gene_symbols=["GENE1"], annotations=annotations)
-    assert asyncio.run(evidence_gene_missense_z(session, {"v": record})) == {"v": served_z}
+    assert asyncio.run(evidence_gene_missense_z(session, {"v": record}, assembly_id=_ASSEMBLY_ID)) == {"v": served_z}
     assert served_z == 3.52
     assert session.gene_queries[0] == session.gene_queries[1]
     # A gene without a profile has none.
-    assert asyncio.run(evidence_gene_missense_z(_GeneProfiles([]), {"v": record})) == {"v": None}
+    assert asyncio.run(evidence_gene_missense_z(_GeneProfiles([]), {"v": record}, assembly_id=_ASSEMBLY_ID)) == {
+        "v": None
+    }
+
+
+def test_the_missense_z_is_read_in_the_familys_assembly_with_its_symbol_in_any_case() -> None:
+    # The lookup reads the gene profiles of the family's assembly, and matches a symbol in any
+    # case, as its read does (TRACE-15). Before, it read the newest profile of any assembly,
+    # and matched a symbol only as written after the read had matched it in any case: a gene
+    # written otherwise than its profile had no constraint.
+    from backend.app.services.gene_constraint_metrics import fetch_gene_constraint_metrics
+
+    session = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
+    found = asyncio.run(fetch_gene_constraint_metrics(session, [("v", "Gene1", None)], assembly_id=_ASSEMBLY_ID))
+    assert found == {"v": {"gene_pli": None, "gene_missense_z": 3.52}}
+    assert session.gene_queries == [{"assembly_id": _ASSEMBLY_ID, "gene_symbols": ["GENE1"]}]
+    # Without the family's assembly no profile is read: none can be told to be its own.
+    unread = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
+    assert asyncio.run(fetch_gene_constraint_metrics(unread, [("v", "GENE1", None)], assembly_id=None)) == {}
+    assert unread.gene_queries == []
 
 
 def test_a_save_freezes_the_missense_z_its_genes_profile_holds() -> None:
     from backend.app.services.small_variant_review_acmg import freeze_evidence_snapshot
 
+    def _frozen(session, record) -> dict:
+        return asyncio.run(freeze_evidence_snapshot(session, record, _WHEN, assembly_id=_ASSEMBLY_ID))
+
     session = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
-    snap = asyncio.run(freeze_evidence_snapshot(session, _annotated("h1", _MANE), _WHEN))
+    snap = _frozen(session, _annotated("h1", _MANE))
     assert snap["gene_constraint"] == {"gene_missense_z": 3.52}
     assert snap["consequence"]["effect"] == "missense_variant" and snap["captured_at"].startswith("2026-06-25")
+    # Read in the family's assembly (TRACE-15).
+    assert session.gene_queries[0]["assembly_id"] == _ASSEMBLY_ID
     # A missense variant whose gene has no profile freezes none.
-    assert asyncio.run(freeze_evidence_snapshot(_GeneProfiles([]), _annotated("h1", _MANE), _WHEN))[
-        "gene_constraint"
-    ] == {"gene_missense_z": None}
+    assert _frozen(_GeneProfiles([]), _annotated("h1", _MANE))["gene_constraint"] == {"gene_missense_z": None}
     # A stop gained, and a variant without annotation, are no missense variants: their gene's
     # profile is not asked for, and no missense Z is frozen.
     nothing = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)])
     for record in (_annotated("h1", _LOF), _record("h1")):
-        assert "gene_constraint" not in asyncio.run(freeze_evidence_snapshot(nothing, record, _WHEN))
+        assert "gene_constraint" not in _frozen(nothing, record)
     assert nothing.gene_queries == []
 
 
@@ -737,7 +767,9 @@ def test_a_consequence_or_constraint_group_that_cannot_be_read_is_unknown() -> N
 
 def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(monkeypatch) -> None:
     async def _context(session, *, family_identifier, user, project_id=None):
-        return types.SimpleNamespace(family_uuid="u1", family_id="FAM1", assembly_name="GRCh38")
+        return types.SimpleNamespace(
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+        )
 
     other_gene = _csq(transcript="ENST00000000009", mane=True, gene="GENE2", gene_id="ENSG00000000002")
     stop_gained = _csq(
@@ -799,10 +831,68 @@ def test_evaluate_classification_drift_reads_the_genes_missense_z_in_one_query(m
     [item] = out["drifted"]
     assert (item["variant_id"], item["status"], item["changed"]) == ("1-100-A-G", "drifted", ["gene_missense_z"])
     assert (item["evidence_from"]["gene_missense_z"], item["evidence_to"]["gene_missense_z"]) == (2.95, 3.52)
-    # One query, for the missense variants' genes only.
+    # One query, for the missense variants' genes only, in the family's assembly.
     assert session.gene_queries == [
-        {"gene_symbols": ["GENE1", "GENE2"], "gene_ids": ["ENSG00000000001", "ENSG00000000002"]}
+        {
+            "assembly_id": _ASSEMBLY_ID,
+            "gene_symbols": ["GENE1", "GENE2"],
+            "gene_ids": ["ENSG00000000001", "ENSG00000000002"],
+        }
     ]
     from backend.app.schemas.traceability import ClassificationDriftItem
 
     assert ClassificationDriftItem.model_validate(item).evidence_to["gene_missense_z"] == 3.52
+
+
+def test_a_snapshot_that_is_not_a_json_object_reads_as_unknown_not_skipped(monkeypatch) -> None:
+    # The writer always stores an object. One that is not froze nothing that can be read: it is
+    # compared as a snapshot that froze nothing, so it reads as unknown, or as variant_missing
+    # once its variant is gone, as an unreadable SV/CNV snapshot does, and the sign-out gate
+    # asks for it to be acknowledged. Before, it was skipped: neither checked nor, at sign-out,
+    # without a snapshot, so it cleared the drift gate unexamined (TRACE-15).
+    async def _context(session, *, family_identifier, user, project_id=None):
+        return types.SimpleNamespace(
+            family_uuid="u1", family_id="FAM1", assembly_name="GRCh38", assembly_id=_ASSEMBLY_ID
+        )
+
+    def _review(variant_id: str, snapshot) -> dict:
+        return {
+            "variant_id": variant_id,
+            "acmg_class": "acmg_class_4",
+            "acmg_evidence_snapshot": snapshot,
+            "updated_by": "alice",
+            "updated_at": _WHEN,
+        }
+
+    reviews = [_review("1-100-A-G", ["h1"]), _review("2-200-C-T", "h2"), _review("3-300-G-A", 7)]
+    current_by_variant = {"1-100-A-G": _annotated("h1", _MANE), "2-200-C-T": None, "3-300-G-A": _record("h3")}
+
+    async def _current(*, assembly_name, family_guid, variant_id):
+        return current_by_variant[variant_id]
+
+    async def _structural(session, context):
+        return {"checked": 0, "drifted_count": 0, "drifted": []}
+
+    monkeypatch.setattr(cds, "build_family_metadata_context", _context)
+    monkeypatch.setattr(cds, "get_small_variant_family_record", _current)
+    monkeypatch.setattr(cds, "evaluate_structural_classification_drift", _structural)
+
+    session = _GeneProfiles([_profile("GENE1", "ENSG00000000001", 3.52, when=_WHEN)], other=reviews)
+    out = asyncio.run(cds.evaluate_classification_drift(session, family_id="FAM1", user=None))
+    assert (out["checked"], out["drifted_count"]) == (3, 3)
+    assert [(item["variant_id"], item["status"]) for item in out["drifted"]] == [
+        ("1-100-A-G", "unknown"),
+        ("2-200-C-T", "variant_missing"),
+        ("3-300-G-A", "unknown"),
+    ]
+    # Nothing frozen is named, and the variant as it is now is.
+    first = out["drifted"][0]
+    assert (first["evidence_from"], first["annotation_version_from"], first["changed"]) == (None, None, [])
+    assert first["evidence_to"]["gene_missense_z"] == 3.52
+    from backend.app.schemas.traceability import ClassificationDriftItem
+
+    assert [ClassificationDriftItem.model_validate(item).status for item in out["drifted"]] == [
+        "unknown",
+        "variant_missing",
+        "unknown",
+    ]

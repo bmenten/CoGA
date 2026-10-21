@@ -280,6 +280,7 @@ def _clear(monkeypatch, existing: dict, payload: SmallVariantReviewUpdate):
         family_uuid="family-uuid",
         family_id="FAM1",
         assembly_name="GRCh38",
+        assembly_id="assembly-uuid",
         project_ids=[],
         affected_sample_names=[],
     )

@@ -173,19 +173,19 @@ def evidence_gene(record: Any) -> tuple[str | None, str | None]:
 
 
 async def evidence_gene_missense_z(
-    session: AsyncSession, records: Mapping[str, Any]
+    session: AsyncSession, records: Mapping[str, Any], *, assembly_id: str | None
 ) -> dict[str, float | None]:
     """The gene missense Z of each record, by its key: the value the variant list serves it
-    with and the PP2 suggestion reads (``gene_constraint_metrics``); None when its gene's
-    profile holds none, and for a variant that is not a missense variant, whose gene is not
-    looked up."""
+    with and the PP2 suggestion reads, from the gene profiles of the family's assembly
+    (``gene_constraint_metrics``); None when its gene's profile holds none, and for a variant
+    that is not a missense variant, whose gene is not looked up."""
     genes: list[tuple[str, str | None, str | None]] = []
     for key, record in records.items():
         if not reads_gene_missense_z(record):
             continue
         symbol, gene_id = evidence_gene(record)
         genes.append((key, symbol, gene_id))
-    found = await fetch_gene_constraint_metrics(session, genes)
+    found = await fetch_gene_constraint_metrics(session, genes, assembly_id=assembly_id)
     return {key: (found.get(key) or {}).get("gene_missense_z") for key in records}
 
 
@@ -277,11 +277,14 @@ def build_evidence_snapshot(
 
 
 async def freeze_evidence_snapshot(
-    session: AsyncSession, record: Any, captured_at: datetime
+    session: AsyncSession, record: Any, captured_at: datetime, *, assembly_id: str | None
 ) -> dict[str, Any]:
     """The evidence snapshot a classification of ``record`` saved now freezes, a missense
-    variant's gene missense Z looked up as the variant list looks it up."""
-    gene_missense_z = (await evidence_gene_missense_z(session, {"record": record}))["record"]
+    variant's gene missense Z looked up as the variant list looks it up, in the family's
+    assembly (``assembly_id``)."""
+    gene_missense_z = (
+        await evidence_gene_missense_z(session, {"record": record}, assembly_id=assembly_id)
+    )["record"]
     return build_evidence_snapshot(record, captured_at, gene_missense_z=gene_missense_z)
 
 

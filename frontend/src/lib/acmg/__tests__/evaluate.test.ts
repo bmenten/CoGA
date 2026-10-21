@@ -486,6 +486,16 @@ describe('evaluateAcmg — in-silico availability', () => {
     expect(find(revel, 'BP4')?.disposition).toBe('applies');
     expect(find(revel, 'PP3')?.disposition).toBe('contraindicated');
   });
+
+  it('leaves PP3 and BP4 open on an ambiguous AlphaMissense class, a prediction that does not decide', () => {
+    // As a REVEL score between the thresholds does. An ambiguous class read as no prediction,
+    // which ruled PP3 and BP4 out as "No in-silico predictions available." (TRACE-15).
+    const suggestions = evaluateAcmg({ effect: 'missense_variant', alpha_missense_class: 'ambiguous' });
+    expect(find(suggestions, 'PP3')).toBeUndefined();
+    expect(find(suggestions, 'BP4')).toBeUndefined();
+    const greyRevel = evaluateAcmg({ effect: 'missense_variant', revel: 0.5 });
+    expect([find(greyRevel, 'PP3'), find(greyRevel, 'BP4')]).toEqual([undefined, undefined]);
+  });
 });
 
 describe('buildInitialSelections', () => {

@@ -110,7 +110,9 @@ def _record(variant_id: str, annotations: list[dict[str, Any]]):
     )
 
 
-def _context(family_uuid: str, family_id: str, project: str):
+def _context(family_uuid: str, family_id: str, project: str, assembly_id: str | None = None):
+    """The family's context; ``assembly_id`` is the assembly whose gene profiles its gene
+    constraint is read from (TRACE-15)."""
     from backend.app.services.family_metadata_context import FamilyMetadataContext
 
     return FamilyMetadataContext(
@@ -121,7 +123,7 @@ def _context(family_uuid: str, family_id: str, project: str):
         sample_uuid_to_name={_SAMPLE: _SAMPLE},
         sample_name_to_uuid={_SAMPLE: _SAMPLE},
         affected_sample_names=[_SAMPLE],
-        assembly_id=None,
+        assembly_id=assembly_id,
         assembly_name=_ASSEMBLY,
     )
 
@@ -473,7 +475,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
     holder: dict[str, str] = {}
 
     def _ctx_now():
-        return _context(holder["uuid"], label, project)
+        # The gene's profile is in the assembly made below: the family's (TRACE-15).
+        return _context(holder["uuid"], label, project, holder.get("assembly"))
 
     async def _ctx(session, *, family_identifier, user, project_id=None):
         return _ctx_now()
@@ -640,7 +643,7 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                 )
                 served = {variant.id: variant for variant in page.variants}
                 metrics = await family_variants._fetch_gene_constraint_metric_map(
-                    s, [served[_MISSENSE], served[_STOP_GAINED]]
+                    s, [served[_MISSENSE], served[_STOP_GAINED]], assembly_id=holder["assembly"]
                 )
             for frozen, variant_id in ((frozen_missense, _MISSENSE), (frozen_stop, _STOP_GAINED)):
                 variant = served[variant_id]

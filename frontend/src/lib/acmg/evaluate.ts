@@ -627,9 +627,10 @@ function inSilicoSuggestions(variant: AcmgVariantInput): AcmgSuggestion[] {
     return [{ code: 'BP4', strength: 'supporting', evidence: 'AlphaMissense class: likely benign.', disposition: 'applies' }];
   }
 
-  // No usable in-silico predictions at all → the computational criteria are ruled out.
-  const hasAnyPrediction =
-    revel != null || variant.spliceai_max != null || amClass.includes('pathogenic') || amClass.includes('benign');
+  // No in-silico prediction at all → the computational criteria are ruled out. Any
+  // AlphaMissense class is a prediction: an ambiguous one is inconclusive, and leaves both
+  // open below (TRACE-15; it read as no prediction, and ruled them out).
+  const hasAnyPrediction = revel != null || variant.spliceai_max != null || amClass.trim() !== '';
   if (!hasAnyPrediction) {
     const na = (code: AcmgCriterionCode): AcmgSuggestion => ({
       code,
@@ -640,7 +641,8 @@ function inSilicoSuggestions(variant: AcmgVariantInput): AcmgSuggestion[] {
     return [na('PP3'), na('BP4')];
   }
 
-  // Predictions exist but are inconclusive (REVEL in the grey zone) → leave neutral.
+  // Predictions exist but are inconclusive (REVEL in the grey zone, an ambiguous AlphaMissense
+  // class) → leave neutral.
   return [];
 }
 

@@ -159,8 +159,8 @@ When REVEL does not decide:
   Supporting.
 
 Only a REVEL-based call marks the opposite criterion as argues against. With no REVEL, SpliceAI or
-AlphaMissense value, PP3 and BP4 are not applicable. A REVEL value between the thresholds, with no other
-signal, leaves both open.
+AlphaMissense value, PP3 and BP4 are not applicable. A REVEL value between the thresholds, or an
+*ambiguous* AlphaMissense class, with no other signal, leaves both open.
 
 ### Phenotype (PP4)
 
