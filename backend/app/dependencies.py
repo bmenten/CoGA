@@ -8,7 +8,7 @@ from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from .core.azure import AzureTokenError, verify_azure_token
-from .core.config import settings
+from .core.config import LOCAL_TOKEN_ALGORITHM, settings
 from .core.postgres import get_postgres_session
 from .services.access_control import ADMIN_ROLES, CurrentUser, request_changes_records
 from .services.family_identifiers import request_value_problem
@@ -46,7 +46,7 @@ def create_access_token(data: dict) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.access_token_expire_minutes)
     to_encode.update({"exp": expire})
-    return jwt.encode(to_encode, settings.secret_key, algorithm=settings.algorithm)
+    return jwt.encode(to_encode, settings.secret_key, algorithm=LOCAL_TOKEN_ALGORITHM)
 
 
 # A refused bearer token, the same answer whatever the reason (no account, a bad signature, an
@@ -70,7 +70,7 @@ def _local_token_email(token: str) -> str | None:
     """The account a token this server issued names (``sub``): HS256, signed with SECRET_KEY,
     unexpired. Raises the 401 for any other token."""
     try:
-        payload = jwt.decode(token, settings.secret_key, algorithms=[settings.algorithm])
+        payload = jwt.decode(token, settings.secret_key, algorithms=[LOCAL_TOKEN_ALGORITHM])
     except jwt.PyJWTError as exc:
         raise _refused() from exc
     email = payload.get("sub")
@@ -139,7 +139,7 @@ async def get_current_user(
             raise _refused() from exc
         if algorithm == "RS256":
             user = await _microsoft_user(token, session, request)
-        elif algorithm == settings.algorithm:
+        elif algorithm == LOCAL_TOKEN_ALGORITHM:
             user = await _emergency_admin(token, session, request)
         else:
             raise _refused()

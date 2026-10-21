@@ -61,6 +61,10 @@ _AZURE_API_SCOPE_PATTERN = re.compile(r"(?:api|https)://[^\s/]+(?:/[^\s/]+)*/[A-
 # The scope IT exposes on CoGA's app registration (docs/deployment-gcp.md), when
 # AZURE_API_SCOPE names none.
 AZURE_DEFAULT_SCOPE_NAME = "access_as_user"
+# The algorithm of the tokens CoGA issues itself, the password sign-in's session and a QC
+# report's link, signed with SECRET_KEY: fixed, not a setting (SEC-12), so no environment
+# variable changes how they are signed or which algorithm a check accepts.
+LOCAL_TOKEN_ALGORITHM = "HS256"
 # The HPO release the startup imports, pinned (OPS-6, TRACE-14): the release of the vendored
 # data/ref-data/hpo/hp.obo (its `data-version:` header) and that file's SHA-256. The startup
 # imports an ontology file it finds only if its SHA-256 is this one, and refuses any other. It
@@ -196,7 +200,6 @@ class Settings(BaseSettings):
     # Unset, the endpoint is off (404). Outside development it needs at least 32 characters
     # and must differ from SECRET_KEY and INTEGRITY_ANCHOR_SIGNING_KEY.
     metrics_token: str = Field(default="", alias="METRICS_TOKEN")
-    algorithm: str = "HS256"
     # Session token lifetime. Kept short (2h) to bound the blast radius of a leaked
     # token, since tokens live in localStorage (no HttpOnly cookie); see
     # security-posture.md §1. Tunable per deployment.
