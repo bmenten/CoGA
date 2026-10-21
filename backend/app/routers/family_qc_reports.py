@@ -20,6 +20,7 @@ short-lived URL scoped to exactly this one report, and opens that.
 
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 import os
 from pathlib import Path
@@ -127,13 +128,14 @@ async def _recorded_report_path(
     return report.strip()
 
 
-def _stored_report_key(family_id: str, relative_path: str) -> str:
-    """Remote mode: the report's object key under the storage prefix; 404 when the object
-    is gone."""
+def _stored_report_url(family_id: str, relative_path: str) -> str:
+    """Remote mode: a short-lived URL of the report's object under the storage prefix; 404
+    when the object is gone. Both are requests to the object store, so the routes run this in
+    a worker thread, off the event loop (SEC-14)."""
     key = object_key(family_id, relative_path)
     if not object_exists(key):
         raise HTTPException(status_code=404, detail="QC report file is no longer available")
-    return key
+    return presigned_get_url(key, filename=Path(relative_path).name)
 
 
 def _resolve_report_file(family_id: str, relative_path: str) -> Path:
@@ -180,14 +182,14 @@ async def get_family_qc_report_link(
     )
     expires_at = datetime.now(timezone.utc) + QC_REPORT_LINK_TTL
     if storage_is_remote():
-        key = _stored_report_key(family_id, relative_path)
         return FamilyQcReportLinkOut(
-            url=presigned_get_url(key, filename=Path(relative_path).name),
+            url=await asyncio.to_thread(_stored_report_url, family_id, relative_path),
             expires_at=expires_at,
             filename=Path(relative_path).name,
         )
-    # Confirm the file is there before handing out a link that would 404 on click.
-    _resolve_report_file(family_id, relative_path)
+    # Confirm the file is there before handing out a link that would 404 on click; the file
+    # system is read in a worker thread (SEC-14).
+    await asyncio.to_thread(_resolve_report_file, family_id, relative_path)
     token = _qc_report_token(family_id, sample_id)
     # Each ID one encoded segment: an ID may hold `/`, `?`, `#`, `%` or `..`.
     path = url_path("families", family_id, "qc-report", sample_id)
@@ -214,11 +216,11 @@ async def get_family_qc_report(
     _verify_qc_report_token(token, family_id, sample_id)
     relative_path = await _recorded_report(session, family_id=family_id, sample_id=sample_id)
     if storage_is_remote():
-        key = _stored_report_key(family_id, relative_path.strip())
         return RedirectResponse(
-            presigned_get_url(key, filename=Path(relative_path).name), status_code=302
+            await asyncio.to_thread(_stored_report_url, family_id, relative_path.strip()),
+            status_code=302,
         )
-    path = _resolve_report_file(family_id, relative_path.strip())
+    path = await asyncio.to_thread(_resolve_report_file, family_id, relative_path.strip())
     return FileResponse(
         path,
         media_type="text/html",
