@@ -265,7 +265,7 @@ def test_the_views_and_the_mtdna_coverage_read_what_was_declared(run) -> None:
     assert step["availability"]["contents"] == {s1: {"web": "read_depth"}, s2: {"web": "unknown"}}
     assert step["mtdna"]["status"] == 200, step["mtdna"]
     # Before: S2's 0.2 was read as its mean chrM depth. Now its calls' depth, and a note says why.
-    assert step["mtdna"]["coverage"] == {s1: (300.0, "coverage"), s2: (500.0, "variant calls")}
+    assert step["mtdna"]["coverage"] == {s1: (300.0, "coverage BED"), s2: (500.0, "variant calls")}
     assert _undeclared_note(s2) in step["mtdna"]["notes"]
     assert not any(note.startswith(f"{s1}:") for note in step["mtdna"]["notes"])
 
@@ -305,5 +305,5 @@ def test_an_upload_declared_as_read_depth_is_read_as_depth(run) -> None:
     assert step["held"]["bed_coverage"] == [{"source": None, "samples": [s2], "content": "read_depth"}]
     assert step["raw"] == ["log2_ratio", "read_depth"]
     assert step["availability"]["contents"][s2] == {"web": "read_depth"}
-    assert step["mtdna"]["coverage"][s2] == (450.0, "coverage")
+    assert step["mtdna"]["coverage"][s2] == (450.0, "coverage BED")
     assert not any(note.startswith(f"{s2}:") for note in step["mtdna"]["notes"])

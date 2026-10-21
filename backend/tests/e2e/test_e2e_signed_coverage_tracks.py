@@ -219,7 +219,7 @@ def test_the_depth_check_reads_the_track_of_read_depth_and_names_the_others(run)
     s1, s2 = run["samples"]["S1"], run["samples"]["S2"]
     mtdna = _ok(run, "mtdna")
     coverage = {sample["sample_id"]: sample["coverage"] for sample in mtdna["samples"]}
-    assert (coverage[s1]["mean_depth"], coverage[s1]["source"]) == (300.0, "coverage")
+    assert (coverage[s1]["mean_depth"], coverage[s1]["source"]) == (300.0, "coverage BED")
     assert coverage[s2]["mean_depth"] is None
     assert (
         f"{s2}: the coverage BED does not declare whether it holds read depth or a log2 ratio; "

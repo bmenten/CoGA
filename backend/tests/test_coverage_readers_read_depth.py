@@ -18,6 +18,10 @@ source, as ClickHouse does. The readers run through their public entries:
   HiFiCNV depths stored as read and not his QDNAseq bins, and for the mother, whose only track is
   HiFiCNV's log2 ratio, her calls' depth, as for a sample without a track; with a limit
   configured, every sample passes on its depth (before: each failed on a blend);
+* the mtDNA summary counts each row over the bases it covers, half-open, and names the track it
+  read: a per-base track's breadth is its share of chrM, a row of depth 0 counts for the mean
+  and not the breadth, and a row past chrM's end for nothing (CLIN-56; before: each row one
+  base wider, a per-base track's breadth about twice its share);
 * the count-only presence finds no coverage in a family whose only chrM track is WisecondorX's
   bins, and does in one with a coverage BED;
 * a mother whose only chrM track is WisecondorX's bins is not taken as sequenced: the proband's
@@ -295,10 +299,10 @@ async def test_the_mtdna_coverage_reads_only_each_samples_track_of_read_depth(
     # Before: the proband's mean was her BED's and her bins' blended (200.05x, minimum 0.1x),
     # the mother's her log2 ratio (6.5x), the father's his depths and bins blended (159.9x).
     assert coverage == {
-        "PROBAND": (400.0, 400.0, 400.0, "coverage"),
+        "PROBAND": (400.0, 400.0, 400.0, "coverage BED"),
         # No track of read depth: her calls' depth, as for a sample without a coverage track.
         "MOM": (390.0, 390.0, 390.0, "variant calls"),
-        "DAD": (320.0, 320.0, 320.0, "coverage"),
+        "DAD": (320.0, 320.0, 320.0, "HiFiCNV coverage"),
     }
     assert {sample.sample_id: sample.coverage.breadth for sample in response.samples} == {
         "PROBAND": 1.0,
@@ -319,6 +323,53 @@ async def test_the_mtdna_coverage_reads_only_each_samples_track_of_read_depth(
         "MOM: the HiFiCNV coverage holds log2 ratios, not read depth; it is not read as depth.",
         "PROBAND: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.",
     ]
+
+
+def _per_base(first: int, last: int, value: float) -> list[tuple[str, int, int, float]]:
+    """A per-base track's rows over chrM's bases from ``first`` up to ``last`` (0-based)."""
+    return [("M", position, position + 1, value) for position in range(first, last)]
+
+
+@pytest.mark.asyncio
+async def test_the_mtdna_coverage_counts_each_row_over_the_bases_it_covers(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    store = _CoverageStore(
+        {
+            # The proband: a per-base coverage BED over chrM's first 8,000 bases at 400x, and a
+            # row past chrM's end.
+            ("uuid-proband", "web"): [*_per_base(0, 8_000, 400.0), ("M", MT_LENGTH, MT_LENGTH + 2, 50.0)],
+            # The mother: a coverage BED of 300x up to base 16,000, and no reads after it.
+            ("uuid-mom", "web"): [("M", 0, 16_000, 300.0), ("M", 16_000, MT_LENGTH, 0.0)],
+            # The father: HiFiCNV's depth stored as read, over the whole of chrM.
+            ("uuid-dad", "hificnv"): _whole_mt(320.0),
+        },
+        {("DAD", "hificnv"): [STORED_AS_READ]},
+        {("PROBAND", "web"): [READ_DEPTH], ("MOM", "web"): [READ_DEPTH]},
+    )
+    records = [_mt_variant(("PROBAND", "0/1", 420, 0.46), ("MOM", "0/1", 390, 0.88), ("DAD", "0/0", 310, 0.0))]
+
+    response = await _mito_response(monkeypatch, store, records)
+
+    coverage = {sample.sample_id: sample.coverage for sample in response.samples}
+    proband, mother, father = coverage["PROBAND"], coverage["MOM"], coverage["DAD"]
+    # A row covers its end minus its start bases (CLIN-56). Before, each counted one more: the
+    # proband's 8,000 one-base rows read as 15,999 bases (97 % of chrM), and the row past chrM's
+    # end as one base, at 50x her minimum depth.
+    assert proband.breadth == pytest.approx(8_000 / MT_LENGTH)
+    assert (proband.mean_depth, proband.min_depth, proband.max_depth) == (400.0, 400.0, 400.0)
+    # A row of depth 0 counts for the mean depth, not for the breadth (before: all of chrM).
+    assert mother.breadth == pytest.approx(16_000 / MT_LENGTH)
+    assert mother.mean_depth == pytest.approx(300.0 * 16_000 / MT_LENGTH)
+    assert (mother.min_depth, mother.max_depth) == (0.0, 300.0)
+    assert (father.mean_depth, father.breadth) == (320.0, 1.0)
+    # Each sample's coverage is named after the track it was read from (before: "coverage",
+    # or the first rows' record ids).
+    assert {name: item.source for name, item in coverage.items()} == {
+        "PROBAND": "coverage BED",
+        "MOM": "coverage BED",
+        "DAD": "HiFiCNV coverage",
+    }
 
 
 @pytest.mark.asyncio
@@ -388,7 +439,7 @@ async def test_a_coverage_bed_not_declared_as_depth_is_not_read_as_mtdna_depth(
     assert coverage == {
         "PROBAND": (420.0, "variant calls"),
         "MOM": (390.0, "variant calls"),
-        "DAD": (300.0, "coverage"),
+        "DAD": (300.0, "coverage BED"),
     }
     assert {sample.sample_id: sample.qc.status for sample in response.samples}["PROBAND"] == "pass"
     # The page says why.
