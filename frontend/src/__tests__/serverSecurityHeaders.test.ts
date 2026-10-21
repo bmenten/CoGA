@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { CSP, buildCsp, securityHeaders } from '../../securityHeaders.mjs';
+import { CSP, buildCsp, hstsEnabled, securityHeaders } from '../../securityHeaders.mjs';
 
 function mockRes() {
   const headers: Record<string, string> = {};
@@ -45,6 +45,21 @@ describe('SPA securityHeaders middleware', () => {
     vi.stubEnv('ENABLE_HSTS', 'true');
     securityHeaders({}, res, () => {});
     // Two years, for this host and its subdomains: the policy the API sends too.
+    expect(res.headers['Strict-Transport-Security']).toBe('max-age=63072000; includeSubDomains');
+    vi.unstubAllEnvs();
+  });
+
+  it('reads ENABLE_HSTS as the backend reads it, so the two never disagree (SEC-23)', () => {
+    // Compose hands both containers the one value from .env; the frontend took only `true`.
+    for (const on of ['true', 'True', 'TRUE', '1', 'yes', 'y', 'on', 't', ' true ']) {
+      expect(hstsEnabled(on)).toBe(true);
+    }
+    for (const off of ['', 'false', 'False', '0', 'no', 'off', 'maybe', undefined]) {
+      expect(hstsEnabled(off)).toBe(false);
+    }
+    const res = mockRes();
+    vi.stubEnv('ENABLE_HSTS', '1');
+    securityHeaders({}, res, () => {});
     expect(res.headers['Strict-Transport-Security']).toBe('max-age=63072000; includeSubDomains');
     vi.unstubAllEnvs();
   });
