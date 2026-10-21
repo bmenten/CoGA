@@ -453,6 +453,22 @@ describe('FamilyStructuralVariantsPage', () => {
       expect(panelSelect).toHaveValue('P1');
       expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
     });
+
+    it('names the applied panel on its chip, not the one chosen in the form (CLIN-21)', async () => {
+      get.mockImplementation((url: string) =>
+        url === '/panels'
+          ? Promise.resolve({ data: [{ _id: 'PA', name: 'Panel A' }, { _id: 'PB', name: 'Panel B' }] })
+          : workingGet!(url),
+      );
+      renderAt('/families/F1/structural-variants?page=1&panel_id=PA');
+
+      expect(await screen.findByText('Gene panel: Panel A')).toBeInTheDocument();
+      fireEvent.change(screen.getByRole('combobox', { name: /panel/i }), { target: { value: 'PB' } });
+
+      // The results are filtered by Panel A until the form is applied; the chip said Panel B.
+      expect(screen.getByText('Gene panel: Panel A')).toBeInTheDocument();
+      expect(screen.queryByText('Gene panel: Panel B')).not.toBeInTheDocument();
+    });
   });
 
   // SAFE-14 — the family record holds what the header warns of: an import that left the

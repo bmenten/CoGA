@@ -175,6 +175,8 @@ export type ActiveStructuralFilterChip =
       label: string;
       kind: 'top';
       key: keyof StructuralFilterState;
+      // The applied value the chip stands for (a panel's chip names it from this, CLIN-21).
+      value: string;
     }
   | {
       id: string;
@@ -498,6 +500,7 @@ const buildActiveFilterChips = (
           : `${STRUCTURAL_FILTER_LABELS[key]}: ${value}`,
       kind: 'top',
       key,
+      value,
     });
   });
 

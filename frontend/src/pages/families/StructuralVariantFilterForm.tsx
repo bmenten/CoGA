@@ -136,8 +136,10 @@ const StructuralVariantFilterForm = ({
 
   const getActiveChipLabel = (chip: ActiveStructuralFilterChip) => {
     if (chip.kind === 'top' && chip.key === 'panel_id') {
-      const panel = panels.find((entry) => entry._id === draftFilters.panel_id);
-      return `Gene panel: ${panel?.name || draftFilters.panel_id}`;
+      // The applied panel, as the chip's filter is: the draft's panel named a panel the shown
+      // results were not filtered by, until the form was applied (CLIN-21).
+      const panel = panels.find((entry) => entry._id === chip.value);
+      return `Gene panel: ${panel?.name || chip.value}`;
     }
     return chip.label;
   };
