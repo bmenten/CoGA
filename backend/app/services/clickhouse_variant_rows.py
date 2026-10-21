@@ -117,20 +117,17 @@ def _annotation_gnomad_over_5_percent(annotations: Sequence[dict[str, Any]]) -> 
             "topmed_af",
             "topmedAf",
         ):
-            raw = annotation.get(key)
-            try:
-                if raw not in (None, "", "."):
-                    values.append(float(raw))
-            except (TypeError, ValueError):
-                continue
+            # As the frequency columns store it (#868): a value that is no finite number or
+            # lies beyond Float32 is missing, never a frequency over 5 % (DATA-7).
+            stored = column_float32(annotation.get(key))
+            if stored is not None:
+                values.append(stored)
         frequencies = annotation.get("population_frequencies") or annotation.get("populationFrequencies")
         if isinstance(frequencies, dict):
             for raw in frequencies.values():
-                try:
-                    if raw not in (None, "", "."):
-                        values.append(float(raw))
-                except (TypeError, ValueError):
-                    continue
+                stored = column_float32(raw)
+                if stored is not None:
+                    values.append(stored)
         return values
 
     return any(value > 0.05 for annotation in annotations for value in _candidate_values(annotation))
@@ -335,9 +332,13 @@ def _normalized_project_ids(project_ids: Sequence[str]) -> list[str]:
 
 
 def _small_call_af(call: SmallVariantCall) -> list[float]:
-    """The call's allele fractions as stored. One that is no finite number is left out as
-    the VCF reader leaves it out (``_parse_float_list``), and so is one beyond Float32."""
-    return [number for number in (column_float32(value) for value in call.af) if number is not None]
+    """The call's allele fractions as stored, one per alternate allele: all of them, or none
+    when one is no finite number or lies beyond Float32, as the VCF reader keeps them
+    (``_parse_float_list``). Leaving one out moved each later allele's fraction onto the
+    allele before it (DATA-7)."""
+    stored = [column_float32(value) for value in call.af]
+    numbers = [number for number in stored if number is not None]
+    return numbers if len(numbers) == len(stored) else []
 
 
 def _small_call_ad(call: SmallVariantCall) -> list[int]:
