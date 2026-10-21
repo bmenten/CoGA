@@ -50,10 +50,15 @@ def test_coerce_int_tolerates_floats_and_junk() -> None:
     assert _coerce_int("not-a-number") is None
 
 
-def test_parse_float_list_skips_malformed_entries_without_raising() -> None:
+def test_parse_float_list_keeps_every_allele_fraction_or_none_without_raising() -> None:
     # A single bad AF token must not abort the whole ingest with a 500.
-    assert _parse_float_list("0.1,junk,0.3") == [0.1, 0.3]
-    assert _parse_float_list("inf,0.5") == [0.5]  # non-finite dropped
+    assert _parse_float_list("0.1,0.3") == [0.1, 0.3]
+    # Nor may it move a fraction onto another allele (DATA-7): leaving the bad one out gave
+    # the second allele's 0.3 to the first. A list with one gone keeps none.
+    assert _parse_float_list("0.1,junk,0.3") == []
+    assert _parse_float_list(".,0.3") == []
+    assert _parse_float_list("inf,0.5") == []  # non-finite
+    assert _parse_float_list("0.1,") == []
     assert _parse_float_list(".") == []
     assert _parse_float_list(None) == []
 

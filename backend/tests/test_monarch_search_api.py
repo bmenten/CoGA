@@ -9,6 +9,7 @@ from backend.app.core.postgres import get_postgres_session
 from backend.app.main import app
 from backend.app.routers import admin as admin_router
 from backend.app.services.access_control import CurrentUser
+from backend.app.services.monarch_ingest import MonarchSourceError
 
 
 class _FakeSession:
@@ -184,3 +185,27 @@ def test_a_failed_mendeliome_regeneration_is_reported_not_hidden(monarch_admin_c
     assert body["mendeliome_error"] == "RuntimeError"
     # The half-built panel version is discarded rather than left on the session.
     assert _FakeSession.rollbacks == 1
+
+
+def test_monarch_data_that_cannot_be_used_answers_502_not_500(monarch_admin_client) -> None:
+    # DATA-4: a corrupt or empty download, or an unreadable release, raised past the router's
+    # httpx.HTTPError handler: a 500. It is a fault upstream, like a failed download.
+    client, monkeypatch = monarch_admin_client
+    regenerated: list[object] = []
+
+    async def unusable(session):
+        raise MonarchSourceError("https://example.org/monarch.tsv.gz is not valid gzip")
+
+    async def regenerate(session, user):
+        regenerated.append(user)
+
+    monkeypatch.setattr(admin_router, "refresh_monarch", unusable)
+    monkeypatch.setattr(admin_router, "regenerate_mendeliome", regenerate)
+    response = client.post("/api/admin/monarch/refresh")
+
+    assert response.status_code == 502
+    assert response.json() == {
+        "detail": "Monarch data could not be loaded, and the loaded release was kept: "
+        "https://example.org/monarch.tsv.gz is not valid gzip"
+    }
+    assert regenerated == []

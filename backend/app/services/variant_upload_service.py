@@ -245,25 +245,28 @@ def _parse_format(format_field: str, sample_field: str) -> dict[str, str]:
 
 
 def _parse_float_list(value: str | None) -> list[float]:
-    # Tolerant of malformed entries: a single bad AF value skips that entry rather than
-    # aborting the whole ingest with a 500 (mirrors the package-import coercion path).
+    """A call's allele fractions, one per alternate allele (FORMAT AF or VAF): all of them, or
+    none when one is missing or no finite number. Leaving that one out moved each later
+    allele's fraction onto the allele before it (DATA-7); without them the call's fraction
+    comes from its allele depths, where it has them. Never an error: a bad value does not
+    fail the ingest."""
     if value in (None, ".", ""):
         return []
     parsed: list[float] = []
     for item in value.split(","):
-        if item and item != ".":
-            try:
-                number = float(item)
-            except (TypeError, ValueError):
-                continue
-            if math.isfinite(number):
-                parsed.append(number)
+        try:
+            number = float(item)
+        except (TypeError, ValueError):
+            return []
+        if not math.isfinite(number):
+            return []
+        parsed.append(number)
     return parsed
 
 
 def _parse_int_list(value: str | None) -> list[int]:
-    # Tolerant of malformed entries (see _parse_float_list); a missing/bad token maps
-    # to 0 so positional AD alignment is preserved without raising.
+    # Tolerant of malformed entries: a missing/bad token maps to 0 so positional AD
+    # alignment is preserved without raising.
     if value in (None, ".", ""):
         return []
     parsed: list[int] = []

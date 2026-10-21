@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from fastapi import HTTPException
+import httpx
 import pytest
 
 import backend.app.services.panelapp_service as panelapp_service
@@ -127,3 +129,20 @@ async def test_fetch_panelapp_panel_builds_numeric_path(monkeypatch: pytest.Monk
 
     assert captured["path"] == "/panels/20/"
     assert captured["params"] == {"format": "json", "version": "1.3"}
+
+
+@pytest.mark.asyncio
+async def test_a_panelapp_answer_that_is_no_json_is_answered_502(monkeypatch: pytest.MonkeyPatch) -> None:
+    real_client = httpx.AsyncClient
+
+    def client(**kwargs):
+        page = httpx.Response(200, text="<html>Service temporarily unavailable</html>")
+        return real_client(transport=httpx.MockTransport(lambda _request: page), **kwargs)
+
+    monkeypatch.setattr(panelapp_service.httpx, "AsyncClient", client)
+
+    # A 200 whose body is no JSON raised ValueError past the handler: a 500 (DATA-4).
+    with pytest.raises(HTTPException) as refused:
+        await panelapp_service._get_panelapp_json("/panels/20/")
+
+    assert (refused.value.status_code, refused.value.detail) == (502, "Unexpected PanelApp response")
