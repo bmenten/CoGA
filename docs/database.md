@@ -455,9 +455,13 @@ a whole insert when one value falls outside its column, so a value its column ca
 one that is no finite number, is stored as missing: a GQ above 65,535 or written `inf`, a depth
 above 4,294,967,295, a negative phase set, a QUAL, allele fraction, caller metric or annotation
 score beyond the largest `Float32` (about 3.4 × 10³⁸), an SVLEN outside `Int32`, a copy number
-above 65,535, a gnomAD count outside `UInt32`. An allele fraction so missing is left out of the
-call's list and an allele depth stored as 0, as a missing or unreadable one already is, so the
-other alleles keep their places. A record whose position (a POS or END, a track row's start or
+above 65,535, a gnomAD count outside `UInt32`. A call's allele fractions, one per alternate
+allele, are stored all or none: one so missing, or missing or unreadable in the file, leaves the
+call without fractions, its allele balance then read from its depths, since leaving it out would
+move each later fraction onto the allele before it (DATA-7). An allele depth so missing is stored
+as 0, as a missing or unreadable one already is, so the other alleles keep their places. The
+common-variant flag (`is_gnomad_gt_5_percent`) reads each population frequency as its column
+stores it, so one so missing is no frequency over 5 %. A record whose position (a POS or END, a track row's start or
 end) no column holds cannot be placed: its loader skips it as malformed, as it skips a POS that
 is no number, and counts it where it counts those (the small-variant upload's
 `skipped_malformed`, a track's `skipped`). A contig named by a negative or an enormous number is

@@ -391,8 +391,11 @@ async def test_values_no_column_holds_are_stored_as_missing(clickhouse) -> None:
         "gq": None,  # beyond UInt16
         "dp": None,  # beyond UInt32
         "ad": [0, 10],  # a depth no column holds is 0, as a missing one is, so 10 stays the alt depth
-        "af": [0.5],  # beyond Float32: left out, as a fraction that is no number is
-        "ab": 0.5,
+        # One beyond Float32: the list is not stored, as one with a fraction that is no number
+        # is not; leaving it out moved the next fraction onto its allele (DATA-7).
+        "af": [],
+        "ab": 1.0,  # from the allele depths as stored
+
         "ps": None,  # negative
         "metrics": {"FS": 1.5},  # QUAL and TLOD beyond Float32
     }
@@ -662,15 +665,21 @@ async def test_every_value_of_a_small_variant_record_meets_its_column(clickhouse
     # The records whose position no column holds are left out; the other is stored.
     [entry] = clickhouse.entries()
     assert entry["qual"] is None
+    # The fractions are stored all or none (DATA-7): with the NaN left out, the second allele's
+    # 0.25 was stored as the first allele's, and so was the allele balance. The balance now
+    # comes from the allele depths as stored.
     assert _calls(entry) == {
         "gq": None,
         "dp": None,
         "ad": [0, 0, 7],
-        "af": [0.25],
-        "ab": 0.25,
+        "af": [],
+        "ab": 0.0,
         "ps": None,
         "metrics": {"FS": 2.0},
     }
+    # 1e39, which no Float32 holds, is missing, as the frequency columns store it, not a
+    # frequency over 5 % (DATA-7); the population fallback is 1 %.
+    assert entry["is_gnomad_gt_5_percent"] is False
     [stored] = clickhouse.rows[f"{_ASSEMBLY}/SNV_INDEL/variants/annotations"]
     assert stored["gnomad_af"] == 0.01  # the population fallback; 1e39 no Float32 holds
     assert (stored["gnomad_ac"], stored["gnomad_hom_count"]) == (None, None)
