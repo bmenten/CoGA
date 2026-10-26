@@ -329,7 +329,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion, isError: referenceFailed },
-    data?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Not linked',
+    'Not linked',
   );
   const { data: reviewSummary, isError: reviewSummaryFailed } = useQuery<ApiSmallVariantReviewSummary>({
     queryKey: ['family', familyId, 'small-variant-review-summary'],
@@ -528,6 +528,19 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         kicker="Family"
         title="Family not found"
         message="This workspace could not resolve the requested family."
+      />
+    );
+  }
+
+  // The project's reference too, before anything of the family: the assembly-scope warning
+  // shows nothing while it loads (#515), so the workspace showed the family without "Not
+  // validated for clinical use", which came a moment later (ENG-12).
+  if (referenceLoading) {
+    return (
+      <PageState
+        kicker="Family"
+        title="Loading family workspace"
+        message="Preparing family metadata, pedigree and navigation links."
       />
     );
   }

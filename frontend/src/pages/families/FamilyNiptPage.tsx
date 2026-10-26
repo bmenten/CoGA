@@ -208,6 +208,7 @@ const FamilyNiptPage: React.FC = () => {
     assemblyValidated,
     assemblyVersion,
     projectId,
+    isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects as string[] | undefined);
@@ -457,7 +458,9 @@ const FamilyNiptPage: React.FC = () => {
   const showReported = () => runSearch({ ...createEmptySmallFilters(), review_tags: REPORT_TAG_KEY });
   const notClassified = variantPage?.not_classified ?? [];
 
-  if (familyLoading) {
+  // The project's reference too: the assembly-scope warning shows nothing while it loads
+  // (#515), so the NIPT analysis showed without "Not validated for clinical use" (ENG-12).
+  if (familyLoading || referenceLoading) {
     return <PageState loading kicker="Monogenic NIPT" title="Loading family" />;
   }
   if (familyFailed) {

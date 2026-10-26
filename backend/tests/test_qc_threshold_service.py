@@ -564,6 +564,54 @@ async def test_a_limit_on_a_metric_outside_the_catalogue_is_refused_before_anyth
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("metric_key", _NOT_IN_THE_CATALOGUE)
+async def test_a_stored_limit_on_a_metric_that_left_the_catalogue_can_be_cleared(metric_key: str) -> None:
+    from app.services.qc_threshold_service import set_qc_threshold
+
+    # ENG-12 (REQ-QC-003). The admin list surfaces such a limit, which gates nothing, so it
+    # can be removed. Before: refused as an unknown metric, so it stayed for good.
+    session = _RecordingThresholdSession(previous={"warn_value": 20.0, "error_value": 10.0})
+    result = await set_qc_threshold(
+        session,
+        profile_key="default",
+        metric_key=metric_key,
+        warn_value=None,
+        error_value=None,
+        reason="The metric left the catalogue",
+        **_ACTOR,
+    )
+
+    assert result == {"profile_key": "default", "metric_key": metric_key, "warn_value": None, "error_value": None}
+    [deleted] = session.written("DELETE FROM qc_thresholds")
+    assert deleted["metric_key"] == metric_key
+    # Recorded like any other edit, with the values it replaced and why.
+    [change] = session.written("INSERT INTO qc_threshold_changes")
+    assert (change["metric_key"], change["previous_warn_value"], change["previous_error_value"]) == (
+        metric_key,
+        20.0,
+        10.0,
+    )
+    assert (change["warn_value"], change["error_value"]) == (None, None)
+    assert session.commits == 1
+
+    # With nothing stored there is nothing to clear, and no metric of the catalogue to name.
+    session = _RecordingThresholdSession(previous=None)
+    with pytest.raises(HTTPException) as excinfo:
+        await set_qc_threshold(
+            session,
+            profile_key="default",
+            metric_key=metric_key,
+            warn_value=None,
+            error_value=None,
+            reason="Nothing there",
+            **_ACTOR,
+        )
+    assert (excinfo.value.status_code, excinfo.value.detail) == (400, f"Unknown QC metric: {metric_key}")
+    assert session.written("DELETE FROM qc_thresholds") == []
+    assert session.commits == 0
+
+
+@pytest.mark.asyncio
 async def test_every_catalogue_metric_takes_a_limit_stored_with_its_own_failing_side() -> None:
     from app.services.qc_threshold_service import set_qc_threshold
 

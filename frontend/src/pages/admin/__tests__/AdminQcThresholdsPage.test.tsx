@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router';
@@ -141,6 +141,44 @@ describe('AdminQcThresholdsPage', () => {
         warn_value: 15,
         error_value: 10,
         reason: 'per VAL-P07',
+      }),
+    );
+  });
+
+  it('lists a limit whose metric left the catalogue, and removes it with a reason', async () => {
+    // ENG-12 (REQ-QC-003). Before: the page listed the catalogue's metrics alone, so such a
+    // limit could be neither seen nor removed here.
+    const orphan = {
+      metric_key: 'depth.median_depth',
+      label: 'depth.median_depth',
+      unit: '',
+      direction: 'lower_is_worse' as const,
+      known_metric: false,
+      warn_value: 18,
+      error_value: null,
+    };
+    const [defaultProfile, ...others] = CATALOGUE.profiles;
+    mockedGet.mockResolvedValue({
+      data: { ...CATALOGUE, profiles: [{ ...defaultProfile, thresholds: [...defaultProfile.thresholds, orphan] }, ...others] },
+    });
+    const user = userEvent.setup();
+    renderPage();
+
+    const row = (await screen.findByText(/no longer in the catalogue: it gates nothing/)).closest('tr')!;
+    expect(row).toHaveTextContent('depth.median_depth');
+    expect(row).toHaveTextContent('18');
+    await user.click(within(row).getByRole('button', { name: 'Remove' }));
+    const dialog = await screen.findByRole('dialog', { name: /Confirm threshold change/i });
+    expect(dialog).toHaveTextContent('warning 18 → none, error none → none');
+    await user.type(within(dialog).getByLabelText(/Reason for the change/i), 'metric withdrawn');
+    await user.click(within(dialog).getByRole('button', { name: /Confirm change/i }));
+
+    await waitFor(() =>
+      expect(mockedPut).toHaveBeenCalledWith('/admin/qc-thresholds/default', {
+        metric_key: 'depth.median_depth',
+        warn_value: null,
+        error_value: null,
+        reason: 'metric withdrawn',
       }),
     );
   });
