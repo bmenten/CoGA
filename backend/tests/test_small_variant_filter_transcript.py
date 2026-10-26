@@ -540,19 +540,19 @@ async def test_a_panel_served_from_a_broader_ranking_names_the_transcript(monkey
     }
 
     async def supersets(_session, *, family_uuid, base_hash):
-        # A ranking cached without a panel serves any panel it holds every variant of.
-        return [
-            {
-                "panel_id": None,
-                "ranking": [{"variant_id": record.variant_id, "priority": priority}],
-                "computed_at": None,
-            }
-        ]
+        # A ranking cached without a panel serves any panel it holds every variant of. The
+        # candidates come without their rankings: the one that passes is read (ENG-13).
+        return [{"inputs_hash": "superset", "panel_id": None, "computed_at": None}]
+
+    async def cached(_session, *, family_uuid, inputs_hash):
+        assert inputs_hash == "superset"
+        return {"ranking": [{"variant_id": record.variant_id, "priority": priority}], "computed_at": None}
 
     async def nothing(*_args, **_kwargs):
         return None
 
     monkeypatch.setattr(M + "find_superset_candidates", supersets)
+    monkeypatch.setattr(M + "get_cached_ranking", cached)
     monkeypatch.setattr(M + "_hydrate_small_variant_outs", nothing)
 
     page = await _serve_subpanel_from_superset(

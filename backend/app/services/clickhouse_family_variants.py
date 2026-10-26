@@ -2223,7 +2223,14 @@ async def _serve_subpanel_from_superset(
             if not request_genes.issubset(candidate_genes):
                 continue  # this superset doesn't cover all the requested genes
 
-        priorities = _priorities_from_ranking(candidate.get("ranking"), records, segregation_modes)
+        # Its ranking, read only now that its panel passed (ENG-13). A row the cache dropped
+        # meanwhile (it keeps a few per family) serves nothing.
+        cached = await get_cached_ranking(
+            session, family_uuid=context.family_uuid, inputs_hash=str(candidate.get("inputs_hash"))
+        )
+        if cached is None:
+            continue
+        priorities = _priorities_from_ranking(cached.get("ranking"), records, segregation_modes)
         if priorities is None:
             continue  # a variant it lacks (CLIN-34), or a pair the panel splits (CLIN-35)
         total = len(items)
@@ -2240,7 +2247,7 @@ async def _serve_subpanel_from_superset(
             capped=False,
             pairing=pairing,
             ranking_cached=True,
-            ranking_computed_at=candidate.get("computed_at"),
+            ranking_computed_at=cached.get("computed_at"),
             small_variant_summary=small_variant_summary,
         )
     return None
@@ -2716,29 +2723,44 @@ async def precompute_family_ranking_safe(
                 return  # nothing to replay yet — leave the first open as a (lazy) miss
 
             filters = SmallVariantQueryFilters(**{**stored_filters, "page": 1, "page_size": 100})
-            panel_constraints = (
-                await _fetch_panel_constraints(
-                    session, filters.panel_id, assembly_id=context.assembly_id
-                )
-                if filters.panel_id
-                else PanelFilterConstraints()
+            # Prepared as a live request prepares it, so the ranking goes under the key the
+            # next live request of that view reads (ENG-13). The SV hit genes are resolved
+            # again from the family's index, not replayed from the stored filters: a live
+            # request resolves them, and its key reads them (#845). The scope comes from the
+            # filters' intervals, excluded intervals and excluded genes: the warm computed
+            # every query without them, a ranking no live request matched, which took one of
+            # the family's few cache rows.
+            filters.sv_hit_genes = []
+            if filters.require_sv_second_hit:
+                await _ensure_family_sv_gene_index(session, context)
+                filters.sv_hit_genes = await get_sv_hit_genes(session, family_uuid=context.family_uuid)
+            # The no-review default view: the high-value cached case.
+            scope = await _resolve_small_variant_scope(
+                session,
+                context,
+                filters,
+                review_classifications=None,
+                review_tags=None,
+                exclude_review_tags=None,
+                has_notes=False,
             )
-            # Replay the no-review default view (the high-value cached case). Computing it
-            # stores the ranking under the now-current inputs hash.
+            if scope is None:
+                return  # a query that matches nothing ranks nothing
+            # Computing it stores the ranking under the now-current inputs hash.
             await _prioritized_small_variants_page(
                 session,
                 context=context,
                 filters=filters,
                 page=1,
                 page_size=100,
-                panel_constraints=panel_constraints,
-                review_variant_ids=None,
-                excluded_review_variant_ids=set(),
-                include_review_filter_active=False,
-                include_regions=[],
-                exclude_regions=[],
-                exclude_gene_regions=[],
-                exclude_gene_terms=[],
+                panel_constraints=scope.panel_constraints,
+                review_variant_ids=scope.review_variant_ids,
+                excluded_review_variant_ids=scope.excluded_review_variant_ids,
+                include_review_filter_active=scope.include_review_filter_active,
+                include_regions=scope.include_regions,
+                exclude_regions=scope.exclude_regions,
+                exclude_gene_regions=scope.exclude_gene_regions,
+                exclude_gene_terms=scope.exclude_gene_terms,
                 small_variant_summary=None,
             )
             logger.info("Warmed prioritised-ranking cache for family %s", family_identifier)
