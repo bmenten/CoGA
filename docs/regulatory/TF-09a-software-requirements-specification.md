@@ -196,7 +196,7 @@ small-variant/SV (REQ-DIAG-001/003), classification (REQ-CLASS-*) and Sample QC 
 | --- | --- | --- | --- |
 | REQ-UI-001 | The NIPT dashboard surfaces the quality checks (REQ-NIPT-015), FF + CI, category counts, the filter funnel with drop counts, and coverage QC, without extra navigation; each variant shows its plasma reads, the father's genotype class, its fetal-inheritance probabilities, a de novo candidate's priority and its flags. | C | H6, H1, H4, H10 |
 | REQ-UI-002 | The haplotype track shows lineage colours, the raw-marker overlay, informative-marker count, Mendel-error, and recombination/uninformative warnings. | C | H5, H10 |
-| REQ-UI-003 | The ACMG modal presents overridable criteria and the points scale, distinguishes suggested vs accepted, and recomputes server-side on save. | C | H3, H10 |
+| REQ-UI-003 | The ACMG modal presents overridable criteria and the points scale, shown on the posterior-probability scale of the Tavtigian model with ticks at the class boundaries and each VUS point (#765), distinguishes suggested vs accepted, and recomputes server-side on save. | C | H3, H10 |
 | REQ-UI-004 | The report page shows the provenance footer, the evidence-drift badge, the sign-out/amend action with its acknowledge-with-reason dialogs, and the audit timeline. | C | H8, H9, H10 |
 | REQ-UI-005 | Route guards enforce authentication (`RequireAuth`) and admin-only areas (`RequireAdmin`). | C | H11 |
 | REQ-UI-006 | Login redirect (`next`) is validated against unsafe targets. | B | H11 |
