@@ -469,10 +469,12 @@ async def _import_incomplete_state(
     ``failed_jobs`` names, for each failed dataset, the import job whose record holds its
     error: a later failure keeps an earlier import's failed datasets in the flag
     (``family_package_registration.merged_import_failure``), so they can come from
-    different jobs. A flag without it names its own job for every dataset. A dataset that
-    failed for more than one scope (another callset, other samples) is named with the job of
-    its latest failure; the flag keeps every scope with its own job (``failed_scopes``),
-    which is not frozen.
+    different jobs. A flag without it names its own job for every dataset. A dataset it
+    lists with no job failed outside one -- in a single-file upload (SAFE-25), or an import
+    run outside a job -- and is frozen with none: the flag's own job is another failure's,
+    which does not hold its error (SAFE-18). A dataset that failed for more than one scope
+    (another callset, other samples) is named with the job of its latest failure; the flag
+    keeps every scope with its own job (``failed_scopes``), which is not frozen.
     """
     raw = (
         await session.execute(
@@ -503,9 +505,12 @@ async def _import_incomplete_state(
     failed_jobs: dict[str, str | None] = {}
     for name in state["failed_datasets"]:
         dataset_job = jobs.get(name) if isinstance(jobs, Mapping) else None
-        failed_jobs[name] = (
-            dataset_job if isinstance(dataset_job, str) and dataset_job else state["job_id"]
-        )
+        if isinstance(dataset_job, str) and dataset_job:
+            failed_jobs[name] = dataset_job
+        elif isinstance(jobs, Mapping) and name in jobs and dataset_job is None:
+            failed_jobs[name] = None  # it failed outside an import job
+        else:
+            failed_jobs[name] = state["job_id"]
     state["failed_jobs"] = failed_jobs
     return state
 
@@ -620,11 +625,29 @@ def _import_gate_message(
             )
         jobs = state.get("failed_jobs")
         by_job: dict[str, list[str]] = {}
+        without_job: list[str] = []
         if isinstance(jobs, Mapping):
             for name in failed:
                 if jobs.get(name):
                     by_job.setdefault(str(jobs[name]), []).append(str(name))
-        if len(by_job) > 1:
+                else:
+                    without_job.append(str(name))
+        if by_job and without_job:
+            # A failure no import job records beside one a job does: the flag's job is not
+            # its (SAFE-18). Only then is it named, as a flag written before jobs were
+            # recorded names none for any dataset.
+            job = (
+                f" No import job records the error of {', '.join(without_job)}, which failed "
+                "in a single-file upload or in an import run outside a job."
+            )
+            if len(by_job) > 1:
+                job += " Each other dataset's error is recorded in its import job: " + "; ".join(
+                    f"{', '.join(names)} in import job {job_id}"
+                    for job_id, names in sorted(by_job.items(), key=lambda item: item[1])
+                ) + "."
+            else:
+                job += f" Each other dataset's error is recorded in import job {next(iter(by_job))}."
+        elif len(by_job) > 1:
             # An earlier import's failure kept with a later one's: name each one's job.
             job = " Each dataset's error is recorded in its import job: " + "; ".join(
                 f"{', '.join(names)} in import job {job_id}"

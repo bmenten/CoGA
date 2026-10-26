@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Collection, Mapping
 from contextlib import AsyncExitStack, suppress
 from datetime import datetime, timedelta, timezone
 import logging
@@ -138,24 +138,27 @@ def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> s
 
 def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
     """The log line of an import that completed while the family stays flagged by an
-    earlier import's failure it did not import again. A dataset is named with each job
-    that holds an error of it still flagged: one that failed for several scopes (callsets,
-    samples) can have more than one (SAFE-26)."""
+    earlier failure it did not import again. A dataset is named with each job that holds
+    an error of it still flagged: one that failed for several scopes (callsets, samples)
+    can have more than one (SAFE-26). A failure no job records is a single-file upload's
+    (SAFE-25), or an import's run outside a job, and is said so (SAFE-18)."""
     if failures.unreadable:
         return (
             f"Family {family_id} stays flagged import-incomplete: its flag is not in the shape "
             "an import writes, so nothing shows what would complete it."
         )
+    outside = "outside an import job"
     by_job: dict[str, list[str]] = {}
     for name, latest in sorted(failures.failed.items()):
         for job_id in failures.jobs.get(name) or [latest]:
-            names = by_job.setdefault(f"import job {job_id}" if job_id else "an import", [])
+            names = by_job.setdefault(f"in import job {job_id}" if job_id else outside, [])
             if name not in names:
                 names.append(name)
-    failed = "; ".join(f"{', '.join(names)} in {job}" for job, names in sorted(by_job.items()))
+    failed = "; ".join(f"{', '.join(names)} {where}" for where, names in sorted(by_job.items()))
+    who = "an earlier import or single-file upload" if outside in by_job else "an earlier import"
     return (
-        f"Family {family_id} stays flagged import-incomplete: an earlier import failed for "
-        "datasets this import did not import again, for the callset and samples that failed "
+        f"Family {family_id} stays flagged import-incomplete: {who} failed for datasets this "
+        "import did not import again, for the callset and samples that failed "
         f"({failed}). Import them again to complete the family."
     )
 
@@ -223,6 +226,35 @@ def _restore_failed_message(flagged_failed: list[str], whole: list[str] | None) 
         "and upload again with overwrite what a single-file upload brought: an update skips "
         "a dataset whose rows are there."
     )
+
+
+# How a dataset's loader ended, as the job's record says it once a restore has failed.
+_LOADER_ENDINGS = {
+    "imported": "imported",
+    "warning": "imported with warnings",
+    "registered": "registered its files",
+    "skipped": "was skipped",
+}
+
+
+def _record_left_by_restore(datasets: list[FamilyImportDatasetSummary], flagged: Collection[str]) -> None:
+    """Record, in the job's dataset table, each dataset of ``flagged`` whose loader ended
+    well as failed: after a failed overwrite whose restore failed part-way, the flag names
+    every dataset of the import as failed and none as imported, as the restore may have
+    removed the rows of any of them. The table then says the same, with how the loader had
+    ended (SAFE-18)."""
+    for position, dataset in enumerate(datasets):
+        if dataset.dataset_type not in flagged or dataset.status == "failed":
+            continue
+        ending = _LOADER_ENDINGS.get(dataset.status, f"ended {dataset.status}")
+        message = (
+            f"Its loader {ending}, but the import failed and the restore that followed did not "
+            "finish, so its rows may be partly written or missing. Import it again with "
+            "overwrite."
+        )
+        if dataset.message:
+            message += f" The loader's message: {dataset.message}"
+        datasets[position] = dataset.model_copy(update={"status": "failed", "message": message})
 
 
 def _datasets_set_out(
@@ -758,6 +790,10 @@ async def _import_family_datasets(
                 )
             else:
                 flagged_failed = sorted({*failed_datasets, *_datasets_set_out(validation, import_mark)})
+                # The job's record says what the flag says: each dataset failed, the ones
+                # whose loader ended well too (SAFE-18).
+                _record_left_by_restore(datasets, flagged_failed)
+                failed_datasets = list(flagged_failed)
                 whole: list[str] | None = None
                 if import_mark is not None:
                     whole = await _flag_family_restore_failed(

@@ -2959,6 +2959,48 @@ describe('FamilyReportPage', () => {
       expect(checks).toHaveTextContent(`Import jobs: snv in ${IMPORT_JOB_ID}; sv in job-earlier.`);
     });
 
+    it('names a failure no job records apart from the job of another, in the dialog and on the signed record', async () => {
+      // SAFE-18: an upload of sv failed (no job), then the import failed for snv. Before: sv
+      // was named under the import's job, whose record holds no error of it.
+      const flag = { ...IMPORT_FLAG, failed_jobs: { snv: IMPORT_JOB_ID, sv: null } };
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: { detail: { gate: 'import_incomplete', message: 'incomplete', import_incomplete: flag } },
+          },
+        }),
+      );
+      const { unmount } = renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(within(dialog).getByText(`Import job ${IMPORT_JOB_ID}: snv`)).toBeInTheDocument();
+      expect(within(dialog).getByText('No import job: sv')).toBeInTheDocument();
+      expect(within(dialog).queryByText(`Import job: ${IMPORT_JOB_ID}`)).not.toBeInTheDocument();
+      unmount();
+
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_incomplete: flag,
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        `Import jobs: snv in ${IMPORT_JOB_ID}. No import job records the error of sv, which failed in a single-file upload or in an import run outside a job.`,
+      );
+    });
+
     it('shows on the signed record an import that had not finished', async () => {
       mockSignedCase({
         versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
