@@ -810,15 +810,17 @@ async def interval_counts_by_family(
 ) -> dict[str, dict[str, int]]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory counts every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT family_id::text AS family_uuid, track_type, COALESCE(SUM(row_count), 0) AS count
             FROM sample_interval_track_sources
-            WHERE family_id IN :family_uuids
+            WHERE family_id = ANY(CAST(:family_uuids AS uuid[]))
             GROUP BY family_id, track_type
             """
-        ).bindparams(uuid_list_bindparam("family_uuids")),
+        ),
         {"family_uuids": uuid_values(list(family_uuids))},
     )
     counts: dict[str, dict[str, int]] = {
@@ -838,15 +840,17 @@ async def interval_counts_by_sample(
 ) -> dict[str, dict[str, int]]:
     if not sample_uuids:
         return {}
+    # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory counts every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT sample_id::text AS sample_uuid, track_type, COALESCE(SUM(row_count), 0) AS count
             FROM sample_interval_track_sources
-            WHERE sample_id IN :sample_uuids
+            WHERE sample_id = ANY(CAST(:sample_uuids AS uuid[]))
             GROUP BY sample_id, track_type
             """
-        ).bindparams(uuid_list_bindparam("sample_uuids")),
+        ),
         {"sample_uuids": uuid_values(list(sample_uuids))},
     )
     counts: dict[str, dict[str, int]] = {

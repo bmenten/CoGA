@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import clickhouse_dataset_key
-from ..core.sql import uuid_list_bindparam, uuid_values
+from ..core.sql import uuid_values
 from ..schemas import (
     ClickHouseIntegrityMonitorOut,
     ClickHouseVariantAssemblyListOut,
@@ -202,6 +202,8 @@ async def _sample_rows_by_family(
 ) -> dict[str, list[dict[str, Any]]]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory lists every one (DATA-6).
     result = await session.execute(
         text(
             """
@@ -219,11 +221,11 @@ async def _sample_rows_by_family(
                 fm.active
             FROM family_members fm
             JOIN samples s ON s.id = fm.sample_id
-            WHERE fm.family_id IN :family_uuids
+            WHERE fm.family_id = ANY(CAST(:family_uuids AS uuid[]))
               AND fm.active
             ORDER BY lower(s.sample_id)
             """
-        ).bindparams(uuid_list_bindparam("family_uuids")),
+        ),
         {"family_uuids": uuid_values(family_uuids)},
     )
     grouped: dict[str, list[dict[str, Any]]] = {family_uuid: [] for family_uuid in family_uuids}
@@ -325,15 +327,17 @@ async def _repeat_counts_by_family(
 ) -> dict[str, int]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory lists every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT family_id::text AS family_uuid, COUNT(*) AS count
             FROM repeat_expansions
-            WHERE family_id IN :family_uuids
+            WHERE family_id = ANY(CAST(:family_uuids AS uuid[]))
             GROUP BY family_id
             """
-        ).bindparams(uuid_list_bindparam("family_uuids")),
+        ),
         {"family_uuids": uuid_values(family_uuids)},
     )
     return {row["family_uuid"]: int(row["count"]) for row in result.mappings().all()}
@@ -345,15 +349,17 @@ async def _repeat_counts_by_sample(
 ) -> dict[str, int]:
     if not sample_uuids:
         return {}
+    # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory lists every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT sample_id::text AS sample_uuid, COUNT(*) AS count
             FROM repeat_expansions
-            WHERE sample_id IN :sample_uuids
+            WHERE sample_id = ANY(CAST(:sample_uuids AS uuid[]))
             GROUP BY sample_id
             """
-        ).bindparams(uuid_list_bindparam("sample_uuids")),
+        ),
         {"sample_uuids": uuid_values(sample_uuids)},
     )
     return {row["sample_uuid"]: int(row["count"]) for row in result.mappings().all()}

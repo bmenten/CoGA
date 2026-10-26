@@ -26,7 +26,7 @@ from dataclasses import astuple, dataclass, field
 from fastapi import HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 
 from typing import TYPE_CHECKING, Any, Iterable, Sequence
 
@@ -1445,9 +1445,10 @@ async def _fetch_labeled_gene_regions(
     cleaned = [str(term).strip() for term in terms if str(term).strip()]
     if not cleaned:
         return []
-    clauses = ["(upper(hgnc_symbol) IN :terms OR upper(gene_id) IN :terms)"]
+    # One text[] parameter, not one per term (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and a gene list names any number of genes (DATA-6).
+    clauses = ["(upper(hgnc_symbol) = ANY(CAST(:terms AS text[])) OR upper(gene_id) = ANY(CAST(:terms AS text[])))"]
     params: dict = {"terms": [term.upper() for term in cleaned]}
-    bind_params: list[Any] = [bindparam("terms", expanding=True)]
     if assembly_id:
         clauses.append("assembly_id = CAST(:assembly_id AS uuid)")
         params["assembly_id"] = assembly_id
@@ -1458,7 +1459,7 @@ async def _fetch_labeled_gene_regions(
             FROM genes
             WHERE {' AND '.join(clauses)}
             """
-        ).bindparams(*bind_params),
+        ),
         params,
     )
     regions: list[TargetRegion] = []

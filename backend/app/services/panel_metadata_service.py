@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
@@ -240,6 +240,8 @@ async def _resolve_gene_regions(
     deduped_symbols = list(dict.fromkeys(symbol.strip() for symbol in symbols if symbol and symbol.strip()))
     if not deduped_symbols:
         return [], []
+    # One text[] parameter, not one per gene (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and a panel names any number of genes (DATA-6).
     result = await session.execute(
         text(
             """
@@ -252,7 +254,7 @@ async def _resolve_gene_regions(
                 g."end" AS "end"
             FROM genes g
             JOIN assemblies a ON a.id = g.assembly_id
-            WHERE upper(g.hgnc_symbol) IN :symbols
+            WHERE upper(g.hgnc_symbol) = ANY(CAST(:symbols AS text[]))
             ORDER BY
                 upper(g.hgnc_symbol),
                 g.assembly_id,
@@ -260,7 +262,7 @@ async def _resolve_gene_regions(
                 g.start,
                 g."end"
             """
-        ).bindparams(bindparam("symbols", expanding=True)),
+        ),
         {"symbols": [symbol.upper() for symbol in deduped_symbols]},
     )
     by_symbol: dict[str, list[dict[str, Any]]] = {}

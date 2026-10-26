@@ -4,7 +4,7 @@ import json
 from typing import Any
 
 from fastapi import HTTPException, UploadFile
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid
@@ -393,6 +393,8 @@ async def _existing_family_rows(
 ) -> list[dict[str, Any]]:
     if not family_ids:
         return []
+    # One text[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and a PED file names any number of families (DATA-6).
     result = await session.execute(
         text(
             """
@@ -405,9 +407,9 @@ async def _existing_family_rows(
             LEFT JOIN family_projects fp ON fp.family_id = f.id
             LEFT JOIN projects p ON p.id = fp.project_id
             LEFT JOIN assemblies a ON a.id = p.assembly_id
-            WHERE f.family_id IN :family_ids
+            WHERE f.family_id = ANY(CAST(:family_ids AS text[]))
             """
-        ).bindparams(bindparam("family_ids", expanding=True)),
+        ),
         {"family_ids": family_ids},
     )
     return [dict(row) for row in result.mappings().all()]
@@ -559,14 +561,16 @@ async def _ensure_sample_ids_are_available(
 ) -> None:
     if not sample_ids:
         return
+    # One text[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and a PED file names any number of samples (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT sample_id
             FROM samples
-            WHERE sample_id IN :sample_ids
+            WHERE sample_id = ANY(CAST(:sample_ids AS text[]))
             """
-        ).bindparams(bindparam("sample_ids", expanding=True)),
+        ),
         {"sample_ids": sample_ids},
     )
     existing_sample_ids = [str(row[0]) for row in result.all() if row[0]]
