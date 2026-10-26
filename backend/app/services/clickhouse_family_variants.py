@@ -6,6 +6,7 @@ import logging
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from functools import partial
 from itertools import zip_longest
 from typing import Any, Collection, Literal, Mapping, Sequence
 
@@ -3401,6 +3402,49 @@ async def get_family_small_variants_page(
         # total (0 or 1) and no rows.
         exists = await _family_has_small_variants(context)
         return VariantPage(total=1 if exists else 0, variants=[])
+    # Each of the search's subqueries (a panel's window join, the annotation and sample
+    # subqueries) reads the family's rows apart from its main read, so a write landing between
+    # two of them could make the answer miss a row. Every write of the family's small variants
+    # moves its data version once done: a search during which it moved is run once more (ENG-17).
+    search = partial(
+        _search_family_small_variants,
+        session,
+        context=context,
+        filters=filters,
+        page=page,
+        page_size=page_size,
+        review_classifications=review_classifications,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
+        has_notes=has_notes,
+        prioritize=prioritize,
+        track_mode=track_mode,
+        track_result_limit=track_result_limit,
+    )
+    before = await _family_small_variant_data_version(context)
+    result = await search()
+    if before is not None and await _family_small_variant_data_version(context) != before:
+        result = await search()
+    return result
+
+
+async def _search_family_small_variants(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    page: int,
+    page_size: int,
+    review_classifications: list[str] | None,
+    review_tags: list[str] | None,
+    exclude_review_tags: list[str] | None,
+    has_notes: bool,
+    prioritize: bool,
+    track_mode: bool,
+    track_result_limit: int | None,
+) -> VariantPage:
+    """The family page's search over ``filters``, by the path its view takes: the
+    prioritised ranking, a track's page, ClickHouse's own page, or the candidate read."""
     if filters.require_sv_second_hit:
         # Resolve the family's SV-hit gene set once; every query path below reads it off
         # ``filters`` to intersect results with genes that also carry a structural variant.

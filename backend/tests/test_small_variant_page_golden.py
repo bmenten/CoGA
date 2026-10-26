@@ -36,6 +36,19 @@ from backend.app.services.clickhouse_variant_records import (
 )
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 
+
+@pytest.fixture(autouse=True)
+def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The family's small-variant data version, read before and after each search (ENG-17):
+    steady, as no write lands during these searches. A test that keys a ranking on it sets
+    its own."""
+
+    async def steady(_context: object) -> str:
+        return "1:1"
+
+    monkeypatch.setattr(hub, "_family_small_variant_data_version", steady)
+
+
 GOLDEN = Path(__file__).parent / "fixtures" / "small_variant_page_golden.json"
 
 

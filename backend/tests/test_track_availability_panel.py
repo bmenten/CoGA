@@ -36,6 +36,19 @@ from backend.app.services.clickhouse_variant_records import PanelFilterConstrain
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.family_service import get_family_track_availability_for_user
 
+
+@pytest.fixture(autouse=True)
+def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The family's small-variant data version, read before and after each search (ENG-17):
+    steady, as no write lands during these searches. A test that keys a ranking on it sets
+    its own."""
+
+    async def steady(_context: object) -> str:
+        return "1:1"
+
+    monkeypatch.setattr(clickhouse_family_variants, "_family_small_variant_data_version", steady)
+
+
 _PANEL_ID = str(UUID(int=2026102062))
 _M = "backend.app.services.clickhouse_family_variants."
 _SERVICE = "backend.app.services.family_service."
