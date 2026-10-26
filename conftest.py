@@ -6,6 +6,18 @@ import pytest
 
 os.environ.setdefault("APP_ENV", "test")
 
+# A unit run reaches no database (ENG-16). The suite mocks Postgres and ClickHouse, but a
+# route test that leaves the request audit on writes its row itself when no worker runs,
+# to whatever Postgres listens on localhost:5432: the dev stack publishes its database
+# there, whose request audit is append-only. Without RUN_INTEGRATION=1 both datastores
+# are a closed loopback port, so such a write fails at once. The environment outranks the
+# repository's .env, which holds the dev stack's credentials.
+UNIT_RUN_DATASTORE = ("127.0.0.1", "1")
+if os.environ.get("RUN_INTEGRATION") != "1":
+    os.environ["POSTGRES_HOST"], os.environ["POSTGRES_PORT"] = UNIT_RUN_DATASTORE
+    os.environ["CLICKHOUSE_HOST"], os.environ["CLICKHOUSE_HTTP_PORT"] = UNIT_RUN_DATASTORE
+    os.environ["POSTGRES_USE_CLOUD_SQL_CONNECTOR"] = "false"
+
 ROOT_DIR = Path(__file__).resolve().parent
 
 if str(ROOT_DIR) not in sys.path:

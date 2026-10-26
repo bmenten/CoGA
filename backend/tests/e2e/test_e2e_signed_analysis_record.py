@@ -325,6 +325,15 @@ def test_the_record_names_the_reference_data_releases(signed) -> None:
     assert reference["clinical_cnvs"] is None or reference["clinical_cnvs"]["loaded_at"]
 
 
+def test_the_record_names_the_hpo_release_the_matching_ran_on(signed) -> None:
+    # The stack's HPO terms carry the shipped release, as an import of the vendored ontology
+    # writes it: a term without one made every sign-out record "release not recorded" (ENG-16).
+    from backend.app.core.config import HPO_PINNED_RELEASE
+
+    [hpo] = [module for module in _snapshot(signed)["modules"] if module["key"] == "hpo"]
+    assert (hpo["version"], hpo["detail"]) == (HPO_PINNED_RELEASE, HPO_PINNED_RELEASE.rsplit("/", 1)[1])
+
+
 def test_the_record_holds_each_repeat_call_with_its_status_and_thresholds(signed) -> None:
     repeats = _snapshot(signed)["repeat_expansions"]
     [htt] = [locus for locus in repeats["loci"] if locus["locus_id"] == "HD_HTT"]
