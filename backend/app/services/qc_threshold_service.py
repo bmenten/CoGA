@@ -600,6 +600,10 @@ async def set_qc_threshold(
     ``reason`` is required and non-empty. The cut-offs themselves are agreed in each
     test's clinical validation report, outside this tool; what the tool has to be able
     to show is that a change here was deliberate and attributable to that decision.
+
+    A metric outside the catalogue takes no cut-off. A stored one whose metric has left the
+    catalogue can still be cleared, which the admin list surfaces it for: it gates nothing,
+    and was refused as an unknown metric, so it could not be removed (ENG-12, REQ-QC-003).
     """
     reason = (reason or "").strip()
     if not reason:
@@ -608,7 +612,8 @@ async def set_qc_threshold(
             detail="A reason is required when changing a QC cut-off.",
         )
     metric = QC_METRICS_BY_KEY.get(metric_key)
-    if metric is None:
+    clearing = warn_value is None and error_value is None
+    if metric is None and not clearing:
         raise HTTPException(status_code=400, detail=f"Unknown QC metric: {metric_key}")
     profile_id = (
         await session.execute(
@@ -630,8 +635,11 @@ async def set_qc_threshold(
         )
     ).mappings().first()
     previous_bounds = dict(previous) if previous else None
+    if metric is None and previous_bounds is None:
+        # Nothing stored to clear, and no metric of the catalogue to name.
+        raise HTTPException(status_code=400, detail=f"Unknown QC metric: {metric_key}")
 
-    if warn_value is None and error_value is None:
+    if clearing:
         await session.execute(
             text(
                 """
@@ -654,6 +662,8 @@ async def set_qc_threshold(
         )
         await session.commit()
         return {"profile_key": profile_key, "metric_key": metric_key, "warn_value": None, "error_value": None}
+    # A cut-off is set only on a metric of the catalogue: refused above otherwise.
+    assert metric is not None
 
     # A warning that is stricter than the error bound would make the error branch
     # unreachable — reject rather than store a configuration that cannot fire.

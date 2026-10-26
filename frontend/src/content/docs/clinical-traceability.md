@@ -251,7 +251,9 @@ finish or refuses the sign-out, so a signed version never mixes the family's dat
 a write.
 
 If the family's project cannot be loaded, the assembly — and so the scope — is not known: the pages say
-*Validated scope not confirmed*, with **Retry**, and the report waits until it loads. If the family
+*Validated scope not confirmed*, with **Retry**, and the report waits until it loads. While it is still
+loading, every family page shows that it is loading, not the family's data, which would otherwise show a
+moment before *Not validated for clinical use*. If the family
 itself cannot be loaded, neither its import state nor its assembly is known: a family page then shows
 only *Family could not be loaded*, with **Retry**, and none of the family's data (a report: *Report
 could not be loaded*).
