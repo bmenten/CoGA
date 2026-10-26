@@ -70,6 +70,14 @@ from .family_structure_audit import (
     record_family_deleted,
     record_structure_change,
 )
+from .hpo_service import (
+    ADMIN_DELETION,
+    PHENOTYPES_DELETED_WITH_FAMILY,
+    PHENOTYPES_DELETED_WITH_SAMPLE,
+    PhenotypeImport,
+    record_phenotypes_deleted_with_family,
+    record_phenotypes_deleted_with_sample,
+)
 from .family_variant_write_lock import (
     SMALL_VARIANTS,
     STRUCTURAL_VARIANTS,
@@ -1134,6 +1142,17 @@ async def _delete_sample_with_data(
         )
 
     raw_files_removed = await purge_sample_managed_files(session, sample_row["sample_uuid"])
+    # The sample's phenotypes go with it (individual_hpo cascades from samples): recorded as
+    # removed, under the phenotype lock each change of them takes, before the pedigree lock,
+    # as a PED upload that replaces a family takes them (TRACE-16).
+    await record_phenotypes_deleted_with_sample(
+        session,
+        family_uuid=sample_row["family_uuid"],
+        family_identifier=sample_row["family_id"],
+        sample_id=str(sample_row["sample_id"]),
+        origin=PhenotypeImport(user=user, via=ADMIN_DELETION),
+        change=PHENOTYPES_DELETED_WITH_SAMPLE,
+    )
     # After the variant-write locks, as every writer that holds both takes them.
     await lock_family_pedigree(session, sample_row["family_id"])
     pedigree_before = await read_structure_snapshot(session, sample_row["family_uuid"])
@@ -1229,8 +1248,16 @@ async def _delete_family_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
-    # The family's last clinical audit event, before anything of it goes: a deletion that
-    # fails from here on rolls it back with the rest of the transaction.
+    # The phenotypes that go with the family, then its deletion, the family's last clinical
+    # audit event, before anything of it goes (TRACE-16): a deletion that fails from here on
+    # rolls them back with the rest of the transaction.
+    await record_phenotypes_deleted_with_family(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_id,
+        origin=PhenotypeImport(user=user, via=ADMIN_DELETION),
+        change=PHENOTYPES_DELETED_WITH_FAMILY,
+    )
     await record_family_deleted(
         session,
         family_uuid=family_uuid,

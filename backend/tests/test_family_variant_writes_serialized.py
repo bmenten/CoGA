@@ -776,6 +776,8 @@ async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_unt
     monkeypatch.setattr(admin_service, "record_structure_change", no_change)
     # A family's deletion records its last clinical audit event first (SEC-7).
     monkeypatch.setattr(admin_service, "record_family_deleted", no_change)
+    monkeypatch.setattr(admin_service, "record_phenotypes_deleted_with_family", no_change)
+    monkeypatch.setattr(admin_service, "record_phenotypes_deleted_with_sample", no_change)
 
     await delete(postgres.session("admin"))
 

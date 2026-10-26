@@ -380,6 +380,8 @@ def stores(monkeypatch):
             "lock_family_pedigree": nothing,
             "read_structure_snapshot": no_pedigree,
             "record_structure_change": nothing,
+            "record_phenotypes_deleted_with_sample": nothing,
+            "record_phenotypes_deleted_with_family": nothing,
             "record_family_deleted": nothing,
             "delete_interval_track_sources": none_counted,
             "purge_sample_managed_files": none_counted,
