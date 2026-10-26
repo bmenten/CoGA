@@ -21,7 +21,6 @@ from .clickhouse_column_bounds import UINT32, column_int
 from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
 from .clickhouse_interval_tracks import (
     count_interval_track_rows,
-    count_interval_track_source_rows,
     delete_interval_track_sources,
     delete_interval_tracks,
     insert_interval_track_rows,
@@ -190,6 +189,23 @@ async def _stored_track_rows(
         sample_uuid=sample_context.sample_uuid,
         track_type=track_type,
         source=source,
+    )
+
+
+async def _stored_imputed_blocks(family_context: FamilyMetadataContext) -> int:
+    """The family's haplotype blocks made from imputed genotypes, as the store holds them:
+    what an update of the imputed genotypes reads beside their small variants, as the
+    glimpse2 loader writes both and either is the dataset's data. Not what Postgres records
+    of the track, which a failed overwrite's restore that stopped part-way can leave for rows
+    it deleted (SAFE-20, SAFE-18). A family with no single assembly has no track rows."""
+    if not family_context.assembly_name:
+        return 0
+    return await count_interval_track_rows(
+        family_context.assembly_name,
+        family_uuid=family_context.family_uuid,
+        sample_uuid=None,
+        track_type="haplotype",
+        source="glimpse2",
     )
 
 
@@ -438,15 +454,24 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             project_ids=family_context.project_ids,
             source=snv_source,
         )
-        if existing_count:
+        # Imputed genotypes come with the haplotype blocks made from them, which the loader
+        # writes too: either is the dataset's data, as the haplotypes dataset's update reads
+        # it, so blocks stored without their genotypes are left as they are (SAFE-18).
+        existing_blocks = await _stored_imputed_blocks(family_context) if snv_source == "glimpse2" else 0
+        if existing_count or existing_blocks:
+            what = (
+                f"small variants of the {snv_source} callset"
+                if existing_count
+                else "haplotype blocks made from imputed genotypes"
+            )
             return summary.model_copy(
                 update={
                     "status": "skipped",
-                    "message": (
-                        f"Skipped SNV import in update mode because small variants of the {snv_source} "
-                        "callset already exist for this family"
-                    ),
-                    "summary": {"existing": existing_count},
+                    "message": f"Skipped SNV import in update mode because {what} already exist for this family",
+                    "summary": {
+                        "existing": existing_count,
+                        **({"existing_haplotypes": existing_blocks} if snv_source == "glimpse2" else {}),
+                    },
                 }
             )
     annotation_path = _resolve_package_path(bundle.root, dataset.annotation_tsv)
@@ -491,9 +516,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     # With overwrite the VCF is read once, not first checked whole before the callset it
     # replaces is deleted (check_before_replacing): the import has snapshotted an existing
     # family and puts it back when a dataset fails, and a whole-genome callset is the
-    # import's longest read. An update takes no snapshot: it replaces stored rows only
-    # where its check above did not count them (haplotype blocks stored without the
-    # imputed genotypes they were made from), and then reads the file whole first.
+    # import's longest read. An update takes no snapshot, and reads the file whole first.
     check_before_replacing = conflict_mode != "overwrite"
     # Whether the loader began writing ClickHouse: the clean-up below deletes the callset
     # only then. A file the loader refused before it replaced anything (an annotation table
@@ -600,12 +623,8 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
             project_ids=family_context.project_ids,
             source="glimpse2",
         )
-        existing_haplotype_count = await count_interval_track_source_rows(
-            session,
-            family_uuid=family_context.family_uuid,
-            track_type="haplotype",
-            source="glimpse2",
-        )
+        # The stored blocks, not Postgres's record of them, as every update reads (SAFE-18).
+        existing_haplotype_count = await _stored_imputed_blocks(family_context)
         if existing_count or existing_haplotype_count:
             return summary.model_copy(
                 update={
@@ -2065,8 +2084,12 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 signal_tracks={CNV_SOURCE: signal_tracks},
             )
 
-    if not records:
-        return await _register_only(summary, "Registered only; no CNV calls were parsed")
+    if not sample_results:
+        return await _register_only(summary, "Registered only; no CNV VCF of a family sample could be found")
+    # A VCF that calls no CNV is the caller's answer for its sample, not a file that carries
+    # nothing: the dataset is imported, its tracks with it, and the family's earlier HiFiCNV
+    # calls go, as a VCF with calls replaces them. It used to end registered, its tracks not
+    # recorded as imported and the earlier calls left in place (SAFE-18).
     # Held until the commit that records the SV files (the import holds it for its whole run).
     await lock_family_variant_writes(
         session,
@@ -2099,7 +2122,11 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     return summary.model_copy(
         update={
             "status": "imported",
-            "message": "Imported CNV calls into structural variant storage"
+            "message": (
+                "Imported CNV calls into structural variant storage"
+                if records
+                else "Imported the CNV VCFs, which call no CNV"
+            )
             + (
                 f"; skipped existing tracks in update mode: {', '.join(skipped_tracks)}"
                 if skipped_tracks
