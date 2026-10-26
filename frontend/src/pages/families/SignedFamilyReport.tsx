@@ -1061,7 +1061,10 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
                       .join('; ')}.`
                   : failedImport.jobId
                     ? ` Import job ${failedImport.jobId}.`
-                    : ''}{' '}
+                    : ''}
+                {failedImport.withoutJob.length
+                  ? ` No import job records the error of ${joinWithAnd(failedImport.withoutJob)}, which failed in a single-file upload or in an import run outside a job.`
+                  : ''}{' '}
               </>
             ) : null}
             {unfinished.map((entry) => (

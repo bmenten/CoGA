@@ -7,6 +7,7 @@ import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 
 import ImportIncompleteBanner, {
+  failuresByJob,
   importIncompleteFromMetadata,
   importUnfinishedFromMetadata,
   pendingDatasets,
@@ -194,6 +195,20 @@ describe('ImportIncompleteBanner', () => {
     expect(banner).toHaveTextContent(/Import what failed again to complete it\./);
   });
 
+  it('never names a failure no job records under another failure’s job (SAFE-18)', () => {
+    render(
+      <ImportIncompleteBanner
+        metadata={{ import_incomplete: { ...FLAG, failed_jobs: { snv: FLAG.job_id, sv: null } } }}
+      />,
+    );
+
+    const banner = screen.getByRole('alert');
+    expect(banner).toHaveTextContent(
+      `No import job records the error of sv, which failed in a single-file upload or in an import run outside a job. Each other dataset’s error is recorded in its import job: snv in import job ${FLAG.job_id}.`,
+    );
+    expect(banner).not.toHaveTextContent(/Each dataset’s error is recorded in import job/);
+  });
+
   it('names a failed import and an unfinished one together', () => {
     render(
       <ImportIncompleteBanner metadata={{ import_incomplete: FLAG, import_unfinished: UNFINISHED }} />,
@@ -356,6 +371,7 @@ describe('importIncompleteFromMetadata', () => {
       jobId: FLAG.job_id,
       // A flag naming one job: it holds every dataset's error.
       failedJobs: { snv: FLAG.job_id, sv: FLAG.job_id },
+      withoutJob: [],
     });
     expect(importIncompleteFromMetadata({ import_incomplete: OLD_FLAG })?.jobId).toBeNull();
     expect(
@@ -365,12 +381,36 @@ describe('importIncompleteFromMetadata', () => {
 
   it('takes a flag of another shape as incomplete, with nothing to name', () => {
     // As sign-out does: a set flag is never read as a complete import.
-    const unknown = { at: null, failedDatasets: [], importedDatasets: [], jobId: null, failedJobs: {} };
+    const unknown = {
+      at: null,
+      failedDatasets: [],
+      importedDatasets: [],
+      jobId: null,
+      failedJobs: {},
+      withoutJob: [],
+    };
     expect(importIncompleteFromMetadata({ import_incomplete: 'yes' })).toEqual(unknown);
     expect(importIncompleteFromMetadata({ import_incomplete: {} })).toEqual(unknown);
     expect(
       importIncompleteFromMetadata({ import_incomplete: { failed_datasets: 'snv' } }),
     ).toEqual(unknown);
+  });
+
+  it('reads a dataset the flag lists with no job as failed outside one (SAFE-18)', () => {
+    // An upload of sv failed (no job), then an import failed for snv: the flag's job is the
+    // import's. Before: sv was named under it.
+    const flag = { ...FLAG, failed_jobs: { snv: FLAG.job_id, sv: null } };
+    const read = importIncompleteFromMetadata({ import_incomplete: flag });
+    expect(read?.failedJobs).toEqual({ snv: FLAG.job_id });
+    expect(read?.withoutJob).toEqual(['sv']);
+    expect(failuresByJob(read!)).toEqual([[FLAG.job_id, ['snv']]]);
+    // No dataset with a job (a flag written before jobs were recorded, as a signed record
+    // freezes it): none is named as failed outside one.
+    const none = importIncompleteFromMetadata({
+      import_incomplete: { ...OLD_FLAG, failed_jobs: { snv: null, sv: null } },
+    });
+    expect(none?.withoutJob).toEqual([]);
+    expect(failuresByJob(none!)).toBeNull();
   });
 
   it('reads no flag as a complete import', () => {

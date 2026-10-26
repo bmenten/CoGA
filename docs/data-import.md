@@ -386,7 +386,11 @@ that looks complete:
   the flag lists every scope a dataset failed for, each with the job that holds its error
   (`failed_scopes`), and a dataset leaves it only once each has been brought again.
   `failed_jobs` names the job of each dataset's latest failure, which the family pages and a
-  sign-out show.
+  sign-out show. A dataset it names with no job failed outside one, in a single-file upload or
+  an import run outside a job: the family pages and a sign-out say no import job records its
+  error, and never name the flag's own job, another failure's, for it. A flag CoGA cannot read
+  (`true`, say) stays as it is when a later import or upload fails, as it does when one
+  completes: nothing shows what would complete it.
 
 An import whose process stops part-way does none of this: nothing runs in a process that
 has ended. So an import marks the family before it writes anything of it, with an entry in
@@ -416,6 +420,8 @@ the family's datasets, whichever import wrote them: table by table, it deletes t
 rows before it puts the backup's back. So the flag it leaves names every dataset the import
 set out to import as failed, including those that imported and those it only registered, and
 none as imported; the family stays flagged until an import has imported each of them again.
+The job's record says the same: its dataset table shows each of them as failed, with how its
+loader had ended, and its error names them all.
 Postgres is put back after ClickHouse, so after such a restore Postgres can still record a
 track whose rows it removed: an `update` reads the rows. It imports again a dataset whose rows
 the restore removed, which then leaves the flag, and skips one whose rows are there, which

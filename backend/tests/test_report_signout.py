@@ -2317,6 +2317,32 @@ def test_the_gate_message_names_each_failed_datasets_job() -> None:
     )
 
 
+def test_a_failure_no_import_job_records_is_never_named_under_another_failures_job() -> None:
+    # SAFE-18. An upload of sv failed (SAFE-25: no job), then an import failed for snv: the
+    # flag's job is the import's, and its failed_jobs lists sv with none. Before: sv was
+    # frozen and named under the import's job, whose record holds no error of it.
+    flag = {**_INCOMPLETE, "failed_jobs": {"snv": _IMPORT_JOB_ID, "sv": None}}
+    state = asyncio.run(rss._import_incomplete_state(_ScalarSession(flag), "u1"))
+    assert state["failed_jobs"] == {"snv": _IMPORT_JOB_ID, "sv": None}
+    message = rss._import_gate_message(state)
+    assert (
+        "No import job records the error of sv, which failed in a single-file upload or in an "
+        f"import run outside a job. Each other dataset's error is recorded in import job {_IMPORT_JOB_ID}."
+    ) in message
+    assert "Each dataset's error" not in message
+    # With two jobs besides it, each is named.
+    state["failed_datasets"] = ["coverage", "snv", "sv"]
+    state["failed_jobs"] = {"coverage": "job-earlier", "snv": _IMPORT_JOB_ID, "sv": None}
+    assert (
+        "Each other dataset's error is recorded in its import job: coverage in import job "
+        f"job-earlier; snv in import job {_IMPORT_JOB_ID}."
+    ) in rss._import_gate_message(state)
+    # A flag that names no job for any dataset (written before jobs were recorded) says nothing
+    # of jobs, as before.
+    old = asyncio.run(rss._import_incomplete_state(_ScalarSession({**_OLD_INCOMPLETE, "failed_jobs": {}}), "u1"))
+    assert "import job" not in rss._import_gate_message(old)
+
+
 def test_the_gate_message_of_a_stopped_import_that_recorded_nothing() -> None:
     message = rss._import_gate_message(None, {"unreadable": {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}})
     assert message.startswith("This family's data is incomplete: an import stopped before it finished.")
