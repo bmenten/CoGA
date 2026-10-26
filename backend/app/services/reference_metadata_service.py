@@ -99,7 +99,6 @@ def _clinical_cnv_header_index(row: list[str]) -> dict[str, int] | None:
         return field_index
     return None
 
-REPO_CLINICAL_CNVS_PATH = Path(__file__).resolve().parents[3] / "data" / "ref-data" / "clinical_cnv_syndromes_hg38_combined.tsv"
 REPO_SEGMENTAL_DUPLICATIONS_PATH = (
     Path(__file__).resolve().parents[3]
     / "data"
@@ -562,14 +561,18 @@ async def list_recent_reference_imports(
 
 
 async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
-    """Load the clinical CNVs and the segmental duplications of the bootstrap assembly from
-    their files, each only while the assembly holds none.
+    """Load the segmental duplications of the bootstrap assembly from their file, only while
+    the assembly holds none.
 
-    The segmental-duplication file is loaded only if it is the shipped file, byte for byte
+    The file is loaded only if it is the shipped file, byte for byte
     (``read_shipped_segmental_duplications``, TRACE-14). Another file is refused before
     anything is written, with one logged error that names the file, both digests and the fix;
-    that import is skipped and the start goes on: the track is shown for orientation, no
-    classification reads it, and the rows an earlier start loaded are never replaced here."""
+    the import is skipped and the start goes on: the track is shown for orientation, no
+    classification reads it, and the rows an earlier start loaded are never replaced here.
+
+    The clinical CNVs are not loaded at startup (OPS-17). The knowledgebase rebuild loads them
+    from its pinned sources and records them, and an administrator can upload a file; the
+    startup read any file at a configured path, unpinned, and its default was never shipped."""
     if not settings.reference_bootstrap_enabled:
         return
 
@@ -586,40 +589,23 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
         raise
 
     assembly_id = str(assembly["id"])
-    bootstrap_jobs: list[tuple[ReferenceDatasetType, Path]] = []
-
-    clinical_cnvs_path = _configured_reference_path(
-        settings.reference_clinical_cnvs_path,
-        REPO_CLINICAL_CNVS_PATH,
-    )
-    if clinical_cnvs_path is not None:
-        bootstrap_jobs.append(("clinical_cnvs", clinical_cnvs_path))
-
-    segdup_path = _configured_reference_path(
+    dataset_type: ReferenceDatasetType = "segmental_duplications"
+    path = _configured_reference_path(
         settings.reference_segmental_duplications_path,
         REPO_SEGMENTAL_DUPLICATIONS_PATH,
     )
-    if segdup_path is not None:
-        bootstrap_jobs.append(("segmental_duplications", segdup_path))
-
-    if not bootstrap_jobs:
+    if path is None:
         logger.info("Skipping reference track bootstrap: no source files found")
         return
 
-    for dataset_type, path in bootstrap_jobs:
-        existing = await _assembly_dataset_count(
-            session,
-            assembly_id=assembly_id,
-            dataset_type=dataset_type,
-        )
-        if existing > 0:
-            continue
+    existing = await _assembly_dataset_count(
+        session,
+        assembly_id=assembly_id,
+        dataset_type=dataset_type,
+    )
+    if existing == 0:
         try:
-            if dataset_type == "segmental_duplications":
-                raw = read_shipped_segmental_duplications(path)
-            else:
-                raw = path.read_bytes()
-            text_value = _reference_text(raw)
+            text_value = _reference_text(read_shipped_segmental_duplications(path))
             result = await apply_reference_dataset_text(
                 session,
                 assembly_id=assembly_id,
@@ -627,8 +613,8 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
                 text_value=text_value,
                 overwrite=False,
                 commit=False,
-                # The file is all this import knows about its source; its name often
-                # carries the release (ClinGen_recurrent_CNV_V2.1-hg38.bed).
+                # The file is all this import knows about its source; its name carries the
+                # release (ClinGen_recurrent_CNV_V2.1-hg38.bed).
                 source=path.name,
             )
             logger.info(
