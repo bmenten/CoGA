@@ -349,7 +349,7 @@ export default function StructuralVariantTable({
                         className={`variant-quick-toggle${hasReportTag ? ' variant-quick-toggle--active' : ''}`}
                         aria-pressed={hasReportTag}
                         disabled={readOnly || reviewIsPending || !onToggleReviewTag}
-                        title={readOnly ? READ_ONLY_HINT : 'Flag this SV for the family clinical report'}
+                        title={readOnly ? READ_ONLY_HINT : 'Flag this SV for the family report'}
                         onClick={() => {
                           void onToggleReviewTag?.(variant, COLLABORATION_QUICK_TAGS.report);
                         }}

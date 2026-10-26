@@ -8,7 +8,7 @@ expansions, through the demo loader). Both go into the e2e project, so the e2e u
 
 Not idempotent: run it once against a fresh database. From the repo root:
 
-    RUN_INTEGRATION=1 python scripts/seed_style_diff_demo.py
+    python scripts/seed_style_diff_demo.py
 """
 
 from __future__ import annotations

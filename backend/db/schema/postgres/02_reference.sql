@@ -1,6 +1,6 @@
 -- 02_reference.sql — Referentie-/annotatiedata (genoom-annotatie, panels, HPO, Monarch, CNV-KB)
 -- Idempotent domein-baseline. Consolideert de originele migraties 001/005/012/013/015/018/019/020/021/022/026/027/034/042.
--- FK-doelen (assemblies, users) leven in 01_core.sql (achterwaartse referenties).
+-- FK-doelen (assemblies, users) leven in 01_access.sql (achterwaartse referenties).
 
 -- ---------------------------------------------------------------------------
 -- genes

@@ -102,7 +102,7 @@ workstation. It is the controlled, citable form of "examining the e2e validation
 docker compose up -d postgres clickhouse
 
 # 2. Seed the synthetic golden trio + the known e2e login user (idempotent)
-RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py
+python scripts/seed_playwright_e2e.py
 
 # 3. Install the browser engine once (Chromium)
 cd frontend && npx playwright install chromium

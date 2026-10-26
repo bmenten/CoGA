@@ -10,7 +10,7 @@ freezes it. The clinical report is drafted and medically signed in the hospital'
 record (EPD), outside CoGA, and refers to exactly one signed version of the analysis, by its **report
 code** (below). CoGA does not see the EPD report and does not check that reference.
 
-How to prepare and sign out a report is in the [user guide](/docs), section *Clinical report and
+How to prepare and sign out a report is in the [user guide](/docs), section *Family report and
 sign-out*. This page holds the rules.
 
 ---
