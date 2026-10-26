@@ -9,7 +9,7 @@ services:
       # The ./backend:/app mount shadows the image's /app/scripts, so mount the
       # knowledgebase build script back in for the admin "rebuild" action in dev.
       - ./scripts:/app/scripts
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    # No command: the dev image's own (backend/Dockerfile) starts uvicorn with --reload.
 
   frontend:
     build:
