@@ -140,15 +140,6 @@ def _transcript_id_from_gene_row(row: dict[str, object]) -> str:
     return str(extra.get("transcript_id") or row.get("gene_id") or row.get("hgnc_symbol") or "")
 
 
-def _first_extra_value(*payloads: dict[str, object], keys: tuple[str, ...]) -> object | None:
-    for payload in payloads:
-        for key in keys:
-            value = payload.get(key)
-            if value is not None and value != "":
-                return value
-    return None
-
-
 def _field_marks_transcript(value: object, transcript_id: str) -> bool:
     if isinstance(value, bool):
         return value
@@ -168,43 +159,31 @@ def _transcript_matches_reference(value: object, transcript_id: str) -> bool:
     return bool(normalized_value and normalized_transcript and normalized_value == normalized_transcript)
 
 
+# The tag GENCODE gives a gene's Ensembl canonical transcript, kept in a row's ``tags`` by its
+# import (``gencode_import``).
+_ENSEMBL_CANONICAL_TAG = "Ensembl_canonical"
+
+
 def _gene_transcript_priority(row: dict[str, object]) -> tuple[int, int, int, str]:
+    """A transcript row's rank among its gene's: MANE Select first, then the Ensembl
+    canonical transcript, then the longest, the one with most exons.
+
+    Read from what the gene-reference imports write (ENG-8): GENCODE's ``mane_select`` and its
+    ``Ensembl_canonical`` tag on the transcript's row, and HGNC's MANE Select accessions for
+    the gene (``hgnc_identifiers.mane_select`` in ``gene_info``), an Ensembl transcript and a
+    RefSeq one, so that a RefSeq row of an uploaded reference is recognised too. It read keys
+    no import writes (``mane_select_transcript``, ``ensembl_canonical_transcript`` and their
+    other spellings), and so never recognised a canonical transcript."""
     extra = _json_dict(row.get("extra"))
-    gene_info_extra = _json_dict(row.get("gene_info_extra"))
-    clingen_facts = _json_dict(gene_info_extra.get("clingen_gene_facts"))
+    identifiers = _json_dict(_json_dict(row.get("gene_info_extra")).get("hgnc_identifiers"))
     transcript_id = _transcript_id_from_gene_row(row)
-    mane_reference = _first_extra_value(
-        extra,
-        gene_info_extra,
-        clingen_facts,
-        keys=(
-            "mane_select_transcript",
-            "maneSelectTranscript",
-            "MANE_SELECT",
-            "MANE Select Transcript",
-        ),
+    mane_accessions = identifiers.get("mane_select")
+    is_mane = _field_marks_transcript(extra.get("mane_select"), transcript_id) or any(
+        _transcript_matches_reference(accession, transcript_id)
+        for accession in (mane_accessions if isinstance(mane_accessions, list) else [mane_accessions])
     )
-    canonical_reference = _first_extra_value(
-        extra,
-        gene_info_extra,
-        keys=(
-            "ensembl_canonical_transcript",
-            "canonical_transcript",
-            "canonicalTranscript",
-        ),
-    )
-    is_mane = (
-        _field_marks_transcript(extra.get("mane_select"), transcript_id)
-        or _field_marks_transcript(extra.get("maneSelect"), transcript_id)
-        or _field_marks_transcript(extra.get("MANE_SELECT"), transcript_id)
-        or _transcript_matches_reference(mane_reference, transcript_id)
-    )
-    is_canonical = (
-        _field_marks_transcript(extra.get("canonical"), transcript_id)
-        or _field_marks_transcript(extra.get("is_canonical"), transcript_id)
-        or _field_marks_transcript(extra.get("CANONICAL"), transcript_id)
-        or _transcript_matches_reference(canonical_reference, transcript_id)
-    )
+    tags = extra.get("tags")
+    is_canonical = isinstance(tags, list) and _ENSEMBL_CANONICAL_TAG in tags
     rank = 0 if is_mane else 1 if is_canonical else 2
     length = int(row.get("end") or 0) - int(row.get("start") or 0)
     exon_count = len(row.get("exons") or [])

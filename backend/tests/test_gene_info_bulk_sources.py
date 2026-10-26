@@ -684,7 +684,9 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     assert result["location"] == "17q21.31"
     assert result["aliases"] == ["RNF53"]
     assert result["previous_symbols"] == ["BRCAI"]
-    assert result["extra"]["hgnc_vega_id"] == "OTTHUMG00000157426"
+    # Nothing read a copy of the VEGA id of its own (ENG-8); HGNC's identifiers keep it.
+    assert "hgnc_vega_id" not in result["extra"]
+    assert result["extra"]["hgnc_identifiers"]["vega_id"] == "OTTHUMG00000157426"
     assert result["extra"]["refseq_accessions"] == ["NM_007294"]
     assert result["extra"]["hgnc_gene_group"] == ["Ring finger proteins"]
     # NCBI is the one per-gene source still worth its request.

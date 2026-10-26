@@ -611,7 +611,7 @@ python docs/handleiding/build_site.py
 <li><strong>Het QC-rapport van de pipeline.</strong> Dat HTML-rapport bevat eigen scripts en geldt als onbetrouwbaar. Het opent via een kortlevende link die pas na de toegangscontrole wordt uitgegeven. Bij lokale opslag zoekt de backend het rapport alleen in de eigen mappen van de familie, op het pad dat de import bij het sample vastlegde: een pad dat daaruit leidt, of een symbolische koppeling naar de map van een andere familie, geeft <code>404</code>. Hij serveert het met <code>Content-Security-Policy: sandbox allow-scripts allow-popups</code>: de scripts van het rapport draaien, maar in een afgezonderde origin die de sessie van de gebruiker niet kan lezen. Bij objectopslag (<code>s3</code>, <code>gcs</code>) is de link een kortlevende presigned URL van de bucket, een andere origin. <strong>Waar in de code:</strong> <code>backend/app/routers/family_qc_reports.py</code>.</li>
 </ul>
 <h2>Auditing (kort)</h2>
-<p>Elke HTTP-actie laat een spoor na in de append-only tabel <code>audit_log_events</code>: wie (gebruiker en rol), wat (methode, pad, status), wanneer en vanaf welk IP. Gevoelige gegevens worden beperkt: van een querystring worden standaard alleen de sleutels bewaard, en wachtwoord- of tokenvelden worden gemaskeerd. Deze tabel is append-only via een databanktrigger; de hash-keten en de ondertekende ankers gelden voor het klinische auditspoor en de ondertekende rapporten (hoofdstuk 11). De middleware zelf staat in <a href="#hs-7">hoofdstuk 7</a>.</p>
+<p>Elke HTTP-actie laat een spoor na in de append-only tabel <code>audit_log_events</code>: wie (gebruiker en rol), wat (methode, pad, status), wanneer en vanaf welk IP. Gevoelige gegevens worden beperkt: van een querystring worden standaard alleen de sleutels bewaard, en wachtwoord- of tokenvelden worden gemaskeerd, in de auditlog en in de UI-events volgens één lijst van sleutels (<code>SENSITIVE_KEY_PREFIXES</code> in <code>core/coga_logging.py</code>). Deze tabel is append-only via een databanktrigger; de hash-keten en de ondertekende ankers gelden voor het klinische auditspoor en de ondertekende rapporten (hoofdstuk 11). De middleware zelf staat in <a href="#hs-7">hoofdstuk 7</a>.</p>
 <p>Elke onderdrukking van een beveiligingsscan (afhankelijkheden, geheimen, SAST) is gedocumenteerd en gedateerd in <code>SECURITY-AUDIT-ALLOWLIST.md</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
@@ -2174,7 +2174,7 @@ python docs/handleiding/build_site.py
 <tr>
 <td><code>GeneTrack</code></td>
 <td><code>GET /api/genes/{assembly}/{chrom}</code></td>
-<td>Genen met exonen en intronen (D3); de tooltip noemt de panels waarin het gen zit</td>
+<td>Genen met exonen en intronen (D3), één transcript per gen: het MANE Select-transcript (GENCODE, of HGNC's MANE-accessies voor een RefSeq-referentie), anders het canonieke transcript van Ensembl (GENCODE's tag <code>Ensembl_canonical</code>), anders het langste; de tooltip noemt de panels waarin het gen zit</td>
 </tr>
 <tr>
 <td><code>CnvTrack</code></td>

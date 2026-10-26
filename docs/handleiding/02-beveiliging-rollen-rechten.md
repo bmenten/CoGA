@@ -133,7 +133,7 @@ Ook `AUDIT_LOG_DROP_ALLOWED=true` (auditregels laten vallen bij een volle wachtr
 
 ## Auditing (kort)
 
-Elke HTTP-actie laat een spoor na in de append-only tabel `audit_log_events`: wie (gebruiker en rol), wat (methode, pad, status), wanneer en vanaf welk IP. Gevoelige gegevens worden beperkt: van een querystring worden standaard alleen de sleutels bewaard, en wachtwoord- of tokenvelden worden gemaskeerd. Deze tabel is append-only via een databanktrigger; de hash-keten en de ondertekende ankers gelden voor het klinische auditspoor en de ondertekende rapporten (hoofdstuk 11). De middleware zelf staat in [hoofdstuk 7](07-backend-routers-en-services.md).
+Elke HTTP-actie laat een spoor na in de append-only tabel `audit_log_events`: wie (gebruiker en rol), wat (methode, pad, status), wanneer en vanaf welk IP. Gevoelige gegevens worden beperkt: van een querystring worden standaard alleen de sleutels bewaard, en wachtwoord- of tokenvelden worden gemaskeerd, in de auditlog en in de UI-events volgens één lijst van sleutels (`SENSITIVE_KEY_PREFIXES` in `core/coga_logging.py`). Deze tabel is append-only via een databanktrigger; de hash-keten en de ondertekende ankers gelden voor het klinische auditspoor en de ondertekende rapporten (hoofdstuk 11). De middleware zelf staat in [hoofdstuk 7](07-backend-routers-en-services.md).
 
 Elke onderdrukking van een beveiligingsscan (afhankelijkheden, geheimen, SAST) is gedocumenteerd en gedateerd in `SECURITY-AUDIT-ALLOWLIST.md`.
 
