@@ -34,6 +34,7 @@ from ..services.structural_variant_review_pg import (
     upsert_structural_variant_review as upsert_structural_variant_review_record,
 )
 from .families_small_variants import _family_export_cell
+from .query_params import FiniteThreshold
 
 
 router = APIRouter()
@@ -79,9 +80,9 @@ async def _family_structural_variant_filters(
     moi: str | None = None,
     gencc_support: str | None = None,
     region_flags: List[str] = Query(default_factory=list, alias="region_flag"),
-    max_control_af: float | None = None,
-    max_population_af: float | None = None,
-    min_pli: float | None = None,
+    max_control_af: FiniteThreshold = None,
+    max_population_af: FiniteThreshold = None,
+    min_pli: FiniteThreshold = None,
     classifications: List[str] = Query(default_factory=list, alias="classification"),
     review_tags: List[str] = Query(default_factory=list, alias="review_tag"),
     exclude_review_tags: List[str] = Query(default_factory=list, alias="exclude_review_tag"),

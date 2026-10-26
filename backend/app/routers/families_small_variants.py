@@ -45,6 +45,7 @@ from ..services.small_variant_review_presets import (
     save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
 from ..services.variant_upload_service import SmallVariantFormat, upload_family_small_variant_file
+from .query_params import FiniteThreshold
 
 
 router = APIRouter()
@@ -149,17 +150,17 @@ def _family_small_variant_filters(
     canonical_only: bool = False,
     mane_only: bool = False,
     lof_only: bool = False,
-    max_gnomad_af: float | None = None,
-    max_gnomad_exomes_af: float | None = None,
-    max_gnomad_genomes_af: float | None = None,
-    max_gnomad_popmax_af: float | None = None,
-    max_topmed_af: float | None = None,
+    max_gnomad_af: FiniteThreshold = None,
+    max_gnomad_exomes_af: FiniteThreshold = None,
+    max_gnomad_genomes_af: FiniteThreshold = None,
+    max_gnomad_popmax_af: FiniteThreshold = None,
+    max_topmed_af: FiniteThreshold = None,
     max_gnomad_ac: int | None = None,
     max_gnomad_hom_count: int | None = None,
     max_gnomad_hemi_count: int | None = None,
-    min_cadd: float | None = None,
-    min_revel: float | None = None,
-    min_spliceai: float | None = None,
+    min_cadd: FiniteThreshold = None,
+    min_revel: FiniteThreshold = None,
+    min_spliceai: FiniteThreshold = None,
     sift: str | None = None,
     polyphen: str | None = None,
     panel_id: str | None = None,
