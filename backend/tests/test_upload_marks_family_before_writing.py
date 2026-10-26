@@ -420,6 +420,34 @@ async def test_a_bed_upload_that_fails_after_its_delete_leaves_the_family_marked
 
 
 @pytest.mark.asyncio
+async def test_a_bed_upload_that_fails_after_its_delete_removes_the_tracks_record(stores, monkeypatch) -> None:
+    # SAFE-18 (#846). The record's delete was the upload's, and rolled back with it: Postgres
+    # kept the record of a track whose rows the upload had deleted, which the coverage readers
+    # and the signed record read. It is now removed again in a transaction of its own.
+    database = _Postgres()
+    clickhouse = stores(database)
+    clickhouse.fail = True
+    record_deletes: list[int] = []
+
+    async def delete_record(_session, **kwargs) -> int:
+        assert (kwargs["track_type"], kwargs["source"]) == ("coverage", "web")
+        record_deletes.append(database.commits)
+        return 1
+
+    monkeypatch.setattr(bed_service, "delete_interval_track_sources", delete_record)
+
+    with pytest.raises(RuntimeError, match="ClickHouse insert failed"):
+        await _coverage(database)
+
+    assert clickhouse.coverage == []
+    # The upload's own delete, rolled back; then one committed on its own.
+    assert len(record_deletes) == 2
+    assert database.commits == record_deletes[-1] + 1
+    # The mark stays, as before: the track is still to upload again.
+    assert database.mark()[1]["datasets"] == ["bed_coverage"]
+
+
+@pytest.mark.asyncio
 async def test_a_bed_upload_that_fails_before_its_first_write_removes_its_mark(stores) -> None:
     database = _Postgres()
     clickhouse = stores(database)

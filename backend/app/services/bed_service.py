@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import hashlib
 from datetime import datetime, timezone
 import json
@@ -210,6 +211,39 @@ def _bed_rows(
     return rows
 
 
+async def _forget_track_after_failed_write(
+    session: AsyncSession,
+    sample_context: SampleMetadataContext,
+    *,
+    bed_type: str,
+    source: str,
+) -> None:
+    """Remove Postgres's record of the sample's ``bed_type`` track of ``source`` after an
+    overwrite failed once it may have deleted the track's rows. The upload's transaction
+    rolls back, and with it the record's delete: the record left named rows that are gone,
+    which the coverage readers and the signed record read (SAFE-18, #846). Removed in a
+    transaction of its own, after the upload's is rolled back. Best-effort: the upload's own
+    error is what the caller raises, and a single-file upload's mark still marks the family
+    (SAFE-28)."""
+    try:
+        await session.rollback()
+        await delete_interval_track_sources(
+            session,
+            sample_uuid=sample_context.sample_uuid,
+            track_type=bed_type,
+            source=source,
+        )
+        await session.commit()
+    except Exception:  # the upload's own error is the one raised
+        logger.warning(
+            "Failed to remove the record of a %s track whose rows a failed upload may have deleted",
+            bed_type,
+            exc_info=True,
+        )
+        with suppress(Exception):
+            await session.rollback()
+
+
 async def upload_bed_data(
     session: AsyncSession,
     *,
@@ -321,22 +355,27 @@ async def upload_bed_data(
                 mark=upload_mark,
             )
             raise
-    if overwrite:
-        await delete_interval_tracks(
-            sample_context.assembly_name,
+    try:
+        if overwrite:
+            await delete_interval_tracks(
+                sample_context.assembly_name,
+                sample_uuid=sample_context.sample_uuid,
+                track_type=bed_type,
+                source=source,
+            )
+        # The source's record goes with or without overwrite: without, none of its rows is
+        # stored (the check above), so a record left would name rows that are gone.
+        await delete_interval_track_sources(
+            session,
             sample_uuid=sample_context.sample_uuid,
             track_type=bed_type,
             source=source,
         )
-    # The source's record goes with or without overwrite: without, none of its rows is stored
-    # (the check above), so a record left would name rows that are gone.
-    await delete_interval_track_sources(
-        session,
-        sample_uuid=sample_context.sample_uuid,
-        track_type=bed_type,
-        source=source,
-    )
-    await insert_interval_track_rows(sample_context.assembly_name, rows)
+        await insert_interval_track_rows(sample_context.assembly_name, rows)
+    except Exception:
+        if overwrite:
+            await _forget_track_after_failed_write(session, sample_context, bed_type=bed_type, source=source)
+        raise
     await upsert_interval_track_source(
         session,
         sample_context=sample_context,

@@ -85,6 +85,8 @@ from backend.app.core.postgres import (
 from backend.app.dependencies import get_password_hash
 from backend.app.schemas import ManualPedFamilyCreate
 from backend.app.services.bed_service import upload_bed_data
+from backend.app.services.family_package_registration import record_family_upload, repeat_upload_scope
+from backend.app.services.family_variant_write_lock import VARIANT_TYPES, lock_family_variant_writes
 from backend.app.services.family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
@@ -96,8 +98,9 @@ from backend.app.services.ped_service import create_manual_family_data
 from backend.app.services.repeat_expansion_pg import (
     clear_sample_repeat_expansions,
     decode_repeat_upload_text,
-    ingest_trgt_text,
+    read_trgt_sample_calls,
     seed_builtin_repeat_catalog,
+    store_trgt_sample_calls,
 )
 from backend.app.services.variant_upload_service import (
     upload_family_small_variant_file,
@@ -449,20 +452,37 @@ async def import_repeat_expansions(
     results: dict[str, dict[str, int | str]] = {}
     for sample_id, sample_context in sample_contexts.items():
         path = repeat_expansion_upload_path(bundle, sample_id)
-        if overwrite:
-            await clear_sample_repeat_expansions(session, sample_uuid=sample_context.sample_uuid)
+        metadata: dict[str, object] = {
+            "source": "trgt",
+            "filename": path.name,
+            "uploaded_from": "demo-script",
+        }
+        # As the single-file upload loads them (routers/repeat_expansions.py): under the
+        # family's variant-write locks, the file read before the stored calls are deleted, and
+        # what it brings recorded for the family in the transaction that commits the calls
+        # (SAFE-18). This loader wrote them without the record, so a failed overwrite's
+        # restore that stopped part-way did not name them.
+        await lock_family_variant_writes(
+            session, sample_context.family_uuid, VARIANT_TYPES, samples=[sample_context.sample_uuid]
+        )
         async with local_upload(path) as upload:
             text_value = await decode_repeat_upload_text(upload)
-            results[sample_id] = await ingest_trgt_text(
-                session,
-                sample_context=sample_context,
-                text_value=text_value,
-                metadata={
-                    "source": "trgt",
-                    "filename": path.name,
-                    "uploaded_from": "demo-script",
-                },
-            )
+        calls = await read_trgt_sample_calls(
+            session, sample_context=sample_context, text_value=text_value, metadata=metadata
+        )
+        if overwrite:
+            await clear_sample_repeat_expansions(session, sample_uuid=sample_context.sample_uuid)
+        dataset, scope = repeat_upload_scope(sample_context.sample_id)
+        await record_family_upload(
+            session,
+            family_uuid=sample_context.family_uuid,
+            dataset=dataset,
+            scope=scope,
+            overwrite=overwrite,
+        )
+        results[sample_id] = await store_trgt_sample_calls(
+            session, sample_context=sample_context, calls=calls, metadata=metadata
+        )
     return results
 
 
@@ -479,6 +499,11 @@ async def import_bed_tracks(
         sample_results: dict[str, dict[str, int]] = {}
         for bed_type in bed_types:
             path = bed_upload_path(bundle, sample_id, bed_type)
+            # As the single-file upload loads it (routers/bed.py): under the family's
+            # variant-write locks, what it brings recorded for the family (SAFE-18).
+            await lock_family_variant_writes(
+                session, sample_context.family_uuid, VARIANT_TYPES, samples=[sample_context.sample_uuid]
+            )
             async with local_upload(path) as upload:
                 sample_results[bed_type] = await upload_bed_data(
                     session,
@@ -486,6 +511,7 @@ async def import_bed_tracks(
                     bed_type=bed_type,
                     file=upload,
                     overwrite=overwrite,
+                    record_upload=True,
                     # A coverage BED declares what it holds (TRACE-9): the demo's coverage
                     # bins are log2 ratios (its README).
                     content="log2_ratio" if bed_type == "coverage" else None,
@@ -516,6 +542,8 @@ async def import_structural_variants(
                 file=upload,
                 overwrite=overwrite,
                 format_hint=source,  # type: ignore[arg-type]
+                # What it brings recorded for the family, as the single-file upload does (SAFE-18).
+                record_upload=True,
             )
     return results
 
@@ -538,6 +566,8 @@ async def import_small_variants(
             file=upload,
             overwrite=overwrite,
             format_hint=source,  # type: ignore[arg-type]
+            # What it brings recorded for the family, as the single-file upload does (SAFE-18).
+            record_upload=True,
         )
 
 

@@ -602,6 +602,10 @@ async def test_qdnaseq_overwrite_import_does_not_report_update_skipped_tracks(
     monkeypatch.setattr(
         "backend.app.services.family_package_datasets._interval_track_count", fake_interval_track_count
     )
+    # Nor are rows of the track stored without a record (SAFE-18).
+    monkeypatch.setattr(
+        "backend.app.services.family_package_datasets._stored_track_rows", fake_interval_track_count
+    )
     monkeypatch.setattr(
         "backend.app.services.family_package_datasets._import_copy_number_track", fake_import_copy_number_track
     )

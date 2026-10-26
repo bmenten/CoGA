@@ -515,6 +515,51 @@ async def test_an_update_that_skips_every_paraphase_sample_ends_skipped(stores: 
     assert job.skipped_samples == {"S1", "S2"}
 
 
+@pytest.mark.asyncio
+async def test_an_overwrite_of_a_track_clears_its_rows_no_record_names(
+    stores: _Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SAFE-18. The sample's WisecondorX segments are stored without a record (a restore that
+    # stopped part-way, a failed upload). Before: the source's track was cleared only when
+    # Postgres recorded it, and the importer's own clear takes its file's rows alone, so those
+    # rows stayed beside the new ones.
+    cleared: list[tuple[str, str]] = []
+
+    async def clear(_session: Any, *, sample_context: Any, track_type: str, source: str) -> None:
+        cleared.append((track_type, source))
+
+    async def importer(*, check_only: bool = False) -> dict[str, int]:
+        return {} if check_only else {"inserted": 2}
+
+    monkeypatch.setattr(family_package_datasets, "_delete_sample_interval_source", clear)
+    stores.track("S1", "segments", "wisecondorx", rows=4, recorded=False)
+
+    result = await family_package_datasets._import_interval_track_unless_present(
+        _Session(stores),  # type: ignore[arg-type]
+        sample_context=_samples()["S1"],
+        track_type="segments",
+        source="wisecondorx",
+        conflict_mode="overwrite",
+        importer=importer,
+    )
+
+    assert result == {"inserted": 2}
+    assert cleared == [("segments", "wisecondorx")]
+
+    # Neither recorded nor stored: nothing to clear.
+    cleared.clear()
+    stores.rows.clear()
+    await family_package_datasets._import_interval_track_unless_present(
+        _Session(stores),  # type: ignore[arg-type]
+        sample_context=_samples()["S1"],
+        track_type="segments",
+        source="wisecondorx",
+        conflict_mode="overwrite",
+        importer=importer,
+    )
+    assert cleared == []
+
+
 # --- what the import counts as imported again ------------------------------------------------
 
 

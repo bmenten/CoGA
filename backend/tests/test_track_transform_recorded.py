@@ -115,6 +115,7 @@ async def _import(
 
     for module, name, fake in (
         (family_package_datasets, "_interval_track_count", no_rows_yet),
+        (family_package_datasets, "_stored_track_rows", no_rows_yet),
         (family_package_datasets, "known_vcf_sample_ids", known_samples),
         (family_package_datasets, "_record_sample_signal_tracks", nothing),
         (family_package_datasets, "lock_family_variant_writes", nothing),
