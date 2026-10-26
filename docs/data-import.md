@@ -322,7 +322,9 @@ The API behind the page:
   `cnv` track by track, its calls whole), and the dataset's message names what was skipped; a
   dataset skipped whole ends `skipped`, not `imported`. The SNV family VCF is skipped when the
   family holds small variants of the callset the file holds, which the message names
-  ([below](#the-small-variant-callset-an-import-records)). A track dataset reads its own source's
+  ([below](#the-small-variant-callset-an-import-records)); imputed genotypes, and the
+  `haplotypes` dataset, are skipped too when the family holds the haplotype blocks made from
+  imputed genotypes, as the store holds them, since the loader writes both. A track dataset reads its own source's
   track only ([Where each dataset lands](#where-each-dataset-lands)): a sample's coverage BED is
   imported though the sample holds WisecondorX bins, and its APCAD though it holds HiFiCNV's
   minor allele fraction.
@@ -887,8 +889,10 @@ none, the dataset `imported`; now the dataset fails, with every sample's mitocho
 they were, and an import that keeps the family flags it import-incomplete for `mito`. A file
 without a record is a result where a sample can have no call: a chrM SV file with its `#CHROM`
 line and no call (most samples carry no mtDNA deletion) replaces the sample's earlier chrM SVs
-with none; a HiFiCNV VCF without a call leaves the sample without `hificnv` calls (when no sample's VCF holds one, the calls stay as they were and the
-dataset is only registered). A chrM SV file without its `#CHROM` line is refused before anything
+with none; a HiFiCNV VCF without a call leaves the sample without `hificnv` calls, whether or
+not another sample's VCF holds one, and the `cnv` dataset ends `imported` with its tracks (when no
+sample's VCF held one, the calls used to stay as they were and the dataset was only registered,
+its tracks not recorded as imported: SAFE-18). A chrM SV file without its `#CHROM` line is refused before anything
 of the `mito` dataset is written.
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
