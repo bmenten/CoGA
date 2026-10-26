@@ -83,9 +83,11 @@ async def test_sample_rows_by_family_uses_uuid_family_filter() -> None:
 
     assert rows[family_uuid][0]["sample_id"] == "proband"
     assert session.sql is not None
-    assert "fm.family_id IN (" in session.sql
-    assert "POSTCOMPILE_family_uuids" in session.sql
-    assert "fm.family_id::text IN :family_uuids" not in session.sql
+    # The families go as one uuid[] parameter, compared with the uuid column itself: one
+    # parameter per family failed past the 32,767 asyncpg takes (DATA-6).
+    assert "fm.family_id = ANY(CAST(:family_uuids AS uuid[]))" in session.sql
+    assert "POSTCOMPILE" not in session.sql
+    assert "::text = ANY" not in session.sql
     assert session.params == {"family_uuids": [UUID(family_uuid)]}
 
 
