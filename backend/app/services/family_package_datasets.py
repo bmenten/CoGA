@@ -1838,7 +1838,9 @@ async def _import_interval_track_unless_present(
     track used to be fed by the copy-number bedgraph and is now fed by the depth
     bigWig, so a filename-scoped replace would leave the old copy-number rows
     behind to be averaged into the new depth values. It is cleared when Postgres
-    records the track, which also removes a record whose rows are gone.
+    records the track, which also removes a record whose rows are gone, or when the
+    store holds rows of it that no record names: such rows used to survive beside the
+    new ones (SAFE-18).
 
     Before that, ``importer`` reads its file up to the first row it stores
     (``check_only``): a file without one, or one it cannot read, is refused there
@@ -1856,7 +1858,7 @@ async def _import_interval_track_unless_present(
         sample_context=sample_context,
         track_type=track_type,
         source=source,
-    )
+    ) or await _stored_track_rows(sample_context, track_type=track_type, source=source)
     if existing:
         await _delete_sample_interval_source(
             session,

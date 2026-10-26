@@ -189,6 +189,9 @@ class _Session:
             return _Result([(value,) for value in named if value in stored] or [(None,)])
         if "FROM families WHERE family_id" in sql:
             return _Result([(_FAMILY,)])
+        if sql.startswith("DELETE FROM repeat_expansions") and "sample_uuid" in params:
+            # The admin delete of one sample's repeat calls.
+            self.postgres.log.append(("storage", "delete repeat calls"))
         return _Result()
 
     async def commit(self) -> None:
@@ -726,8 +729,18 @@ async def test_the_sv_upload_holds_the_lock_from_its_read_until_its_commit(sv_st
         ),
         (lambda session: admin_service.delete_sample_with_data(session, "FATHER", True), list(VARIANT_TYPES)),
         (lambda session: admin_service.delete_family_with_data(session, "FAM", True), list(VARIANT_TYPES)),
+        # A sample's track and its repeat calls, which a package import's restore rewrites too:
+        # both locks, as their single-file uploads hold (SAFE-18; before: none).
+        (
+            lambda session: admin_service.delete_sample_data_by_type(session, "FATHER", "coverage", True),
+            list(VARIANT_TYPES),
+        ),
+        (
+            lambda session: admin_service.delete_sample_data_by_type(session, "FATHER", "repeat_expansions", True),
+            list(VARIANT_TYPES),
+        ),
     ],
-    ids=["sample-svs", "family-small-variants", "sample", "family"],
+    ids=["sample-svs", "family-small-variants", "sample", "family", "sample-track", "sample-repeats"],
 )
 async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_until_its_commit(
     monkeypatch: pytest.MonkeyPatch, delete, variant_types: list[str]

@@ -1433,7 +1433,16 @@ The repeat-expansion and interval-track uploads hold the family's write locks fr
 read until they commit, as the small-variant and structural-variant uploads do
 ([database.md](database.md#one-write-at-a-time-per-family)): such an upload waits while a
 package import of the family runs, which would otherwise undo it when it puts the family back,
-and a sign-out is refused while one runs.
+and a sign-out is refused while one runs. So does an admin's delete of a sample's interval track
+or repeat calls, which such a restore used to undo. The demo loader
+(`scripts/load_demo_quartet.py`) loads through the same uploads and records what it loads as they
+do; it used to record nothing.
+
+An interval-track upload with `overwrite` that fails after its delete also removes Postgres's
+record of the track, in a transaction of its own: the record's delete was the upload's, and
+rolled back with it, so Postgres named rows that were gone. A package dataset that replaces a
+caller's track clears that caller's rows whether or not Postgres records them; it used to clear
+them only when it did, and such rows stayed beside the new ones.
 
 ### The mark of an upload that did not finish
 

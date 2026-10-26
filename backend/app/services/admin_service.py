@@ -863,6 +863,15 @@ async def delete_sample_data_by_type(
     sample_row = await _sample_row_or_404(session, sample_id)
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
+    if data_type in BED_TRACK_TYPES or data_type == "repeat_expansions":
+        # From before the delete until the commit below, as the single-file uploads of a
+        # sample's tracks and repeat calls hold them: a package import's restore rewrites
+        # those rows too, and the import holds these locks from its snapshot to its restore,
+        # so a delete in between was undone by the restore (SAFE-18). The sample must still be
+        # stored once it is this delete's turn.
+        await lock_family_variant_writes(
+            session, sample_row["family_uuid"], VARIANT_TYPES, samples=[sample_row["sample_uuid"]]
+        )
     if data_type in BED_TRACK_TYPES:
         sample_rows = (await _sample_rows_by_family(session, [sample_row["family_uuid"]]))[sample_row["family_uuid"]]
         contexts = await _family_assembly_contexts(
