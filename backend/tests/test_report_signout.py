@@ -2343,6 +2343,55 @@ def test_a_failure_no_import_job_records_is_never_named_under_another_failures_j
     assert "import job" not in rss._import_gate_message(old)
 
 
+def test_a_restore_that_did_not_finish_is_frozen_and_named_as_one() -> None:
+    # SAFE-18. A failed overwrite whose restore did not finish leaves its entry listing the
+    # whole family's datasets. Before: frozen like any entry, so the 409, its dialog and the
+    # signed record called it an import that "stopped before it finished".
+    restore = {
+        "job_id": "job-r",
+        "at": "2026-10-13T09:00:00+00:00",
+        "datasets": ["coverage", "snv"],
+        "finished_datasets": [],
+        "whole_family": [
+            {"dataset": "coverage", "scope": {"source": None, "samples": ["S1"]}},
+            {"dataset": "snv", "scope": {"source": "clair3", "samples": None}},
+        ],
+    }
+    upload_mark = {
+        "job_id": None,
+        "at": "2026-10-14T09:00:00+00:00",
+        "datasets": ["sv_sniffles"],
+        "finished_datasets": [],
+        "whole_family": [{"dataset": "sv_sniffles", "scope": {"source": None, "samples": ["S1"]}}],
+    }
+    stored = {"job-r": restore, "upload-1": upload_mark, _STOPPED_JOB_ID: _UNFINISHED[_STOPPED_JOB_ID]}
+    state = asyncio.run(rss._import_unfinished_state(_ScalarSession(stored), "u1"))
+
+    assert state["job-r"] == {
+        "job_id": "job-r",
+        "at": "2026-10-13T09:00:00+00:00",
+        "datasets": ["coverage", "snv"],
+        "finished_datasets": [],
+        "whole_family": True,
+    }
+    # An upload's mark lists its items the same way, but is no restore; a stopped import's
+    # entry is frozen as before.
+    assert "whole_family" not in state["upload-1"]
+    assert state[_STOPPED_JOB_ID] == _UNFINISHED[_STOPPED_JOB_ID]
+
+    message = rss._import_gate_message(None, {"job-r": state["job-r"]})
+    assert message == (
+        "This family's data is incomplete: an import (2026-10-13T09:00:00+00:00) failed, and "
+        "putting this family's data back did not finish, so coverage, snv may be partly written "
+        "or missing, whichever import or upload wrote them. Import job job-r records its "
+        "failure. Import this family again in full, with overwrite: every dataset named here, "
+        "not only those that failed, and upload again with overwrite what a single-file upload "
+        "brought (an update keeps the data already there), or acknowledge with a reason to sign "
+        "out anyway."
+    )
+    assert "stopped before it finished" not in message
+
+
 def test_the_gate_message_of_a_stopped_import_that_recorded_nothing() -> None:
     message = rss._import_gate_message(None, {"unreadable": {"job_id": None, "at": None, "datasets": [], "finished_datasets": []}})
     assert message.startswith("This family's data is incomplete: an import stopped before it finished.")

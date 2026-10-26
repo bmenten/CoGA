@@ -3001,6 +3001,64 @@ describe('FamilyReportPage', () => {
       );
     });
 
+    it('names a restore that did not finish as one, in the dialog and on the signed record', async () => {
+      // SAFE-18: the refusal and the record freeze its entry with whole_family. Before: named
+      // as an import that had not finished, as one that stopped part-way.
+      const restore = {
+        job_id: 'job-r',
+        at: '2026-10-13T09:00:00+00:00',
+        datasets: ['coverage', 'snv'],
+        finished_datasets: [],
+        whole_family: true,
+      };
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'import_incomplete',
+                message: 'incomplete',
+                import_incomplete: null,
+                import_unfinished: { 'job-r': restore },
+              },
+            },
+          },
+        }),
+      );
+      const { unmount } = renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(
+        within(dialog).getByText(
+          'Restore not finished (import job job-r): coverage, snv may be partly written or missing, whichever import or upload wrote them',
+        ),
+      ).toBeInTheDocument();
+      unmount();
+
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_unfinished: { 'job-r': restore },
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        /import job job-r, had failed, and putting the family’s data back had not finished: coverage and snv may have been partly written or missing, whichever import or upload wrote them\./,
+      );
+      expect(checks).not.toHaveTextContent(/had begun writing the family’s data/);
+    });
+
     it('shows on the signed record an import that had not finished', async () => {
       mockSignedCase({
         versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],

@@ -481,8 +481,10 @@ Five gates run first, in this order:
    to start without its whole backup, may have lost rows of any dataset of the family,
    whichever import or upload wrote them: its flag names every dataset of the import as
    failed, those it imported too, and its `import_unfinished` entry stays, naming every dataset
-   the family holds (what its imports and single-file uploads recorded in
-   `metadata.imported_scopes`) and every dataset of the import, so the gate holds until the
+   the family holds in ClickHouse (what its imports and single-file uploads recorded in
+   `metadata.imported_scopes`; Postgres, put back in one transaction, cannot be left partly
+   written) and every dataset of the import, frozen with `whole_family: true` so the gate and
+   the signed record name it as a restore that did not finish, so the gate holds until the
    whole family has been imported again with `overwrite`, not only what failed: each import
    that completes with overwrite, and each upload with overwrite, removes from the entry what
    it brought again, for that scope, and an update removes nothing. Only an import that

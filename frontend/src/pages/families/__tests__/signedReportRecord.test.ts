@@ -540,6 +540,7 @@ describe('parseSignedReport', () => {
         at: '2026-10-02T09:12:00+00:00',
         datasets: ['haplotypes', 'snv'],
         finishedDatasets: ['snv'],
+        wholeFamily: false,
       },
     ]);
     expect(record.importIncomplete).toBeNull();

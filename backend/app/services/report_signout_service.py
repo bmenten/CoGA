@@ -55,7 +55,7 @@ from .assembly_scope import is_validated_assembly, off_scope_message, validated_
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
-from .family_package_registration import unfinished_entry_writer
+from .family_package_registration import is_whole_family_entry, unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
 from .pgt_analysis import comparable_with_record as pgt_analysis_comparable_with_record
 from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
@@ -541,6 +541,12 @@ async def _import_unfinished_state(
 
     Fails safe like that flag: a value that is set but not in the shape an import writes
     still counts, with nothing to name. Dataset lists are frozen sorted, for a stable hash.
+
+    The entry a failed overwrite's restore leaves when it does not finish (its datasets the
+    whole family's: ``family_package_registration.whole_family_entry``) is frozen with
+    ``whole_family`` true, so the gate, its dialog and the signed record describe it as that
+    restore, not as an import that stopped (SAFE-18). Only then is the key set: every other
+    entry is frozen as before.
     """
     raw = (
         await session.execute(
@@ -570,6 +576,9 @@ async def _import_unfinished_state(
             "datasets": _sorted_names(entry.get("datasets")),
             "finished_datasets": _sorted_names(entry.get("finished_datasets")),
         }
+        # An upload's or a deletion's mark lists its items the same way, but is no restore.
+        if unfinished_entry_writer(str(key)) == "import" and is_whole_family_entry(entry):
+            state[str(key)]["whole_family"] = True
     return state
 
 
@@ -588,17 +597,23 @@ def _unfinished_import_clause(entry: Mapping[str, Any], key: str = "") -> str:
         if pending:
             what += f", so {', '.join(pending)} may be partly written or missing"
         return f"{what}."
+    job_id = entry.get("job_id")
+    if entry.get("whole_family"):
+        # A failed overwrite whose restore did not finish: it rewrites the family's rows table
+        # by table, whichever import or upload wrote them (SAFE-16, SAFE-18).
+        what = f"an import{when} failed, and putting this family's data back did not finish"
+        if pending:
+            what += (
+                f", so {', '.join(pending)} may be partly written or missing, whichever import or "
+                f"upload wrote {'it' if len(pending) == 1 else 'them'}"
+            )
+        return f"{what}." + (f" Import job {job_id} records its failure." if job_id else "")
     what = f"an import{when} stopped before it finished"
     if pending:
         what += f", so {', '.join(pending)} may be partly written or missing"
         if finished:
             what += f" ({', '.join(finished)} had finished)"
-    job = (
-        f" Import job {entry['job_id']} records how far it got."
-        if entry.get("job_id")
-        else ""
-    )
-    return f"{what}.{job}"
+    return f"{what}." + (f" Import job {job_id} records how far it got." if job_id else "")
 
 
 def _import_gate_message(
@@ -661,7 +676,15 @@ def _import_gate_message(
     findings.extend(_unfinished_import_clause(entry, str(key)) for key, entry in stopped)
     writers = {unfinished_entry_writer(str(key)) for key, _entry in stopped}
     remedies: list[str] = []
-    if "import" in writers:
+    if any(entry.get("whole_family") for _key, entry in stopped):
+        # A restore that did not finish lists every dataset of the family, those of an import
+        # that stopped included (SAFE-16, SAFE-18).
+        remedies.append(
+            "Import this family again in full, with overwrite: every dataset named here, not only "
+            "those that failed, and upload again with overwrite what a single-file upload "
+            "brought (an update keeps the data already there)"
+        )
+    elif "import" in writers:
         # An update skips a dataset that already holds data, partly written data included.
         remedies.append(
             "Import again, with overwrite, what an import that stopped did not finish (an "

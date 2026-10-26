@@ -683,9 +683,9 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 #
 # A failed overwrite's restore is the exception. It rewrites the family's rows in every
 # variant and track table, whichever import or single-file upload wrote them, so once it
-# begins, its import's entry lists every dataset the family holds (`imported_scopes`:
-# ``merged_imported_scopes``, which the uploads add to as the imports do) besides its own,
-# under `whole_family`, each with its scope (``whole_family_entry``). A restore that puts
+# begins, its import's entry lists every dataset the family holds in ClickHouse
+# (`imported_scopes`: ``merged_imported_scopes``, which the uploads add to as the imports
+# do) besides its own, under `whole_family`, each with its scope (``whole_family_entry``). A restore that puts
 # the family back, or that refuses to start, removes the entry as before. One that fails
 # part-way, or whose process stops in it, leaves it: any dataset of the family may then be
 # partly written or missing, whichever import or upload wrote it. Each later import that
@@ -1246,10 +1246,17 @@ def whole_family_entry(
     ``imported_scopes``) and what the other imports that have not finished set out to
     import -- and every dataset of this import, each with its scope, one sample at a time;
     ``datasets`` names them all and none is finished. A sample that is no longer the
-    family's (``family_samples``) is left out: no import of the family can name it."""
+    family's (``family_samples``) is left out: no import of the family can name it.
+
+    Of the datasets this import did not carry, only those ClickHouse holds are listed
+    (``dataset_clickhouse_stores``): the restore rewrites ClickHouse table by table, but puts
+    Postgres back in one transaction, which a failure rolls back whole, so it cannot leave a
+    dataset held in Postgres alone (repeats, Paraphase, QC, phenotypes) partly written. Those
+    of this import are all listed, as its flag names each as failed. They used to be listed
+    all the same, so the whole family had to be imported again for them too (SAFE-18)."""
     pairs: list[tuple[str, Any]] = [(name, mark.scopes.get(name)) for name in mark.datasets]
     for dataset, held in merged_imported_scopes(imported, ()).items():
-        pairs.extend((dataset, scope) for scope in held)
+        pairs.extend((dataset, scope) for scope in held if dataset_clickhouse_stores(dataset))
     for key, other in unfinished.items():
         if key == mark.key or not isinstance(other, Mapping):
             continue
@@ -1258,13 +1265,16 @@ def whole_family_entry(
             pairs.extend(
                 (str(item["dataset"]), item.get("scope"))
                 for item in listed
-                if isinstance(item, Mapping) and item.get("dataset")
+                if isinstance(item, Mapping)
+                and item.get("dataset")
+                and dataset_clickhouse_stores(str(item["dataset"]))
             )
             continue
         scopes = other.get("scopes")
         pairs.extend(
             (name, scopes.get(name) if isinstance(scopes, Mapping) else None)
             for name in sorted(_dataset_names(other.get("datasets")) or ())
+            if dataset_clickhouse_stores(name)
         )
     members = {str(sample) for sample in family_samples} if family_samples else None
     items: dict[str, dict[str, Any]] = {}

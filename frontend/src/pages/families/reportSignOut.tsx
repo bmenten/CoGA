@@ -502,7 +502,9 @@ export const useReportSignOut = (
                       single-file upload's or a deletion's mark has no job: its writer is named. */}
                   {importGate.unfinished.map((entry) => (
                     <li key={entry.key}>
-                      Not finished
+                      {/* A failed overwrite whose restore did not finish, not an import that
+                          stopped: the refusal freezes it as such (SAFE-18). */}
+                      {entry.wholeFamily ? 'Restore not finished' : 'Not finished'}
                       {unfinishedWriter(entry.key) === 'upload'
                         ? ' (single-file upload)'
                         : unfinishedWriter(entry.key) === 'deletion'
@@ -512,7 +514,9 @@ export const useReportSignOut = (
                             : ''}
                       :{' '}
                       {pendingDatasets(entry).length
-                        ? `${pendingDatasets(entry).join(', ')} may be partly written or missing`
+                        ? `${pendingDatasets(entry).join(', ')} may be partly written or missing${
+                            entry.wholeFamily ? ', whichever import or upload wrote them' : ''
+                          }`
                         : entry.datasets.length
                           ? 'it had finished each of its datasets'
                           : 'what it was importing was not recorded'}

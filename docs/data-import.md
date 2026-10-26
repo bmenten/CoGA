@@ -432,10 +432,15 @@ stays flagged.
 Such a restore also removes rows of datasets the import did not carry (another small-variant
 source, another package's SV calls, an upload's data), which its flag cannot name. So the
 import's `import_unfinished` entry stays too: once its restore begins, it names every dataset
-the family holds, as the family's imports and single-file uploads record what they brought
-(`families.metadata.imported_scopes`; [What an upload records](#what-an-upload-records)), and
-every dataset of the import, each with its samples and (for the small variants) its
-callset. The family stays marked import-incomplete until each of them has been brought
+the family holds in ClickHouse, as the family's imports and single-file uploads record what they
+brought (`families.metadata.imported_scopes`; [What an upload records](#what-an-upload-records)),
+and every dataset of the import, each with its samples and (for the small variants) its
+callset. A dataset of another import or upload that Postgres alone holds (the repeat calls, the
+Paraphase results, the QC, the phenotypes) is not named: the restore puts Postgres back in one
+transaction, which a failure rolls back whole, so it cannot leave such a dataset partly written
+(it used to be named all the same). A sign-out refused for such an entry, its dialog and the
+signed record call it a restore that did not finish, not an import that stopped: the record
+freezes the entry with `whole_family: true`. The family stays marked import-incomplete until each of them has been brought
 again with `overwrite`: import the whole family again, every package of it, not only the
 datasets that failed, and upload again with `overwrite` what an upload brought. Each import
 that completes with `overwrite`, and each upload with `overwrite`, removes from the entry what
