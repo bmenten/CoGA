@@ -108,9 +108,9 @@ class _RecordingSession:
         return rows
 
 
-def _bootstrap(monkeypatch: pytest.MonkeyPatch, *, segdups: Path, repository: Path, clinical_cnvs: Path | None = None) -> None:
+def _bootstrap(monkeypatch: pytest.MonkeyPatch, *, segdups: Path, repository: Path) -> None:
     """An empty GRCh38 assembly; the segmental-duplication setting names ``segdups``, the
-    repository's copy is ``repository``; a clinical-CNV file only when given."""
+    repository's copy is ``repository``."""
 
     async def grch38(*_args: Any, **_kwargs: Any) -> dict[str, str]:
         return {"id": "assembly-1", "assembly_name": "GRCh38", "version": "p14"}
@@ -125,9 +125,6 @@ def _bootstrap(monkeypatch: pytest.MonkeyPatch, *, segdups: Path, repository: Pa
     monkeypatch.setattr(settings, "reference_bootstrap_assembly_name", "GRCh38")
     monkeypatch.setattr(settings, "reference_segmental_duplications_path", str(segdups))
     monkeypatch.setattr(rms, "REPO_SEGMENTAL_DUPLICATIONS_PATH", repository)
-    absent = segdups.parent / "absent-clinical-cnvs.tsv"
-    monkeypatch.setattr(settings, "reference_clinical_cnvs_path", str(clinical_cnvs or absent))
-    monkeypatch.setattr(rms, "REPO_CLINICAL_CNVS_PATH", absent)
 
 
 def _another_segdup_file(tmp_path: Path) -> Path:
@@ -162,23 +159,20 @@ def test_an_identical_copy_in_the_bucket_is_loaded(monkeypatch: pytest.MonkeyPat
     assert session.committed
 
 
-def test_another_file_is_refused_logged_and_not_loaded_and_the_other_import_goes_on(
+def test_another_file_is_refused_logged_and_not_loaded_and_the_start_goes_on(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
     other = _another_segdup_file(tmp_path)
-    clinical_cnvs = tmp_path / "clinical_cnvs.tsv"
-    clinical_cnvs.write_text("chr7\t72700000\t74300000\tWilliams-Beuren region\tClinGen\t\t\t\t\n", encoding="utf-8")
     # The repository's copy is the shipped file, but a configured file that exists is the
     # one read: a refused file is not replaced by another one behind the operator's back.
-    _bootstrap(monkeypatch, segdups=other, repository=_SHIPPED_SEGDUPS, clinical_cnvs=clinical_cnvs)
+    _bootstrap(monkeypatch, segdups=other, repository=_SHIPPED_SEGDUPS)
     caplog.set_level(logging.INFO, logger=rms.logger.name)
     session = _RecordingSession()
 
     asyncio.run(rms.seed_builtin_reference_tracks(session))  # type: ignore[arg-type]
 
     assert session.params_of("segmental_duplications") == []
-    [record] = session.params_of("reference_dataset_imports")
-    assert record["dataset_type"] == "clinical_cnvs"
+    assert session.params_of("reference_dataset_imports") == []
     assert session.committed
     [error] = _errors(caplog)
     message = error.getMessage()
@@ -193,6 +187,33 @@ def test_another_file_is_refused_logged_and_not_loaded_and_the_other_import_goes
     ):
         assert name in message, name
     assert error.exc_info is None
+
+
+def test_the_startup_loads_no_clinical_cnvs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    # The startup loaded any file at REFERENCE_CLINICAL_CNVS_PATH as the clinical CNVs, unpinned,
+    # and its default was never shipped, so it never ran (OPS-17). The knowledgebase rebuild
+    # loads them from its pinned sources, and an administrator can upload a file. The settings
+    # define no such path under any name, and a deployment that still sets it starts and keeps
+    # nothing of it.
+    names = {name.upper() for key, field in config.Settings.model_fields.items() for name in (key, field.alias) if name}
+    assert "REFERENCE_CLINICAL_CNVS_PATH" not in names
+    clinical_cnvs = tmp_path / "clinical_cnvs.tsv"
+    clinical_cnvs.write_text("chr7\t72700000\t74300000\tWilliams-Beuren region\tClinGen\t\t\t\t\n", encoding="utf-8")
+    monkeypatch.setenv("REFERENCE_CLINICAL_CNVS_PATH", str(clinical_cnvs))
+    loaded = config.Settings(_env_file=None, APP_ENV="test")
+    assert str(clinical_cnvs) not in loaded.model_dump().values()
+    # A start loads the segmental duplications alone.
+    copy = tmp_path / "bucket" / _SHIPPED_SEGDUPS.name
+    copy.parent.mkdir()
+    shutil.copyfile(_SHIPPED_SEGDUPS, copy)
+    _bootstrap(monkeypatch, segdups=copy, repository=tmp_path / "no-checkout" / _SHIPPED_SEGDUPS.name)
+    session = _RecordingSession()
+
+    asyncio.run(rms.seed_builtin_reference_tracks(session))  # type: ignore[arg-type]
+
+    imported = [record["dataset_type"] for record in session.params_of("reference_dataset_imports")]
+    assert imported == ["segmental_duplications"]
+    assert session.params_of("clinical_cnvs") == []
 
 
 def test_the_repository_copy_is_held_to_the_pin_too(

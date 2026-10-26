@@ -229,8 +229,6 @@ def test_a_bootstrap_import_names_the_file_it_loaded(
     monkeypatch.setattr(settings, "reference_bootstrap_enabled", True)
     monkeypatch.setattr(settings, "reference_bootstrap_assembly_name", "GRCh38")
     monkeypatch.setattr(settings, "reference_segmental_duplications_path", str(segdups))
-    monkeypatch.setattr(settings, "reference_clinical_cnvs_path", str(tmp_path / "absent.tsv"))
-    monkeypatch.setattr(rms, "REPO_CLINICAL_CNVS_PATH", tmp_path / "absent-too.tsv")
     session = _RecordingSession()
 
     asyncio.run(rms.seed_builtin_reference_tracks(session))  # type: ignore[arg-type]
