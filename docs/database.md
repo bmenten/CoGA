@@ -527,7 +527,10 @@ family's small variants (an insert, a full or source-scoped delete, and the summ
 that also follows a snapshot restore) appends one row with a random token once the write
 completes. The count and sum of the family's tokens are its small-variant data version, which
 the ranking cache puts in its key. Rows are never collapsed, so the version never returns to
-an earlier value.
+an earlier value. The family page's search reads it before and after it runs, and runs once
+more when it moved: its subqueries (a panel's window join, the annotation and sample
+subqueries) read the family's rows apart from its main read, so a write landing between two of
+them could make the answer miss a row (ENG-17).
 
 `SV/family_data_version` does the same for structural variants: every SV insert and delete, and
 a snapshot restore, appends a token. The SV→gene index stores the version it was built from in
