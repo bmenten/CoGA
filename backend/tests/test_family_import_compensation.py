@@ -376,6 +376,25 @@ async def test_a_flag_not_in_the_shape_an_import_writes_stays(flag) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("flag", ["garbage", True, {"failed_datasets": "snv"}, {}])
+async def test_a_later_failure_keeps_a_flag_not_in_the_shape_an_import_writes(flag) -> None:
+    # SAFE-18. Before: the later failure's flag replaced it, so the family read as complete
+    # once coverage was imported again, whatever the first flag stood for.
+    row = _FamilyRow(flag=copy.deepcopy(flag))
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["coverage"], imported_datasets=["snv"], job_id="job-2", scopes=_SCOPES
+    )
+    assert row.flag == flag
+    # So does an upload's failure.
+    await registration.record_family_upload_failure(
+        row, family_uuid="uuid-1", family_id="F1", dataset="snv", scope=_SCOPES["snv"]
+    )
+    assert row.flag == flag
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _SCOPES["coverage"]})
+    assert row.flag == flag and left.failures.unreadable
+
+
+@pytest.mark.asyncio
 async def test_a_completed_import_removes_its_own_entry_and_those_it_completed() -> None:
     stored = {
         "job-own": _entry("job-own", ["snv", "coverage"]),
@@ -1812,6 +1831,20 @@ def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:
     assert "(snv in import job job-1; coverage, snv in import job job-2)" in fpi._still_failed_message(
         "F1", left
     )
+
+
+def test_the_job_log_says_a_failure_no_job_records_failed_outside_one() -> None:
+    # SAFE-18: an upload's failure (SAFE-25) runs in no job. Before: "coverage in an import".
+    flag = registration.merged_import_failure(
+        None, at=_AT, job_id="job-1", failed=["snv"], imported=[], scopes={"snv": _CLAIR3}, imported_scopes={}
+    )
+    flag = registration.merged_import_failure(
+        flag, at=_AT, job_id=None, failed=["coverage"], imported=[], scopes=_SCOPES, imported_scopes={}
+    )
+    message = fpi._still_failed_message("F1", registration.failures_left_after(flag, {}))
+    assert "an earlier import or single-file upload failed" in message
+    assert "(snv in import job job-1; coverage outside an import job)" in message
+    assert "in an import" not in message
 
 
 # --- an auto SNV import's update check and clean-up read the callset it stores (SAFE-27) ----

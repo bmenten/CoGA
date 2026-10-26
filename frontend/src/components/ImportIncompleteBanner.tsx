@@ -14,11 +14,18 @@ export interface FamilyImportIncomplete {
    * earlier import's failed datasets, so they can come from different jobs.
    */
   failedJobs: Record<string, string>;
+  /**
+   * The failed datasets no import job records an error of, beside others a job does: each
+   * failed in a single-file upload, or an import run outside a job, which the flag lists
+   * with no job. The flag's own job is another failure's. Empty when no dataset has a job.
+   */
+  withoutJob: string[];
 }
 
 /**
  * The jobs that hold the failed datasets' errors, each with its datasets, when they come
- * from more than one job; null when one job (or none) holds them all.
+ * from more than one job, or when a failure no job records is beside them
+ * ({@link FamilyImportIncomplete.withoutJob}); null when one job (or none) holds them all.
  */
 export const failuresByJob = (flag: FamilyImportIncomplete): [string, string[]][] | null => {
   const byJob = new Map<string, string[]>();
@@ -26,7 +33,7 @@ export const failuresByJob = (flag: FamilyImportIncomplete): [string, string[]][
     const job = flag.failedJobs[name];
     if (job) byJob.set(job, [...(byJob.get(job) ?? []), name]);
   });
-  if (byJob.size < 2) return null;
+  if (byJob.size < 2 && !(byJob.size && flag.withoutJob.length)) return null;
   return [...byJob.entries()].sort((a, b) => a[1][0].localeCompare(b[1][0]));
 };
 
@@ -55,10 +62,14 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
       ? (record.failed_jobs as Record<string, unknown>)
       : {};
   const failedJobs: Record<string, string> = {};
+  const listedWithoutJob: string[] = [];
   failedDatasets.forEach((name) => {
     const job = jobs[name];
-    const resolved = typeof job === 'string' && job ? job : jobId;
-    if (resolved) failedJobs[name] = resolved;
+    if (typeof job === 'string' && job) failedJobs[name] = job;
+    // Listed with no job: it failed outside one, so the flag's job, another failure's,
+    // does not hold its error (as report_signout_service._import_incomplete_state reads it).
+    else if (job === null && name in jobs) listedWithoutJob.push(name);
+    else if (jobId) failedJobs[name] = jobId;
   });
   return {
     at: typeof record.at === 'string' && record.at ? record.at : null,
@@ -66,6 +77,9 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
     importedDatasets: stringList(record.imported_datasets) ?? [],
     jobId,
     failedJobs,
+    // Named only beside a failure a job records: a flag written before jobs were recorded
+    // names none for any dataset.
+    withoutJob: Object.keys(failedJobs).length ? listedWithoutJob : [],
   };
 };
 
@@ -269,7 +283,15 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
         : 'Data from what failed is missing here, so the results and the report may be incomplete. '}
       {flag && failuresByJob(flag) ? (
         <>
-          Each dataset&rsquo;s error is recorded in its import job:{' '}
+          {flag.withoutJob.length ? (
+            <>
+              No import job records the error of {joinWithAnd(flag.withoutJob)}, which failed in a
+              single-file upload or in an import run outside a job. Each other dataset&rsquo;s error
+              is recorded in its import job:{' '}
+            </>
+          ) : (
+            <>Each dataset&rsquo;s error is recorded in its import job: </>
+          )}
           {failuresByJob(flag)!.map(([job, names], index) => (
             <React.Fragment key={job}>
               {index ? '; ' : ''}

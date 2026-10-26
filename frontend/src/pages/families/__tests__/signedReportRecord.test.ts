@@ -512,6 +512,7 @@ describe('parseSignedReport', () => {
       importedDatasets: ['snv'],
       jobId: 'job-1',
       failedJobs: { sv: 'job-1' },
+      withoutJob: [],
     });
     expect(record.importAcknowledgement).toEqual({ acknowledged: true, reason: 'SVs not requested.' });
     expect(record.sequencingQc?.unavailable).toBe('QC thresholds could not be resolved');

@@ -979,15 +979,22 @@ def merged_import_failure(
     imported: Iterable[str],
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> Any:
     """The ``import_incomplete`` flag after an import that failed for ``failed``: its own
     failures, and those of the flag already stored that it did not import again
     (``imported_scopes``: the scope of each dataset it imported). A later failure never
     drops an earlier one, of another dataset or of the same dataset under another scope
     (another callset, other samples): each failure keeps its scope and the job whose record
     holds its error, and leaves the flag only once its scope has been brought again
-    (SAFE-26). The same scope failing again is one failure, with its latest job. A stored
-    flag not in the shape an import writes names nothing to keep."""
+    (SAFE-26). The same scope failing again is one failure, with its latest job.
+
+    A stored flag not in the shape an import writes (``true``, a list) is kept as it is: it
+    says the family is incomplete without naming what would complete it, as a sign-out reads
+    it, and a completed import leaves it too (``failures_left_after``). Replacing it would
+    let the family read as complete once this import's own failures had been imported again
+    (SAFE-18). This import's failures are then named in its job's record alone."""
+    if stored is not None and stored is not False and _flag_failures(stored) is None:
+        return stored
     failures = _failures_not_imported_again(_flag_failures(stored) or {}, imported_scopes)
     for name in sorted({str(name) for name in failed}):
         scope = scopes.get(name)
@@ -1770,12 +1777,17 @@ async def _flag_family_import_incomplete(
     scopes: Mapping[str, Any] | None = None,
     imported_scopes: Mapping[str, Any] | None = None,
 ) -> None:
-    """Stamp a pre-existing family as import-incomplete after a failed update/overwrite.
+    """Stamp a family as import-incomplete after an import that failed for some datasets
+    and left the family in place.
 
-    We do not snapshot/restore existing family data, so a partial update/overwrite can
-    leave the family with some datasets (over)written and others missing (overwrite
-    even pre-clears before insert). Rather than let that state be silently queryable as
-    if complete, record it in the family metadata so it is explicit and auditable.
+    The family is left in place by an import that imported some datasets (a new family is
+    deleted only when none imported), a failed update (it takes no snapshot: it skips what
+    is there, so it replaced nothing), an overwrite whose snapshot could not be taken, and
+    one whose restore was refused before its first delete (``FamilyRestoreRefused``). A
+    restore that puts the family back leaves no flag, and one that fails part-way flags it
+    through ``_flag_family_restore_failed``. Rather than let that state be silently
+    queryable as if complete, record it in the family metadata so it is explicit and
+    auditable.
     Best-effort and self-committing: a flag-write failure must not mask the original
     import failure.
 
