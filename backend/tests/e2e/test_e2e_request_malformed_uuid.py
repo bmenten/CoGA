@@ -274,10 +274,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 },
             )
         ).scalar_one()
-        await session.execute(
-            text("INSERT INTO hpo_term (hpo_id, label) VALUES (:id, 'Seizure') ON CONFLICT (hpo_id) DO NOTHING"),
-            {"id": HPO_TERM},
-        )
+        await _harness.seed_hpo_term(session, HPO_TERM, "Seizure")
         await session.commit()
 
     out: dict[str, Any] = {

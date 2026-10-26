@@ -183,6 +183,27 @@ async def _ensure_project(session, *, species_id: str, assembly_id: str, admin_u
     return project_id
 
 
+async def seed_hpo_term(session, hpo_id: str, label: str) -> None:
+    """Add an HPO term, unless it is there, as an import of the shipped ontology writes it:
+    with that release (``HPO_PINNED_RELEASE``) and its date. The signed record reads the
+    loaded release from the latest term, so a term without one made every sign-out of the
+    stack record "HPO release not recorded" (ENG-16)."""
+    from backend.app.core.config import HPO_PINNED_RELEASE
+
+    await session.execute(
+        text(
+            "INSERT INTO hpo_term (hpo_id, label, release_version, release_date) "
+            "VALUES (:id, :label, :release, :released) ON CONFLICT (hpo_id) DO NOTHING"
+        ),
+        {
+            "id": hpo_id,
+            "label": label,
+            "release": HPO_PINNED_RELEASE,
+            "released": date.fromisoformat(HPO_PINNED_RELEASE.rsplit("/", 1)[1]),
+        },
+    )
+
+
 async def ensure_e2e_project(session) -> tuple[Any, str, str]:
     """Set up admin -> species -> assembly -> project bound to GRCh38 and return
     ``(admin_current_user, project_id, assembly_id)``. Idempotent."""
@@ -240,12 +261,7 @@ async def import_golden_trio(root: Path) -> dict[str, Any]:
         # fixture's term deterministically — otherwise the HPO assertion is
         # environment-dependent (passes locally where the ontology is loaded, fails
         # on a fresh CI database).
-        await session.execute(
-            text(
-                "INSERT INTO hpo_term (hpo_id, label) VALUES ('HP:0001250', 'Seizure') "
-                "ON CONFLICT (hpo_id) DO NOTHING"
-            )
-        )
+        await seed_hpo_term(session, "HP:0001250", "Seizure")
         await session.commit()
 
     async with sessionmaker() as session:

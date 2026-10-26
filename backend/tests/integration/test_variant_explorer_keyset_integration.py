@@ -7,7 +7,8 @@ expected number of pages — validating the ``HAVING`` seek predicate, the curso
 and the next-cursor termination against the real engine (which unit tests can't cover).
 
 ``resolve_scope`` is monkeypatched so the test needs only ClickHouse data + a Postgres
-session (for the empty review/annotation joins), not a seeded project/user/assembly.
+session (for the empty review/annotation joins), not a seeded project/user/assembly. It
+creates the Postgres schema those joins read itself, so it passes run alone (ENG-16).
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
 """
@@ -60,7 +61,7 @@ def _record(variant_id: str, pos: int, calls):
 
 def test_explorer_keyset_pagination_against_clickhouse(monkeypatch) -> None:
     import backend.app.services.variant_explorer_service as svc
-    from backend.app.core.postgres import get_postgres_sessionmaker
+    from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services.clickhouse_variant_storage import (
         ensure_clickhouse_variant_tables,
         insert_small_variant_records,
@@ -78,6 +79,7 @@ def test_explorer_keyset_pagination_against_clickhouse(monkeypatch) -> None:
     monkeypatch.setattr(svc, "resolve_scope", _fake_scope)
 
     async def _run() -> None:
+        await init_postgres_schema()
         await ensure_clickhouse_variant_tables(_ASSEMBLY)
         await insert_small_variant_records(
             _ASSEMBLY,
