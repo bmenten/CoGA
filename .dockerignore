@@ -1,45 +1,50 @@
+# Docker reads each pattern from the root of the build context, the repository: a pattern
+# without `**/` excludes only the root's own entry. The local files below are excluded at any
+# depth (a frontend/.env.local reached the frontend build, which Vite reads, and
+# backend/app/**/__pycache__ the backend image); data/, build/ and dist/ are the root's own
+# folders (OPS-15, test_deployment_config.py).
+
 # Version control and local metadata
 .git
-.gitignore
-.claude/
-.DS_Store
-Thumbs.db
+**/.gitignore
+**/.claude/
+**/.DS_Store
+**/Thumbs.db
 
 # Secrets and local environment files
-.env
-*.env
-.env.*
+**/.env
+**/*.env
+**/.env.*
 !.env.example
 
 # Python local artifacts
-__pycache__/
-*.py[cod]
-.Python
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-.coverage.*
-coverage-*.data
-coverage*.json
-htmlcov/
+**/__pycache__/
+**/*.py[cod]
+**/.Python
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+**/.coverage.*
+**/coverage-*.data
+**/coverage*.json
+**/htmlcov/
 frontend/coverage/
 backend/.venv/
 backend/env/
 backend/venv/
 
 # Node local artifacts
-node_modules/
-frontend/node_modules/
+**/node_modules/
 frontend/dist/
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+**/pnpm-debug.log*
 
 # Editor and OS state
-.vscode/
-.idea/
+**/.vscode/
+**/.idea/
 
 # Runtime data should be mounted, not sent as Docker build context.
 data/
@@ -60,4 +65,4 @@ demo/**/*.vcf.gz.csi
 # Build and package outputs
 build/
 dist/
-*.egg-info/
+**/*.egg-info/
