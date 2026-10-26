@@ -47,7 +47,7 @@ Deze tracks hangen niet aan een sample en tonen referentieannotatie over het get
 
 | Track | Endpoint | Toont |
 | --- | --- | --- |
-| `GeneTrack` | `GET /api/genes/{assembly}/{chrom}` | Genen met exonen en intronen (D3); de tooltip noemt de panels waarin het gen zit |
+| `GeneTrack` | `GET /api/genes/{assembly}/{chrom}` | Genen met exonen en intronen (D3), één transcript per gen: het MANE Select-transcript (GENCODE, of HGNC's MANE-accessies voor een RefSeq-referentie), anders het canonieke transcript van Ensembl (GENCODE's tag `Ensembl_canonical`), anders het langste; de tooltip noemt de panels waarin het gen zit |
 | `CnvTrack` | `GET /api/cnvs/{assembly}/{chrom}` | Klinische CNV's; een klik opent de detailpagina |
 | `DgvTrack` | `GET /api/dgv/{assembly}/{chrom}` | DGV-varianten; bij te veel overlap toont de server een dichtheidsprofiel in plaats van losse varianten |
 | `BlacklistTrack` · `SegmentalDuplicationTrack` | `GET /api/blacklist/…` · `GET /api/segmental-duplications/…` | Onbetrouwbare zones en segmentale duplicaties |

@@ -215,7 +215,6 @@ async def fetch_external_gene_bundle(
     extra = {
         "hgnc_name": bulk_profile.get("display_name"),
         "hgnc_gene_group": as_list(hgnc_gene_facts.get("gene_group")),
-        "hgnc_vega_id": first_non_empty(hgnc_identifiers.get("vega_id")),
         "refseq_accessions": as_list(hgnc_identifiers.get("refseq_accession")),
         "ncbi_other_designations": as_list(ncbi_payload.get("otherdesignations")),
     }

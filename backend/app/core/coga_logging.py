@@ -199,6 +199,19 @@ class CoGALogger:
         self._log(logging.ERROR, message, user, **kwargs)
 
 
+# The keys whose values the request audit and the UI events mask, as a key starts with one,
+# in any case: a request body's and a query string's keys, a UI event's detail keys. One list
+# for both, which kept a copy each, so that neither can come to mask less (ENG-8).
+SENSITIVE_KEY_PREFIXES = ("password", "secret", "token", "authorization", "api_key", "access_key")
+
+
+def is_sensitive_key(key: object) -> bool:
+    """Whether a value under ``key`` is masked in the records: the key starts with one of
+    ``SENSITIVE_KEY_PREFIXES``, in any case."""
+    lowered = str(key).lower()
+    return any(lowered.startswith(prefix) for prefix in SENSITIVE_KEY_PREFIXES)
+
+
 # A link token in a query string (the QC-report link, #522). The access log records
 # the full request line; the token is a bearer credential for a few minutes.
 _QUERY_TOKEN_RE = re.compile(r"(?i)([?&](?:token|access_token)=)[^&\s\"]+")
