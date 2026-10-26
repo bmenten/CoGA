@@ -167,6 +167,18 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   or sample delete unlinks a managed copy only inside the upload folder, and skips any other
   path a managed row names with a log line. An edited row could download any file the
   backend can read, and make a delete remove any file it may write (SEC-29).
+- ✅ **A package import reads only its own folder.** Package Import takes a folder only below
+  `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`), and the package list leaves out, and
+  reads nothing in, a folder that is a symlink leading out of the roots. Every path a
+  manifest names must lie inside the package folder (`_resolve_package_path` in
+  `services/family_package_common.py`): validation refuses with 400, before anything is read,
+  an absolute path elsewhere, `..` that climbs out, a symlink that leads out, a path that
+  starts with `~` (never expanded to a home folder) and one that runs through a symlink loop.
+  A `manifest.yaml`, `.yml` or `.json` that is a symlink leading out of the folder, or one
+  that loops, is refused (`manifest_outside_package`): Discover and validation do not read it,
+  and **Write manifest** does not write through it. A linked manifest gave a package the
+  family of any YAML or JSON file the backend could read, and Write manifest replaced the
+  file it pointed at (SEC-21, #842; [data-import.md](data-import.md)).
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or
@@ -427,6 +439,16 @@ What the application relies on there:
   sign-in always asks which account continues, so a shared workstation never signs the next
   person in as the previous one silently, and the page CoGA asked for before it travels to
   Microsoft only as a random key (the path, with any family ID in it, stays in the tab).
+- ✅ **A sign-in returns only to a page of this site.** The login page follows a `next` only
+  in the form the route guards and the expired-session handler write (`signInPath` in
+  `lib/auth.ts`): a `/`, a letter or a digit, then printable ASCII without a backslash
+  (`SAME_SITE_PATH` in `pages/auth/LoginPage.tsx`, REQ-UI-006). Any other value opens the
+  dashboard, as an absent one does: a scheme, `//`, a backslash, whitespace or a control
+  character, and a path that starts with a percent-encoded character, such as `/%09/host`,
+  which a browser reads as `//host` once the query string is decoded (#833). The backend reads
+  no `next` and builds no redirect from user input. The proxy rewrites only a redirect on the
+  backend's own internal origin, into a path on this site with one leading slash, so it never
+  turns one into `//host` or `/\host` (`frontend/proxyLocation.mjs`, #948).
 - ✅ **Encoded path segments.** API paths are built with `apiPath` (`lib/apiPath.ts`), which
   percent-encodes every identifier, so an imported id such as `../families/F1` cannot
   redirect a call. Query strings go through `raw()`. The URLs the backend hands the browser

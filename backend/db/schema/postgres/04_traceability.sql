@@ -87,8 +87,6 @@ CREATE TRIGGER audit_log_events_immutable
 -- so platform usage can be inspected and optimised. Values are masked client- and
 -- server-side (identifiers reduced to id, query strings to keys) by
 -- routers/ui_events.py before storage.
--- NOTE: the schema runner splits files on the SQL statement separator, so no
--- comment in this file may contain that punctuation character.
 CREATE TABLE IF NOT EXISTS ui_events (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
@@ -374,10 +372,11 @@ CREATE TRIGGER report_signouts_immutable
 -- by anyone who cannot recompute them, but an OWNER who DISABLEs the trigger can
 -- re-chain an interior edit (recompute row_hash/prev_hash for it and every successor)
 -- into a self-consistent chain, and can truncate a chain to zero rows — both pass
--- verify_*_chain. This table periodically records every chain's HEAD (per family, per
--- table) and SIGNS the snapshot with an Ed25519 key the database role does not hold, so
--- re-chaining or truncation SINCE a retained signed anchor becomes detectable by a
--- verifier that does not trust the DB.
+-- verify_*_chain. This table records every chain's HEAD (per family, per table) each time
+-- an administrator takes an anchor (POST /api/admin/integrity/anchor, which nothing
+-- schedules yet, OPS-7) and SIGNS the snapshot with an Ed25519 key the database role does
+-- not hold, so re-chaining or truncation SINCE a retained signed anchor becomes detectable
+-- by a verifier that does not trust the DB.
 --
 -- One row = one whole-system anchor (all families, every chained table, captured atomically).
 -- Append-only. The chain of anchors (prev_anchor_hash/anchor_hash) makes

@@ -89,6 +89,19 @@ marked. Signing out freezes the mark beside its call, and for each locus whether
 counting units, with the reason, by whom and when: a locus validated or withdrawn after sign-out makes
 the report say the repeat expansions changed since.
 
+### Paraphase
+
+Some genes lie in regions with nearly identical copies, such as *SMN1/SMN2* or *PMS2*, where standard
+variant calling fails. The **Paraphase** page shows, per locus, what Paraphase found there for each
+member: the copy number, and a status read from a catalogue of medical regions. Where the catalogue has
+a rule for the locus, the copy number reads as *normal*, *carrier* or *pathogenic*, or as *review* when it
+fits none of them; at a locus without a rule, a copy-number change or a fusion reads as *review*. A change
+is a copy number outside the normal range the catalogue records for the locus (6 for *NEB*, 4 for a gene
+with its pseudogene). On chrX a man has one copy and a woman two, by the sex
+Paraphase infers, else the pedigree's; without a sex a chrX value is not called normal. A field without a
+fixed normal value (*highest_total_cn*) and a no-call are no change. **Copy-number changes only** shows
+only the loci with such a change.
+
 ### mtDNA
 
 Each sample's card on the **mtDNA analysis** page gives its mean chrM depth and the share of chrM

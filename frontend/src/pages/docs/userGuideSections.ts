@@ -92,9 +92,9 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
   },
   {
     id: 'clinical-report',
-    title: 'Clinical report and sign-out',
+    title: 'Family report and sign-out',
     summary:
-      'Draft the report from the tagged variants, see what changed, and sign it out into a version that can never change.',
+      'Draft the family report from the tagged variants, see what changed, and sign the analysis out into a version that can never change. The clinical report is signed in the EPD.',
   },
   {
     id: 'specialised-analyses',
