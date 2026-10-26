@@ -31,6 +31,7 @@ from ..services.variant_explorer_service import (
     search_global_small_variants,
     _accessible_project_rows,
 )
+from .query_params import FiniteThreshold
 
 router = APIRouter(prefix="/variant-explorer", tags=["variant-explorer"])
 
@@ -114,18 +115,18 @@ async def _build_global_variant_filters(
     canonical_only: bool = False,
     mane_only: bool = False,
     lof_only: bool = False,
-    max_gnomad_af: float | None = None,
-    max_gnomad_exomes_af: float | None = None,
-    max_gnomad_genomes_af: float | None = None,
-    max_gnomad_popmax_af: float | None = None,
-    max_topmed_af: float | None = None,
+    max_gnomad_af: FiniteThreshold = None,
+    max_gnomad_exomes_af: FiniteThreshold = None,
+    max_gnomad_genomes_af: FiniteThreshold = None,
+    max_gnomad_popmax_af: FiniteThreshold = None,
+    max_topmed_af: FiniteThreshold = None,
     max_gnomad_ac: int | None = None,
     max_gnomad_hom_count: int | None = None,
     max_gnomad_hemi_count: int | None = None,
     clinvar_overrides_frequency: bool = False,
-    min_cadd: float | None = None,
-    min_revel: float | None = None,
-    min_spliceai: float | None = None,
+    min_cadd: FiniteThreshold = None,
+    min_revel: FiniteThreshold = None,
+    min_spliceai: FiniteThreshold = None,
     sift: str | None = None,
     polyphen: str | None = None,
     classification: List[str] = Query(default_factory=list),
