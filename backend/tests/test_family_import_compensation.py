@@ -668,6 +668,36 @@ async def test_what_the_family_s_imports_imported_is_recorded_for_it() -> None:
     assert row.imported is None
 
 
+def test_the_whole_family_entry_leaves_out_what_postgres_alone_holds_of_other_imports() -> None:
+    # SAFE-18. The restore puts Postgres back in one transaction, which a failure rolls back
+    # whole: a dataset held in Postgres alone that this import did not carry cannot be left
+    # partly written. Before: listed all the same, so the whole family had to be imported
+    # again for the repeats, the Paraphase results, the QC and the phenotypes too.
+    mark = registration.ImportMark.begin(
+        job_id="job-2", datasets=("snv", "repeats_trgt"), scopes={"snv": _SCOPES["snv"], "repeats_trgt": _one("S1")}
+    )
+    stopped = _entry("job-stopped", ["paraphase", "coverage"])
+    entry = registration.whole_family_entry(
+        mark,
+        imported={
+            "sv_needlr": [_one()],
+            "repeats_trgt": [_one("S1")],
+            "paraphase": [_one("S1")],
+            "qc": [_one()],
+            "phenotypes": [_one()],
+            # A dataset of no known kind counts as held in ClickHouse: listed, the safe side.
+            "unknown_caller": [_one()],
+        },
+        unfinished={"job-stopped": stopped},
+        family_samples=["S1", "S2"],
+    )
+
+    # This import's own repeats stay listed: its flag names them as failed. The stopped
+    # import's paraphase is left out here; its own entry still names it.
+    assert entry["datasets"] == ["coverage", "repeats_trgt", "snv", "sv_needlr", "unknown_caller"]
+    assert {item["dataset"] for item in entry["whole_family"]} == set(entry["datasets"])
+
+
 def test_a_second_restore_that_fails_keeps_what_the_first_left_to_import() -> None:
     first = registration.whole_family_entry(
         _mark("job-1", ("snv",)), imported={"sv_needlr": [_one()]}, unfinished={}
@@ -1060,6 +1090,11 @@ async def test_a_restore_that_fails_part_way_names_what_an_upload_brought(upload
     # Before: the entry named the import's coverage alone, and an import of that again
     # opened the gate with the uploaded data gone.
     dataset, scope = _UPLOADS[kind]
+    if not registration.dataset_clickhouse_stores(dataset):
+        # The TRGT calls are Postgres's alone, which the restore puts back in one transaction:
+        # it cannot leave them partly written, so the entry does not name them (SAFE-18).
+        assert listed == ["coverage"]
+        return
     assert listed == sorted({"coverage", dataset})
     assert {"dataset": dataset, "scope": scope} in row.unfinished[mark.key]["whole_family"]
 
@@ -1115,11 +1150,11 @@ async def test_an_upload_strikes_off_only_the_samples_and_the_callset_it_brought
     await uploads("repeats", row, sample_id="S2", overwrite=True)
     await uploads("small_variants", row, overwrite=True)
 
-    # S2's manual SV calls and the clair3 callset are struck off. S1's calls, the TRGT
-    # calls of S1 and the package's imputed callset (an snv dataset stored as glimpse2) are
-    # still to bring again.
+    # S2's manual SV calls and the clair3 callset are struck off. S1's calls and the
+    # package's imputed callset (an snv dataset stored as glimpse2) are still to bring again.
+    # The TRGT calls are not listed: Postgres's alone, which the restore cannot leave partly
+    # written (SAFE-18).
     assert [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] != "coverage"] == [
-        {"dataset": "repeats_trgt", "scope": _one("S1")},
         {"dataset": "snv", "scope": imputed},
         {"dataset": "sv_manual", "scope": _one("S1")},
     ]

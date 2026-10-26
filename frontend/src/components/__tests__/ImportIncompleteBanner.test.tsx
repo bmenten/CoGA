@@ -294,14 +294,15 @@ describe('importUnfinishedFromMetadata', () => {
         at: UNFINISHED[STOPPED_JOB].at,
         datasets: ['apcad', 'haplotypes', 'qdnaseq'],
         finishedDatasets: ['apcad', 'qdnaseq'],
+        wholeFamily: false,
       },
-      { key: 'job-2', jobId: 'job-2', at: later.at, datasets: ['snv'], finishedDatasets: [] },
+      { key: 'job-2', jobId: 'job-2', at: later.at, datasets: ['snv'], finishedDatasets: [], wholeFamily: false },
     ]);
   });
 
   it('takes a value of another shape as unfinished, with nothing to name', () => {
     // As sign-out does: a set value is never read as "nothing unfinished".
-    const unknown = { jobId: null, at: null, datasets: [], finishedDatasets: [] };
+    const unknown = { jobId: null, at: null, datasets: [], finishedDatasets: [], wholeFamily: false };
     expect(importUnfinishedFromMetadata({ import_unfinished: 'garbage' })).toEqual([{ key: 'unreadable', ...unknown }]);
     expect(importUnfinishedFromMetadata({ import_unfinished: ['x'] })).toEqual([{ key: 'unreadable', ...unknown }]);
     expect(importUnfinishedFromMetadata({ import_unfinished: { k: 'not an entry' } })).toEqual([{ key: 'k', ...unknown }]);
@@ -322,8 +323,9 @@ describe('importUnfinishedFromMetadata', () => {
     expect(pendingDatasets(entry)).toEqual(['haplotypes']);
   });
 
-  it('reads the entry a restore that did not finish left as any other, every dataset pending', () => {
-    // The signed record and the sign-out refusal read it so: its datasets, none finished.
+  it('reads the entry a restore that did not finish left as one, every dataset pending', () => {
+    // Its datasets, none finished, and marked as the restore's: the signed record and the
+    // sign-out refusal freeze it with `whole_family: true` (SAFE-18).
     const [entry] = importUnfinishedFromMetadata({ import_unfinished: WHOLE_FAMILY });
     expect(entry).toEqual({
       key: RESTORE_JOB,
@@ -331,8 +333,15 @@ describe('importUnfinishedFromMetadata', () => {
       at: WHOLE_FAMILY[RESTORE_JOB].at,
       datasets: ['coverage', 'snv', 'sv_needlr'],
       finishedDatasets: [],
+      wholeFamily: true,
     });
     expect(pendingDatasets(entry)).toEqual(['coverage', 'snv', 'sv_needlr']);
+    const frozen = { ...WHOLE_FAMILY[RESTORE_JOB], whole_family: true };
+    expect(importUnfinishedFromMetadata({ import_unfinished: { [RESTORE_JOB]: frozen } })[0].wholeFamily).toBe(true);
+    // An upload's mark lists its items the same way, but is no restore.
+    expect(
+      importUnfinishedFromMetadata({ import_unfinished: { [UPLOAD_KEY]: frozen } })[0].wholeFamily,
+    ).toBe(false);
   });
 });
 
