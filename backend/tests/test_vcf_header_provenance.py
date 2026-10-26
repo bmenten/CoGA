@@ -117,7 +117,8 @@ def test_snv_vep_extracts_caller_engine_and_db_versions():
     assert mods["vep"]["version"] == "110"
     assert "110_GRCh38" in mods["vep"]["detail"]  # cache path
     # Database releases embedded in the VEP header.
-    assert mods["gnomad"]["version"] == "r2.1.1"
+    # gnomADe and gnomADg are both gnomAD: both releases, joined (TRACE-8).
+    assert mods["gnomad"]["version"] == "r2.1.1, v3.1.2"
     assert mods["clinvar"]["version"] == "202301"
     assert mods["dbnsfp"]["version"] == "4.3a"
     assert mods["spliceai"]["version"] == "1.3"
@@ -411,8 +412,9 @@ def test_a_version_line_records_only_the_version_it_states(line, tool, version):
         ("##source=pbsv 2.9.0 (commit v2.9.0-2-gce1559a)", "pbsv", "2.9.0"),
         ("##source=freeBayes v1.3.6", "freebayes", "v1.3.6"),
         ('##source="hificnv v1.0.1-4de7d40"', "hificnv", "v1.0.1-4de7d40"),
-        ("##source=GLIMPSE_phase v2.0.0", "glimpsephase", "v2.0.0"),
-        ("##source=GenerateSVCandidates 1.6.0", "generatesvcandidates", "1.6.0"),
+        # A program of the tool is the tool: GLIMPSE's phase, Manta's candidate generation.
+        ("##source=GLIMPSE_phase v2.0.0", "glimpse", "v2.0.0"),
+        ("##source=GenerateSVCandidates 1.6.0", "manta", "1.6.0"),
         # LoFreq writes its command line there: an argument is no version.
         ("##source=lofreq call --min-cov 10 -q 20 -f ref.fa -o out.vcf in.bam", "lofreq", None),
     ],
@@ -477,7 +479,7 @@ def test_a_source_version_line_beside_two_source_tools_gives_neither_its_version
     )
     assert _modules(header) == {
         "strelka": {"detail": "caller"},
-        "generatesvcandidates": {"detail": "caller", "version": "1.6.0"},
+        "manta": {"detail": "caller", "version": "1.6.0"},
     }
 
 
@@ -503,4 +505,51 @@ def test_sentieon_states_its_version_in_the_version_field():
     )
     assert _modules(f"##fileformat=VCFv4.2\n{line}\n") == {
         "sentieon": {"version": "sentieon-genomics-202112.01", "detail": "caller"}
+    }
+
+
+def test_several_versions_of_one_tool_in_a_header_are_all_kept() -> None:
+    # The first was kept, where the pipeline record joins them (TRACE-8): a header that a
+    # merge or a second annotation left with two version lines of a tool names both.
+    header = (
+        "##fileformat=VCFv4.2\n"
+        "##bcftools_viewVersion=1.17+htslib-1.17\n"
+        "##bcftools_normVersion=1.21+htslib-1.21\n"
+        "##bcftools_annotateVersion=1.21+htslib-1.21\n"
+    )
+    assert _modules(header)["bcftools"]["version"] == "1.17+htslib-1.17, 1.21+htslib-1.21"
+
+
+def test_several_snpeff_version_lines_are_all_kept() -> None:
+    # ##SnpEffVersion kept the last of them.
+    header = (
+        "##fileformat=VCFv4.2\n"
+        '##SnpEffVersion="5.1d (build 2022-04-19 15:49), by Pablo Cingolani"\n'
+        '##SnpEffVersion="5.2 (build 2023-09-29 06:17), by Pablo Cingolani"\n'
+    )
+    assert _modules(header)["snpeff"]["version"] == "5.1d, 5.2"
+
+
+def test_a_version_holding_a_comma_is_listed_once() -> None:
+    # DRAGEN's structured version holds a comma: a second line with the same version adds
+    # nothing, and another version is added after it.
+    same = '##DRAGENVersion=<ID=dragen,Version="SW: 07.021.624.3.10.4, HW: 07.021.624">\n'
+    other = '##DRAGENVersion=<ID=dragen,Version="SW: 07.021.645.4.0.3, HW: 07.021.645">\n'
+    assert _modules("##fileformat=VCFv4.2\n" + same + same)["dragen"]["version"] == (
+        "SW: 07.021.624.3.10.4, HW: 07.021.624"
+    )
+    assert _modules("##fileformat=VCFv4.2\n" + same + other)["dragen"]["version"] == (
+        "SW: 07.021.624.3.10.4, HW: 07.021.624, SW: 07.021.645.4.0.3, HW: 07.021.645"
+    )
+
+
+def test_dragens_small_variant_caller_is_dragen() -> None:
+    # DRAGEN names its small-variant caller in ##source; its version is on ##DRAGENVersion.
+    header = (
+        "##fileformat=VCFv4.2\n"
+        "##source=DRAGEN_SNV\n"
+        '##DRAGENVersion=<ID=dragen,Version="SW: 07.021.624.3.10.4, HW: 07.021.624">\n'
+    )
+    assert _modules(header, modality="snv") == {
+        "dragen": {"detail": "snv caller", "version": "SW: 07.021.624.3.10.4, HW: 07.021.624"}
     }

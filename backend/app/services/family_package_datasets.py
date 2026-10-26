@@ -1914,8 +1914,14 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 }
             )
 
+    from .annotation_manifest_service import merge_vcf_header_provenance
+    from .vcf_header_provenance import extract_header_provenance, merge_module_maps
+
     records: list[Any] = []
     sample_results: dict[str, Any] = {}
+    # HiFiCNV states its version in its VCF header (``##source=HiFiCNV v1.0.1-…``): it goes
+    # into the family's annotation manifest, as the other callers' versions do (TRACE-8).
+    cnv_modules: dict[str, dict[str, Any]] = {}
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -1924,6 +1930,12 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         if vcf_path is None:
             continue
         text_value = _read_package_text(vcf_path)
+        cnv_modules = merge_module_maps(
+            cnv_modules,
+            extract_header_provenance(
+                [line for line in text_value.splitlines() if line.startswith("#")], modality="cnv"
+            ).as_modules(),
+        )
         vcf_columns = next(
             (
                 line.rstrip("\r").split("\t")[9:]
@@ -2112,6 +2124,13 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         filename=", ".join(
             str(result.get("filename")) for result in sample_results.values() if result.get("filename")
         ),
+    )
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=family_context.family_uuid,
+        assembly_id=getattr(family_context, "assembly_id", None),
+        modules=cnv_modules,
+        modality="cnv",
     )
     skipped_tracks = [
         f"{sample_id}:{track}"
