@@ -235,9 +235,10 @@ async def _forget_track_after_failed_write(
         )
         await session.commit()
     except Exception:  # the upload's own error is the one raised
+        # A fixed sentence: the track type is the request's, and a request's value is never
+        # written into a log line.
         logger.warning(
-            "Failed to remove the record of a %s track whose rows a failed upload may have deleted",
-            bed_type,
+            "Failed to remove the record of a track whose rows a failed upload may have deleted",
             exc_info=True,
         )
         with suppress(Exception):
