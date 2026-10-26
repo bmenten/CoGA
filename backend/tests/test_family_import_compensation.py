@@ -1921,6 +1921,11 @@ def _snv_store(monkeypatch, *, held=None, fail=False, refuse=False):
     async def delete(_assembly, _family, *, source):
         store.deleted.append(source)
 
+    async def no_blocks(*_args, **_kwargs):
+        # The haplotype blocks an update of imputed genotypes reads beside them: none here.
+        return 0
+
+    monkeypatch.setattr(family_package_datasets, "count_interval_track_rows", no_blocks)
     monkeypatch.setattr(family_package_datasets, "count_family_small_variants", count)
     monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", load)
     monkeypatch.setattr(family_package_datasets, "delete_family_small_variants", delete)
