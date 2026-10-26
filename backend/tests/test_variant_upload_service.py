@@ -840,6 +840,47 @@ def test_parse_vep_tsv_annotation_upload_matches_indels_by_normalized_locus() ->
         lookup.close()
 
 
+def test_vep_default_output_reads_its_extra_column_as_tab_output_reads_its_columns() -> None:
+    # VEP's default output writes these fields in its Extra column, which the parser did not
+    # read: such a file imported without them (CLIN-52). The same row in --tab form gives the
+    # same annotation.
+    fields = {
+        "IMPACT": "MODERATE",
+        "SYMBOL": "GENE1",
+        "CANONICAL": "YES",
+        "MANE_SELECT": "NM_000001.1",
+        "HGVSc": "ENST1:c.250C>T",
+        "HGVSp": "ENSP1:p.Arg84Trp",
+        "SIFT": "deleterious(0.01)",
+        "PolyPhen": "probably_damaging(0.998)",
+        "CLIN_SIG": "likely_pathogenic",
+        "gnomADe_AF": "0.0001",
+    }
+    columns = "#Uploaded_variation\tLocation\tAllele\tGene\tFeature\tFeature_type\tConsequence"
+    row = "chr1_101_A/G\tchr1:101\tG\tENSG1\tENST1\tTranscript\tmissense_variant"
+    default_output = (
+        f"{columns}\tExisting_variation\tExtra\n"
+        f"{row}\trs1\t{';'.join(f'{key}={value}' for key, value in fields.items())}\n"
+    )
+    tab_output = f"{columns}\tExisting_variation\t{chr(9).join(fields)}\n{row}\trs1\t{chr(9).join(fields.values())}\n"
+    variant_id = build_small_variant_id("1", 101, "A", "G")
+    annotations = []
+    for text in (default_output, tab_output):
+        lookup = _parse_vep_tsv_annotation_upload(_vep_upload(text))
+        try:
+            [annotation] = lookup.get(variant_id, "1", 101, "A", "G") or []
+        finally:
+            lookup.close()
+        annotations.append(annotation)
+    default_annotation, tab_annotation = annotations
+    assert default_annotation == tab_annotation
+    assert (default_annotation["gene"], default_annotation["impact"]) == ("GENE1", "MODERATE")
+    assert default_annotation.get("mane_select") is True
+    for key in ("sift", "polyphen", "clinvar", "hgvsc", "hgvsp"):
+        assert default_annotation.get(key) not in (None, ""), key
+    assert default_annotation["population_frequencies"]["gnomad_exomes_af"] == 0.0001
+
+
 def test_parse_vep_tsv_annotation_upload_only_marks_true_mane_flags() -> None:
     lookup = _parse_vep_tsv_annotation_upload(
         _vep_upload(

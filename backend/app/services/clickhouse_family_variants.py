@@ -3590,10 +3590,14 @@ async def export_family_small_variants(
         max_page_size=limit + 1,
         **filters,
     )
+    # A row is a variant, listed once: one in two compound-het pairs is in both groups, and
+    # the file says nothing of pairs, so the second row only repeated the first (CLIN-52).
     rows: list[VariantOut] = []
-    for group in page.variant_groups:
-        rows.extend(group.variants)
-    rows.extend(page.variants)
+    listed: set[str] = set()
+    for variant in [*(variant for group in page.variant_groups for variant in group.variants), *page.variants]:
+        if str(variant.id) not in listed:
+            listed.add(str(variant.id))
+            rows.append(variant)
     return VariantExport(rows=rows[:limit], truncated_reason=_export_truncation(page, rows, limit), limit=limit)
 
 
