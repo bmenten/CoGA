@@ -6,6 +6,12 @@
 // renewal, was refused (401) and its events lost. The flush timer now renews the token ahead, and
 // events whose token has expired anyway are kept under their account, never sent to be refused,
 // until that account's session can send them. Values are made up; tokens are put together here.
+//
+// Two older losses (found while fixing the keepalive flush, #1018): the events queued when
+// another request's 401 ended the session were dropped, as no token was left to send them with,
+// and a batch in flight through the API client when the page closed was in neither the queue nor
+// the page-close flush. Both are now kept, the batch until the API acknowledges it; each event
+// carries its own id, by which the API stores it once (SEC-17), so a batch sent again is harmless.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -44,16 +50,30 @@ const accessToken = (account: string, expiresAt: number): string =>
 
 const load = async () => {
   vi.resetModules();
-  const api = (await import('../api')).default as unknown as { post: ReturnType<typeof vi.fn> };
+  const client = await import('../api');
+  const api = client.default as unknown as { post: ReturnType<typeof vi.fn> };
   const telemetry = await import('../telemetry');
-  return { api, ...telemetry };
+  return { api, endExpiredSession: client.endExpiredSession, ...telemetry };
 };
 
-const sentLabels = (post: ReturnType<typeof vi.fn>, call: number) =>
-  (post.mock.calls[call][1] as { events: Array<{ label?: string }> }).events.map((e) => e.label);
+type SentEvent = { label?: string; event_id?: string };
+
+const sentEvents = (post: ReturnType<typeof vi.fn>, call: number): SentEvent[] =>
+  (post.mock.calls[call][1] as { events: SentEvent[] }).events;
+
+const sentLabels = (post: ReturnType<typeof vi.fn>, call: number) => sentEvents(post, call).map((e) => e.label);
+
+const keepaliveEvents = (fetchMock: ReturnType<typeof vi.fn>, call: number): SentEvent[] =>
+  (JSON.parse(String((fetchMock.mock.calls[call][1] as RequestInit).body)) as { events: SentEvent[] }).events;
 
 const keepaliveHeaders = (fetchMock: ReturnType<typeof vi.fn>) =>
   fetchMock.mock.calls.map(([, init]) => (init as RequestInit).headers as Record<string, string>);
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// The page another request's 401 sends to sign in (the API client's endExpiredSession): it does
+// not navigate here.
+const familyPage = () => ({ pathname: '/families/F1', search: '', hash: '', replace: vi.fn() });
 
 const setVisibility = (state: DocumentVisibilityState): void => {
   Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state });
@@ -244,5 +264,199 @@ describe('UI telemetry', () => {
     // Before, the refused batch was dropped and nothing was sent again.
     expect(postMock).toHaveBeenCalledTimes(2);
     expect(sentLabels(postMock, 1)).toEqual(['Save the review', 'Sign out']);
+  });
+
+  it('gives every event an id of its own, which it is sent with', async () => {
+    const { logUiEvent, flushUiEvents } = await load();
+    logUiEvent({ event_type: 'click', label: 'A' });
+    logUiEvent({ event_type: 'click', label: 'B' });
+    await flushUiEvents();
+
+    const ids = sentEvents(postMock, 0).map((event) => event.event_id);
+    expect(ids).toHaveLength(2);
+    ids.forEach((id) => expect(id).toMatch(UUID));
+    expect(new Set(ids).size).toBe(2);
+    // The account an event was queued under stays in the browser.
+    expect(Object.keys(sentEvents(postMock, 0)[0])).not.toContain('account');
+  });
+
+  it('gives an event a UUID also where the browser has no crypto.randomUUID (a page not served over HTTPS)', async () => {
+    vi.stubGlobal('crypto', { getRandomValues: crypto.getRandomValues.bind(crypto) });
+    const { logUiEvent, flushUiEvents } = await load();
+    logUiEvent({ event_type: 'click', label: 'A' });
+    await flushUiEvents();
+
+    // A version-4 UUID, as the API reads one.
+    expect(sentEvents(postMock, 0)[0].event_id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
+  });
+
+  describe('events queued when another request’s 401 ends the session', () => {
+    it('are kept for the account they were queued for, not dropped, and go out at its next sign-in', async () => {
+      persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      const page = await load();
+      stops.push(page.startUiTelemetry());
+      page.logUiEvent({ event_type: 'click', label: 'Open the family' });
+      page.logUiEvent({ event_type: 'click', label: 'Show the variants' });
+      // The variants request is refused (401): the API client ends the session, and the page
+      // closes on its way to sign in.
+      page.endExpiredSession(familyPage());
+      window.dispatchEvent(new Event('pagehide'));
+
+      // Before, the page-close flush found no token and emptied the queue.
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      // Another account signs in at this browser: it sends none of them.
+      const other = await load();
+      persistSession(accessToken(OTHER_ACCOUNT, Date.now() + HOUR), 'other@example.org', 'viewer', 'microsoft');
+      await other.flushUiEvents();
+      expect(postMock).not.toHaveBeenCalled();
+
+      // The account signs in again: they go out once.
+      const next = await load();
+      persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      await next.flushUiEvents();
+      await next.flushUiEvents();
+      expect(postMock).toHaveBeenCalledTimes(1);
+      expect(sentLabels(postMock, 0)).toEqual(['Open the family', 'Show the variants']);
+    });
+
+    it('are kept also when the flush timer finds the session ended before the page closes', async () => {
+      vi.useFakeTimers({ now: NOW });
+      persistSession(accessToken(ACCOUNT, NOW + HOUR), 'a.colleague@example.org', 'viewer', 'password');
+      const page = await load();
+      stops.push(page.startUiTelemetry());
+      page.logUiEvent({ event_type: 'click', label: 'Open the report' });
+      page.endExpiredSession(familyPage());
+
+      // Before, the timer's flush found no token and emptied the queue.
+      await vi.advanceTimersByTimeAsync(5000);
+      window.dispatchEvent(new Event('pagehide'));
+      expect(postMock).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      const next = await load();
+      persistSession(accessToken(ACCOUNT, NOW + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'password');
+      await next.flushUiEvents();
+      expect(sentLabels(postMock, 0)).toEqual(['Open the report']);
+    });
+
+    it('are never sent under the account that signs in next on the same page', async () => {
+      persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      const page = await load();
+      page.logUiEvent({ event_type: 'click', label: 'Open the family' });
+      page.endExpiredSession(familyPage());
+
+      persistSession(accessToken(OTHER_ACCOUNT, Date.now() + HOUR), 'other@example.org', 'viewer', 'microsoft');
+      page.logUiEvent({ event_type: 'click', label: 'Open the dashboard' });
+      await page.flushUiEvents();
+
+      // Before, the queue went out whole under the session the flush found.
+      expect(postMock).toHaveBeenCalledTimes(1);
+      expect(sentLabels(postMock, 0)).toEqual(['Open the dashboard']);
+
+      const next = await load();
+      persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      await next.flushUiEvents();
+      expect(sentLabels(postMock, 1)).toEqual(['Open the family']);
+    });
+
+    it('while a batch is in flight leave the rest to the next flush, which sends none of it under the next account', async () => {
+      persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      const page = await load();
+      for (let i = 0; i < 51; i += 1) page.logUiEvent({ event_type: 'click', label: `Event ${i}` });
+      let acknowledge: (value: unknown) => void = () => {};
+      postMock.mockReturnValueOnce(new Promise((resolve) => (acknowledge = resolve)));
+      const flushing = page.flushUiEvents();
+      // The session ends meanwhile, and another account signs in on the page.
+      page.endExpiredSession(familyPage());
+      persistSession(accessToken(OTHER_ACCOUNT, Date.now() + HOUR), 'other@example.org', 'viewer', 'microsoft');
+      acknowledge({ data: { accepted: 50 } });
+      await flushing;
+      await page.flushUiEvents();
+
+      // Before, the flush went on with the next batch, which the API client sends with the token
+      // the session holds: the other account's.
+      expect(postMock).toHaveBeenCalledTimes(1);
+      expect(sentLabels(postMock, 0)).toHaveLength(50);
+
+      const next = await load();
+      persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      await next.flushUiEvents();
+      expect(sentLabels(postMock, 1)).toEqual(['Event 50']);
+    });
+  });
+
+  describe('a batch in flight through the API client', () => {
+    it('stays queued until the API acknowledges it: a page closed mid-flight sends it again, with the same ids', async () => {
+      persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      const page = await load();
+      stops.push(page.startUiTelemetry());
+      page.logUiEvent({ event_type: 'click', label: 'Sign out the analysis' });
+      // The page closes before the API answers.
+      postMock.mockReturnValueOnce(new Promise(() => {}));
+      void page.flushUiEvents();
+      page.logUiEvent({ event_type: 'click', label: 'Close the tab' });
+      window.dispatchEvent(new Event('pagehide'));
+
+      // Before, the batch in flight was in neither the queue nor the page-close flush.
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const resent = keepaliveEvents(fetchMock, 0);
+      expect(resent.map((event) => event.label)).toEqual(['Sign out the analysis', 'Close the tab']);
+      // The API stores an event once by its id (SEC-17): one that did arrive is not stored twice.
+      expect(resent[0].event_id).toBe(sentEvents(postMock, 0)[0].event_id);
+      expect(resent[0].event_id).toMatch(UUID);
+    });
+
+    it('is kept for the account when the session ends before the API answers and the page closes', async () => {
+      persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      const page = await load();
+      stops.push(page.startUiTelemetry());
+      page.logUiEvent({ event_type: 'click', label: 'Save the review' });
+      postMock.mockReturnValueOnce(new Promise(() => {}));
+      void page.flushUiEvents();
+      // Another request is refused (401) meanwhile: the session ends, and the page closes.
+      page.endExpiredSession(familyPage());
+      window.dispatchEvent(new Event('pagehide'));
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      const next = await load();
+      persistSession(accessToken(ACCOUNT, Date.now() + 2 * HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      await next.flushUiEvents();
+      // Before, it was lost. Sent again with the id it first went with.
+      expect(postMock).toHaveBeenCalledTimes(2);
+      expect(sentLabels(postMock, 1)).toEqual(['Save the review']);
+      expect(sentEvents(postMock, 1)[0].event_id).toBe(sentEvents(postMock, 0)[0].event_id);
+    });
+
+    it('sent again as the page is only hidden, is not sent a third time once the API acknowledges it', async () => {
+      persistSession(accessToken(ACCOUNT, Date.now() + HOUR), 'a.colleague@example.org', 'viewer', 'microsoft');
+      const page = await load();
+      stops.push(page.startUiTelemetry());
+      page.logUiEvent({ event_type: 'click', label: 'Compare the samples' });
+      let acknowledge: (value: unknown) => void = () => {};
+      postMock.mockReturnValueOnce(new Promise((resolve) => (acknowledge = resolve)));
+      const flushing = page.flushUiEvents();
+      setVisibility('hidden');
+      acknowledge({ data: { accepted: 1 } });
+      await flushing;
+      await page.flushUiEvents();
+      window.dispatchEvent(new Event('pagehide'));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(keepaliveEvents(fetchMock, 0)[0].event_id).toBe(sentEvents(postMock, 0)[0].event_id);
+      expect(postMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('once acknowledged, is not sent again', async () => {
+      const { logUiEvent, flushUiEvents, flushUiEventsNow } = await load();
+      logUiEvent({ event_type: 'click', label: 'Open family' });
+      await flushUiEvents();
+      flushUiEventsNow();
+
+      expect(postMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
   });
 });

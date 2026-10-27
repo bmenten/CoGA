@@ -11,6 +11,7 @@ from httpx import ASGITransport, AsyncClient
 from pydantic import ValidationError
 
 from app.core.config import settings
+from app.core.sql import canonical_uuid
 from app.dependencies import get_current_user
 from app.routers.ui_events import (
     CLIENT_OCCURRED_AT_KEY,
@@ -417,3 +418,76 @@ async def test_the_workers_batch_keeps_every_users_events(monkeypatch) -> None:
         ]
     ]
     assert dropped_event_count("ui_event") == 0
+
+
+# The browser gives each UI event an id of its own (frontend lib/telemetry.ts), and the endpoint
+# stores the event under it: the INSERT does nothing for an id the table holds (SEC-17), so a
+# batch the browser sends again, one in flight as its page closed, stores each event once.
+# Before, the endpoint gave every event it received a new id, so such a batch was stored twice.
+_BROWSER_EVENT_ID = "6f1c2d3e-0000-4000-8000-00000000e0a1"
+
+
+@pytest.mark.parametrize(
+    "spelled",
+    [
+        _BROWSER_EVENT_ID,
+        _BROWSER_EVENT_ID.upper(),
+        "{" + _BROWSER_EVENT_ID + "}",
+        "urn:uuid:" + _BROWSER_EVENT_ID,
+    ],
+)
+def test_an_event_is_stored_under_the_id_the_browser_gave_it(spelled) -> None:
+    payload = _payload_from_event(
+        UiEventIn.model_validate({"event_type": "click", "event_id": spelled}),
+        user=_VIEWER,
+        remote_ip=None,
+        user_agent=None,
+    )
+    assert payload is not None
+    assert payload.event_id == _BROWSER_EVENT_ID
+
+
+@pytest.mark.parametrize(
+    "sent", [None, "", "not-a-uuid", "6f1c2d3e_0000-4000-8000-00000000e0a1"]
+)
+def test_an_event_without_a_uuid_of_the_browsers_gets_one_of_the_servers(sent) -> None:
+    # As every event did before; a value that is no UUID is not kept (core/sql.py's spelling).
+    body = {"event_type": "click"} if sent is None else {"event_type": "click", "event_id": sent}
+    first, second = (
+        _payload_from_event(
+            UiEventIn.model_validate(body), user=_VIEWER, remote_ip=None, user_agent=None
+        )
+        for _ in range(2)
+    )
+    assert first is not None and second is not None
+    assert canonical_uuid(first.event_id) == first.event_id
+    assert first.event_id != second.event_id
+
+
+@pytest.mark.parametrize("mode", ["sync", "async"])
+def test_a_batch_the_browser_sends_again_is_written_under_the_same_ids(mode, monkeypatch) -> None:
+    written: list[UiEventPayload] = []
+
+    async def _write(payloads):
+        written.extend(payloads)
+
+    monkeypatch.setattr(settings, "audit_log_mode", mode)
+    monkeypatch.setattr(ui_event_pg, "_ui_event_queue", None)
+    monkeypatch.setattr(ui_event_pg, "_write_ui_event_batch", _write)
+    batch = {
+        "events": [
+            {"event_type": "click", "label": "Sign out", "event_id": _BROWSER_EVENT_ID},
+            {"event_type": "navigation", "label": "Without an id"},
+        ]
+    }
+    client = _ui_event_client()
+    for _ in range(2):
+        response = client.post("/api/ui-events", json=batch)
+        assert response.status_code == 202
+        assert response.json() == {"accepted": 2}
+
+    sign_out, without_id, sign_out_again, without_id_again = (p.event_id for p in written)
+    # The browser's id both times: the second write stores nothing. An event sent without one
+    # gets a new id at each send.
+    assert sign_out == sign_out_again == _BROWSER_EVENT_ID
+    assert without_id != without_id_again
