@@ -34,7 +34,7 @@ from __future__ import annotations
 import bisect
 import re
 from array import array
-from typing import Any
+from typing import Any, Iterable
 
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
@@ -415,6 +415,26 @@ def _couple_children(context: FamilyMetadataContext) -> set[str]:
     return set(core.children) if core.father and core.mother else set()
 
 
+def haplotype_block_basis(context: FamilyMetadataContext, samples: Iterable[str]) -> dict[str, Any]:
+    """What blocks built from the phased genotypes of ``samples`` rest on besides those
+    genotypes: the index couple, which of the samples are the couple's children, and each
+    sample's recorded sex (CLIN-66). The blocks are built when the genotypes are imported, and
+    the loader keeps this beside them (``pedigree_basis``). A later edit of the pedigree or of
+    a sex changes it, and the blocks no longer match the pedigree until the genotypes are
+    imported again (``pgt_analysis.blocks_outdated``). The affected statuses are not in it:
+    the embryo calls read them when they are made, and they only orient the parents' labels."""
+    names = sorted({str(name) for name in samples})
+    father, mother = _parent_sample_names(context)
+    children = _couple_children(context)
+    sexes = {str(row.get("sample_id")): normalize_sex(row.get("sex")) for row in context.sample_rows}
+    return {
+        "father": father,
+        "mother": mother,
+        "children": [name for name in names if name in children],
+        "sexes": {name: sexes.get(name, "unknown") for name in names},
+    }
+
+
 def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:
     """Resolve the *index couple* — the father/mother who co-parent the index
     children — so the marker overlay and the upload block builder agree with the
@@ -562,6 +582,7 @@ class HaplotypeBlockBuilder:
         chromosome_sizes: dict[str, int],
         metadata_json: str,
     ) -> None:
+        self.context = context
         self.sample_contexts = sample_contexts
         self.chromosome_sizes = chromosome_sizes
         self.metadata_json = metadata_json
@@ -636,6 +657,11 @@ class HaplotypeBlockBuilder:
         if one_copy and name in self.males:
             return _one_copy_alleles(gt_value)
         return _phased_haplotype_alleles(gt_value)
+
+    def basis(self) -> dict[str, Any]:
+        """What these blocks rest on besides the genotypes of the samples added
+        (``haplotype_block_basis``), which the loader keeps beside them (CLIN-66)."""
+        return haplotype_block_basis(self.context, self.states)
 
     def add_sample(self, name: str) -> None:
         self.states[name] = _empty_haplotype_state()

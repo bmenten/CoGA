@@ -739,9 +739,11 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
                 ({roi.chrom ?? '?'}:{roi.start?.toLocaleString() ?? '?'}–{roi.end?.toLocaleString() ?? '?'}), as the
                 family page showed it when version {version} was signed. Inheritance model:{' '}
                 {describePgtInheritance(analysis)}.{' '}
-                {disease
-                  ? `Disease haplotype at the ROI: ${disease}.`
-                  : 'No disease haplotype could be resolved at the ROI, so no embryo could be called.'}
+                {analysis.blocksOutdated
+                  ? 'The haplotype blocks were built for another pedigree or other sexes than the family’s, so no embryo was called from them.'
+                  : disease
+                    ? `Disease haplotype at the ROI: ${disease}.`
+                    : 'No disease haplotype could be resolved at the ROI, so no embryo could be called.'}
               </p>
             ) : (
               <p className="report-paragraph">
@@ -784,7 +786,7 @@ const PgtAnalysisSection: React.FC<{ record: SignedReport; version: number }> = 
                         : ''}
                       {embryo.qc
                         ? ` QC at the ROI: ${describeEmbryoQc(embryo.qc)}.`
-                        : embryo.call
+                        : embryo.call && !analysis.blocksOutdated
                           ? ` QC at the ROI: not counted (${
                               analysis.markersTruncated
                                 ? 'the ROI holds more sites than the marker review reads'

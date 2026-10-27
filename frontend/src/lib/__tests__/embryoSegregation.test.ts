@@ -8,6 +8,7 @@ import {
   qcVerdictWarning,
   segregationStateLabel,
   sexUnknownWarning,
+  BLOCKS_OUTDATED_WARNING,
 } from '../embryoSegregation';
 
 // The backend makes the embryo calls (backend/app/services/pgt_embryo_calls.py; its rules are
@@ -44,7 +45,7 @@ const analysis = (embryos: PgtEmbryoOut[], overrides: Partial<PgtAnalysisOut> = 
   disease_haplotypes: [{ origin: 'paternal', homolog: '1', kind: 'dominant' }],
   phase_corrections: [],
   embryos,
-  inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false },
+  inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false, blocks_outdated: false },
   rules: {
     window_flank: 1_000_000,
     recombination_flank: 250_000,
@@ -83,6 +84,7 @@ describe('embryoClassificationsFromAnalysis', () => {
       phaseCorrectionsNearRoi: [correction],
       qcVerdict: null,
       qcNotCountedReason: 'the embryo is not recorded as a child of the couple',
+      blocksOutdated: false,
     });
     expect(out.get('E_GAP')).toMatchObject({ state: 'uninformative', uninformative: true, roiNotCovered: true });
     expect(out.get('E_SEX')?.sexDependent).toEqual({ ifMale: 'affected_or_at_risk', ifFemale: 'carrier' });
@@ -95,6 +97,23 @@ describe('embryoClassificationsFromAnalysis', () => {
       analysis([embryo({ call: 'uninformative' })], { disease_haplotype_resolved: false, disease_haplotypes: [] }),
     );
     expect(out.get('E1')).toMatchObject({ uninformative: true, roiNotCovered: false });
+  });
+
+  it('reads every embryo as uninformative for outdated blocks, with the reason to give (CLIN-66)', () => {
+    const out = embryoClassificationsFromAnalysis(
+      analysis([embryo({ call: 'uninformative' }), embryo({ sample: 'E2', call: 'uninformative' })], {
+        inputs: { haplotype_sources: [], blocks_read: 4, blocks_digest: 'abc', markers_truncated: false, blocks_outdated: true },
+      }),
+    );
+    expect([...out.values()].map((call) => [call.sampleId, call.uninformative, call.blocksOutdated])).toEqual([
+      ['E1', true, true],
+      ['E2', true, true],
+    ]);
+    expect(BLOCKS_OUTDATED_WARNING).toBe(
+      "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.",
+    );
+    // Current blocks: no such reason.
+    expect(embryoClassificationsFromAnalysis(analysis([embryo({ call: 'carrier' })])).get('E1')?.blocksOutdated).toBe(false);
   });
 
   it('gives no badge to an embryo the analysis did not call', () => {
@@ -110,7 +129,7 @@ describe('embryoClassificationsFromAnalysis', () => {
     };
     const out = embryoClassificationsFromAnalysis(
       analysis([embryo({ sample: 'E_LOW', call: 'affected_or_at_risk', qc_verdict: warning })], {
-        inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: true },
+        inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: true, blocks_outdated: false },
       }),
     );
     // The call itself is as served: the verdict sits beside it.

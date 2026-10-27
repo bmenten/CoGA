@@ -1218,6 +1218,24 @@ describe('the PGT embryo results', () => {
     expect(describeReportSections(['pgt_analysis'])).toBe('PGT embryo results');
   });
 
+  it('says the embryos were not called from blocks built for another pedigree (CLIN-66)', () => {
+    const outdated = recorded(
+      pgtRecord({
+        ...SIGNED_PGT_ANALYSIS,
+        disease_haplotype_resolved: false,
+        disease_haplotypes: [],
+        inputs: { ...SIGNED_PGT_ANALYSIS.inputs, blocks_outdated: true },
+      }),
+    );
+    const [, e2] = outdated.embryos;
+    expect(outdated.blocksOutdated).toBe(true);
+    expect(describeNoCall(e2, outdated)).toBe(
+      "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.",
+    );
+    // A record signed before the check holds none: read as current blocks.
+    expect(recorded(pgtRecord(SIGNED_PGT_ANALYSIS)).blocksOutdated).toBe(false);
+  });
+
   it('says why an embryo is not called: no disease haplotype, or its unrecorded sex', () => {
     const unresolved = recorded(
       pgtRecord({ ...SIGNED_PGT_ANALYSIS, disease_haplotype_resolved: false, disease_haplotypes: [] }),

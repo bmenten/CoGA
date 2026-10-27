@@ -1907,6 +1907,35 @@ describe('FamilyReportPage', () => {
       print.mockRestore();
     });
 
+    // CLIN-66: blocks built for another pedigree or other sexes call no embryo, and the record says why.
+    it('says the embryos were not called from blocks built for another pedigree', async () => {
+      const outdated = {
+        ...SIGNED_PGT_ANALYSIS,
+        disease_haplotype_resolved: false,
+        disease_haplotypes: [],
+        phase_corrections: [],
+        embryos: SIGNED_PGT_ANALYSIS.embryos
+          .filter((embryo) => typeof embryo === 'object' && embryo !== null && 'call' in embryo)
+          .map((embryo) => ({ sample: (embryo as { sample: string }).sample, sex: null, call: 'uninformative' })),
+        inputs: { ...SIGNED_PGT_ANALYSIS.inputs, blocks_outdated: true },
+      };
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: PGT_SAMPLE_QC, pgt_analysis: outdated },
+      });
+      renderPage();
+
+      const pgt = await pgtSection();
+      expect(pgt).toHaveTextContent(
+        'The haplotype blocks were built for another pedigree or other sexes than the family’s, so no embryo was called from them.',
+      );
+      expect(pgt).toHaveTextContent(
+        "E1: Uninformative. The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.",
+      );
+      // No QC was counted for an embryo not called, and the record does not give another reason.
+      expect(pgt).not.toHaveTextContent('QC at the ROI: not counted');
+      expect(pgt).not.toHaveTextContent('No disease haplotype could be resolved');
+    });
+
     // The owner's decision of 2026-10-20: an embryo call whose phasing QC at the ROI does not meet
     // its thresholds carries a warning; the record freezes the verdict and the thresholds in force.
     it("shows each embryo's QC verdict and the thresholds the record froze, and prints them", async () => {

@@ -2256,6 +2256,7 @@ export interface PgtInputsOut {
   haplotype_sources: PgtHaplotypeSourceOut[];
   blocks_read: number;
   blocks_digest: string | null;
+  blocks_outdated: boolean;
   markers_truncated: boolean;
 }
 

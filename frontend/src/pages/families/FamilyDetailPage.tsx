@@ -5,7 +5,12 @@ import api from '../../lib/api';
 import MonarchPhenotypeMatchPanel from './MonarchPhenotypeMatchPanel';
 import { describePhaseCorrection, phaseCorrectionsFromMetadata } from '../../lib/haplotypePhaseCorrections';
 import { useEmbryoSegregation } from '../../lib/useEmbryoSegregation';
-import { qcVerdictWarning, segregationStateLabel, sexUnknownWarning } from '../../lib/embryoSegregation';
+import {
+  BLOCKS_OUTDATED_WARNING,
+  qcVerdictWarning,
+  segregationStateLabel,
+  sexUnknownWarning,
+} from '../../lib/embryoSegregation';
 import InfoTip from '../../components/InfoTip';
 import FamilyMemberDetailDialog from './FamilyMemberDetailDialog';
 import type {
@@ -420,6 +425,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const {
     byEmbryo: embryoSegregation,
     isError: segregationFailed,
+    blocksOutdated: haplotypeBlocksOutdated,
     retry: retrySegregation,
   } = useEmbryoSegregation({
     familyId: data?.family_id ?? '',
@@ -1460,6 +1466,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             consequence="The embryos' segregation, and any recombination or uninformative warning, are not shown."
           />
         ) : null}
+        {/* The blocks no longer match the pedigree (CLIN-66): the calls are uninformative. */}
+        {haplotypeBlocksOutdated ? (
+          <p className="status-note status-note--warning" role="note">
+            ⚠ {BLOCKS_OUTDATED_WARNING}
+          </p>
+        ) : null}
         <div className={`data-table-shell overflow-x-auto${canEditFamilyDetails ? '' : ' data-table-shell--fit'}`}>
           <table
             className={`analysis-table family-members-table${canEditFamilyDetails ? ' family-members-table--editing' : ''}`}
@@ -1801,9 +1813,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                               <InfoTip
                                 className="segregation-warning"
                                 label={
-                                  embryoClass.roiNotCovered
-                                    ? "This embryo's haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made."
-                                    : 'No disease haplotype could be resolved at the ROI (uninformative markers).'
+                                  embryoClass.blocksOutdated
+                                    ? BLOCKS_OUTDATED_WARNING
+                                    : embryoClass.roiNotCovered
+                                      ? "This embryo's haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made."
+                                      : 'No disease haplotype could be resolved at the ROI (uninformative markers).'
                                 }
                               >
                                 ⚠ uninformative

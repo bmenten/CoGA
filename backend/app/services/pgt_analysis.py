@@ -43,6 +43,7 @@ from ..schemas import (
     PgtWindowOut,
 )
 from .bed_service import get_family_haplotypes_response
+from .haplotype_block_builder import haplotype_block_basis
 from .family_metadata_context import FamilyMetadataContext
 from .pgt_embryo_calls import (
     PHASE_SWITCH_UNCERTAINTY,
@@ -70,6 +71,10 @@ RULES = PgtRulesOut(
 # thresholds in ``rules``. A record signed before holds neither (``comparable_with_record``).
 QC_VERDICT_NOT_COMPARED = "pgt_analysis.qc_verdict"
 
+# What the outdated-blocks check added on 2026-10-27: ``inputs.blocks_outdated``. A record signed
+# before holds none (``comparable_with_record``).
+BLOCKS_OUTDATED_NOT_COMPARED = "pgt_analysis.inputs.blocks_outdated"
+
 # A block as the calls read it: what the digest of the blocks read covers.
 _BLOCK_FIELDS = ("chr", "start", "end", "hap1", "hap2", "ps", "hap1_lineage", "hap2_lineage", "hemizygous_in_males")
 
@@ -84,7 +89,8 @@ _FAMILY_SQL = text(
 
 _HAPLOTYPE_SOURCES_SQL = text(
     """
-    SELECT s.sample_id AS sample, src.source, src.filename, src.row_count, src.uploaded_at
+    SELECT s.sample_id AS sample, src.source, src.filename, src.row_count, src.uploaded_at,
+           src.metadata ->> 'pedigree_basis' AS pedigree_basis
     FROM sample_interval_track_sources src
     JOIN samples s ON s.id = src.sample_id
     WHERE src.family_id = CAST(:family_uuid AS uuid)
@@ -148,12 +154,34 @@ def _member(row: Mapping[str, Any]) -> PgtMemberOut:
     )
 
 
-async def _haplotype_sources(
-    session: AsyncSession, context: FamilyMetadataContext
-) -> list[PgtHaplotypeSourceOut]:
-    """The files each member's stored haplotype blocks were built from."""
+async def _haplotype_source_rows(session: AsyncSession, context: FamilyMetadataContext) -> list[dict[str, Any]]:
+    """What Postgres records of each member's stored haplotype blocks."""
     rows = (await session.execute(_HAPLOTYPE_SOURCES_SQL, {"family_uuid": context.family_uuid})).mappings().all()
     members = set(context.sample_name_to_uuid)
+    return [dict(row) for row in rows if str(row["sample"]) in members]
+
+
+def blocks_outdated(context: FamilyMetadataContext, rows: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether a member's stored haplotype blocks rest on another pedigree than the family's
+    (CLIN-66): the loader kept, beside each member's blocks, the couple, the couple's children
+    and the sexes they were built for (``haplotype_block_basis``), and the pedigree or a sex has
+    changed since. Blocks without that record, loaded before it was kept, count as outdated.
+    The blocks are then read for the inputs' digest, but no embryo is called from them until
+    the phased genotypes are imported again."""
+    for row in rows:
+        try:
+            basis = json.loads(row.get("pedigree_basis") or "null")
+        except (TypeError, ValueError):
+            return True
+        if not isinstance(basis, dict) or not isinstance(basis.get("sexes"), dict):
+            return True
+        if haplotype_block_basis(context, basis["sexes"]) != basis:
+            return True
+    return False
+
+
+def _haplotype_sources(context: FamilyMetadataContext, rows: Sequence[Mapping[str, Any]]) -> list[PgtHaplotypeSourceOut]:
+    """The files each member's stored haplotype blocks were built from."""
     sources = [
         PgtHaplotypeSourceOut(
             sample=str(row["sample"]),
@@ -167,7 +195,6 @@ async def _haplotype_sources(
             ),
         )
         for row in rows
-        if str(row["sample"]) in members
     ]
     return sorted(sources, key=lambda source: (source.sample, source.source, source.filename))
 
@@ -272,6 +299,7 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
     applied = resolve_inheritance_model(recorded, rows)
     roi = _region_of_interest(family)
     embryo_rows = sorted((row for row in rows if is_embryo(row)), key=lambda row: str(row.get("sample_id")))
+    source_rows = await _haplotype_source_rows(session, context)
     analysis = PgtAnalysisOut(
         region_of_interest=roi,
         inheritance_model=PgtInheritanceModelOut(
@@ -279,7 +307,10 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
         ),
         members=sorted((_member(row) for row in rows), key=lambda member: member.sample),
         embryos=[_not_assessed(row) for row in embryo_rows],
-        inputs=PgtInputsOut(haplotype_sources=await _haplotype_sources(session, context)),
+        inputs=PgtInputsOut(
+            haplotype_sources=_haplotype_sources(context, source_rows),
+            blocks_outdated=blocks_outdated(context, source_rows),
+        ),
         rules=RULES,
     )
     if roi is None:
@@ -294,6 +325,14 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
     analysis.inputs.blocks_digest = _blocks_digest(samples)
     if not samples:
         # No haplotypes to read (no assembly, or no member): no embryo is called.
+        return analysis
+    if analysis.inputs.blocks_outdated:
+        # Built for another pedigree or other sexes (CLIN-66): every embryo is uninformative
+        # until the phased genotypes are imported again, which the page and the record say.
+        analysis.embryos = [
+            PgtEmbryoOut(sample=str(row.get("sample_id")), sex=_text(row.get("sex")), call="uninformative")
+            for row in embryo_rows
+        ]
         return analysis
     region = Region(roi.chrom, roi.start, roi.end)
     model, calls = call_embryos(members=rows, samples=samples, inheritance_model=recorded, region=region)
@@ -321,27 +360,47 @@ def comparable_with_record(signed: Any, current: Any) -> tuple[Any, list[str]]:
     the record predates.
 
     A record signed before CoGA checked each embryo's phasing QC against thresholds holds no
-    ``qc_verdict`` and no ``rules.qc_thresholds``. Like a section a record predates, these are
+    ``qc_verdict`` and no ``rules.qc_thresholds``, and one signed before the outdated-blocks
+    check no ``inputs.blocks_outdated`` (``BLOCKS_OUTDATED_NOT_COMPARED``). Like a section a record predates, these are
     left out of the comparison and named as not compared (``QC_VERDICT_NOT_COMPARED``), rather
     than every such record reading as changed; the rest of the analysis is compared on what the
     record holds. A record that holds them is compared whole, so a verdict or a threshold that
     changed since it was signed reads as a change.
     """
-    signed_rules = signed.get("rules") if isinstance(signed, Mapping) else None
-    if not isinstance(signed_rules, Mapping) or "qc_thresholds" in signed_rules or not isinstance(current, Mapping):
+    if not isinstance(signed, Mapping) or not isinstance(current, Mapping):
         return current, []
     comparable = dict(current)
-    predated = False
-    rules = comparable.get("rules")
-    if isinstance(rules, Mapping) and "qc_thresholds" in rules:
-        comparable["rules"] = {key: value for key, value in rules.items() if key != "qc_thresholds"}
-        predated = True
-    embryos = comparable.get("embryos")
-    if isinstance(embryos, list):
-        held = [
-            {key: value for key, value in embryo.items() if key != "qc_verdict"} if isinstance(embryo, Mapping) else embryo
-            for embryo in embryos
-        ]
-        predated = predated or held != embryos
-        comparable["embryos"] = held
-    return comparable, [QC_VERDICT_NOT_COMPARED] if predated else []
+    not_compared: list[str] = []
+    signed_rules = signed.get("rules")
+    if isinstance(signed_rules, Mapping) and "qc_thresholds" not in signed_rules:
+        predated = False
+        rules = comparable.get("rules")
+        if isinstance(rules, Mapping) and "qc_thresholds" in rules:
+            comparable["rules"] = {key: value for key, value in rules.items() if key != "qc_thresholds"}
+            predated = True
+        embryos = comparable.get("embryos")
+        if isinstance(embryos, list):
+            held = [
+                {key: value for key, value in embryo.items() if key != "qc_verdict"}
+                if isinstance(embryo, Mapping)
+                else embryo
+                for embryo in embryos
+            ]
+            predated = predated or held != embryos
+            comparable["embryos"] = held
+        if predated:
+            not_compared.append(QC_VERDICT_NOT_COMPARED)
+    # A record signed before the outdated-blocks check (CLIN-66) holds no blocks_outdated: the
+    # flag is left out of the comparison and named as not compared. Blocks outdated now leave
+    # every embryo uninformative, which the embryos' comparison sees.
+    signed_inputs = signed.get("inputs")
+    inputs = comparable.get("inputs")
+    if (
+        isinstance(signed_inputs, Mapping)
+        and "blocks_outdated" not in signed_inputs
+        and isinstance(inputs, Mapping)
+        and "blocks_outdated" in inputs
+    ):
+        comparable["inputs"] = {key: value for key, value in inputs.items() if key != "blocks_outdated"}
+        not_compared.append(BLOCKS_OUTDATED_NOT_COMPARED)
+    return comparable, not_compared

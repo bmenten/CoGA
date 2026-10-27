@@ -164,6 +164,9 @@ def _patch_reads(monkeypatch, *, haplotypes: HaplotypeResponse | None = None, ma
 
     monkeypatch.setattr(pgt_analysis, "get_family_haplotypes_response", _haplotype_read)
     monkeypatch.setattr(pgt_analysis, "get_family_phased_markers_response", _marker_read)
+    # The blocks were built for the family's pedigree as it is: test_outdated_haplotype_blocks.py
+    # covers blocks built for another (CLIN-66).
+    monkeypatch.setattr(pgt_analysis, "blocks_outdated", lambda context, rows: False)
     return asked
 
 
@@ -499,6 +502,7 @@ def test_at_an_x_linked_roi_a_man_one_x_raises_no_qc_warning(monkeypatch, writte
     monkeypatch.setattr(pgt_analysis, "get_family_haplotypes_response", _haplotype_read)
     monkeypatch.setattr(phased_marker_service, "fetch_imputed_phased_genotypes", _fetch)
     monkeypatch.setattr(phased_marker_service, "_parent_block_shade_maps", _shade_maps)
+    monkeypatch.setattr(pgt_analysis, "blocks_outdated", lambda context, rows: False)
     out = asyncio.run(pgt_analysis.family_pgt_analysis(_session(X_ROI, {"inheritance_model": "XLR"}), _x_context()))
 
     daughter, son = out.embryos

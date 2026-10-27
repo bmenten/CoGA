@@ -303,7 +303,9 @@ in the EPD refers to the signed version by its report code (*The report code* be
     its value and the threshold; or `not_counted` when no QC was counted, which is no pass), with
     the parental sides whose markers were checked, the sides the call reads. Its inputs: the
     haplotype file each member's blocks were built from and when it was loaded, the number of
-    blocks read and a SHA-256 digest of them as read (lineage tags included), the distances the
+    blocks read and a SHA-256 digest of them as read (lineage tags included), whether the blocks
+    were built for another pedigree or other sexes than the family's (`blocks_outdated`, CLIN-66:
+    every embryo is then uninformative, and the signed version says why), the distances the
     calls and warnings use, and the QC thresholds in force (`rules.qc_thresholds`). A family
     without an embryo has no such key, so its record is as it was;
   - `nipt`, a monogenic NIPT family's only (`services/signed_record_nipt.py`; REQ-NIPT-001,

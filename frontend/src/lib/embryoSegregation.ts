@@ -49,7 +49,15 @@ export interface EmbryoClassification {
   qcVerdict: PgtEmbryoQcVerdictOut | null;
   /** Why no QC was counted at the ROI, for a verdict of `not_counted`. */
   qcNotCountedReason: string;
+  /** The haplotype blocks were built for another pedigree or other sexes (CLIN-66): every
+   * embryo is uninformative until the phased genotypes are imported again. */
+  blocksOutdated: boolean;
 }
+
+/** Why the embryos are uninformative while their haplotype blocks are outdated (CLIN-66), in
+ * the words the family page and the signed record share. */
+export const BLOCKS_OUTDATED_WARNING =
+  "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.";
 
 /** Why an embryo's phasing QC at the ROI was not counted, in the words the record uses too. */
 export const qcNotCountedReason = (markersTruncated: boolean): string =>
@@ -81,6 +89,7 @@ export const embryoClassificationsFromAnalysis = (analysis: PgtAnalysisOut): Map
                 phaseCorrectionsNearRoi: analysis.phase_corrections,
                 qcVerdict: embryo.qc_verdict ?? null,
                 qcNotCountedReason: qcNotCountedReason(analysis.inputs.markers_truncated),
+                blocksOutdated: analysis.inputs.blocks_outdated ?? false,
               },
             ],
           ],
