@@ -230,7 +230,7 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             monkeypatch.setattr(admin_service, "purge_family_managed_files", fails)
             with pytest.raises(RuntimeError, match="purge failed"):
                 async with sm() as s:
-                    await delete_family_with_data(s, label, True, user=user)
+                    await delete_family_with_data(s, label, True, user=user, reason="integration test")
             monkeypatch.undo()
             async with sm() as s:
                 still_there = (
@@ -242,7 +242,7 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             # The family deleted: its deletion is the last event of its chain, and both chains
             # stay, unlinked from it and still verifiable.
             async with sm() as s:
-                await delete_family_with_data(s, label, True, user=user)
+                await delete_family_with_data(s, label, True, user=user, reason="integration test")
             async with sm() as s:
                 kept = await _versions(s, label)
                 events_kept = await _pedigree_events(s, label)
@@ -267,11 +267,12 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             assert (deletion["actor"], deletion["family_id"], deletion["after"]) == (user.username, None, None)
             assert deletion["summary"] == (
                 f"Family deleted with its data: 2 samples ({mother}, {child}2), 0 small variants, "
-                "0 structural variants, 0 variant reviews"
+                "0 structural variants, 0 variant reviews. Reason: integration test"
             )
             assert deletion["before"]["samples"] == [mother, f"{child}2"]
             assert deletion["before"]["structure_version"] == 4
-            assert deletion["metadata"] == {"source": "admin_delete"}
+            # The administrator's reason, required since TRACE-16.
+            assert deletion["metadata"] == {"source": "admin_delete", "reason": "integration test"}
             assert (endpoint.verified, endpoint.rows_checked, endpoint.family_id) == (True, 4, label), endpoint
             assert audit_after.verified and audit_after.rows_checked == 5, audit_after
 

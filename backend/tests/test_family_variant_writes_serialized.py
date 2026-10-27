@@ -728,7 +728,7 @@ async def test_the_sv_upload_holds_the_lock_from_its_read_until_its_commit(sv_st
             [SMALL_VARIANTS],
         ),
         (lambda session: admin_service.delete_sample_with_data(session, "FATHER", True), list(VARIANT_TYPES)),
-        (lambda session: admin_service.delete_family_with_data(session, "FAM", True), list(VARIANT_TYPES)),
+        (lambda session: admin_service.delete_family_with_data(session, "FAM", True, reason="duplicate"), list(VARIANT_TYPES)),
         # A sample's track and its repeat calls, which a package import's restore rewrites too:
         # both locks, as their single-file uploads hold (SAFE-18; before: none).
         (

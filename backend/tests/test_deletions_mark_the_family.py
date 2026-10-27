@@ -647,7 +647,7 @@ async def test_a_family_deletion_that_fails_after_its_first_delete_leaves_the_fa
     monkeypatch.setattr(admin_service, "delete_family_structural_variants", fails)
 
     with pytest.raises(RuntimeError, match="ClickHouse failed the delete"):
-        await _ends_request(database, admin_service.delete_family_with_data(database, "F1", True))  # type: ignore[arg-type]
+        await _ends_request(database, admin_service.delete_family_with_data(database, "F1", True, reason="duplicate"))  # type: ignore[arg-type]
 
     # The rollback brings the family back, without its small variants, and marked for what
     # the deletes that began may have left missing: its small variants and its SVs, not its
@@ -664,7 +664,7 @@ async def test_a_family_deletion_whose_commit_fails_leaves_the_family_marked_for
     database.failing_commits = 1
 
     with pytest.raises(ConnectionError, match="the commit failed"):
-        await _ends_request(database, admin_service.delete_family_with_data(database, "F1", True))  # type: ignore[arg-type]
+        await _ends_request(database, admin_service.delete_family_with_data(database, "F1", True, reason="duplicate"))  # type: ignore[arg-type]
 
     assert database.committed["exists"] is True and clickhouse.tracks == {}
     assert _items(_deletion_mark(database)[1]) == _SMALL | _SV | _TRACKS
@@ -675,7 +675,7 @@ async def test_a_family_deletion_that_completes_goes_with_its_mark(stores) -> No
     database = _Postgres([])
     stores(database)
 
-    await _ends_request(database, admin_service.delete_family_with_data(database, "F1", True))  # type: ignore[arg-type]
+    await _ends_request(database, admin_service.delete_family_with_data(database, "F1", True, reason="duplicate"))  # type: ignore[arg-type]
 
     assert database.committed["exists"] is False and database.commits == 1
 

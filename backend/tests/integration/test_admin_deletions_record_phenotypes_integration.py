@@ -89,6 +89,8 @@ async def _events(session, label: str) -> list[dict]:
 
 
 def test_an_administrators_deletions_record_the_phenotypes_they_remove() -> None:
+    from fastapi import HTTPException
+
     from backend.app.core.postgres import close_postgres_engine, get_postgres_sessionmaker, init_postgres_schema
     from backend.app.services import admin_service
     from backend.app.services.access_control import CurrentUser
@@ -131,9 +133,21 @@ def test_an_administrators_deletions_record_the_phenotypes_they_remove() -> None
             ("HP:0001263", "absent")
         ]
 
+        # A family deletion without a reason is refused before anything happens: it is on the
+        # family's last event (TRACE-16, the owner's decision of 2026-10-27).
+        for missing in (None, "", "   "):
+            async with sessionmaker() as session:
+                with pytest.raises(HTTPException) as refused:
+                    await admin_service.delete_family_with_data(session, label, True, user=admin, reason=missing)
+            assert (refused.value.status_code, refused.value.detail) == (400, "A reason is required to delete a family.")
+        async with sessionmaker() as session:
+            assert [event["action"] for event in await _events(session, label)] == ["phenotype", "pedigree"]
+
         # The family, with its data: the proband's phenotype, then the family's deletion.
         async with sessionmaker() as session:
-            await admin_service.delete_family_with_data(session, label, True, user=admin)
+            await admin_service.delete_family_with_data(
+                session, label, True, user=admin, reason=" Duplicate of another family "
+            )
         async with sessionmaker() as session:
             events = await _events(session, label)
             chain = await verify_clinical_audit_chain(session, label)
@@ -151,6 +165,9 @@ def test_an_administrators_deletions_record_the_phenotypes_they_remove() -> None
             ("HP:0001250", "present")
         ]
         assert removed["after"] is None
+        deleted = events[3]
+        assert deleted["metadata"]["reason"] == "Duplicate of another family"
+        assert deleted["summary"].endswith(". Reason: Duplicate of another family")
         assert chain.verified, chain
         await close_postgres_engine()
 

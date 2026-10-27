@@ -451,7 +451,7 @@ async def _collect(run: str) -> dict[str, Any]:
                 r[key]["deleted"] = await _ask(ac, method, template, _spellings(ids[record])[spelling])
                 r[key]["again"] = await _ask(ac, method, template, ids[record])
             r["project_delete"] = await _answers(ac, "DELETE", "/api/projects/{v}", not_a_uuid)
-            await ac.delete(f"/api/admin/families/{family_b}?confirm=true")
+            await ac.request("DELETE", f"/api/admin/families/{family_b}?confirm=true", json={"reason": "e2e"})
             braces = _spellings(ids["project_b"])["braces"]
             r["project_delete"]["deleted"] = await _ask(ac, "DELETE", "/api/projects/{v}", braces)
             r["project_delete"]["again"] = await _ask(ac, "DELETE", "/api/projects/{v}", ids["project_b"])
@@ -468,7 +468,7 @@ async def _collect(run: str) -> dict[str, Any]:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
             # What the test did not delete, should it have stopped early.
             for family in (family_a, family_b):
-                await ac.delete(f"/api/admin/families/{family}?confirm=true")
+                await ac.request("DELETE", f"/api/admin/families/{family}?confirm=true", json={"reason": "e2e"})
             for path, key in (
                 ("projects", "project_b"),
                 ("panels", "panel"),
