@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid
 from ..schemas import (
+    ApiId,
     CnvAcmgClassificationPayload,
     SmallVariantReviewOut,
     SmallVariantReviewSummaryOut,
@@ -135,7 +136,7 @@ _PRESET_COLUMNS = """
 
 def _serialize_preset(row: dict[str, Any]) -> StructuralVariantFilterPresetOut:
     return StructuralVariantFilterPresetOut(
-        _id=str(row["id"]),
+        _id=ApiId(row["id"]),
         family_id=row.get("family_id"),
         scope=row["scope"],
         owner=row["owner"],

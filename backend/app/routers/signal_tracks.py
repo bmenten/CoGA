@@ -37,7 +37,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, Literal, NotRequired, TypedDict
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, RedirectResponse
@@ -67,13 +67,24 @@ router = APIRouter(prefix="/signal-tracks", tags=["signal_tracks"])
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 
 
+class _TrackKind(TypedDict):
+    """How a signal file of one kind is drawn (its manifest entry) and served."""
+
+    label: str
+    format: Literal["bigwig", "bedgraph"]
+    media_type: str
+    extensions: tuple[str, ...]
+    min: NotRequired[float]
+    max: NotRequired[float]
+
+
 # The signal files a sample may carry, and how each should be drawn. `kind` is the
 # URL segment and the key recorded by the import.
 #
 # Autoscale rather than a fixed range: read depth is unbounded and sample-specific,
 # and MAF is 0..0.5 by construction — a shared scale would flatten one or clip the
 # other.
-_TRACK_KINDS: dict[str, dict[str, Any]] = {
+_TRACK_KINDS: dict[str, _TrackKind] = {
     "depth_bigwig": {
         "label": "Read depth",
         "format": "bigwig",
@@ -308,7 +319,7 @@ async def get_signal_track_manifest(
                             source=source,
                             kind=kind,
                             name=f"{sample_id} {spec['label']}",
-                            format=str(spec["format"]),
+                            format=spec["format"],
                             url=url,
                             min=spec.get("min"),
                             max=spec.get("max"),
@@ -328,7 +339,7 @@ async def _requested_track(
     source: str,
     kind: str,
     user: CurrentUser,
-) -> tuple[str | None, object, dict[str, Any]]:
+) -> tuple[str | None, object, _TrackKind]:
     """``(recorded path, recorded URI, kind)`` of a track the user may read, after the
     family-membership check; 404 when nothing is recorded for it."""
     if kind not in _TRACK_KINDS:
@@ -351,7 +362,7 @@ async def _resolve_requested_track(
     source: str,
     kind: str,
     user: CurrentUser,
-) -> tuple[Path, dict[str, Any]]:
+) -> tuple[Path, _TrackKind]:
     relative_path, _uri, spec = await _requested_track(session, family_id, sample_id, source, kind, user)
     if not relative_path:
         raise HTTPException(status_code=404, detail="Signal track not found")
@@ -368,7 +379,7 @@ async def _resolve_requested_object(
     source: str,
     kind: str,
     user: CurrentUser,
-) -> tuple[str, dict[str, Any]]:
+) -> tuple[str, _TrackKind]:
     """Remote mode: the key of the object to serve for a track the user may read."""
     relative_path, uri, spec = await _requested_track(session, family_id, sample_id, source, kind, user)
     key = await asyncio.to_thread(_remote_track_key, family_id, kind, relative_path, uri)

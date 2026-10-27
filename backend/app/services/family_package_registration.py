@@ -841,7 +841,9 @@ def imported_dataset_scopes(
         if not left_out:
             result[name] = scope
             continue
-        samples = scope.get("samples") if isinstance(scope, Mapping) else None
+        if not isinstance(scope, Mapping):
+            continue
+        samples = scope.get("samples")
         if not isinstance(samples, list):
             continue
         kept = sorted({str(sample) for sample in samples if sample} - left_out)
@@ -1477,8 +1479,10 @@ async def _write_import_failure(
     was nothing to write."""
     if family_uuid is not None:
         row_sql, params = _FAILURE_ROW_BY_UUID, {"family_uuid": family_uuid}
-    else:
+    elif family_id is not None:
         row_sql, params = _FAILURE_ROW_BY_FAMILY_ID, {"family_id": family_id}
+    else:
+        raise ValueError("An import failure is written to a family, and none was named")
     row = (await session.execute(text(row_sql), params)).mappings().first()
     if row is None or (
         only_with_entry and (import_key is None or import_key not in _unfinished_entries(row["unfinished"]))
