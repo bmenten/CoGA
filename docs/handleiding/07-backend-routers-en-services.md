@@ -157,8 +157,10 @@ In Starlette (waarop FastAPI draait) is de laatst geregistreerde middleware de b
 1. `CORSMiddleware` — alleen toegelaten origins mogen de API met credentials aanroepen.
 2. `log_request_response` — de request-logging hierboven.
 3. `normalize_api_collection_root_paths` — aanvaardt collectiepaden met én zonder slash op het einde.
-4. `security_headers_middleware` — zet de security-headers op elk antwoord, behalve op de kale `500` die Starlette zelf stuurt bij een onafgehandelde fout (hoofdstuk 2).
+4. `security_headers_middleware` — zet de security-headers op elk antwoord (hoofdstuk 2).
 5. `TrustedProxyClientMiddleware` — als laatste geregistreerd, dus de buitenste: bepaalt het echte client-IP (`TRUSTED_PROXY_HOPS`) voordat logging, rate limiting en audit het lezen.
+
+Buiten die keten staat nog Starlettes `ServerErrorMiddleware`. Die beantwoordt een fout die niets anders afhandelt met een `500`, met de handler `_answer_server_error` uit `main.py`: dezelfde tekst als Starlettes eigen antwoord, maar met dezelfde security-headers, HSTS inbegrepen (SEC-23). Daarna gooit hij de fout opnieuw op, zodat uvicorn ze nog logt; de request-logging heeft het verzoek dan al gelogd en in de audit gezet.
 
 **Waar in de code:** het einde van `backend/app/main.py`; `backend/app/middleware/`.
 

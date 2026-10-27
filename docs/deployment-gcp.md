@@ -476,9 +476,11 @@ curl -s -o /dev/null -D - https://coga.cmgg.be/ | grep -i strict-transport-secur
 curl -s -o /dev/null -D - https://coga.cmgg.be/api/health | grep -i strict-transport-security
 ```
 
-The last two print `strict-transport-security: max-age=63072000; includeSubDomains`: the
+The last two print `strict-transport-security: max-age=63072000; includeSubDomains`, once: the
 app page and the API both tell the browser to use only HTTPS for this host, for two years
-(`ENABLE_HSTS=true` on both Cloud Run services).
+(`ENABLE_HSTS=true` on both Cloud Run services). The load balancer's HTTPS URL map sets the
+same header on every answer it relays, in place of the services' own, so Cloud Run's own
+error pages carry it too (`terraform/loadbalancer.tf`).
 
 Then open `https://coga.cmgg.be` in a browser and log in with:
 
@@ -1053,7 +1055,7 @@ This deployment closes the deployment-level security items tracked in
 | DB privilege separation (#262) | `db_runtime_role = "coga_app"` (12.8): the API runs as a role that cannot change the audit trail and cannot read the owner's password |
 | Sign-in (SEC-4) | Microsoft Entra ID (12.12): MFA, password policy and leavers by IT, the app assigned to the lab's group; one local emergency administrator, whose password sign-in is off unless `azure_admin_override` is switched on |
 | Backups | Cloud SQL PITR + retained backups; daily ClickHouse disk snapshots (**do a restore drill**) |
-| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile; the app page and the API send HSTS (`max-age=63072000; includeSubDomains`) |
+| edge protection | Cloud Armor: adaptive DDoS, per-IP rate limiting, OWASP CRS 4.22 WAF, optional UGent/UZ IP allowlist; the HTTPS load balancer accepts TLS 1.2+ with the `MODERN` profile; the app page and the API send HSTS (`max-age=63072000; includeSubDomains`), and the load balancer sets it on every answer it relays |
 
 **Still your responsibility (process, not code):** IVDR **change control** (TF-18) for
 each switch in 12.7–12.10 and 12.12 and for the first production deployment, and the IFU (TF-15)
