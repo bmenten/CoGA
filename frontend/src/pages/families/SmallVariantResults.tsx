@@ -209,7 +209,7 @@ export default function SmallVariantResults({
             {hasGroupedPairs ? (
               <div className="space-y-3">
                 <div className="space-y-1">
-                  <h3 className="section-title">Compound-Het Pairs</h3>
+                  <h3 className="section-title">Compound-het pairs</h3>
                   <p className="table-subtle">
                     Pair-level search results aligned to the active inheritance filter.
                   </p>
@@ -230,7 +230,7 @@ export default function SmallVariantResults({
               <div className="space-y-3">
                 {hasGroupedPairs ? (
                   <div className="space-y-1">
-                    <h3 className="section-title">Single Variants</h3>
+                    <h3 className="section-title">Single variants</h3>
                     <p className="table-subtle">
                       Single-variant results that remain relevant under the active filter.
                     </p>

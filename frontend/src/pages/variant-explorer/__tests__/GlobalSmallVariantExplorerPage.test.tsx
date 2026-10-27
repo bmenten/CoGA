@@ -213,7 +213,7 @@ const rowOf = (gene: string) =>
 
 // The sample genotype filter's card (the annotation filter form has Clear buttons of its own).
 const genotypeCard = () =>
-  within(screen.getByText('Sample - Genotype Filter').closest('section') as HTMLElement);
+  within(screen.getByText('Sample - genotype filter').closest('section') as HTMLElement);
 
 describe('GlobalSmallVariantExplorerPage', () => {
   beforeEach(() => {

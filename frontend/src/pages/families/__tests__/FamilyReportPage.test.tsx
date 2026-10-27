@@ -500,9 +500,22 @@ describe('FamilyReportPage', () => {
         return Promise.resolve({
           data: {
             family_id: 'F1',
-            checked: 0,
-            drifted_count: 0,
-            drifted: [],
+            checked: 1,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '1-100-A-G',
+                classification: 'Likely Pathogenic - class 4',
+                classified_by: 'bob',
+                classified_at: null,
+                status: 'variant_missing',
+                clinvar_from: null,
+                clinvar_to: null,
+                changed: [],
+                evidence_from: null,
+                evidence_to: null,
+              },
+            ],
             structural: {
               checked: 4,
               drifted_count: 4,
@@ -525,16 +538,18 @@ describe('FamilyReportPage', () => {
 
     // One banner counts the SV/CNV classifications with the small variants.
     expect(
-      await screen.findByText(/4 classifications have evidence changes since being made/),
+      await screen.findByText(/5 classifications have evidence changes since being made/),
     ).toBeInTheDocument();
     const items = screen.getAllByRole('listitem').map((item) => item.textContent ?? '');
+    // Worded as the signed version words it (ENG-10; before: "in the dataset").
+    expect(items).toContain('1-100-A-G — no longer present in the data (classified by bob)');
     expect(items).toContain(
       'sv-genes (structural variant) — genes TCF4, TXNL1 → TCF4; pLI 0.990 → 0.410 (classified by bob)',
     );
     expect(items).toContain('sv-annotation (structural variant) — annotation changed (classified by bob)');
     // The caller whose call is gone is named: another caller may still call the SV (TRACE-12).
     expect(items).toContain(
-      'sv-gone (structural variant) — its needlr call is no longer present in the dataset (classified by bob)',
+      'sv-gone (structural variant) — its needlr call is no longer present in the data (classified by bob)',
     );
     expect(items).toContain(
       'sv-unreadable (structural variant) — its frozen evidence cannot be compared (classified by bob)',
@@ -1270,7 +1285,7 @@ describe('FamilyReportPage', () => {
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent('Overall: Pass (Trio WGS).');
       expect(checks).toHaveTextContent('Sex of PROBAND: Pass — Recorded and inferred sex agree.');
-      expect(checks).toHaveTextContent('PROBAND: Warning — Mean coverage 18 × (Warning; warning 20, fail 10)');
+      expect(checks).toHaveTextContent('PROBAND: Warning — Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)');
       expect(checks).toHaveTextContent('The family’s data had imported completely.');
       expect(screen.getByText(/No reported classification had changed evidence/)).toHaveTextContent(
         'No reported classification had changed evidence when this version was signed (1 checked).',

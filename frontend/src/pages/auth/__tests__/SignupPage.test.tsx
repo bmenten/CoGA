@@ -18,8 +18,8 @@ const mockedPost = vi.mocked(api.post);
 const PASSWORD = 'test-password-1';
 
 const REGISTRATION: Record<string, string> = {
-  'First Name': 'Ann',
-  'Last Name': 'Lee',
+  'First name': 'Ann',
+  'Last name': 'Lee',
   Email: 'ann.lee@example.com',
   Affiliation: 'CMGG',
   Password: PASSWORD,
@@ -49,7 +49,7 @@ const fillIn = async (user: UserEvent, values: Record<string, string> = REGISTRA
   }
 };
 
-const submit = (user: UserEvent) => user.click(screen.getByRole('button', { name: 'Sign Up' }));
+const submit = (user: UserEvent) => user.click(screen.getByRole('button', { name: 'Sign up' }));
 
 const stringify = (value: unknown): string => {
   if (typeof value === 'string') return value;
@@ -126,7 +126,7 @@ describe('SignupPage', () => {
     expect(password).toHaveAttribute('minLength', '15');
     expect(password).toBeRequired();
     expect(password).toHaveAccessibleDescription(/At least 15 characters/);
-    for (const label of ['First Name', 'Last Name', 'Email', 'Affiliation']) {
+    for (const label of ['First name', 'Last name', 'Email', 'Affiliation']) {
       expect(screen.getByLabelText(label)).toBeRequired();
     }
     expect(screen.getByLabelText('Email')).toHaveAttribute('type', 'email');
@@ -316,7 +316,7 @@ describe('SignupPage', () => {
     ).toBeInTheDocument();
     expect(vi.mocked(api.get)).toHaveBeenCalledWith('/auth/config');
     expect(screen.queryByLabelText('Password')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Sign Up' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Sign up' })).not.toBeInTheDocument();
     expect(mockedPost).not.toHaveBeenCalled();
   });
 });

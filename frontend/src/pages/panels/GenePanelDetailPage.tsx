@@ -140,7 +140,7 @@ const GenePanelDetailPage: React.FC = () => {
   if (panelFailed) {
     return (
       <PageState
-        kicker="Panel Detail"
+        kicker="Panel detail"
         title="Gene panel could not be loaded"
         message={getErrorMessage(panelError, 'The gene panel could not be retrieved.')}
         action={
@@ -155,7 +155,7 @@ const GenePanelDetailPage: React.FC = () => {
     return (
       <PageState
         loading
-        kicker="Panel Detail"
+        kicker="Panel detail"
         title="Loading gene panel"
         message="Preparing panel regions and sorting controls."
       />
@@ -174,7 +174,7 @@ const GenePanelDetailPage: React.FC = () => {
       <section className="surface-card page-top-card">
         <div className="page-header">
           <div className="space-y-2">
-            <p className="page-kicker">Panel Detail</p>
+            <p className="page-kicker">Panel detail</p>
             <h2 className="catalog-card-title">
               {panel.name} <span className="panel-version-chip">v{panel.version ?? 1}</span>
             </h2>

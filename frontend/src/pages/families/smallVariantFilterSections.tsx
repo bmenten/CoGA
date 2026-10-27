@@ -1086,7 +1086,7 @@ export const InSilicoFilterSection = ({ form }: { form: FilterSectionForm }) => 
   );
   return (
     <FilterSection
-      title="In Silico"
+      title="In silico"
       open={openSections.inSilico}
       onToggle={handleSectionToggle('inSilico')}
       meta={summarizeSection(inSilicoFilterCount, 'No filters')}

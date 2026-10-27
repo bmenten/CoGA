@@ -236,7 +236,9 @@ async def _nipt_parent_sex_checks(
                 x_het_rate=None,
                 x_sites=0,
                 status="skip",
-                message="Sex could not be checked: the genotypes could not be loaded.",
+                # One clause the gate can name the sample before: "Sample X: sex could not be
+                # checked: the genotypes …" listed it with two colons (ENG-10).
+                message="The genotypes could not be loaded, so the sex could not be checked.",
             )
             for pid in present
         ]

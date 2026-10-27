@@ -1118,7 +1118,7 @@ const GeneInfoPage: React.FC = () => {
     [hg38Location, profile, t2tLocation],
   );
 
-  const genccRows = useMemo<DetailRow[]>(
+  const clingenAndAcmgRows = useMemo<DetailRow[]>(
     () =>
       profile
         ? [
@@ -1225,7 +1225,7 @@ const GeneInfoPage: React.FC = () => {
         <div className="page-header">
           <div className="space-y-2">
             <p className="page-kicker">Genes</p>
-            <h1 className="catalog-card-title">Gene Explorer</h1>
+            <h1 className="catalog-card-title">Gene explorer</h1>
             <p className="page-copy">
               Search a human gene and open a compact reference summary with local panels, disease
               evidence, transcripts, and direct resource links.
@@ -1618,9 +1618,11 @@ const GeneInfoPage: React.FC = () => {
                   </button>
                 ) : null}
 
+                {/* What the rows hold: ClinGen's curation counts and the ACMG SF list, not GenCC's
+                    classifications, which are listed above (ENG-10). */}
                 <div className="gene-compact-subsection">
-                  <p className="gene-compact-subtitle-label">GenCC details</p>
-                  <DetailList rows={genccRows} />
+                  <p className="gene-compact-subtitle-label">ClinGen curations and ACMG SF</p>
+                  <DetailList rows={clingenAndAcmgRows} />
                 </div>
               </div>
 

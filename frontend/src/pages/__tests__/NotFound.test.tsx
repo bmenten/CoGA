@@ -40,7 +40,7 @@ describe('NotFound', () => {
     const user = userEvent.setup();
     renderAt('/nowhere');
 
-    const link = screen.getByRole('link', { name: 'Go to Dashboard' });
+    const link = screen.getByRole('link', { name: 'Go to dashboard' });
     expect(link).toHaveAttribute('href', '/dashboard');
 
     await user.click(link);

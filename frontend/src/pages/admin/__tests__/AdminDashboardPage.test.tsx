@@ -10,45 +10,45 @@ import AdminDashboardPage from '../AdminDashboardPage';
 
 const GROUPS: Array<{ title: string; cards: Array<[label: string, href: string]> }> = [
   {
-    title: 'Reference Data',
+    title: 'Reference data',
     cards: [
-      ['Species & Assemblies', '/admin/reference/assemblies'],
-      ['Gene Panels', '/admin/reference/gene-panels'],
-      ['HPO Terminology', '/admin/reference/hpo'],
-      ['Monarch Data', '/admin/reference/monarch'],
-      ['Repeat Catalogue', '/admin/reference/repeat-loci'],
+      ['Species & assemblies', '/admin/reference/assemblies'],
+      ['Gene panels', '/admin/reference/gene-panels'],
+      ['HPO terminology', '/admin/reference/hpo'],
+      ['Monarch data', '/admin/reference/monarch'],
+      ['Repeat catalogue', '/admin/reference/repeat-loci'],
     ],
   },
   {
-    title: 'User & Access Management',
+    title: 'User & access management',
     cards: [
       ['Users', '/admin/access/users'],
-      ['Projects & Access', '/admin/access/projects'],
+      ['Projects & access', '/admin/access/projects'],
     ],
   },
   {
-    title: 'Data Management',
+    title: 'Data management',
     cards: [
-      ['Family & Sample Data', '/admin/data/families'],
-      ['Family Statuses', '/admin/data/family-statuses'],
-      ['Sequencing QC Thresholds', '/admin/data/qc-thresholds'],
-      ['Package Import', '/admin/data/upload'],
+      ['Family & sample data', '/admin/data/families'],
+      ['Family statuses', '/admin/data/family-statuses'],
+      ['Sequencing QC thresholds', '/admin/data/qc-thresholds'],
+      ['Package import', '/admin/data/upload'],
     ],
   },
   {
-    title: 'Variant Configuration',
+    title: 'Variant configuration',
     cards: [
-      ['Variant Tags', '/admin/variants/tags'],
-      ['Preset Filters', '/admin/variants/presets'],
+      ['Variant tags', '/admin/variants/tags'],
+      ['Preset filters', '/admin/variants/presets'],
     ],
   },
   {
-    title: 'Database & Operations',
-    cards: [['ClickHouse Tables & Operations', '/admin/operations/clickhouse']],
+    title: 'Database & operations',
+    cards: [['ClickHouse tables & operations', '/admin/operations/clickhouse']],
   },
   {
-    title: 'Monitoring & Audit',
-    cards: [['Audit Logs', '/admin/monitoring/audit-logs']],
+    title: 'Monitoring & audit',
+    cards: [['Audit logs', '/admin/monitoring/audit-logs']],
   },
 ];
 
@@ -101,7 +101,7 @@ describe('AdminDashboardPage', () => {
     expect(screen.getByRole('link', { name: /^Users/ })).toHaveTextContent(
       'User accounts, roles, and activation status.',
     );
-    expect(screen.getByRole('link', { name: /^Audit Logs/ })).toHaveTextContent(
+    expect(screen.getByRole('link', { name: /^Audit logs/ })).toHaveTextContent(
       'Request, user, status, and update-event history.',
     );
   });

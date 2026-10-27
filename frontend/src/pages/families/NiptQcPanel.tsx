@@ -2,7 +2,7 @@ import React from 'react';
 import type { ApiNiptFetalFraction, QcStatus } from '../../lib/apiTypes';
 import type { NiptQcOut } from '../../lib/apiSchema.generated';
 import { QC_STATUS_CHIP, QC_STATUS_LABEL } from '../../lib/qcStatus';
-import { depth, pct } from './niptClassification';
+import { depth, niptChryProfileLabel, niptFetalSexLabel, pct } from './niptClassification';
 
 // Why cfDNA calls failed the quality filter (nipt_analysis.quality_failures).
 export const NIPT_QUALITY_FAILURE_LABELS: Record<string, string> = {
@@ -11,21 +11,6 @@ export const NIPT_QUALITY_FAILURE_LABELS: Record<string, string> = {
   low_vaf: 'allele fraction below 1%',
   strand_bias: 'strand bias',
   below_fetal_vaf_floor: 'allele fraction below a quarter of FF/2',
-};
-
-const FETAL_SEX_COPY: Record<string, string> = {
-  female: 'Female',
-  male: 'Male',
-  indeterminate: 'Indeterminate',
-  discordant: 'Discordant',
-};
-
-const CHRY_PROFILE_COPY: Record<string, string> = {
-  female_no_chrY_signal: 'no chrY signal',
-  female_with_male_fetal_signal: 'male fetal chrY signal',
-  high_chrY_review: 'chrY near the autosomal level',
-  male_like_not_maternal_plasma: 'male DNA',
-  no_chrY_targets: 'no chrY target in the panel',
 };
 
 const StatusChip: React.FC<{ status: QcStatus }> = ({ status }) => (
@@ -93,11 +78,11 @@ const NiptQcPanel: React.FC<NiptQcPanelProps> = ({ qc, fetalFraction: ff }) => {
           {ff.low_confidence ? ' Low confidence: too few sites or a wide interval.' : ''}
         </p>
       </Row>
-      <Row status={sex.status} title={`Fetal sex: ${FETAL_SEX_COPY[sex.call] ?? sex.call}`}>
+      <Row status={sex.status} title={`Fetal sex: ${niptFetalSexLabel(sex.call)}`}>
         <p className="table-subtle">
           Paternal X: {sex.x_transmitted} of the father&apos;s X alleles seen, {sex.x_not_transmitted} absent (
           {sex.paternal_x}). chrY coverage:{' '}
-          {sex.chry_profile ? (CHRY_PROFILE_COPY[sex.chry_profile] ?? sex.chry_profile) : 'no target table'}
+          {niptChryProfileLabel(sex.chry_profile)}
           {sex.y_ratio != null ? ` (chrY/autosomes ${sex.y_ratio.toFixed(3)})` : ''}.
           {sex.call === 'discordant' ? ' The two signals disagree: check the samples.' : ''}
         </p>

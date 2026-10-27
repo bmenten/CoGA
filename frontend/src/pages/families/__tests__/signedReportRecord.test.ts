@@ -153,7 +153,7 @@ const SNAPSHOT = {
       P1: {
         verdict: 'warn',
         metrics: [
-          { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn' },
+          { metric_key: 'mean_coverage', label: 'Mean coverage', unit: '×', value: 18, warn_value: 20, error_value: 10, verdict: 'warn', direction: 'lower_is_worse' },
           { metric_key: 'q30', label: 'Q30', unit: '%', value: 93, warn_value: 85, error_value: 80, verdict: 'pass' },
         ],
       },
@@ -259,7 +259,9 @@ describe('parseSignedReport', () => {
       {
         sampleId: 'P1',
         verdict: 'warn',
-        breached: [{ label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10 }],
+        breached: [
+          { label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse' },
+        ],
       },
     ]);
     expect(record.importIncomplete).toBeNull();
@@ -716,8 +718,40 @@ describe('the signed report’s wording', () => {
 
   it('names a metric outside its cut-offs with its value and limits', () => {
     expect(
-      describeBreachedMetric({ label: 'Mean coverage', value: 18, unit: '×', verdict: 'warn', warnValue: 20, errorValue: 10 }),
-    ).toBe('Mean coverage 18 × (Warning; warning 20, fail 10)');
+      describeBreachedMetric({
+        label: 'Mean coverage',
+        value: 18,
+        unit: '×',
+        verdict: 'warn',
+        warnValue: 20,
+        errorValue: 10,
+        direction: 'lower_is_worse',
+      }),
+    ).toBe('Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)');
+  });
+
+  // ENG-10: the signed version wrote the value as measured, "18.57 x", where the members
+  // table's QC chip writes "18.6x".
+  it('writes the value and its limits as the QC chip writes them', () => {
+    const metric = { label: 'Mean depth', unit: 'x', verdict: 'warn', warnValue: 20, errorValue: 10, direction: 'lower_is_worse' };
+    expect(describeBreachedMetric({ ...metric, value: 18.57 })).toBe('Mean depth 18.6x (Warning; warning 20x, fail 10x)');
+    // Rounded onto its limit it would not read as the breach it is: 19.96 is not "20.0x".
+    expect(describeBreachedMetric({ ...metric, value: 19.96 })).toBe('Mean depth 19.96x (Warning; warning 20x, fail 10x)');
+    // A record from before the direction was kept reads it from the side of the limit.
+    expect(describeBreachedMetric({ ...metric, value: 19.96, direction: null })).toBe(
+      'Mean depth 19.96x (Warning; warning 20x, fail 10x)',
+    );
+    expect(
+      describeBreachedMetric({
+        label: 'Allele drop-out (ADO)',
+        value: 32.14,
+        unit: '%',
+        verdict: 'fail',
+        warnValue: 20,
+        errorValue: 30,
+        direction: 'higher_is_worse',
+      }),
+    ).toBe('Allele drop-out (ADO) 32.1% (Fail; warning 20%, fail 30%)');
   });
 });
 

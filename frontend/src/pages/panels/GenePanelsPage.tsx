@@ -244,7 +244,7 @@ const GenePanelsPage: React.FC = () => {
               />
             </label>
             <button type="submit" className="form-button">
-              Create Panel
+              Create panel
             </button>
           </form>
           <section className="surface-card field-grid">
@@ -391,7 +391,7 @@ const GenePanelsPage: React.FC = () => {
       )}
       <section className="surface-card space-y-4">
         <div className="analysis-toolbar items-end">
-          <h3 className="section-title">Existing Panels</h3>
+          <h3 className="section-title">Existing panels</h3>
           <input
             type="search"
             value={panelSearch}
@@ -415,7 +415,7 @@ const GenePanelsPage: React.FC = () => {
             <th>Source</th>
             <th>Version</th>
             <th>Created</th>
-            <th>Created By</th>
+            <th>Created by</th>
             <th>Description</th>
             {userIsAdmin && <th>Actions</th>}
           </tr>

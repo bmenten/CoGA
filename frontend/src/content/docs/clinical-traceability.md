@@ -88,7 +88,7 @@ banner lists every classification whose evidence changed:
   evidence cannot be compared* when the frozen evidence cannot be read or does not name its caller;
 - the variant is no longer in the data (for a structural variant: the call of the caller its evidence
   was frozen from, even when another caller still calls the event, and the line names that caller:
-  *its needlr call is no longer present in the dataset*).
+  *its needlr call is no longer present in the data*).
 
 Re-review a listed variant before sign-out. Saving its classification again freezes the evidence as it
 is now.
@@ -138,7 +138,7 @@ Applying the same version again writes nothing; a new version of the panel is wr
 applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
-This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
+This is the record of clinical actions; the record of who opened what (**Admin → Audit logs**) is
 separate. The trail is for analysts and administrators: a reader of the family's project does not
 see it.
 

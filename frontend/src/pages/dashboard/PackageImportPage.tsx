@@ -10,7 +10,7 @@ const PackageImportPage: React.FC = () => {
         <div className="page-header">
           <div className="space-y-2">
             <p className="page-kicker">Intake</p>
-            <h1 className="catalog-card-title">Package Import</h1>
+            <h1 className="catalog-card-title">Package import</h1>
             <p className="catalog-card-copy">
               Validate manifests and bulk-import family data packages from a folder. To create a
               family by hand, use Family Builder.

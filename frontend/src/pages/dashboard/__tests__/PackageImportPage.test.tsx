@@ -93,7 +93,7 @@ describe('PackageImportPage', () => {
   it('renders the package import workspace with a dashboard back link', () => {
     renderPage();
 
-    expect(screen.getByRole('heading', { name: 'Package Import', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Package import', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /folder package/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /back to dashboard/i })).toHaveAttribute(
       'href',

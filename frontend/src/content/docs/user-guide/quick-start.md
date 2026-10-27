@@ -53,4 +53,4 @@ To set up a new case, see [Case setup and data import](#case-setup).
 > **Not finding a variant you expect?** The **Small variants** page opens with a default filter: the
 > *Phenotype priority* preset on the Mendeliome panel (rare, HIGH or MODERATE impact, carried by the
 > affected members). Press **Clear all filters** before you conclude that a variant is missing. The
-> **Variant Explorer** leaves out imputed calls unless you tick *Include imputed variants*.
+> **Variant explorer** leaves out imputed calls unless you tick *Include imputed variants*.

@@ -15,6 +15,12 @@
   color: #4b5563;
 }
 
+/* A call the catalogue cannot classify (#535): the violet of its row's rail, so it reads as
+   "needs a look", not as a normal call (ENG-10, #826). */
+.repeat-status--review {
+  color: #6d28d9;
+}
+
 .repeat-status--not_assessed {
   color: #075985;
 }
@@ -166,6 +172,12 @@
 .family-repeat-table-locus-flag {
   padding-top: 0.125rem;
   padding-bottom: 0.125rem;
+}
+
+.family-repeat-table-locus-flag--review {
+  border-color: rgba(124, 58, 237, 0.24);
+  background: rgba(124, 58, 237, 0.1);
+  color: #6d28d9;
 }
 
 .family-repeat-table-locus-flag--not_assessed {
