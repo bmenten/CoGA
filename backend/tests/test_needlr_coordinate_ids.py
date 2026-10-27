@@ -284,10 +284,12 @@ def test_insertions_of_other_sequences_on_one_position_keep_the_discriminator() 
 
     # Same position, type and length, other alleles: the first keeps the id, the others get
     # their length, then a count, as a clash always did. The first's alleles again merge with it.
+    # An insertion without END ends on its POS, as VCF 4.4 and the uploads put it (CLIN-39;
+    # before: POS + SVLEN).
     assert [(record.variant_id, record.annotations[0]["alt"]) for record in records] == [
-        ("1-20000-20007-INS---", "ACGTACGT"),
-        ("1-20000-20007-INS----7", "AGGTACCT"),
-        ("1-20000-20007-INS----7.2", "ATTTACGT"),
+        ("1-20000-20000-INS---", "ACGTACGT"),
+        ("1-20000-20000-INS----7", "AGGTACCT"),
+        ("1-20000-20000-INS----7.2", "ATTTACGT"),
     ]
     assert _record_ids(records[0]) == ["Sniffles2.INS.1S0", "Sniffles2.INS.7S2"]
 
@@ -321,8 +323,9 @@ def test_breakends_to_one_mate_in_other_orientations_keep_the_discriminator() ->
         _line(20000, record_id=".", alt="[chr5:3000000[N", info="SVTYPE=BND;"),
     )
 
-    assert first.variant_id == "1-20000-20001-BND-5-3000000-3000000"
-    assert second.variant_id == "1-20000-20001-BND-5-3000000-3000000-15"
+    # A breakend without END ends on its POS (CLIN-39; before: POS + 1).
+    assert first.variant_id == "1-20000-20000-BND-5-3000000-3000000"
+    assert second.variant_id == "1-20000-20000-BND-5-3000000-3000000-15"
 
 
 # --- the id: the call's coordinates and type ------------------------------------------------

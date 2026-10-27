@@ -233,6 +233,38 @@ describe('FamilyReportPage', () => {
     expect(printNotice?.textContent).toMatch(expected);
   });
 
+  // CLIN-39: a reported breakend's footer line named its locus and type, not its mate, which
+  // the sentence above it names; and the sentence read "A 0 bp breakend".
+  it("names a reported breakend's mate in its footer line, and gives it no size", async () => {
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    const breakend = {
+      _id: '1-20000-20000-BND-5-3000000-3000000',
+      chr: '1',
+      start: 20000,
+      end: 20000,
+      length: null,
+      type: 'BND',
+      remote_chr: '5',
+      remote_start: 3000000,
+      genotypes: [{ sample: 'S1', gt: '0/1' }],
+      review: { tags: ['report'] },
+    };
+    apiMock.get.mockImplementation((url: string, config?: unknown) =>
+      url.startsWith('/families/F1/structural-variants')
+        ? Promise.resolve({ data: { variants: [breakend], total: 1 } })
+        : base(url, config),
+    );
+    renderPage();
+
+    expect(await screen.findByText('1:20,000-20,000 → 5:3,000,000 · BND')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'A breakend / translocation at 1:20,000-20,000 in an intergenic region with a remote breakpoint at 5:3,000,000.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   // The report asked for 500 reported variants and never looked at the total: a longer list
   // ended at 500 without a trace, while the signed record holds every reported variant.
   it('asks for every reported variant, not the first 500', async () => {

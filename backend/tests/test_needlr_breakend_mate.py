@@ -16,7 +16,9 @@ per-sample reader, in the four bracket forms, with SVTYPE BND, ``bnd`` or TRA, a
 breakend keeps none. Records that merge by id keep their mate. Since CLIN-43 a NeedlR SV's id is
 its coordinates and type, never the record's ID (test_needlr_coordinate_ids.py): a breakend's id
 holds its mate, as an uploaded breakend's does, so two breakends on one position with other
-mates have their own ids.
+mates have their own ids. Since CLIN-39 a record without END ends where VCF 4.4 puts it, as an
+upload's does: a breakend, an insertion and a record whose extent is not stated on its POS (they
+ended at POS + SVLEN, or POS + 1), so a breakend's id is an uploaded breakend's.
 
 ``e2e/test_e2e_api_contract.py`` imports the golden trio's NeedlR breakend into Postgres and
 ClickHouse, reads its mate back and finds it by a search on the mate's position.
@@ -171,13 +173,14 @@ def test_a_breakend_has_its_mate_whatever_its_svtype_says(info: str, sv_type: st
     ("ref", "alt", "info", "sv_type", "end", "sv_len"),
     [
         # A single breakend names no mate.
-        pytest.param("G", "G.", "", "BND", 20001, None, id="single-breakend-after"),
-        pytest.param("G", ".G", "SVTYPE=BND;", "BND", 20001, None, id="single-breakend-before"),
+        pytest.param("G", "G.", "", "BND", 20000, None, id="single-breakend-after"),
+        pytest.param("G", ".G", "SVTYPE=BND;", "BND", 20000, None, id="single-breakend-before"),
         # No breakend: unchanged.
         pytest.param("N", "<DEL>", "SVTYPE=DEL;SVLEN=-5000;END=25000;", "DEL", 25000, -5000, id="DEL"),
         pytest.param("N", "<DUP:TANDEM>", "SVTYPE=DUP;SVLEN=500;End_Pos=20500;", "DUP", 20500, 500, id="DUP:TANDEM"),
-        pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", "INS", 20300, 300, id="INS"),
-        pytest.param("N", "<INV>", "", "INV", 20001, None, id="INV-without-SVTYPE"),
+        # An insertion spans no reference base (before CLIN-39: POS + SVLEN).
+        pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", "INS", 20000, 300, id="INS"),
+        pytest.param("N", "<INV>", "", "INV", 20000, None, id="INV-without-SVTYPE"),
         # Without SVLEN, a sequence allele is stored with the length its alleles state (CLIN-41).
         pytest.param("A" + "C" * 60, "A", "End_Pos=20060;", "DEL", 20060, -60, id="sequence-deletion"),
     ],
@@ -205,10 +208,24 @@ def test_a_breakend_s_id_holds_its_mate_as_an_uploaded_breakend_s_does(reader: s
         _line("N]chr5:3000000]", record_id="SVBND1"),
         _line("N[chr7:4000000[", record_id=".", pos=30000),
     )
-    assert with_id.variant_id == "1-20000-20001-BND-5-3000000-3000000"
-    assert without_id.variant_id == "1-30000-30001-BND-7-4000000-4000000"
+    assert with_id.variant_id == "1-20000-20000-BND-5-3000000-3000000"
+    assert without_id.variant_id == "1-30000-30000-BND-7-4000000-4000000"
     assert without_id.variant_id == build_structural_variant_id(
-        "chr1", 30000, 30001, "BND", remote_chr="chr7", remote_start=4_000_000, remote_end=4_000_000
+        "chr1", 30000, 30000, "BND", remote_chr="chr7", remote_start=4_000_000, remote_end=4_000_000
+    )
+    # The id an upload gives the same breakend (before CLIN-39: its END was POS + 1 here).
+    header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS\n"
+    (uploaded,) = iter_structural_variant_records(
+        header + "chr1\t30000\tSV9\tN\tN[chr7:4000000[\t.\tPASS\tSVTYPE=BND\tGT\t0/1\n", "sniffles"
+    )
+    assert without_id.variant_id == build_structural_variant_id(
+        uploaded.chrom,
+        uploaded.start,
+        uploaded.end,
+        uploaded.svtype,
+        remote_chr=uploaded.remote_chr,
+        remote_start=uploaded.remote_start,
+        remote_end=uploaded.remote_end,
     )
 
 
@@ -218,9 +235,9 @@ def test_two_breakends_on_one_position_keep_their_own_mates() -> None:
         _line("N]chr7:4000000]", record_id="."),
     )
     # Their mates tell them apart: no discriminator (the length of its ALT, before CLIN-43).
-    assert (first.variant_id, *_mate(first)) == ("1-20000-20001-BND-5-3000000-3000000", *_MATE)
+    assert (first.variant_id, *_mate(first)) == ("1-20000-20000-BND-5-3000000-3000000", *_MATE)
     assert (second.variant_id, *_mate(second)) == (
-        "1-20000-20001-BND-7-4000000-4000000",
+        "1-20000-20000-BND-7-4000000-4000000",
         "7",
         4_000_000,
         4_000_000,

@@ -23,7 +23,8 @@ and a **Gene symbol** both filled in, an SV must meet both.
 the list shows, without the minus sign of a deletion: the caller's SVLEN; for a call written as its
 sequence without an SVLEN (as VCF 4.4 writes one), the bases it inserts or deletes; otherwise the end
 minus the start. An insertion is as long as the sequence it inserts, although most callers write its end
-at its start. A translocation (BND, TRA) has no length: every minimum keeps it, and no exact length
+at its start. A length typed with a minus sign, as the list writes a deletion's, is read without it.
+A translocation (BND, TRA) has no length: the list shows none, every minimum keeps it, and no exact length
 finds it.
 
 A filtered search reads at most 50,000 SVs of the callset before it applies the filters, and with

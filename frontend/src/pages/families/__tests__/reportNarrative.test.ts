@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import type { FamilyMember, SmallVariant } from '../smallVariantSearch';
+import type { StructuralVariant } from '../structuralVariantSearch';
 import {
   buildSegregationSentence,
+  buildStructuralVariantSentence,
   buildVariantSentence,
   collectReportCriteria,
   describeGnomadFrequency,
@@ -134,5 +136,49 @@ describe('collectReportCriteria', () => {
     expect(criteria[0].code).toBe('PM2');
     expect(criteria[0].strengthLabel).toBe('Moderate');
     expect(criteria[0].direction).toBe('pathogenic');
+  });
+});
+
+describe('buildStructuralVariantSentence', () => {
+  const sv = (overrides: Partial<StructuralVariant> = {}): StructuralVariant => ({
+    _id: 'sv1',
+    chr: '1',
+    start: 20000,
+    end: 25000,
+    length: -5000,
+    type: 'DEL',
+    gene: 'GENE1',
+    genotypes: [],
+    ...overrides,
+  });
+
+  it('gives a translocation no size, and names its mate', () => {
+    // Before: "A 0 bp breakend / translocation" (CLIN-39).
+    expect(
+      buildStructuralVariantSentence(
+        sv({ type: 'BND', end: 20000, length: null, remote_chr: '5', remote_start: 3000000, gene: undefined }),
+      ),
+    ).toBe(
+      'A breakend / translocation at 1:20,000-20,000 in an intergenic region with a remote breakpoint at 5:3,000,000.',
+    );
+    expect(buildStructuralVariantSentence(sv({ type: 'tra', length: 1 }))).toBe(
+      'A translocation at 1:20,000-25,000 overlapping GENE1.',
+    );
+  });
+
+  it('writes the size, with an article as the size is said', () => {
+    expect(buildStructuralVariantSentence(sv())).toBe('A 5.0 kb deletion at 1:20,000-25,000 overlapping GENE1.');
+    expect(buildStructuralVariantSentence(sv({ length: 8000 }))).toBe(
+      'An 8.0 kb deletion at 1:20,000-25,000 overlapping GENE1.',
+    );
+    expect(buildStructuralVariantSentence(sv({ length: 11, type: 'INS' }))).toBe(
+      'An 11 bp insertion at 1:20,000-25,000 overlapping GENE1.',
+    );
+    expect(buildStructuralVariantSentence(sv({ length: 110, type: 'INS' }))).toBe(
+      'A 110 bp insertion at 1:20,000-25,000 overlapping GENE1.',
+    );
+    expect(buildStructuralVariantSentence(sv({ length: null, type: 'INV' }))).toBe(
+      'An inversion of unknown size at 1:20,000-25,000 overlapping GENE1.',
+    );
   });
 });

@@ -37,7 +37,8 @@ export interface StructuralVariant {
   chr: string;
   start: number;
   end: number;
-  length: number;
+  // None for a translocation (BND, TRA), which has no length.
+  length: number | null;
   type: string;
   source?: string;
   qual?: number;

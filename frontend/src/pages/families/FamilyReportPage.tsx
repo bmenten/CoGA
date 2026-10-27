@@ -1046,8 +1046,12 @@ const LiveFamilyReport: React.FC = () => {
               ) : null}
 
               <p className="report-variant-locus">
-                {variant.chr}:{variant.start.toLocaleString()}-{variant.end.toLocaleString()} ·{' '}
-                {variant.type || 'SV'}
+                {variant.chr}:{variant.start.toLocaleString()}-{variant.end.toLocaleString()}
+                {/* A breakend's mate, as the sentence above names it (CLIN-39). */}
+                {variant.remote_chr && variant.remote_start
+                  ? ` → ${variant.remote_chr}:${variant.remote_start.toLocaleString()}`
+                  : ''}{' '}
+                · {variant.type || 'SV'}
               </p>
             </article>
           );
