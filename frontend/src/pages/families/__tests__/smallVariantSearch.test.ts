@@ -639,6 +639,7 @@ describe('a NIPT search on the small-variant list', () => {
       _id: 'preset-nipt',
       owner: 'analyst',
       name: 'NIPT de novo',
+      description: null,
       filters: serializePresetFilters(niptSearch()),
       sample_filters: {},
       sample_templates: {},
