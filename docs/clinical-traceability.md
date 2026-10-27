@@ -467,9 +467,14 @@ Five gates run first, in this order:
    same way, before a worker can take its job for stopped, and one whose locks' connection
    is lost is stopped where it is, its job ended `failed` and the family left marked (SAFE-15).
 3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
-   variant or of a structural variant or CNV, gives 409, unless the request sets
-   `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
-   acknowledgement covers both; the message says how many are structural variants or CNVs.
+   variant or of a structural variant or CNV, gives 409 (`gate: "evidence_drift"`), unless the
+   request sets `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason).
+   One acknowledgement covers both; the message says how many are structural variants or CNVs.
+   The 409 lists each classification it counts, as the snapshot freezes it, the small variants'
+   in `drifted` and the SVs' and CNVs' in `structural_drifted` (without `classified_by` and
+   `classified_at`, which a note or a tag saved on the review changes), and the sign-out dialog
+   lists them as the signed version does. Before TRACE-19 the 409's detail was the message
+   alone, and the dialog named no classification.
 4. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a check that
    could not run for lack of data where it is what confirms the pedigree or a sample's
    identity (a relationship or Mendelian check the pedigree asserts, NIPT paternity or maternal
@@ -548,6 +553,40 @@ Five gates run first, in this order:
    from the entry of an import that stopped, each going once it named nothing else (SAFE-35).
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
+
+**An acknowledgement covers the concerns its dialog showed (TRACE-19).** Each 409 of gates 3 to
+5 carries `concerns_fingerprint`: a SHA-256 over the canonical JSON (sorted keys) of the gate
+and its concerns as the 409 lists them, each list sorted (`concerns_fingerprint` in
+`report_signout_service.py`). The concerns are, for evidence drift, `drifted` and
+`structural_drifted`; for the Sample QC, the four groups (`failed_checks`,
+`unverifiable_checks`, `nipt_failed_checks`, `warning_checks`); for an incomplete import,
+`import_incomplete` and `import_unfinished`, each without its `at` (the message names the
+time; the jobs and the datasets say which failure it is). No time and nothing that changes
+while the concerns do not is in it, so the same concerns give the same fingerprint. The
+dialog sends it back with the acknowledgement (`drift_concerns_fingerprint`,
+`qc_concerns_fingerprint`, `import_incomplete_concerns_fingerprint`), and the sign-out reads
+the gate again and compares:
+
+- the fingerprint of the concerns now: the acknowledgement covers them;
+- another one (a concern arose, went or changed after the dialog listed them): 409 again,
+  with the concerns as they are now, their fingerprint and `concerns_changed: true`, and
+  nothing written (no signed record, no audit event). The dialog lists them again, says why,
+  and takes a fresh reason, which it sends with the new fingerprint;
+- none: 422. The SPA, the only client, always sends the fingerprint its dialog was given. A
+  value that is no SHA-256 in lower-case hex is refused by the request's own validation (422).
+
+Before TRACE-19 the acknowledgement was a flag and the sign-out read the gate again when it
+was confirmed, so a concern that arose after the dialog listed them was signed out over, as
+acknowledged, unseen. A gate that holds no concern needs no fingerprint, and an
+acknowledgement of concerns that went meanwhile acknowledges nothing (as before). The gates
+are read in order, so a change at an earlier gate is refused there first, and the
+acknowledgements already given travel on to the next attempt. The sign-out's audit event
+records the fingerprint each acknowledgement carried (`drift_concerns_fingerprint`,
+`qc_concerns_fingerprint`, `import_incomplete_concerns_fingerprint`; None for a gate without
+concerns). The snapshot freezes the concerns themselves (the drift sections, `sample_qc`, the
+import state) and the audit event the Sample-QC groups, so each fingerprint can be recomputed
+from the record. The snapshot holds no fingerprint: the concerns it freezes are the ones the
+sign-out checked the fingerprint against.
 
 A lookup that fails while the snapshot is built is frozen as an explicit marker, never as an
 empty value: missing QC cut-offs as `sequencing_qc.unavailable`, and a failed lookup of a

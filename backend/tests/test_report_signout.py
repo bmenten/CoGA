@@ -5,6 +5,7 @@ import copy
 import json
 import types
 from datetime import datetime
+from typing import Any
 
 import pytest
 from fastapi import HTTPException
@@ -30,6 +31,7 @@ from backend.app.services.sample_integrity_qc import (
     evaluate_sample_integrity,
     profile_for,
 )
+from backend.tests._signout_dialogs import sign_out_report_through_the_dialogs
 
 
 # What the analysis looked at (signed_record_sections): the variant descriptions, the gene
@@ -77,6 +79,13 @@ def test_canonical_hash_is_stable_and_order_independent() -> None:
 
 def _user():
     return types.SimpleNamespace(username="lab-signer", email="b@x.org", id=None)
+
+
+def _through_the_dialogs(session, **kwargs):
+    """``rss.sign_out_report`` as the sign-out dialogs call it: each acknowledgement in
+    ``kwargs`` given once its gate refuses, with the fingerprint of the concerns the refusal
+    listed (TRACE-19; ``backend/tests/_signout_dialogs.py``)."""
+    return sign_out_report_through_the_dialogs(rss.sign_out_report, session, **kwargs)
 
 
 # What evaluate_classification_drift reports for a family with no SV/CNV classification.
@@ -646,7 +655,7 @@ def test_sign_out_proceeds_when_clean(monkeypatch) -> None:
 def test_sign_out_proceeds_with_acknowledged_drift(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=1)
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -680,7 +689,7 @@ def test_reported_variant_without_snapshot_gates_sign_out(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0)
     monkeypatch.setattr(rss, "_reported_reviews", _reviews_no_snapshot)
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -832,7 +841,7 @@ def test_failing_sample_qc_acknowledged_without_reason_is_422(monkeypatch) -> No
 def test_failing_sample_qc_acknowledged_with_reason_proceeds(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0, qc_status="fail")
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -869,7 +878,7 @@ def test_drift_and_qc_gates_are_independent(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=2, qc_status="fail")
     with pytest.raises(HTTPException) as qc_exc:
         asyncio.run(
-            rss.sign_out_report(
+            _through_the_dialogs(
                 _Session(),
                 family_id="FAM1",
                 user=_user(),
@@ -882,7 +891,7 @@ def test_drift_and_qc_gates_are_independent(monkeypatch) -> None:
 
     _patch_common(monkeypatch, drifted_count=2, qc_status="fail")
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -953,7 +962,7 @@ def test_unverifiable_asserted_relatedness_acknowledged_proceeds_and_audits(monk
         SampleIntegrityReport(overall_status="warn", relatedness_checks=[_asserted_parent_child(0)]),
     )
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(), family_id="FAM1", user=_user(),
             acknowledge_qc=True, qc_acknowledgement_reason="  Repeat genotyping confirms identity.  ",
         )
@@ -1127,7 +1136,7 @@ def test_audit_records_qc_status_and_acknowledgement(monkeypatch) -> None:
     _patch_common(monkeypatch, drifted_count=0, qc_status="fail")
     monkeypatch.setattr(rss, "record_clinical_event", _capture)
     asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -1336,7 +1345,7 @@ def test_an_acknowledged_refusal_audits_the_named_reasons_and_freezes_the_checks
     monkeypatch.setattr(rss, "record_clinical_event", _capture)
     _patch_qc_report(monkeypatch, _couple_without_chrx())
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(), family_id="FAM1", user=_user(),
             acknowledge_qc=True, qc_acknowledgement_reason="Both partners were sexed by karyotype.",
         )
@@ -1518,10 +1527,13 @@ def test_an_acknowledged_refusal_audits_each_group_its_dialog_listed(monkeypatch
         rss.sign_out_report(
             _Session(), family_id="FAM1", user=_user(), acknowledge_qc=True,
             qc_acknowledgement_reason="Father re-sampled; the relative was sexed by karyotype.",
+            qc_concerns_fingerprint=detail["concerns_fingerprint"],
         )
     )
 
     after = captured["after"]
+    # The fingerprint of the groups the dialog showed, which the acknowledgement covered (TRACE-19).
+    assert after["qc_concerns_fingerprint"] == detail["concerns_fingerprint"]
     assert after["qc_failed"] == detail["failed_checks"] == [_WRONG_FATHER]
     assert after["qc_unverifiable"] == detail["unverifiable_checks"] == [_RELATIVE_UNCHECKED]
     assert after["nipt_failed_checks"] == detail["nipt_failed_checks"] == []
@@ -1990,7 +2002,7 @@ def test_acknowledged_incomplete_import_is_frozen_and_audited(monkeypatch) -> No
     _patch_common(monkeypatch, drifted_count=0, import_incomplete=_INCOMPLETE)
     captured = _capture_audit(monkeypatch)
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -2048,11 +2060,12 @@ def test_the_import_gate_is_acknowledged_independently_of_drift_and_qc(monkeypat
     }
 
     def attempt(**acknowledgements):
+        # Each acknowledgement given in its dialog, once its gate refuses (TRACE-19).
         _patch_common(
             monkeypatch, drifted_count=1, qc_status="fail", import_incomplete=_INCOMPLETE
         )
         return asyncio.run(
-            rss.sign_out_report(_Session(), family_id="FAM1", user=_user(), **acknowledgements)
+            _through_the_dialogs(_Session(), family_id="FAM1", user=_user(), **acknowledgements)
         )
 
     with pytest.raises(HTTPException) as only_import:
@@ -2147,7 +2160,7 @@ def test_an_old_flag_without_an_import_job_still_gates(monkeypatch) -> None:
 
     _patch_common(monkeypatch, drifted_count=0, import_incomplete=state)
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -2203,7 +2216,7 @@ def test_an_acknowledged_stopped_import_is_frozen_and_audited(monkeypatch) -> No
     _patch_common(monkeypatch, drifted_count=0, import_unfinished=_UNFINISHED)
     captured = _capture_audit(monkeypatch)
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -2239,7 +2252,7 @@ def test_a_failed_and_a_stopped_import_are_one_gate_with_one_acknowledgement(mon
     )
     with pytest.raises(HTTPException) as excinfo:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    detail = excinfo.value.detail
+    detail: Any = excinfo.value.detail
     assert detail["gate"] == "import_incomplete"
     # The message names both: what failed, and what the stopped import had not finished.
     assert "failed for snv, sv" in detail["message"]
@@ -2256,6 +2269,8 @@ def test_a_failed_and_a_stopped_import_are_one_gate_with_one_acknowledgement(mon
             user=_user(),
             acknowledge_import_incomplete=True,
             import_incomplete_acknowledgement_reason=_IMPORT_ACK_REASON,
+            # One fingerprint over both: what failed and what did not finish (TRACE-19).
+            import_incomplete_concerns_fingerprint=detail["concerns_fingerprint"],
         )
     )
     assert out["snapshot"]["import_incomplete"] == _INCOMPLETE
@@ -2955,7 +2970,11 @@ def test_a_reported_cnv_whose_evidence_changed_blocks_sign_out(monkeypatch) -> N
     with pytest.raises(HTTPException) as refused:
         asyncio.run(rss.sign_out_report(session, family_id="FAM1", user=_user()))
     assert refused.value.status_code == 409
-    assert "1 classification(s) (1 of them structural-variant or CNV classifications)" in refused.value.detail
+    detail: Any = refused.value.detail
+    assert detail["gate"] == "evidence_drift"
+    assert "1 classification(s) (1 of them structural-variant or CNV classifications)" in detail["message"]
+    # The refusal lists the classification it counts, as its dialog shows it (TRACE-19).
+    assert [entry["variant_id"] for entry in detail["structural_drifted"]] == [_SV_ID]
     assert _inserts(session) == [], "nothing may be written for a refused sign-out"
 
     # Acknowledged like any drift: with a reason.
@@ -2972,7 +2991,7 @@ def test_an_acknowledged_sv_drift_is_frozen_and_audited(monkeypatch) -> None:
     _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()])
     captured = _capture_audit(monkeypatch)
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),
@@ -2999,11 +3018,12 @@ def test_a_reported_sv_without_frozen_evidence_blocks_sign_out(monkeypatch) -> N
     with pytest.raises(HTTPException) as refused:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
     assert refused.value.status_code == 409
-    assert "cannot be verified" in refused.value.detail
+    detail: Any = refused.value.detail
+    assert "cannot be verified" in detail["message"]
 
     _patch_sv(monkeypatch, reported=[_reported_sv(evidence_snapshot=None)], structural_drifted=[])
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(), family_id="FAM1", user=_user(), acknowledge_drift=True, drift_acknowledgement_reason="Re-read."
         )
     )
@@ -3016,12 +3036,18 @@ def test_small_variant_and_sv_drift_are_one_gate_and_one_acknowledgement(monkeyp
     _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()], small_drifted=2)
     with pytest.raises(HTTPException) as refused:
         asyncio.run(rss.sign_out_report(_Session(), family_id="FAM1", user=_user()))
-    assert "3 classification(s) (1 of them structural-variant or CNV classifications)" in refused.value.detail
-
+    detail: Any = refused.value.detail
+    assert "3 classification(s) (1 of them structural-variant or CNV classifications)" in detail["message"]
+    # One fingerprint over the small variants' and the SVs' drift: one acknowledgement.
     _patch_sv(monkeypatch, reported=[_reported_sv()], structural_drifted=[_sv_drift_entry()], small_drifted=2)
     out = asyncio.run(
         rss.sign_out_report(
-            _Session(), family_id="FAM1", user=_user(), acknowledge_drift=True, drift_acknowledgement_reason="Reviewed."
+            _Session(),
+            family_id="FAM1",
+            user=_user(),
+            acknowledge_drift=True,
+            drift_acknowledgement_reason="Reviewed.",
+            drift_concerns_fingerprint=detail["concerns_fingerprint"],
         )
     )
     assert out["drift_acknowledged"] is True
@@ -3414,15 +3440,18 @@ def test_a_nipt_refusal_lists_each_group_of_concerns_beside_the_failures(monkeyp
         "transmitted, 0 absent of 0 sites).",
     ]
 
-    # The acknowledged sign-out's audit event records the same groups.
+    # The acknowledged sign-out's audit event records the same groups, and the fingerprint of
+    # what the dialog showed of them (TRACE-19).
     captured = _capture_audit(monkeypatch)
     asyncio.run(
         rss.sign_out_report(
             _Session(), family_id="FAM1", user=_user(), acknowledge_qc=True,
             qc_acknowledgement_reason="Samples re-drawn and re-run; identities confirmed.",
+            qc_concerns_fingerprint=detail["concerns_fingerprint"],
         )
     )
     after = captured["after"]
+    assert after["qc_concerns_fingerprint"] == detail["concerns_fingerprint"]
     assert after["qc_failed"] == detail["failed_checks"]
     assert after["qc_unverifiable"] == detail["unverifiable_checks"]
     assert after["nipt_failed_checks"] == detail["nipt_failed_checks"]
@@ -3441,7 +3470,7 @@ def test_an_acknowledged_nipt_check_is_frozen_and_audited(monkeypatch) -> None:
     assert excinfo.value.status_code == 422
     captured = _capture_audit(monkeypatch)
     out = asyncio.run(
-        rss.sign_out_report(
+        _through_the_dialogs(
             _Session(),
             family_id="FAM1",
             user=_user(),

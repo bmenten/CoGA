@@ -173,7 +173,7 @@ async def _collect(base: Path) -> dict:
                 await package_import.run_family_import_job(job_id=job_id, worker_id=worker)
                 step: dict[str, Any] = {"job_id": job_id, "job": await job(job_id), "flag": await flag()}
                 step["signout"] = _cap(
-                    await ac.post(f"/api/families/{family_id}/report/sign-out", json=_OTHER_GATES)
+                    await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES)
                 )
                 out["steps"][name] = step
                 return job_id

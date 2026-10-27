@@ -229,8 +229,9 @@ async def _collect(root: Path, mp: pytest.MonkeyPatch) -> dict:
             out["datasets_during_snapshot"] = race["datasets_during_snapshot"]
             out["counts"]["after_race"] = await _signouts()
 
-            # 4. Nothing is written any more: signed out.
-            r["after"] = _cap(await ac.post(signout_url, json=_SIGNOUT_BODY))
+            # 4. Nothing is written any more: signed out, each gate acknowledged in its dialog
+            # with the fingerprint of the concerns its refusal listed (TRACE-19).
+            r["after"] = _cap(await _harness.sign_out(ac, signout_url, _SIGNOUT_BODY))
             out["counts"]["after"] = await _signouts()
     finally:
         release_dataset.set()

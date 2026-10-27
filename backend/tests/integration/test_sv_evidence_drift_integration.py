@@ -37,6 +37,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -417,7 +418,9 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                     await rss.sign_out_report(s, family_id=label, user=user)
                 await s.rollback()
             assert refused.value.status_code == 409
-            assert "structural-variant or CNV" in refused.value.detail
+            refusal: Any = refused.value.detail
+            assert refusal["gate"] == "evidence_drift"
+            assert "structural-variant or CNV" in refusal["message"]
             async with sm() as s:
                 assert await _count(s, "report_signouts") == 2
                 assert await _count(s, "clinical_audit_events") == events_before
@@ -428,10 +431,16 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 await s.rollback()
             assert no_reason.value.status_code == 422
 
-            # (d) Acknowledged with a reason: frozen with the drift, and audited.
+            # (d) Acknowledged with a reason and the fingerprint of the drift the refusal listed,
+            # as its dialog sends it (TRACE-19): frozen with the drift, and audited.
             async with sm() as s:
                 v3 = await rss.sign_out_report(
-                    s, family_id=label, user=user, acknowledge_drift=True, drift_acknowledgement_reason=_REASON
+                    s,
+                    family_id=label,
+                    user=user,
+                    acknowledge_drift=True,
+                    drift_acknowledgement_reason=_REASON,
+                    drift_concerns_fingerprint=refusal["concerns_fingerprint"],
                 )
             assert v3["version"] == 3 and v3["drift_acknowledged"] is True
             async with sm() as s:
@@ -451,6 +460,7 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
                 after = json.loads(after) if isinstance(after, str) else after
                 assert (after["drifted_count"], after["structural_drifted_count"]) == (1, 1)
                 assert after["drift_acknowledgement_reason"] == _REASON
+                assert after["drift_concerns_fingerprint"] == refusal["concerns_fingerprint"]
                 check = await rss.compare_report_with_latest_signout(s, family_id=label, user=user)
                 assert check["version"] == 3 and check["matches"] is True, check
 

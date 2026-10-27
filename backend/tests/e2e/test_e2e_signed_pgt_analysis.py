@@ -189,7 +189,7 @@ async def _collect(root: Path, family_id: str) -> dict:
         family = f"/api/families/{family_id}"
         r["family"] = _cap(await ac.get(family))
         r["analysis"] = _cap(await ac.get(f"{family}/pgt-analysis"))
-        r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
         r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
         r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
@@ -209,7 +209,7 @@ async def _collect(root: Path, family_id: str) -> dict:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _old_build)
         try:
-            r["old_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+            r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         old_version = (r["old_signout"]["json"] or {}).get("version")
@@ -233,7 +233,7 @@ async def _collect(root: Path, family_id: str) -> dict:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _pre_verdict_build)
         try:
-            r["pre_verdict_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+            r["pre_verdict_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         pre_verdict_version = (r["pre_verdict_signout"]["json"] or {}).get("version")

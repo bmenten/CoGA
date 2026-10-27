@@ -206,7 +206,7 @@ async def _deletion(family_id: str) -> dict[str, Any]:
         finally:
             mp.undo()
         await step("delete_fails", response)
-        await step("signout_marked", await ac.post(f"/api/families/{family_id}/report/sign-out", json=_OTHER_GATES))
+        await step("signout_marked", await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES))
         page = await ac.get(f"/api/families/{family_id}")
         out["family_page"] = {"status": page.status_code, "json": page.json()}
 

@@ -140,7 +140,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         # The depth check these tracks feed.
         r["mtdna"] = _cap(await ac.get(f"{family}/mitochondrial-dna"))
 
-        r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
         r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
         r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
@@ -155,7 +155,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             )
         )
         r["check_after_upload"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
-        r["signout_after_upload"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["signout_after_upload"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout_after_upload"]["json"] or {}).get("version")
         r["detail_after_upload"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
 
@@ -170,7 +170,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _old_build)
         try:
-            r["old_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+            r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         version = (r["old_signout"]["json"] or {}).get("version")

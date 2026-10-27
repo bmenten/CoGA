@@ -134,20 +134,31 @@ class ClinicalAuditOut(BaseModel):
     events: List[ClinicalAuditEventOut] = Field(default_factory=list)
 
 
+# The fingerprint of the concerns a gate's refusal listed: a SHA-256, in lower-case hex.
+_CONCERNS_FINGERPRINT = r"^[0-9a-f]{64}$"
+
+
 class ReportSignoutRequest(BaseModel):
     """Sign out the current report.
 
     Evidence drift, a failing sample-integrity QC and an incomplete import (a family
     package import that partly failed) must each be explicitly acknowledged, and each
-    acknowledgement requires a reason.
+    acknowledgement requires a reason and the fingerprint of the concerns it covers: the
+    ``concerns_fingerprint`` of the 409 that listed them (TRACE-19). A sign-out whose
+    concerns are no longer those is refused with them as they are now.
     """
 
     acknowledge_drift: bool = False
     drift_acknowledgement_reason: Optional[str] = None
+    drift_concerns_fingerprint: Optional[str] = Field(default=None, pattern=_CONCERNS_FINGERPRINT)
     acknowledge_qc: bool = False
     qc_acknowledgement_reason: Optional[str] = None
+    qc_concerns_fingerprint: Optional[str] = Field(default=None, pattern=_CONCERNS_FINGERPRINT)
     acknowledge_import_incomplete: bool = False
     import_incomplete_acknowledgement_reason: Optional[str] = None
+    import_incomplete_concerns_fingerprint: Optional[str] = Field(
+        default=None, pattern=_CONCERNS_FINGERPRINT
+    )
 
 
 class ReportSnapshotGapOut(BaseModel):

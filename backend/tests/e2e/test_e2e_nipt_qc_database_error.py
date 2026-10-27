@@ -77,7 +77,7 @@ async def _collect(root: Path, family_id: str) -> dict:
         try:
             r["qc"] = _cap(await ac.get(f"{family}/qc/sample-integrity"))
             r["refused"] = _cap(await ac.post(f"{family}/report/sign-out", json={}))
-            r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=ACKNOWLEDGED))
+            r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", ACKNOWLEDGED))
         finally:
             mp.undo()
         version = (r["signout"]["json"] or {}).get("version")
@@ -87,7 +87,7 @@ async def _collect(root: Path, family_id: str) -> dict:
         )
         r["audit"] = _cap(await ac.get(f"{family}/clinical-audit", params={"limit": 50}))
         # The list readable again: the NIPT analysis runs, and the record holds its results.
-        r["readable_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=ACKNOWLEDGED))
+        r["readable_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", ACKNOWLEDGED))
     return out
 
 

@@ -347,10 +347,20 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
                     await rss.sign_out_report(s, family_id=label, user=user)
                 await s.rollback()
             assert refused.value.status_code == 409
-            assert "1 classification(s) have evidence" in refused.value.detail
+            refusal: Any = refused.value.detail
+            assert "1 classification(s) have evidence" in refusal["message"]
+            # The refusal lists the classification it counts, with what moved, as the dialog
+            # shows it; the acknowledgement carries their fingerprint (TRACE-19).
+            [listed] = refusal["drifted"]
+            assert (listed["variant_id"], listed["changed"]) == (_CLASSIFIED, entry["changed"])
             async with sm() as s:
                 v1 = await rss.sign_out_report(
-                    s, family_id=label, user=user, acknowledge_drift=True, drift_acknowledgement_reason=_REASON
+                    s,
+                    family_id=label,
+                    user=user,
+                    acknowledge_drift=True,
+                    drift_acknowledgement_reason=_REASON,
+                    drift_concerns_fingerprint=refusal["concerns_fingerprint"],
                 )
             assert v1["version"] == 1 and v1["drift_acknowledged"] is True
             async with sm() as s:
@@ -711,10 +721,16 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
                     await rss.sign_out_report(s, family_id=label, user=user)
                 await s.rollback()
             assert refused.value.status_code == 409
-            assert "2 classification(s) have evidence" in refused.value.detail
+            refusal: Any = refused.value.detail
+            assert "2 classification(s) have evidence" in refusal["message"]
             async with sm() as s:
                 v1 = await rss.sign_out_report(
-                    s, family_id=label, user=user, acknowledge_drift=True, drift_acknowledgement_reason=_GENE8_REASON
+                    s,
+                    family_id=label,
+                    user=user,
+                    acknowledge_drift=True,
+                    drift_acknowledgement_reason=_GENE8_REASON,
+                    drift_concerns_fingerprint=refusal["concerns_fingerprint"],
                 )
             assert v1["version"] == 1 and v1["drift_acknowledged"] is True
             async with sm() as s:
