@@ -488,6 +488,7 @@ async def _insert_haplotype_rows(
     sample_contexts: dict[str, SampleMetadataContext],
     filename: str,
     metadata_json: str,
+    basis: dict[str, Any] | None = None,
 ) -> None:
     if not rows:
         return
@@ -501,6 +502,10 @@ async def _insert_haplotype_rows(
         sample_uuid = str(row["sample_id"])
         counts_by_sample[sample_uuid] = counts_by_sample.get(sample_uuid, 0) + 1
     metadata = json.loads(metadata_json)
+    if basis is not None:
+        # The pedigree the blocks were built for, which the PGT analysis compares with the
+        # current one before it calls an embryo from them (CLIN-66).
+        metadata = {**metadata, "pedigree_basis": basis}
     for sample_uuid, row_count in counts_by_sample.items():
         sample_context = sample_context_by_uuid.get(sample_uuid)
         if sample_context is None:
@@ -1213,6 +1218,7 @@ async def upload_family_small_variant_file(
             sample_contexts=sample_contexts,
             filename=file.filename or "",
             metadata_json=metadata_json,
+            basis=read.haplotype_blocks.basis() if read.haplotype_blocks is not None else None,
         )
         phase_corrections = (
             read.haplotype_blocks.phase_corrections if read.haplotype_blocks is not None else []

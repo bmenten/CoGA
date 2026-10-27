@@ -22,6 +22,7 @@ import type { ApiSmallVariantEvidence, ApiStructuralEvidence, CoverageContent, Q
 import type { PgtEmbryoQcFindingOut } from '../../lib/apiSchema.generated';
 import { coverageScale, coverageSourceLabel } from '../../lib/coverageSources';
 import {
+  BLOCKS_OUTDATED_WARNING,
   describeQcFindings,
   describeQcSides,
   formatQcRate,
@@ -567,6 +568,9 @@ export interface SignedPgtAnalysis {
   sources: SignedPgtSource[];
   blocksRead: number | null;
   blocksDigest: string | null;
+  /** The blocks were built for another pedigree or other sexes (CLIN-66); false in a record
+   * signed before the check. */
+  blocksOutdated: boolean;
   markersTruncated: boolean;
   recombinationFlank: number | null;
   /** Null: a record signed before CoGA checked each embryo's QC against thresholds. */
@@ -1444,6 +1448,7 @@ const parsePgtAnalysis = (value: Json): SignedPgtAnalysis => {
     })),
     blocksRead: number(inputs.blocks_read),
     blocksDigest: text(inputs.blocks_digest),
+    blocksOutdated: inputs.blocks_outdated === true,
     markersTruncated: inputs.markers_truncated === true,
     recombinationFlank: number(rules.recombination_flank),
     qcThresholds: parseQcThresholds(rules.qc_thresholds),
@@ -2301,6 +2306,7 @@ export const describeInherited = (inherited: SignedPgtInherited[]): string | nul
 /** Why an embryo's call is uninformative, in the words of the family page's warning. */
 export const describeNoCall = (embryo: SignedPgtEmbryo, analysis: SignedPgtAnalysis): string | null => {
   if (embryo.call !== 'uninformative') return null;
+  if (analysis.blocksOutdated) return BLOCKS_OUTDATED_WARNING;
   if (embryo.sexDependent) return sexUnknownWarning(embryo.sexDependent);
   if (embryo.roiNotCovered) {
     return 'This embryo’s haplotype does not cover the ROI on the parental side the call needs (missing data), so no call can be made.';

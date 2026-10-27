@@ -111,7 +111,7 @@ built-in reference file is recorded under its file name.
 | `repeat_expansions` | TRGT repeat calls per sample |
 | `sample_paraphase_results` | Paraphase copy-number and haplotype results per sample |
 | `nipt_artifact_variants` | the recurrent-artifact list for monogenic NIPT, per assembly and assay: entries added one by one, imported from the NIPT-M pipeline's recurrent table (as `curated`) or seeded from the cohort (`auto`) (see [monogenic-nipt.md](monogenic-nipt.md) and [data-import.md](data-import.md#the-nipt-artifact-list)) |
-| `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`, `target_coverage`), source and file, with its row count; the rows themselves are in ClickHouse |
+| `sample_interval_track_sources` | one row per sample, track type (`coverage`, `segments`, `apcad`, `apcad_pcf`, `haplotype`, `target_coverage`), source and file, with its row count; the rows themselves are in ClickHouse. A `haplotype` row's `metadata.pedigree_basis` holds what its blocks were built for besides the genotypes, the index couple, the couple's children in the file and the samples' sexes, which the PGT analysis compares with the pedigree (CLIN-66) |
 | `small_variant_reviews` | the classification, ACMG criteria, tags, notes and evidence snapshot of a small variant in a family |
 | `structural_variant_reviews` | the same for a structural variant or CNV, with the CNV ACMG points and the evidence snapshot of the CNV classification |
 | `small_variant_filter_presets`, `structural_variant_filter_presets` | saved filter sets, per user: a small-variant one is reusable in every family, a structural-variant one is for one family or all |

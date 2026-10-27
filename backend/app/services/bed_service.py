@@ -26,6 +26,7 @@ from .clickhouse_interval_tracks import (
     get_interval_track_presence_by_sample,
     get_interval_track_sources_by_sample,
     insert_interval_track_rows,
+    interval_track_rows_digest,
     upsert_interval_track_source,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
@@ -988,11 +989,13 @@ async def get_family_haplotypes_batch_response(
     )
 
 
-def _lineage_hash(context: FamilyMetadataContext) -> str:
+def _lineage_hash(context: FamilyMetadataContext, *, blocks: str | None = None) -> str:
     """Fingerprint of the inputs that determine the lineage colours: the pedigree
-    edges, each member's role and sex, the affected set, the parents' phase corrections and,
-    for a family with a relative of unknown degree, the ROI. If this changes, a stored
-    precompute is stale and must not be served."""
+    edges, each member's role and sex, the affected set, the parents' phase corrections,
+    for a family with a relative of unknown degree the ROI, and ``blocks``, the digest of the
+    stored haplotype blocks (``interval_track_rows_digest``). If this changes, a stored
+    precompute is stale and must not be served. Without the blocks a single-file re-upload,
+    which rewrites them, left the overview on the old ones until an edit (CLIN-66)."""
     pedigree = sorted(
         (
             str(r.get("relationship_type") or ""),
@@ -1022,6 +1025,8 @@ def _lineage_hash(context: FamilyMetadataContext) -> str:
     ):
         # A relative of unknown degree is read at the ROI, so moving it changes the colours.
         fingerprint["roi"] = list(context.roi)
+    if blocks is not None:
+        fingerprint["blocks"] = blocks
     if context.phase_corrections:
         # The parents' phase switches the blocks undid; a family without any keeps the
         # fingerprint it had.
@@ -1179,8 +1184,13 @@ async def precompute_family_haplotype_lineage(context: FamilyMetadataContext) ->
         if name is None:
             continue
         segments_by_name[name].append(_haplotype_segment(row))
+    # The blocks as read, before the lineage is computed from them: blocks written again
+    # meanwhile make the stored fingerprint stale (CLIN-66).
+    blocks = await interval_track_rows_digest(
+        context.assembly_name, family_uuid=context.family_uuid, track_type="haplotype"
+    )
     annotated = await _compute_genomewide_lineage(context, segments_by_name=segments_by_name)
-    lineage_rows = _lineage_interval_rows(context, annotated, lineage_hash=_lineage_hash(context))
+    lineage_rows = _lineage_interval_rows(context, annotated, lineage_hash=_lineage_hash(context, blocks=blocks))
     await delete_interval_tracks(
         context.assembly_name, family_uuid=context.family_uuid, track_type=LINEAGE_TRACK_TYPE
     )
@@ -1233,7 +1243,12 @@ async def _fetch_precomputed_lineage(
     stored_hash = await get_interval_track_lineage_hash(
         context.assembly_name, family_uuid=context.family_uuid, track_type=LINEAGE_TRACK_TYPE
     )
-    if not stored_hash or stored_hash != _lineage_hash(context):
+    if not stored_hash:
+        return None
+    blocks = await interval_track_rows_digest(
+        context.assembly_name, family_uuid=context.family_uuid, track_type="haplotype"
+    )
+    if stored_hash != _lineage_hash(context, blocks=blocks):
         return None
     rows = await fetch_interval_track_rows(
         context.assembly_name,

@@ -245,7 +245,8 @@ These warnings can sit next to the badge:
   switches in a parent](#phase-switches-in-a-parent)). Its tooltip says how many children switched and
   where.
 - **⚠ uninformative** — no call is made. Its tooltip says why: no disease haplotype could be resolved
-  at the ROI, or the embryo's own haplotype does not cover it.
+  at the ROI, the embryo's own haplotype does not cover it, or the haplotype blocks are outdated (see
+  [What the family needs](#what-the-family-needs)).
 - **⚠ sex unknown** — an X-linked recessive call depends on the embryo's sex, which is not recorded. Its
   tooltip gives the call for a son and for a daughter.
 
@@ -333,6 +334,13 @@ side, against the thresholds of [Phasing QC at the ROI](#phasing-qc-at-the-roi).
 - A **pedigree** with correct parentage, roles and sex, including the grandparents, who phase the
   parents and so anchor the disease haplotype. On chrX the blocks are made with the sexes recorded
   when the phased genotypes are imported (see [The blocks on chrX](#the-blocks-on-chrx)).
+- **Blocks built for the pedigree as it is.** The haplotype blocks are built when the phased genotypes
+  are imported, from the couple, the couple's children and each member's sex as the pedigree then
+  records them. If any of these changes afterwards, the blocks are outdated: the family page warns,
+  every embryo reads *Uninformative*, and a sign-out records why, until the phased genotypes are
+  imported again. A change of affected status does not outdate them, as the calls read it when they are
+  made; nor does a member added who is not in the phased file. Blocks imported before CoGA recorded what
+  they were built for count as outdated too.
 - The **affected and carrier status** of the members that define the disease haplotype.
 - The **inheritance model** and the **ROI**.
 

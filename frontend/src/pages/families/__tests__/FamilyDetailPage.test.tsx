@@ -714,7 +714,7 @@ describe('FamilyDetailPage', () => {
       qc_verdict: null,
       ...embryo,
     })),
-    inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false },
+    inputs: { haplotype_sources: [], blocks_read: 0, blocks_digest: null, markers_truncated: false, blocks_outdated: false },
     rules: {
       window_flank: 1_000_000,
       recombination_flank: 250_000,
@@ -783,6 +783,33 @@ describe('FamilyDetailPage', () => {
 
   // No data at the ROI is not an unaffected embryo. The embryo badge used to read
   // "Unaffected" for an embryo whose haplotype has no block over the ROI.
+  // CLIN-66: blocks built for another pedigree or other sexes: the page warns, and each embryo's
+  // uninformative call says why.
+  it('warns that the haplotype blocks are outdated and says so beside each embryo', async () => {
+    localStorage.setItem('role', 'viewer');
+    mockApiState.members = [
+      { sample_id: 'FATHER', role: 'father', affected: true, sex: 'male' },
+      { sample_id: 'E1', role: 'embryo', affected: false, sex: 'female' },
+    ];
+    const restore = renderWithAnalysis(
+      pgtAnalysis([{ sample: 'E1', call: 'uninformative' }], {
+        disease_haplotype_resolved: false,
+        disease_haplotypes: [],
+        inputs: { haplotype_sources: [], blocks_read: 4, blocks_digest: 'abc', markers_truncated: false, blocks_outdated: true },
+      }),
+    );
+    try {
+      const warning =
+        "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.";
+      expect(await screen.findByText(`⚠ ${warning}`)).toHaveClass('status-note--warning');
+      const e1 = await rowOf('E1');
+      expect(await within(e1).findByText('Uninformative')).toHaveClass('segregation-badge--uninformative');
+      expect(within(e1).getByRole('button', { name: warning })).toHaveTextContent('⚠ uninformative');
+    } finally {
+      restore();
+    }
+  });
+
   it('reads an embryo the backend calls uninformative for missing data as such, not unaffected', async () => {
     localStorage.setItem('role', 'viewer');
     mockApiState.members = [

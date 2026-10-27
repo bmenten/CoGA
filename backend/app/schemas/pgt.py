@@ -165,6 +165,10 @@ class PgtInputsOut(BaseModel):
     # (lineage tags included): what the calls were made from. None when none were read.
     blocks_read: int = 0
     blocks_digest: Optional[str] = None
+    # A member's blocks were built for another pedigree or other sexes than the family's now
+    # (CLIN-66, ``pgt_analysis.blocks_outdated``): every embryo is then uninformative until the
+    # phased genotypes are imported again.
+    blocks_outdated: bool = False
     # The ROI held more sites than the marker review reads, so no embryo QC was counted.
     markers_truncated: bool = False
 

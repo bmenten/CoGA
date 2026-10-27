@@ -33,6 +33,8 @@ export const useEmbryoSegregation = ({
   /** The calls at the ROI could not be loaded: no segregation is shown, and the
    * recombination and uninformative warnings are unknown, not absent (#607). */
   isError: boolean;
+  /** The stored haplotype blocks were built for another pedigree or other sexes (CLIN-66). */
+  blocksOutdated: boolean;
   retry: () => void;
 } => {
   const hasEmbryos = members.some((m) => String(m.role || '').toLowerCase() === 'embryo');
@@ -69,6 +71,7 @@ export const useEmbryoSegregation = ({
     byEmbryo,
     isLoading: isLoading && hasEmbryos && !!roi,
     isError: isError && hasEmbryos && !!roi,
+    blocksOutdated: Boolean(roi && data?.inputs?.blocks_outdated),
     retry: () => {
       void refetch();
     },

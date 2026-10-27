@@ -132,7 +132,11 @@ async def test_fetch_precomputed_returns_none_when_stale(monkeypatch):
     async def must_not_fetch(*args, **kwargs):
         raise AssertionError("rows must not be fetched when the hash is stale")
 
+    async def blocks_digest(*args, **kwargs):
+        return "2:7"
+
     monkeypatch.setattr(bed_service, "get_interval_track_lineage_hash", wrong_hash)
+    monkeypatch.setattr(bed_service, "interval_track_rows_digest", blocks_digest)
     monkeypatch.setattr(bed_service, "fetch_interval_track_rows", must_not_fetch)
     assert await bed_service._fetch_precomputed_lineage(_ctx()) is None
 
@@ -140,10 +144,16 @@ async def test_fetch_precomputed_returns_none_when_stale(monkeypatch):
 @pytest.mark.asyncio
 async def test_fetch_precomputed_parses_origin_when_hash_matches(monkeypatch):
     ctx = _ctx()
-    matching = bed_service._lineage_hash(ctx)
+    # Computed over the stored haplotype blocks as they are now (CLIN-66).
+    matching = bed_service._lineage_hash(ctx, blocks="2:7")
 
     async def good_hash(*args, **kwargs):
         return matching
+
+    async def blocks_digest(*args, **kwargs):
+        return "2:7"
+
+    monkeypatch.setattr(bed_service, "interval_track_rows_digest", blocks_digest)
 
     async def stored_rows(*args, **kwargs):
         return [

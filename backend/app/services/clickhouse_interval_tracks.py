@@ -643,6 +643,36 @@ async def count_interval_track_rows(
     return int(rows[0][0]) if rows else 0
 
 
+async def interval_track_rows_digest(
+    assembly_name: str,
+    *,
+    family_uuid: str,
+    track_type: str,
+) -> str:
+    """An order-independent digest of a family's ``track_type`` rows as stored: their number
+    and the XOR of each row's hash over its sample, place, haplotypes, metadata and load time.
+    It changes when a row is added, removed or written again, so the lineage precompute's
+    fingerprint covers the haplotype blocks it was computed from (CLIN-66)."""
+    await ensure_clickhouse_interval_table(assembly_name)
+    rows = await _execute(
+        f"""
+        SELECT
+            count(),
+            groupBitXor(
+                cityHash64(
+                    sample_guid, chrom, start, `end`, ifNull(hap1, ''), ifNull(hap2, ''),
+                    ifNull(ps, 0), metadata_json, toUnixTimestamp(uploaded_at)
+                )
+            )
+        FROM {_interval_table_name(assembly_name)}
+        WHERE family_guid = %(family_uuid)s AND track_type = %(track_type)s
+        """,
+        {"family_uuid": str(family_uuid), "track_type": track_type},
+    )
+    count, digest = rows[0] if rows else (0, 0)
+    return f"{int(count)}:{int(digest)}"
+
+
 def _track_source_filters(
     *,
     sample_uuid: str | None,

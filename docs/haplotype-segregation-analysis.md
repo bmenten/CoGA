@@ -200,6 +200,22 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   from its PAR1 homologs. The blocks are built at import with the sexes recorded then: a sex
   recorded or corrected later, and a family imported before this change, need the phased genotypes
   imported again (a package import also refreshes the genome-overview precompute).
+- **Outdated blocks** (CLIN-66): the loader keeps, beside each member's blocks, what they were built
+  for besides the genotypes: the index couple, which of the file's samples are the couple's children
+  and each sample's recorded sex (`haplotype_block_builder.haplotype_block_basis`, kept as
+  `pedigree_basis` in the haplotype track's `sample_interval_track_sources.metadata`). The PGT analysis
+  compares it with the family's pedigree (`pgt_analysis.blocks_outdated`): blocks built for another
+  couple, other children or other sexes, or without the record (loaded before 2026-10-27), are
+  outdated. The analysis then still reads them for the inputs' digest, but calls every embryo
+  *Uninformative* and says why (`inputs.blocks_outdated`), as the family page and the signed record
+  do, until the phased genotypes are imported again (the owner's choice of 2026-10-27). The affected
+  statuses are not part of it: the calls read them when they are made, and at import they only orient
+  the parents' labels. A member added who is not in the phased file changes nothing either.
+- **The genome overview's lineage precompute** is fingerprinted with a digest of the stored haplotype
+  blocks too (`clickhouse_interval_tracks.interval_track_rows_digest`, in `bed_service._lineage_hash`):
+  a single-file re-upload rewrites the blocks, and the precompute made before it is no longer served.
+  Before (CLIN-66) the fingerprint left the blocks out, and the overview showed the old ones until a
+  pedigree, member or ROI edit refreshed it.
 
 ## Known issues
 
