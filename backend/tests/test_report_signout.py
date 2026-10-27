@@ -4128,3 +4128,139 @@ def test_the_report_code_endpoint_serves_the_lookup(monkeypatch) -> None:
     )
     assert seen == {"code": "7kqm2x-2-4pht"}
     assert (out.family_id, out.version, out.report_code) == ("FAM1", 2, "7KQM2X-2-4PHT")
+
+
+# --- What a sign-out freezes as reported: a variant's own report tag or its pair's (TRACE-19)
+
+
+class _ReviewRowsSession:
+    """The review rows the report-tag selection answers, as Postgres would return them."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self.rows = rows
+        self.executed: list[tuple[str, dict]] = []
+
+    async def execute(self, statement, params=None):
+        self.executed.append((str(statement), params))
+        return _RowsResult(self.rows)
+
+
+class _RowsResult:
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+
+    def mappings(self) -> "_RowsResult":
+        return self
+
+    def all(self) -> list[dict]:
+        return list(self._rows)
+
+
+def _review_row(variant_id: str, *, tags=(), pair_tags=None, partner: str | None = None) -> dict:
+    """A small_variant_reviews row: the variant's own review and, with ``pair_tags``, the
+    compound-het pair review its row holds (each variant's row holds the pair's fields)."""
+    row = {
+        "variant_id": variant_id,
+        "acmg_class": None,
+        "acmg": None,
+        "tags": list(tags),
+        "note": None,
+        "acmg_evidence_snapshot": None,
+        "compound_het_group_id": None,
+        "compound_het_partner_variant_ids": [],
+        "compound_het_gene": None,
+        "compound_het_classification": None,
+        "compound_het_tags": [],
+        "compound_het_note": None,
+        "compound_het_phase_status": None,
+    }
+    if pair_tags is not None:
+        row.update(
+            compound_het_group_id="pair-1",
+            compound_het_partner_variant_ids=[partner],
+            compound_het_gene="GENE_RECESS",
+            compound_het_classification="likely_pathogenic_pair",
+            compound_het_tags=list(pair_tags),
+            compound_het_note="In trans in the index.",
+            compound_het_phase_status="unknown",
+        )
+    return row
+
+
+def test_the_reported_variants_are_read_by_the_review_tag_filters_rule() -> None:
+    # The live report and the NIPT page's "Show reported" list a variant whose own review or
+    # whose compound-het pair review holds the report tag (list_matching_small_variant_review_ids);
+    # the sign-out read the variant's own tag only, so a tag on the pair was listed and never
+    # frozen. Both conditions are bound, never spliced in.
+    session = _ReviewRowsSession([])
+    assert asyncio.run(rss._reported_reviews(session, "u1")) == []
+    [(sql, params)] = session.executed
+    where = " ".join(sql.split()).split("WHERE", 1)[1]
+    assert "compound_het_tags @> :report_tag" in where
+    assert "tags @> :report_tag" in where.replace("compound_het_tags @> :report_tag", "")
+    assert params == {"family_uuid": "u1", "report_tag": json.dumps(["report"])}
+
+
+def test_a_variant_reported_through_its_pair_is_frozen_with_the_pair_review() -> None:
+    rows = [
+        # Tagged on its own review: frozen as before, with no pair key.
+        _review_row("1-100-A-G", tags=["report"]),
+        # Tagged on its pair review only (the API sets such a tag): frozen with the pair review
+        # that reports it, so the record says why a variant whose own tags lack it is reported.
+        _review_row("1-3001-A-G", pair_tags=["report"], partner="1-10000-A-G"),
+        _review_row("1-10000-A-G", tags=["review"], pair_tags=["report"], partner="1-3001-A-G"),
+        # Tagged on its own review, in a pair that is not reported: no pair key.
+        _review_row("1-200-A-G", tags=["report"], pair_tags=["review"], partner="1-201-A-G"),
+    ]
+    reported = asyncio.run(rss._reported_reviews(_ReviewRowsSession(rows), "u1"))
+
+    by_id = {entry["variant_id"]: entry for entry in reported}
+    assert list(by_id) == ["1-100-A-G", "1-3001-A-G", "1-10000-A-G", "1-200-A-G"]
+    # A variant reported by its own tag keeps exactly the keys it was frozen with: the record of
+    # a family without a reported pair hashes as before.
+    assert by_id["1-100-A-G"] == {
+        "variant_id": "1-100-A-G",
+        "acmg_class": None,
+        "acmg": None,
+        "tags": ["report"],
+        "note": None,
+        "evidence_snapshot": None,
+    }
+    assert "compound_het" not in by_id["1-200-A-G"]
+    assert by_id["1-3001-A-G"]["tags"] == []
+    assert by_id["1-3001-A-G"]["compound_het"] == {
+        "partner_variant_ids": ["1-10000-A-G"],
+        "gene": "GENE_RECESS",
+        "classification": "likely_pathogenic_pair",
+        "tags": ["report"],
+        "note": "In trans in the index.",
+        "phase_status": "unknown",
+    }
+    assert by_id["1-10000-A-G"]["tags"] == ["review"]
+    assert by_id["1-10000-A-G"]["compound_het"]["partner_variant_ids"] == ["1-3001-A-G"]
+
+
+def test_a_variant_its_pair_reports_without_frozen_evidence_gates_like_any_other(monkeypatch) -> None:
+    # A reported variant whose classification froze no evidence cannot be drift-verified, so the
+    # drift gate asks for an acknowledgement (#332): a variant its pair reports as well.
+    _patch_common(monkeypatch, drifted_count=0)
+
+    async def _pair_reported(session, family_uuid):
+        return [
+            {
+                "variant_id": "1-3001-A-G",
+                "acmg_class": None,
+                "acmg": None,
+                "tags": [],
+                "note": None,
+                "evidence_snapshot": None,
+                "compound_het": {"partner_variant_ids": ["1-10000-A-G"], "tags": ["report"]},
+            }
+        ]
+
+    monkeypatch.setattr(rss, "_reported_reviews", _pair_reported)
+    snapshot = asyncio.run(rss.build_report_snapshot(_Session(), family_id="FAM1", user=_user()))
+    assert [entry["variant_id"] for entry in snapshot["reported_variants"]] == ["1-3001-A-G"]
+    assert snapshot["drift"]["drifted"] == [
+        {"variant_id": "1-3001-A-G", "acmg_class": None, "status": "no_snapshot"}
+    ]

@@ -92,6 +92,18 @@ def is_pgt_family(context: FamilyMetadataContext | Any) -> bool:
     return any(is_embryo(row) for row in getattr(context, "sample_rows", None) or [])
 
 
+async def embryo_has_haplotype_blocks(session: AsyncSession, context: FamilyMetadataContext) -> bool:
+    """Whether one of the family's embryos has haplotype blocks of its own: what each embryo
+    call reads (``family_pgt_analysis``), beside its parents' blocks.
+
+    A monogenic NIPT family's fetus is an embryo member too (the import reads a child of unknown
+    sex whose status is unknown or unaffected as one, and the NIPT trio takes it for the fetus),
+    but it has no sequencing column, so no blocks: its record holds no PGT section unless this
+    holds (TRACE-19, ``signed_record_sections.build_record_sections``)."""
+    embryos = {str(row.get("sample_id")) for row in context.sample_rows if is_embryo(row)}
+    return any(str(row["sample"]) in embryos for row in await haplotype_source_rows(session, context))
+
+
 def _text(value: Any) -> str | None:
     text_value = str(value).strip() if value is not None else ""
     return text_value or None

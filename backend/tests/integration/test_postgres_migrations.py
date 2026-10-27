@@ -27,6 +27,16 @@ the CI ``smoke`` job sets it.
   (revision 0007: a unique index, which replaces the chain's plain one), keeps every sign-out,
   a deleted family's too, and ends at the same fingerprint; one where a family ID already holds
   a version twice is refused with a message that names no family, and nothing changes.
+- A database at revision 0007 from before SEC-32 gets an import job's requester and a filter
+  preset's owner kept by the account's id (revision 0008): each job and preset linked to the
+  account its e-mail address or user name finds, a job of an address no account has linked to
+  none, a preset of a user name no account has removed; a deleted account's presets go with
+  it, its job stays linked to none, and a later start does not link it to the account that
+  took the address since. It ends at the same fingerprint.
+- A database at revision 0008 from before SEC-17 gets the event id on the request audit and the
+  UI-event log (revision 0009: a unique column, empty in the rows stored before), keeps every
+  row, and ends at the same fingerprint; the writers' INSERT stores an event's id once, and a
+  plain second INSERT of it is refused.
 - A ledger naming a revision this version does not have is refused, and nothing changes.
 - The restricted runtime role cannot run the migration; two instances that start together
   both come up, one after the other.
@@ -1175,3 +1185,277 @@ def test_a_database_where_a_family_id_holds_a_sign_out_version_twice_is_refused_
     assert "idx_report_signouts_chain" in indexes
     assert "uq_report_signouts_family_identifier_version" not in indexes
     assert ledger == ["0006"]
+
+
+# The import jobs and the filter presets as a database had them before SEC-32 (revision 0008):
+# a job's requester and a preset's owner kept only by an e-mail address and a user name.
+_BEFORE_0008 = (
+    "ALTER TABLE family_import_jobs DROP COLUMN requested_by_id",
+    "DROP INDEX idx_small_variant_filter_presets_unique",
+    "ALTER TABLE small_variant_filter_presets DROP COLUMN owner_id",
+    "CREATE UNIQUE INDEX idx_small_variant_filter_presets_unique ON small_variant_filter_presets "
+    "USING btree (owner, name)",
+    "DROP INDEX idx_structural_variant_filter_presets_unique",
+    "ALTER TABLE structural_variant_filter_presets DROP COLUMN owner_id",
+    "CREATE UNIQUE INDEX idx_structural_variant_filter_presets_unique ON structural_variant_filter_presets "
+    "USING btree (COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid), scope, owner, name)",
+)
+_SEC32_USER = "analyst-sec32@example.org"
+
+
+async def _sec32_records(conn: AsyncConnection) -> dict[str, list[tuple]]:
+    """The jobs and presets the SEC-32 test stores, each with the account it is kept by."""
+
+    queries = {
+        "jobs": (
+            "SELECT j.requested_by, u.email FROM family_import_jobs j "
+            "LEFT JOIN users u ON u.id = j.requested_by_id WHERE j.submitted_path LIKE '/sec32/%'"
+        ),
+        "small": (
+            "SELECT p.name, p.owner, u.email FROM small_variant_filter_presets p "
+            "JOIN users u ON u.id = p.owner_id WHERE p.name LIKE 'sec32 %'"
+        ),
+        "sv": (
+            "SELECT p.name, p.owner, u.email FROM structural_variant_filter_presets p "
+            "JOIN users u ON u.id = p.owner_id WHERE p.name LIKE 'sec32 %'"
+        ),
+    }
+    return {
+        name: sorted(tuple(row) for row in (await conn.execute(text(query))).all())
+        for name, query in queries.items()
+    }
+
+
+@_MODES
+def test_a_database_from_before_sec32_keeps_each_job_and_preset_by_its_account(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    from sqlalchemy.exc import DBAPIError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0007 from before SEC-32: a job and presets of an account,
+            # and a job and presets of an address and a user name no account has.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0007'"))
+                for statement in _BEFORE_0008:
+                    await conn.exec_driver_sql(statement)
+                account = (
+                    await conn.execute(
+                        text(
+                            "INSERT INTO users (username, hashed_password, role, email) "
+                            "VALUES (:n, '', 'admin', :n) RETURNING id::text"
+                        ),
+                        {"n": _SEC32_USER},
+                    )
+                ).scalar_one()
+                for requester in (_SEC32_USER, "gone-sec32@example.org"):
+                    await conn.execute(
+                        text(
+                            "INSERT INTO family_import_jobs (submitted_path, status, requested_by) "
+                            "VALUES (:p, 'completed', :r)"
+                        ),
+                        {"p": f"/sec32/{requester}", "r": requester},
+                    )
+                for owner, name in ((_SEC32_USER, "sec32 mine"), ("gone-sec32", "sec32 orphan")):
+                    await conn.execute(
+                        text("INSERT INTO small_variant_filter_presets (owner, name) VALUES (:o, :n)"),
+                        {"o": owner, "n": name},
+                    )
+                    await conn.execute(
+                        text(
+                            "INSERT INTO structural_variant_filter_presets (scope, owner, name) "
+                            "VALUES ('global', :o, :n)"
+                        ),
+                        {"o": owner, "n": name},
+                    )
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                kept = await _sec32_records(conn)
+            # A second preset of the account under the same name is refused, whatever owner
+            # name it is stored with: the account is its owner.
+            refused = ""
+            try:
+                async with engine.begin() as conn:
+                    await conn.execute(
+                        text(
+                            "INSERT INTO small_variant_filter_presets (owner, owner_id, name) "
+                            "VALUES ('another-name-sec32', CAST(:a AS uuid), 'sec32 mine')"
+                        ),
+                        {"a": account},
+                    )
+            except DBAPIError as exc:
+                refused = str(exc)
+            # The account is deleted, and another takes its address: the job keeps no requester,
+            # and a later start, which re-applies the baselines until the RC, gives it none.
+            async with engine.begin() as conn:
+                await conn.execute(text("DELETE FROM users WHERE id = CAST(:a AS uuid)"), {"a": account})
+                await conn.execute(
+                    text(
+                        "INSERT INTO users (username, hashed_password, role, email) "
+                        "VALUES ('successor-sec32', '', 'viewer', :n)"
+                    ),
+                    {"n": _SEC32_USER},
+                )
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            async with engine.connect() as conn:
+                after_deletion = await _sec32_records(conn)
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, kept, refused, after_deletion, fingerprints
+
+    revision, kept, refused, after_deletion, (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0007", head_revision())
+    # Each job is kept, linked to the account its address found; one whose address no account
+    # has is linked to none (it cannot run, and only an administrator sees it).
+    assert kept["jobs"] == [(_SEC32_USER, _SEC32_USER), ("gone-sec32@example.org", None)]
+    # A preset is kept by the account its user name found, with the name it was stored with;
+    # one whose user name no account has would be nobody's, and is removed.
+    assert kept["small"] == [("sec32 mine", _SEC32_USER, _SEC32_USER)]
+    assert kept["sv"] == [("sec32 mine", _SEC32_USER, _SEC32_USER)]
+    assert "idx_small_variant_filter_presets_unique" in refused
+    # The deleted account's presets went with it; its job stayed, linked to no account.
+    assert after_deletion == {
+        "jobs": [(_SEC32_USER, None), ("gone-sec32@example.org", None)],
+        "small": [],
+        "sv": [],
+    }
+    # The schema is the baselines': the columns, their foreign keys and the unique indexes.
+    assert actual == expected, _differences(expected, actual)
+
+
+# The two event logs as a database had them before SEC-17 (revision 0009): no event id.
+_BEFORE_0009 = (
+    "ALTER TABLE audit_log_events DROP COLUMN event_id",
+    "ALTER TABLE ui_events DROP COLUMN event_id",
+)
+_EVENT_LOGS = ("audit_log_events", "ui_events")
+
+
+async def _event_log_rows(conn: AsyncConnection) -> dict[str, list[str]]:
+    """Each event log's rows, every column but the event id, as JSON text."""
+
+    rows = {}
+    for table in _EVENT_LOGS:
+        result = await conn.execute(text(f"SELECT (to_jsonb(t) - 'event_id')::text FROM {table} t"))
+        rows[table] = sorted(str(row[0]) for row in result.all())
+    return rows
+
+
+async def _count(conn: AsyncConnection, table: str, where: str, parameters: dict | None = None) -> int:
+    assert table in _EVENT_LOGS  # a name from this file, safe to write into the statement
+    return int((await conn.execute(text(f"SELECT count(*) FROM {table} WHERE {where}"), parameters or {})).scalar_one())
+
+
+# A row of each event log naming an event id, as the writers insert it.
+_INSERT_WITH_EVENT_ID = {
+    "audit_log_events": (
+        "INSERT INTO audit_log_events (event_id, method, path, status_code) "
+        "VALUES (CAST(:e AS uuid), 'GET', '/api/stored-after-sec17', 200)"
+    ),
+    "ui_events": (
+        "INSERT INTO ui_events (event_id, event_type, label) "
+        "VALUES (CAST(:e AS uuid), 'click', 'stored-after-sec17')"
+    ),
+}
+
+
+@_MODES
+def test_a_database_from_before_sec17_gets_the_event_ids_with_its_rows_kept(
+    monkeypatch, reapply_baselines: bool
+) -> None:
+    import uuid
+
+    from sqlalchemy.exc import DBAPIError
+
+    from backend.app.core import postgres_migrations
+    from backend.app.core.postgres_migrations import apply_postgres_schema, head_revision
+
+    monkeypatch.setattr(postgres_migrations, "REAPPLY_BASELINES_ON_EVERY_RUN", reapply_baselines)
+    event_id = str(uuid.uuid4())
+
+    async def _body(database: str):
+        engine = _engine(database)
+        try:
+            async with engine.begin() as conn:
+                await apply_postgres_schema(conn)
+            # A database at revision 0008 from before SEC-17, with a request row and a UI event.
+            async with engine.begin() as conn:
+                await conn.execute(text("UPDATE alembic_version SET version_num = '0008'"))
+                for statement in _BEFORE_0009:
+                    await conn.exec_driver_sql(statement)
+                await conn.execute(
+                    text(
+                        "INSERT INTO audit_log_events (method, path, status_code) "
+                        "VALUES ('GET', '/api/stored-before-sec17', 200)"
+                    )
+                )
+                await conn.execute(text("INSERT INTO ui_events (event_type, label) VALUES ('click', 'stored-before-sec17')"))
+                before = await _event_log_rows(conn)
+            contents = await _table_contents(database)
+            async with engine.begin() as conn:
+                revision = await apply_postgres_schema(conn)
+            kept = await _table_contents(database)
+            async with engine.connect() as conn:
+                after = await _event_log_rows(conn)
+                without_id = [await _count(conn, table, "event_id IS NULL") for table in _EVENT_LOGS]
+            # The writers' INSERT, twice, stores the event once; a plain second INSERT is refused.
+            refused = {}
+            for table, insert in _INSERT_WITH_EVENT_ID.items():
+                for _write in range(2):
+                    async with engine.begin() as conn:
+                        await conn.execute(text(f"{insert} ON CONFLICT (event_id) DO NOTHING"), {"e": event_id})
+                try:
+                    async with engine.begin() as conn:
+                        await conn.execute(text(insert), {"e": event_id})
+                except DBAPIError as exc:
+                    refused[table] = str(exc)
+            async with engine.connect() as conn:
+                stored_once = [
+                    await _count(conn, table, "event_id = CAST(:e AS uuid)", {"e": event_id}) for table in _EVENT_LOGS
+                ]
+        finally:
+            await engine.dispose()
+        reference = await _create_database()
+        try:
+            await _apply_baseline_files(reference)
+            fingerprints = await _fingerprint(reference), await _fingerprint(database)
+        finally:
+            await _drop_database(reference)
+        return revision, (before, after, without_id), (contents, kept), refused, stored_once, fingerprints
+
+    revision, (before, after, without_id), (contents, kept), refused, stored_once, (expected, actual) = _run(_body)
+
+    assert (revision.before, revision.after) == ("0008", head_revision())
+    # The rows stored before keep every value, without an event id (the tables are append-only,
+    # so nothing fills it in); every other table is as it was.
+    assert after == before
+    assert [len(before[table]) for table in _EVENT_LOGS] == without_id
+    assert all(count >= 1 for count in without_id)
+    changed = {"alembic_version", *_EVENT_LOGS}
+    assert {table: rows for table, rows in kept.items() if table not in changed} == {
+        table: rows for table, rows in contents.items() if table not in changed
+    }
+    # One row per event id: the writers' INSERT stores it once, and a plain one is refused.
+    assert stored_once == [1, 1]
+    assert "audit_log_events_event_id_key" in refused["audit_log_events"]
+    assert "ui_events_event_id_key" in refused["ui_events"]
+    # The schema is the baselines': the column with its type and its unique constraint.
+    assert actual == expected, _differences(expected, actual)

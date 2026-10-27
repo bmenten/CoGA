@@ -34,6 +34,7 @@ import {
   describeBreachedMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
+  describeCompoundHetPair,
   describeCoverageContent,
   describeCoverageFiles,
   describeCoverageTracks,
@@ -70,6 +71,7 @@ import {
   geneReferenceSourceLabel,
   isNiptRecord,
   NIPT_NOT_CLASSIFIED_REASONS,
+  notComparedSentence,
   paraphaseStatusWords,
   parseSignedReport,
   qcStatusLabel,
@@ -376,6 +378,16 @@ const SmallVariantCard: React.FC<{ variant: SignedSmallVariant } & CardContext> 
           <div className="report-section">
             <h3 className="report-subheading">Analyst note</h3>
             <p className="report-paragraph report-note">{variant.note}</p>
+          </div>
+        ) : null}
+        {variant.compoundHet ? (
+          // The pair review whose report tag reports the variant, whatever its own tags (TRACE-19).
+          <div className="report-section">
+            <h3 className="report-subheading">Compound-het pair</h3>
+            <p className="report-paragraph">{describeCompoundHetPair(variant.compoundHet)}</p>
+            {variant.compoundHet.note ? (
+              <p className="report-paragraph report-note">{variant.compoundHet.note}</p>
+            ) : null}
           </div>
         ) : null}
         <p className="report-variant-locus">Tags: {variant.tags.join(', ') || 'none'}</p>
@@ -1203,6 +1215,9 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           : check.data.matches
             ? 'matches'
             : 'changed';
+  // What the check could not compare, this version not holding it: named beside "still matches"
+  // and beside what changed, so neither reads as covering it (TRACE-19).
+  const notCompared = notComparedSentence(check.data?.not_compared, 'this version');
   // Heads the printout whenever it is not simply the latest, intact signed record.
   const printNotice =
     [
@@ -1378,14 +1393,17 @@ const SignedFamilyReport: React.FC<{ familyId: string; version: number; projectI
           >
             {checkState === 'checking' ? 'Checking the family’s current data against this version…' : null}
             {checkState === 'matches'
-              ? 'The family’s current data still matches this signed version.'
+              ? notCompared
+                ? `The family’s current data still matches this signed version in everything it holds. ${notCompared}`
+                : 'The family’s current data still matches this signed version.'
               : null}
             {checkState === 'changed' ? (
               <>
                 <strong>⚠ Changed since this version was signed:</strong>{' '}
-                {describeReportSections(check.data?.changed_sections ?? [])}. This page still shows
-                version {version} as it was signed. Open the live report to review the changes, and
-                sign out again to issue a new version.
+                {describeReportSections(check.data?.changed_sections ?? [])}.{' '}
+                {notCompared ? `${notCompared} ` : null}This page still shows version {version} as
+                it was signed. Open the live report to review the changes, and sign out again to
+                issue a new version.
               </>
             ) : null}
             {checkState === 'unverified'

@@ -114,9 +114,10 @@ On start the backend (`backend/app/main.py`):
 3. seeds the built-in repeat catalogue; makes sure GRCh38 exists, with its cytobands (from
    UCSC) and gene loci (from GENCODE, or the UCSC gene track when GENCODE cannot be fetched);
    imports T2T-CHM13 as well when `REFERENCE_BOOTSTRAP_T2T` is set; loads the HPO ontology if
-   none is loaded; seeds the built-in reference tracks (clinical CNVs, segmental
-   duplications); and queues the first gene-reference sync when the local dbNSFP gene file is
-   present and no gene information is cached;
+   none is loaded; loads GRCh38's segmental duplications from the shipped file (into a GRCh38
+   assembly only; no clinical CNVs, which the knowledgebase rebuild loads); and queues the
+   first gene-reference sync when the local dbNSFP gene file is present and no gene
+   information is cached;
 4. waits for ClickHouse and creates the database; refuses to start when a variant table's sort
    key leaves the callset out, or the small-variant calls table lacks the per-call FILTER and
    metrics columns ([Storage identity](#storage-identity)); drops the backup tables of

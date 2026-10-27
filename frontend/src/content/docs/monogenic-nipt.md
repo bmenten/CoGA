@@ -404,7 +404,8 @@ which closes and freezes the analysis into the family's signed record (the medic
 patient report happens in the EPD, which refers to the record by its report code). It is the family
 sign-out, with its checks and report code: one record per family, whether it is signed out here or from
 the family report. Once signed, the button reads **Amend sign-out**, and the page names the latest
-signed version, its report code, and whether the family's data still matches it.
+signed version, its report code, and whether the family's data still matches it, naming what it could
+not compare because that version does not hold it (*Not in signed version 2, so not compared: …*).
 
 For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out: the
 fetal fraction and the quality checks with their verdicts, the coverage of the capture targets, the
@@ -421,8 +422,10 @@ the *report* tag is not frozen with its classification.
 **Show reported (N)**, in the page's *Sign-out* section, lists what a sign-out would freeze: the
 variants tagged *report*, with every other filter cleared (the inheritance view, the categories and
 the minimum confidence too), each as this analysis classifies it. N counts the variants tagged
-*report*. A tagged variant the analysis does not classify is in no list: not in the family's NIPT
-data, on the assay's artifact list, or without a call in the plasma. The page names it above the
+*report*. A variant counts as tagged when its own review or its compound-het pair review holds the
+tag, here, in the live report and in what the sign-out freezes alike, and so in the recessive fetal
+risk the record computes from them. A tagged variant the analysis does not classify is in no list:
+not in the family's NIPT data, on the assay's artifact list, or without a call in the plasma. The page names it above the
 list with that reason, as the signed record does. The review tags are a filter like any other, as
 on the small-variant page (*Review and curation*, its tags only; *Exclude* for the excluded tags),
 so they also narrow a view: the reported de novo candidates, for one.

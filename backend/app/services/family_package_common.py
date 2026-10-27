@@ -759,7 +759,7 @@ def _dataset_summary_list(value: Any) -> list[FamilyImportDatasetSummary]:
     return [FamilyImportDatasetSummary.model_validate(item) for item in _json_list(value)]
 
 
-def _model_list_json(models: list[BaseModel]) -> str:
+def _model_list_json(models: Iterable[BaseModel]) -> str:
     return json.dumps([model.model_dump(mode="json") for model in models])
 
 

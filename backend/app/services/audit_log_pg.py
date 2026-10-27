@@ -1,24 +1,40 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import json
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.pg_storable import ESCAPED_KEY, storable_columns
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import AuditLogEventOut, AuditLogPageOut
-from .event_pipeline import enqueue_event, write_event_batch_with_retry, write_event_now
+from .event_pipeline import (
+    DELETED_USER_KEY,
+    enqueue_event,
+    new_event_id,
+    record_unlinked,
+    user_link_refused,
+    write_event_batch_with_retry,
+    write_event_now,
+)
 
 AUDIT_PIPELINE_NAME = "audit_log"
 
+# The foreign key by which a row names its user (04_traceability.sql).
+_USER_FOREIGN_KEY = "audit_log_events_user_id_fkey"
+
+# Written again after a commit whose outcome was unknown, an event is stored once: the INSERT
+# does nothing for an event id the table holds (SEC-17).
 _INSERT_AUDIT_LOG_SQL = text(
     """
     INSERT INTO audit_log_events (
+        event_id,
         user_id,
         user_email,
         user_role,
@@ -38,6 +54,7 @@ _INSERT_AUDIT_LOG_SQL = text(
         error
     )
     VALUES (
+        CAST(:event_id AS uuid),
         CAST(:user_id AS uuid),
         :user_email,
         :user_role,
@@ -56,6 +73,7 @@ _INSERT_AUDIT_LOG_SQL = text(
         CAST(:db_update AS jsonb),
         :error
     )
+    ON CONFLICT (event_id) DO NOTHING
     """
 )
 
@@ -83,6 +101,8 @@ class AuditLogEventPayload:
     user_id: str | None = None
     user_email: str | None = None
     user_role: str | None = None
+    # Given as the event is made, before it is queued: every write of the event carries it.
+    event_id: str = field(default_factory=new_event_id)
 
 
 def log_model_update(
@@ -108,13 +128,16 @@ def _to_jsonb_text(value: Any) -> str | None:
     return json.dumps(value, ensure_ascii=True)
 
 
-def _audit_log_insert_params(payload: AuditLogEventPayload) -> dict[str, Any]:
+def _audit_log_insert_params(
+    payload: AuditLogEventPayload, *, unlink_user: bool = False
+) -> dict[str, Any]:
     # Whatever the request carried, its row must be storable: a value Postgres refuses (a NUL
     # from a %00 in the path, \u0000 in an ignored body field) is escaped, and request_meta
     # names the columns where that happened. Otherwise the INSERT fails, and the request's
     # row never reaches the table.
     params, escaped = storable_columns(
         {
+            "event_id": payload.event_id,
             "user_id": payload.user_id,
             "user_email": payload.user_email,
             "user_role": payload.user_role,
@@ -136,25 +159,50 @@ def _audit_log_insert_params(payload: AuditLogEventPayload) -> dict[str, Any]:
     )
     if escaped:
         params["request_meta"] = {**params["request_meta"], ESCAPED_KEY: escaped}
+    if unlink_user:
+        # The user's account no longer exists (SEC-17): the row is stored without the link,
+        # and keeps the user's id in request_meta. user_email and user_role keep the actor.
+        params["request_meta"] = {**params["request_meta"], DELETED_USER_KEY: params["user_id"]}
+        params["user_id"] = None
     for column in ("request_body", "request_meta", "db_update"):
         params[column] = _to_jsonb_text(params[column])
     return params
 
 
-async def _write_audit_log_batch(payloads: list[AuditLogEventPayload]) -> None:
-    if not payloads:
-        return
+async def _insert_audit_log_rows(
+    payloads: list[AuditLogEventPayload], *, unlink_user: bool = False
+) -> None:
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
         try:
             await session.execute(
                 _INSERT_AUDIT_LOG_SQL,
-                [_audit_log_insert_params(payload) for payload in payloads],
+                [
+                    _audit_log_insert_params(payload, unlink_user=unlink_user)
+                    for payload in payloads
+                ],
             )
             await session.commit()
         except Exception:
             await session.rollback()
             raise
+
+
+async def _write_audit_log_batch(payloads: list[AuditLogEventPayload]) -> None:
+    if not payloads:
+        return
+    try:
+        await _insert_audit_log_rows(payloads)
+    except IntegrityError as exc:
+        # A row naming a user whose account was deleted while the row waited in the queue: the
+        # foreign key refuses it. Written alone, it is stored without the link (SEC-17). A
+        # batch is left to the worker, which writes its events one at a time after its last
+        # attempt (event_pipeline.write_event_batch_with_retry).
+        alone = len(payloads) == 1 and bool(payloads[0].user_id)
+        if not alone or not user_link_refused(exc, _USER_FOREIGN_KEY):
+            raise
+        await _insert_audit_log_rows(payloads, unlink_user=True)
+        record_unlinked(AUDIT_PIPELINE_NAME, describe_error(exc))
 
 
 def _drain_audit_log_queue(limit: int) -> list[AuditLogEventPayload]:

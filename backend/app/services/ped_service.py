@@ -9,7 +9,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid
 from ..schemas import ManualPedFamilyCreate, ManualPedMemberCreate, PedUploadResult
-from .clickhouse_variant_storage import delete_family_small_variants, delete_family_structural_variants
 from .family_identifiers import IDENTIFIER_RULE, identifier_problem, visible
 from .family_structure_audit import (
     FAMILY_CREATED,
@@ -437,18 +436,18 @@ async def _replace_existing_families(
     deletions: list[Any] | None = None,
 ) -> list[tuple[str, str]]:
     """Delete the stored families of these IDs (with ``overwrite``; else refuse, 409), in
-    the caller's transaction, and return their variants in ClickHouse, (assembly, family
-    uuid), for the caller to delete with ``_delete_replaced_family_variants`` once the rest
-    of the replacement is written, just before it commits. ClickHouse has no transactions:
+    the caller's transaction, and return their data in ClickHouse, (assembly, family uuid),
+    for the caller to delete with ``_delete_replaced_family_data`` once the rest of the
+    replacement is written, just before it commits. ClickHouse has no transactions:
     deleted here, the variants were gone when a check after this refused the upload, while
     the rollback brought the family back (SAFE-25).
 
     Under the family's variant-write locks, before its row is touched, each family is marked
-    for its small and structural variants (``FamilyDeletion``, added to ``deletions``,
-    SAFE-31): a commit that fails, or a process that stops, after their delete brings the
-    family back without them, and marked. The commit removes the family, and its mark with
-    it; a replacement that fails removes the mark, or leaves it listing what the deletes it
-    began may have left missing (``_end_replacement``).
+    for its small and structural variants and its interval tracks (``FamilyDeletion``, added
+    to ``deletions``, SAFE-31, SAFE-35): a commit that fails, or a process that stops, after
+    their delete brings the family back without them, and marked. The commit removes the
+    family, and its mark with it; a replacement that fails removes the mark, or leaves it
+    listing what the deletes it began may have left missing (``_end_replacement``).
 
     Before each family goes, the phenotypes it goes with are recorded as removed on its
     clinical audit trail, then its deletion (SEC-7), as made by ``user`` through ``via`` (a PED
@@ -478,6 +477,7 @@ async def _replace_existing_families(
     if deletions is not None:
         # Imported here: family_package_registration imports this module.
         from .family_package_registration import (
+            INTERVAL_TRACK_DATA,
             SMALL_VARIANT_DATA,
             STRUCTURAL_VARIANT_DATA,
             DataReach,
@@ -490,7 +490,11 @@ async def _replace_existing_families(
                     session,
                     family_uuid=family_uuid,
                     family_id=family_id,
-                    reaches=[DataReach(SMALL_VARIANT_DATA), DataReach(STRUCTURAL_VARIANT_DATA)],
+                    reaches=[
+                        DataReach(SMALL_VARIANT_DATA),
+                        DataReach(STRUCTURAL_VARIANT_DATA),
+                        DataReach(INTERVAL_TRACK_DATA),
+                    ],
                 )
             )
     replaced: list[tuple[str, str]] = []
@@ -524,26 +528,27 @@ async def _replace_existing_families(
     return replaced
 
 
-async def _delete_replaced_family_variants(
+async def _delete_replaced_family_data(
     replaced: list[tuple[str, str]] | None, deletions: list[Any] | None = None
 ) -> None:
-    """Delete the small variants and structural variants of the families a PED upload or a
-    manual family replaced (``_replace_existing_families``), last, after everything else of
-    the replacement is written and just before its commit: a check that refuses the upload
-    leaves them, with the family the rollback brings back. The variant-write locks taken
-    with the replacement are still held. Each delete is recorded on its family's
-    ``FamilyDeletion`` (``deletions``) as it begins (SAFE-31)."""
-    from .family_package_registration import SMALL_VARIANT_DATA, STRUCTURAL_VARIANT_DATA, DataReach
+    """Delete the ClickHouse data of the families a PED upload or a manual family replaced
+    (``_replace_existing_families``) -- their small variants, structural variants and
+    interval tracks, as a structure change that clears a family's data deletes them
+    (``family_structure_service._delete_family_clickhouse_data``) -- last, after everything
+    else of the replacement is written and just before its commit: a check that refuses the
+    upload leaves them, with the family the rollback brings back. The variant-write locks
+    taken with the replacement are still held. Each delete is recorded on its family's
+    ``FamilyDeletion`` (``deletions``) as it begins (SAFE-31).
+
+    The interval tracks used to stay in ClickHouse, under a family that was gone (SAFE-35).
+    Postgres's records of them (``sample_interval_track_sources``) go with the family's row,
+    which they reference ``ON DELETE CASCADE``."""
+    # Imported here: family_structure_service imports this module.
+    from .family_structure_service import _delete_family_clickhouse_data
 
     by_family = {deletion.family_uuid: deletion for deletion in deletions or ()}
     for assembly_name, family_uuid in replaced or ():
-        deletion = by_family.get(family_uuid)
-        if deletion is not None:
-            deletion.reach(DataReach(SMALL_VARIANT_DATA))
-        await delete_family_small_variants(assembly_name, family_uuid)
-        if deletion is not None:
-            deletion.reach(DataReach(STRUCTURAL_VARIANT_DATA))
-        await delete_family_structural_variants(assembly_name, family_uuid)
+        await _delete_family_clickhouse_data(family_uuid, [assembly_name], by_family.get(family_uuid))
 
 
 async def _end_replacement(session: AsyncSession, deletions: list[Any]) -> None:
@@ -1073,7 +1078,7 @@ async def _upload_ped_data(
                 actor=audit_actor(user),
             )
         )
-    await _delete_replaced_family_variants(replaced, deletions)
+    await _delete_replaced_family_data(replaced, deletions)
     await session.commit()
     return PedUploadResult(families=inserted)
 
@@ -1157,6 +1162,6 @@ async def _create_manual_family_data(
         created_by=user.id,
         actor=audit_actor(user),
     )
-    await _delete_replaced_family_variants(replaced, deletions)
+    await _delete_replaced_family_data(replaced, deletions)
     await session.commit()
     return PedUploadResult(families=[inserted])

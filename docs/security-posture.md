@@ -31,6 +31,14 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (below). A half configuration (a tenant without a client ID, a tenant that is no GUID such
   as `common`, a scope or the override without Azure AD) is refused at startup, in every
   environment.
+- ✅ **A user's own records stay with the account (SEC-32).** A later Microsoft sign-in follows
+  the token's e-mail address and user name, so nothing a user keeps as their own is found by
+  either. An import job keeps its requester by the account's id
+  (`family_import_jobs.requested_by_id`), and the worker runs the import as that account; a
+  user's filter presets are the account's (`owner_id`). Their address or user name changing
+  keeps both theirs, and an account that later signs in with an address or user name another
+  left behind gets neither. The address and the user name stay with the record as it was made,
+  shown with it.
 - ✅ **Without Microsoft sign-in** (development), JWT bearer tokens (HS256) that the
   password sign-in issues work for every account.
   See `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`). Roles are
@@ -255,13 +263,14 @@ about it. Closing that would take IDs scoped per project.
 cookies would add CSRF surface and rework the Microsoft sign-in and telemetry paths, so the
 damage an XSS could do is bounded instead by the app's CSP, which allows no inline or
 outside scripts (§4a), and by the token lifetime: about an hour for Microsoft's access
-token, which MSAL renews silently before each API request with its refresh token (kept in
-the tab's `sessionStorage`, gone when the tab closes), and 2 hours for a local token
-(`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks `is_active`, so deactivating a user
-ends their access at once. A leaked token of a still-active user stays valid until it
-expires; there is no revocation list, and CoGA's sign-out does not end the Microsoft session
-in the browser (the sign-in page offers *Sign out of Microsoft*). For a single-lab internal
-deployment this is an **accepted residual**.
+token, which MSAL renews silently with its refresh token (kept in the tab's
+`sessionStorage`, gone when the tab closes) before each request, the API client's and the
+IGV viewer's alike (IGV asks for the session's token at each of its requests, SEC-32), and
+2 hours for a local token (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks
+`is_active`, so deactivating a user ends their access at once. A leaked token of a
+still-active user stays valid until it expires; there is no revocation list, and CoGA's
+sign-out does not end the Microsoft session in the browser (the sign-in page offers *Sign out
+of Microsoft*). For a single-lab internal deployment this is an **accepted residual**.
 
 **Emergency (break-glass) administrator.** With Microsoft sign-in there is one local
 account, the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on
@@ -323,9 +332,9 @@ see the roster, though no patient data.
   its request runs, and a write that fails is logged and counted the same way, where it used to
   leave a warning the alert did not count. Neither the request nor a batch of UI events fails
   because of it: the UI-event endpoint still answers 202, so the browser does not resend the
-  events already stored. One event the database refuses for its own sake (a constraint, such as
-  a user deleted while the event waited, or a time its driver cannot encode) fails every attempt
-  of its batch's INSERT, and used to take the batch's other events, up to
+  events already stored. One event the database refuses for its own sake (a constraint, or a
+  value its driver cannot encode, such as a UI event's time before the year 1 in UTC) fails
+  every attempt of its batch's INSERT, and used to take the batch's other events, up to
   `AUDIT_LOG_BATCH_SIZE` of any user's, with it. Written one at a time, each once and without
   waiting, it now costs only itself. A write that cannot reach the database at all (no
   connection) ends that pass, and the events not yet written are recorded without being tried,
@@ -333,6 +342,18 @@ see the roster, though no patient data.
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
+- ✅ **Each event stored once, and a deleted user's row kept (SEC-17).** A commit whose answer
+  never reached the worker (the connection dropped as Postgres committed) looked like a failed
+  write, and the batch written again stored each of its rows twice. Each event now carries an
+  id of its own, `event_id`, given when the event is made, before it is queued; the writers'
+  INSERT does nothing for an id the table holds (`ON CONFLICT (event_id) DO NOTHING`, unique in
+  both tables), so every write of an event stores it once. A row naming a user whose account
+  was deleted while the row waited in the queue (operator SQL only) failed the foreign key on
+  `user_id` and was lost. Written alone, it is now stored without the link: the user's id is
+  kept in `request_meta._deleted_user_id` (`detail._deleted_user_id` for a UI event), and
+  `user_email` and `user_role` keep the actor. The log says so by the error's kind, without
+  values; the event is stored, so it is not counted as lost
+  ([database.md](database.md)).
 - ✅ **No request escapes the audit table.** Postgres refuses a NUL, half a surrogate pair,
   `NaN` and `Infinity` in TEXT or JSONB. A signed-in user could put one in a JSON field the
   endpoint ignores, or `%00` in the URL: the action was carried out, and its row, with every

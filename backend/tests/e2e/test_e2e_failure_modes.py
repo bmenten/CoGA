@@ -367,7 +367,7 @@ async def _collect(base: Path) -> dict:
                 folder_path=str(root),
                 project_id=project_id,
                 dry_run=False,
-                requested_by=admin.email,
+                requested_by=admin,
                 conflict_mode="cancel",
             )
             await s.commit()

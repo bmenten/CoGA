@@ -333,8 +333,12 @@ async def get_family_sample_integrity_qc(
     nipt_parent_sex_checks: list[SexCheck] = []
     if profile.run_paternity:
         try:
-            paternity_check, fetal_sex_check, category_qc_check, nipt_parent_sex_checks = (
-                await _nipt_checks(
+            # In a savepoint: the NIPT analysis reads the family and the assay's artifact list
+            # from Postgres, and a database error there aborts the transaction, which a
+            # sign-out reads on in. Rolled back to the savepoint, it reads like the step's
+            # other failures (the note below) and the sign-out goes on (ENG-19).
+            async with session.begin_nested():
+                nipt_checks = await _nipt_checks(
                     session,
                     family=family,
                     family_id=family_id,
@@ -344,7 +348,7 @@ async def get_family_sample_integrity_qc(
                     notes=service_notes,
                     shared_nipt=shared_nipt,
                 )
-            )
+            paternity_check, fetal_sex_check, category_qc_check, nipt_parent_sex_checks = nipt_checks
         except Exception as exc:  # noqa: BLE001 — degrade to a warning, never 500 the page
             # Named, not quoted: a failed query's text holds its parameters.
             logger.warning(

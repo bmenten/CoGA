@@ -546,15 +546,17 @@ async def get_family_track_availability_for_user(
         or bool(getattr(structural_filters, "gene", None))
         or sv_panel is not None
     )
-    sv_task = (
+    sv_present: set[str] | None = None
+    if sv_needs_python:
         # The panel narrows the read in SQL as well, as on the SV page.
-        _fetch_structural_variant_rows(context, structural_filters, panel=panel)
-        if sv_needs_python
-        else _structural_present_sample_names(context, structural_filters)
-    )
-    sv_result, small_presence = await asyncio.gather(sv_task, small_presence_task)
-    structural_records = sv_result if sv_needs_python else []
-    sv_present = None if sv_needs_python else sv_result
+        structural_records, small_presence = await asyncio.gather(
+            _fetch_structural_variant_rows(context, structural_filters, panel=panel), small_presence_task
+        )
+    else:
+        sv_present, small_presence = await asyncio.gather(
+            _structural_present_sample_names(context, structural_filters), small_presence_task
+        )
+        structural_records = []
 
     for sample_name, sample_availability in availability.items():
         sample_availability.coverage_sources = coverage_sources.get(sample_name, [])
