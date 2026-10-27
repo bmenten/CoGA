@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
+import { normalizeChrom } from '../../lib/chromosomes';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
 import type { WithoutNulls } from '../../lib/apiTypes';
@@ -99,9 +100,9 @@ const SvTrack: React.FC<Props> = ({
       .map((v) => {
         const typeKey = svTypeKey(v.type, v.copy_change);
         const row = SV_TYPE_ORDER.indexOf(typeKey);
-        const chr =
-          layout.offsets[v.chr] !== undefined ? v.chr : v.chr.replace(/^chr/i, '');
-        const offset = layout.offsets[chr];
+        // The layout names a chromosome as normalizeChrom does (`1`, `X`, `MT`); an SV comes under
+        // its VCF's name, with or without `chr`: `M` or `chrM` for the mitochondrion (mito_sv).
+        const offset = layout.offsets[normalizeChrom(v.chr)];
         if (offset === undefined) return null;
         const x1 = ((offset + v.start) / layout.total) * width;
         const x2 = ((offset + v.end) / layout.total) * width;

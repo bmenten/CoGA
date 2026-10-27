@@ -2,10 +2,10 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
+import { normalizeChrom } from '../../lib/chromosomes';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import type { GenomeLayout } from './genomeBinLayout';
-import { normalizeChrom } from '../../lib/chromosomes';
 import { RepeatLocusTooltip, describeRepeatLoci, repeatTrackColors } from './repeatExpansionHelpers';
 import { apiPath, raw } from '../../lib/apiPath';
 

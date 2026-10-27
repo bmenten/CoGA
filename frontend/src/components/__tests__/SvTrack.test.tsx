@@ -252,3 +252,32 @@ describe('SvTrack draws every SV the list shows (CLIN-54)', () => {
     expect(screen.getByText('S1: Het CN:1')).toBeInTheDocument();
   });
 });
+
+// Found while fixing the viewer's chrM names (#1023): the track looked an SV up in the layout
+// under its stored name, then without `chr`, so an SV stored as `chrM` or `M` never found the
+// layout's `MT`, and was neither drawn nor counted. The mitochondrial SV dataset (mito_sv) comes
+// as `M`: its VCF's chromosome name without `chr`.
+describe('SvTrack places an SV on the mitochondrion however it is stored', () => {
+  beforeEach(() => {
+    useQueryMock.mockReset();
+  });
+
+  // The genome overview's layout, which names the mitochondrion MT: chr1, then MT at 1 Mb.
+  const WITH_MT = {
+    offsets: { '1': 0, MT: 1_000_000 },
+    lengths: { '1': 1_000_000, MT: 16_569 },
+    total: 2_000_000,
+  };
+
+  it.each(['chrM', 'M', 'MT', 'chrMT'])('draws and counts an SV stored on %s', (chr) => {
+    serve({ data: page([sv('DEL', chr, 1_000)]) });
+    render(track({ layout: WITH_MT }));
+
+    expect(
+      screen.getByRole('img', { name: 'Structural variants of S1 in view: 1 (1 DEL)' }),
+    ).toBeInTheDocument();
+    // On the mitochondrion: 200 px over 2 Mb, MT:1,000 is at x 100.1, in the DEL row (the first).
+    fireEvent.mouseMove(screen.getByRole('img'), { clientX: 100.5, clientY: 3 });
+    expect(screen.getByText(`${chr}:1000-11000 DEL`)).toBeInTheDocument();
+  });
+});
