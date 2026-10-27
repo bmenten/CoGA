@@ -851,6 +851,16 @@ describe('FamilyNiptPage', () => {
           });
         }
         if (url === '/families/NIPT001/nipt/variants') {
+          // As the server does (nipt_service.get_family_nipt_variants): an inheritance that is
+          // not one of the list's views fails the whole search.
+          const inheritance = config?.params?.inheritance as string | undefined;
+          if (inheritance && !['de_novo', 'paternal_dominant', 'maternal_dominant', 'recessive_at_risk'].includes(inheritance)) {
+            return Promise.reject(
+              Object.assign(new Error('HTTP 400'), {
+                response: { status: 400, data: { detail: `Unsupported NIPT inheritance preset: ${inheritance}` } },
+              }),
+            );
+          }
           const tags = (config?.params?.review_tag as string[] | undefined) ?? [];
           const reportedView = tags.includes('report');
           return Promise.resolve({
@@ -977,6 +987,88 @@ describe('FamilyNiptPage', () => {
       expect(
         screen.getByText('The NIPT list does not apply this search’s classification and saved-notes filters.'),
       ).toBeInTheDocument();
+    });
+
+    // Found while fixing ENG-19 (#1009): a saved search made on the small-variant list with an
+    // inheritance mode the NIPT list does not offer (dominant, for one) sent it, and the server
+    // refused the whole search, while the mode still showed as an active filter.
+    it('sends no inheritance mode the NIPT list does not offer, shows no chip for it, and names it', async () => {
+      serve({
+        presets: [
+          {
+            _id: 'preset-dominant',
+            name: 'Reported, dominant',
+            filters: { review_tags: ['report'], inheritance: 'de_novo_dominant' },
+            sample_filters: {},
+            sample_templates: {},
+          },
+        ],
+      });
+      renderAt('/families/NIPT001/nipt');
+
+      await screen.findByRole('option', { name: 'Reported, dominant' });
+      fireEvent.change(screen.getByLabelText('Preset or saved search'), { target: { value: 'saved:preset-dominant' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+
+      await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
+      expect(variantSearches().at(-1)).not.toHaveProperty('inheritance');
+      // The search runs, with every filter the list applies.
+      expect((await screen.findAllByText('GENEDN')).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Unsupported NIPT inheritance preset/)).not.toBeInTheDocument();
+      // No chip or count for the mode: it is named once instead.
+      expect(screen.queryByRole('button', { name: /^Inheritance/ })).not.toBeInTheDocument();
+      expect(screen.getByText('Active filters 1')).toBeInTheDocument();
+      expect(
+        screen.getAllByText('The NIPT list does not apply this search’s “De novo / dominant” inheritance filter.'),
+      ).toHaveLength(1);
+    });
+
+    it('sends no inheritance mode a link carries that the NIPT list does not offer, and names it', async () => {
+      serve();
+      renderAt('/families/NIPT001/nipt?review_tag=report&inheritance=compound_het&prioritize=false');
+
+      expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
+      expect(variantSearches().length).toBeGreaterThan(0);
+      variantSearches().forEach((params) => expect(params).not.toHaveProperty('inheritance'));
+      expect(screen.queryByRole('button', { name: /^Inheritance/ })).not.toBeInTheDocument();
+      expect(
+        screen.getByText('The NIPT list does not apply this search’s “Compound heterozygous” inheritance filter.'),
+      ).toBeInTheDocument();
+    });
+
+    it('still sends and chips an inheritance view the NIPT list offers, from a saved search', async () => {
+      serve({
+        presets: [
+          {
+            _id: 'preset-paternal',
+            name: 'Reported, paternal',
+            filters: { review_tags: ['report'], inheritance: 'paternal_dominant' },
+            sample_filters: {},
+            sample_templates: {},
+          },
+        ],
+      });
+      renderAt('/families/NIPT001/nipt');
+
+      // The control offers the list's views, and only those.
+      const control = await screen.findByLabelText('NIPT inheritance preset');
+      expect(within(control).getAllByRole('option').map((option) => (option as HTMLOptionElement).value)).toEqual([
+        '',
+        'de_novo',
+        'paternal_dominant',
+        'maternal_dominant',
+        'recessive_at_risk',
+      ]);
+
+      fireEvent.change(screen.getByLabelText('Preset or saved search'), { target: { value: 'saved:preset-paternal' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+
+      await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
+      expect(variantSearches().at(-1)?.inheritance).toBe('paternal_dominant');
+      expect(await screen.findByRole('button', { name: 'Inheritance: Paternal, inherited by the fetus' })).toBeInTheDocument();
+      expect(screen.getByText('Active filters 2')).toBeInTheDocument();
+      expect(screen.getByLabelText('NIPT inheritance preset')).toHaveValue('paternal_dominant');
+      expect(screen.queryByText(/The NIPT list does not apply/)).not.toBeInTheDocument();
     });
 
     it('lists what a sign-out freezes with Show reported, and names what the analysis does not classify', async () => {

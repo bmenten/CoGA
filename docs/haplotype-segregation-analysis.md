@@ -144,7 +144,9 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   call. A member whose sex is not recorded, and every member on an assembly whose PAR bounds the
   table does not hold (T2T-CHM13), is read as two copies. The response serves the window's one-copy
   ranges (`hemizygous_x_ranges`), and the ROI marker review (`FamilyRoiMarkersPage.tsx`) shades its
-  Mendelian errors by the same rule (CLIN-60).
+  Mendelian errors by the same rule (CLIN-60). The review's rows and the haplotype track's marker
+  tooltip show a man's call there, and any call of one allele, as that one allele (`rowAlleles` in
+  `frontend/src/lib/phasedMarkers.ts`, ENG-19).
 - **Disease haplotype and embryo call** — the backend makes the embryo calls:
   `backend/app/services/pgt_embryo_calls.py` (`infer_disease_haplotypes`; `assess_member`, the call
   and, when it is uninformative or depends on the sex, why; `call_embryos`, each embryo's call with

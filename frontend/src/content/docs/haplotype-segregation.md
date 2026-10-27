@@ -313,7 +313,9 @@ Each member has a row per homolog. A call of one allele, such as a man's one X o
 pseudo-autosomal regions, shows its allele once (on the father's first row, on anyone else's second:
 a son's maternal row) and – on the other row. Where a man has one X, his call of the same allele
 twice is shown the same way, as the QC reads it. There, a son's Mendelian error says that his mother
-does not carry his allele, or that he has two different alleles: his father gave him a Y.
+does not carry his allele, or that he has two different alleles: his father gave him a Y. Hovering
+the marker dots in the chromosome view shows each member's call by the same rule, its two homologs
+side by side: a father's one X reads, for example, `A | –` and a son's `– | G`.
 
 ### Per-child checks
 
