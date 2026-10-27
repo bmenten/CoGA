@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestQueryClient } from '../../test/createTestQueryClient';
 import {
+  assemblyDisplayRank,
+  compareAssemblyNames,
   formatResolvedReferenceLabel,
+  grcBuild,
+  humanAssemblyOf,
   isT2tChm13,
   mapAssemblyToIgvGenome,
   useFamilyReference,
@@ -251,5 +255,67 @@ describe('mapAssemblyToIgvGenome', () => {
     expect(UNKNOWN_NAMES.map((name) => mapAssemblyToIgvGenome(name))).toEqual(UNKNOWN_NAMES.map(() => null));
     expect(mapAssemblyToIgvGenome('')).toBeNull();
     expect(mapAssemblyToIgvGenome(undefined)).toBeNull();
+  });
+});
+
+// GRCh38 and GRCh37 under their GRC and UCSC names, in any case and with or without a patch
+// suffix, as the backend reads them (`sex_chromosomes.grc_build`). The variant list's UCSC and
+// gnomAD links read them by a part of the name or version, so an assembly whose version merely
+// held "hg38" got GRCh38's links; the panel list put only the exact name GRCh38 first.
+const GRCH38_NAMES = ['GRCh38', 'hg38', 'GRCh38.p14', 'grch38', 'HG38', ' GRCh38 '];
+const GRCH37_NAMES = ['GRCh37', 'hg19', 'GRCh37.p13', 'HG19'];
+
+describe('grcBuild', () => {
+  it('reads GRCh38 and GRCh37 under each of their names, as the backend does', () => {
+    expect(GRCH38_NAMES.map((name) => grcBuild(name))).toEqual(GRCH38_NAMES.map(() => 'GRCh38'));
+    expect(GRCH37_NAMES.map((name) => grcBuild(name))).toEqual(GRCH37_NAMES.map(() => 'GRCh37'));
+  });
+
+  it('reads no build from another assembly, nor from a name that merely holds one', () => {
+    const others = [...T2T_NAMES, ...UNKNOWN_NAMES, 'GRCh37-lite', 'hg38-liftover', 'hg18', 'GRCm38', ''];
+    expect(others.map((name) => grcBuild(name))).toEqual(others.map(() => null));
+    expect(grcBuild(undefined)).toBeNull();
+    expect(grcBuild(null)).toBeNull();
+  });
+});
+
+describe('humanAssemblyOf', () => {
+  it('reads the assembly by its name, else by its version', () => {
+    expect(humanAssemblyOf('hg38', 'hg38')).toBe('GRCh38');
+    expect(humanAssemblyOf('GRCh37', 'p13')).toBe('GRCh37');
+    expect(humanAssemblyOf('T2T CHM13v2.0', 'hs1')).toBe('T2T-CHM13');
+    expect(humanAssemblyOf('Homo_sapiens_assembly38', 'hg38')).toBe('GRCh38');
+    expect(humanAssemblyOf(undefined, 'hs1')).toBe('T2T-CHM13');
+  });
+
+  it('lets the name decide over the version, and reads no part of either', () => {
+    expect(humanAssemblyOf('GRCh37', 'hg38')).toBe('GRCh37');
+    expect(humanAssemblyOf('T2T CHM13v2.0', 'GRCh38')).toBe('T2T-CHM13');
+    expect(humanAssemblyOf('CHM13v1.1', 'hg38-liftover')).toBeNull();
+    expect(humanAssemblyOf('GRCh38_no_alt', '')).toBeNull();
+    expect(humanAssemblyOf(undefined, undefined)).toBeNull();
+  });
+});
+
+describe('assemblyDisplayRank and compareAssemblyNames', () => {
+  it('rank GRCh38, then T2T-CHM13, then GRCh37 under any of their names, then the rest, as the backend does', () => {
+    expect(GRCH38_NAMES.map((name) => assemblyDisplayRank(name))).toEqual(GRCH38_NAMES.map(() => 0));
+    expect(T2T_NAMES.map((name) => assemblyDisplayRank(name))).toEqual(T2T_NAMES.map(() => 1));
+    expect(GRCH37_NAMES.map((name) => assemblyDisplayRank(name))).toEqual(GRCH37_NAMES.map(() => 2));
+    const others = [...UNKNOWN_NAMES, 'CHM13v1.1', 'GRCm39', ''];
+    expect(others.map((name) => assemblyDisplayRank(name))).toEqual(others.map(() => 9));
+  });
+
+  it('sort the rest by name, as the backend does', () => {
+    const names = ['GRCm39', 'hg19', 'CHM13v1.1', 'T2T CHM13v2.0', 'equCab3', 'hg38'];
+    // The backend sorts ties by the name's characters: upper case before lower case.
+    expect([...names].sort(compareAssemblyNames)).toEqual([
+      'hg38',
+      'T2T CHM13v2.0',
+      'hg19',
+      'CHM13v1.1',
+      'GRCm39',
+      'equCab3',
+    ]);
   });
 });
