@@ -6,7 +6,7 @@ import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
-import { isT2tChm13, useFamilyReference } from '../../lib/reference';
+import { humanAssemblyOf, useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
 import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
@@ -888,11 +888,12 @@ const GeneInfoPage: React.FC = () => {
     profile?.previous_symbols,
     clingenFacts?.previous_symbols,
   );
+  // Each by the assembly's name, else its version, read whole as the backend reads it.
   const hg38Location = profile
     ? formatAssemblyCoordinate(
         pickAssemblyLocation(
           profile.assembly_locations,
-          (location) => /grch38|hg38/i.test(formatAssemblyLabel(location)),
+          (location) => humanAssemblyOf(location.assembly_name, location.assembly_version) === 'GRCh38',
         ),
       )
     : '—';
@@ -900,7 +901,7 @@ const GeneInfoPage: React.FC = () => {
     ? formatAssemblyCoordinate(
         pickAssemblyLocation(
           profile.assembly_locations,
-          (location) => isT2tChm13(location.assembly_name) || isT2tChm13(location.assembly_version),
+          (location) => humanAssemblyOf(location.assembly_name, location.assembly_version) === 'T2T-CHM13',
         ),
       )
     : '—';

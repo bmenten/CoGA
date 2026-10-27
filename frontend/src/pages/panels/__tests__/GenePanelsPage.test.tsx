@@ -142,6 +142,49 @@ describe('GenePanelsPage', () => {
     ).toBeInTheDocument();
   });
 
+  // The backend lists a gene's assemblies and a panel's regions GRCh38, T2T-CHM13, GRCh37, then
+  // the rest (`assembly_display_rank`). The list put GRCh37 among the rest by name, and read
+  // only the exact name GRCh38 as GRCh38: a GRCh38 named hg38 came after the others.
+  it.each([
+    ['GRCh38', 'GRCh37'],
+    ['hg38', 'hg19'],
+    ['GRCh38.p14', 'GRCh37.p13'],
+  ])('lists the sizes in the backend’s order, %s, T2T, %s, then the rest', async (grch38, grch37) => {
+    localStorage.setItem('role', 'viewer');
+    (api.get as unknown as Mock).mockResolvedValueOnce({
+      data: [
+        {
+          _id: '4',
+          name: 'PanelD',
+          genes: ['BRCA1'],
+          gene_count: 1,
+          regions: [
+            { gene: 'BRCA1', chr: '17', start: 0, end: 40000, assembly: 'CHM13v1.1' },
+            { gene: 'BRCA1', chr: '17', start: 0, end: 30000, assembly: grch37 },
+            { gene: 'BRCA1', chr: '17', start: 0, end: 20000, assembly: 'T2T CHM13v2.0' },
+            { gene: 'BRCA1', chr: '17', start: 0, end: 10000, assembly: grch38 },
+          ],
+          created_by: 'admin-id',
+          created_at: '2026-04-28T08:00:00Z',
+          source: 'local',
+        },
+      ],
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <GenePanelsPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(
+      await screen.findByText(
+        `10.00 kb (${grch38}) · 20.00 kb (T2T CHM13v2.0) · 30.00 kb (${grch37}) · 40.00 kb (CHM13v1.1)`,
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('shows server message when creation returns warning', async () => {
     localStorage.setItem('role', 'admin');
     (api.post as unknown as Mock).mockResolvedValueOnce({

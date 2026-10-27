@@ -59,7 +59,9 @@ def grc_build(assembly_name: str | None) -> str | None:
     ``GRCh38`` for GRCh38 or UCSC's hg38, ``GRCh37`` for GRCh37 or hg19, in any case and with
     or without a patch suffix (``GRCh38.p14``); None for any other assembly (T2T-CHM13, another
     species). The PARs are looked up by it, and the startup loads the shipped GRCh38
-    segmental-duplication file only into an assembly it reads as GRCh38 (OPS-17)."""
+    segmental-duplication file only into an assembly it reads as GRCh38 (OPS-17). The gene
+    page's UCSC and gnomAD links and the order of a list of assemblies
+    (``assembly_display_rank``) read it too; the frontend reads the same rule (``grcBuild``)."""
     key = _PATCH_SUFFIX.sub("", str(assembly_name or "").strip().lower())
     return _ASSEMBLY_ALIASES.get(key)
 
@@ -73,6 +75,24 @@ def is_t2t_chm13(assembly_name: str | None) -> bool:
     the order of a gene's or a panel's assemblies read it, and the STRchive coordinates a
     repeat call is placed by; the frontend reads the same rule (``isT2tChm13``)."""
     return _T2T_CHM13_NAME.fullmatch(str(assembly_name or "").strip().lower()) is not None
+
+
+def assembly_display_rank(assembly_name: str | None) -> int:
+    """Where an assembly comes in a list of assemblies: GRCh38, T2T-CHM13, GRCh37, then the rest.
+
+    0 for GRCh38, 1 for T2T-CHM13, 2 for GRCh37, each under any name ``grc_build`` and
+    ``is_t2t_chm13`` read; 9 for any other assembly, which the callers sort by name. The gene
+    reference lists a gene's loci in this order, and the gene page opens on the first that has
+    the gene; a panel's regions follow it, and the frontend's list of panels gives their sizes
+    in it (``compareAssemblyNames``)."""
+    build = grc_build(assembly_name)
+    if build == "GRCh38":
+        return 0
+    if is_t2t_chm13(assembly_name):
+        return 1
+    if build == "GRCh37":
+        return 2
+    return 9
 
 
 def pseudoautosomal_regions(assembly_name: str | None) -> dict[SexChromosome, tuple[Interval, ...]] | None:
