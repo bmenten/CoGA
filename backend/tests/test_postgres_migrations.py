@@ -277,6 +277,43 @@ def test_revision_0008_runs_the_assay_baselines_own_upgrade_of_the_requesters_an
         module.selected_statements(lambda _name: [])
 
 
+def test_revision_0009_runs_the_traceability_baselines_own_upgrade_of_the_two_event_logs() -> None:
+    # SEC-17: each request-audit row and UI event carries the id its event was given before it
+    # was queued, unique, so that a write retried after a commit whose outcome was unknown
+    # stores the row once; brought to a database made before it by the statements
+    # 04_traceability.sql adds it with.
+    from backend.app.core.postgres_migrations import baseline_statements
+
+    module = migration_script().get_revision("0009").module
+    selected = module.selected_statements(baseline_statements)
+
+    statements = _statements("04_traceability.sql")
+    upgrades = [
+        statement
+        for statement in statements
+        if statement.startswith(("ALTER TABLE audit_log_events ", "ALTER TABLE ui_events "))
+    ]
+    assert selected == upgrades
+    assert [" ".join(statement.split()) for statement in selected] == [
+        "ALTER TABLE audit_log_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE",
+        "ALTER TABLE ui_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE",
+    ]
+    # The column a new database's CREATE TABLE gives, with the same type and uniqueness: empty
+    # in a row written before it, which the append-only tables keep as it is.
+    for table in ("audit_log_events", "ui_events"):
+        create = next(s for s in statements if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} "))
+        assert "event_id UUID UNIQUE" in " ".join(create.split())
+    # The writers' INSERT does nothing for an id the table holds.
+    from backend.app.services.audit_log_pg import _INSERT_AUDIT_LOG_SQL
+    from backend.app.services.ui_event_pg import _INSERT_UI_EVENT_SQL
+
+    for insert in (_INSERT_AUDIT_LOG_SQL, _INSERT_UI_EVENT_SQL):
+        assert " ".join(str(insert).split()).endswith("ON CONFLICT (event_id) DO NOTHING")
+    # A baseline that no longer holds them stops the revision.
+    with pytest.raises(RuntimeError, match="the baseline changed under it"):
+        module.selected_statements(lambda _name: [])
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

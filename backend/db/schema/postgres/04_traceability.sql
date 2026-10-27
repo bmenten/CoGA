@@ -35,8 +35,18 @@ CREATE TABLE IF NOT EXISTS audit_log_events (
     request_body JSONB,
     request_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
     db_update JSONB,
-    error TEXT
+    error TEXT,
+    -- The event's own id, which the backend gives it when it makes the event, before the event
+    -- is queued (SEC-17). Every write of the event carries it, and the writer's INSERT does
+    -- nothing for an id the table holds (ON CONFLICT (event_id) DO NOTHING): a batch written
+    -- again after a commit whose outcome was unknown stores each event once. Empty in a row
+    -- written before it.
+    event_id UUID UNIQUE
 );
+
+-- A database made before SEC-17 gains the column here; a no-op on a database the CREATE TABLE
+-- above made (the same column, with the same audit_log_events_event_id_key).
+ALTER TABLE audit_log_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE;
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_events_created_at
     ON audit_log_events (created_at DESC);
@@ -105,8 +115,15 @@ CREATE TABLE IF NOT EXISTS ui_events (
     session_id TEXT,
     detail JSONB NOT NULL DEFAULT '{}'::jsonb,
     remote_ip TEXT,
-    user_agent TEXT
+    user_agent TEXT,
+    -- The event's own id, as in audit_log_events (SEC-17): a batch written again after a
+    -- commit whose outcome was unknown stores each event once. Empty in a row written before it.
+    event_id UUID UNIQUE
 );
+
+-- A database made before SEC-17 gains the column here; a no-op on a database the CREATE TABLE
+-- above made (the same column, with the same ui_events_event_id_key).
+ALTER TABLE ui_events ADD COLUMN IF NOT EXISTS event_id UUID UNIQUE;
 
 CREATE INDEX IF NOT EXISTS idx_ui_events_created_at
     ON ui_events (created_at DESC);

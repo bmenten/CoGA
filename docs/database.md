@@ -200,8 +200,8 @@ was.
 | Table | Holds |
 | --- | --- |
 | `alembic_version` | the schema-migration ledger: one row, the revision the database is at. Only the migration step writes it, as the owner; `coga_app` may read it ([Schema Migrations](#schema-migrations)) |
-| `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped (below) |
-| `ui_events` | **append-only** log of UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped like `audit_log_events`; the browser's time of each, within bounds (below). Not hash-chained (below) |
+| `audit_log_events` | **append-only** log of every HTTP request: user, route, status, duration, client address, and the request body with sensitive fields masked; a value Postgres cannot store is escaped, and each event is stored once, under its `event_id` (below) |
+| `ui_events` | **append-only** log of UI interactions that never reach the backend (clicks, in-app navigation), masked before storage, escaped and stored once like `audit_log_events`; the browser's time of each, within bounds (below). Not hash-chained (below) |
 | `raw_import_files` | every source file an import used, with its size and SHA-256, for download and integrity checks (below); an uploaded coverage BED's `metadata.content` says what it was declared to hold (TRACE-9) |
 | `family_annotation_manifest` | per family, the upstream annotation versions (VEP, ClinVar, gnomAD, …) and where they came from (`manifest`, `vcf_header` or `manual`) |
 | `clinical_audit_events` | **append-only**, hash-chained log of clinical actions: classification, tags, notes, phenotype changes, compound-het pair reviews, pedigree changes, a family's deletion (its last event), the first search of a family that applies each gene-panel version (`panel_applied`) and sign-out, with before and after; one chain per family, and chains of their own for the NIPT artifact list (`system:nipt-artifacts`) and the repeat loci's counting-unit record (`system:repeat-loci`) |
@@ -247,6 +247,27 @@ in, sorted: in `request_meta` for `audit_log_events`, in `detail` for `ui_events
 client's own `_escaped` is dropped. A row without it is stored as the request sent it. The
 escape is not unique, since a request can send the characters `\x00` itself: `_escaped` says
 that a column holds an escape, not which one.
+
+**Each event stored once (SEC-17).** The worker that writes `audit_log_events` and `ui_events`
+writes a batch again after a failed attempt, and after its last attempt writes the batch's
+events one at a time (`services/event_pipeline.py`). A commit whose answer never reached the
+worker (the connection dropped as Postgres committed) looked like a failure, so each row of
+the batch was stored twice. Each event now carries an id of its own, `event_id` (a UUID,
+unique), which the backend gives it when it makes the event, before the event is queued. Every
+write of the event carries it, and the writers' INSERT does nothing for an id the table holds
+(`ON CONFLICT (event_id) DO NOTHING`; the INSERT and SELECT that `coga_app` holds on the table
+are all it needs, and the triggers that refuse UPDATE never fire). A row written before the
+column has none; the tables are append-only, so it keeps none. An event the pipeline could not
+store is logged with its payload, its `event_id` included: a row restored from that line with
+its `event_id` is stored once, also when the event did reach the table.
+
+**A row naming a deleted user (SEC-17).** A row whose user's account was deleted while the row
+waited in the queue (accounts are deleted only by operator SQL) fails the foreign key on
+`user_id`, and was lost. Written alone, as the worker writes a failed batch's events, it is now
+stored without the link: `user_id` empty, the user's id kept in `request_meta._deleted_user_id`
+or `detail._deleted_user_id`, and `user_email` and `user_role` as they were. Only the writers set
+that key; a client's own is dropped from `detail`. The log says so in one line that names the
+error by its kind and carries no value, and the event is not counted as lost.
 
 **A UI event's time.** `ui_events.occurred_at` is the browser's clock; `created_at` is the
 database's. The endpoint (`routers/ui_events.py`) keeps `occurred_at` when it lies from a day
@@ -348,6 +369,7 @@ its start instead (below). The step is one transaction, so it applies whole or n
 | `0006` | gives `users` its `azure_object_id` (a unique UUID, empty for a password account) for Microsoft sign-in (SEC-4), each stored account kept without one, by running the statement `01_access.sql` adds it with |
 | `0007` | makes a family identifier's sign-out versions unique (`uq_report_signouts_family_identifier_version`, replacing the plain `idx_report_signouts_chain`; TRACE-13), after a check that stops it where an identifier holds a version twice, by running those statements of `04_traceability.sql`; every stored sign-out stays |
 | `0008` | keeps an import job's requester and a filter preset's owner by the account (SEC-32): gives `family_import_jobs` its `requested_by_id`, each job linked to the account its `requested_by` address finds or to none, and both preset tables their `owner_id`, each preset given to the account its `owner` user name finds (a preset no account's user name finds is removed), with the foreign keys and the presets' unique indexes on the account, by running those statements of `03_assay.sql`; every job stays |
+| `0009` | gives `audit_log_events` and `ui_events` their `event_id` (a unique UUID, SEC-17), each stored row kept without one, by running the two statements `04_traceability.sql` adds it with |
 
 A database the baselines created before the ledger existed has an empty one, so its first start
 with the ledger runs every revision. Each revision ends at the baseline's definition whatever

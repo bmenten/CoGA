@@ -332,9 +332,9 @@ see the roster, though no patient data.
   its request runs, and a write that fails is logged and counted the same way, where it used to
   leave a warning the alert did not count. Neither the request nor a batch of UI events fails
   because of it: the UI-event endpoint still answers 202, so the browser does not resend the
-  events already stored. One event the database refuses for its own sake (a constraint, such as
-  a user deleted while the event waited, or a time its driver cannot encode) fails every attempt
-  of its batch's INSERT, and used to take the batch's other events, up to
+  events already stored. One event the database refuses for its own sake (a constraint, or a
+  value its driver cannot encode, such as a UI event's time before the year 1 in UTC) fails
+  every attempt of its batch's INSERT, and used to take the batch's other events, up to
   `AUDIT_LOG_BATCH_SIZE` of any user's, with it. Written one at a time, each once and without
   waiting, it now costs only itself. A write that cannot reach the database at all (no
   connection) ends that pass, and the events not yet written are recorded without being tried,
@@ -342,6 +342,18 @@ see the roster, though no patient data.
   development the backend refuses to start with `AUDIT_LOG_DROP_ALLOWED=true`, which drops
   events (`services/event_pipeline.py`), or with `AUDIT_LOG_MODE=off`, which writes no
   request or UI-event log at all (`core/config.py`).
+- ✅ **Each event stored once, and a deleted user's row kept (SEC-17).** A commit whose answer
+  never reached the worker (the connection dropped as Postgres committed) looked like a failed
+  write, and the batch written again stored each of its rows twice. Each event now carries an
+  id of its own, `event_id`, given when the event is made, before it is queued; the writers'
+  INSERT does nothing for an id the table holds (`ON CONFLICT (event_id) DO NOTHING`, unique in
+  both tables), so every write of an event stores it once. A row naming a user whose account
+  was deleted while the row waited in the queue (operator SQL only) failed the foreign key on
+  `user_id` and was lost. Written alone, it is now stored without the link: the user's id is
+  kept in `request_meta._deleted_user_id` (`detail._deleted_user_id` for a UI event), and
+  `user_email` and `user_role` keep the actor. The log says so by the error's kind, without
+  values; the event is stored, so it is not counted as lost
+  ([database.md](database.md)).
 - ✅ **No request escapes the audit table.** Postgres refuses a NUL, half a surrogate pair,
   `NaN` and `Infinity` in TEXT or JSONB. A signed-in user could put one in a JSON field the
   endpoint ignores, or `%00` in the URL: the action was carried out, and its row, with every
