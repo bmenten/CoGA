@@ -78,6 +78,7 @@ from .haplotype_phase_correction import FAMILY_METADATA_KEY as PHASE_CORRECTIONS
 from .import_progress import bytes_read_on_disk, read_stats
 from .structural_variant_ingest import (
     ParsedStructuralVariant,
+    SkippedRecords,
     StructuralVariantRecordFormat,
     iter_structural_variant_records,
     sv_event,
@@ -1631,8 +1632,12 @@ async def upload_structural_variant_file(
     }
 
     uploaded: dict[str, StructuralVariantRecord] = {}
+    # A deletion, duplication, inversion or CNV that states neither END nor SVLEN is left out
+    # and counted: stored on its POS it read as 0 bp, and a gene or panel search missed the
+    # genes it spans (CLIN-39, the owner's decision, 2026-10-27).
+    skipped = SkippedRecords()
     parsed_records = list(
-        iter_structural_variant_records(text_value, resolved_format, sample_column=sample_column)
+        iter_structural_variant_records(text_value, resolved_format, sample_column=sample_column, skipped=skipped)
     )
     # Resolve overlapping gene symbols up front: one query for the genes on the
     # chromosomes this file touches, then in-memory interval overlap, instead of a
@@ -1731,7 +1736,13 @@ async def upload_structural_variant_file(
         merged_count += 1
 
     if processed == 0:
-        raise HTTPException(status_code=400, detail="No valid structural-variant records found")
+        detail = "No valid structural-variant records found"
+        if skipped.without_extent:
+            detail += (
+                f": {skipped.without_extent} record(s) of a deletion, duplication, inversion or CNV "
+                "state neither END nor SVLEN, so how far they reach is not known"
+            )
+        raise HTTPException(status_code=400, detail=detail)
 
     rows = _rows_with_uploaded_calls(
         stored_rows,
@@ -1825,6 +1836,7 @@ async def upload_structural_variant_file(
         "processed": processed,
         "created": created,
         "merged": merged_count,
+        "skipped_without_extent": skipped.without_extent,
         "source_format": resolved_format,
         "annotation_provenance": annotation_provenance,
     }

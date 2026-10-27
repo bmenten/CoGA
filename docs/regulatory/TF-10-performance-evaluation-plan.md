@@ -202,7 +202,8 @@ pull request updates this list only when it adds clinical behaviour that no area
   END at POS included, and let a translocation pass any minimum but no exact length; SV
   records written without END or SVTYPE read as VCF 4.4 defines them by every reader, a
   deletion over its SVLEN and a breakend as a BND, and a breakend's mate read alike by every
-  reader (a TRA's from INFO/CHR2 and END); an uploaded CNV's copy number, which gives it its
+  reader (a TRA's from INFO/CHR2 and END), and a deletion, duplication, inversion or CNV that
+  states neither END nor SVLEN left out and counted; an uploaded CNV's copy number, which gives it its
   gain or loss; two events on one position two SVs, by an order of the events, in an upload as
   in a NeedlR import; NeedlR calls stored one SV per event, named by its
   coordinates as an uploaded call is, two calls under one record ID never one SV, and each

@@ -110,9 +110,9 @@ def _mate(record) -> tuple[str | None, int | None]:
         pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", 20000, id="symbolic-insertion"),
         pytest.param("A", "A" + "C" * 50, "SVTYPE=INS;SVLEN=50;", 20000, id="sequence-insertion"),
         pytest.param("N", "N]chr5:3000000]", "SVTYPE=BND;", 20000, id="breakend"),
-        # A deletion over its SVLEN, as before; one whose extent is not stated on its POS.
+        # A deletion over its SVLEN, as before. (One whose extent is not stated is left out:
+        # test_sv_copy_number_and_ids.py.)
         pytest.param("N", "<DEL>", "SVTYPE=DEL;SVLEN=-5000;", 25000, id="symbolic-deletion"),
-        pytest.param("N", "<INV>", "SVTYPE=INV;", 20000, id="extent-not-stated"),
     ],
 )
 def test_needlr_ends_a_record_without_end_where_an_upload_does(ref: str, alt: str, info: str, end: int) -> None:
@@ -129,7 +129,6 @@ def test_needlr_ends_a_record_without_end_where_an_upload_does(ref: str, alt: st
     [
         pytest.param("<INS>", "SVTYPE=INS;SVLEN=300", 20000, id="insertion"),
         pytest.param("<DUP>", "SVTYPE=DUP;SVLEN=8000", 28000, id="duplication"),
-        pytest.param("<CNV>", "SVTYPE=CNV", 20000, id="extent-not-stated"),
     ],
 )
 def test_hificnv_ends_a_record_without_end_where_vcf_4_4_does(alt: str, info: str, end: int) -> None:

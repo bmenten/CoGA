@@ -40,6 +40,16 @@ const uploadWithOverwrite = async <R extends { data: unknown }>(
   }
 };
 
+/**
+ * What an SV upload left out: a deletion, duplication, inversion or CNV that states neither END
+ * nor SVLEN, so how far it reaches is not known (CLIN-39).
+ */
+const withoutExtentNote = (data: { skipped_without_extent?: number }): string => {
+  const count = data.skipped_without_extent ?? 0;
+  if (!count) return '';
+  return ` ${count} record${count === 1 ? '' : 's'} left out: a deletion, duplication, inversion or CNV that states neither END nor SVLEN.`;
+};
+
 /** What a coverage BED may declare it holds, as the form names it (TRACE-9). */
 const BED_CONTENT_LABEL: Record<string, string> = {
   read_depth: 'read depth',
@@ -132,9 +142,9 @@ const SampleUpload: FC = () => {
           {
             confirm: 'Structural variants already exist for this sample and source. Overwrite them?',
             done: (data) =>
-              `Processed ${data.processed} variants via ${data.source_format} (${data.created} created, ${data.merged} merged).`,
+              `Processed ${data.processed} variants via ${data.source_format} (${data.created} created, ${data.merged} merged).${withoutExtentNote(data)}`,
             replaced: (data) =>
-              `Replaced structural variants with ${data.processed} records via ${data.source_format} (${data.created} created, ${data.merged} merged).`,
+              `Replaced structural variants with ${data.processed} records via ${data.source_format} (${data.created} created, ${data.merged} merged).${withoutExtentNote(data)}`,
             failed: 'Structural-variant upload failed.',
             cancelled: 'Structural-variant upload cancelled.',
           }

@@ -180,7 +180,8 @@ def test_a_breakend_has_its_mate_whatever_its_svtype_says(info: str, sv_type: st
         pytest.param("N", "<DUP:TANDEM>", "SVTYPE=DUP;SVLEN=500;End_Pos=20500;", "DUP", 20500, 500, id="DUP:TANDEM"),
         # An insertion spans no reference base (before CLIN-39: POS + SVLEN).
         pytest.param("N", "<INS>", "SVTYPE=INS;SVLEN=300;", "INS", 20000, 300, id="INS"),
-        pytest.param("N", "<INV>", "", "INV", 20000, None, id="INV-without-SVTYPE"),
+        # An inversion states how far it reaches (one that does not is left out, CLIN-39).
+        pytest.param("N", "<INV>", "End_Pos=20500;", "INV", 20500, None, id="INV-without-SVTYPE"),
         # Without SVLEN, a sequence allele is stored with the length its alleles state (CLIN-41).
         pytest.param("A" + "C" * 60, "A", "End_Pos=20060;", "DEL", 20060, -60, id="sequence-deletion"),
     ],

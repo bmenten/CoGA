@@ -47,6 +47,28 @@ class ParsedStructuralVariant:
     copy_number: int | None = None
 
 
+@dataclass
+class SkippedRecords:
+    """The records an SV reader left out, and why.
+
+    ``without_extent``: a ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes
+    included, that states neither END nor SVLEN (``extent_not_stated``), so how far it reaches
+    is not known. Stored on its POS it read as 0 bp, and a gene or panel search missed the
+    genes it spans; it is left out and counted (CLIN-39, the owner's decision, 2026-10-27)."""
+
+    without_extent: int = 0
+
+
+def extent_not_stated(*, alt: str, sv_len: int | None, end: Any) -> bool:
+    """Whether a record is a ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes
+    included, that states neither an END (``end``, missing or ``.``) nor an SVLEN: VCF 4.4
+    computes such an allele's END from its SVLEN, and the record gives neither."""
+    symbolic = _SYMBOLIC_ALLELE_RE.fullmatch(alt.strip())
+    if symbolic is None or symbolic.group(1).split(":", 1)[0].upper() not in _SPANNING_SYMBOLIC_TYPES:
+        return False
+    return sv_len is None and (end is None or str(end).strip() in {"", "."})
+
+
 def parse_info(info_field: str) -> Dict[str, str]:
     info: Dict[str, str] = {}
     if info_field and info_field != ".":
@@ -329,7 +351,7 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
 
 
 def _iter_sniffles_records(
-    lines: Iterable[str], sample_column: int = 0
+    lines: Iterable[str], sample_column: int = 0, skipped: SkippedRecords | None = None
 ) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
@@ -347,6 +369,10 @@ def _iter_sniffles_records(
 
         start = _position(pos)
         if start is None:
+            continue
+        if extent_not_stated(alt=alt, sv_len=svlen, end=info_value(info, "END")):
+            if skipped is not None:
+                skipped.without_extent += 1
             continue
         end = _position(record_end(pos=start, ref=ref, alt=alt, sv_len=svlen, info=info, chrom=chrom))
         if end is None:
@@ -375,7 +401,7 @@ def _iter_sniffles_records(
 
 
 def _iter_spectre_records(
-    lines: Iterable[str], sample_column: int = 0
+    lines: Iterable[str], sample_column: int = 0, skipped: SkippedRecords | None = None
 ) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
@@ -390,6 +416,11 @@ def _iter_spectre_records(
         fmt_vals = parse_format(fmt, sample_f)
         svlen = parse_svlen(info.get("SVLEN"))
         end_value = info_value(info, "END")
+        range_end = pos.split(":", 1)[-1] if "-" in pos.split(":", 1)[-1] else None
+        if extent_not_stated(alt=alt, sv_len=svlen, end=end_value or range_end):
+            if skipped is not None:
+                skipped.without_extent += 1
+            continue
         try:
             chrom, start = split_chrom_pos(chrom_raw, pos)
             if end_value is not None:
@@ -428,16 +459,19 @@ def iter_structural_variant_records(
     record_format: StructuralVariantRecordFormat,
     *,
     sample_column: int = 0,
+    skipped: SkippedRecords | None = None,
 ) -> Iterator[ParsedStructuralVariant]:
     """The records of an uploaded SV file. A Sniffles or Spectre VCF's call is read from
     its ``#CHROM`` sample column ``sample_column`` (0 is the first), the one the upload
     checked holds its sample (``per_sample_vcf_column``); a record without that column is
-    skipped. A manual TSV has no sample column: each row is one call of its sample."""
+    skipped. A manual TSV has no sample column: each row is one call of its sample. A
+    record whose extent is not stated is left out and counted in ``skipped``
+    (``SkippedRecords``); a TSV row states its end."""
     lines = text.splitlines()
     if record_format == "manual":
         return _iter_manual_records(lines)
     if record_format == "sniffles":
-        return _iter_sniffles_records(lines, sample_column)
+        return _iter_sniffles_records(lines, sample_column, skipped)
     if record_format == "spectre":
-        return _iter_spectre_records(lines, sample_column)
+        return _iter_spectre_records(lines, sample_column, skipped)
     raise ValueError(f"Unsupported structural variant record format: {record_format}")
