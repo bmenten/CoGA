@@ -231,6 +231,32 @@ async def login_admin_token(ac) -> str:
     return resp.json()["access_token"]
 
 
+async def sign_out(ac, url: str, body: dict[str, Any], **kwargs: Any) -> Any:
+    """POST the report sign-out at ``url`` as the sign-out dialogs do (TRACE-19), and return
+    the last response.
+
+    An acknowledgement carries the fingerprint of the concerns its gate's refusal listed, so
+    none is given blind: the sign-out is sent with no acknowledgement first and, each time a
+    gate refuses that ``body`` acknowledges, again with that acknowledgement and the
+    fingerprint the refusal carried (``backend/tests/_signout_dialogs.py``). The response is
+    the sign-out, or a refusal ``body`` does not acknowledge. ``kwargs`` go to each POST.
+    """
+    from backend.tests._signout_dialogs import acknowledging, without_acknowledgements
+
+    sent = without_acknowledgements(body)
+    while True:
+        response = await ac.post(url, json=sent, **kwargs)
+        try:
+            payload = response.json()
+        except ValueError:
+            return response
+        detail = payload.get("detail") if isinstance(payload, dict) else None
+        following = acknowledging(sent, response.status_code, detail, body)
+        if following is None:
+            return response
+        sent = following
+
+
 async def import_golden_trio(root: Path) -> dict[str, Any]:
     """Set up a project, run the real package import, and read back per-stage
     facts. Returns a plain dict so the test asserts synchronously."""

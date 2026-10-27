@@ -920,7 +920,8 @@ const parseStructuralVariant = (entry: unknown): SignedStructuralVariant => {
   };
 };
 
-const parseDrift = (value: unknown): SignedDrift | null => {
+/** A drift section as the record freezes it; the sign-out's drift refusal lists its entries the same way. */
+export const parseDrift = (value: unknown): SignedDrift | null => {
   if (!isObject(value)) return null;
   const drifted = (Array.isArray(value.drifted) ? (value.drifted as unknown[]) : []).map(
     (item): SignedDriftItem =>
@@ -971,7 +972,8 @@ const parseStructuralEvidence = (value: unknown): ApiStructuralEvidence | null =
   };
 };
 
-const parseStructuralDrift = (value: unknown): SignedStructuralDrift | null => {
+/** The SV/CNV drift section as the record freezes it, and as the drift refusal lists it. */
+export const parseStructuralDrift = (value: unknown): SignedStructuralDrift | null => {
   if (!isObject(value)) return null;
   const drifted = (Array.isArray(value.drifted) ? (value.drifted as unknown[]) : []).map(
     (item): SignedStructuralDriftItem =>

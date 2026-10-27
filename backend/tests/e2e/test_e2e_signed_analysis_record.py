@@ -140,7 +140,7 @@ async def _collect(root: Path) -> dict:
             await ac.put(f"{family}/structural-variants/{STRUCTURAL_VARIANT}/review", json={"tags": ["report"]})
         )
 
-        r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         signed = r["signout"]["json"] or {}
         version = signed.get("version")
         code = signed.get("report_code")
@@ -177,7 +177,7 @@ async def _collect(root: Path) -> dict:
         mp = pytest.MonkeyPatch()
         mp.setattr(rss, "build_report_snapshot", _old_build)
         try:
-            r["old_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+            r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         finally:
             mp.undo()
         old = r["old_signout"]["json"] or {}
@@ -191,7 +191,7 @@ async def _collect(root: Path) -> dict:
         # and with nothing tagged for the report: the golden trio's database is shared by the
         # modules of a run, and a module that lists the reported variants (as
         # test_e2e_report_lists_complete does) would otherwise find these two as well.
-        r["final_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["final_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         r["untag_small"] = _cap(
             await ac.put(f"{family}/small-variants/{SMALL_VARIANT}/review", json={"tags": [], "note": None})
         )

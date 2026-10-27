@@ -71,6 +71,65 @@ def test_every_environment_runs_the_same_datastore_images() -> None:
     assert tf_clickhouse.group(1) == clickhouse
 
 
+def _chomp(text: str) -> str:
+    """``text`` without its trailing line breaks, as Terraform's chomp() gives it."""
+    return re.sub(r"(?:\r\n?|\n)*\Z", "", text)
+
+
+def test_the_clickhouse_vm_gets_the_users_d_files_compose_mounts(tmp_path: Path) -> None:
+    # OPS-14. Compose mounts clickhouse/users.d/memory-guards.xml into ClickHouse: each query
+    # capped at 4 GB, GROUP BY and ORDER BY state spilled to disk past 2 GB. The Google Cloud
+    # VM had none of it. Its startup script now writes each such file from the repository, as
+    # database.tf reads it, and mounts it where Compose does, read-only.
+    compose: dict[str, Path] = {}
+    for volume in _compose()["services"]["clickhouse"]["volumes"]:
+        host_path, container_path, *options = str(volume).split(":")
+        if container_path.startswith("/etc/clickhouse-server/users.d/"):
+            assert options == ["ro"], volume
+            compose[container_path] = (REPO / host_path).resolve()
+    # The files ClickHouse reads from users.d: XML or YAML.
+    kept = {path.resolve() for path in (REPO / "clickhouse" / "users.d").iterdir() if path.suffix in {".xml", ".yaml", ".yml"}}
+    assert kept and set(compose.values()) == kept, "Compose mounts every file of clickhouse/users.d"
+
+    call = re.search(
+        r'startup-script = templatefile\("\$\{path\.module\}/scripts/clickhouse-startup\.sh\.tftpl", \{(.*?)\n    \}\)',
+        _terraform("database.tf"),
+        re.S,
+    )
+    assert call, "database.tf renders no ClickHouse startup script"
+    arguments = _attributes(call.group(1))
+    template = _terraform("scripts/clickhouse-startup.sh.tftpl")
+    assert re.search(r'^USERS_DIR="/etc/coga-clickhouse/users\.d"$', template, re.M)
+    assert re.search(r'^mkdir -p .*"\$\$\{USERS_DIR\}"', template, re.M)
+    # Never the folder: the image's entrypoint writes the user it creates into users.d.
+    assert ":/etc/clickhouse-server/users.d:" not in template
+    for target, source in compose.items():
+        name = Path(target).name
+        heredoc = re.search(
+            rf"""^cat > "\$\$\{{USERS_DIR\}}/{re.escape(name)}" <<'(\w+)'\n\$\{{(\w+)\}}\n\1\n""", template, re.M
+        )
+        assert heredoc, f"the startup script writes no {name}"
+        delimiter, variable = heredoc.groups()
+        read = re.fullmatch(r'(chomp\()?file\("\$\{path\.module\}/([^"]+)"\)\)?', arguments.get(variable, ""))
+        assert read, f"{variable} is not read from the repository: {arguments.get(variable)}"
+        assert (REPO / "terraform" / read[2]).resolve() == source, f"the VM's {name} is another file than Compose's"
+        value = source.read_text()
+        if read[1]:
+            value = _chomp(value)
+        assert delimiter not in value.splitlines(), f"a line of {name} would end the heredoc"
+        # The script as templatefile() renders it ($${ is a literal ${ for bash), run by bash:
+        # it writes the very bytes Compose mounts.
+        before, after = heredoc.group(0).split("${" + variable + "}")
+        script = before.replace("$${", "${") + value + after.replace("$${", "${")
+        subprocess.run(["bash", "-c", script], env={"PATH": os.environ["PATH"], "USERS_DIR": str(tmp_path)}, check=True)
+        assert (tmp_path / name).read_bytes() == source.read_bytes()
+        # As a file mount that Docker refuses when the file is missing, rather than making a
+        # folder of it: the VM's /etc does not outlive a reboot, and Docker can restart the
+        # container at boot before the script has written the file again.
+        mount = f'--mount type=bind,source="$${{USERS_DIR}}/{name}",target={target},readonly'
+        assert mount in template, f"the container does not get {name} where Compose mounts it"
+
+
 def test_terraform_mounts_reference_data_read_only_and_requires_modern_tls() -> None:
     cloudrun = (REPO / "terraform" / "cloudrun.tf").read_text()
     volume = re.search(r'volumes\s*\{\s*name\s*=\s*"refdata"\s*gcs\s*\{([^}]*)\}', cloudrun)
@@ -1140,6 +1199,32 @@ def test_the_clickhouse_tls_keys_are_ephemeral_and_the_ca_is_issued_with_the_ser
     for setting in ("validity_period_hours", "early_renewal_hours"):
         assert ca[setting] == cert[setting], setting
     assert "value = tls_self_signed_cert.ca.cert_pem" in _terraform("cloudrun.tf")
+
+
+def test_a_new_clickhouse_tls_secret_version_exists_before_the_old_one_is_destroyed() -> None:
+    # SEC-19. Terraform replaced a version of the ClickHouse TLS key or certificate by
+    # destroying the old one first, so a VM that booted in between found no version to read,
+    # and its startup script stopped before it started ClickHouse. The new version is now
+    # created first. The VM reads the latest version of each secret, by the secret's ID, at
+    # boot and in its daily refresh: the old one until the new one exists. Nothing reads a
+    # version itself, which would hold the VM to one that is about to be destroyed.
+    resources = _top_level_blocks("resource")
+    for address in (
+        "google_secret_manager_secret_version.clickhouse_tls_key",
+        "google_secret_manager_secret_version.clickhouse_tls_cert",
+    ):
+        lifecycle = _blocks(resources[address], "lifecycle")
+        assert lifecycle, f"{address} has no lifecycle block"
+        assert _attributes(lifecycle[0][1]).get("create_before_destroy") == "true", address
+    configuration = "\n".join(path.read_text() for path in sorted((REPO / "terraform").glob("*.tf")))
+    assert not re.findall(r"google_secret_manager_secret_version\.clickhouse_tls_\w+\.\w+", configuration)
+    database = _terraform("database.tf")
+    for argument, key in (("tls_key_secret", "key"), ("tls_cert_secret", "cert")):
+        # Once for the startup script, once for the certificate refresh.
+        reads = re.findall(rf"^\s*{argument}\s*=\s*(.+?)\s*$", database, re.M)
+        assert reads == [f'google_secret_manager_secret.clickhouse_tls["{key}"].secret_id'] * 2, argument
+    for script in ("scripts/clickhouse-startup.sh.tftpl", "scripts/clickhouse-cert-refresh.sh.tftpl"):
+        assert re.search(r"/secrets/\$\$\{\w+\}/versions/latest:access", _terraform(script)), script
 
 
 def test_terraform_and_its_providers_support_write_only_arguments() -> None:

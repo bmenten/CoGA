@@ -344,8 +344,8 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
 
             async def sign_out(scenario: str, step: dict[str, Any]) -> None:
                 step["signout"] = _cap(
-                    await ac.post(
-                        f"/api/families/{families[scenario]}/report/sign-out", json=_OTHER_GATES
+                    await _harness.sign_out(
+                        ac, f"/api/families/{families[scenario]}/report/sign-out", _OTHER_GATES
                     )
                 )
 

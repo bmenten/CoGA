@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
+import type { ReportSignoutRequest } from '../../lib/apiSchema.generated';
 import { READ_ONLY_HINT } from '../../lib/familyAccess';
 import ModalDialog from '../../components/ModalDialog';
 import {
@@ -15,6 +16,14 @@ import {
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { apiErrorMessage } from './reportSignoutQueries';
+import {
+  describeSignedDrift,
+  describeSignedStructuralDrift,
+  parseDrift,
+  parseStructuralDrift,
+  type SignedDriftItem,
+  type SignedStructuralDriftItem,
+} from './signedReportRecord';
 
 /** What a page that signs a family out holds of the sign-out (`useReportSignOut`). */
 export interface ReportSignOut {
@@ -53,6 +62,32 @@ const QC_CONCERN_GROUPS: ReadonlyArray<{ key: keyof QcConcerns; id: string; head
 
 const stringList = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+/**
+ * What a gate's refusal says of the concerns it lists (TRACE-19): their fingerprint, which the
+ * dialog sends back with the acknowledgement, so it covers the concerns the dialog showed and
+ * no others; and whether the concerns changed after an earlier dialog showed them, in which case
+ * the refusal lists them as they are now for a fresh acknowledgement.
+ */
+const shownConcerns = (detail: unknown): { fingerprint: string | undefined; changed: boolean } => {
+  const refusal = detail as { concerns_fingerprint?: unknown; concerns_changed?: unknown };
+  return {
+    fingerprint:
+      typeof refusal.concerns_fingerprint === 'string' ? refusal.concerns_fingerprint : undefined,
+    changed: refusal.concerns_changed === true,
+  };
+};
+
+/** Said in a dialog the refusal reopened because its concerns changed after it showed them. */
+const CONCERNS_CHANGED =
+  'Nothing was signed out: the concerns changed after this dialog listed them. They are listed again as they are now. Read them, and give your reason again.';
+
+const ConcernsChanged: React.FC<{ changed: boolean }> = ({ changed }) =>
+  changed ? (
+    <p className="report-signed-warning" role="alert">
+      {CONCERNS_CHANGED}
+    </p>
+  ) : null;
 
 /** A flag naming nothing: what an import refusal whose detail holds no flag reads as. */
 const NO_FLAG: FamilyImportIncomplete = {
@@ -97,8 +132,10 @@ export const signOutRefusal = (offer: SignOutOffer, subject: 'report' | 'analysi
  * The family sign-out (`POST /families/{family_id}/report/sign-out`) with its gates: the
  * live report signs a family out with it, and the NIPT page a monogenic NIPT family, so both
  * sign out through one flow, one record per analysis. A gate that refuses opens its dialog,
- * acknowledged with a reason that is frozen into the signed record; one that cannot be
- * acknowledged (the assembly scope, data being written) is said in `error`. ``onSigned`` is
+ * which lists the gate's concerns and is acknowledged with a reason that is frozen into the
+ * signed record and with the fingerprint of the concerns it listed, so the acknowledgement
+ * covers what the dialog showed (TRACE-19); one that cannot be acknowledged (the assembly
+ * scope, data being written) is said in `error`. ``onSigned`` is
  * given the new version. For a reader in the family's project (``readOnly``) it sends
  * nothing, whatever calls it: a reader signs nothing out (SEC-1).
  */
@@ -112,28 +149,38 @@ export const useReportSignOut = (
   // Override dialogs. Each gate is acknowledged with a reason that is frozen into the
   // signed record: evidence drift first, then a failing / unverifiable Sample QC, then an
   // incomplete import. Each dialog keeps the attempt its gate refused (`vars`), so the
-  // acknowledgements already given travel on with the next one.
+  // acknowledgements already given travel on with the next one. Each acknowledgement carries
+  // the fingerprint of the concerns its dialog showed (`fingerprint`, TRACE-19): it covers
+  // those, and a sign-out whose concerns are no longer those is refused with them as they are
+  // now (`changed`), which reopens the dialog for a fresh acknowledgement.
   type SignOutVars = {
     acknowledgeDrift: boolean;
     driftReason?: string;
+    driftFingerprint?: string;
     acknowledgeQc?: boolean;
     qcReason?: string;
+    qcFingerprint?: string;
     acknowledgeImportIncomplete?: boolean;
     importReason?: string;
+    importFingerprint?: string;
   };
-  const [driftGate, setDriftGate] = useState<{ message: string; vars: SignOutVars } | null>(
-    null,
-  );
+  type ShownConcerns = { vars: SignOutVars; fingerprint: string | undefined; changed: boolean };
+  const [driftGate, setDriftGate] = useState<
+    | (ShownConcerns & {
+        message: string;
+        drifted: SignedDriftItem[];
+        structuralDrifted: SignedStructuralDriftItem[];
+      })
+    | null
+  >(null);
   const [driftReason, setDriftReason] = useState('');
-  const [qcGate, setQcGate] = useState<{
+  const [qcGate, setQcGate] = useState<(ShownConcerns & {
     message: string;
-    vars: SignOutVars;
     concerns: QcConcerns;
-  } | null>(null);
+  }) | null>(null);
   const [qcReason, setQcReason] = useState('');
-  const [importGate, setImportGate] = useState<{
+  const [importGate, setImportGate] = useState<(ShownConcerns & {
     message: string;
-    vars: SignOutVars;
     failed: string[];
     imported: string[];
     jobId: string | null;
@@ -141,7 +188,7 @@ export const useReportSignOut = (
     /** Failed datasets no import job records an error of, beside others a job does. */
     withoutJob: string[];
     unfinished: FamilyImportUnfinished[];
-  } | null>(null);
+  }) | null>(null);
   const [importReason, setImportReason] = useState('');
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
@@ -152,17 +199,21 @@ export const useReportSignOut = (
   };
 
   const signOut = useMutation({
-    mutationFn: async (vars: SignOutVars) =>
-      (
-        await api.post(apiPath`/families/${familyId}/report/sign-out`, {
-          acknowledge_drift: vars.acknowledgeDrift,
-          drift_acknowledgement_reason: vars.driftReason,
-          acknowledge_qc: vars.acknowledgeQc ?? false,
-          qc_acknowledgement_reason: vars.qcReason,
-          acknowledge_import_incomplete: vars.acknowledgeImportIncomplete ?? false,
-          import_incomplete_acknowledgement_reason: vars.importReason,
-        })
-      ).data,
+    mutationFn: async (vars: SignOutVars) => {
+      // The API's own request model: a field it renames fails the type check here.
+      const body: ReportSignoutRequest = {
+        acknowledge_drift: vars.acknowledgeDrift,
+        drift_acknowledgement_reason: vars.driftReason,
+        drift_concerns_fingerprint: vars.driftFingerprint,
+        acknowledge_qc: vars.acknowledgeQc ?? false,
+        qc_acknowledgement_reason: vars.qcReason,
+        qc_concerns_fingerprint: vars.qcFingerprint,
+        acknowledge_import_incomplete: vars.acknowledgeImportIncomplete ?? false,
+        import_incomplete_acknowledgement_reason: vars.importReason,
+        import_incomplete_concerns_fingerprint: vars.importFingerprint,
+      };
+      return (await api.post(apiPath`/families/${familyId}/report/sign-out`, body)).data;
+    },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signouts'] });
       queryClient.invalidateQueries({ queryKey: ['family', familyId, 'report-signout-check'] });
@@ -216,6 +267,24 @@ export const useReportSignOut = (
         );
         return;
       }
+      // Evidence drift returns the classifications it counts, as the signed record freezes
+      // them; it needs an acknowledge-WITH-REASON override, so open the dialog, which lists
+      // them (TRACE-19: before, it gave their number only).
+      if (gate === 'evidence_drift') {
+        const drift = detail as { message?: string; drifted?: unknown; structural_drifted?: unknown };
+        const shown = shownConcerns(detail);
+        // Concerns that changed after the dialog showed them are acknowledged afresh: the
+        // reason written for the earlier ones is not carried over to them.
+        if (shown.changed) setDriftReason('');
+        setDriftGate({
+          message: drift.message || 'Evidence has changed since some classifications were made.',
+          drifted: parseDrift({ drifted: drift.drifted })?.drifted ?? [],
+          structuralDrifted: parseStructuralDrift({ drifted: drift.structural_drifted })?.drifted ?? [],
+          ...shown,
+          vars,
+        });
+        return;
+      }
       // A failing Sample QC returns a structured detail (gate discriminator + its concerns,
       // in groups); it needs an acknowledge-WITH-REASON override, so open the dialog. The
       // dialog shows every group, so a failure never hides a check that could not run.
@@ -227,6 +296,8 @@ export const useReportSignOut = (
           nipt_failed_checks?: unknown;
           warning_checks?: unknown;
         };
+        const shown = shownConcerns(detail);
+        if (shown.changed) setQcReason('');
         setQcGate({
           message: qc.message || 'Sample-integrity QC failed.',
           concerns: {
@@ -235,6 +306,7 @@ export const useReportSignOut = (
             niptFailed: stringList(qc.nipt_failed_checks),
             warnings: stringList(qc.warning_checks),
           },
+          ...shown,
           vars,
         });
         return;
@@ -252,6 +324,8 @@ export const useReportSignOut = (
           } | null;
         };
         const read = importIncompleteFromMetadata(detail);
+        const shown = shownConcerns(detail);
+        if (shown.changed) setImportReason('');
         setImportGate({
           message: incomplete.message || 'The family’s import is incomplete.',
           failed: incomplete.import_incomplete?.failed_datasets ?? [],
@@ -263,25 +337,17 @@ export const useReportSignOut = (
           withoutJob: read?.withoutJob ?? [],
           // The imports that began writing the family and did not finish (detail.import_unfinished).
           unfinished: importUnfinishedFromMetadata(detail),
+          ...shown,
           vars,
         });
         return;
       }
-      // A gate this page does not know is a refusal, never the drift override below.
-      if (gate !== undefined) {
-        setSignOutError(
-          (detail as { message?: string }).message || 'The report could not be signed out.',
-        );
-        return;
-      }
-      // Evidence-drift gate (plain string detail): acknowledge WITH a reason, like QC.
-      setDriftGate({
-        message:
-          typeof detail === 'string'
-            ? detail
-            : 'Evidence has changed since some classifications were made.',
-        vars,
-      });
+      // A refusal this page does not know (a gate it was not built for, or none named) is a
+      // refusal, never an override: no dialog opens without the concerns it acknowledges.
+      setSignOutError(
+        (typeof detail === 'string' ? detail : (detail as { message?: string } | null | undefined)?.message) ||
+          'The report could not be signed out.',
+      );
     }
   };
 
@@ -301,7 +367,12 @@ export const useReportSignOut = (
     if (!reason || !driftGate) {
       return;
     }
-    await attemptSignOut({ ...driftGate.vars, acknowledgeDrift: true, driftReason: reason });
+    await attemptSignOut({
+      ...driftGate.vars,
+      acknowledgeDrift: true,
+      driftReason: reason,
+      driftFingerprint: driftGate.fingerprint,
+    });
   };
 
   const submitQcAcknowledgement = async () => {
@@ -309,7 +380,12 @@ export const useReportSignOut = (
     if (!reason || !qcGate) {
       return;
     }
-    await attemptSignOut({ ...qcGate.vars, acknowledgeQc: true, qcReason: reason });
+    await attemptSignOut({
+      ...qcGate.vars,
+      acknowledgeQc: true,
+      qcReason: reason,
+      qcFingerprint: qcGate.fingerprint,
+    });
   };
 
   const submitImportAcknowledgement = async () => {
@@ -321,6 +397,7 @@ export const useReportSignOut = (
       ...importGate.vars,
       acknowledgeImportIncomplete: true,
       importReason: reason,
+      importFingerprint: importGate.fingerprint,
     });
   };
 
@@ -344,10 +421,33 @@ export const useReportSignOut = (
               <h2 className="report-paragraph">
                 <strong>Evidence drift — acknowledgement required</strong>
               </h2>
+              <ConcernsChanged changed={driftGate.changed} />
               <p className="report-paragraph">{driftGate.message}</p>
               <p className="report-paragraph">
                 To sign out anyway you must record a reason — it is frozen into the signed record.
               </p>
+              {/* Each classification the gate counts, as the signed version will list it: the
+                  acknowledgement covers these (TRACE-19). */}
+              {driftGate.drifted.length || driftGate.structuralDrifted.length ? (
+                <>
+                  <h3 className="report-subheading" id="drift-concerns">
+                    Classifications whose evidence changed or cannot be verified
+                  </h3>
+                  <ul className="report-drift-list" aria-labelledby="drift-concerns">
+                    {driftGate.drifted.map((item, index) => (
+                      <li key={`${item.variantId}-${index}`}>
+                        <strong>{item.variantId}</strong> — {describeSignedDrift(item)}
+                      </li>
+                    ))}
+                    {driftGate.structuralDrifted.map((item, index) => (
+                      <li key={`sv:${item.variantId}-${index}`}>
+                        <strong>{item.variantId}</strong> (structural variant) —{' '}
+                        {describeSignedStructuralDrift(item)}
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
               <label className="report-footer-label" htmlFor="drift-ack-reason">
                 Reason for signing out despite the evidence drift (required)
               </label>
@@ -395,6 +495,7 @@ export const useReportSignOut = (
               <h2 className="report-paragraph">
                 <strong>Sample-integrity QC — acknowledgement required</strong>
               </h2>
+              <ConcernsChanged changed={qcGate.changed} />
               {/* The backend message names each kind of concern the gate holds — a detected
                   mismatch (fail), a check that could not run (missing data), a failed NIPT
                   check. Render it verbatim so the reviewer attests to the right thing. */}
@@ -465,6 +566,7 @@ export const useReportSignOut = (
               <h2 className="report-paragraph">
                 <strong>Incomplete import — acknowledgement required</strong>
               </h2>
+              <ConcernsChanged changed={importGate.changed} />
               {/* The backend message names what the import left out. Render it verbatim so
                   the signer attests to the right thing. */}
               <p className="report-paragraph">{importGate.message}</p>

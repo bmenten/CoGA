@@ -148,6 +148,9 @@ resource "google_compute_instance" "clickhouse" {
       ch_db            = "coga"
       ch_user          = "clickhouse_admin"
       registry_host    = local.clickhouse_image_registry
+      # The file Docker Compose mounts, so the VM's memory guards cannot drift from it
+      # (OPS-14). chomp: the script's heredoc ends the file with its one line break.
+      memory_guards_xml = chomp(file("${path.module}/../clickhouse/users.d/memory-guards.xml"))
     })
     shutdown-script = file("${path.module}/scripts/clickhouse-shutdown.sh")
     # Installed by the startup script and run by a daily systemd timer for cert rotation.

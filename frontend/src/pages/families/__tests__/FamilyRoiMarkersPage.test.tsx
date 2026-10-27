@@ -469,27 +469,34 @@ describe('FamilyRoiMarkersPage', () => {
       // The son's allele is his mother's, not his father's: a father-son pair is not checked.
       { pos: 31_000_400, gts: ['1|1', '0|0', '0', '1|0', '1|0'] },
     ];
-    const xPhased = (ranges: number[][]) => ({
+    type QcCounts = { informative_sites: number; mendel_errors: number; mendel_rate: number };
+    const xPhased = (ranges: number[][], sites = xSites, qc: Record<string, QcCounts> = {}) => ({
       samples: members.map((sample) => ({
         sample,
         // Each embryo has a marker at each site, so the review shows every site.
-        markers: ['FATHER', 'MOTHER'].includes(sample) ? [] : xSites.map((site) => ({ pos: site.pos, hap1: null, hap2: 1 })),
+        markers: ['FATHER', 'MOTHER'].includes(sample) ? [] : sites.map((site) => ({ pos: site.pos, hap1: null, hap2: 1 })),
         reference: ['FATHER', 'MOTHER'].includes(sample),
-        qc: null,
+        qc: qc[sample] ?? null,
       })),
-      sites: xSites.map((site) => ({ ...site, ref: 'A', alt: 'G' })),
+      sites: sites.map((site) => ({ ...site, ref: 'A', alt: 'G' })),
       truncated: false,
       hemizygous_x_ranges: ranges,
     });
-    const mockX = (ranges: number[][]) =>
+    const mockX = (ranges: number[][], sites = xSites, qc: Record<string, QcCounts> = {}) =>
       (api.get as Mock).mockImplementation((url: string) => {
         if (url === '/families/co1') return Promise.resolve({ data: xFamily });
-        if (url.endsWith('/phased-markers')) return Promise.resolve({ data: xPhased(ranges) });
+        if (url.endsWith('/phased-markers')) return Promise.resolve({ data: xPhased(ranges, sites, qc) });
         if (url.endsWith('/haplotypes')) return Promise.resolve({ data: { samples: [] } });
         return Promise.resolve({ data: {} });
       });
     const flagged = (sample: string) =>
       xSites.map((site) => site.pos).filter((pos) => bandCell(sample, 1, pos)?.dataset.mendel === '1');
+    // The allele drawn on each of a member's two homolog rows at a site.
+    const rowBases = (sample: string, pos: number) => [1, 2].map((lane) => bandCell(sample, lane, pos)?.dataset.base);
+    const tooltipOver = (element: HTMLElement | null) => {
+      fireEvent.mouseMove(element as HTMLElement, { clientX: 10, clientY: 10 });
+      return (document.querySelector('.viz-tooltip') as HTMLElement | null)?.textContent ?? '';
+    };
 
     it('checks a son on his mother X alone and a daughter against her father one X', async () => {
       mockX([[31_000_000, 31_001_000]]);
@@ -514,6 +521,83 @@ describe('FamilyRoiMarkersPage', () => {
       expect(flagged('SON')).toEqual([31_000_200]);
       expect(flagged('DAUGHTER')).toEqual([]);
       expect(flagged('UNRECORDED')).toEqual([]);
+    });
+
+    // ENG-19: a call of one allele showed as '·' on both rows, as if the genotype were missing.
+    it('draws a man’s one X as its one allele, on the row of his X, and no allele on the other', async () => {
+      mockX([[31_000_000, 31_001_000]]);
+      renderPage();
+      await waitFor(() => expect(bandCell('SON', 1, 31_000_100)).toBeTruthy());
+
+      // Written once: the father's one X on his first row, a son's, his mother's X, on his
+      // second, the maternal one.
+      expect(rowBases('FATHER', 31_000_100)).toEqual(['A', '–']);
+      expect(rowBases('SON', 31_000_100)).toEqual(['–', 'G']);
+      // Written twice, a man's call is the same one allele, as the QC reads it: not two
+      // copies, so not shaded as homozygous.
+      expect(rowBases('FATHER', 31_000_200)).toEqual(['A', '–']);
+      expect(rowBases('SON', 31_000_200)).toEqual(['–', 'G']);
+      expect(bandCell('SON', 2, 31_000_200)?.className).not.toContain('roi-markers-band--homozygous');
+      // The son's allele is on his informative maternal row; the row without one is muted.
+      expect(bandCell('SON', 2, 31_000_100)?.dataset.informative).toBe('1');
+      expect(bandCell('SON', 1, 31_000_100)?.dataset.informative).toBe('0');
+      // Two copies: a woman, a member whose sex is not recorded, and a son's call of two
+      // different alleles, drawn as called.
+      expect(rowBases('MOTHER', 31_000_100)).toEqual(['A', 'G']);
+      expect(rowBases('UNRECORDED', 31_000_100)).toEqual(['G', 'G']);
+      expect(rowBases('DAUGHTER', 31_000_200)).toEqual(['A', 'A']);
+      expect(bandCell('DAUGHTER', 1, 31_000_200)?.className).toContain('roi-markers-band--homozygous');
+      expect(rowBases('SON', 31_000_300)).toEqual(['A', 'G']);
+      // No call of one allele reads as a missing one.
+      expect(document.querySelectorAll('.roi-markers-band[data-base="·"]')).toHaveLength(0);
+      // The row without an allele says why.
+      expect(tooltipOver(bandCell('SON', 1, 31_000_100))).toContain('no allele: one copy here');
+    });
+
+    it('draws a call written as one allele as that allele where a man is not known to have one X', async () => {
+      mockX([]);
+      renderPage();
+      await waitFor(() => expect(bandCell('SON', 1, 31_000_100)).toBeTruthy());
+
+      // The call is what it is, though the QC does not read it there.
+      expect(rowBases('FATHER', 31_000_100)).toEqual(['A', '–']);
+      expect(rowBases('SON', 31_000_100)).toEqual(['–', 'G']);
+      // Written twice, it is two copies there.
+      expect(rowBases('SON', 31_000_200)).toEqual(['G', 'G']);
+      expect(document.querySelectorAll('.roi-markers-band[data-base="·"]')).toHaveLength(0);
+    });
+
+    // ENG-19: the note said the son's genotype "can't be inherited from the parents", as if his
+    // father gave him an X.
+    it('says a son’s Mendelian error on his one X is against his mother alone', async () => {
+      const sites = [
+        // A son's call of two different alleles; the daughter lacks her father's one allele.
+        { pos: 31_000_300, gts: ['1', '0|0', '0|1', '0|0', '0|0'] },
+        // The son's allele is one his mother does not carry.
+        { pos: 31_000_500, gts: ['1', '0|0', '1', '1|0', '1|0'] },
+      ];
+      mockX([[31_000_000, 31_001_000]], sites, { SON: { informative_sites: 2, mendel_errors: 2, mendel_rate: 1 } });
+      renderPage();
+      await waitFor(() => expect(bandCell('SON', 1, 31_000_300)).toBeTruthy());
+      expect(bandCell('SON', 2, 31_000_500)?.dataset.mendel).toBe('1');
+      expect(bandCell('SON', 1, 31_000_300)?.dataset.mendel).toBe('1');
+
+      const notCarried = tooltipOver(bandCell('SON', 2, 31_000_500));
+      expect(notCarried).toContain('his mother does not carry this allele');
+      expect(notCarried).not.toContain('inherited from the parents');
+      const twoAlleles = tooltipOver(bandCell('SON', 1, 31_000_300));
+      expect(twoAlleles).toContain('two different alleles, which a son cannot have on his one X');
+      expect(twoAlleles).not.toContain('inherited from the parents');
+      // A daughter has two copies, one from each parent: the note is unchanged.
+      expect(tooltipOver(bandCell('DAUGHTER', 1, 31_000_300))).toContain(
+        "this genotype can't be inherited from the parents",
+      );
+
+      // The rate's note says so too.
+      const rate = tooltipOver(screen.getByText(/⚠100\.0%/));
+      expect(rate).toContain('Mendelian error rate: 100.0%');
+      expect(rate).toContain('On chrX outside the PARs a son’s one X is his mother’s: there he is checked against her alone.');
+      expect(rate).not.toContain('both parents');
     });
   });
 });

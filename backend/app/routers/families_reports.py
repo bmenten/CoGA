@@ -143,15 +143,20 @@ async def sign_out_family_report_endpoint(
             drift_acknowledgement_reason=(
                 payload.drift_acknowledgement_reason if payload else None
             ),
+            drift_concerns_fingerprint=payload.drift_concerns_fingerprint if payload else None,
             acknowledge_qc=bool(payload and payload.acknowledge_qc),
             qc_acknowledgement_reason=(
                 payload.qc_acknowledgement_reason if payload else None
             ),
+            qc_concerns_fingerprint=payload.qc_concerns_fingerprint if payload else None,
             acknowledge_import_incomplete=bool(
                 payload and payload.acknowledge_import_incomplete
             ),
             import_incomplete_acknowledgement_reason=(
                 payload.import_incomplete_acknowledgement_reason if payload else None
+            ),
+            import_incomplete_concerns_fingerprint=(
+                payload.import_incomplete_concerns_fingerprint if payload else None
             ),
             project_id=project_id,
         )

@@ -565,6 +565,8 @@ describe('FamilyNiptPage', () => {
                 unverifiable_checks: [],
                 nipt_failed_checks: [concern],
                 warning_checks: [],
+                concerns_fingerprint: '9'.repeat(64),
+                concerns_changed: false,
               },
             },
           },
@@ -582,10 +584,79 @@ describe('FamilyNiptPage', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
 
       expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      // With the fingerprint of the concerns the dialog showed, which it covers (TRACE-19).
       expect(apiMock.post).toHaveBeenLastCalledWith(
         '/families/NIPT001/report/sign-out',
-        expect.objectContaining({ acknowledge_qc: true, qc_acknowledgement_reason: 'Plasma re-drawn; identity confirmed.' }),
+        expect.objectContaining({
+          acknowledge_qc: true,
+          qc_acknowledgement_reason: 'Plasma re-drawn; identity confirmed.',
+          qc_concerns_fingerprint: '9'.repeat(64),
+        }),
       );
+    });
+
+    it('lists the NIPT checks as they are now when another failed after the dialog listed them (TRACE-19)', async () => {
+      // The reason was written for the plasma's check; the fetal-sex check failed before it was
+      // sent. The sign-out is refused with the checks as they are now, which the dialog lists
+      // for a fresh reason: the first one does not cover a check it was not written for.
+      serve();
+      const plasma =
+        'Sample CFDNA1 (maternal plasma): male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.';
+      const fetalSex = 'NIPT fetal sex: the two signals disagree.';
+      const refusal = (checks: string[], fingerprint: string, changed: boolean) => ({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              gate: 'sample_qc',
+              message:
+                'A NIPT quality check failed. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.',
+              qc_summary: { overall_status: 'pass', messages: checks },
+              failed_checks: [],
+              unverifiable_checks: [],
+              nipt_failed_checks: checks,
+              warning_checks: [],
+              concerns_fingerprint: fingerprint,
+              concerns_changed: changed,
+            },
+          },
+        },
+      });
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        if (posts.length === 1) return Promise.reject(refusal([plasma], '9'.repeat(64), false));
+        if (posts.length === 2) return Promise.reject(refusal([fetalSex, plasma], '8'.repeat(64), true));
+        return Promise.resolve({ data: { version: 1 } });
+      });
+      renderWithReport();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign out NIPT analysis' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Sample-integrity QC acknowledgement required' });
+      const reason = () => within(dialog).getByLabelText(/Reason for signing out despite the QC concern/);
+      fireEvent.change(reason(), { target: { value: 'Plasma re-drawn; identity confirmed.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'Nothing was signed out: the concerns changed after this dialog listed them.',
+      );
+      expect(
+        within(within(dialog).getByRole('list', { name: 'NIPT quality checks that failed' }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([fetalSex, plasma]);
+      expect(reason()).toHaveValue('');
+      expect(screen.queryByText(/Report page \/families\/NIPT001/)).not.toBeInTheDocument();
+
+      fireEvent.change(reason(), { target: { value: 'Plasma re-drawn; fetal sex read from the scan.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      // No fingerprint before a dialog showed concerns, then the one each dialog showed.
+      expect(posts.map((body) => body.qc_concerns_fingerprint)).toEqual([undefined, '9'.repeat(64), '8'.repeat(64)]);
+      expect(posts[2]).toMatchObject({
+        acknowledge_qc: true,
+        qc_acknowledgement_reason: 'Plasma re-drawn; fetal sex read from the scan.',
+      });
     });
 
     it('lists the checks that could not run beside the failures, each group under its heading (CLIN-58)', async () => {
@@ -748,8 +819,9 @@ describe('FamilyNiptPage', () => {
     };
     const ARTIFACT = { variant_id: '1-9501-A-G', reason: 'artifact_list' };
 
-    const serve = ({ reported = 2 }: { reported?: number } = {}) => {
+    const serve = ({ reported = 2, presets = [] }: { reported?: number; presets?: unknown[] } = {}) => {
       apiMock.get.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+        if (url === '/families/NIPT001/small-variant-filter-presets') return Promise.resolve({ data: presets });
         if (url === '/families/NIPT001') {
           return Promise.resolve({
             data: {
@@ -843,6 +915,68 @@ describe('FamilyNiptPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
       await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
       expect(variantSearches().at(-1)?.inheritance).toBe('de_novo');
+    });
+
+    // ENG-19: a saved search, made on the small-variant list, filtered on what the NIPT list does
+    // not apply, and its chips showed as if it did.
+    it('shows no chip for a saved search’s filters the list does not apply, and says once which they are', async () => {
+      serve({
+        presets: [
+          {
+            _id: 'preset-1',
+            name: 'Reported, classified',
+            filters: {
+              review_tags: ['report'],
+              classification: ['Pathogenic - class 5', 'Likely Pathogenic - class 4'],
+              has_notes: true,
+              prioritize: true,
+            },
+            sample_filters: { FATHER: { gt: ['0/1', '1/0', '0|1', '1|0'], qual: '20', dp: '', af: '', ad_alt: '' } },
+            sample_templates: {},
+          },
+        ],
+      });
+      renderAt('/families/NIPT001/nipt');
+
+      // The De novo preset it opened on carries none.
+      await screen.findByRole('option', { name: 'Reported, classified' });
+      expect(screen.queryByText(/The NIPT list does not apply/)).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Preset or saved search'), { target: { value: 'saved:preset-1' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+
+      await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
+      const params = variantSearches().at(-1) ?? {};
+      for (const key of ['classification', 'has_notes', 'prioritize', 'sample_filter']) {
+        expect(params).not.toHaveProperty(key);
+      }
+      // Only the review tag it applies is chipped and counted.
+      expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Classification/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Has notes' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Phenotype prioritization' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^FATHER/ })).not.toBeInTheDocument();
+      expect(screen.getByText('Active filters 1')).toBeInTheDocument();
+      // Said once, beside the chips.
+      expect(
+        screen.getAllByText(
+          'The NIPT list does not apply this search’s phenotype-prioritization, classification, saved-notes and per-sample filters.',
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('shows no chip for a classification or saved-notes filter a link carries, and says so', async () => {
+      serve();
+      renderAt(
+        '/families/NIPT001/nipt?review_tag=report&classification=Pathogenic%20-%20class%205&has_notes=true&prioritize=false',
+      );
+
+      expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Classification/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Has notes' })).not.toBeInTheDocument();
+      expect(
+        screen.getByText('The NIPT list does not apply this search’s classification and saved-notes filters.'),
+      ).toBeInTheDocument();
     });
 
     it('lists what a sign-out freezes with Show reported, and names what the analysis does not classify', async () => {

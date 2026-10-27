@@ -23,8 +23,10 @@ import {
   createEmptySmallFilters,
   NIPT_BUILT_IN_PRESETS,
   NIPT_UNSUPPORTED_FILTERS,
+  niptAppliesFilterChip,
   REPORT_TAG_KEY,
   useSmallVariantSearchState,
+  type ActiveSmallFilterChip,
   type GenePanel,
   type SmallFilterState,
   type SmallVariant,
@@ -175,6 +177,30 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
   return params;
 };
 
+// How the note names the filters of a search the NIPT list does not apply (ENG-19).
+const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = {
+  classification: 'classification',
+  has_notes: 'saved-notes',
+  prioritize: 'phenotype-prioritization',
+  expanded_carrier_screening: 'carrier-screening',
+  require_sv_second_hit: 'SV second-hit',
+  locus: 'location',
+};
+
+// A saved search made on the small-variant list, or a link, can carry filters the NIPT list
+// does not apply. They get no chip, which would claim them, and are named once: null when the
+// search carries none.
+const describeUnappliedFilters = (chips: ActiveSmallFilterChip[]): string | null => {
+  const names: string[] = [];
+  chips.forEach((chip) => {
+    const name = chip.kind === 'top' ? (UNAPPLIED_FILTER_NAMES[chip.key] ?? chip.key) : 'per-sample';
+    if (!names.includes(name)) names.push(name);
+  });
+  if (!names.length) return null;
+  const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return `The NIPT list does not apply this search’s ${listed} filter${names.length === 1 ? '' : 's'}.`;
+};
+
 const FamilyNiptPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
@@ -246,6 +272,13 @@ const FamilyNiptPage: React.FC = () => {
     // rests on genotype and phenotype filters that do not apply to cfDNA.
     freshOpenPreset: 'nipt_de_novo',
   });
+  // Chipped and counted: the filters the NIPT list applies. A saved search or a link may carry
+  // others, such as a classification: they showed as chips the list did not apply (ENG-19).
+  const appliedFilterChips = useMemo(() => activeFilterChips.filter(niptAppliesFilterChip), [activeFilterChips]);
+  const unappliedFiltersNote = useMemo(
+    () => describeUnappliedFilters(activeFilterChips.filter((chip) => !niptAppliesFilterChip(chip))),
+    [activeFilterChips],
+  );
 
   const {
     data: panels = [],
@@ -586,7 +619,7 @@ const FamilyNiptPage: React.FC = () => {
                         {step.label} {summaryFailed ? '—' : (summary?.filter_counts?.[step.key] ?? 0)}
                       </span>
                     ))}
-                    <span className="badge-chip">Active filters {activeFilterChips.length}</span>
+                    <span className="badge-chip">Active filters {appliedFilterChips.length}</span>
                     {variantsFetching ? <span className="badge-chip">Updating…</span> : null}
                   </div>
                 </div>
@@ -650,11 +683,12 @@ const FamilyNiptPage: React.FC = () => {
             mode="nipt"
             familyAware={false}
             unsupportedFilters={NIPT_UNSUPPORTED_FILTERS}
+            unappliedFiltersNote={unappliedFiltersNote}
             categoryCounts={categoryCounts}
             categoryLabels={CATEGORY_LABELS}
             niptInheritancePresets={INHERITANCE_PRESETS}
             builtInPresets={NIPT_BUILT_IN_PRESETS}
-            activeFilterChips={activeFilterChips}
+            activeFilterChips={appliedFilterChips}
             applyPreset={applyPreset}
             applySavedPreset={applySavedPreset}
             draftFilters={draftFilters}

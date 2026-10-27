@@ -189,7 +189,10 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         await sv_upload("sv_restored", "mother", overwrite=False, insert=failing_inserts(1))
         # ClickHouse keeps failing: the rows cannot be put back.
         await sv_upload("sv_not_restored", "mother", overwrite=False, insert=failing_inserts(99))
-        await step("signout_marked", await ac.post(f"/api/families/{family_id}/report/sign-out", json=_OTHER_GATES))
+        await step(
+            "signout_marked",
+            await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES),
+        )
         page = await ac.get(f"/api/families/{family_id}")
         out["family_page"] = {"status": page.status_code, "json": page.json()}
         await sv_upload("sv_child_again", "child", overwrite=True)
@@ -239,7 +242,10 @@ async def _exercise(family_id: str) -> dict[str, Any]:
         finally:
             mp.undo()
         out["steps"]["clair3_stopped"] = {"status": None, "text": "", **await state()}
-        await step("signout_stopped", await ac.post(f"/api/families/{family_id}/report/sign-out", json=_OTHER_GATES))
+        await step(
+            "signout_stopped",
+            await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES),
+        )
         response = await ac.post(
             f"/api/families/{family_id}/small-variants/upload",
             params={"overwrite": "true", "source_format": "clair3"},

@@ -168,7 +168,7 @@ async def _exercise(base: Path, family_id: str) -> dict[str, Any]:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
 
             async def sign_out(key: str) -> None:
-                r[key] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+                r[key] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
                 version = (r[key]["json"] or {}).get("version")
                 r[f"{key}_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
 

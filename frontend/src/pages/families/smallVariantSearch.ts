@@ -628,11 +628,28 @@ export const NIPT_BUILT_IN_PRESETS: Array<{
 /**
  * Filters of the shared form that the NIPT variant list does not apply: of the review
  * filters it takes the review tags and the excluded tags, as the small-variant list does,
- * but not the classification or the saved notes. The form offers them no control.
+ * but not the classification or the saved notes; nor the family-aware ones (phenotype
+ * prioritization, expanded carrier screening, the SV second hit) or a link's raw locus. The
+ * form offers them no control. A saved search made on the small-variant list, or a link, can
+ * still carry them: the NIPT page shows no chip for them (`niptAppliesFilterChip`).
  */
 export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
   keyof SmallFilterState
->(['classification', 'has_notes']);
+>([
+  'classification',
+  'has_notes',
+  'prioritize',
+  'expanded_carrier_screening',
+  'require_sv_second_hit',
+  'locus',
+]);
+
+/**
+ * Whether the NIPT variant list applies the filter a chip names: one it sends, and no
+ * per-sample genotype or quality filter, none of which it sends (ENG-19).
+ */
+export const niptAppliesFilterChip = (chip: ActiveSmallFilterChip): boolean =>
+  chip.kind === 'top' && !NIPT_UNSUPPORTED_FILTERS.has(chip.key);
 
 // The inheritance views of the NIPT variant list, as chips name them.
 export const NIPT_INHERITANCE_LABELS: Record<string, string> = {
