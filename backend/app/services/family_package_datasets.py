@@ -99,7 +99,7 @@ from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
 from .structural_variant_ingest import SkippedRecords
-from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
+from .family_package_variants import ParaphaseValueError, _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .per_sample_small_variants import (
@@ -1806,6 +1806,10 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     sample_results: dict[str, Any] = {}
+    # Every sample's JSON is read, and refused or accepted, before any sample's results are
+    # replaced, as a package's TRGT files are (SAFE-3): a later sample's refused JSON failed
+    # the dataset with the earlier samples' results already replaced (DATA-7).
+    checked: list[tuple[str, SampleMetadataContext, Path, list[dict[str, Any]]]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -1823,17 +1827,28 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
         payload = json.loads(json_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise RuntimeError(f"Paraphase JSON for {sample_id} must contain an object")
-        rows = _paraphase_rows_for_sample(
-            sample_context=sample_context,
-            path=json_path,
-            payload=payload,
-        )
+        try:
+            rows = _paraphase_rows_for_sample(
+                sample_context=sample_context,
+                path=json_path,
+                payload=payload,
+            )
+        except ParaphaseValueError as exc:
+            # Refused as a TRGT value that cannot be read as a number is (#985): a copy number
+            # its integer column cannot hold failed the insert with a database error, after the
+            # sample's results were deleted (DATA-7).
+            raise RuntimeError(
+                f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number "
+                f"is expected ({exc}); nothing was stored"
+            ) from exc
         if not rows:
             # Paraphase reports every region it analysed: a JSON without one is no result.
             # It used to replace the sample's results with none (SAFE-29).
             raise RuntimeError(
                 f"Paraphase JSON for {sample_id} holds no gene result; its results were not replaced"
             )
+        checked.append((sample_id, sample_context, json_path, rows))
+    for sample_id, sample_context, json_path, rows in checked:
         await _replace_sample_paraphase_rows(
             session,
             sample_context=sample_context,

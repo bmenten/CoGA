@@ -146,6 +146,13 @@ A call whose TRID names several STRchive loci (the gene of ARX or HOXA13) and wh
 picks none of them is stored without thresholds, and `repeat_expansions.metadata` holds the
 reason under `locus_not_resolved` (CLIN-31), which the repeat page shows with the call.
 
+`sample_paraphase_results.total_cn`, `gene_cn` and `highest_total_cn` are `integer` columns
+filled from each sample's Paraphase JSON. A copy number they cannot hold (below −2,147,483,648
+or above 2,147,483,647) fails the `paraphase` dataset before any sample's results are replaced,
+as a TRGT position beyond any chromosome fails the TRGT file; it failed the insert with a
+database error, after the sample's results were deleted (DATA-7). One that is no number is
+stored as null.
+
 JSON keys that package import writes into the `metadata` columns:
 
 | Column | Key | Contents |
