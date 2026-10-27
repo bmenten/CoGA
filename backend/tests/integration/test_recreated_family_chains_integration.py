@@ -13,6 +13,9 @@ signed out twice; then deleted by an admin, made again and signed out once. Then
 - the family ID's clinical audit chain (both ``family_deleted`` events and the five
   ``sign_out`` events among its events) and its structure-version chain verify across the
   three families;
+- each family's pedigree is its structure version 1, numbered per family row; the trail names
+  them apart (ENG-19): each family made again names how many versions the deleted families
+  stored before it, in its first event's metadata and summary and in its deletion;
 - the five report codes differ; the lookup finds the current family's record and answers the
   deleted families' codes like an unknown code; the family's pages hold its own record only;
 - a signed anchor records the chain's head at height 5 and finds it unchanged;
@@ -188,8 +191,15 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
                 structure_chain = await verify_family_structure_chain(s, label)
                 structure = await _rows(
                     s,
-                    "SELECT family_id::text AS family_id, row_hash, prev_hash FROM family_structure_versions "
+                    "SELECT family_id::text AS family_id, version, row_hash, prev_hash FROM family_structure_versions "
                     "WHERE family_identifier = :f ORDER BY created_at, id",
+                    label,
+                )
+                pedigree_trail = await _rows(
+                    s,
+                    "SELECT action, summary, before, metadata FROM clinical_audit_events "
+                    "WHERE family_identifier = :f AND action IN ('pedigree', 'family_deleted') "
+                    "ORDER BY created_at, id",
                     label,
                 )
 
@@ -228,6 +238,31 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
             assert [row["family_id"] for row in structure] == [None, None, current]
             assert structure[0]["prev_hash"] is None
             assert [row["prev_hash"] for row in structure[1:]] == [row["row_hash"] for row in structure[:-1]]
+
+            # Structure versions are numbered per family row: each family's pedigree is its
+            # version 1. The trail names them apart (ENG-19): each family made again names how
+            # many versions the families deleted under the ID stored before it, its first event
+            # says so, and so does its deletion. The first family's are recorded as before.
+            assert [row["version"] for row in structure] == [1, 1, 1]
+            pedigree = [event for event in pedigree_trail if event["action"] == "pedigree"]
+            assert [
+                (event["metadata"].get("deleted_family_versions", 0), event["metadata"]["structure_version"])
+                for event in pedigree
+            ] == [(0, 1), (1, 1), (2, 1)]
+            assert set(pedigree[0]["metadata"]) == {"source", "structure_version", "structure_hash"}
+            assert "Made again" not in pedigree[0]["summary"]
+            assert pedigree[1]["summary"].endswith(
+                ". Made again under this family ID, after 1 structure version of a deleted family: "
+                "its own start again at 1."
+            )
+            assert pedigree[2]["summary"].endswith(
+                ". Made again under this family ID, after 2 structure versions of 2 deleted families: "
+                "its own start again at 1."
+            )
+            deletions = [event["before"] for event in pedigree_trail if event["action"] == "family_deleted"]
+            assert [
+                (entry.get("deleted_family_versions", 0), entry["structure_version"]) for entry in deletions
+            ] == [(0, 1), (1, 1)]
 
             # A version names one record of the family ID, and so does its report code.
             codes = [entry["report_code"] for entry in signed]

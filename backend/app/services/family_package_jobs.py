@@ -9,8 +9,9 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import require_uuid
+from ..core.sql import require_uuid, rows_matched
 from ..schemas import (
+    ApiId,
     FamilyImportDatasetSummary,
     FamilyPackageImportJobOut,
     FamilyPackageValidationOut,
@@ -48,10 +49,10 @@ _DATABASE_TIME = """to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI "UTC"'
 
 def _serialize_job(mapping: dict[str, Any]) -> FamilyPackageImportJobOut:
     return FamilyPackageImportJobOut(
-        id=str(mapping["id"]),
+        _id=ApiId(mapping["id"]),
         submitted_path=str(mapping["submitted_path"]),
         family_id=mapping.get("family_id"),
-        project_id=str(mapping["project_id"]) if mapping.get("project_id") else None,
+        project_id=ApiId(mapping["project_id"]) if mapping.get("project_id") else None,
         status=mapping["status"],
         dry_run=bool(mapping.get("dry_run")),
         worker_id=mapping.get("worker_id"),
@@ -98,8 +99,11 @@ async def queue_family_import_job(
     dry_run: bool,
     requested_family_id: str | None = None,
     conflict_mode: str = "cancel",
-    requested_by: str,
+    requested_by: CurrentUser,
 ) -> FamilyPackageImportJobOut:
+    """Queue the import a user asked for. The job keeps its requester by the account's id,
+    which the import runs as and the requester's job list reads, and the e-mail address it
+    was asked under, which it shows: a Microsoft sign-in may change the address (SEC-32)."""
     # The existing family the request names, read as every ID is. One that no family can be
     # stored under is refused before the job is written: the job could not even store a NUL.
     requested_family_id = (requested_family_id or "").strip() or None
@@ -125,6 +129,7 @@ async def queue_family_import_job(
                 dry_run,
                 metadata,
                 requested_by,
+                requested_by_id,
                 requested_at
             )
             VALUES (
@@ -134,6 +139,7 @@ async def queue_family_import_job(
                 :dry_run,
                 CAST(:metadata AS jsonb),
                 :requested_by,
+                CAST(:requested_by_id AS uuid),
                 :requested_at
             )
             RETURNING
@@ -162,7 +168,8 @@ async def queue_family_import_job(
             "project_id": project_uuid,
             "dry_run": dry_run,
             "metadata": json.dumps(metadata),
-            "requested_by": requested_by,
+            "requested_by": requested_by.email,
+            "requested_by_id": requested_by.id,
             "requested_at": datetime.now(timezone.utc),
         },
     )
@@ -192,6 +199,7 @@ async def get_family_import_job(
                 dry_run,
                 worker_id,
                 requested_by,
+                requested_by_id::text AS requested_by_id,
                 requested_at,
                 started_at,
                 heartbeat_at,
@@ -211,8 +219,10 @@ async def get_family_import_job(
     row = result.mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail=_JOB_NOT_FOUND)
-    if not is_admin_user(user) and str(row["requested_by"]) != user.email:
-        # Another user's job answers as an unknown one does (SEC-9, REQ-SEC-001).
+    requester = row.get("requested_by_id")
+    if not is_admin_user(user) and (requester is None or str(requester) != user.id):
+        # Another user's job answers as an unknown one does (SEC-9, REQ-SEC-001). The
+        # requester is the account, whatever its address is now (SEC-32).
         raise RecordNotVisible("import_job", _JOB_NOT_FOUND)
     return _serialize_job(dict(row))
 
@@ -226,8 +236,10 @@ async def list_family_import_jobs(
     clauses: list[str] = []
     params: dict[str, Any] = {"limit": limit}
     if not is_admin_user(user):
-        clauses.append("requested_by = :requested_by")
-        params["requested_by"] = user.email
+        # The user's own jobs: those their account requested, whatever its address is now
+        # (SEC-32).
+        clauses.append("requested_by_id = CAST(:requested_by_id AS uuid)")
+        params["requested_by_id"] = user.id
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     result = await session.execute(
         text(
@@ -412,7 +424,7 @@ async def _record_job_family(
         },
     )
     await session.commit()
-    return result.rowcount == 1
+    return rows_matched(result) == 1
 
 
 async def running_family_import_job_ids(
@@ -462,7 +474,7 @@ async def _beat_family_import_job(
         },
     )
     await session.commit()
-    return result.rowcount == 1
+    return rows_matched(result) == 1
 
 
 async def _update_job_progress(
@@ -525,4 +537,4 @@ async def _update_job_progress(
         params,
     )
     await session.commit()
-    return result.rowcount == 1
+    return rows_matched(result) == 1

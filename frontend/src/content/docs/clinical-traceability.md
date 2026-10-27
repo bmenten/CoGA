@@ -118,7 +118,10 @@ couple or relative link that changed. The family's creation is listed with its f
 is a package import that changes a member's affected or carrier status. Each pedigree change is also
 kept as a numbered structure version of the family, which can never be changed or deleted either.
 Deleting the family is its last entry: who deleted it, its samples, and the variants and variant
-reviews that went with it. The trail and the structure versions stay after the family is gone.
+reviews that went with it. The trail and the structure versions stay after the family is gone. A family
+made again under the ID of a deleted family numbers its structure versions from 1 again, and its first
+entry says so: *… Made again under this family ID, after 2 structure versions of a deleted family: its
+own start again at 1.*
 
 - *Classification VUS (class 3) → Likely pathogenic (class 4)*
 - *ACMG criteria updated (Likely pathogenic (class 4)): PM2 moderate → supporting; total 7 → 6*
@@ -156,7 +159,9 @@ the clinical report in the EPD refers to:
 
 - the provenance footer (the versions);
 - the reported small variants, each with its classification, ACMG criteria, tags, note and frozen
-  evidence;
+  evidence. A variant is reported when its own review or its compound-het pair review is tagged
+  **Report**, as the live report and the NIPT page's *Show reported* list it; one its pair reports is
+  frozen with that pair review;
 - the reported structural variants and CNVs, with their classification, CNV criteria, tags, note and
   frozen evidence;
 - the drift state, the Sample QC verdict, and the sequencing-QC verdicts with the cut-offs they were
@@ -177,7 +182,8 @@ the clinical report in the EPD refers to:
   phase correction near the ROI), its QC at the ROI (informative sites and Mendelian error rate) and
   that QC's verdict against the thresholds in force (met; not met, with each measure, its value and
   its threshold; or not counted), with those thresholds, and the haplotype file the calls were read
-  from;
+  from. A monogenic NIPT family's fetus, which the import reads as an embryo when its sex and status
+  are unknown, has no data of its own: its record holds no embryo calls;
 - for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out: the
   fetal fraction, the quality checks with their verdicts (paternity, the fetal sex from both signals,
   the maternal plasma sample), the coverage of the capture targets, the category counts and the
@@ -307,6 +313,7 @@ built by hand that replaces the family, and a structure change that clears its d
 the server stops, the warning names exactly what may be partly written or missing. Upload again, or
 import again, with **overwrite** what the warning names: each part goes as it is brought again. A
 sample's items also go once the sample is deleted: nothing of a sample that is gone can be missing.
+So does what a failed or stopped import's warning names of that sample alone.
 
 ### Who may sign out
 
@@ -348,7 +355,9 @@ It shows what the record holds:
   was classified (the ClinVar significance and the annotation version and, for a classification saved
   since CoGA froze them, the consequence, impact and LoF call, the population frequencies and in-silico
   scores as they were then, read from its primary transcript, and, for a missense variant, the gnomAD
-  missense Z of its gene), its tags and its note;
+  missense Z of its gene), its tags and its note, and, for a variant its compound-het pair review
+  reports, that review (*Compound-het pair*: the partner, the gene, the phase, the pair's tags and
+  classification, and its note);
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV
   criteria;
 - in a PGT family, the embryo calls (*PGT embryo results*): each embryo's call at the ROI, the
@@ -396,8 +405,11 @@ when the versions could not be listed.
 *Signed versions* at the top lists every version; an earlier one names the version that replaces it.
 On the latest version the page says whether the family's current data still matches it, or what has
 changed since (a review, a report tag, a re-import, a QC cut-off, QA's validation of a repeat locus's
-counting units). That line is not printed: the version stays what was signed. Sign out again to issue
-a new version.
+counting units). What the version does not hold, because CoGA records it since, cannot be compared,
+and the line names it: *The family’s current data still matches this signed version in everything it
+holds. Not in this version, so not compared: the repeat calls’ near-boundary warnings and QA’s records
+of their counting units.* That line is not printed: the version stays what was signed. Sign out again
+to issue a new version.
 
 **Download signed version N (JSON)** returns the frozen record itself.
 
@@ -411,6 +423,10 @@ version 2*, and whether it still matches that version:
 - *This page still matches signed version 2* — even then, print the signed version for the record;
 - amber — something changed after sign-out, and the card names what;
 - grey — *This page could not be checked against signed version N — treat it as unsigned.*
+
+Beside a match or a change, the card names what signed version 2 does not hold, so the check could
+not compare it (*Not in signed version 2, so not compared: …*): a match then reads *still matches
+signed version 2 in everything that version holds*.
 
 Every printout of the live report starts with a notice: *Not the signed report — …*, or *Draft — this
 report has not been signed* for a case that was never signed out. After **Sign out report**, the page

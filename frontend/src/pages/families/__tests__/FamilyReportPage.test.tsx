@@ -2503,6 +2503,67 @@ describe('FamilyReportPage', () => {
       expect(container.querySelector('.report-print-notice')).toBeNull();
     });
 
+    it('names what the check could not compare with the latest version, off the printout (TRACE-19)', async () => {
+      mockSignedCase({ check: () => checkResult({ matches: true, not_compared: ['pgt_analysis.qc_verdict'] }) });
+      renderPage();
+
+      const line = (
+        await screen.findByText(/The family’s current data still matches this signed version in everything it holds\./)
+      ).closest('p')!;
+      expect(line).toHaveTextContent(
+        'The family’s current data still matches this signed version in everything it holds. Not in this version, so not compared: the embryos’ QC verdicts.',
+      );
+      expect(line).toHaveClass('no-print');
+    });
+
+    it('names what the check could not compare beside what changed since the latest version', async () => {
+      mockSignedCase({
+        check: () => checkResult({ matches: false, changed_sections: ['sample_qc'], not_compared: ['nipt'] }),
+      });
+      renderPage();
+
+      const line = (await screen.findByText(/Changed since this version was signed:/)).closest('p')!;
+      expect(line).toHaveTextContent(
+        '⚠ Changed since this version was signed: sample-integrity QC. Not in this version, so not compared: NIPT results. This page still shows version 2 as it was signed.',
+      );
+    });
+
+    it('shows the compound-het pair review that reports a variant (TRACE-19)', async () => {
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          reported_variants: [
+            {
+              variant_id: '1-3001-A-G',
+              acmg_class: null,
+              acmg: null,
+              tags: [],
+              note: null,
+              evidence_snapshot: null,
+              compound_het: {
+                partner_variant_ids: ['1-10000-A-G'],
+                gene: 'GENE_RECESS',
+                classification: null,
+                tags: ['report'],
+                note: 'In trans in the index.',
+                phase_status: 'unknown',
+              },
+            },
+          ],
+        },
+      });
+      renderPage();
+
+      const card = (await screen.findByRole('heading', { name: '1-3001-A-G' })).closest('article')!;
+      expect(within(card).getByRole('heading', { name: 'Compound-het pair' })).toBeInTheDocument();
+      expect(card).toHaveTextContent(
+        'Reported through its compound-het pair review: paired with 1-10000-A-G in GENE_RECESS (phase unknown); the pair is tagged report.',
+      );
+      expect(card).toHaveTextContent('In trans in the index.');
+      // Its own review holds no tag: the pair's tag reports it.
+      expect(card).toHaveTextContent('Tags: none');
+    });
+
     it('says when that comparison could not be made', async () => {
       mockSignedCase({ check: () => Promise.reject({ response: { status: 500, data: {} } }) });
       renderPage();
@@ -2615,6 +2676,33 @@ describe('FamilyReportPage', () => {
       expect(screen.getByText(/Changed since sign-out/)).toBeInTheDocument();
       expect(container.querySelector('.report-print-notice')?.textContent).toMatch(
         /Not the signed report — the content differs from signed version 2/,
+      );
+    });
+
+    it('names what it could not compare with the signed version, beside "still matches" (TRACE-19)', async () => {
+      mockSignedCase({
+        check: () => checkResult({ matches: true, not_compared: ['repeat_expansions.count_units', 'modules.hpo'] }),
+      });
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      const status = (
+        await screen.findByText(/This page still matches signed version 2 in everything that version holds\./)
+      ).closest('p')!;
+      expect(status).toHaveTextContent(
+        'This page still matches signed version 2 in everything that version holds. Not in signed version 2, so not compared: the repeat calls’ near-boundary warnings and QA’s records of their counting units and the HPO version.',
+      );
+    });
+
+    it('names what it could not compare beside what changed', async () => {
+      mockSignedCase({
+        check: () =>
+          checkResult({ matches: false, changed_sections: ['reported_variants'], not_compared: ['coverage_tracks'] }),
+      });
+      renderPage(undefined, '/families/F1/report?view=live');
+
+      const status = (await screen.findByText(/Changed since sign-out/)).closest('p')!;
+      expect(status).toHaveTextContent(
+        '⚠ Changed since sign-out: reported small variants. Not in signed version 2, so not compared: coverage tracks. This page shows the current state',
       );
     });
 

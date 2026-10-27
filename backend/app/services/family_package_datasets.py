@@ -99,7 +99,7 @@ from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
 from .structural_variant_ingest import SkippedRecords
-from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
+from .family_package_variants import ParaphaseValueError, _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from .per_sample_small_variants import (
@@ -813,7 +813,7 @@ async def _import_bins_and_segments(
             path = _resolve_package_path(bundle.root, paths[role])
             if path is None:
                 continue
-            importer = partial(
+            importer: Callable[..., Awaitable[dict[str, int]]] = partial(
                 track_importer,
                 session,
                 sample_context=sample_context,
@@ -1185,8 +1185,11 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
     async def report_file_read(stats: dict[str, Any]) -> None:
         await report_apcad_progress(files_read.stats(stats))
 
-    for sample_id, raw_entry, bed_path in sample_files:
-        sample_context = sample_contexts[sample_id]
+    async def import_sample_file(
+        sample_id: str, raw_entry: dict[str, Any], bed_path: Path, *, check_only: bool = False
+    ) -> Any:
+        """The embryo's file into its ``apcad`` track; with ``check_only``, read as it is
+        read before the track is cleared, and nothing deleted or stored."""
         # A per-embryo trio VCF (nf-cmgg/copgtm) carries the embryo's column beside the
         # parents' columns, which give each site its parental origin.
         import_result = await _run_with_periodic_progress(
@@ -1198,29 +1201,44 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                 selected_sample_id=sample_id,
                 selected_vcf_sample=raw_entry.get("sample_name") or raw_entry.get("vcf_sample"),
                 progress=report_file_read if reporter is not None else None,
+                check_only=check_only,
             ),
             report=reporter,
-            stats={"importing": sample_id, "file": _display_path(bundle.root, bed_path)},
+            stats={
+                "checking" if check_only else "importing": sample_id,
+                "file": _display_path(bundle.root, bed_path),
+            },
         )
+        if import_result:
+            return (
+                import_result.get(sample_id, import_result)
+                if isinstance(import_result, dict)
+                else import_result
+            )
+        # Read as a BED, into this dataset's own track: a BED upload's APCAD stays. Its
+        # record says a package loaded it, as every package loader's does (TRACE-17).
+        async with _local_upload(bed_path) as upload:
+            return await upload_bed_data(
+                session,
+                sample_context=sample_contexts[sample_id],
+                bed_type="apcad",
+                file=upload,
+                overwrite=True,
+                source=APCAD_SOURCE,
+                uploaded_from="family_package",
+                check_only=check_only,
+            )
+
+    # Every embryo's file is checked, as it is checked before its embryo's track is cleared,
+    # before any embryo's track is: a later embryo's file without a value for it failed the
+    # dataset with the earlier embryos' tracks replaced (SAFE-3). The check reads a file up to
+    # the embryo's first value (a VCF without a record, read as a BED, whole), so a file is
+    # read twice only that far.
+    for sample_id, raw_entry, bed_path in sample_files:
+        await import_sample_file(sample_id, raw_entry, bed_path, check_only=True)
+    for sample_id, raw_entry, bed_path in sample_files:
+        sample_results[sample_id] = await import_sample_file(sample_id, raw_entry, bed_path)
         files_read.next_file()
-        sample_results[sample_id] = (
-            import_result.get(sample_id, import_result)
-            if isinstance(import_result, dict)
-            else import_result
-        )
-        if not import_result:
-            # Read as a BED, into this dataset's own track: a BED upload's APCAD stays. Its
-            # record says a package loaded it, as every package loader's does (TRACE-17).
-            async with _local_upload(bed_path) as upload:
-                sample_results[sample_id] = await upload_bed_data(
-                    session,
-                    sample_context=sample_context,
-                    bed_type="apcad",
-                    file=upload,
-                    overwrite=True,
-                    source=APCAD_SOURCE,
-                    uploaded_from="family_package",
-                )
         if reporter is not None:
             await reporter({})
     return _sample_by_sample_outcome(
@@ -1448,9 +1466,12 @@ async def _import_target_coverage_table(
     sample_context: SampleMetadataContext,
     table_path: Path,
     bundle_root: Path,
+    check_only: bool = False,
 ) -> dict[str, Any]:
     """Store a per-target coverage table as the sample's ``target_coverage`` track, in
-    place of the one stored before (see nipt_target_coverage)."""
+    place of the one stored before (see nipt_target_coverage). The table is read and
+    parsed whole first: one that cannot be, or holds no target, is refused with the track
+    as it was. ``check_only`` stops there, deleting and storing nothing."""
     assembly_name = sample_context.assembly_name or ""
     text_value = await asyncio.to_thread(read_path_text_bounded, table_path, kind="Coverage table")
     try:
@@ -1459,6 +1480,8 @@ async def _import_target_coverage_table(
         raise RuntimeError(f"{_display_path(bundle_root, table_path)}: {exc}") from exc
     if not targets:
         raise RuntimeError(f"{_display_path(bundle_root, table_path)} holds no target")
+    if check_only:
+        return {}
     await _delete_sample_interval_source(
         session,
         sample_context=sample_context,
@@ -1516,7 +1539,11 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
     With ``update`` a sample whose track from this dataset's source is stored is skipped, as
     the store holds it: not as Postgres records it, which a failed overwrite's restore that
     stopped part-way can leave for rows it deleted. A dataset that skipped every sample ends
-    ``skipped`` (SAFE-20)."""
+    ``skipped`` (SAFE-20).
+
+    Every sample's file is read and checked, as it is before its track is replaced, before
+    any sample's track is: a later sample's refused file failed the dataset with the earlier
+    samples' tracks replaced (SAFE-3)."""
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts = job.sample_contexts
     if not dataset.per_sample:
@@ -1524,40 +1551,62 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
             summary, "Registered only; coverage dataset has no per_sample entries"
         )
     sample_results: dict[str, Any] = {}
+    # Each sample's file and the track it goes into: a per-target table, or a BED with what
+    # it declares it holds.
+    sample_files: list[tuple[str, SampleMetadataContext, str, Path, str]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
             continue
         table_path = _resolve_package_path(bundle.root, raw_entry.get("target_table"))
         if table_path is not None:
-            skip = await _skip_stored_sample(
-                job,
-                sample_id,
-                sample_context,
-                track_type=TARGET_COVERAGE_TRACK_TYPE,
-                source=TARGET_COVERAGE_SOURCE,
+            track_type, source = TARGET_COVERAGE_TRACK_TYPE, TARGET_COVERAGE_SOURCE
+            path = table_path
+        else:
+            bed_path = _resolve_package_path(
+                bundle.root, raw_entry.get("bed") or raw_entry.get("file")
             )
-            if skip is not None:
-                sample_results[sample_id] = skip
+            if bed_path is None:
                 continue
-            sample_results[sample_id] = await _import_target_coverage_table(
-                session, sample_context=sample_context, table_path=table_path, bundle_root=bundle.root
-            )
-            await session.commit()
-            continue
-        bed_path = _resolve_package_path(
-            bundle.root, raw_entry.get("bed") or raw_entry.get("file")
-        )
-        if bed_path is None:
-            continue
+            track_type, source, path = "coverage", BED_UPLOAD_SOURCE, bed_path
         skip = await _skip_stored_sample(
-            job, sample_id, sample_context, track_type="coverage", source=BED_UPLOAD_SOURCE
+            job, sample_id, sample_context, track_type=track_type, source=source
         )
         if skip is not None:
             sample_results[sample_id] = skip
             continue
-        content = declared_coverage_content(raw_entry.get(COVERAGE_CONTENT_KEY))
-        async with _local_upload(bed_path) as upload:
+        sample_files.append(
+            (
+                sample_id,
+                sample_context,
+                track_type,
+                path,
+                declared_coverage_content(raw_entry.get(COVERAGE_CONTENT_KEY)),
+            )
+        )
+
+    async def import_sample_file(
+        sample_context: SampleMetadataContext,
+        track_type: str,
+        path: Path,
+        content: str,
+        *,
+        check_only: bool = False,
+    ) -> dict[str, Any]:
+        """The sample's file into its track; with ``check_only``, read and checked as it is
+        before the track is replaced, and nothing deleted or stored."""
+        if track_type == TARGET_COVERAGE_TRACK_TYPE:
+            stored = await _import_target_coverage_table(
+                session,
+                sample_context=sample_context,
+                table_path=path,
+                bundle_root=bundle.root,
+                check_only=check_only,
+            )
+            if not check_only:
+                await session.commit()
+            return stored
+        async with _local_upload(path) as upload:
             stored = await upload_bed_data(
                 session,
                 sample_context=sample_context,
@@ -1568,8 +1617,16 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
                 # Its record says a package loaded it, as the other package tracks' records do:
                 # the single-file upload shares its source (`web`).
                 uploaded_from="family_package",
+                check_only=check_only,
             )
-        sample_results[sample_id] = {**stored, COVERAGE_CONTENT_KEY: content}
+        return {**stored, COVERAGE_CONTENT_KEY: content}
+
+    # Each file is read twice: the check decodes a BED whole, as its loader does, and stops at
+    # its first record; a per-target table holds a row per capture target.
+    for _sample_id, sample_context, track_type, path, content in sample_files:
+        await import_sample_file(sample_context, track_type, path, content, check_only=True)
+    for sample_id, sample_context, track_type, path, content in sample_files:
+        sample_results[sample_id] = await import_sample_file(sample_context, track_type, path, content)
     return _sample_by_sample_outcome(
         summary,
         sample_results,
@@ -1749,6 +1806,10 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     sample_results: dict[str, Any] = {}
+    # Every sample's JSON is read, and refused or accepted, before any sample's results are
+    # replaced, as a package's TRGT files are (SAFE-3): a later sample's refused JSON failed
+    # the dataset with the earlier samples' results already replaced (DATA-7).
+    checked: list[tuple[str, SampleMetadataContext, Path, list[dict[str, Any]]]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -1766,17 +1827,28 @@ async def _import_paraphase_dataset(job: DatasetImportJob) -> FamilyImportDatase
         payload = json.loads(json_path.read_text(encoding="utf-8"))
         if not isinstance(payload, dict):
             raise RuntimeError(f"Paraphase JSON for {sample_id} must contain an object")
-        rows = _paraphase_rows_for_sample(
-            sample_context=sample_context,
-            path=json_path,
-            payload=payload,
-        )
+        try:
+            rows = _paraphase_rows_for_sample(
+                sample_context=sample_context,
+                path=json_path,
+                payload=payload,
+            )
+        except ParaphaseValueError as exc:
+            # Refused as a TRGT value that cannot be read as a number is (#985): a copy number
+            # its integer column cannot hold failed the insert with a database error, after the
+            # sample's results were deleted (DATA-7).
+            raise RuntimeError(
+                f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number "
+                f"is expected ({exc}); nothing was stored"
+            ) from exc
         if not rows:
             # Paraphase reports every region it analysed: a JSON without one is no result.
             # It used to replace the sample's results with none (SAFE-29).
             raise RuntimeError(
                 f"Paraphase JSON for {sample_id} holds no gene result; its results were not replaced"
             )
+        checked.append((sample_id, sample_context, json_path, rows))
+    for sample_id, sample_context, json_path, rows in checked:
         await _replace_sample_paraphase_rows(
             session,
             sample_context=sample_context,

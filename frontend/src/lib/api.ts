@@ -58,20 +58,35 @@ export const resolveApiUrl = (
   base: string = api.defaults.baseURL ?? apiBaseUrl,
 ): string => (isAbsoluteUrl(value) ? value : `${base}${value}`);
 
+/**
+ * The bearer token for a request of this session, or null without a session: the token the
+ * session holds or, signed in with Microsoft, the one MSAL hands back, which the session then
+ * keeps. Asked for at each request, the API client's and IGV's alike (SEC-32): a token read
+ * once runs out while the page stays open.
+ */
+export const sessionAccessToken = async (): Promise<string | null> => {
+  const token = getAuthToken();
+  if (!token || getSessionSignIn() !== 'microsoft') {
+    return token;
+  }
+  // Microsoft's access token lives about an hour: MSAL hands back the one it holds, or a
+  // renewed one when that is about to expire (SEC-4).
+  const { freshMicrosoftAccessToken } = await import('./microsoftSignIn');
+  const fresh = await freshMicrosoftAccessToken();
+  if (fresh && fresh !== token) {
+    updateSessionToken(fresh);
+    return fresh;
+  }
+  return token;
+};
+
 api.interceptors.request.use(async (config) => {
-  let token = getAuthToken();
-  if (!token || !shouldAttachStoredToken(config.url, config.headers)) {
+  if (!getAuthToken() || !shouldAttachStoredToken(config.url, config.headers)) {
     return config;
   }
-  if (getSessionSignIn() === 'microsoft') {
-    // Microsoft's access token lives about an hour: MSAL hands back the one it holds, or a
-    // renewed one when that is about to expire (SEC-4).
-    const { freshMicrosoftAccessToken } = await import('./microsoftSignIn');
-    const fresh = await freshMicrosoftAccessToken();
-    if (fresh && fresh !== token) {
-      updateSessionToken(fresh);
-      token = fresh;
-    }
+  const token = await sessionAccessToken();
+  if (!token) {
+    return config;
   }
   config.headers = config.headers ?? {};
   config.headers.Authorization = `Bearer ${token}`;

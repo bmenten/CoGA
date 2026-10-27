@@ -618,9 +618,11 @@ file's ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#the-downloa
 
 Two more files in the bucket must be the repository's files of the version being deployed,
 byte for byte: `hpo/hp.obo` and
-`clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`, the segmental
-duplications. A start on a database without HPO terms, or without segmental duplications,
-loads the file only if its SHA-256 is the pinned one. Any other file is not loaded: the log
+`clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed`, GRCh38's segmental
+duplications. A start on a database without HPO terms, or without GRCh38 segmental
+duplications, loads the file only if its SHA-256 is the pinned one (the segmental
+duplications into a GRCh38 assembly only:
+[data-import.md](data-import.md#what-startup-loads)). Any other file is not loaded: the log
 names it, both SHA-256 digests and the fix, and the start goes on without it (the HPO
 terminology, or the segmental duplications track, stays empty until the file is right).
 Copying them again is always safe:
@@ -1031,9 +1033,10 @@ role or deactivate it, and its password is the `coga-admin-password` secret (12.
 **Leavers and changes**: disabling the account in Entra ID stops new sign-ins; an access token
 already issued stays valid until it expires (about an hour). For an immediate stop, deactivate
 the account on the *Users* page. A changed name or e-mail address follows at the next sign-in:
-the account is bound to the user's object ID in Entra ID, never to an e-mail address. A first
-sign-in whose e-mail address belongs to another CoGA account is refused rather than linked;
-an administrator resolves it in the database.
+the account is bound to the user's object ID in Entra ID, never to an e-mail address, and the
+user's import jobs and filter presets are kept by the account, so they stay theirs (SEC-32).
+A first sign-in whose e-mail address belongs to another CoGA account is refused rather than
+linked; an administrator resolves it in the database.
 
 ---
 

@@ -304,10 +304,12 @@ async def _delete_family_clickhouse_data(
 ) -> None:
     """Delete the family's small variants, structural variants and interval tracks in
     ClickHouse, for a structure change that clears its genomic data
-    (``_clear_family_genomic_data``): once everything else of the change is written, just
-    before its commit, so a write that fails before this leaves them, with the family the
-    rollback brings back. The variant-write locks the clear took are still held. Each delete
-    is recorded on the change's ``deletion`` as it begins (SAFE-31)."""
+    (``_clear_family_genomic_data``), and for a PED upload or manual family that replaces it
+    (``ped_service._delete_replaced_family_data``, SAFE-35): once everything else of the
+    change is written, just before its commit, so a write that fails before this leaves them,
+    with the family the rollback brings back. The variant-write locks the clear or the
+    replacement took are still held. Each delete is recorded on the change's ``deletion`` as
+    it begins (SAFE-31)."""
     for assembly_name in assembly_names:
         if deletion is not None:
             deletion.reach(DataReach(SMALL_VARIANT_DATA))

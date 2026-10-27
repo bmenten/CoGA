@@ -139,7 +139,13 @@ def test_the_body_the_sv_page_sends_saves_a_preset_for_the_family(client_for) ->
         )
     assert response.status_code == 200, response.text
     params = _saved_params(session)
-    assert (params["family_id"], params["scope"], params["owner"]) == (FAMILY_UUID, "family", "reviewer")
+    # The owner is the account; its user name is stored to show with the preset (SEC-32).
+    assert (params["family_id"], params["scope"], params["owner_id"], params["owner"]) == (
+        FAMILY_UUID,
+        "family",
+        USER.id,
+        "reviewer",
+    )
     assert (params["name"], params["description"]) == ("Rare deletions", "DEL only")
     assert json.loads(params["filters_json"]) == SAVED_SEARCH["filters"]
     assert json.loads(params["sample_filters_json"]) == SAVED_SEARCH["sample_filters"]
@@ -237,11 +243,22 @@ def test_the_list_serves_each_presets_scope_and_family(client_for) -> None:
         (PRESET_ID, "family", FAMILY_UUID),
         ("00000000-0000-0000-0000-0000000000a2", "global", None),
     ]
-    assert [params for _sql, params in session.executed] == [{"family_id": FAMILY_UUID, "owner": "reviewer"}]
+    # The owner's presets: the account's, whatever its user name is now (SEC-32).
+    assert [params for _sql, params in session.executed] == [{"family_id": FAMILY_UUID, "owner_id": USER.id}]
 
 
 def test_another_users_preset_answers_as_an_unknown_one_and_is_kept(client_for) -> None:
-    session = _Session(listed=[{"owner": "someone.else", "scope": "family", "family_id": FAMILY_UUID}])
+    # Another account's preset, though it was saved under the user name this user has now.
+    session = _Session(
+        listed=[
+            {
+                "owner_id": "00000000-0000-0000-0000-0000000000b2",
+                "owner": "reviewer",
+                "scope": "family",
+                "family_id": FAMILY_UUID,
+            }
+        ]
+    )
     with client_for(session) as client:
         response = client.delete(f"{PRESETS}/{PRESET_ID}")
 

@@ -26,17 +26,23 @@ without its header is refused before anything is written.
 
 A dataset of one file per sample checks every sample's file before it writes any (SAFE-3): a
 later sample's refused file used to fail the dataset with the earlier samples' data replaced.
-A TRGT value that is no number is refused with 400 (it answered 500), and a dry run warns of a
-data file without a record, which the import will refuse.
+The APCAD file per embryo and the coverage BED or per-target table per sample were the last
+checked as each was written. A TRGT value that is no number is refused with 400 (it answered
+500), and a dry run warns of a data file without a record, which the import will refuse. A
+Paraphase copy number that its Postgres ``integer`` column cannot hold fails the dataset as such
+a TRGT value does (DATA-7: it failed the insert with a database error, after the sample's
+results were deleted).
 
 The stores are faked at their edge: the interval table answers the statements
 ``clickhouse_interval_tracks`` sends ClickHouse, and the session the Postgres statements the
-loaders send (the track records, the TRGT calls, Paraphase's results, the family row).
+loaders send (the track records, the TRGT calls, Paraphase's results, the family row). The
+session refuses a Paraphase copy number beyond Postgres's ``integer``, as the driver does.
 """
 
 from __future__ import annotations
 
 import copy
+import gzip
 from io import BytesIO
 import json
 from pathlib import Path
@@ -66,10 +72,12 @@ from backend.app.services.family_package_common import (
     PackageManifest,
     ParsedPed,
 )
+from backend.app.services.bed_service import BED_UPLOAD_SOURCE
 from backend.app.services.family_package_common import VcfSampleColumnError
 from backend.app.services.family_package_tracks import EmptyTrackFileError
 from backend.app.services.family_package_validation import _validate_dataset
 from backend.app.services.nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
+from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
 
 FAMILY = "FAM029"
 SAMPLES = ("S1", "S2")
@@ -97,6 +105,23 @@ def _matches(key: tuple[str, ...], params: Mapping[str, Any]) -> bool:
     )
 
 
+# Postgres's ``integer``, the type of the Paraphase copy-number columns (03_assay.sql).
+_PG_INTEGER = (-(2**31), 2**31 - 1)
+_PARAPHASE_INTEGER_COLUMNS = ("total_cn", "gene_cn", "highest_total_cn")
+
+
+class _PostgresDataError(Exception):
+    """A bound value its column's type cannot hold, as the driver refuses it (asyncpg's
+    ``DataError``, "value out of int32 range"): the statement fails, as on the database."""
+
+
+def _bind_integer_columns(row: Mapping[str, Any], columns: tuple[str, ...]) -> None:
+    for column in columns:
+        value = row[column]
+        if value is not None and not _PG_INTEGER[0] <= value <= _PG_INTEGER[1]:
+            raise _PostgresDataError(f"invalid input for query argument {column}: {value} (value out of int32 range)")
+
+
 def _result(*, scalar: Any = None, rows: list[dict[str, Any]] | None = None) -> SimpleNamespace:
     found = rows or []
     return SimpleNamespace(
@@ -110,15 +135,17 @@ class _Stores:
     """The family's stored data. ``rows``: the interval table's rows, and ``records``:
     Postgres's record of each track, both a row count by (sample uuid, track type, source,
     file name). ``repeats`` and ``paraphase``: each sample's TRGT calls and Paraphase results
-    (by sample uuid). ``unfinished``, ``flag`` and ``imported``: the family row's
-    ``import_unfinished``, ``import_incomplete`` and ``imported_scopes``. ``deletes`` lists
-    each delete sent to either store, ``statements`` every Postgres statement in order."""
+    (by sample uuid); ``paraphase_rows`` the Paraphase rows inserted. ``unfinished``, ``flag``
+    and ``imported``: the family row's ``import_unfinished``, ``import_incomplete`` and
+    ``imported_scopes``. ``deletes`` lists each delete sent to either store, ``statements``
+    every Postgres statement in order."""
 
     def __init__(self) -> None:
         self.rows: dict[tuple[str, ...], int] = {}
         self.records: dict[tuple[str, ...], int] = {}
         self.repeats: dict[str, int] = {}
         self.paraphase: dict[str, int] = {}
+        self.paraphase_rows: list[dict[str, Any]] = []
         self.unfinished: Any = None
         self.flag: Any = None
         self.imported: Any = None
@@ -208,7 +235,10 @@ class _Session:
                 return _result()
             assert sql.startswith("INSERT INTO"), sql
             for row in params:
+                _bind_integer_columns(row, _PARAPHASE_INTEGER_COLUMNS)
+            for row in params:
                 stores.paraphase[row["sample_id"]] = stores.paraphase.get(row["sample_id"], 0) + 1
+                stores.paraphase_rows.append(dict(row))
             return _result()
         if sql.startswith("UPDATE samples"):
             return _result()
@@ -1200,6 +1230,192 @@ async def test_a_nipt_fathers_snv_file_without_a_record_fails_the_dataset_before
     assert writes == []
 
 
+# An APCAD file per embryo and a coverage file per sample, checked as each was written until the
+# rest of SAFE-3: every one is now checked before any sample's track is cleared.
+
+_COVERAGE_BED = "chr1\t0\t1000\t30\nchr1\t1000\t2000\t32\n"
+_TARGET_TABLE = "chromosome\tstart\tend\tattribute\tmean\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("s2_entry", "error"),
+    [
+        # Records, none read for S2: the file's one column is another tube's.
+        pytest.param(
+            {"vcf": ("apcad/S2.vcf", _apcad_vcf(["OTHER"], ["0/1:10,10"]))},
+            "S2.vcf holds no APCAD value for S2",
+            id="vcf-without-the-embryos-column",
+        ),
+        # No record at all: read as a BED, which holds none either.
+        pytest.param({"vcf": ("apcad/S2.vcf", _apcad_vcf(["S2"]))}, "No valid BED records found", id="vcf-header-alone"),
+        pytest.param(
+            {"bed": ("apcad/S2.apcad.bed", "# chrom start end id value origin\n")},
+            "S2.apcad.bed holds no APCAD value for S2",
+            id="bed-without-a-record",
+        ),
+    ],
+)
+async def test_a_later_embryos_apcad_file_without_a_value_fails_the_dataset_before_any_track_is_cleared(
+    stores: _Stores, tmp_path: Path, s2_entry: dict[str, tuple[str, str]], error: str
+) -> None:
+    stores.track("S1", "apcad", APCAD_SOURCE, "S1.old.vcf", rows=6)
+    stores.track("S2", "apcad", APCAD_SOURCE, "S2.old.vcf", rows=4)
+    before = stores.tracks()
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"vcf": _file(tmp_path, "apcad/S1.vcf", _apcad_vcf(["S1"], ["0/1:10,10"], ["0/1:12,8"]))},
+            "S2": {role: _file(tmp_path, name, content) for role, (name, content) in s2_entry.items()},
+        }
+    )
+
+    with pytest.raises((EmptyTrackFileError, HTTPException)) as refused:
+        await _run(_job(stores, tmp_path, "apcad", dataset))
+
+    assert error in str(getattr(refused.value, "detail", refused.value))
+    # Before: S1's track was replaced by its file's two sites, then S2's file failed the
+    # dataset.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_every_embryos_apcad_file_checked_the_dataset_replaces_each_embryos_track(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", "apcad", APCAD_SOURCE, "S1.old.vcf", rows=6)
+    stores.track("S2", "apcad", APCAD_SOURCE, "S2.old.vcf", rows=4)
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"vcf": _file(tmp_path, "apcad/S1.vcf", _apcad_vcf(["S1"], ["0/1:10,10"], ["0/1:12,8"]))},
+            # A VCF without a record, read as a BED, is checked and stored as one.
+            "S2": {"vcf": _file(tmp_path, "apcad/S2.vcf", "1\t100\t101\trs1\t0.5\tpaternal\n")},
+        }
+    )
+
+    result = await _run(_job(stores, tmp_path, "apcad", dataset))
+
+    assert result.status == "imported"
+    assert stores.tracks() == (
+        {(_uuid("S1"), "apcad", APCAD_SOURCE, "S1.vcf"): 2, (_uuid("S2"), "apcad", APCAD_SOURCE, "S2.vcf"): 1},
+        {(_uuid("S1"), "apcad", APCAD_SOURCE, "S1.vcf"): 2, (_uuid("S2"), "apcad", APCAD_SOURCE, "S2.vcf"): 1},
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("content", "detail"),
+    [
+        pytest.param(b"track name=coverage\n", "No valid BED records found", id="no-record"),
+        pytest.param(b"", "No valid BED records found", id="nothing"),
+        # A byte that is no UTF-8 after the first records: the BED loader decodes the file whole.
+        pytest.param(
+            _COVERAGE_BED.encode() + b"chr1\t2000\t3000\t3\xff\n",
+            "BED file must be UTF-8 text or gzipped UTF-8 text",
+            id="not-utf-8",
+        ),
+        pytest.param(gzip.compress(_COVERAGE_BED.encode() * 50)[:-12], "BED file is not valid gzip", id="gzip-cut-short"),
+    ],
+)
+async def test_a_later_samples_refused_coverage_bed_fails_the_dataset_before_any_track_is_cleared(
+    stores: _Stores, tmp_path: Path, content: bytes, detail: str
+) -> None:
+    stores.track("S1", "coverage", BED_UPLOAD_SOURCE, "S1.old.bed", rows=5)
+    stores.track("S2", "coverage", BED_UPLOAD_SOURCE, "S2.old.bed", rows=3)
+    before = stores.tracks()
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"bed": _file(tmp_path, "coverage/S1.bed", _COVERAGE_BED), "content": "read_depth"},
+            "S2": {"bed": _file(tmp_path, "coverage/S2.bed", content), "content": "read_depth"},
+        }
+    )
+
+    with pytest.raises(HTTPException) as refused:
+        await _run(_job(stores, tmp_path, "coverage", dataset))
+
+    assert (refused.value.status_code, refused.value.detail) == (400, detail)
+    # Before: S1's coverage was replaced by its BED's two bins, then S2's BED failed the
+    # dataset.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("table", "error"),
+    [
+        pytest.param(_TARGET_TABLE, "coverage_S2.txt holds no target", id="no-target"),
+        pytest.param(
+            "chromosome\tstart\tend\n1\t100\t200\n", "The coverage table has no column attribute, mean", id="no-mean"
+        ),
+    ],
+)
+async def test_a_later_samples_refused_coverage_table_fails_the_dataset_before_any_table_is_replaced(
+    stores: _Stores, tmp_path: Path, table: str, error: str
+) -> None:
+    stores.track("S1", TARGET_COVERAGE_TRACK_TYPE, TARGET_COVERAGE_SOURCE, "coverage_S1.old.txt", rows=4)
+    before = stores.tracks()
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"target_table": _file(tmp_path, "coverage_S1.txt", _TARGET_TABLE + "1\t100\t200\tGENE1\t80\n")},
+            "S2": {"target_table": _file(tmp_path, "coverage_S2.txt", table)},
+        }
+    )
+
+    with pytest.raises(RuntimeError, match=error):
+        await _run(_job(stores, tmp_path, "coverage", dataset))
+
+    # A monogenic NIPT pair's per-target tables. Before: the plasma's (S1's) table replaced
+    # its track, then the father's failed the dataset.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_every_samples_coverage_file_checked_the_dataset_replaces_each_samples_track(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", "coverage", BED_UPLOAD_SOURCE, "S1.old.bed", rows=5)
+    stores.track("S2", TARGET_COVERAGE_TRACK_TYPE, TARGET_COVERAGE_SOURCE, "coverage_S2.old.txt", rows=4)
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"bed": _file(tmp_path, "coverage/S1.bed", _COVERAGE_BED), "content": "read_depth"},
+            "S2": {"target_table": _file(tmp_path, "coverage_S2.txt", _TARGET_TABLE + "1\t100\t200\tGENE1\t80\n")},
+        }
+    )
+
+    result = await _run(_job(stores, tmp_path, "coverage", dataset))
+
+    assert result.status == "imported"
+    expected = {
+        (_uuid("S1"), "coverage", BED_UPLOAD_SOURCE, "S1.bed"): 2,
+        (_uuid("S2"), TARGET_COVERAGE_TRACK_TYPE, TARGET_COVERAGE_SOURCE, "coverage_S2.txt"): 1,
+    }
+    assert stores.tracks() == (expected, expected)
+
+
+@pytest.mark.asyncio
+async def test_an_update_checks_no_file_of_a_coverage_track_it_leaves_as_stored(stores: _Stores, tmp_path: Path) -> None:
+    stores.track("S1", "coverage", BED_UPLOAD_SOURCE, "S1.old.bed", rows=5)
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"bed": _file(tmp_path, "coverage/S1.bed", "track name=coverage\n"), "content": "read_depth"},
+            "S2": {"bed": _file(tmp_path, "coverage/S2.bed", _COVERAGE_BED), "content": "read_depth"},
+        }
+    )
+
+    result = await _run(_job(stores, tmp_path, "coverage", dataset, conflict_mode="update"))
+
+    # S1's coverage is stored, so the update leaves it and does not read its file; S2's is
+    # imported.
+    assert (result.status, result.message) == (
+        "imported",
+        "Imported coverage; skipped existing samples in update mode: S1",
+    )
+    expected = {
+        (_uuid("S1"), "coverage", BED_UPLOAD_SOURCE, "S1.old.bed"): 5,
+        (_uuid("S2"), "coverage", BED_UPLOAD_SOURCE, "S2.bed"): 2,
+    }
+    assert stores.tracks() == (expected, expected)
+
+
 # --- SAFE-3: a dry run reports a data file without a record ---------------------------------------
 
 
@@ -1288,6 +1504,47 @@ def test_a_dry_run_does_not_warn_of_a_result_without_a_call(tmp_path: Path) -> N
     assert _validated(tmp_path, "repeats_trgt", not_gzip) == []
 
 
+@pytest.mark.parametrize(
+    ("dataset_type", "role", "s1", "s2"),
+    [
+        pytest.param(
+            "apcad",
+            "vcf",
+            ("S1.vcf", _HEADER_ALONE.replace("S2", "S1") + _A_RECORD),
+            ("S2.vcf", _HEADER_ALONE),
+            id="apcad-vcf",
+        ),
+        pytest.param(
+            "apcad",
+            "bed",
+            ("S1.apcad.bed", "1\t100\t101\trs1\t0.5\tpaternal\n"),
+            ("S2.apcad.bed", "# chrom\tstart\tend\tid\tvalue\torigin\n"),
+            id="apcad-bed",
+        ),
+        pytest.param("coverage", "bed", ("S1.bed", _COVERAGE_BED), ("S2.bed", ""), id="coverage-bed"),
+    ],
+)
+def test_a_dry_run_warns_of_an_embryos_apcad_file_or_a_samples_coverage_bed_without_a_record(
+    tmp_path: Path, dataset_type: str, role: str, s1: tuple[str, str], s2: tuple[str, str]
+) -> None:
+    declared = {"content": "read_depth"} if dataset_type == "coverage" else {}
+    dataset = ManifestDataset(
+        per_sample={
+            sample: {role: _file(tmp_path, f"{dataset_type}/{name}", content), **declared}
+            for sample, (name, content) in (("S1", s1), ("S2", s2))
+        }
+    )
+
+    # Before: no warning; the import then failed the dataset.
+    assert _validated(tmp_path, dataset_type, dataset) == [("dataset_file_without_record", "S2")]
+
+
+def test_a_dry_run_warns_of_an_apcad_family_vcf_without_a_record(tmp_path: Path) -> None:
+    dataset = ManifestDataset(family_vcf=_file(tmp_path, "apcad/family.vcf", _HEADER_ALONE))
+
+    assert _validated(tmp_path, "apcad", dataset) == [("dataset_file_without_record", None)]
+
+
 # --- CLIN-39: a file whose every call states no extent is no answer that none was called ---------
 #
 # A deletion, duplication, inversion or CNV that states neither END nor SVLEN is left out and
@@ -1364,3 +1621,95 @@ async def test_a_needlr_file_whose_calls_state_no_extent_says_why_it_holds_none(
         + _EXTENT_REFUSAL
         + "; no NeedlR call was replaced"
     )
+
+
+# --- DATA-7: a Paraphase copy number that no Postgres integer column holds -----------------------
+#
+# The copy numbers are Postgres ``integer`` columns (``total_cn``, ``gene_cn``,
+# ``highest_total_cn``) filled from the sample's JSON. One beyond them failed the insert with a
+# database error, after the sample's results were deleted. Such a file is refused as a TRGT
+# value that cannot be read as a number is (#985): before any sample's results are replaced,
+# the dataset failed with a message that names where the value is, never the value.
+
+
+def _paraphase_json(**smn1: Any) -> str:
+    """A sample's Paraphase JSON: GBA's result, and SMN1's with ``smn1`` over its values."""
+    result = {"total_cn": 2, "gene_cn": 2, "highest_total_cn": 2, "sample_sex": "female", "genome_depth": 30.5}
+    return json.dumps({"GBA": dict(result), "SMN1": {**result, **smn1}})
+
+
+def _paraphase_refusal(sample_id: str, where: str) -> str:
+    return (
+        f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number is expected "
+        f"({where}); nothing was stored"
+    )
+
+
+# Each beyond Postgres's ``integer`` (-2,147,483,648 to 2,147,483,647), however the JSON writes it.
+_COPY_NUMBERS_NO_INTEGER_HOLDS = [
+    pytest.param({"total_cn": 2**31}, "total_cn", id="total-cn-one-above"),
+    pytest.param({"gene_cn": -(2**31) - 1}, "gene_cn", id="gene-cn-one-below"),
+    pytest.param({"highest_total_cn": "99999999999"}, "highest_total_cn", id="highest-total-cn-as-text"),
+    pytest.param({"total_cn": 1e10}, "total_cn", id="total-cn-as-a-float"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("smn1", "field"), _COPY_NUMBERS_NO_INTEGER_HOLDS)
+async def test_a_paraphase_copy_number_no_integer_column_holds_fails_the_dataset_with_the_results_as_they_were(
+    stores: _Stores, tmp_path: Path, smn1: dict[str, Any], field: str
+) -> None:
+    stores.paraphase[_uuid("S1")] = 3
+    dataset = ManifestDataset(per_sample={"S1": {"json": _file(tmp_path, "paraphase/S1.json", _paraphase_json(**smn1))}})
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    # Before: the sample's results deleted, then the insert failed with a database error.
+    assert str(refused.value) == _paraphase_refusal("S1", f"{field} of SMN1")
+    assert stores.paraphase == {_uuid("S1"): 3}
+    assert stores.deletes == []
+    assert stores.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_a_later_samples_paraphase_copy_number_no_integer_column_holds_fails_the_dataset_with_every_samples_results(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.paraphase = {_uuid("S1"): 3, _uuid("S2"): 4}
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"json": _file(tmp_path, "paraphase/S1.json", _paraphase_json())},
+            "S2": {"json": _file(tmp_path, "paraphase/S2.json", _paraphase_json(total_cn=2**31))},
+        }
+    )
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    # Before: S1's results were replaced and committed, then S2's insert failed with a
+    # database error.
+    assert str(refused.value) == _paraphase_refusal("S2", "total_cn of SMN1")
+    assert stores.paraphase == {_uuid("S1"): 3, _uuid("S2"): 4}
+    assert stores.deletes == []
+    assert stores.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_a_paraphase_copy_number_at_the_integer_columns_bounds_is_stored_as_the_file_has_it(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.paraphase = {_uuid("S1"): 3, _uuid("S2"): 4}
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"json": _file(tmp_path, "paraphase/S1.json", _paraphase_json(total_cn=2**31 - 1))},
+            "S2": {"json": _file(tmp_path, "paraphase/S2.json", _paraphase_json(gene_cn=-(2**31)))},
+        }
+    )
+
+    outcome = await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    assert outcome.status == "imported"
+    assert stores.paraphase == {_uuid("S1"): 2, _uuid("S2"): 2}
+    smn1 = {row["sample_id"]: row for row in stores.paraphase_rows if row["gene_symbol"] == "SMN1"}
+    assert (smn1[_uuid("S1")]["total_cn"], smn1[_uuid("S2")]["gene_cn"]) == (2**31 - 1, -(2**31))

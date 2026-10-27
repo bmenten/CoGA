@@ -6,7 +6,7 @@ import hashlib
 from datetime import datetime, timezone
 import json
 import logging
-from typing import Any
+from typing import Any, Iterator
 
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
@@ -195,10 +195,9 @@ def _bed_rows(
     *,
     source: str,
     metadata_json: str,
-) -> list[dict[str, Any]]:
-    """The track rows of a BED file's text. A line that is not a record of ``bed_type`` is
-    left out."""
-    rows: list[dict[str, Any]] = []
+) -> Iterator[dict[str, Any]]:
+    """The track rows of a BED file's text, read as they are asked for. A line that is not a
+    record of ``bed_type`` is left out."""
     for line in text_value.splitlines():
         if not line or line.startswith("#"):
             continue
@@ -211,8 +210,7 @@ def _bed_rows(
             else _build_numeric_row(sample_context, bed_type, parts, source=source, metadata_json=metadata_json)
         )
         if row is not None:
-            rows.append(row)
-    return rows
+            yield row
 
 
 async def _forget_track_after_failed_write(
@@ -260,6 +258,7 @@ async def upload_bed_data(
     source: str = BED_UPLOAD_SOURCE,
     content: str | None = None,
     uploaded_from: str | None = None,
+    check_only: bool = False,
 ) -> dict[str, int]:
     """Store one sample's ``bed_type`` track from a BED file under ``source``, replacing
     (with ``overwrite``) the track of that type the sample has from that source. The tracks
@@ -270,8 +269,12 @@ async def upload_bed_data(
     stored: read from the store, as an update reads them, not from Postgres's record of the
     track, which a failed overwrite's restore that stopped part-way can leave for rows it
     deleted (SAFE-20). The file is read and checked whole before anything is replaced: one
-    without a record of ``bed_type`` is refused (400), and the stored track and its record
-    stay as they were.
+    that is not text, or holds no record of ``bed_type``, is refused (400), and the stored
+    track and its record stay as they were.
+
+    ``check_only`` stops there, once the file has been decoded whole and its first record
+    read, deleting and storing nothing: the check a package's dataset of one BED per sample
+    makes of every sample's file before it replaces any sample's track (SAFE-3).
 
     ``source`` is ``web`` (``BED_UPLOAD_SOURCE``), except for a package's ``apcad`` dataset,
     which reads a file its own reader finds no record in as a BED, into its own track
@@ -325,9 +328,13 @@ async def upload_bed_data(
         )
     text_value = await _decode_bed_upload(file)
     metadata_json = _upload_metadata(bed_type, file, source=source, content=declared)
-    rows = _bed_rows(sample_context, bed_type, text_value, source=source, metadata_json=metadata_json)
-    if not rows:
+    records = _bed_rows(sample_context, bed_type, text_value, source=source, metadata_json=metadata_json)
+    first = next(records, None)
+    if first is None:
         raise HTTPException(status_code=400, detail="No valid BED records found")
+    if check_only:
+        return {}
+    rows = [first, *records]
     if record_upload:
         dataset, scope = interval_track_upload_scope(
             bed_type, sample_context.sample_id, content=declared

@@ -34,6 +34,7 @@ from ..schemas import (
     SegmentalDuplicationOut,
 )
 from .data_scope import chromosome_aliases, normalize_chromosome
+from .sex_chromosomes import grc_build
 from .upload_safety import decode_upload_text
 
 ReferenceDatasetType = Literal[
@@ -570,6 +571,12 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
     the import is skipped and the start goes on: the track is shown for orientation, no
     classification reads it, and the rows an earlier start loaded are never replaced here.
 
+    The shipped file holds GRCh38 coordinates, so it is loaded only into an assembly whose
+    name is GRCh38's (``grc_build``: GRCh38 or hg38, with or without a patch suffix; OPS-17).
+    For another assembly the bootstrap is skipped before the file is read or anything is
+    written, with one logged warning that names the assembly and the fix: an administrator
+    uploads that assembly's own file.
+
     The clinical CNVs are not loaded at startup (OPS-17). The knowledgebase rebuild loads them
     from its pinned sources and records them, and an administrator can upload a file; the
     startup read any file at a configured path, unpinned, and its default was never shipped."""
@@ -587,6 +594,20 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
             logger.info("Skipping reference track bootstrap: assembly '%s' not found", assembly_name)
             return
         raise
+
+    if grc_build(assembly["assembly_name"]) != "GRCh38":
+        # Loaded here, every cluster would sit at its GRCh38 place on another assembly.
+        logger.warning(
+            "Skipping the segmental-duplication bootstrap: REFERENCE_BOOTSTRAP_ASSEMBLY_NAME names "
+            "assembly '%s', which is not GRCh38, and the shipped file %s holds GRCh38 "
+            "coordinates. Nothing was loaded. An administrator can upload a segmental-duplication "
+            "file for that assembly on the admin page Species & assemblies; the start loads the "
+            "shipped file only while REFERENCE_BOOTSTRAP_ASSEMBLY_NAME names a GRCh38 assembly "
+            "(GRCh38, the default).",
+            scrub_log(assembly_name),
+            REPO_SEGMENTAL_DUPLICATIONS_PATH.name,
+        )
+        return
 
     assembly_id = str(assembly["id"])
     dataset_type: ReferenceDatasetType = "segmental_duplications"

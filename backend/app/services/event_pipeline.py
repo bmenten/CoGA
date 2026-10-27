@@ -27,6 +27,15 @@ accountability trail (TF-13 S-5) is never silently lost:
 * ``AUDIT_LOG_DROP_ALLOWED`` true (non-production only; refused in prod by the
   settings validator): a full queue drops with a WARN, preserving the original
   low-overhead dev/test behaviour.
+* Writing an event again cannot store it twice (SEC-17). Each event carries an id of its
+  own (``new_event_id``), given as it is made, before it is queued, and the writers'
+  INSERT does nothing for an id the table holds (``ON CONFLICT (event_id) DO NOTHING``).
+  A commit whose answer never reached the worker looks like a failure, and the batch is
+  written again: its events are stored once.
+* A row naming a user whose account was deleted while the row waited (operator SQL only)
+  fails the foreign key on ``user_id``. Written alone, as the worker writes a failed
+  batch's events, its writer stores it without the link and keeps the user's id in the
+  row (``DELETED_USER_KEY``), and the log says so without values (``record_unlinked``).
 
 ``dropped_event_count`` exposes the per-pipeline drop tally for monitoring/alerting; ``GET
 /metrics`` serves it as ``coga_audit_events_not_persisted_total``.
@@ -38,7 +47,9 @@ import asyncio
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from typing import Any
+from uuid import uuid4
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import TimeoutError as PoolTimeoutError
 
 from ..core.coga_logging import describe_error
@@ -53,7 +64,46 @@ WriteBatch = Callable[[list[Any]], Awaitable[None]]
 # other event's write would fail the same way.
 _UNREACHABLE_ERRORS = (OSError, PoolTimeoutError)
 
+# The key, in ``audit_log_events.request_meta`` and ``ui_events.detail``, that keeps the id of
+# the user a row was stored without (``user_link_refused``). Only the writers set it.
+DELETED_USER_KEY = "_deleted_user_id"
+
+# Postgres's SQLSTATE for a row that a foreign key refuses.
+_FOREIGN_KEY_VIOLATION = "23503"
+
 _dropped_counts: dict[str, int] = {}
+
+
+def new_event_id() -> str:
+    """An event's own id, given as the event is made, before it is queued: every write of the
+    event carries it, and its table stores it once (``ON CONFLICT (event_id) DO NOTHING``)."""
+    return str(uuid4())
+
+
+def user_link_refused(exc: BaseException, foreign_key: str) -> bool:
+    """Whether ``exc`` is Postgres refusing a row by ``foreign_key``, the row's link to its
+    user: no account has the user's id any more. Accounts are deleted only by operator SQL, so
+    the user's account went while the row waited in the queue."""
+    if not isinstance(exc, IntegrityError):
+        return False
+    orig = exc.orig
+    if getattr(orig, "sqlstate", None) != _FOREIGN_KEY_VIOLATION:
+        return False
+    # SQLAlchemy's asyncpg adapter raises its own error from asyncpg's, which names the constraint.
+    driver_error = getattr(orig, "__cause__", None) or orig
+    return getattr(driver_error, "constraint_name", None) == foreign_key
+
+
+def record_unlinked(name: str, reason: str) -> None:
+    """Record an event its writer stored without its user link (``user_link_refused``). The
+    event is stored, so it is not counted; the line names the error by its kind
+    (``describe_error``) and carries no value: the row keeps the user's id itself."""
+    logger.warning(
+        "Audit pipeline %s: event stored without its user link (%s): the user's account no "
+        "longer exists, and the row keeps the user's id",
+        name,
+        reason,
+    )
 
 
 def dropped_event_count(name: str) -> int:

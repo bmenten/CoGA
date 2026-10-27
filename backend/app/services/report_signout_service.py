@@ -56,7 +56,7 @@ from .annotation_manifest_service import (
 )
 from .assembly_scope import is_validated_assembly, off_scope_message, validated_assemblies
 from .classification_drift_service import evaluate_classification_drift
-from .clinical_audit_service import record_clinical_event
+from .clinical_audit_service import compound_het_pair_state, record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .family_package_registration import is_whole_family_entry, unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
@@ -928,14 +928,30 @@ def _dataset_list(value: Any) -> list[str] | None:
 
 
 async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dict[str, Any]]:
+    """The small variants tagged for the report, each with its review as frozen.
+
+    A variant is reported when its review or its compound-het pair review holds the report
+    tag: the rule of the review-tag filter (``list_matching_small_variant_review_ids``), by
+    which the live report lists its variants and the NIPT page's *Show reported* lists what a
+    sign-out freezes. Read by the variant's own tag alone, a tag held on the pair only was
+    listed there and frozen nowhere: not among the reported variants, their descriptions, nor
+    the NIPT section's variants and the recessive fetal risk it computes from them (TRACE-19).
+    The pair review that holds the tag is frozen with the variant (``compound_het``: the
+    partner, the gene, the pair's classification, tags and note, and its phase), so the record
+    says why a variant is reported whose own tags do not; a variant reported by its own tag
+    alone is frozen as before.
+    """
     rows = (
         await session.execute(
             text(
                 """
-                SELECT variant_id, acmg_class, acmg, tags, note, acmg_evidence_snapshot
+                SELECT variant_id, acmg_class, acmg, tags, note, acmg_evidence_snapshot,
+                       compound_het_group_id, compound_het_partner_variant_ids,
+                       compound_het_gene, compound_het_classification, compound_het_tags,
+                       compound_het_note, compound_het_phase_status
                 FROM small_variant_reviews
                 WHERE family_id = CAST(:family_uuid AS uuid)
-                  AND tags @> :report_tag
+                  AND (tags @> :report_tag OR compound_het_tags @> :report_tag)
                 ORDER BY variant_id
                 """
             ),
@@ -944,16 +960,18 @@ async def _reported_reviews(session: AsyncSession, family_uuid: str) -> list[dic
     ).mappings().all()
     reported: list[dict[str, Any]] = []
     for row in rows:
-        reported.append(
-            {
-                "variant_id": row["variant_id"],
-                "acmg_class": row["acmg_class"],
-                "acmg": row["acmg"],
-                "tags": sorted(row["tags"] or []),
-                "note": row["note"],
-                "evidence_snapshot": row["acmg_evidence_snapshot"],
-            }
-        )
+        entry: dict[str, Any] = {
+            "variant_id": row["variant_id"],
+            "acmg_class": row["acmg_class"],
+            "acmg": row["acmg"],
+            "tags": sorted(row["tags"] or []),
+            "note": row["note"],
+            "evidence_snapshot": row["acmg_evidence_snapshot"],
+        }
+        pair = compound_het_pair_state(dict(row))
+        if pair is not None and _REPORT_TAG in pair["tags"]:
+            entry["compound_het"] = pair
+        reported.append(entry)
     return reported
 
 
@@ -1950,8 +1968,11 @@ async def compare_report_with_latest_signout(
     (a module as ``modules.<key>``) rather than reported as changed, and so is what a section
     gained since (``pgt_analysis.qc_verdict``, ``repeat_expansions.count_units``): the rest of
     such a section is compared on what the record holds. A section of one
-    application that neither holds (``pgt_analysis`` of a family without an embryo, ``nipt``
-    of a family that is no monogenic NIPT family) is neither compared nor listed.
+    application that neither holds (``pgt_analysis`` of a family without an embryo, or of a
+    monogenic NIPT family whose embryo, its fetus, has no haplotype blocks; ``nipt`` of a family
+    that is no monogenic NIPT family) is neither compared nor listed. The report page and the
+    signed view name what is listed as not compared beside what changed, and beside "still
+    matches" (TRACE-19).
     """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
@@ -1992,8 +2013,8 @@ async def compare_report_with_latest_signout(
         if section not in signed:
             # A section CoGA added after the record was signed is not compared. One that
             # neither holds is another application's (the PGT embryo calls of a family
-            # without an embryo, the NIPT results of a family that is no NIPT family): there
-            # is nothing to compare, and nothing to name.
+            # without an embryo or of a NIPT family's fetus, the NIPT results of a family that
+            # is no NIPT family): there is nothing to compare, and nothing to name.
             if section in current:
                 not_compared.append(section)
             continue

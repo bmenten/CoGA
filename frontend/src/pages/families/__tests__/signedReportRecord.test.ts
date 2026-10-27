@@ -9,6 +9,7 @@ import {
   describeBreachedMetric,
   describeCatalogue,
   describeCnvKnowledgebase,
+  describeCompoundHetPair,
   describeCoverageContent,
   describeCoverageFiles,
   describeCoverageTrack,
@@ -30,6 +31,7 @@ import {
   describeNiptFunnel,
   describeNiptVariant,
   describeNoCall,
+  describeNotCompared,
   describePgtInheritance,
   describePgtInputs,
   describePgtMembers,
@@ -52,6 +54,7 @@ import {
   liveReportSignedNotice,
   liveReportSignedState,
   NIPT_NOT_CLASSIFIED_REASONS,
+  notComparedSentence,
   paraphaseStatusWords,
   parseSignedReport,
   parseSignedVersionParam,
@@ -303,6 +306,57 @@ describe('parseSignedReport', () => {
     expect(tagged.evidence).toBeNull();
 
     expect(unreadable.variantId).toBeNull();
+    // Reported by their own tag: no compound-het pair review is frozen with them.
+    expect([classified.compoundHet, tagged.compoundHet, unreadable.compoundHet]).toEqual([null, null, null]);
+  });
+
+  it('reads the compound-het pair review that reports a variant (TRACE-19)', () => {
+    const record = parseSignedReport({
+      ...SNAPSHOT,
+      reported_variants: [
+        {
+          variant_id: '1-3001-A-G',
+          acmg_class: null,
+          acmg: null,
+          tags: [],
+          note: null,
+          evidence_snapshot: null,
+          compound_het: {
+            partner_variant_ids: ['1-10000-A-G'],
+            gene: 'GENE_RECESS',
+            classification: 'likely_pathogenic_pair',
+            tags: ['report'],
+            note: 'In trans in the index.',
+            phase_status: 'likely_in_trans',
+          },
+        },
+        {
+          variant_id: '1-10000-A-G',
+          acmg_class: null,
+          acmg: null,
+          tags: [],
+          note: null,
+          evidence_snapshot: null,
+          compound_het: { partner_variant_ids: ['1-3001-A-G'], gene: null, classification: null, tags: ['report'], note: null, phase_status: null },
+        },
+      ],
+    })!;
+    const [maternal, paternal] = record.reportedVariants!;
+
+    expect(maternal.compoundHet).toEqual({
+      partnerVariantIds: ['1-10000-A-G'],
+      gene: 'GENE_RECESS',
+      classification: 'likely_pathogenic_pair',
+      tags: ['report'],
+      note: 'In trans in the index.',
+      phaseStatus: 'likely_in_trans',
+    });
+    expect(describeCompoundHetPair(maternal.compoundHet!)).toBe(
+      'Reported through its compound-het pair review: paired with 1-10000-A-G in GENE_RECESS (likely in trans); the pair is tagged report and classified likely_pathogenic_pair.',
+    );
+    expect(describeCompoundHetPair(paternal.compoundHet!)).toBe(
+      'Reported through its compound-het pair review: paired with 1-3001-A-G (phase unknown); the pair is tagged report.',
+    );
   });
 
   it('reads the frequencies and in-silico scores frozen with a classification (CLIN-7)', () => {
@@ -1158,6 +1212,36 @@ describe('what each coverage track held', () => {
     ).toEqual({ state: 'unavailable', reason: 'The coverage tracks could not be read.' });
     // The check names the section, when it changed since, in words.
     expect(describeReportSections(['coverage_tracks', 'paraphase'])).toBe('coverage tracks and Paraphase results');
+  });
+});
+
+// The sign-out check lists what the signed version does not hold, and so could not compare
+// (not_compared): a section, a reference module, or a part CoGA records since. The pages name
+// it beside "still matches" and beside what changed (TRACE-19).
+describe('what the sign-out check could not compare', () => {
+  it('names each section, module and part in words', () => {
+    expect(describeNotCompared(['nipt', 'coverage_tracks'])).toBe('NIPT results and coverage tracks');
+    expect(describeNotCompared(['repeat_expansions.count_units'])).toBe(
+      'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
+    );
+    expect(describeNotCompared(['pgt_analysis.qc_verdict', 'pgt_analysis.inputs.blocks_outdated'])).toBe(
+      'the embryos’ QC verdicts and whether the haplotype blocks were built for the family’s pedigree',
+    );
+    // A reference module CoGA records since: by its name, else by its key.
+    expect(describeNotCompared(['modules.hpo', 'modules.gene_loci', 'modules.gencc'])).toBe(
+      'the HPO version, the gene loci’s source and the gencc version',
+    );
+    // A part the page has no words for yet, under its section's name.
+    expect(describeNotCompared(['pgt_analysis.inputs.new_flag'])).toBe('PGT embryo results (inputs new flag)');
+    expect(describeNotCompared(['some_new_section'])).toBe('some_new_section');
+  });
+
+  it('says so in one sentence, or not at all', () => {
+    expect(notComparedSentence([], 'signed version 2')).toBeNull();
+    expect(notComparedSentence(undefined, 'signed version 2')).toBeNull();
+    expect(notComparedSentence(['repeat_expansions.count_units', 'modules.hpo'], 'signed version 2')).toBe(
+      'Not in signed version 2, so not compared: the repeat calls’ near-boundary warnings and QA’s records of their counting units and the HPO version.',
+    );
   });
 });
 

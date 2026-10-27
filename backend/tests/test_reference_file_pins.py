@@ -17,6 +17,9 @@ download is refused the same way (OPS-6), and both imports only fill an empty ta
 refusal never changes data a running system shows. The clinical CNV knowledgebase build's pin
 of the same ClinGen file is tested in test_clinical_cnv_knowledgebase_sources.py. Nothing here
 goes to the network.
+
+The segmental-duplication file holds GRCh38 coordinates, so the start loads it into a GRCh38
+assembly only, whichever assembly ``REFERENCE_BOOTSTRAP_ASSEMBLY_NAME`` names (OPS-17).
 """
 
 from __future__ import annotations
@@ -108,21 +111,24 @@ class _RecordingSession:
         return rows
 
 
-def _bootstrap(monkeypatch: pytest.MonkeyPatch, *, segdups: Path, repository: Path) -> None:
-    """An empty GRCh38 assembly; the segmental-duplication setting names ``segdups``, the
-    repository's copy is ``repository``."""
+def _bootstrap(
+    monkeypatch: pytest.MonkeyPatch, *, segdups: Path, repository: Path, assembly_name: str = "GRCh38"
+) -> None:
+    """An empty assembly named ``assembly_name`` (GRCh38), the one the bootstrap setting names;
+    the segmental-duplication setting names ``segdups``, the repository's copy is
+    ``repository``."""
 
-    async def grch38(*_args: Any, **_kwargs: Any) -> dict[str, str]:
-        return {"id": "assembly-1", "assembly_name": "GRCh38", "version": "p14"}
+    async def named_assembly(*_args: Any, **_kwargs: Any) -> dict[str, str]:
+        return {"id": "assembly-1", "assembly_name": assembly_name, "version": "p14"}
 
     async def nothing_loaded(*_args: Any, **_kwargs: Any) -> int:
         return 0
 
-    monkeypatch.setattr(rms, "_get_assembly_by_id", grch38)
-    monkeypatch.setattr(rms, "_get_assembly_by_name", grch38)
+    monkeypatch.setattr(rms, "_get_assembly_by_id", named_assembly)
+    monkeypatch.setattr(rms, "_get_assembly_by_name", named_assembly)
     monkeypatch.setattr(rms, "_assembly_dataset_count", nothing_loaded)
     monkeypatch.setattr(settings, "reference_bootstrap_enabled", True)
-    monkeypatch.setattr(settings, "reference_bootstrap_assembly_name", "GRCh38")
+    monkeypatch.setattr(settings, "reference_bootstrap_assembly_name", assembly_name)
     monkeypatch.setattr(settings, "reference_segmental_duplications_path", str(segdups))
     monkeypatch.setattr(rms, "REPO_SEGMENTAL_DUPLICATIONS_PATH", repository)
 
@@ -248,6 +254,60 @@ def test_a_file_that_cannot_be_read_is_refused_the_same_way(
     message = error.getMessage()
     assert str(unreadable) in message and "cannot be read" in message
     assert config.SEGMENTAL_DUPLICATIONS_PINNED_SHA256 in message
+
+
+# ---- Into a GRCh38 assembly only (OPS-17) -------------------------------------------------------------
+
+
+@pytest.mark.parametrize("assembly_name", ["T2T CHM13v2.0", "hs1", "GRCh37", "hg19", "GRCm39"])
+def test_the_grch38_file_is_loaded_into_no_other_assembly(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, assembly_name: str
+) -> None:
+    # REFERENCE_BOOTSTRAP_ASSEMBLY_NAME names another assembly. The shipped file holds GRCh38's
+    # coordinates: the start loaded it into that assembly, each cluster at its GRCh38 place.
+    _bootstrap(monkeypatch, segdups=_SHIPPED_SEGDUPS, repository=_SHIPPED_SEGDUPS, assembly_name=assembly_name)
+    caplog.set_level(logging.INFO, logger=rms.logger.name)
+    session = _RecordingSession()
+
+    asyncio.run(rms.seed_builtin_reference_tracks(session))  # type: ignore[arg-type]
+
+    # Nothing written: no row, no import record, no statement at all.
+    assert session.params_of("segmental_duplications") == []
+    assert session.params_of("reference_dataset_imports") == []
+    assert session.calls == []
+    # One line, a warning, naming the assembly, the shipped file's build and the fix.
+    [line] = [record for record in caplog.records if record.name == rms.logger.name]
+    assert line.levelno == logging.WARNING
+    message = line.getMessage()
+    for part in (
+        f"'{assembly_name}'",
+        "GRCh38",
+        _SHIPPED_SEGDUPS.name,
+        "upload",
+        "Species & assemblies",
+        "REFERENCE_BOOTSTRAP_ASSEMBLY_NAME",
+    ):
+        assert part in message, part
+
+
+@pytest.mark.parametrize("assembly_name", ["GRCh38", "hg38", "GRCh38.p14"])
+def test_a_grch38_assembly_is_loaded_under_any_of_its_names(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, assembly_name: str
+) -> None:
+    # GRCh38 as the PAR lookup reads an assembly's name (sex_chromosomes.grc_build): GRCh38 or
+    # UCSC's hg38, in any case, with or without a patch suffix.
+    _bootstrap(monkeypatch, segdups=_SHIPPED_SEGDUPS, repository=_SHIPPED_SEGDUPS, assembly_name=assembly_name)
+    caplog.set_level(logging.INFO, logger=rms.logger.name)
+    session = _RecordingSession()
+
+    asyncio.run(rms.seed_builtin_reference_tracks(session))  # type: ignore[arg-type]
+
+    [record] = session.params_of("reference_dataset_imports")
+    assert record["dataset_type"] == "segmental_duplications"
+    assert record["source"] == _SHIPPED_SEGDUPS.name
+    rows = session.params_of("segmental_duplications")
+    assert rows and record["inserted"] == len(rows)
+    assert not [line for line in caplog.records if line.levelno >= logging.WARNING]
 
 
 # ---- An HPO ontology file in place ------------------------------------------------------------------

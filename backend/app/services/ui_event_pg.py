@@ -2,24 +2,43 @@ from __future__ import annotations
 
 import asyncio
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.coga_logging import describe_error
 from ..core.config import settings
 from ..core.pg_storable import ESCAPED_KEY, storable_columns
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import UiEventOut, UiEventPageOut
-from .event_pipeline import enqueue_event, write_event_batch_with_retry, write_event_now
+from .event_pipeline import (
+    DELETED_USER_KEY,
+    enqueue_event,
+    new_event_id,
+    record_unlinked,
+    user_link_refused,
+    write_event_batch_with_retry,
+    write_event_now,
+)
 
 _UI_EVENT_PIPELINE_NAME = "ui_event"
 
+# The foreign key by which a row names its user (04_traceability.sql).
+_USER_FOREIGN_KEY = "ui_events_user_id_fkey"
+
+# The keys of detail that only this writer sets; a client's own are dropped.
+_WRITERS_DETAIL_KEYS = (ESCAPED_KEY, DELETED_USER_KEY)
+
+# As in the request audit (audit_log_pg.py): an event written again after a commit whose
+# outcome was unknown is stored once (SEC-17).
 _INSERT_UI_EVENT_SQL = text(
     """
     INSERT INTO ui_events (
+        event_id,
         occurred_at,
         user_id,
         user_email,
@@ -38,6 +57,7 @@ _INSERT_UI_EVENT_SQL = text(
         user_agent
     )
     VALUES (
+        CAST(:event_id AS uuid),
         :occurred_at,
         CAST(:user_id AS uuid),
         :user_email,
@@ -55,6 +75,7 @@ _INSERT_UI_EVENT_SQL = text(
         :remote_ip,
         :user_agent
     )
+    ON CONFLICT (event_id) DO NOTHING
     """
 )
 
@@ -81,19 +102,28 @@ class UiEventPayload:
     user_id: str | None = None
     user_email: str | None = None
     user_role: str | None = None
+    # Given as the event is made, before it is queued: every write of the event carries it.
+    event_id: str = field(default_factory=new_event_id)
 
 
 def _to_jsonb_text(value: Any) -> str:
     return json.dumps(value or {}, ensure_ascii=True)
 
 
-def _ui_event_insert_params(payload: UiEventPayload) -> dict[str, Any]:
+def _ui_event_insert_params(
+    payload: UiEventPayload, *, unlink_user: bool = False
+) -> dict[str, Any]:
     # As in the request audit (audit_log_pg.py): a value Postgres refuses is escaped rather
-    # than failing the INSERT, and detail names the columns where that happened. That key is
-    # the writer's: the client's detail cannot set it.
-    detail = {key: value for key, value in (payload.detail or {}).items() if key != ESCAPED_KEY}
+    # than failing the INSERT, and detail names the columns where that happened. That key, and
+    # the one keeping a deleted user's id, are the writer's: the client's detail cannot set them.
+    detail = {
+        key: value
+        for key, value in (payload.detail or {}).items()
+        if key not in _WRITERS_DETAIL_KEYS
+    }
     params, escaped = storable_columns(
         {
+            "event_id": payload.event_id,
             "occurred_at": payload.occurred_at,
             "user_id": payload.user_id,
             "user_email": payload.user_email,
@@ -114,24 +144,47 @@ def _ui_event_insert_params(payload: UiEventPayload) -> dict[str, Any]:
     )
     if escaped:
         params["detail"] = {**params["detail"], ESCAPED_KEY: escaped}
+    if unlink_user:
+        # As in the request audit: stored without the link, the user's id kept in detail.
+        params["detail"] = {**params["detail"], DELETED_USER_KEY: params["user_id"]}
+        params["user_id"] = None
     params["detail"] = _to_jsonb_text(params["detail"])
     return params
 
 
-async def _write_ui_event_batch(payloads: list[UiEventPayload]) -> None:
-    if not payloads:
-        return
+async def _insert_ui_event_rows(
+    payloads: list[UiEventPayload], *, unlink_user: bool = False
+) -> None:
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
         try:
             await session.execute(
                 _INSERT_UI_EVENT_SQL,
-                [_ui_event_insert_params(payload) for payload in payloads],
+                [
+                    _ui_event_insert_params(payload, unlink_user=unlink_user)
+                    for payload in payloads
+                ],
             )
             await session.commit()
         except Exception:
             await session.rollback()
             raise
+
+
+async def _write_ui_event_batch(payloads: list[UiEventPayload]) -> None:
+    if not payloads:
+        return
+    try:
+        await _insert_ui_event_rows(payloads)
+    except IntegrityError as exc:
+        # As in the request audit (audit_log_pg._write_audit_log_batch): one event whose user's
+        # account was deleted while it waited is stored without the link (SEC-17); a batch is
+        # left to the worker, which writes its events one at a time.
+        alone = len(payloads) == 1 and bool(payloads[0].user_id)
+        if not alone or not user_link_refused(exc, _USER_FOREIGN_KEY):
+            raise
+        await _insert_ui_event_rows(payloads, unlink_user=True)
+        record_unlinked(_UI_EVENT_PIPELINE_NAME, describe_error(exc))
 
 
 def _drain_ui_event_queue(limit: int) -> list[UiEventPayload]:
