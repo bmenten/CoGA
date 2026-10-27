@@ -417,7 +417,11 @@ def test_the_chromosome_view_reads_chrx_by_the_familys_assembly(monkeypatch: pyt
     async def genotypes(_context, *, chrom, start, end, limit):
         return [row for row in family.rows if start <= row[0] <= end]
 
+    async def no_sources(session, context):
+        return []
+
     monkeypatch.setattr(bed_service, "fetch_interval_track_rows", stored_rows)
+    monkeypatch.setattr(bed_service, "haplotype_source_rows", no_sources)
     monkeypatch.setattr(clickhouse_family_variants, "fetch_imputed_phased_genotypes", genotypes)
 
     response = asyncio.run(

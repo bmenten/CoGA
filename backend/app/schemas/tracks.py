@@ -45,6 +45,9 @@ class HaplotypeResponse(BaseModel):
     chr: str
     start: Optional[int] = None
     end: Optional[int] = None
+    # The stored blocks were built for another pedigree or other sexes than the family's
+    # (CLIN-66): the tracks then read no risk state from them.
+    blocks_outdated: bool = False
     samples: List[HaplotypeSample] = Field(default_factory=list)
 
 

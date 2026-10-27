@@ -47,9 +47,14 @@ def _patch(monkeypatch) -> None:
     async def same(context, *, segments_by_uuid, **kwargs):
         return segments_by_uuid
 
+    async def no_sources(session, context):
+        # What Postgres records of the blocks: test_outdated_haplotype_blocks.py covers it.
+        return []
+
     monkeypatch.setattr(bed_service, "fetch_interval_track_rows", rows)
     monkeypatch.setattr(bed_service, "_apply_haplotype_lineage", same)
     monkeypatch.setattr(bed_service, "_apply_haplotype_lineage_genomewide", same)
+    monkeypatch.setattr(bed_service, "haplotype_source_rows", no_sources)
 
 
 def _flags(response) -> dict[tuple[str, str, int], bool]:

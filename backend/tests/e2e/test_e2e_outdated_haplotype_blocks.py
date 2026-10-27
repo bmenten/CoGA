@@ -12,6 +12,8 @@ package and read through the API, this:
   are made;
 * corrects an embryo's sex: the blocks are outdated now, every embryo reads uninformative, and no
   disease haplotype is resolved, though the blocks are still read and named;
+* reads the haplotype tracks' blocks: the chromosome view's and the genome overview's answers carry
+  the same flag, current after the import and outdated after the sex correction;
 * signs the family out and reads the record back: it holds the outdated flag and the uninformative
   calls, verifies and matches.
 
@@ -71,6 +73,8 @@ async def _collect(root: Path, family_id: str, names: dict[str, str]) -> dict:
         ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
         family = f"/api/families/{family_id}"
         r["imported"] = _cap(await ac.get(f"{family}/pgt-analysis"))
+        haplotypes = {"chr": "1", "start": 1_000_000, "end": 1_020_000}
+        r["tracks_imported"] = _cap(await ac.get(f"{family}/haplotypes", params=haplotypes))
         # The mother becomes affected: a status the calls read when they are made.
         r["status_edit"] = _cap(
             await ac.put(f"{family}/members/{names['MOTHER']}", json={"clinical_status": "affected"})
@@ -82,6 +86,8 @@ async def _collect(root: Path, family_id: str, names: dict[str, str]) -> dict:
         # E_CLEAR's sex corrected after the import: the blocks were built with the old one.
         r["sex_edit"] = _cap(await ac.put(f"{family}/members/{names['E_CLEAR']}", json={"sex": "female"}))
         r["after_sex"] = _cap(await ac.get(f"{family}/pgt-analysis"))
+        r["tracks_after_sex"] = _cap(await ac.get(f"{family}/haplotypes", params=haplotypes))
+        r["genome_after_sex"] = _cap(await ac.get(f"{family}/haplotypes/batch", params={"chr": ["1"]}))
         r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
         r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
@@ -145,6 +151,15 @@ def test_a_corrected_sex_makes_them_outdated_and_no_embryo_is_called(outdated) -
     assert analysis["disease_haplotype_resolved"] is False and analysis["disease_haplotypes"] == []
     # The blocks are still read and named: what the record could not call from.
     assert analysis["inputs"]["blocks_read"] > 0 and len(analysis["inputs"]["blocks_digest"]) == 64
+
+
+def test_the_haplotype_tracks_are_told_when_the_blocks_are_outdated(outdated) -> None:
+    # Part 2: the tracks of the chromosome view and the genome overview read the same flag.
+    assert _ok(outdated, "tracks_imported")["blocks_outdated"] is False
+    assert _ok(outdated, "tracks_after_sex")["blocks_outdated"] is True
+    assert _ok(outdated, "genome_after_sex")["blocks_outdated"] is True
+    # The blocks themselves are still served, to draw.
+    assert any(sample["segments"] for sample in _ok(outdated, "tracks_after_sex")["samples"])
 
 
 def test_the_signed_record_holds_the_outdated_flag_and_the_uninformative_calls(outdated) -> None:

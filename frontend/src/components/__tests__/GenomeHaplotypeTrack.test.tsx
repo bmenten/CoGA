@@ -115,6 +115,31 @@ describe('GenomeHaplotypeTrack risk haplotype (#588)', () => {
     expect(overlayXs().every((x) => x >= 100)).toBe(true);
   });
 
+  // CLIN-66: blocks built for another pedigree or other sexes resolve no disease haplotype.
+  it('reads no risk state from outdated blocks, and says why', async () => {
+    trackFetchMock.mockImplementation(async (url: string) => {
+      const chr = url.endsWith('chr=2') ? '2' : '1';
+      return {
+        blocks_outdated: true,
+        samples: ['FATHER', 'CHILD'].map((sample) => ({ sample, segments: segments(chr) })),
+      };
+    });
+    const { container } = renderWithClient(track({ chr: '1', start: 400, end: 600 }));
+
+    const warning =
+      "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.";
+    expect(
+      await screen.findByRole('img', {
+        name: `Haplotypes of CHILD across 2 chromosomes; risk state at chr1:400–600: uninformative; ${warning}`,
+      }),
+    ).toBeInTheDocument();
+    // Before, the risk haplotype was drawn and the child read affected / at risk.
+    expect(overlayMock).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('uninformative');
+    expect(screen.getByRole('note')).toHaveTextContent('Outdated blocks: no risk state');
+    expect(screen.getByRole('note')).toHaveAttribute('title', warning);
+  });
+
   it('without an ROI draws no risk haplotype and claims no risk state', async () => {
     const { container } = renderWithClient(track(null));
 

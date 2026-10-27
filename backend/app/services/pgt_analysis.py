@@ -42,8 +42,8 @@ from ..schemas import (
     PgtSexDependentCallOut,
     PgtWindowOut,
 )
-from .bed_service import get_family_haplotypes_response
-from .haplotype_block_builder import haplotype_block_basis
+from .bed_service import get_family_haplotypes_response, haplotype_source_rows
+from .haplotype_block_builder import blocks_outdated
 from .family_metadata_context import FamilyMetadataContext
 from .pgt_embryo_calls import (
     PHASE_SWITCH_UNCERTAINTY,
@@ -86,18 +86,6 @@ _FAMILY_SQL = text(
     WHERE id = CAST(:family_uuid AS uuid)
     """
 )
-
-_HAPLOTYPE_SOURCES_SQL = text(
-    """
-    SELECT s.sample_id AS sample, src.source, src.filename, src.row_count, src.uploaded_at,
-           src.metadata ->> 'pedigree_basis' AS pedigree_basis
-    FROM sample_interval_track_sources src
-    JOIN samples s ON s.id = src.sample_id
-    WHERE src.family_id = CAST(:family_uuid AS uuid)
-      AND src.track_type = 'haplotype'
-    """
-)
-
 
 def is_pgt_family(context: FamilyMetadataContext | Any) -> bool:
     """A family with an embryo among its members: the family page calls its embryos."""
@@ -152,32 +140,6 @@ def _member(row: Mapping[str, Any]) -> PgtMemberOut:
         carrier_status=_text(row.get("carrier_status")),
         carrier_type=_text(row.get("carrier_type")),
     )
-
-
-async def _haplotype_source_rows(session: AsyncSession, context: FamilyMetadataContext) -> list[dict[str, Any]]:
-    """What Postgres records of each member's stored haplotype blocks."""
-    rows = (await session.execute(_HAPLOTYPE_SOURCES_SQL, {"family_uuid": context.family_uuid})).mappings().all()
-    members = set(context.sample_name_to_uuid)
-    return [dict(row) for row in rows if str(row["sample"]) in members]
-
-
-def blocks_outdated(context: FamilyMetadataContext, rows: Sequence[Mapping[str, Any]]) -> bool:
-    """Whether a member's stored haplotype blocks rest on another pedigree than the family's
-    (CLIN-66): the loader kept, beside each member's blocks, the couple, the couple's children
-    and the sexes they were built for (``haplotype_block_basis``), and the pedigree or a sex has
-    changed since. Blocks without that record, loaded before it was kept, count as outdated.
-    The blocks are then read for the inputs' digest, but no embryo is called from them until
-    the phased genotypes are imported again."""
-    for row in rows:
-        try:
-            basis = json.loads(row.get("pedigree_basis") or "null")
-        except (TypeError, ValueError):
-            return True
-        if not isinstance(basis, dict) or not isinstance(basis.get("sexes"), dict):
-            return True
-        if haplotype_block_basis(context, basis["sexes"]) != basis:
-            return True
-    return False
 
 
 def _haplotype_sources(context: FamilyMetadataContext, rows: Sequence[Mapping[str, Any]]) -> list[PgtHaplotypeSourceOut]:
@@ -299,7 +261,7 @@ async def family_pgt_analysis(session: AsyncSession, context: FamilyMetadataCont
     applied = resolve_inheritance_model(recorded, rows)
     roi = _region_of_interest(family)
     embryo_rows = sorted((row for row in rows if is_embryo(row)), key=lambda row: str(row.get("sample_id")))
-    source_rows = await _haplotype_source_rows(session, context)
+    source_rows = await haplotype_source_rows(session, context)
     analysis = PgtAnalysisOut(
         region_of_interest=roi,
         inheritance_model=PgtInheritanceModelOut(
