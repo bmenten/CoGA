@@ -29,7 +29,7 @@ from .clickhouse_variant_records import (
     StructuralVariantCall,
     StructuralVariantRecord,
 )
-from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id
+from .clickhouse_variant_ids import build_small_variant_id, build_structural_variant_id, event_discriminators
 from .clickhouse_variant_rows import _normalized_project_ids
 from .clickhouse_variant_storage import (
     StructuralVariantsNotRestored,
@@ -80,6 +80,7 @@ from .structural_variant_ingest import (
     ParsedStructuralVariant,
     StructuralVariantRecordFormat,
     iter_structural_variant_records,
+    sv_event,
 )
 from .variant_annotation_parser import (
     AnnotationHeaderState,
@@ -1397,6 +1398,9 @@ def _structural_record_call(
     sample_id: str,
     record: ParsedStructuralVariant,
 ) -> StructuralVariantCall:
+    """The uploaded sample's call of ``record``, with its copy number (FORMAT/CN): without it
+    a CNV named no direction, counted as a possible deletion in the second-hit badge and
+    ranked as a loss whatever it called (CLIN-39)."""
     return StructuralVariantCall(
         sample=sample_id,
         gt=str(record.gt or "./."),
@@ -1404,6 +1408,7 @@ def _structural_record_call(
         read_support=_first_present_int(record.info, "SUPPORT", "RE", "READS"),
         filter=None if record.filter in (None, "", ".") else str(record.filter),
         phase_set=record.phase_set,
+        copy_number=record.copy_number,
     )
 
 
@@ -1642,9 +1647,9 @@ async def upload_structural_variant_file(
     processed = 0
     created = 0
     merged_count = 0
-    for parsed in parsed_records:
-        processed += 1
-        variant_id = build_structural_variant_id(
+
+    def base_id(parsed: ParsedStructuralVariant, discriminator: str | None = None) -> str:
+        return build_structural_variant_id(
             parsed.chrom,
             parsed.start,
             parsed.end,
@@ -1652,7 +1657,34 @@ async def upload_structural_variant_file(
             remote_chr=parsed.remote_chr,
             remote_start=parsed.remote_start,
             remote_end=parsed.remote_end,
+            discriminator=discriminator,
         )
+
+    # Two calls of one position, type and mate with other alleles or another length are two
+    # SVs, as a package's NeedlR calls are (``event_discriminators``): they were one, with the
+    # first one's length and both calls of the sample (CLIN-39). The SV this source already
+    # stores under the id keeps it, by its length, so another sample's file of it attaches
+    # to it; an upload stores no alleles, so a call of that length is that SV.
+    events = [
+        (
+            base_id(parsed),
+            sv_event(ref=parsed.ref, alt=parsed.alt, sv_len=parsed.svlen, start=parsed.start, end=parsed.end),
+        )
+        for parsed in parsed_records
+    ]
+    discriminators = event_discriminators(
+        events,
+        plain_lengths={
+            row.record.variant_id: abs(
+                row.record.sv_len if row.record.sv_len is not None else row.record.end - row.record.start
+            )
+            for row in stored_rows
+        },
+    )
+    for parsed, (parsed_base_id, event) in zip(parsed_records, events):
+        processed += 1
+        discriminator = discriminators[(parsed_base_id, event)]
+        variant_id = parsed_base_id if discriminator is None else base_id(parsed, discriminator)
         call = _structural_record_call(sample_context.sample_id, parsed)
         window_key = (normalize_chromosome(parsed.chrom), int(parsed.start), int(parsed.end))
         gene_symbols = gene_symbol_cache.get(window_key)
@@ -1688,7 +1720,8 @@ async def upload_structural_variant_file(
             else:
                 created += 1
             continue
-        updated_calls = [*record.calls, call]
+        # The same event again in the sample's file: one call of the sample, the later line's.
+        updated_calls = [*(item for item in record.calls if item.sample != call.sample), call]
         uploaded[variant_id] = replace(
             record,
             filters=list(dict.fromkeys([*record.filters, *([] if parsed.filter in (None, "", ".") else [str(parsed.filter)])])),

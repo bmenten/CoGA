@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from hashlib import blake2b
-from typing import Any
+from typing import Any, Iterable, Mapping
 
 from ..core.clickhouse import clickhouse_dataset_key
 from ..core.config import settings
@@ -93,6 +93,61 @@ def build_structural_variant_id(
     if discriminator:
         variant_id = f"{variant_id}-{discriminator}"
     return variant_id
+
+
+# A call's event within its SV id: its REF, its ALT and the length the SV list measures it by,
+# without its sign (``structural_variant_ingest.sv_event``). Two calls of one position, type
+# and mate are two events when these differ, insertions in particular.
+SvEvent = tuple[str, str, int]
+
+
+def event_discriminators(
+    events: Iterable[tuple[str, SvEvent]],
+    *,
+    plain_lengths: Mapping[str, int] | None = None,
+) -> dict[tuple[str, SvEvent], str | None]:
+    """The discriminator of each event, by ``(id, event)``, among the events that share an
+    id (``build_structural_variant_id`` without one): None for the event that keeps the id,
+    else a suffix that keeps it apart, its length (an ALT's own length for an event of none,
+    such as a breakend), then ``.2``, ``.3`` where that is taken.
+
+    The event that keeps the id is the one whose length ``plain_lengths`` names for the id
+    (the length of the SV already stored under it, so a later file's call of that SV keeps
+    its id; an id it does not name has no SV stored), else the first in a fixed order: by
+    length, then REF and ALT. The order
+    is the events', never their lines': a file read in another order, or the samples' files
+    in another order, give each event the id it had. Following the lines, a changed input
+    could move a review to the other event (CLIN-39).
+    """
+    by_id: dict[str, set[SvEvent]] = {}
+    for variant_id, event in events:
+        by_id.setdefault(variant_id, set()).add(event)
+    discriminators: dict[tuple[str, SvEvent], str | None] = {}
+    for variant_id, distinct in by_id.items():
+        ordered = sorted(distinct, key=_event_order)
+        if plain_lengths is not None and variant_id in plain_lengths:
+            plain = next((event for event in ordered if event[2] == plain_lengths[variant_id]), None)
+        else:
+            plain = ordered[0]
+        used: set[str] = set()
+        for event in ordered:
+            if event == plain:
+                discriminators[(variant_id, event)] = None
+                continue
+            suffix = str(event[2] or len(event[1]))
+            candidate, attempt = suffix, 1
+            while candidate in used:
+                attempt += 1
+                candidate = f"{suffix}.{attempt}"
+            used.add(candidate)
+            discriminators[(variant_id, event)] = candidate
+    return discriminators
+
+
+def _event_order(event: SvEvent) -> tuple[int, str, str]:
+    """An event's place among the events of one id: by length, then REF and ALT."""
+    ref, alt, length = event
+    return (length, ref, alt)
 
 
 def small_variant_key(assembly_name: str, variant_id: str) -> int:

@@ -42,6 +42,9 @@ class ParsedStructuralVariant:
     # Phase set (PS) from the sample FORMAT — present only for phased (e.g. long-read) SV
     # calls; lets the SNV+SV second-hit analysis read cis/trans directly. None when unphased.
     phase_set: int | None = None
+    # The sample's copy number (FORMAT/CN), which gives a CNV its direction
+    # (``sv_copy_change``). None when the call states none.
+    copy_number: int | None = None
 
 
 def parse_info(info_field: str) -> Dict[str, str]:
@@ -156,6 +159,15 @@ def record_sv_len(*, sv_len: int | None, ref: str, alt: str) -> int | None:
     0 bp, so a minimum length dropped it (CLIN-41); a deletion written so measured its REF,
     as its alleles do."""
     return sv_len if sv_len is not None else sequence_allele_sv_len(ref, alt)
+
+
+def sv_event(*, ref: str, alt: str, sv_len: int | None, start: int, end: int) -> tuple[str, str, int]:
+    """A call's event within its SV id (``clickhouse_variant_ids.event_discriminators``): its
+    REF, its ALT and the length the SV list measures it by, without its sign: the length it
+    states (``record_sv_len``), else END − POS. A deletion written with SVLEN and one written
+    with END alone are one event."""
+    length = record_sv_len(sv_len=sv_len, ref=ref, alt=alt)
+    return ref, alt, abs(length if length is not None else end - start)
 
 
 def sv_type_from_alt(ref: str, alt: str) -> str | None:
@@ -358,6 +370,7 @@ def _iter_sniffles_records(
             remote_start=remote_start,
             remote_end=remote_start,
             phase_set=parse_phase_set(fmt_vals.get("PS")),
+            copy_number=_coerce_int(fmt_vals.get("CN")),
         )
 
 
@@ -406,6 +419,7 @@ def _iter_spectre_records(
             filter=filt or None,
             svlen=record_sv_len(sv_len=svlen, ref=ref, alt=alt),
             phase_set=parse_phase_set(fmt_vals.get("PS")),
+            copy_number=_coerce_int(fmt_vals.get("CN")),
         )
 
 
