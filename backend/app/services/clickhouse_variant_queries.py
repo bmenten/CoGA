@@ -4,7 +4,7 @@ import json
 import re
 from bisect import bisect_right
 from dataclasses import dataclass
-from typing import Any, Collection, Iterable, Protocol, Sequence
+from typing import Any, Collection, Final, Iterable, Protocol, Sequence
 
 from fastapi import HTTPException
 
@@ -127,7 +127,7 @@ IMPUTED_SMALL_VARIANT_SOURCES: tuple[str, ...] = ("glimpse2", "shapeit")
 # father; family_package_nipt): a sample without a call at a variant had no alt read
 # there, and a Mutect2 tumour-only GT says 0/1 whatever the allele fraction, so a reader
 # that needs genotypes takes them from the allele depths (vaf_genotype).
-NIPT_SMALL_VARIANT_SOURCE = "nipt"
+NIPT_SMALL_VARIANT_SOURCE: Final = "nipt"
 PER_SAMPLE_SMALL_VARIANT_SOURCES: tuple[str, ...] = (NIPT_SMALL_VARIANT_SOURCE,)
 
 

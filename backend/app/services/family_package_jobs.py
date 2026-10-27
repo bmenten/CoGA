@@ -9,8 +9,9 @@ from fastapi import HTTPException
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import require_uuid
+from ..core.sql import require_uuid, rows_matched
 from ..schemas import (
+    ApiId,
     FamilyImportDatasetSummary,
     FamilyPackageImportJobOut,
     FamilyPackageValidationOut,
@@ -48,10 +49,10 @@ _DATABASE_TIME = """to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI "UTC"'
 
 def _serialize_job(mapping: dict[str, Any]) -> FamilyPackageImportJobOut:
     return FamilyPackageImportJobOut(
-        id=str(mapping["id"]),
+        _id=ApiId(mapping["id"]),
         submitted_path=str(mapping["submitted_path"]),
         family_id=mapping.get("family_id"),
-        project_id=str(mapping["project_id"]) if mapping.get("project_id") else None,
+        project_id=ApiId(mapping["project_id"]) if mapping.get("project_id") else None,
         status=mapping["status"],
         dry_run=bool(mapping.get("dry_run")),
         worker_id=mapping.get("worker_id"),
@@ -412,7 +413,7 @@ async def _record_job_family(
         },
     )
     await session.commit()
-    return result.rowcount == 1
+    return rows_matched(result) == 1
 
 
 async def running_family_import_job_ids(
@@ -462,7 +463,7 @@ async def _beat_family_import_job(
         },
     )
     await session.commit()
-    return result.rowcount == 1
+    return rows_matched(result) == 1
 
 
 async def _update_job_progress(
@@ -525,4 +526,4 @@ async def _update_job_progress(
         params,
     )
     await session.commit()
-    return result.rowcount == 1
+    return rows_matched(result) == 1
