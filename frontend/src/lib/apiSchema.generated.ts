@@ -1255,6 +1255,7 @@ export interface HpoAdminSummaryOut {
   obsolete_terms: number;
   release_version: string | null;
   release_date: string | null;
+  release_sha256: string | null;
   last_sync_date: string | null;
   automatic_update_supported: boolean;
   ontology_loaded: boolean;
@@ -1327,6 +1328,7 @@ export interface HpoOntologySyncOut {
   preview_only: boolean;
   release_version: string | null;
   release_date: string | null;
+  release_sha256: string | null;
   current: HpoAdminSummaryOut;
   preview: Record<string, number>;
   imported: HpoOntologyImportOut | null;

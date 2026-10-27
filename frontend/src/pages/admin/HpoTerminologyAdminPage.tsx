@@ -33,8 +33,10 @@ type HpoAdminSummary = HpoAdminSummaryOut;
 
 type HpoSyncResult = {
   preview_only: boolean;
+  // The release the file states and the SHA-256 of its bytes (TRACE-18).
   release_version?: string | null;
   release_date?: string | null;
+  release_sha256?: string | null;
   current: HpoAdminSummary;
   preview: Record<string, number>;
   imported?: {
@@ -252,6 +254,16 @@ const HpoTerminologyAdminPage: React.FC = () => {
           </strong>
         </div>
         <div className="admin-data-summary-item">
+          <span className="admin-data-summary-label">File SHA-256</span>
+          <strong className="admin-data-summary-value font-mono text-xs" title={summary?.release_sha256 ?? undefined}>
+            {summary?.release_sha256
+              ? `${summary.release_sha256.slice(0, 12)}…`
+              : ontologyLoaded
+                ? 'Not recorded'
+                : 'Not installed'}
+          </strong>
+        </div>
+        <div className="admin-data-summary-item">
           <span className="admin-data-summary-label">Last sync</span>
           <strong className="admin-data-summary-value">{formatDateTime(summary?.last_sync_date, 'Not synced')}</strong>
         </div>
@@ -274,7 +286,9 @@ const HpoTerminologyAdminPage: React.FC = () => {
           <div className="space-y-2">
             <h2 className="section-title">HPO synchronization</h2>
             <p className="section-copy">
-              Preview ontology changes before applying a local HPO ontology file. Release metadata is read from the file.
+              Preview ontology changes before applying a local HPO ontology file. The release is the one the
+              file states, and the terms keep the file&apos;s SHA-256. An expected release or date that the file
+              does not state stops the sync.
             </p>
           </div>
           <span className="badge-chip">
@@ -292,16 +306,16 @@ const HpoTerminologyAdminPage: React.FC = () => {
             />
           </label>
           <label className="field-label" htmlFor="hpo-release-version">
-            Release version override
+            Expected release
             <input
               id="hpo-release-version"
               value={releaseVersion}
               onChange={(event) => setReleaseVersion(event.target.value)}
-              placeholder="Read from file"
+              placeholder="Optional, e.g. 2026-02-16"
             />
           </label>
           <label className="field-label" htmlFor="hpo-release-date">
-            Release date override
+            Expected release date
             <input
               id="hpo-release-date"
               type="date"
@@ -338,6 +352,13 @@ const HpoTerminologyAdminPage: React.FC = () => {
         </div>
         {!previewedCurrentRequest && syncPath.trim() && !syncMutation.isPending ? (
           <p className="table-subtle">Preview these settings first; Apply sync applies what was previewed.</p>
+        ) : null}
+        {shownResult ? (
+          <p className="table-subtle">
+            File: release {shownResult.release_version || 'not stated'}
+            {shownResult.release_date ? ` (${shownResult.release_date})` : ''}, SHA-256{' '}
+            <span className="font-mono">{shownResult.release_sha256 || 'not computed'}</span>.
+          </p>
         ) : null}
         {shownResult ? (
           <div className="data-table-shell overflow-x-auto">

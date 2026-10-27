@@ -31,7 +31,8 @@ A footer at the end of the report states when it was generated and which version
 - the **pipeline** layer: the tools that produced the family's annotated input (for example VEP,
   ClinVar, gnomAD, dbNSFP, SpliceAI, GenCC, PanelApp);
 - the **reference** layer: what CoGA itself loaded — the genome assembly (with its release date), the
-  gene loci (their source and import date), the Monarch release and the HPO release (with its date).
+  gene loci (their source and import date), the Monarch release and the HPO release (with its date and
+  the SHA-256 of the ontology file it was imported from).
 
 The pipeline versions are taken from the family's import manifest; there is no screen to edit them.
 Only an admin can replace them, through the API, and the replacement is written to the audit trail
