@@ -293,11 +293,13 @@ describe('FamilyNiptReportPage', () => {
 
     expect(await screen.findByText('Quality checks')).toBeInTheDocument();
     expect(screen.getByText(/the per-site median gives 19\.0%/)).toBeInTheDocument();
-    expect(screen.getByText('Fetal sex: female.')).toBeInTheDocument();
-    expect(screen.getByText(/30 seen, 0 absent \(female\); chrY coverage: female no chrY signal/)).toBeInTheDocument();
-    expect(screen.getByText('Paternity (pass).')).toBeInTheDocument();
+    // The tokens read as the screen's QC panel reads them (ENG-10; before: "female",
+    // "female no chrY signal", "(pass)").
+    expect(screen.getByText('Fetal sex: Female.')).toBeInTheDocument();
+    expect(screen.getByText(/30 seen, 0 absent \(female\); chrY coverage: no chrY signal/)).toBeInTheDocument();
+    expect(screen.getByText('Paternity (Pass).')).toBeInTheDocument();
     expect(screen.getByText('The father is consistent with paternity.')).toBeInTheDocument();
-    expect(screen.getByText('Maternal plasma sample (pass).')).toBeInTheDocument();
+    expect(screen.getByText('Maternal plasma sample (Pass).')).toBeInTheDocument();
     expect(screen.getByText('Model: R NIPT-M v0.5.1 validation.')).toBeInTheDocument();
     // The coverage of the capture targets in scope, and the genes with a weak target.
     expect(screen.getByText(/The median depth of the 12 capture targets in scope is/)).toBeInTheDocument();

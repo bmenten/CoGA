@@ -3,7 +3,7 @@
 // the wording can be unit-tested in isolation.
 
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
-import { formatLocus } from './smallVariantResultUtils';
+import { formatLocus, formatPredictionScore } from './smallVariantResultUtils';
 import type { FamilyMember, SmallVariant } from './smallVariantSearch';
 import type {
   StructuralVariant,
@@ -95,11 +95,13 @@ export const collectInSilicoPredictions = (variant: SmallVariant): InSilicoPredi
   if (variant.revel !== undefined && variant.revel !== null) {
     predictions.push({ label: 'REVEL', value: variant.revel.toFixed(3) });
   }
+  // Written as the cards write them, "deleterious low confidence (0.03)": the draft printed
+  // VEP's "deleterious_low_confidence(0.03)" (ENG-10).
   if (variant.sift) {
-    predictions.push({ label: 'SIFT', value: variant.sift });
+    predictions.push({ label: 'SIFT', value: formatPredictionScore(variant.sift) });
   }
   if (variant.polyphen) {
-    predictions.push({ label: 'PolyPhen', value: variant.polyphen });
+    predictions.push({ label: 'PolyPhen', value: formatPredictionScore(variant.polyphen) });
   }
   if (variant.spliceai_max !== undefined && variant.spliceai_max !== null) {
     predictions.push({ label: 'SpliceAI', value: variant.spliceai_max.toFixed(2) });

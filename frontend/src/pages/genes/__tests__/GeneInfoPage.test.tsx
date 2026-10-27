@@ -632,6 +632,17 @@ describe('GeneInfoPage', () => {
     expect(await screen.findByRole('heading', { name: 'BRCA1' })).toBeInTheDocument();
   });
 
+  // ENG-10: the subsection holding ClinGen's curation counts and the ACMG SF row was titled
+  // "GenCC details".
+  it('titles the curation counts and the ACMG SF row for what they are', async () => {
+    renderPage();
+    const row = await screen.findByText('ACMG secondary finding');
+    const subsection = row.closest('.gene-compact-subsection') as HTMLElement;
+    expect(within(subsection).getByText('ClinGen curations and ACMG SF')).toBeInTheDocument();
+    expect(within(subsection).getByText('Dosage sensitivity')).toBeInTheDocument();
+    expect(screen.queryByText('GenCC details')).not.toBeInTheDocument();
+  });
+
   // CLIN-19: the row read a key nothing wrote, so it said "—" for every gene, BRCA1 included.
   it('says a gene the ACMG SF list leaves out is not on it, naming the list version', async () => {
     renderGeneFrom('CFTR', (profile) => {

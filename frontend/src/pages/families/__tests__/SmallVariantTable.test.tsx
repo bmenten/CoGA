@@ -45,6 +45,44 @@ describe('SmallVariantTable', () => {
     expect(allele.closest('table')).toHaveClass('small-variant-table');
   });
 
+  // ENG-10: the table showed the classification as typed ("likely pathogenic"), where the
+  // SV pages show it normalised.
+  it('shows a review classification as the SV pages show it, not as typed', () => {
+    render(
+      <MemoryRouter>
+        <SmallVariantTable
+          variants={[
+            {
+              _id: 'classified',
+              chr: '1',
+              start: 123,
+              end: 123,
+              type: 'SNV',
+              gene: 'GENE1',
+              ref: 'G',
+              alt: 'A',
+              impact: 'MODERATE',
+              effect: 'missense_variant',
+              genotypes: [],
+              review: { variant_id: 'classified', classification: ' likely pathogenic ', tags: [], tag_metadata: {} },
+            },
+          ]}
+          members={[]}
+          familyId="F1"
+          projectId="P1"
+          locationSearch=""
+          tags={[]}
+          onEditReview={vi.fn()}
+          onAcmgClassify={vi.fn()}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+
+    expect(screen.getByText('Likely Pathogenic - class 4')).toHaveClass('table-chip--critical');
+    expect(screen.queryByText(/likely pathogenic/)).not.toBeInTheDocument();
+  });
+
   it('names under the effect the transcript the filters held on, when not the row’s own', () => {
     // CLIN-51: the row's impact and effect are its MANE transcript's, a synonymous change;
     // HIGH or MODERATE impact kept it as a missense change on a second transcript.

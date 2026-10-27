@@ -334,7 +334,12 @@ async def test_fetch_external_gene_bundle_falls_back_to_online_sources_without_d
                     "BRCA1": {
                         "extra": {
                             "clingen_curation_counts": {"gene_disease_validity": 3},
-                            "clingen_validity_assertions": [{"disease_label": "Breast cancer"}],
+                            # The count follows the list it counts (ENG-10).
+                            "clingen_validity_assertions": [
+                                {"disease_label": "Breast cancer"},
+                                {"disease_label": "Ovarian cancer"},
+                                {"disease_label": "Fanconi anemia"},
+                            ],
                         },
                     }
                 },
@@ -691,3 +696,32 @@ async def test_fetch_external_gene_bundle_takes_identity_from_the_bulk_hgnc_set(
     assert result["extra"]["hgnc_gene_group"] == ["Ring finger proteins"]
     # NCBI is the one per-gene source still worth its request.
     assert result["summary"] == "Tumor suppressor involved in DNA repair."
+
+
+def test_a_merged_gene_counts_the_curations_its_sources_combine() -> None:
+    # ENG-10: dbNSFP's copy of ClinGen's haploinsufficiency curation and ClinGen's own dosage
+    # file each counted one; the merge listed both, beside the last source's count of 1.
+    dbnsfp = {
+        "clingen_dosage_assertions": [{"haploinsufficiency": "Sufficient evidence", "description": "HI score 3"}],
+        "clingen_curation_counts": {"dosage_sensitivity": 1},
+    }
+    clingen_file = {
+        "clingen_dosage_assertions": [{"haploinsufficiency": "3", "triplosensitivity": "0", "date": "2021-09-23"}],
+        "clingen_curation_counts": {"dosage_sensitivity": 1},
+    }
+    validity = {
+        "clingen_validity_assertions": [{"disease_label": "Breast cancer"}],
+        "clingen_curation_counts": {"gene_disease_validity": 1},
+    }
+
+    merged = gene_info_bulk_sources.merge_gene_extra(
+        gene_info_bulk_sources.merge_gene_extra(gene_info_bulk_sources.merge_gene_extra({}, dbnsfp), clingen_file),
+        validity,
+    )
+
+    assert len(merged["clingen_dosage_assertions"]) == 2
+    assert merged["clingen_curation_counts"] == {"dosage_sensitivity": 2, "gene_disease_validity": 1}
+    # The same curation from two sources is one entry, counted once.
+    assert gene_info_bulk_sources.merge_gene_extra(dbnsfp, dbnsfp)["clingen_curation_counts"] == {
+        "dosage_sensitivity": 1
+    }

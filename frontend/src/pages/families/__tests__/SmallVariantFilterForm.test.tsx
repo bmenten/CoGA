@@ -151,3 +151,31 @@ test('offers a deleted tag in no list that does not hold it', () => {
   renderForm({ review_tags: 'review' });
   expect(screen.queryAllByText(/Probe X/)).toHaveLength(0);
 });
+
+// ENG-10: the active-filter chips named a deleted tag as if it could still be chosen, unlike
+// every other chip since #776.
+test('marks a deleted tag on the active review-tag and exclude chips', () => {
+  render(
+    <MemoryRouter>
+      <SmallVariantFilterForm
+        {...(props({
+          tags: WITH_DELETED_TAG,
+          activeFilterChips: [
+            { id: 'review_tags:probe_x', label: 'Review tags: probe_x', kind: 'top', key: 'review_tags', value: 'probe_x' },
+            { id: 'exclude_review_tags:probe_x', label: 'probe_x', kind: 'top', key: 'exclude_review_tags', value: 'probe_x' },
+            {
+              id: 'review_tags:needs_segregation',
+              label: 'needs_segregation',
+              kind: 'top',
+              key: 'review_tags',
+              value: 'needs_segregation',
+            },
+          ],
+        }) as unknown as ComponentProps<typeof SmallVariantFilterForm>)}
+      />
+    </MemoryRouter>,
+  );
+  expect(screen.getByRole('button', { name: 'Review tags: Probe X (deleted)' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Exclude review tags: Probe X (deleted)' })).toBeInTheDocument();
+  expect(screen.getByRole('button', { name: 'Review tags: Needs segregation' })).toBeInTheDocument();
+});
