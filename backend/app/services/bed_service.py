@@ -38,6 +38,7 @@ from .family_package_registration import (
 )
 from .haplotype_lineage_service import annotate_lineage, parent_or_child_links, relative_link_matches, relative_links
 from .haplotype_phase_correction import corrected_genotype_rows
+from .pgt_embryo_calls import normalize_sex
 from .sex_chromosomes import hemizygous_interval
 
 logger = logging.getLogger(__name__)
@@ -837,6 +838,8 @@ async def _apply_haplotype_lineage(
         # Even in a bounded region the fetch can cap; do not colour relatives past the
         # last fetched site within the window.
         genotype_truncated=len(genotype_rows) >= LINEAGE_PHASED_FETCH_LIMIT,
+        # chrX is read by the PARs of the family's assembly (CLIN-12).
+        assembly_name=context.assembly_name,
     )
     links = relative_links(context.relationship_rows)
     if links:
@@ -987,9 +990,9 @@ async def get_family_haplotypes_batch_response(
 
 def _lineage_hash(context: FamilyMetadataContext) -> str:
     """Fingerprint of the inputs that determine the lineage colours: the pedigree
-    edges, each member's role, the affected set, the parents' phase corrections and, for a
-    family with a relative of unknown degree, the ROI. If this changes, a stored precompute
-    is stale and must not be served."""
+    edges, each member's role and sex, the affected set, the parents' phase corrections and,
+    for a family with a relative of unknown degree, the ROI. If this changes, a stored
+    precompute is stale and must not be served."""
     pedigree = sorted(
         (
             str(r.get("relationship_type") or ""),
@@ -1008,6 +1011,11 @@ def _lineage_hash(context: FamilyMetadataContext) -> str:
         "pedigree": pedigree,
         "roles": roles,
         "affected": sorted(context.affected_sample_names),
+        # chrX between the PARs is read by each member's sex (CLIN-12): a precompute made
+        # before it was read there, or before a sex changed, is stale.
+        "sexes": sorted(
+            (str(row.get("sample_id") or ""), normalize_sex(row.get("sex"))) for row in context.sample_rows
+        ),
     }
     if context.roi is not None and any(
         str(row.get("relationship_type")) == "relative" for row in context.relationship_rows
@@ -1099,6 +1107,7 @@ async def _compute_genomewide_lineage(
             genotype_truncated=len(genotype_rows) >= LINEAGE_PRECOMPUTE_FETCH_LIMIT,
             parent_or_child=parent_or_child,
             locus=locus,
+            assembly_name=context.assembly_name,
         )
         for name, segs in annotated.items():
             merged[name].extend(segs)

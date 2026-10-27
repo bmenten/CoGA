@@ -142,6 +142,30 @@ CoGA supports embryos with one known parent (a single woman, or a couple using a
 disorder runs in the known parent's family. The known parent's two homologs are the founders, phased by
 the grandparents; the embryos' known-parent lane is coloured and the donor lane is grey.
 
+### Relatives on chrX
+
+Outside the pseudo-autosomal regions a man has one X, which he passes to his daughters and never to his
+sons. CoGA colours the relatives there by the sexes recorded in the pedigree, one stretch of chrX at a
+time: in PAR1 and PAR2 as on an autosome, and between the PARs as follows.
+
+- A man's one X takes the colour of the homolog he carries of the woman he connects to, on his one
+  band. The mother's father carries her paternal X whole; a woman's son carries her two X's in turn,
+  switching at her crossovers.
+- A woman connected to a man (his mother, or his daughter) carries his X on one lane, which takes his
+  colour; her other lane is grey.
+- Two women are matched as on the autosomes.
+- Nothing passes from a man to his son: the father's father, and a son reached only through his
+  father, stay grey between the PARs.
+
+CoGA reads a man's share from the markers where the woman is heterozygous: his allele names the X it
+lies on, and the X's he is read to carry must agree with nearly all of them, as only a real parent and
+child do. In a donor family the embryos are coloured the same way: a known mother's son carries her X's
+in turn, a known father's daughter carries his X, and his son, whose X is the donor's, stays grey. A
+member whose sex is not recorded is matched as having two copies. The colours follow the sexes recorded
+now (the genome overview once its background refresh has run). chrY and the mitochondrion are not
+coloured, nor is chrX of an assembly whose PAR bounds CoGA does not have; it has those of GRCh38 and
+GRCh37.
+
 ---
 
 ## Finding the disease haplotype
@@ -319,7 +343,7 @@ side, against the thresholds of [Phasing QC at the ROI](#phasing-qc-at-the-roi).
 - **Recessive single-parent families are uninformative at the ROI.** A recessive call needs both
   parental risk haplotypes, and the donor side is unknown. The known parent's risk haplotype is still
   coloured.
-- **Relatives stay grey on chrX, chrY and the mitochondrion.** The relative matching assumes two
-  homologs at every site. The nuclear family keeps its colours there.
+- **Relatives stay grey on chrY and the mitochondrion**, and on chrX of an assembly whose PAR bounds
+  CoGA does not have. The nuclear family keeps its colours there.
 - **Very large regions.** On a very large region the marker dots are hidden and the track asks you to
   zoom in; the blocks still show. Coloured relative blocks may then end at the last site with evidence.
