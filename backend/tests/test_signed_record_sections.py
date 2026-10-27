@@ -543,7 +543,9 @@ def _nipt_family_session(analysis_type: str | None = "monogenic_nipt") -> _Sessi
     return _Session({"FROM families": [{"analysis_type": analysis_type}]})
 
 
-def _sections_of(session: _Session, monkeypatch, **reported: Any) -> dict[str, Any]:
+def _sections_of(
+    session: _Session, monkeypatch, *, context: Any = None, **reported: Any
+) -> dict[str, Any]:
     async def _no_page(*args, **kwargs):
         return VariantPage(total=0, variants=[])
 
@@ -559,7 +561,7 @@ def _sections_of(session: _Session, monkeypatch, **reported: Any) -> dict[str, A
     return asyncio.run(
         srs.build_record_sections(
             session,
-            context=_context(),
+            context=context if context is not None else _context(),
             reported=reported.get("reported", []),
             reported_structural=[],
         )
@@ -724,6 +726,106 @@ def test_a_family_without_an_embryo_holds_no_pgt_section(monkeypatch) -> None:
         )
     )
     assert "pgt_analysis" not in sections
+
+
+def _nipt_family_with_a_fetus() -> types.SimpleNamespace:
+    # The NIPT import reads a fetus whose sex is unknown and whose status is unknown or
+    # unaffected as an embryo (family_package_manifest._is_ped_embryo), and the NIPT trio
+    # takes that embryo for the fetus (nipt.resolve_nipt_trio_from_members). The fetus has no
+    # sequencing column: no data of its own (TRACE-19).
+    return types.SimpleNamespace(
+        **vars(_context()),
+        sample_rows=[
+            {"sample_id": "FATHER1", "role": "father", "sample_metadata": {}},
+            {"sample_id": "CFDNA1", "role": "mother", "sample_metadata": {"assay": "nipt_cfdna"}},
+            {"sample_id": "FETUS1", "role": "embryo", "sample_metadata": None},
+        ],
+        sample_name_to_uuid={"FATHER1": "u-father", "CFDNA1": "u-cfdna", "FETUS1": "u-fetus"},
+    )
+
+
+# The lookup of the members' stored haplotype blocks (bed_service.haplotype_source_rows); the
+# coverage tracks read the same table for other track types.
+_HAPLOTYPE_SOURCES = "track_type = 'haplotype'"
+
+
+def _haplotype_source(sample: str) -> dict[str, Any]:
+    return {
+        "sample": sample,
+        "source": "phased_vcf",
+        "filename": f"{sample}.haplotypes.bed",
+        "row_count": 12,
+        "uploaded_at": None,
+        "pedigree_basis": None,
+    }
+
+
+def test_a_nipt_familys_fetus_read_as_an_embryo_brings_no_pgt_section(monkeypatch) -> None:
+    # The record held the PGT analysis of the fetus, a section of another application (#922).
+    async def _nipt(session, context, *, reported_ids, shared_nipt=None):
+        return {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
+
+    async def _never(session, context):  # pragma: no cover - must not be read
+        raise AssertionError("a NIPT fetus without haplotype blocks of its own is no PGT embryo")
+
+    monkeypatch.setattr(srs, "nipt_results", _nipt)
+    monkeypatch.setattr(srs, "family_pgt_analysis", _never)
+    # The father's blocks are no input of an embryo call: the fetus has none of its own.
+    session = _Session(
+        {
+            "FROM families": [{"analysis_type": "monogenic_nipt"}],
+            _HAPLOTYPE_SOURCES: [_haplotype_source("FATHER1")],
+        }
+    )
+    sections = _sections_of(session, monkeypatch, context=_nipt_family_with_a_fetus())
+
+    assert "pgt_analysis" not in sections
+    assert set(sections) == {
+        section.key for section in srs.RECORD_SECTIONS if section.application in (None, "nipt")
+    }
+    assert sections["nipt"] == {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
+    # The embryo's blocks are looked up for the family, bound, never spliced in.
+    [(sql, params)] = [
+        (sql, params) for sql, params in session.executed if _HAPLOTYPE_SOURCES in sql
+    ]
+    assert "sample_interval_track_sources" in sql and params == {"family_uuid": _context().family_uuid}
+
+
+def test_a_nipt_family_whose_embryo_has_haplotype_blocks_keeps_the_pgt_section(monkeypatch) -> None:
+    # Haplotype blocks of the embryo's own are what an embryo call reads: a family with them
+    # is called on the family page, and its record holds the calls, whatever its analysis type.
+    async def _nipt(session, context, *, reported_ids, shared_nipt=None):
+        return {"fetal_fraction": {"ff": 0.12, "status": "pass"}}
+
+    async def _analysis_of(session, context):
+        return _analysis()
+
+    monkeypatch.setattr(srs, "nipt_results", _nipt)
+    monkeypatch.setattr(srs, "family_pgt_analysis", _analysis_of)
+    session = _Session(
+        {
+            "FROM families": [{"analysis_type": "monogenic_nipt"}],
+            _HAPLOTYPE_SOURCES: [_haplotype_source("FETUS1")],
+        }
+    )
+    sections = _sections_of(session, monkeypatch, context=_nipt_family_with_a_fetus())
+
+    assert sections["pgt_analysis"] == _analysis().model_dump(mode="json")
+    assert "nipt" in sections
+
+
+def test_a_pgt_familys_section_does_not_wait_on_its_embryos_blocks(monkeypatch) -> None:
+    # A family that is no NIPT family holds the section for any embryo, as before: its blocks
+    # are not looked up for it (the section says what the calls rest on).
+    async def _analysis_of(session, context):
+        return _analysis()
+
+    monkeypatch.setattr(srs, "family_pgt_analysis", _analysis_of)
+    session = _Session({"FROM families": [{"analysis_type": None}]})
+    sections = _sections_of(session, monkeypatch, context=_pgt_context("father", "mother", "embryo"))
+
+    assert sections["pgt_analysis"] == _analysis().model_dump(mode="json")
+    assert not [sql for sql, _params in session.executed if _HAPLOTYPE_SOURCES in sql]
 
 
 def test_a_pgt_analysis_that_cannot_be_read_is_frozen_as_unavailable_and_named(monkeypatch) -> None:

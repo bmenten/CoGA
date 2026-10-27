@@ -1434,7 +1434,7 @@ async def test_the_import_job_runs_the_import_under_its_own_id(
         "submitted_path": "/data/families/FAM001",
         "project_id": "project-uuid",
         "dry_run": False,
-        "requested_by": "admin@example.com",
+        "requested_by_id": _current_admin().id,
         "metadata": {"conflict_mode": "update", "requested_family_id": "FAM001"},
     }
 
@@ -1453,7 +1453,9 @@ async def test_the_import_job_runs_the_import_under_its_own_id(
 
     captured: dict = {}
 
-    async def fake_user(session, email):
+    async def fake_user(session, user_id):
+        # The requester is found by the account's id, never by an e-mail address (SEC-32).
+        captured["requester_id"] = user_id
         return _current_admin()
 
     async def fake_execute(session, **kwargs):
@@ -1470,12 +1472,14 @@ async def test_the_import_job_runs_the_import_under_its_own_id(
         captured.setdefault("final_status", kwargs.get("status"))
 
     monkeypatch.setattr(package_import, "get_postgres_sessionmaker", lambda: _Session)
-    monkeypatch.setattr(package_import, "get_current_user_by_email", fake_user)
+    monkeypatch.setattr(package_import, "get_current_user_by_id", fake_user)
     monkeypatch.setattr(package_import, "execute_family_package_import", fake_execute)
     monkeypatch.setattr(package_import, "_update_job_progress", fake_update_job_progress)
 
     await package_import.run_family_import_job(job_id="job-uuid", worker_id="worker-1")
 
+    assert captured["requester_id"] == _current_admin().id
+    assert captured["user"].id == _current_admin().id
     assert captured["job_id"] == "job-uuid"
     assert captured["conflict_mode"] == "update"
     assert captured["final_status"] == "failed"

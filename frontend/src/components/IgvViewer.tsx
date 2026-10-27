@@ -1,12 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Browser as IgvBrowser, CreateOpt as IgvCreateOpt } from 'igv';
-import api, { isAbsoluteUrl, resolveApiUrl } from '../lib/api';
+import api, { isAbsoluteUrl, resolveApiUrl, sessionAccessToken } from '../lib/api';
 import { apiPath, raw } from '../lib/apiPath';
 import PageState from './PageState';
 import QueryFailure from './QueryFailure';
 import { getErrorMessage } from '../lib/errorMessage';
 import { loadIgv } from '../lib/igvLoader';
-import { storage } from '../lib/storage';
 
 type DestroyableIgvBrowser = IgvBrowser & {
   destroy?: () => void;
@@ -129,9 +128,11 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
       // Tear down any current instance
       destroyCurrentBrowser();
 
-      const token = storage.getItem('token');
       const base = api.defaults.baseURL;
-      const headers = token ? { Authorization: `Bearer ${token}` } : undefined;
+      // IGV asks for the session's token at each request it makes, as the API client does: a
+      // token read once, when the browser is built, runs out while the viewer stays open
+      // (Microsoft's within about an hour, SEC-32). Without a session it sends none.
+      const auth = { oauthToken: async () => (await sessionAccessToken()) ?? '' };
       let mount: HTMLDivElement | null = null;
 
       // Reset and capture controllers for this run
@@ -168,7 +169,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
           format: entry.format,
           url: resolveApiUrl(entry.url, base),
           indexURL: resolveApiUrl(entry.index_url, base),
-          ...(isAbsoluteUrl(entry.url) ? {} : { headers }),
+          ...(isAbsoluteUrl(entry.url) ? {} : auth),
         }));
         const signalTracks = (signalResponse.data as SignalTrackManifestEntry[]).map((entry) => ({
           name: entry.name,
@@ -181,7 +182,7 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
           ...(entry.min !== null && entry.max !== null
             ? { autoscale: false, min: entry.min, max: entry.max }
             : { autoscale: true }),
-          ...(isAbsoluteUrl(entry.url) ? {} : { headers }),
+          ...(isAbsoluteUrl(entry.url) ? {} : auth),
         }));
         // Signal first: they are short, and an alignment track is tall enough to
         // push anything below it out of view at the locus the user just opened.

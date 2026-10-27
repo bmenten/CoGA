@@ -31,7 +31,7 @@ from .family_variant_write_lock import (
     watch_family_variant_holds,
 )
 from .hpo_service import PACKAGE_IMPORT, PhenotypeImport
-from .metadata_service import get_current_user_by_email
+from .metadata_service import get_current_user_by_id
 from .access_control import CurrentUser
 from . import ped_service
 from .bed_service import precompute_family_haplotype_lineage
@@ -1034,7 +1034,7 @@ async def run_family_import_job(
                     submitted_path,
                     project_id::text AS project_id,
                     dry_run,
-                    requested_by,
+                    requested_by_id::text AS requested_by_id,
                     metadata,
                     logs
                 FROM family_import_jobs
@@ -1197,7 +1197,10 @@ async def run_family_import_job(
                 _log_unrecorded_job_end(job_id, outcome)
 
         async def run_import() -> None:
-            user = await get_current_user_by_email(session, str(job_row["requested_by"]))
+            # The import runs as the account that requested it, found by its id: its e-mail
+            # address may have changed since, or be another account's by now (SEC-32).
+            requester = job_row.get("requested_by_id")
+            user = await get_current_user_by_id(session, str(requester)) if requester else None
             if user is None:
                 raise RuntimeError("Requesting user no longer exists")
             job_metadata = _json_dict(job_row.get("metadata"))

@@ -117,6 +117,13 @@ changed, the couples and the links of unknown degree, as they were and as they a
 metadata names the structure version the change stored, with its hash and the change's reason;
 an edit that leaves the pedigree as it was writes none
 ([family-member-management.md](family-member-management.md#what-is-recorded-of-a-change)).
+Structure versions are numbered per family row, so a family made again under the ID of a deleted
+family numbers its own from 1 again. Its events then also name how many structure versions the
+families deleted under the ID stored before it (`metadata.deleted_family_versions`), its first
+says so in its summary (*Pedigree recorded with 3 members: …. Made again under this family ID,
+after 2 structure versions of a deleted family: its own start again at 1.*), and its deletion
+names its latest version the same way (`before.deleted_family_versions`): the ID's trail names
+each version once (ENG-19). A family never made again is recorded as before.
 `family_deleted` (SEC-7) is the last event of a deleted family: an admin's deletion with its
 data (Admin → Data), a PED upload or a family made by hand that replaces it with overwrite, or a
 package import that created it and imported nothing. It holds who deleted it and when, its
@@ -235,7 +242,14 @@ in the EPD refers to the signed version by its report code (*The report code* be
 - the software version and git commit that produced the snapshot;
 - the small variants tagged `report`, each with its classification, ACMG criteria and
   evidence snapshot, and the reported structural variants and CNVs with their classification,
-  CNV criteria and evidence snapshot;
+  CNV criteria and evidence snapshot. A small variant is tagged `report` when its review or its
+  compound-het pair review holds the tag: the rule of the review-tag filter, by which the live
+  report and the NIPT page's *Show reported* list the reported variants (TRACE-19). Before, the
+  sign-out read a variant's own tag alone, so a tag only the pair held (only the API sets a pair
+  review's tags) was listed there and frozen nowhere. Such a variant is frozen with the pair
+  review that reports it (`compound_het`: the partner, the gene, the pair's classification, tags
+  and note, and its phase), which the signed version shows under *Compound-het pair*; a variant
+  only its own tag reports is frozen as before;
 - the drift state (`drift` for the small variants, `structural_drift` for the structural
   variants and CNVs), the sample-integrity QC result, and the sequencing QC with the cut-offs it
   was judged against;
@@ -307,7 +321,15 @@ in the EPD refers to the signed version by its report code (*The report code* be
     were built for another pedigree or other sexes than the family's (`blocks_outdated`, CLIN-66:
     every embryo is then uninformative, and the signed version says why), the distances the
     calls and warnings use, and the QC thresholds in force (`rules.qc_thresholds`). A family
-    without an embryo has no such key, so its record is as it was;
+    without an embryo has no such key, so its record is as it was. Nor has a monogenic NIPT
+    family none of whose embryos has haplotype blocks of its own
+    (`pgt_analysis.embryo_has_haplotype_blocks`, TRACE-19): the import reads a child of unknown
+    sex whose status is unknown or unaffected as an embryo, as a NIPT PED usually gives the
+    fetus, and the NIPT trio takes that embryo for the fetus, but the fetus has no sequencing
+    column, so no blocks, and no call can be made of it. Such a record held the fetus's PGT
+    analysis all the same (#922). The blocks an embryo call reads are the narrowest input that
+    makes the section a PGT analysis: a NIPT family with them keeps it, as the family page calls
+    such an embryo;
   - `nipt`, a monogenic NIPT family's only (`services/signed_record_nipt.py`; REQ-NIPT-001,
     -004, -006, -010 to -013, -015): the NIPT analysis as the NIPT page computes it at
     sign-out, by the backend's code (`nipt_service`, `nipt_quality_checks`), never by the
@@ -375,13 +397,20 @@ and report code, which also holds the NIPT results (`nipt`, above). Where it is 
 makes no difference to what is frozen. The Sample QC's NIPT checks stay in `sample_qc`
 (`paternity_check`, `fetal_sex_check` from the father's X alleles, `category_qc_check`, the
 parents' sex, and their fixed notes), and the gene panels its NIPT searches applied in
-`gene_panels`. A NIPT variant whose review is tagged `report` is frozen in `reported_variants`
-and `variant_descriptions` like any reported small variant, with its classification, and in
-`nipt` with its category, reads and probabilities. The Sample QC's NIPT checks and the NIPT
+`gene_panels`. A NIPT variant whose review, or compound-het pair review, is tagged `report` is
+frozen in `reported_variants` and `variant_descriptions` like any reported small variant, with its
+classification, and in `nipt` with its category, reads and probabilities; the recessive fetal
+risk in `nipt` is computed over them, so it is the one the NIPT page's recessive view computes over
+*Show reported* (TRACE-19). The Sample QC's NIPT checks and the NIPT
 section read one run of the NIPT analysis (`nipt_service.SharedNiptAnalysis`, OPS-9): the same
 artifact list, which the lab curates apart from the family's data, and the same values. One that
 fails fails for both: the Sample QC notes that the NIPT cfDNA analysis could not run, and the
-section is frozen as unavailable.
+section is frozen as unavailable. The Sample QC runs its NIPT checks in a savepoint, as each
+section is read: the analysis reads the family and the artifact list from Postgres, and a database
+error there is rolled back to the savepoint and reads like any other failure of the analysis. The
+gate then lists the NIPT checks among those that could not run, and the sign-out goes on in a clean
+transaction. Before ENG-19 such an error aborted the sign-out's transaction, and the sign-out
+failed (it signed nothing).
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
 Versions are numbered per family ID: a family made again under the ID of a deleted family
@@ -396,7 +425,11 @@ An amendment is a new sign-out; no version is ever changed. The sign-out is also
 clinical audit trail. A stored hash is always checked against the snapshot as it was stored, so
 a version signed before a field was added still verifies; the sign-out check reports that
 section as `not_compared`. A section neither the record nor the family's current data holds
-(the NIPT results of a family that is no NIPT family) is neither compared nor listed.
+(the NIPT results of a family that is no NIPT family) is neither compared nor listed. The live
+report, the signed version and the NIPT pages name what the check lists as not compared, beside
+*still matches* and beside what changed (*This page still matches signed version 2 in everything
+that version holds. Not in signed version 2, so not compared: the HPO version.*), so that neither
+reads as covering it (TRACE-19); before, they read `matches` and `changed_sections` alone.
 
 Five gates run first, in this order:
 
@@ -511,7 +544,8 @@ Five gates run first, in this order:
    family's data" that "did not finish" and what may be partly written or missing, and is
    frozen with its key, from which the signed record names what wrote it. Each upload or
    import with overwrite removes from it what it brought again; the deletion of a sample
-   removes that sample's items.
+   removes that sample's items, and the sample from the import-incomplete flag's failures and
+   from the entry of an import that stopped, each going once it named nothing else (SAFE-35).
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 
@@ -630,6 +664,10 @@ latest signed version with its report code, and checks itself against the latest
 
 - the content matches the signed version: it says so, and is still not the signed report;
 - the content changed after sign-out: the changed sections are named;
+- in either case, what the signed version does not hold, so the check could not compare
+  (`not_compared`), is named after it (*Not in signed version 2, so not compared: …*), with
+  words for each section, reference module and part (`describeNotCompared` in
+  `signedReportRecord.ts`);
 - the check could not be made: treat the page as unsigned.
 
 Every printout of the live report starts with a notice ("Draft …", "Not the signed report …",
@@ -724,8 +762,9 @@ application, read from the section itself or, for a record signed before it, fro
    as it was.
 2. **Its reading** in `frontend/src/pages/families/signedReportRecord.ts`: a field of
    `SignedReport` parsed with `parseRecordSection`, which gives the absent, unavailable and
-   recorded states; and its label in `REPORT_SECTION_LABELS`, which the check's changed sections
-   are named with.
+   recorded states; and its label in `REPORT_SECTION_LABELS`, which the check's changed and
+   not-compared sections are named with (a part of a section the check leaves out of the
+   comparison for an older record gets its words in `NOT_COMPARED_PART_LABELS`).
 3. **Its rendering** in `SignedFamilyReport.tsx`, through `RecordSectionBlock`, which says what
    a record that does not hold the section lacks and what one could not capture.
 4. **Its description** here, under *Sign-out*, and in the in-app reference and handleiding

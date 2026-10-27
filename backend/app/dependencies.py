@@ -126,9 +126,9 @@ async def _emergency_admin(token: str, session: AsyncSession, request: Request |
 
 
 async def get_current_user(
+    request: Request,
     token: str = Depends(oauth2_scheme),
     session: AsyncSession = Depends(get_postgres_session),
-    request: Request = None,
 ) -> CurrentUser:
     if settings.azure_ad_enabled:
         # A Microsoft access token is RS256; a token this server issued is HS256. The header

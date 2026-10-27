@@ -20,6 +20,11 @@ have left so, given how far it got (the rewrite of the family's small variants n
 rows back as the SV rewrite does), or removes it when that is nothing. It gates sign-out as an
 import's entry does, and goes item by item as each dataset is brought again with overwrite.
 
+SAFE-35: a PED upload or a manual family that replaces a family deletes its interval tracks
+too, through the structure clear's deletes, and marks the family for them; they used to stay
+in ClickHouse. The deletion of a sample also strikes the sample off the import-incomplete flag
+and off the entry of an import that stopped, which no import could clear while they named it.
+
 Against fakes at the stores' edge: ClickHouse (written at once, kept whatever becomes of the
 request), and the family row in Postgres (a write is the transaction's until it commits; the
 mark's commits at once on a connection of its own).
@@ -227,15 +232,19 @@ class _ClickHouse:
 
 class _Postgres:
     """The family row as the deletions read and write it (``unfinished``: import_unfinished,
-    ``imported``: imported_scopes, ``exists``: the row is there), and the other statements
-    of their transaction, recorded. A write is the transaction's until it commits; a rollback
-    discards it. ``failing_commits`` commits fail (the transaction stays open). ``connection()``
-    is the connection the deletion writes its mark on: committed at once."""
+    ``flag``: import_incomplete, ``imported``: imported_scopes, ``exists``: the row is there),
+    and the other statements of their transaction, recorded. A write is the transaction's until
+    it commits; a rollback discards it. ``failing_commits`` commits fail (the transaction stays
+    open). ``connection()`` is the connection the deletion writes its mark on: committed at
+    once."""
 
-    def __init__(self, events: list[tuple[Any, ...]], *, unfinished: Any = None, imported: Any = None) -> None:
+    def __init__(
+        self, events: list[tuple[Any, ...]], *, unfinished: Any = None, imported: Any = None, flag: Any = None
+    ) -> None:
         self.events = events
         self.committed: dict[str, Any] = {
             "unfinished": copy.deepcopy(unfinished),
+            "flag": copy.deepcopy(flag),
             "imported": copy.deepcopy(imported if imported is not None else _IMPORTED),
             "exists": True,
             "samples": list(_SAMPLES),
@@ -257,14 +266,22 @@ class _Postgres:
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         if sql.startswith("SELECT metadata -> 'import_unfinished'"):
             assert sql.endswith("FOR NO KEY UPDATE"), sql
-            row = {"unfinished": copy.deepcopy(self.working["unfinished"])} if self.working["exists"] else None
+            row = (
+                {"unfinished": copy.deepcopy(self.working["unfinished"]), "flag": copy.deepcopy(self.working["flag"])}
+                if self.working["exists"]
+                else None
+            )
             return SimpleNamespace(mappings=lambda: SimpleNamespace(first=lambda: row))
         if sql.startswith("UPDATE families") and "unfinished" in params:
             self.working["unfinished"] = json.loads(params["unfinished"])
+            if "flag" in params:
+                self.working["flag"] = json.loads(params["flag"])
             return SimpleNamespace(rowcount=1)
         if sql.startswith("UPDATE families") and "pedigree" in params:
             self.events.append(("update the pedigree",))
             return SimpleNamespace(rowcount=1)
+        if "FROM raw_import_files" in sql:  # the family's kept copies of uploads: none
+            return SimpleNamespace(fetchall=lambda: [])
         if sql.startswith("DELETE FROM families"):
             self.working["exists"] = False
             self.events.append(("delete the family",))
@@ -384,8 +401,6 @@ def stores(monkeypatch):
             "record_phenotypes_deleted_with_family": nothing,
             "record_family_deleted": nothing,
             "delete_interval_track_sources": none_counted,
-            "purge_sample_managed_files": none_counted,
-            "purge_family_managed_files": none_counted,
             "delete_interval_tracks": clickhouse.delete_tracks,
             "fetch_family_small_variant_entries": clickhouse.fetch_small,
             "rewrite_family_small_variant_entries": clickhouse.rewrite_small,
@@ -401,8 +416,9 @@ def stores(monkeypatch):
         monkeypatch.setattr(clickhouse_variant_storage, "insert_structural_variant_records", clickhouse.insert_sv)
         for module in (ped_service, family_structure_service):
             monkeypatch.setattr(module, "lock_family_variant_writes", lock)
-            monkeypatch.setattr(module, "delete_family_small_variants", clickhouse.delete_small)
-            monkeypatch.setattr(module, "delete_family_structural_variants", clickhouse.delete_sv)
+        # The structure clear's ClickHouse deletes, which a PED or manual replacement reuses.
+        monkeypatch.setattr(family_structure_service, "delete_family_small_variants", clickhouse.delete_small)
+        monkeypatch.setattr(family_structure_service, "delete_family_structural_variants", clickhouse.delete_sv)
         monkeypatch.setattr(family_structure_service, "delete_interval_tracks", clickhouse.delete_tracks)
         monkeypatch.setattr(family_structure_service, "delete_interval_track_sources", none_counted)
         monkeypatch.setattr(registration, "get_postgres_sessionmaker", lambda: database.connection, raising=False)
@@ -558,6 +574,129 @@ async def test_a_sample_deletion_that_completes_strikes_the_sample_off_every_mar
     assert _items(marks[earlier_key]) == {_item("sv_needlr")}
     assert marks[earlier_key]["datasets"] == ["sv_needlr"]
     assert clickhouse.sv_calls() == {"1-7000-12000-DEL---": {"S1"}, "1-30000-31000-DEL---": {"S1"}}
+
+
+@pytest.mark.asyncio
+async def test_a_sample_deletion_that_completes_strikes_the_sample_off_the_import_flag(stores) -> None:
+    # Two imports failed: the first for the coverage of S1 and S2 and for S2's TRGT calls, the
+    # second for S1's TRGT calls and the direct calls, one family VCF.
+    coverage = {"source": None, "samples": ["S1", "S2"], "content": {"S1": "read_depth", "S2": "read_depth"}}
+    flag = registration.merged_import_failure(
+        None,
+        at="2026-10-27T08:00:00+00:00",
+        job_id="job-a",
+        failed=["coverage", "repeats_trgt"],
+        imported=["qc"],
+        scopes={"coverage": coverage, "repeats_trgt": {"source": None, "samples": ["S2"]}},
+        imported_scopes={},
+    )
+    flag = registration.merged_import_failure(
+        flag,
+        at="2026-10-27T09:00:00+00:00",
+        job_id="job-b",
+        failed=["repeats_trgt", "snv"],
+        imported=["qc"],
+        scopes={"repeats_trgt": {"source": None, "samples": ["S1"]}, "snv": {"source": "clair3", "samples": None}},
+        imported_scopes={},
+    )
+    database = _Postgres([], flag=flag)
+    stores(database)
+
+    await _delete_s2(database)
+
+    left = database.committed["flag"]
+    # S2's part of each failure went: nothing of a sample that is gone can be missing. What the
+    # others may lack stays: S1's coverage, S1's TRGT calls, and the direct calls of the family
+    # VCF, a file of every sample. Before: the flag kept naming S2, whose data no import or
+    # upload can bring again, so it could never be cleared.
+    assert left["failed_datasets"] == ["coverage", "repeats_trgt", "snv"]
+    assert left[registration.FAILED_SCOPES_KEY] == {
+        "coverage": [
+            {"scope": {"source": None, "samples": ["S1"], "content": {"S1": "read_depth"}}, "job_id": "job-a"}
+        ],
+        "repeats_trgt": [{"scope": {"source": None, "samples": ["S1"]}, "job_id": "job-b"}],
+        "snv": [{"scope": {"source": "clair3", "samples": None}, "job_id": "job-b"}],
+    }
+    assert left["failed_jobs"] == {"coverage": "job-a", "repeats_trgt": "job-b", "snv": "job-b"}
+    assert (left["at"], left["job_id"], left["imported_datasets"]) == ("2026-10-27T09:00:00+00:00", "job-b", ["qc"])
+    # Importing again what is left, for S1 and the family, clears it.
+    brought = {
+        "coverage": {"source": None, "samples": ["S1"]},
+        "repeats_trgt": {"source": None, "samples": ["S1"]},
+        "snv": {"source": "clair3", "samples": None},
+    }
+    assert registration.failures_left_after(left, brought).flag is None
+
+
+@pytest.mark.asyncio
+async def test_a_sample_deletion_removes_a_flag_that_named_that_sample_alone(stores) -> None:
+    flag = registration.merged_import_failure(
+        None,
+        at="2026-10-27T08:00:00+00:00",
+        job_id="job-a",
+        failed=["coverage", "repeats_trgt"],
+        imported=[],
+        scopes={
+            "coverage": {"source": None, "samples": ["S2"], "content": {"S2": "unknown"}},
+            "repeats_trgt": {"source": None, "samples": ["S2"]},
+        },
+        imported_scopes={},
+    )
+    database = _Postgres([], flag=flag)
+    stores(database)
+
+    await _delete_s2(database)
+
+    # Before: it stayed, and gated sign-out for good.
+    assert database.committed["flag"] is None and database.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_a_sample_deletion_leaves_a_flag_not_in_the_shape_an_import_writes(stores) -> None:
+    # Nothing shows what such a flag would need, so nothing is struck off it.
+    database = _Postgres([], flag=True)
+    stores(database)
+
+    await _delete_s2(database)
+
+    assert database.committed["flag"] is True
+
+
+@pytest.mark.asyncio
+async def test_a_sample_deletion_strikes_the_sample_off_a_stopped_imports_entry(stores) -> None:
+    stopped = registration.ImportMark.begin(
+        job_id="job-c",
+        datasets=["coverage", "repeats_trgt", "snv"],
+        scopes={
+            "coverage": {"source": None, "samples": ["S1", "S2"]},
+            "repeats_trgt": {"source": None, "samples": ["S2"]},
+            "snv": {"source": "clair3", "samples": None},
+        },
+    )
+    s2_alone = registration.ImportMark.begin(
+        job_id="job-d", datasets=["repeats_trgt"], scopes={"repeats_trgt": {"source": None, "samples": ["S2"]}}
+    )
+    database = _Postgres(
+        [],
+        unfinished={stopped.key: stopped.entry(finished=["repeats_trgt"]), s2_alone.key: s2_alone.entry()},
+    )
+    stores(database)
+
+    await _delete_s2(database)
+
+    marks = database.marks()
+    # The import that stopped part-way keeps what the others may lack: S1's coverage and the
+    # direct calls. S2's TRGT calls go from it, finished as they were: none of them is the
+    # family's now. The import that set out to bring S2's data alone goes. Before: both stayed
+    # naming S2, and only an import of S2's data could have removed them.
+    assert set(marks) == {"job-c"}
+    entry = marks["job-c"]
+    assert (entry["job_id"], entry["at"]) == ("job-c", stopped.at)
+    assert (entry["datasets"], entry["finished_datasets"]) == (["coverage", "snv"], [])
+    assert entry["scopes"] == {
+        "coverage": {"source": None, "samples": ["S1"]},
+        "snv": {"source": "clair3", "samples": None},
+    }
 
 
 @pytest.mark.asyncio
@@ -749,11 +888,12 @@ async def test_a_ped_upload_whose_commit_fails_leaves_the_replaced_family_marked
     with pytest.raises(ConnectionError, match="the commit failed"):
         await _upload_ped(database)
 
-    # The rollback brings the replaced family back, without its variants (deleted last, just
-    # before the commit), and marked for them (before: nothing marked it).
+    # The rollback brings the replaced family back, without its variants and tracks (deleted
+    # last, just before the commit), and marked for them (before: nothing marked it; and the
+    # tracks were not deleted, SAFE-35).
     assert database.committed["exists"] is True
-    assert clickhouse.small == [] and clickhouse.sv == []
-    assert _items(_deletion_mark(database)[1]) == _SMALL | _SV
+    assert clickhouse.small == [] and clickhouse.sv == [] and clickhouse.tracks == {}
+    assert _items(_deletion_mark(database)[1]) == _SMALL | _SV | _TRACKS
     # Marked under the replacement's locks, before its row was touched.
     assert database.events[:3] == [("lock",), ("mark",), ("delete the family",)]
 
@@ -785,6 +925,20 @@ async def test_a_ped_upload_that_replaces_a_family_goes_with_its_mark(replacemen
 
 
 @pytest.mark.asyncio
+async def test_a_ped_upload_that_replaces_a_family_deletes_its_interval_tracks(replacement) -> None:
+    database = _Postgres([])
+    clickhouse = replacement(database)
+
+    await _upload_ped(database)
+
+    # The replaced family's tracks go with its variants, last, just before the commit, as a
+    # structure change that clears a family's data deletes them. Before: they stayed in
+    # ClickHouse under a family that was gone (SAFE-35).
+    assert clickhouse.small == [] and clickhouse.sv == [] and clickhouse.tracks == {}
+    assert database.events[-4:] == [("delete small variants",), ("delete SVs",), ("delete tracks", "family"), ("commit",)]
+
+
+@pytest.mark.asyncio
 async def test_a_manual_family_whose_commit_fails_leaves_the_replaced_family_marked(replacement) -> None:
     database = _Postgres([])
     replacement(database)
@@ -805,7 +959,7 @@ async def test_a_manual_family_whose_commit_fails_leaves_the_replaced_family_mar
         )
 
     assert database.committed["exists"] is True
-    assert _items(_deletion_mark(database)[1]) == _SMALL | _SV
+    assert _items(_deletion_mark(database)[1]) == _SMALL | _SV | _TRACKS
 
 
 # --- a structure change that clears the family's data ----------------------------------------

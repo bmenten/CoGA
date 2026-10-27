@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import functools
 import logging
 import random
@@ -8,7 +9,7 @@ import types
 
 import pytest
 from clickhouse_connect.driver.exceptions import DatabaseError
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from backend.app.services import sample_integrity_service
 from backend.app.services.nipt_analysis import PaternalTransmissionEvidence
@@ -109,11 +110,62 @@ def _frozen(report) -> str:
     return str(_canonical_sample_qc(report))
 
 
+class _Session:
+    """The request's Postgres session, as far as the QC uses it beside the stubbed reads: a
+    savepoint for the NIPT step."""
+
+    @contextlib.asynccontextmanager
+    async def _savepoint(self):
+        yield
+
+    def begin_nested(self):
+        return self._savepoint()
+
+
+class _PostgresSession:
+    """A session whose transaction a failed statement aborts, as Postgres's is: every later
+    statement fails until the transaction is rolled back, whole or to a savepoint. A read of
+    the NIPT artifact list fails (its table cannot be read)."""
+
+    def __init__(self) -> None:
+        self.aborted = False
+        self.savepoints = 0
+        self.rolled_back_to_savepoint = 0
+        self.executed: list[str] = []
+
+    async def execute(self, statement, params=None):
+        sql = str(statement)
+        if self.aborted:
+            raise DBAPIError(sql, params, Exception("current transaction is aborted"))
+        self.executed.append(sql)
+        if "nipt_artifact_variants" in sql:
+            self.aborted = True
+            raise ProgrammingError(sql, params, Exception("permission denied for table"))
+        return types.SimpleNamespace(all=lambda: [])
+
+    @contextlib.asynccontextmanager
+    async def _savepoint(self):
+        self.savepoints += 1
+        aborted = self.aborted
+        try:
+            yield
+        except BaseException:
+            # ROLLBACK TO SAVEPOINT: the transaction is as it was when the savepoint began.
+            self.aborted = aborted
+            self.rolled_back_to_savepoint += 1
+            raise
+        if self.aborted:  # RELEASE SAVEPOINT fails in an aborted transaction
+            raise DBAPIError("RELEASE SAVEPOINT", None, Exception("current transaction is aborted"))
+
+    def begin_nested(self):
+        return self._savepoint()
+
+
 def test_service_clean_trio_passes(monkeypatch) -> None:
     _patch(monkeypatch, swap_child=False)
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
     assert report.overall_status == "pass"
@@ -133,7 +185,7 @@ def test_service_swapped_child_fails(monkeypatch) -> None:
     _patch(monkeypatch, swap_child=True)
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
     assert report.overall_status == "fail"
@@ -156,7 +208,7 @@ def test_service_notes_a_failed_genotype_load_without_the_error_text(monkeypatch
     monkeypatch.setattr(sample_integrity_service, "fetch_genotype_site_sample", _unreadable_value)
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
     assert report.overall_status == "warn"
@@ -195,7 +247,7 @@ def test_service_nipt_runs_paternity_parent_sex_and_category_qc(monkeypatch) -> 
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
     assert report.application == "nipt"
@@ -238,7 +290,7 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
     assert report.overall_status == "warn"
@@ -246,6 +298,54 @@ def test_service_nipt_degrades_to_warning_when_analysis_fails(monkeypatch) -> No
     assert _QUOTED_VALUE not in _frozen(report)
     assert "SELECT" not in _frozen(report)
     assert report.paternity_check is None
+
+
+def test_service_nipt_database_error_is_rolled_back_to_its_savepoint(monkeypatch) -> None:
+    # The NIPT analysis reads the assay's artifact list from Postgres. A database error
+    # there aborted the request's transaction: the QC noted that the analysis could not
+    # run, but every later statement failed, so a sign-out, which reads on in that
+    # transaction, failed with it (ENG-19). The step runs in a savepoint: the error is
+    # rolled back to it and reads like the step's other failures.
+    from sqlalchemy import text
+
+    from backend.app.services import nipt_artifact_pg
+    from backend.app.services.report_signout_service import _unverifiable_swap_checks
+
+    _patch(monkeypatch, swap_child=False, metadata={"analysis_type": "monogenic_nipt"})
+    monkeypatch.setattr(
+        sample_integrity_service, "resolve_nipt_trio",
+        lambda family: types.SimpleNamespace(father_sample_id="FATHER", cfdna_sample_id="MOTHER"),
+    )
+    import backend.app.services.nipt_service as nipt_service
+
+    async def _reads_the_artifact_list(session, *, family_id, user, project_id=None, **kwargs):
+        await nipt_artifact_pg.load_nipt_artifact_ids(session, assembly_id="asm", assay_key="default")
+        raise AssertionError("the artifact list was read")
+
+    monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _reads_the_artifact_list)
+    session = _PostgresSession()
+
+    async def _qc_then_the_next_statement():
+        report = await sample_integrity_service.get_family_sample_integrity_qc(
+            session=session, family_id="FAM1", user=None  # type: ignore[arg-type]
+        )
+        # What a sign-out reads next, in the same transaction.
+        await session.execute(text("SELECT variant_id FROM small_variant_reviews"))
+        return report
+
+    report = asyncio.run(_qc_then_the_next_statement())
+
+    assert (session.savepoints, session.rolled_back_to_savepoint, session.aborted) == (1, 1, False)
+    assert session.executed[-1] == "SELECT variant_id FROM small_variant_reviews"
+    # The fixed note, never the error's text, and no cfDNA check: the sign-out gate lists the
+    # NIPT checks among those that could not run.
+    assert report.notes == ["NIPT cfDNA analysis could not run."]
+    assert (report.paternity_check, report.fetal_sex_check, report.category_qc_check) == (None, None, None)
+    assert "permission denied" not in _frozen(report) and "nipt_artifact_variants" not in _frozen(report)
+    assert any(
+        reason.startswith("NIPT sample integrity could not be assessed")
+        for reason in _unverifiable_swap_checks(_canonical_sample_qc(report))
+    )
 
 
 async def _failed_query(*args, **kwargs):
@@ -273,7 +373,7 @@ def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplo
     monkeypatch.setattr(nipt_service, "run_family_nipt_analysis", _failed_query)
     asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
     assert _warnings(caplog) == ["NIPT cfDNA QC could not run for family FAM1: RuntimeError"]
@@ -283,7 +383,7 @@ def test_service_logs_a_failed_check_by_its_kind_not_its_text(monkeypatch, caplo
     monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _failed_query)
     asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
     assert _warnings(caplog) == ["Genotypes could not be loaded for family FAM1: RuntimeError"]
@@ -334,7 +434,7 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
     monkeypatch.setattr(sample_integrity_service, failing, _unreadable_value)
 
     report = asyncio.run(
-        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
     )
 
     assert report.paternity_check is not None and report.paternity_check.status == "pass"
@@ -372,7 +472,7 @@ def test_service_nipt_parent_sex_without_a_callset_adds_nothing(monkeypatch) -> 
 
     monkeypatch.setattr(sample_integrity_service, "fetch_family_variant_sources", _no_callset)
     report = asyncio.run(
-        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
     )
     assert report.sex_checks == []
     assert report.notes == []
@@ -401,7 +501,7 @@ def test_service_nipt_parents_without_chrx_calls_warn_and_are_named(monkeypatch)
     _without_chrx_calls(monkeypatch)
 
     report = asyncio.run(
-        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
     )
 
     assert [c.status for c in (report.paternity_check, report.fetal_sex_check, report.category_qc_check)] == [
@@ -438,7 +538,7 @@ def test_service_trio_without_chrx_calls_warns_and_the_signed_snapshot_records_i
     _without_chrx_calls(monkeypatch)
 
     report = asyncio.run(
-        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
     )
 
     assert {c.sample_id: c.status for c in report.sex_checks} == dict.fromkeys(SAMPLES, "skip")
@@ -507,7 +607,7 @@ def test_service_nipt_paternity_ignores_sites_without_a_confident_father_call(mo
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
 
@@ -579,7 +679,7 @@ def test_service_sexes_a_haploid_called_nipt_father(monkeypatch) -> None:
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="FAM1", user=None
+            session=_Session(), family_id="FAM1", user=None
         )
     )
 
@@ -718,7 +818,7 @@ def test_service_reads_sibling_embryos_as_siblings_from_sites_across_the_genome(
 
     report = asyncio.run(
         sample_integrity_service.get_family_sample_integrity_qc(
-            session=None, family_id="PGT1", user=None
+            session=_Session(), family_id="PGT1", user=None
         )
     )
 
@@ -788,7 +888,7 @@ def test_service_sexes_a_per_sample_nipt_callset_from_its_allele_depths(monkeypa
     monkeypatch.setattr(clickhouse_family_variants, "_execute_clickhouse", _fake_execute)
 
     report = asyncio.run(
-        sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="FAM1", user=None)
+        sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="FAM1", user=None)
     )
 
     sexes = {check.sample_id: (check.inferred_sex, check.status) for check in report.sex_checks}
@@ -896,7 +996,7 @@ def _patch_ten(monkeypatch, *, sites: int = 3_000, swapped: bool = False) -> Non
 
 
 def _ten_sample_qc():
-    return sample_integrity_service.get_family_sample_integrity_qc(session=None, family_id="TEN1", user=None)
+    return sample_integrity_service.get_family_sample_integrity_qc(session=_Session(), family_id="TEN1", user=None)
 
 
 @pytest.mark.parametrize(

@@ -48,12 +48,13 @@ for the assembly is missing. Load it before you load a family.
 - **At first start** CoGA creates *Homo sapiens / GRCh38* and loads its cytobands (from UCSC) and genes
   (from GENCODE, with the UCSC gene table as a fallback) when they are missing. If the download fails,
   the assembly is created empty, to be filled later.
-- **Segmental duplications** are loaded at start-up when their source file is present on the server.
-  **Clinical CNVs** never are: an administrator builds them with the clinical CNV knowledgebase rebuild
-  (*Species & assemblies*), or uploads a file. An empty *Clinical CNV explorer* means they are not
-  loaded for that assembly. The segmental-duplication file, and the HPO ontology, must be the files
-  CoGA ships, recognized by their SHA-256: another file is not loaded, and the server log says which
-  file and how to fix it.
+- **Segmental duplications** are loaded at start-up when their source file is present on the server,
+  into GRCh38 only: the file CoGA ships holds GRCh38 coordinates. Another assembly gets them from an
+  upload. **Clinical CNVs** are never loaded at start-up: an administrator builds them with the
+  clinical CNV knowledgebase rebuild (*Species & assemblies*), or uploads a file. An empty
+  *Clinical CNV explorer* means they are not loaded for that assembly. The segmental-duplication
+  file, and the HPO ontology, must be the files CoGA ships, recognized by their SHA-256: another file
+  is not loaded, and the server log says which file and how to fix it.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
   downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
   segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
@@ -290,13 +291,19 @@ file (most samples carry no mtDNA deletion): it removes that sample's earlier ch
 
 **Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
 sample reads or checks the file of every sample first: the TRGT files, HiFiCNV's VCFs and signal files,
-the WisecondorX and QDNAseq bins and segments, the PCF tables, the APCAD file of each embryo, the
-coverage BEDs and per-target coverage tables, a monogenic NIPT's SNV files and the mitochondrial
-structural-variant files. A later sample's refused file then fails the dataset with every sample's data
-as it was; it used to fail it after the earlier samples' data had been replaced. A mitochondrial
-structural-variant file whose records all lie on other chromosomes is refused as no chrM callset (it
-used to remove the sample's chrM deletions). A long-read sample's SNV file is checked up to its first
-record: a record out of position order is still found only as the callset is written.
+the WisecondorX and QDNAseq bins and segments, the PCF tables, the Paraphase results, the APCAD file of
+each embryo, the coverage BEDs and per-target coverage tables, a monogenic NIPT's SNV files and the
+mitochondrial structural-variant files. A later sample's refused file then fails the dataset with every
+sample's data as it was; it used to fail it after the earlier samples' data had been replaced. A
+mitochondrial structural-variant file whose records all lie on other chromosomes is refused as no chrM
+callset (it used to remove the sample's chrM deletions). A long-read sample's SNV file is checked up to
+its first record: a record out of position order is still found only as the callset is written.
+
+**A Paraphase copy number the database cannot hold fails its dataset.** A copy number beyond
+2,147,483,647 (or below −2,147,483,648) in a sample's Paraphase result is refused like a TRGT value that
+cannot be read as a number: the job's log names the sample, the field and the gene, and no sample's
+Paraphase results are replaced. It used to fail with the database's error, after the sample's results had
+been deleted.
 
 ### What validation checks
 
@@ -355,7 +362,8 @@ record: a record out of position order is still found only as the callset is wri
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). A dataset imported with
   warnings counts, as does one the package carries nothing for that CoGA imports (phenotypes without
   an HPO term, say), which the import only registers. An import that completes without them leaves
-  the warning, and says so in its log.
+  the warning, and says so in its log. Deleting a sample with its data takes that sample out of the
+  warning: what it named of that sample alone goes, as nothing can bring the sample's data again.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
   too, part of the family's data may be gone, whichever import or upload it came from: the warning
   then names every dataset of that import as failed, the ones that imported too, and every dataset

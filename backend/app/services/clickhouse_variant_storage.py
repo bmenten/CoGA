@@ -1133,7 +1133,7 @@ async def refresh_family_small_variant_summaries(
     family_uuid: str,
 ) -> None:
     await ensure_clickhouse_variant_tables(assembly_name)
-    params = {"family_guid": family_uuid}
+    params: dict[str, Any] = {"family_guid": family_uuid}
     for suffix in ("family_variant_summary", "family_sample_variant_summary"):
         await _execute(
             f"ALTER TABLE {_small_table_name(assembly_name, suffix)} DELETE WHERE family_guid = %(family_guid)s SETTINGS mutations_sync = 1",
@@ -2123,7 +2123,7 @@ async def check_clickhouse_variant_integrity(assembly_name: str) -> dict[str, An
         """,
         params,
     )
-    detached_broken_parts = [
+    detached_broken_parts: list[dict[str, Any]] = [
         {"table": str(table), "reason": str(reason), "count": int(count or 0)}
         for table, reason, count in detached_rows
     ]

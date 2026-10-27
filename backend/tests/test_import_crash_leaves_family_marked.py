@@ -603,7 +603,7 @@ def _job_row(logs: list[str]) -> dict[str, Any]:
         "submitted_path": "/data/families/FAM001",
         "project_id": "project-uuid",
         "dry_run": False,
-        "requested_by": "admin@example.com",
+        "requested_by_id": _admin().id,
         "metadata": {"conflict_mode": "update", "requested_family_id": FAMILY},
         "logs": json.dumps(logs),
     }
@@ -612,7 +612,7 @@ def _job_row(logs: list[str]) -> dict[str, Any]:
 def _run_job_with(monkeypatch: pytest.MonkeyPatch, row: dict[str, Any], execute: Any) -> list[dict]:
     updates: list[dict] = []
 
-    async def user(_session: Any, _email: str) -> CurrentUser:
+    async def user(_session: Any, _user_id: str) -> CurrentUser:
         return _admin()
 
     async def update_job_progress(_session: Any, **kwargs: Any) -> bool:
@@ -620,7 +620,7 @@ def _run_job_with(monkeypatch: pytest.MonkeyPatch, row: dict[str, Any], execute:
         return True  # recorded: the job is this worker's
 
     monkeypatch.setattr(package_import, "get_postgres_sessionmaker", lambda: lambda: _JobSession(row))
-    monkeypatch.setattr(package_import, "get_current_user_by_email", user)
+    monkeypatch.setattr(package_import, "get_current_user_by_id", user)
     monkeypatch.setattr(package_import, "execute_family_package_import", execute)
     monkeypatch.setattr(package_import, "_update_job_progress", update_job_progress)
     monkeypatch.setattr(package_import, "precompute_family_haplotype_lineage", lambda _context: asyncio.sleep(0))
