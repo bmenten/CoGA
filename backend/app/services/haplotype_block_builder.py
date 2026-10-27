@@ -32,9 +32,10 @@ is cut.
 from __future__ import annotations
 
 import bisect
+import json
 import re
 from array import array
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping, Sequence
 
 from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, SampleMetadataContext
@@ -433,6 +434,25 @@ def haplotype_block_basis(context: FamilyMetadataContext, samples: Iterable[str]
         "children": [name for name in names if name in children],
         "sexes": {name: sexes.get(name, "unknown") for name in names},
     }
+
+
+def blocks_outdated(context: FamilyMetadataContext, rows: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether a member's stored haplotype blocks rest on another pedigree than the family's
+    (CLIN-66): the loader kept, beside each member's blocks, the couple, the couple's children
+    and the sexes they were built for (``haplotype_block_basis``), and the pedigree or a sex has
+    changed since. Blocks without that record, loaded before it was kept, count as outdated.
+    The blocks are then read for the inputs' digest, but no embryo is called from them until
+    the phased genotypes are imported again."""
+    for row in rows:
+        try:
+            basis = json.loads(row.get("pedigree_basis") or "null")
+        except (TypeError, ValueError):
+            return True
+        if not isinstance(basis, dict) or not isinstance(basis.get("sexes"), dict):
+            return True
+        if haplotype_block_basis(context, basis["sexes"]) != basis:
+            return True
+    return False
 
 
 def _parent_sample_names(context: FamilyMetadataContext) -> tuple[str | None, str | None]:

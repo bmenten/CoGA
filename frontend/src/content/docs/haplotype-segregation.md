@@ -337,8 +337,9 @@ side, against the thresholds of [Phasing QC at the ROI](#phasing-qc-at-the-roi).
 - **Blocks built for the pedigree as it is.** The haplotype blocks are built when the phased genotypes
   are imported, from the couple, the couple's children and each member's sex as the pedigree then
   records them. If any of these changes afterwards, the blocks are outdated: the family page warns,
-  every embryo reads *Uninformative*, and a sign-out records why, until the phased genotypes are
-  imported again. A change of affected status does not outdate them, as the calls read it when they are
+  every embryo reads *Uninformative*, the haplotype tracks of the genome overview and the chromosome
+  view show *Outdated blocks: no risk state* and draw no risk haplotype, and a sign-out records why,
+  until the phased genotypes are imported again. A change of affected status does not outdate them, as the calls read it when they are
   made; nor does a member added who is not in the phased file. Blocks imported before CoGA recorded what
   they were built for count as outdated too.
 - The **affected and carrier status** of the members that define the disease haplotype.

@@ -276,3 +276,44 @@ async def test_a_precompute_of_blocks_written_again_is_not_served(monkeypatch: p
 
     # Before, the fingerprint left the blocks out, and the old precompute was served.
     assert await bed_service._fetch_precomputed_lineage(context) is None
+
+
+# ---- The haplotype tracks (part 2) ------------------------------------------------------------------
+
+
+class _SourcesSession:
+    """Answers the record of each member's blocks, as Postgres keeps it."""
+
+    def __init__(self, sources: list[dict[str, Any]]) -> None:
+        self.sources = sources
+
+    async def execute(self, statement: Any, params: Any = None) -> _Result:
+        assert "FROM sample_interval_track_sources" in str(statement)
+        return _Result(self.sources)
+
+
+def _no_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def rows(*args: Any, **kwargs: Any) -> list[dict[str, Any]]:
+        return []
+
+    async def same(context: Any, *, segments_by_uuid: Any, **kwargs: Any) -> Any:
+        return segments_by_uuid
+
+    monkeypatch.setattr(bed_service, "fetch_interval_track_rows", rows)
+    monkeypatch.setattr(bed_service, "_apply_haplotype_lineage", same)
+    monkeypatch.setattr(bed_service, "_apply_haplotype_lineage_genomewide", same)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("now, outdated", [(_context(), False), (_context(_with("E2", sex="female")), True)], ids=["current", "outdated"])
+async def test_the_haplotype_tracks_are_told_when_the_blocks_are_outdated(
+    monkeypatch: pytest.MonkeyPatch, now: FamilyMetadataContext, outdated: bool
+) -> None:
+    _no_blocks(monkeypatch)
+    session = _SourcesSession(_sources(haplotype_block_basis(_context(), _CALLSET)))
+
+    region = await bed_service.get_family_haplotypes_response(session, context=now, chr="7", start=1, end=2)
+    genome = await bed_service.get_family_haplotypes_batch_response(session, context=now, chromosomes=["7"])
+
+    # Before, the tracks read every member's risk state from them whatever had changed.
+    assert (region.blocks_outdated, genome.blocks_outdated) == (outdated, outdated)

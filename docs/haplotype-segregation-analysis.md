@@ -208,7 +208,11 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   couple, other children or other sexes, or without the record (loaded before 2026-10-27), are
   outdated. The analysis then still reads them for the inputs' digest, but calls every embryo
   *Uninformative* and says why (`inputs.blocks_outdated`), as the family page and the signed record
-  do, until the phased genotypes are imported again (the owner's choice of 2026-10-27). The affected
+  do, until the phased genotypes are imported again (the owner's choice of 2026-10-27). The
+  haplotypes endpoints answer the same flag (`HaplotypeResponse.blocks_outdated`, from
+  `bed_service.haplotype_source_rows`), and the genome overview's and chromosome view's tracks
+  (`GenomeHaplotypeTrack`, `HaplotypePhasedTrack`) then infer no disease haplotype, draw no risk
+  haplotype, read each member's risk state as uninformative and say why. The affected
   statuses are not part of it: the calls read them when they are made, and at import they only orient
   the parents' labels. A member added who is not in the phased file changes nothing either.
 - **The genome overview's lineage precompute** is fingerprinted with a digest of the stored haplotype

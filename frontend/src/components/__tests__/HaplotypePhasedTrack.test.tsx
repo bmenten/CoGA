@@ -377,3 +377,59 @@ test("marks where a parent's phase was corrected, and says what it means on hove
   fireEvent.mouseMove(canvas, { clientX: 300, clientY: 10 });
   expect(document.body.querySelector('.viz-tooltip')).toBeNull();
 });
+
+// CLIN-66: blocks built for another pedigree or other sexes resolve no disease haplotype, as
+// the family page calls no embryo from them.
+test('reads no risk state from outdated blocks, and says why', () => {
+  const trio = [
+    { sample_id: 'FATHER', role: 'father', affected: true },
+    { sample_id: 'MOTHER', role: 'mother', affected: false },
+    { sample_id: 'CHILD', role: 'proband', affected: true },
+  ];
+  useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) =>
+    queryKey[0] === 'haplotypes'
+      ? {
+          data: {
+            chr: '1',
+            start: 0,
+            end: 1000,
+            blocks_outdated: true,
+            samples: ['FATHER', 'CHILD'].map((sample) => ({
+              sample,
+              segments: [{ start: 0, end: 1000, hap1: '0', hap2: '1', ps: 1 }],
+            })),
+          },
+          isLoading: false,
+        }
+      : { data: undefined, isLoading: false },
+  );
+  const { container, getByRole } = render(
+    <HaplotypePhasedTrack
+      familyId="F1"
+      sampleId="CHILD"
+      chrom="1"
+      regionStart={0}
+      regionEnd={1000}
+      width={500}
+      height={36}
+      role="proband"
+      affected
+      sex="male"
+      highlightRiskHaplotype
+      familyMembers={trio}
+      inheritanceModel="AD"
+      riskRegion={{ chr: '1', start: 400, end: 600 }}
+    />,
+  );
+
+  const warning =
+    "The haplotype blocks were built for another pedigree or other sexes than the family's, so no embryo is called from them: import the phased genotypes again.";
+  // Before: "affected / at risk", as in the test above.
+  expect(
+    getByRole('img', {
+      name: `Haplotypes of CHILD on chr1:0–1,000; risk state at chr1:400–600: uninformative; ${warning}`,
+    }),
+  ).toBeInTheDocument();
+  expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('uninformative');
+  expect(getByRole('note')).toHaveTextContent('Outdated blocks: no risk state');
+});

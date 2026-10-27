@@ -8,7 +8,7 @@ import {
   haplotypeRiskPattern,
   readHaplotypePalette,
 } from '../../lib/haplotypeCanvas';
-import { segregationStateLabel } from '../../lib/embryoSegregation';
+import { BLOCKS_OUTDATED_WARNING, segregationStateLabel } from '../../lib/embryoSegregation';
 import {
   defaultDiseaseHaplotypeModel,
   diseaseHaplotypeKindForLane,
@@ -52,7 +52,17 @@ interface HaplotypeSourceSample {
 
 interface HaplotypeSourceResponse {
   samples?: HaplotypeSourceSample[];
+  // Built for another pedigree or other sexes than the family's (CLIN-66).
+  blocks_outdated?: boolean;
 }
+
+interface GenomeHaplotypes {
+  segments: Record<string, Segment[]>;
+  // A source's blocks are outdated: no risk state is read from them (CLIN-66).
+  outdated: boolean;
+}
+
+const NO_HAPLOTYPES: GenomeHaplotypes = { segments: {}, outdated: false };
 
 interface Props {
   urls: string[];
@@ -93,14 +103,14 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const {
-    data: segmentMap = {},
+    data: haplotypes = NO_HAPLOTYPES,
     isLoading,
     isError,
     refetch,
-  } = useQuery<Record<string, Segment[]>>({
+  } = useQuery<GenomeHaplotypes>({
     queryKey: ['genome-haplotypes', urls.join(','), chroms.join(',')],
     queryFn: async () => {
-      if (!layout) return {};
+      if (!layout) return NO_HAPLOTYPES;
       // Every source must load. A failed source used to be dropped and the rest mapped,
       // so the disease-haplotype model and the risk state were built from partial data —
       // and cached for the session (#510). Now any failure fails the query, which is
@@ -121,13 +131,15 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
           map[s.sample] = arr;
         });
       });
-      return map;
+      return { segments: map, outdated: responses.some((j) => j?.blocks_outdated === true) };
     },
     enabled: !!layout && urls.length > 0,
     staleTime: Infinity,
     gcTime: Infinity,
   });
 
+  const segmentMap = haplotypes.segments;
+  const blocksOutdated = haplotypes.outdated;
   const segments = useMemo(() => segmentMap[sampleId] || [], [segmentMap, sampleId]);
   // Shared once-per-segmentMap projection reused by both diseaseModel and riskState.
   const samplesArray = useMemo(
@@ -163,7 +175,8 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     highlightRiskHaplotype ?? membersForRisk.some((member) => member.affected || member.carrier_status === 'carrier');
   const diseaseModel = useMemo(
     () =>
-      riskEnabled && analysisRegion
+      // Outdated blocks resolve no disease haplotype: the family page calls no embryo from them.
+      riskEnabled && analysisRegion && !blocksOutdated
         ? inferDiseaseHaplotypes({
             samples: samplesArray,
             members: membersForRisk,
@@ -171,7 +184,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
             region: analysisRegion,
           })
         : defaultDiseaseHaplotypeModel(effectiveInheritanceModel),
-    [analysisRegion, effectiveInheritanceModel, membersForRisk, riskEnabled, samplesArray],
+    [analysisRegion, blocksOutdated, effectiveInheritanceModel, membersForRisk, riskEnabled, samplesArray],
   );
 
   useEffect(() => {
@@ -269,7 +282,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     () =>
       !analysisRegion
         ? null
-        : segments.length > 0
+        : segments.length > 0 && !blocksOutdated
           ? interpretSampleHaplotypeRisk({
               model: diseaseModel,
               samples: samplesArray,
@@ -277,7 +290,7 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
               region: analysisRegion,
             })
           : 'uninformative',
-    [segments, diseaseModel, samplesArray, currentMember, analysisRegion],
+    [segments, blocksOutdated, diseaseModel, samplesArray, currentMember, analysisRegion],
   );
 
   // A failed load has no risk state — not "uninformative", which is a real outcome — and
@@ -295,7 +308,8 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
     const shown = `${subject}${segments.length ? '' : ': no data'}`;
     if (!analysisRegion || !riskState) return `${shown}; risk state: not assessed, no region of interest`;
     const riskScope = `${formatChromosomeLabel(String(analysisRegion.chr))}:${analysisRegion.start.toLocaleString()}–${analysisRegion.end.toLocaleString()}`;
-    return `${shown}; risk state at ${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}`;
+    const outdatedNote = blocksOutdated ? `; ${BLOCKS_OUTDATED_WARNING}` : '';
+    return `${shown}; risk state at ${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${outdatedNote}`;
   })();
 
   return (
@@ -309,6 +323,11 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       {isError && <VizErrorOverlay what="haplotypes" onRetry={() => void refetch()} />}
       {!isLoading && !isError && layout && segments.length === 0 && (
         <div className="viz-empty-overlay">No haplotype data</div>
+      )}
+      {!isLoading && !isError && blocksOutdated && (
+        <div className="viz-marker-truncated viz-marker-error" role="note" title={BLOCKS_OUTDATED_WARNING}>
+          Outdated blocks: no risk state
+        </div>
       )}
     </div>
   );

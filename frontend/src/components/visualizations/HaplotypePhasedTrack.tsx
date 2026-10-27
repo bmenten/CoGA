@@ -9,7 +9,7 @@ import {
   haplotypeRiskPattern,
   readHaplotypePalette,
 } from '../../lib/haplotypeCanvas';
-import { segregationStateLabel } from '../../lib/embryoSegregation';
+import { BLOCKS_OUTDATED_WARNING, segregationStateLabel } from '../../lib/embryoSegregation';
 import { describePhaseCorrection, type HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrections';
 import {
   defaultHaplotypeRiskRegion,
@@ -55,6 +55,8 @@ interface HaplotypeResponse {
   chr: string;
   start: number;
   end: number;
+  // Built for another pedigree or other sexes than the family's (CLIN-66).
+  blocks_outdated?: boolean;
   samples: SampleSegments[];
 }
 
@@ -303,9 +305,13 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   const riskEnabled =
     highlightRiskHaplotype ??
     membersForRisk.some((member) => member.affected || member.carrier_status === 'carrier');
+  // Outdated blocks resolve no disease haplotype: the family page calls no embryo from them
+  // (CLIN-66).
+  // Read from the blocks drawn, which a refetch of the same span keeps meanwhile.
+  const blocksOutdated = haplotypeData?.blocks_outdated === true;
   const diseaseModel = useMemo(
     () =>
-      riskEnabled
+      riskEnabled && !blocksOutdated
         ? inferDiseaseHaplotypes({
             samples: haplotypeData?.samples || [],
             members: membersForRisk,
@@ -318,7 +324,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
             inheritanceModel: effectiveInheritanceModel,
             region: analysisRegion,
           }),
-    [analysisRegion, haplotypeData?.samples, effectiveInheritanceModel, membersForRisk, riskEnabled],
+    [analysisRegion, blocksOutdated, haplotypeData?.samples, effectiveInheritanceModel, membersForRisk, riskEnabled],
   );
 
   const segments = useMemo(
@@ -614,7 +620,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   const hasSegments = segments.length > 0;
   const riskState = useMemo(
     () =>
-      hasSegments
+      hasSegments && !blocksOutdated
         ? interpretSampleHaplotypeRisk({
             model: diseaseModel,
             samples: haplotypeData?.samples || [],
@@ -622,7 +628,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
             region: analysisRegion,
           })
         : 'uninformative',
-    [hasSegments, diseaseModel, haplotypeData?.samples, currentMember, analysisRegion],
+    [hasSegments, blocksOutdated, diseaseModel, haplotypeData?.samples, currentMember, analysisRegion],
   );
 
   const handleMouseMove = (event: React.MouseEvent<HTMLCanvasElement>) => {
@@ -775,7 +781,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
           : '';
     return (
       `${subject}${hasSegments ? '' : ': no data'}` +
-      `; risk state${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${markerNote}`
+      `; risk state${riskScope}: ${segregationStateLabel(riskState).toLowerCase()}${markerNote}` +
+      (blocksOutdated ? `; ${BLOCKS_OUTDATED_WARNING}` : '')
     );
   })();
 
@@ -799,6 +806,11 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       )}
       {hasRegion && !isLoading && !haplotypeError && !hasSegments && (
         <div className="viz-empty-overlay">No haplotype data in this region</div>
+      )}
+      {hasRegion && !isLoading && !haplotypeError && blocksOutdated && (
+        <div className="viz-marker-truncated viz-marker-error" role="note" title={BLOCKS_OUTDATED_WARNING}>
+          Outdated blocks: no risk state
+        </div>
       )}
       {showMarkers && markersError && !haplotypeError && (
         <div className="viz-marker-truncated viz-marker-error" role="alert">

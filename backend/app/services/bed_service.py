@@ -10,6 +10,7 @@ from typing import Any
 
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import JSONResponse, PlainTextResponse
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..schemas import HaplotypeResponse
@@ -37,6 +38,7 @@ from .family_package_registration import (
     mark_family_upload,
     record_family_upload,
 )
+from .haplotype_block_builder import blocks_outdated
 from .haplotype_lineage_service import annotate_lineage, parent_or_child_links, relative_link_matches, relative_links
 from .haplotype_phase_correction import corrected_genotype_rows
 from .pgt_embryo_calls import normalize_sex
@@ -909,6 +911,26 @@ def _haplotype_segment(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+_HAPLOTYPE_SOURCES_SQL = text(
+    """
+    SELECT s.sample_id AS sample, src.source, src.filename, src.row_count, src.uploaded_at,
+           src.metadata ->> 'pedigree_basis' AS pedigree_basis
+    FROM sample_interval_track_sources src
+    JOIN samples s ON s.id = src.sample_id
+    WHERE src.family_id = CAST(:family_uuid AS uuid)
+      AND src.track_type = 'haplotype'
+    """
+)
+
+
+async def haplotype_source_rows(session: AsyncSession, context: FamilyMetadataContext) -> list[dict[str, Any]]:
+    """What Postgres records of each member's stored haplotype blocks: the file, the rows and
+    what the blocks were built for (``pedigree_basis``, CLIN-66)."""
+    rows = (await session.execute(_HAPLOTYPE_SOURCES_SQL, {"family_uuid": context.family_uuid})).mappings().all()
+    members = set(context.sample_name_to_uuid)
+    return [dict(row) for row in rows if str(row["sample"]) in members]
+
+
 async def get_family_haplotypes_response(
     session: AsyncSession,
     *,
@@ -940,6 +962,8 @@ async def get_family_haplotypes_response(
         chr=chr,
         start=start,
         end=end,
+        # Built for another pedigree or other sexes (CLIN-66): the tracks read no risk state.
+        blocks_outdated=blocks_outdated(context, await haplotype_source_rows(session, context)),
         samples=[
             {
                 "sample": context.sample_uuid_to_name[sample_uuid],
@@ -979,6 +1003,7 @@ async def get_family_haplotypes_batch_response(
     segments = _mark_hemizygous_blocks(segments, assembly_name=context.assembly_name)
     return HaplotypeResponse(
         chr="genome",
+        blocks_outdated=blocks_outdated(context, await haplotype_source_rows(session, context)),
         samples=[
             {
                 "sample": context.sample_uuid_to_name[sample_uuid],

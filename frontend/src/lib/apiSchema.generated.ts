@@ -1229,6 +1229,7 @@ export interface HaplotypeResponse {
   chr: string;
   start: number | null;
   end: number | null;
+  blocks_outdated: boolean;
   samples: HaplotypeSample[];
 }
 
