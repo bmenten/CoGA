@@ -7,6 +7,7 @@ import {
   type FamilyMember,
   type SmallVariant,
   type SmallVariantTagDefinition,
+  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildSmallVariantGeneInfoHref,
@@ -302,14 +303,15 @@ export default function SmallVariantTable({
                         ))}
                       </div>
                     ) : null}
-                    {variant.review?.classification &&
+                    {/* The word as the SV pages show it, not as typed (ENG-10). */}
+                    {normalizeReviewClassification(variant.review?.classification) &&
                     !visibleReviewTags.some((tagKey) => tagMap[tagKey]?.group === 'classification') ? (
                       <span
                         className={`table-chip table-chip--${getReviewClassificationTone(
-                          variant.review.classification,
+                          variant.review?.classification,
                         )}`}
                       >
-                        {variant.review.classification}
+                        {normalizeReviewClassification(variant.review?.classification)}
                       </span>
                     ) : null}
                     {variant.review?.compound_het ? (

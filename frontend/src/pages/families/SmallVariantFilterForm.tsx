@@ -35,6 +35,7 @@ import {
   ExcludeFilterSection,
   ReviewFilterSection,
 } from './smallVariantFilterSections';
+import { reviewTagLabel } from '../../lib/reviewTags';
 
 type SmallVariantFilterFormProps = Pick<
   SmallVariantSearchState,
@@ -176,9 +177,10 @@ const SmallVariantFilterForm = ({
       const panel = panels.find((entry) => entry._id === chip.value);
       return `Gene panel: ${panel?.name || chip.value}`;
     }
+    // A deleted tag reads "(deleted)", as on the other chips (`reviewTagLabel`; ENG-10).
     if (chip.kind === 'top' && chip.key === 'review_tags' && chip.value) {
       const tag = tags.find((entry) => entry.key === chip.value);
-      return `Review tags: ${tag?.label || chip.value}`;
+      return `Review tags: ${reviewTagLabel(tag, chip.value)}`;
     }
     if (chip.kind === 'top' && chip.key === 'clinvar' && chip.value) {
       return `Pathogenicity: ${chip.value}`;
@@ -188,7 +190,7 @@ const SmallVariantFilterForm = ({
     }
     if (chip.kind === 'top' && chip.key === 'exclude_review_tags' && chip.value) {
       const tag = tags.find((entry) => entry.key === chip.value);
-      return `Exclude review tags: ${tag?.label || chip.value}`;
+      return `Exclude review tags: ${reviewTagLabel(tag, chip.value)}`;
     }
     return chip.label;
   };

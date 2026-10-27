@@ -11,6 +11,7 @@ import {
   structuralVariantRowKey,
   useStructuralVariantSearchState,
 } from '../structuralVariantSearch';
+import { countPresetRules } from '../smallVariantSearch';
 
 const family = {
   members: [
@@ -100,6 +101,24 @@ describe('cloneSingleSampleFilter', () => {
     });
     expect(payload.sample_filters.PROBAND.gt).toEqual([...STRUCTURAL_ALL_GT_GROUPS]);
     expect(payload.sample_filters.PROBAND.qual).toBe('30');
+  });
+
+  // ENG-10: the preset list counted each member's role, which an SV preset keeps among its
+  // templates, as a rule: a trio's preset of one filter read "4".
+  it('counts the rules of a saved preset, not its members', () => {
+    const payload = buildStructuralPresetPayload({
+      filters: {} as never,
+      members: [
+        { sample_id: 'FATHER', role: 'father' },
+        { sample_id: 'MOTHER', role: 'mother' },
+        { sample_id: 'PROBAND', role: 'proband' },
+      ] as never,
+      sampleFilters: { PROBAND: { qual: '30' } as never },
+    });
+    expect(Object.keys(payload.sample_templates)).toHaveLength(3);
+    expect(countPresetRules({ ...payload, filters: { type: ['DEL'] } })).toBe(2);
+    // A small-variant preset's templates hold filters: each is a rule.
+    expect(countPresetRules({ filters: {}, sample_filters: {}, sample_templates: { all: { gt: ['het'] } } })).toBe(1);
   });
 });
 

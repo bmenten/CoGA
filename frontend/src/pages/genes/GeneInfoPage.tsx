@@ -1118,7 +1118,7 @@ const GeneInfoPage: React.FC = () => {
     [hg38Location, profile, t2tLocation],
   );
 
-  const genccRows = useMemo<DetailRow[]>(
+  const clingenAndAcmgRows = useMemo<DetailRow[]>(
     () =>
       profile
         ? [
@@ -1617,9 +1617,11 @@ const GeneInfoPage: React.FC = () => {
                   </button>
                 ) : null}
 
+                {/* What the rows hold: ClinGen's curation counts and the ACMG SF list, not GenCC's
+                    classifications, which are listed above (ENG-10). */}
                 <div className="gene-compact-subsection">
-                  <p className="gene-compact-subtitle-label">GenCC details</p>
-                  <DetailList rows={genccRows} />
+                  <p className="gene-compact-subtitle-label">ClinGen curations and ACMG SF</p>
+                  <DetailList rows={clingenAndAcmgRows} />
                 </div>
               </div>
 

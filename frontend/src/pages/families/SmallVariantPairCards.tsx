@@ -5,6 +5,7 @@ import {
   type SmallVariant,
   type SmallVariantGroup,
   type SmallVariantTagDefinition,
+  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildSmallVariantGeneInfoHref,
@@ -133,13 +134,14 @@ export default function SmallVariantPairCards({
                       )}
                     </div>
                   </div>
-                  {group.review?.classification ? (
+                  {/* The word as the SV pages show it, not as typed (ENG-10). */}
+                  {normalizeReviewClassification(group.review?.classification) ? (
                     <span
                       className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
-                        group.review.classification,
+                        group.review?.classification,
                       )}`}
                     >
-                      {group.review.classification}
+                      {normalizeReviewClassification(group.review?.classification)}
                     </span>
                   ) : null}
                   {pairReviewTags.length ? (

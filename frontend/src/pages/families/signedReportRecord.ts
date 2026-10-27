@@ -16,6 +16,7 @@ import {
 } from '../../components/ImportIncompleteBanner';
 import { ACMG_CRITERIA_BY_CODE, STRENGTH_LABELS, type AcmgStrength } from '../../lib/acmg';
 import { CNV_CLASS_LABELS, cnvCriterionMap } from '../../lib/cnvAcmg';
+import { formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
 import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import type { ApiSmallVariantEvidence, ApiStructuralEvidence, CoverageContent, QcStatus } from '../../lib/apiTypes';
 import type { PgtEmbryoQcFindingOut } from '../../lib/apiSchema.generated';
@@ -206,6 +207,8 @@ export interface SignedSequencingQcMetric {
   verdict: string;
   warnValue: number | null;
   errorValue: number | null;
+  /** `lower_is_worse` or `higher_is_worse`, as the evaluation served it. */
+  direction: string | null;
 }
 
 export interface SignedSequencingQcSample {
@@ -1028,6 +1031,7 @@ const parseSequencingQc = (value: unknown): SignedSequencingQc | null => {
               verdict: text(metric.verdict) ?? 'unknown',
               warnValue: number(metric.warn_value),
               errorValue: number(metric.error_value),
+              direction: text(metric.direction),
             })),
         };
       }),
@@ -2221,13 +2225,25 @@ export const describeSignedStructuralDrift = (item: SignedStructuralDriftItem): 
   );
 };
 
-/** A sequencing-QC metric outside its cut-offs: "Mean coverage 18 × (Warning; warning 20, fail 10)". */
+/** A sequencing-QC metric outside its cut-offs: "Mean depth 18.6x (Warning; warning 20x, fail 10x)". */
 export const describeBreachedMetric = (metric: SignedSequencingQcMetric): string => {
+  // Written as the members table's QC chip writes them (`lib/qcMetricValue.ts`): the record
+  // keeps the value as measured, which read "18.57 x" beside the chip's "18.6x" (ENG-10).
   const limits = [
-    metric.warnValue !== null ? `warning ${metric.warnValue}` : null,
-    metric.errorValue !== null ? `fail ${metric.errorValue}` : null,
+    metric.warnValue !== null ? `warning ${formatQcLimit(metric.unit, metric.warnValue)}` : null,
+    metric.errorValue !== null ? `fail ${formatQcLimit(metric.unit, metric.errorValue)}` : null,
   ].filter((part): part is string => Boolean(part));
-  const value = metric.value !== null ? ` ${metric.value}${metric.unit ? ` ${metric.unit}` : ''}` : '';
+  const value =
+    metric.value !== null
+      ? ` ${formatQcMetricValue({
+          value: metric.value,
+          unit: metric.unit,
+          verdict: metric.verdict,
+          warn_value: metric.warnValue,
+          error_value: metric.errorValue,
+          direction: metric.direction,
+        })}`
+      : '';
   return `${metric.label}${value} (${qcStatusLabel(metric.verdict)}${limits.length ? `; ${limits.join(', ')}` : ''})`;
 };
 

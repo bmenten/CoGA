@@ -6,7 +6,8 @@ import api from '../../lib/api';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
-import type { ApiNiptCoverageSummary, ApiNiptSummary, GenePanel } from '../../lib/apiTypes';
+import type { ApiNiptCoverageSummary, ApiNiptSummary, GenePanel, QcStatus } from '../../lib/apiTypes';
+import { QC_STATUS_LABEL } from '../../lib/qcStatus';
 import { useReportBuild } from '../../lib/appVersion';
 import NiptClassificationBlock from './NiptClassificationBlock';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
@@ -16,6 +17,8 @@ import {
   NIPT_INHERITANCE_GROUPS,
   depth,
   lowCoverageDetail,
+  niptChryProfileLabel,
+  niptFetalSexLabel,
   niptGeneTerms,
   pct,
 } from './niptClassification';
@@ -607,17 +610,22 @@ const FamilyNiptReportPage: React.FC = () => {
         <section className="surface-card report-section">
           <h2 className="section-title">Quality checks</h2>
           <p className="report-paragraph">
-            <strong>Fetal sex: {qc.fetal_sex.call}.</strong> The father&apos;s X alleles:{' '}
+            {/* The tokens read as the QC panel on screen reads them (ENG-10). */}
+            <strong>Fetal sex: {niptFetalSexLabel(qc.fetal_sex.call)}.</strong> The father&apos;s X alleles:{' '}
             {qc.fetal_sex.x_transmitted} seen, {qc.fetal_sex.x_not_transmitted} absent (
-            {qc.fetal_sex.paternal_x}); chrY coverage:{' '}
-            {qc.fetal_sex.chry_profile ? qc.fetal_sex.chry_profile.replace(/_/g, ' ') : 'no target table'}
+            {qc.fetal_sex.paternal_x}); chrY coverage: {niptChryProfileLabel(qc.fetal_sex.chry_profile)}
             {qc.fetal_sex.y_ratio != null ? ` (chrY/autosomes ${qc.fetal_sex.y_ratio.toFixed(3)})` : ''}.
           </p>
           <p className="report-paragraph">
-            <strong>Paternity ({qc.paternity.status}).</strong> {qc.paternity.message}
+            <strong>Paternity ({QC_STATUS_LABEL[qc.paternity.status]}).</strong> {qc.paternity.message}
           </p>
           <p className="report-paragraph">
-            <strong>Maternal plasma sample ({qc.plasma_profile_status}).</strong> {qc.plasma_profile_message}
+            <strong>
+              Maternal plasma sample (
+              {QC_STATUS_LABEL[qc.plasma_profile_status === 'unknown' ? 'skip' : (qc.plasma_profile_status as QcStatus)]}
+              ).
+            </strong>{' '}
+            {qc.plasma_profile_message}
           </p>
           <p className="report-paragraph">Model: {qc.model.reference}.</p>
         </section>

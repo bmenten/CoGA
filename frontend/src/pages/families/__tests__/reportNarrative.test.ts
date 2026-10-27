@@ -6,6 +6,7 @@ import {
   buildVariantSentence,
   collectReportCriteria,
   describeGnomadFrequency,
+  describeInSilico,
   describeZygosity,
   humanizeEffect,
 } from '../reportNarrative';
@@ -52,6 +53,19 @@ describe('humanizeEffect', () => {
       'missense variant / splice region variant',
     );
     expect(humanizeEffect(undefined)).toBe('sequence variant');
+  });
+});
+
+// ENG-10: the draft printed VEP's own spelling, "SIFT deleterious_low_confidence(0.03)", where
+// the cards print "deleterious low confidence (0.03)".
+describe('describeInSilico', () => {
+  it('writes SIFT and PolyPhen as the cards write them', () => {
+    const text = describeInSilico(
+      makeVariant({ sift: 'deleterious_low_confidence(0.03)', polyphen: 'probably_damaging(0.998)' }),
+    );
+    expect(text).toContain('SIFT deleterious low confidence (0.03)');
+    expect(text).toContain('PolyPhen probably damaging (0.998)');
+    expect(text).not.toContain('_');
   });
 });
 

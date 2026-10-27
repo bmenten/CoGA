@@ -88,7 +88,7 @@ banner lists every classification whose evidence changed:
   evidence cannot be compared* when the frozen evidence cannot be read or does not name its caller;
 - the variant is no longer in the data (for a structural variant: the call of the caller its evidence
   was frozen from, even when another caller still calls the event, and the line names that caller:
-  *its needlr call is no longer present in the dataset*).
+  *its needlr call is no longer present in the data*).
 
 Re-review a listed variant before sign-out. Saving its classification again freezes the evidence as it
 is now.
