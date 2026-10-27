@@ -66,9 +66,9 @@ _MOTHER = _vcf(
 _DEL_30000 = "1-30000-31000-DEL---"
 _DUP_50000 = "1-50000-50500-DUP---"
 # The golden trio's NeedlR SVs (SVDEL1, SVBND1), by the ids their coordinates give them
-# (CLIN-43): the breakend's holds its mate.
+# (CLIN-43): the breakend's holds its mate, and its END is its POS (CLIN-39).
 _NEEDLR_DEL = "1-7000-12000-DEL---"
-_NEEDLR_BND = "1-20000-20001-BND-5-3000000-3000000"
+_NEEDLR_BND = "1-20000-20000-BND-5-3000000-3000000"
 
 
 def _cap(resp) -> dict:

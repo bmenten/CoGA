@@ -27,7 +27,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
-from .structural_variant_ingest import is_breakend_alt, parse_bnd_alt, record_sv_len, sv_type_from_alt
+from .structural_variant_ingest import breakend_mate, record_end, record_sv_len, sv_type_from_alt
 from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
 
 
@@ -95,21 +95,6 @@ def _needlr_parent_sample_ids(ped: ParsedPed, sample_id: str) -> tuple[str | Non
     mother = member.mid if member.mid not in {"", "0"} else None
     father = member.pid if member.pid not in {"", "0"} else None
     return mother, father
-
-
-def _needlr_breakend_mate(sv_type: str, alt: str) -> tuple[str | None, int | None]:
-    """A NeedlR breakend's mate, ``(chromosome, position)``, read from its ALT as the SV
-    uploads read it (``parse_bnd_alt``): ``N]chr5:3000000]`` has its mate on 5:3000000.
-
-    A record is a breakend when its type is BND, in any capitals, or when its ALT is written
-    in breakend notation (``is_breakend_alt``). A single breakend (``G.``) names no mate,
-    and nor does any other record: ``(None, None)``. The reader stored no mate at all
-    before (CLIN-40), so a NeedlR translocation named no partner in the SV list, and a
-    search by its mate's position never found it.
-    """
-    if sv_type.strip().upper() == "BND" or is_breakend_alt(alt):
-        return parse_bnd_alt(alt)
-    return None, None
 
 
 def _needlr_variant_id(
@@ -226,12 +211,23 @@ def _needlr_records(
             continue
         info = _parse_vcf_info(info_raw)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV"
-        remote_chr, remote_start = _needlr_breakend_mate(sv_type, alt)
+        # A breakend's mate as every SV reader reads it (``breakend_mate``): the reader stored
+        # none before CLIN-40, so a NeedlR translocation named no partner in the SV list.
+        remote_chr, remote_start = breakend_mate(sv_type=sv_type, alt=alt, info=info, chrom=chrom)
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
-        end = _coerce_int(_first_info_value(info, "END", "End_Pos", "END_POS", "End"))
-        if end is None:
-            end = start + abs(sv_len or 1)
-        if _unpositionable(start, end):
+        # Without END, where VCF 4.4 puts it, as the uploads do: it was POS + SVLEN for any
+        # type, so an insertion or a breakend spanned bases after its POS, and the same call
+        # had another id than an upload's (CLIN-39).
+        end = record_end(
+            pos=start,
+            ref=ref,
+            alt=alt,
+            sv_len=sv_len,
+            info=info,
+            chrom=chrom,
+            end=_first_info_value(info, "END", "End_Pos", "END_POS", "End"),
+        )
+        if end is None or _unpositionable(start, end):
             continue
         qual = _coerce_finite_float(qual_raw)
         filt = None if filt_raw in {"", "."} else filt_raw
@@ -407,11 +403,20 @@ def _iter_cnv_structural_records(
         info = _parse_vcf_info(info_raw)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "CNV"
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
-        end = _coerce_int(_first_info_value(info, "END", "End_Pos"))
-        if end is None:
-            end = start + abs(sv_len or 1)
-        if _unpositionable(start, end):
+        # Without END where VCF 4.4 puts it, and a breakend with its mate, as every SV reader
+        # reads them (CLIN-39).
+        end = record_end(
+            pos=start,
+            ref=ref,
+            alt=alt,
+            sv_len=sv_len,
+            info=info,
+            chrom=chrom,
+            end=_first_info_value(info, "END", "End_Pos"),
+        )
+        if end is None or _unpositionable(start, end):
             continue
+        remote_chr, remote_start = breakend_mate(sv_type=sv_type, alt=alt, info=info, chrom=chrom)
         qual = _coerce_finite_float(qual_raw)
         filt = None if filt_raw in {"", "."} else filt_raw
         copy_number: int | None = None
@@ -431,7 +436,16 @@ def _iter_cnv_structural_records(
         variant_id = (
             record_id
             if record_id and record_id != "."
-            else build_structural_variant_id(chrom, start, end, sv_type, source=source)
+            else build_structural_variant_id(
+                chrom,
+                start,
+                end,
+                sv_type,
+                remote_chr=remote_chr,
+                remote_start=remote_start,
+                remote_end=remote_start,
+                source=source,
+            )
         )
         records.append(
             StructuralVariantRecord(
@@ -442,9 +456,9 @@ def _iter_cnv_structural_records(
                 end=end,
                 sv_type=sv_type,
                 source=source,
-                remote_chr=None,
-                remote_start=None,
-                remote_end=None,
+                remote_chr=remote_chr,
+                remote_start=remote_start,
+                remote_end=remote_start,
                 sv_len=record_sv_len(sv_len=sv_len, ref=ref, alt=alt),
                 filters=[] if filt is None else filt.split(";"),
                 gene_symbols=gene_symbols,
@@ -654,11 +668,12 @@ def _iter_mito_sv_records(
         info = _parse_vcf_info(info_raw)
         sv_type = (_first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV").upper()
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
-        end = _coerce_int(_first_info_value(info, "END"))
-        if end is None:
-            end = start + abs(sv_len or 0)
-        if _unpositionable(start, end):
+        # Without END where VCF 4.4 puts it, and a breakend with its mate, as every SV reader
+        # reads them (CLIN-39).
+        end = record_end(pos=start, ref=ref, alt=alt, sv_len=sv_len, info=info, chrom=chrom)
+        if end is None or _unpositionable(start, end):
             continue
+        remote_chr, remote_start = breakend_mate(sv_type=sv_type, alt=alt, info=info, chrom=chrom)
         fmt_vals = (
             _parse_format(parts[8], parts[9 + sample_column]) if len(parts) > 9 + sample_column else {}
         )
@@ -670,7 +685,16 @@ def _iter_mito_sv_records(
         filt = None if filt_raw in {"", ".", "PASS"} else filt_raw
         read_support = _coerce_int(fmt_vals.get("DV")) or _coerce_int(_first_info_value(info, "SUPPORT"))
         heteroplasmy = _coerce_finite_float(_first_info_value(info, "VAF"))
-        variant_id = build_structural_variant_id(chrom, start, end, sv_type, source=MITO_SV_SOURCE)
+        variant_id = build_structural_variant_id(
+            chrom,
+            start,
+            end,
+            sv_type,
+            remote_chr=remote_chr,
+            remote_start=remote_start,
+            remote_end=remote_start,
+            source=MITO_SV_SOURCE,
+        )
         records.append(
             StructuralVariantRecord(
                 variant_key=None,
@@ -680,9 +704,9 @@ def _iter_mito_sv_records(
                 end=end,
                 sv_type=sv_type,
                 source=MITO_SV_SOURCE,
-                remote_chr=None,
-                remote_start=None,
-                remote_end=None,
+                remote_chr=remote_chr,
+                remote_start=remote_start,
+                remote_end=remote_start,
                 sv_len=record_sv_len(sv_len=sv_len, ref=ref, alt=alt),
                 filters=[] if filt is None else filt.split(";"),
                 gene_symbols=_mt_genes_overlapping(start, end),

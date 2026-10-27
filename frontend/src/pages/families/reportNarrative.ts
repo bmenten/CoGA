@@ -214,13 +214,21 @@ export const acmgClassificationLabel = (variant: SmallVariant): string | null =>
 
 // --- Structural-variant narrative -----------------------------------------
 
-const formatStructuralLengthText = (length?: number | null): string => {
-  if (typeof length !== 'number' || !Number.isFinite(length)) return 'an unknown size';
+const formatStructuralLengthText = (length?: number | null): string | null => {
+  if (typeof length !== 'number' || !Number.isFinite(length)) return null;
   const value = Math.abs(length);
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)} Mb`;
   if (value > 1_000) return `${(value / 1_000).toFixed(1)} kb`;
   return `${value} bp`;
 };
+
+// A and an as the words are said: an before a vowel, and before a number said with one
+// (8, 11 and 18, as eight, eleven and eighteen and the numbers they begin).
+const indefiniteArticle = (phrase: string): string =>
+  /^([aeiou]|8|1[18](?!\d))/i.test(phrase) ? 'An' : 'A';
+
+// The types of a translocation, which has no length.
+const TRANSLOCATION_TYPES = new Set(['BND', 'TRA']);
 
 const STRUCTURAL_TYPE_LABELS: Record<string, string> = {
   DEL: 'deletion',
@@ -239,7 +247,11 @@ const structuralTypeLabel = (type?: string): string => {
 
 export const buildStructuralVariantSentence = (variant: StructuralVariant): string => {
   const typeLabel = structuralTypeLabel(variant.type);
-  const size = formatStructuralLengthText(variant.length);
+  // A translocation has no size: the sentence read "A 0 bp breakend" (CLIN-39).
+  const translocation = TRANSLOCATION_TYPES.has((variant.type || '').trim().toUpperCase());
+  const size = translocation ? null : formatStructuralLengthText(variant.length);
+  const described = size ? `${size} ${typeLabel}` : typeLabel;
+  const unknownSize = !translocation && !size ? ' of unknown size' : '';
   const locus = `${variant.chr}:${variant.start.toLocaleString()}-${variant.end.toLocaleString()}`;
   const geneClause = variant.gene
     ? ` overlapping ${variant.gene}`
@@ -248,7 +260,7 @@ export const buildStructuralVariantSentence = (variant: StructuralVariant): stri
     variant.remote_chr && variant.remote_start
       ? ` with a remote breakpoint at ${variant.remote_chr}:${variant.remote_start.toLocaleString()}`
       : '';
-  return `A ${size} ${typeLabel} at ${locus}${geneClause}${remoteClause}.`;
+  return `${indefiniteArticle(described)} ${described}${unknownSize} at ${locus}${geneClause}${remoteClause}.`;
 };
 
 export const describeStructuralFrequency = (variant: StructuralVariant): string => {

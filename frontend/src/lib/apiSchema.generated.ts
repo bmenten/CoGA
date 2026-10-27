@@ -1952,7 +1952,7 @@ export interface NiptVariantOut {
   chr: string;
   start: number;
   end: number;
-  length: number;
+  length: number | null;
   type: string;
   source: string | null;
   qual: number | null;
@@ -3567,7 +3567,7 @@ export interface VariantOut {
   chr: string;
   start: number;
   end: number;
-  length: number;
+  length: number | null;
   type: string;
   source: string | null;
   qual: number | null;

@@ -200,8 +200,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   names one of its genes as well as those overlapping one of its regions; SV length filters that measure a call's SVLEN (without one, the length its alleles
   state for a call written as its sequence, END − POS otherwise), an insertion written with
   END at POS included, and let a translocation pass any minimum but no exact length; SV
-  records written without END or SVTYPE read as VCF 4.4 defines them, a deletion
-  over its SVLEN and a breakend as a BND; NeedlR calls stored one SV per event, named by its
+  records written without END or SVTYPE read as VCF 4.4 defines them by every reader, a
+  deletion over its SVLEN and a breakend as a BND, and a breakend's mate read alike by every
+  reader (a TRA's from INFO/CHR2 and END); NeedlR calls stored one SV per event, named by its
   coordinates as an uploaded call is, two calls under one record ID never one SV, and each
   sample keeping its own call where one event's lines merge; the clinical CNV knowledge base (ClinGen curation
   and recurrent regions, ClinVar support, GRCh37 and GRCh38 builds); repeat-expansion

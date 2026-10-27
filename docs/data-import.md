@@ -874,10 +874,10 @@ attached to it and its own deletion lost. The record's ID is kept in the SV's an
   suffix (`1-20000-20007-INS----7`).
 - The same event uploaded from Sniffles or Spectre has the same id, and so one review, as
   two uploads' calls of one event have; each caller's call stays a row of its own
-  ([database.md](database.md#row-identity)). A NeedlR record without END ends at POS + SVLEN,
-  or at POS + 1 without one, where an upload ends an insertion, a breakend or a record without
-  SVLEN at POS + the length of REF − 1 (VCF 4.4): such a call has one id from NeedlR and
-  another from the upload.
+  ([database.md](database.md#row-identity)). A NeedlR record without END ends where VCF 4.4
+  puts it, as an upload does ([below](#6-single-file-uploads)), so one call has one id from
+  either. It ended at POS + SVLEN for any type, or at POS + 1 without SVLEN, so an insertion
+  or a breakend had another id from NeedlR than from an upload (CLIN-39).
 
 Tracks carry their caller's source tag too. A sample's track of one type can come from several callers, each under its
 own source: `coverage` from a BED (`web`), WisecondorX, QDNAseq and HiFiCNV; `segments` from the
@@ -1388,7 +1388,11 @@ calls are checked and replaced:
   included, and at POS + the length of REF − 1 for any other allele (an `<INS>`, a
   breakend, a sequence allele); one of the four without an SVLEN stays on its POS. An SV is
   listed with the genes its POS–END span overlaps, so a deletion written with SVLEN alone is
-  found by a search for a gene it deletes. A written END is kept as written.
+  found by a search for a gene it deletes. A written END is kept as written, except a
+  translocation's whose INFO/CHR2 names another chromosome: that END is its mate's position
+  (below), and the record ends on its own breakpoint. A package's NeedlR, HiFiCNV and chrM
+  Sniffles2 files end a record by the same rule (CLIN-39); they ended it at POS + SVLEN for
+  any type, or at POS + 1 (NeedlR, HiFiCNV) or POS (chrM) without SVLEN.
 - A record without SVTYPE, or with SVTYPE `.`, takes the type its ALT states, as VCF 4.4
   deprecates SVTYPE as redundant with ALT: a symbolic allele's name (`<DUP:TANDEM>` is
   `DUP:TANDEM`), BND for breakend notation (`N]5:3000000]`, or a single breakend such as
@@ -1405,18 +1409,27 @@ calls are checked and replaced:
   one are still measured by END − POS; the record's END and its SV id do not change. A
   package's NeedlR, HiFiCNV and chrM Sniffles2 files are stored by the same rule, so a
   sequence deletion written without END or SVLEN is as long there as its alleles, where it
-  was one base (NeedlR, HiFiCNV) or of no length (the mtDNA page); their END rule is
-  unchanged. An SV stored before this rule keeps the length it was stored with until its
-  file is uploaded or imported again.
-- A breakend (a record of type BND) keeps its mate, the position its ALT names in brackets:
-  `N]5:3000000]` has its mate on 5:3000000. The SV list has it in its *Remote chr* and
+  was one base (NeedlR, HiFiCNV) or of no length (the mtDNA page). An SV stored before this
+  rule keeps the length it was stored with until its file is uploaded or imported again. A
+  translocation (BND, TRA) has no length: the list, its export and the report show none,
+  where they showed 0 or 1 bp (the report read "A 0 bp breakend"), and the length filters
+  give it none, as before. The filters read a length typed with a minus sign without it, as
+  they measure: an exact length copied from a deletion in the list (`-5000`) matched nothing
+  (CLIN-39).
+- A breakend keeps its mate, the position its ALT names in brackets: `N]5:3000000]` has its
+  mate on 5:3000000. A record is read so when its ALT is written in breakend notation,
+  whatever its SVTYPE says, and when its type is BND or TRA, in any capitals; a translocation
+  without breakend notation (`<TRA>`, as Sniffles 1 writes one) has its mate in INFO/CHR2,
+  where that names another chromosome, and its END. The SV list has it in its *Remote chr* and
   *Remote start* columns, and so does its CSV export, beside the locus (empty for an SV
-  without a mate); the report sentence names it as the remote breakpoint, and the
-  *Remote chr* and *Remote start ≥* filters find the breakend by it. The import of a package's
-  NeedlR file reads the mate the same way, for a record of type BND (in any capitals) or with
-  an ALT in breakend notation, whatever its SVTYPE says; before, it stored every breakend
-  without its mate. A NeedlR breakend's id holds its mate, as an uploaded breakend's does
-  ([above](#where-each-dataset-lands)).
+  without a mate); the report sentence names it as the remote breakpoint, and so does the
+  report's locus line under it; the *Remote chr* and *Remote start ≥* filters find the
+  breakend by it. Every reader reads the mate so: the uploads, and a package's NeedlR,
+  HiFiCNV and chrM Sniffles2 files. The uploads read a mate only for a type written `BND`, so
+  a `bnd` and a TRA in breakend notation had none, the HiFiCNV and chrM files read none, and
+  a TRA's END was stored as the end of the SV on its own chromosome, where the tracks and
+  Circos drew it (CLIN-39). A breakend's id holds its mate, an uploaded's and a NeedlR
+  breakend's alike ([above](#where-each-dataset-lands)).
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another

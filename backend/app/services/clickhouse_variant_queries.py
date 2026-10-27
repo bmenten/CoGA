@@ -59,6 +59,7 @@ from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
     in_silico_prediction_pattern,
+    is_translocation_sv_type,
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
     small_variant_type_matches,
@@ -2049,7 +2050,13 @@ def _structural_variant_out(
     """
     allowed_samples = set(selected_samples)
     calls = [call for call in record.calls if not allowed_samples or call.sample in allowed_samples]
-    length = structural_variant_length(sv_len=record.sv_len, start=record.start, end=record.end)
+    # A translocation has no length: it showed 0 or 1 bp, its END − POS, and the report read
+    # "A 0 bp breakend" (CLIN-39), while the length filters already gave it none.
+    length = (
+        None
+        if is_translocation_sv_type(record.sv_type)
+        else structural_variant_length(sv_len=record.sv_len, start=record.start, end=record.end)
+    )
     annotation_extra = _structural_annotation_extra(record, track_mode=track_mode)
     if cytoband and not track_mode:
         annotation_extra["cytoband"] = cytoband
