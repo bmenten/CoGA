@@ -36,3 +36,19 @@ export const formatChromosomeLabel = (value: string): string => {
   const chrom = normalizeChrom(value);
   return chrom === 'MT' ? 'chrM' : `chr${chrom}`;
 };
+
+/**
+ * A cytoband as the ideograms name it: in ISCN form, the chromosome without its `chr` and the
+ * band (`1p36.33`, `Xq28`). The mitochondrion has no cytobands, and a band without a name of
+ * its own is its chromosome, as {@link formatChromosomeLabel} names it: GRCh38's chrM band has
+ * no name and T2T's is named `chrM`, and both are `chrM`, never the route's key joined to the
+ * stored name (`MT`, `MTchrM`).
+ */
+export const formatCytobandLabel = (chrom: string, band: string): string => {
+  const chromosome = normalizeChrom(chrom);
+  const name = band.trim();
+  if (chromosome === 'MT' || !name || normalizeChrom(name) === chromosome) {
+    return formatChromosomeLabel(chrom);
+  }
+  return `${chromosome}${name}`;
+};
