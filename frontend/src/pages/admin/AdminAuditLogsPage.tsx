@@ -118,8 +118,8 @@ const requestFlags = (event: AuditLogEventOut): AuditFlag[] =>
     accountChangeFlag(event.request_meta),
   ].filter((flag): flag is AuditFlag => flag !== null);
 
-// In a UI event's detail only _escaped is the writer's (it drops a client's own): anything
-// else there, a record_hidden included, came from the browser.
+// In a UI event's detail only _escaped and _deleted_user_id are the writer's (it drops a
+// client's own): anything else there, a record_hidden included, came from the browser.
 const uiEventFlags = (event: UiEventOut): AuditFlag[] => {
   const flag = escapedFlag(event.detail);
   return flag ? [flag] : [];

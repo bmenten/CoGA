@@ -53,9 +53,10 @@ class _AdaptedIntegrityError(Exception):
 
 
 def _foreign_key_violation(rows: list) -> IntegrityError:
-    # What SQLAlchemy raises when Postgres refuses one row of an INSERT, here for a user deleted
-    # while the row waited in the queue. Its text quotes the statement and every row it was
-    # given, so the values of the whole batch.
+    # What SQLAlchemy raises when Postgres refuses one row of an INSERT, here by a foreign key
+    # its writer does not handle (a row naming a user deleted while it waited is stored by its
+    # writer without the link, SEC-17: test_audit_rows_idempotent_and_kept.py). Its text quotes
+    # the statement and every row it was given, so the values of the whole batch.
     orig = _AdaptedIntegrityError("insert violates foreign key constraint")
     orig.__cause__ = ForeignKeyViolationError("insert violates foreign key constraint")
     failure = IntegrityError("INSERT INTO audit_log_events ...", [{"row": repr(row)} for row in rows], orig)
@@ -271,10 +272,10 @@ async def test_a_failed_batch_is_logged_by_kind_not_by_its_text(monkeypatch, cap
 
 @pytest.mark.asyncio
 async def test_a_row_the_database_refuses_costs_only_itself(monkeypatch, caplog):
-    # One row Postgres refuses for something other than its characters (here a foreign key:
-    # its user was deleted while the row waited) fails the INSERT of its whole batch, on
-    # every attempt. Every other event of the batch, up to AUDIT_LOG_BATCH_SIZE of any user's,
-    # used to be lost with it. After the last attempt each event is now written alone, once.
+    # One row Postgres refuses for something other than its characters (here a foreign key)
+    # fails the INSERT of its whole batch, on every attempt. Every other event of the batch,
+    # up to AUDIT_LOG_BATCH_SIZE of any user's, used to be lost with it. After the last attempt
+    # each event is now written alone, once.
     _fast_retries(monkeypatch, attempts=2)
     caplog.set_level(logging.WARNING, logger="app.services.event_pipeline")
     stored, calls, write_batch = _database(refuses="row-b")

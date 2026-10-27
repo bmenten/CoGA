@@ -2,11 +2,13 @@
 
 The request audit (``audit_log_events``) and the UI-event log (``ui_events``) each write what
 their worker drains in one INSERT. A row refused for something other than its characters fails
-that INSERT on every attempt: a request's row naming a user deleted while the row waited in the
-queue (the foreign key on ``user_id``), or a UI event whose client timestamp the driver cannot
-encode (year 1 at +05:00 is year 0 in UTC). Every other row of the batch, any user's, used to be
-lost with it. After the batch's last attempt the worker now writes the rows one at a time, so the
-refused row costs only itself.
+that INSERT on every attempt: a request's row whose duration the driver cannot encode (more than
+the 32-bit ``duration_ms`` holds), or a UI event whose client timestamp it cannot encode (year 1
+at +05:00 is year 0 in UTC). Every other row of the batch, any user's, used to be lost with it.
+After the batch's last attempt the worker now writes the rows one at a time, so the refused row
+costs only itself. (A row naming a user deleted while it waited in the queue, refused by the
+foreign key on ``user_id``, was this test's example until SEC-17: it is now stored without the
+link, ``test_audit_rows_idempotent_and_kept_integration.py``.)
 
 Each test runs the real worker against real Postgres: three events are queued, the worker drains
 them as one batch when it stops, and the rows are read back. The refused event is counted once
@@ -37,6 +39,7 @@ _ERROR_TEXT = (
     "violates foreign key constraint",
     "is not present in table",
     "invalid input for query argument",
+    "out of int32 range",
     "date value out of range",
 )
 
@@ -87,7 +90,7 @@ def _quoting_the_error(lines: list[str]) -> list[str]:
     return [line for line in lines if any(marker in line for marker in _ERROR_TEXT)]
 
 
-def test_a_request_row_naming_a_deleted_user_costs_only_itself(pipeline, caplog) -> None:
+def test_a_request_row_whose_duration_the_driver_cannot_encode_costs_only_itself(pipeline, caplog) -> None:
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services import audit_log_pg
     from backend.app.services.audit_log_pg import AUDIT_PIPELINE_NAME, AuditLogEventPayload
@@ -95,14 +98,13 @@ def test_a_request_row_naming_a_deleted_user_costs_only_itself(pipeline, caplog)
     run = uuid4().hex[:12]
     prefix = f"/api/audit-batch-{run}/"
     paths = [f"{prefix}{name}" for name in ("first", "refused", "third")]
-    deleted_user = str(uuid4())  # names no user: deleted while its row waited in the queue
+    unencodable = 2**31  # one past what duration_ms, a 32-bit INTEGER, holds
     events = [
         AuditLogEventPayload(
             method="GET",
             path=path,
             status_code=200,
-            duration_ms=1,
-            user_id=deleted_user if path.endswith("refused") else None,
+            duration_ms=unencodable if path.endswith("refused") else 1,
         )
         for path in paths
     ]
@@ -134,17 +136,21 @@ def test_a_request_row_naming_a_deleted_user_costs_only_itself(pipeline, caplog)
     assert len(lost) == 1, lines
     assert lost[0].startswith(
         "Audit pipeline audit_log: event not persisted (batch write failed, then its own write: "
-        "IntegrityError (ForeignKeyViolationError, SQLSTATE 23503)); dropped_total=1 "
-        f"payload=AuditLogEventPayload(method='GET', path='{paths[1]}',"
-    )
+    ), lost[0]
+    # The driver refuses to encode the duration (asyncpg's DataError), wrapped by SQLAlchemy as
+    # it wraps the UI event's time below, so only the driver's error is pinned.
+    reason, _, rest = lost[0].partition("); dropped_total=1 ")
+    assert "DataError" in reason, lost[0]
+    assert rest.startswith(
+        f"payload=AuditLogEventPayload(method='GET', path='{paths[1]}', status_code=200, "
+        f"duration_ms={unencodable},"
+    ), lost[0]
     assert (
         "Audit pipeline audit_log: of the batch's 3 events, 2 stored one at a time, 1 not persisted"
         in lines
     )
-    # A row stored is not logged, the user's id is in its own row's payload only, and no line
-    # quotes the database's error.
+    # A row stored is not logged, and no line quotes the database's error.
     assert not [line for line in lines if paths[0] in line or paths[2] in line]
-    assert [line for line in lines if deleted_user in line] == lost
     assert _quoting_the_error(lines) == []
 
 
