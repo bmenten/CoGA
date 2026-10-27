@@ -222,6 +222,11 @@ CREATE INDEX IF NOT EXISTS idx_family_structure_versions_chain ON family_structu
 -- ---------------------------------------------------------------------------
 -- family_import_jobs
 -- ---------------------------------------------------------------------------
+-- A job's requester is the account that asked for it (requested_by_id, SEC-32): the import
+-- runs as that account, and a user who is no administrator sees only their own jobs.
+-- requested_by is the e-mail address it was asked under, shown with the job; a Microsoft
+-- sign-in may change the account's address later (SEC-4). The account's deletion keeps the
+-- job, linked to no account (it can then no longer run).
 CREATE TABLE IF NOT EXISTS family_import_jobs (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     submitted_path text NOT NULL,
@@ -231,6 +236,7 @@ CREATE TABLE IF NOT EXISTS family_import_jobs (
     dry_run boolean DEFAULT false NOT NULL,
     worker_id text,
     requested_by text NOT NULL,
+    requested_by_id uuid,
     requested_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     started_at timestamp with time zone,
     heartbeat_at timestamp with time zone,
@@ -243,8 +249,35 @@ CREATE TABLE IF NOT EXISTS family_import_jobs (
     error text,
     CONSTRAINT family_import_jobs_pkey PRIMARY KEY (id),
     CONSTRAINT family_import_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'validating'::text, 'running'::text, 'completed'::text, 'failed'::text]))),
-    CONSTRAINT family_import_jobs_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL
+    CONSTRAINT family_import_jobs_project_id_fkey FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE SET NULL,
+    CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL
 );
+
+-- Upgrade of a database made before SEC-32, a no-op on one the CREATE TABLE above made: the
+-- column, each job linked to the account its requested_by address finds (to none when no
+-- account has it), and the foreign key. It runs once, when the column is added: a job whose
+-- account is deleted later stays linked to none, never to an account that has its address
+-- by then. Revision 0008 runs the same statement.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = 'family_import_jobs'::regclass
+          AND attname = 'requested_by_id'
+          AND NOT attisdropped
+    ) THEN
+        ALTER TABLE family_import_jobs ADD COLUMN requested_by_id uuid;
+        UPDATE family_import_jobs AS job
+        SET requested_by_id = account.id
+        FROM users AS account
+        WHERE account.email = job.requested_by;
+        ALTER TABLE family_import_jobs
+            ADD CONSTRAINT family_import_jobs_requested_by_id_fkey
+            FOREIGN KEY (requested_by_id) REFERENCES users(id) ON DELETE SET NULL;
+    END IF;
+END
+$$;
 
 CREATE INDEX IF NOT EXISTS idx_family_import_jobs_family ON family_import_jobs USING btree (family_id);
 CREATE INDEX IF NOT EXISTS idx_family_import_jobs_requested ON family_import_jobs USING btree (requested_at);
@@ -435,10 +468,14 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_reviews_family_variant_key O
 -- ---------------------------------------------------------------------------
 -- small_variant_filter_presets
 -- ---------------------------------------------------------------------------
--- A small-variant preset is its owner's, reusable in every family they can open.
+-- A small-variant preset is its owner's, reusable in every family they can open. The owner is
+-- the account (owner_id, SEC-32), whose deletion deletes its presets; owner is the account's
+-- user name when the preset was last saved, shown with it, as a Microsoft sign-in may change
+-- the user name later (SEC-4).
 CREATE TABLE IF NOT EXISTS small_variant_filter_presets (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     owner text NOT NULL,
+    owner_id uuid NOT NULL,
     name text NOT NULL,
     description text,
     filters jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -446,10 +483,40 @@ CREATE TABLE IF NOT EXISTS small_variant_filter_presets (
     sample_templates jsonb DEFAULT '{}'::jsonb NOT NULL,
     created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
-    CONSTRAINT small_variant_filter_presets_pkey PRIMARY KEY (id)
+    CONSTRAINT small_variant_filter_presets_pkey PRIMARY KEY (id),
+    CONSTRAINT small_variant_filter_presets_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON small_variant_filter_presets USING btree (owner, name);
+-- Upgrade of a database made before SEC-32, a no-op on one the CREATE TABLE above made: the
+-- column, each preset given to the account its owner user name finds, a preset of a user name
+-- no account has removed (it is nobody's), then the column required, its foreign key, and
+-- the unique index below on the account in place of the one on the user name. It runs once,
+-- when the column is added. Revision 0008 runs the same statements.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = 'small_variant_filter_presets'::regclass
+          AND attname = 'owner_id'
+          AND NOT attisdropped
+    ) THEN
+        ALTER TABLE small_variant_filter_presets ADD COLUMN owner_id uuid;
+        UPDATE small_variant_filter_presets AS preset
+        SET owner_id = account.id
+        FROM users AS account
+        WHERE account.username = preset.owner;
+        DELETE FROM small_variant_filter_presets WHERE owner_id IS NULL;
+        ALTER TABLE small_variant_filter_presets ALTER COLUMN owner_id SET NOT NULL;
+        ALTER TABLE small_variant_filter_presets
+            ADD CONSTRAINT small_variant_filter_presets_owner_id_fkey
+            FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;
+        DROP INDEX IF EXISTS idx_small_variant_filter_presets_unique;
+    END IF;
+END
+$$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique ON small_variant_filter_presets USING btree (owner_id, name);
 
 -- ---------------------------------------------------------------------------
 -- small_variant_tag_definitions (folds scope/project cols from 006)
@@ -523,11 +590,15 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_
 -- ---------------------------------------------------------------------------
 -- structural_variant_filter_presets
 -- ---------------------------------------------------------------------------
+-- A structural-variant preset is its owner's, for one family or reusable. The owner is the
+-- account (owner_id, SEC-32), whose deletion deletes its presets; owner is the account's user
+-- name when the preset was last saved, shown with it (as for small_variant_filter_presets).
 CREATE TABLE IF NOT EXISTS structural_variant_filter_presets (
     id uuid DEFAULT gen_random_uuid() NOT NULL,
     family_id uuid,
     scope text NOT NULL,
     owner text NOT NULL,
+    owner_id uuid NOT NULL,
     name text NOT NULL,
     description text,
     filters jsonb DEFAULT '{}'::jsonb NOT NULL,
@@ -537,10 +608,37 @@ CREATE TABLE IF NOT EXISTS structural_variant_filter_presets (
     updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
     CONSTRAINT structural_variant_filter_presets_pkey PRIMARY KEY (id),
     CONSTRAINT structural_variant_filter_presets_scope_check CHECK ((scope = ANY (ARRAY['family'::text, 'global'::text]))),
-    CONSTRAINT structural_variant_filter_presets_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE
+    CONSTRAINT structural_variant_filter_presets_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
+    CONSTRAINT structural_variant_filter_presets_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_filter_presets_unique ON structural_variant_filter_presets USING btree (COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid), scope, owner, name);
+-- Upgrade of a database made before SEC-32, as for small_variant_filter_presets above: a
+-- no-op on one the CREATE TABLE made. Revision 0008 runs the same statements.
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_attribute
+        WHERE attrelid = 'structural_variant_filter_presets'::regclass
+          AND attname = 'owner_id'
+          AND NOT attisdropped
+    ) THEN
+        ALTER TABLE structural_variant_filter_presets ADD COLUMN owner_id uuid;
+        UPDATE structural_variant_filter_presets AS preset
+        SET owner_id = account.id
+        FROM users AS account
+        WHERE account.username = preset.owner;
+        DELETE FROM structural_variant_filter_presets WHERE owner_id IS NULL;
+        ALTER TABLE structural_variant_filter_presets ALTER COLUMN owner_id SET NOT NULL;
+        ALTER TABLE structural_variant_filter_presets
+            ADD CONSTRAINT structural_variant_filter_presets_owner_id_fkey
+            FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;
+        DROP INDEX IF EXISTS idx_structural_variant_filter_presets_unique;
+    END IF;
+END
+$$;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_filter_presets_unique ON structural_variant_filter_presets USING btree (COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid), scope, owner_id, name);
 
 -- ---------------------------------------------------------------------------
 -- family_sv_gene_index

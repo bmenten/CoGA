@@ -8,7 +8,7 @@ from typing import Any, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from .clickhouse_column_bounds import UINT32, column_int
+from .clickhouse_column_bounds import INT32, UINT32, column_int
 from .clickhouse_variant_records import (
     StoredStructuralVariantRow,
     StructuralVariantCall,
@@ -16,6 +16,7 @@ from .clickhouse_variant_records import (
 )
 from .clickhouse_variant_ids import SvEvent, build_structural_variant_id, event_discriminators
 from .data_scope import normalize_chromosome
+from .family_identifiers import visible
 from .family_metadata_context import (
     SampleMetadataContext,
 )
@@ -572,6 +573,23 @@ async def _update_sv_file_metadata(
     await session.commit()
 
 
+class ParaphaseValueError(ValueError):
+    """A copy number in a sample's Paraphase JSON that its column cannot hold (DATA-7). The
+    message names where it is, the field and the gene, never the value: a malformed value can
+    be of any length."""
+
+
+def _paraphase_copy_number(raw_result: dict[str, Any], field: str, *, gene_symbol: str) -> int | None:
+    """``field`` of a gene's Paraphase result as its ``integer`` column stores it (Postgres's
+    ``integer`` holds what ClickHouse's ``Int32`` does); None when it is missing or no number,
+    as before. A whole number beyond the column raises ``ParaphaseValueError``: it failed the
+    insert with a database error, after the sample's results were deleted (DATA-7)."""
+    value = _coerce_int(raw_result.get(field))
+    if value is not None and column_int(value, INT32) is None:
+        raise ParaphaseValueError(f"{field} of {visible(gene_symbol)}")
+    return value
+
+
 def _paraphase_rows_for_sample(
     *,
     sample_context: SampleMetadataContext,
@@ -595,9 +613,11 @@ def _paraphase_rows_for_sample(
                 "family_id": sample_context.family_uuid,
                 "assembly_id": sample_context.assembly_id or "",
                 "gene_symbol": str(gene_symbol),
-                "total_cn": _coerce_int(raw_result.get("total_cn")),
-                "gene_cn": _coerce_int(raw_result.get("gene_cn")),
-                "highest_total_cn": _coerce_int(raw_result.get("highest_total_cn")),
+                "total_cn": _paraphase_copy_number(raw_result, "total_cn", gene_symbol=str(gene_symbol)),
+                "gene_cn": _paraphase_copy_number(raw_result, "gene_cn", gene_symbol=str(gene_symbol)),
+                "highest_total_cn": _paraphase_copy_number(
+                    raw_result, "highest_total_cn", gene_symbol=str(gene_symbol)
+                ),
                 "sample_sex": (
                     None
                     if _missing_scalar(raw_result.get("sample_sex"))

@@ -419,6 +419,111 @@ def test_a_daughter_father_x_is_not_counted_to_orient_the_father() -> None:
     assert {(hap1, hap2) for _start, _end, hap1, hap2 in _blocks(rows, "MOTHER")} == {("1", "0")}
 
 
+# --- A block at a stretch's last position (ENG-19) -----------------------------------------
+#
+# A block reaches past its first site: to the next block's first site, or to the end of its
+# chromosome or of its stretch of chrX. One opened at a stretch's last position could do
+# neither without leaving its stretch, and ended where it began: a block of that one site.
+
+GRCH37_PAR1_LAST = 2_699_520  # GRCh37 PAR1: 60,001 to 2,699,520
+
+
+def _without(rows: list[tuple[int, list[str], list[str]]], pos: int) -> list[tuple[int, list[str], list[str]]]:
+    return [row for row in rows if row[0] != pos]
+
+
+def _each_block_reaches_past_its_start(rows: list[dict[str, Any]]) -> None:
+    assert all(int(row["end"]) > int(row["start"]) for row in rows), [
+        (row["sample_id"], row["start"], row["end"]) for row in rows if int(row["end"]) <= int(row["start"])
+    ]
+
+
+@pytest.mark.parametrize(
+    ("assembly", "last", "after"),
+    [
+        ("GRCh38", PAR1_LAST, ROI_SITES),
+        ("GRCh38", PAR2_FIRST - 1, PAR2_SITES),
+        ("GRCh37", GRCH37_PAR1_LAST, ROI_SITES),
+    ],
+    ids=["PAR1", "the X between the PARs", "GRCh37 PAR1"],
+)
+def test_a_site_alone_at_a_stretch_last_position_opens_no_block(assembly: str, last: int, after: list[int]) -> None:
+    # The stretch's only site is its last position: every member had a block there that
+    # began and ended at it. No block is kept there, and the rest of the X is as without it.
+    context = _context(_member_rows(SON_AND_DAUGHTER), assembly_name=assembly)
+    genotypes = _genotypes(SON_AND_DAUGHTER, written="once", sites=[last, *after])
+    rows = _build(context, genotypes)
+
+    for name in ("FATHER", "MOTHER", "SON", "DAUGHTER"):
+        assert [block for block in _blocks(rows, name) if block[0] <= last] == [], (name, _blocks(rows, name))
+    assert rows == _build(context, _without(genotypes, last))
+    _each_block_reaches_past_its_start(rows)
+
+
+def test_a_side_first_read_at_a_stretch_last_position_opens_no_block() -> None:
+    # The mother is homozygous at every PAR1 site but its last: the son's maternal homolog is
+    # first read there. It opened a block of that one site, (PAR1_LAST, PAR1_LAST), beside
+    # his block over PAR1, which already reaches that position with the maternal side unread.
+    children = {"SON": Child("male", maternal=1)}
+    names = ["FATHER", "MOTHER", "SON"]
+    genotypes = [(pos, names, ["0|1", "0|0", "1|0"]) for pos in range(1_000_000, 2_700_000, 50_000)]
+    genotypes.append((PAR1_LAST, names, ["0|1", "0|1", "1|1"]))
+    rows = _build(_context(_member_rows(children)), genotypes)
+
+    assert _blocks(rows, "SON") == [(1_000_000, PAR1_LAST, "1", "?")]
+    assert _blocks(rows, "FATHER") == _blocks(rows, "MOTHER") == [(1_000_000, PAR1_LAST, "0", "1")]
+    _each_block_reaches_past_its_start(rows)
+
+
+@pytest.mark.parametrize("written", ["once", "twice"])
+def test_a_stretch_ending_in_a_block_of_several_sites_keeps_it_to_its_last_position(written: str) -> None:
+    # Neighbours: a site at a stretch's last position inside a block of several sites, and at
+    # each PAR edge, extends the block to it, as before; nothing else changes.
+    sites = PAR1_SITES + [PAR1_LAST] + ROI_SITES + [PAR2_FIRST - 1] + PAR2_SITES
+    context = _context(_member_rows(SON_AND_DAUGHTER))
+    genotypes = _genotypes(SON_AND_DAUGHTER, written=written, sites=sites)
+    rows = _build(context, genotypes)
+
+    for name in ("FATHER", "MOTHER", "SON", "DAUGHTER"):
+        blocks = _blocks(rows, name)
+        assert max(end for _start, end, _h1, _h2 in blocks if end <= PAR1_LAST) == PAR1_LAST, (name, blocks)
+        assert max(end for start, end, _h1, _h2 in blocks if PAR1_LAST < start < PAR2_FIRST) == PAR2_FIRST - 1, (
+            name, blocks)
+    assert rows == _build(context, _without(_without(genotypes, PAR1_LAST), PAR2_FIRST - 1))
+    _each_block_reaches_past_its_start(rows)
+
+
+def test_a_one_site_stretch_keeps_its_block_to_the_stretch_end() -> None:
+    # Neighbour: a stretch with one site before its last position keeps the block that site
+    # opens, to the end of its stretch, as a chromosome's first site does.
+    context = _context(_member_rows(SON_AND_DAUGHTER))
+    rows = _build(context, _genotypes(SON_AND_DAUGHTER, written="once", sites=[1_500_000, *ROI_SITES]))
+
+    for name in ("FATHER", "MOTHER", "SON", "DAUGHTER"):
+        [par1] = [block for block in _blocks(rows, name) if block[0] <= PAR1_LAST]
+        assert par1[:2] == (1_500_000, PAR1_LAST), (name, par1)
+    _each_block_reaches_past_its_start(rows)
+
+
+@pytest.mark.parametrize("written", ["once", "twice"])
+def test_x_linked_embryo_calls_are_unchanged_by_sites_at_the_stretch_ends(monkeypatch, written: str) -> None:
+    # The PGT calls at the ROI rest on the blocks there, not on a site at a PAR edge.
+    context = _context(_member_rows(XLR_FAMILY, mother={"carrier_status": "carrier", "carrier_type": "obligate"}))
+    edges = [PAR1_LAST, PAR2_FIRST - 1]
+    genotypes = _genotypes(XLR_FAMILY, written=written, sites=PAR1_SITES + edges[:1] + ROI_SITES + edges[1:] + PAR2_SITES)
+    without = _without(_without(genotypes, edges[0]), edges[1])
+
+    called = _calls(_analysis(monkeypatch, context, genotypes, _build(context, genotypes), model="XLR"))
+
+    assert called == _calls(_analysis(monkeypatch, context, without, _build(context, without), model="XLR"))
+    assert called == {
+        "E_SON_RISK": "affected_or_at_risk",
+        "E_SON_CLEAR": "unaffected_non_carrier",
+        "E_DAUGHTER_CARRIER": "carrier",
+        "E_DAUGHTER_CLEAR": "unaffected_non_carrier",
+    }
+
+
 # --- The embryo calls at an X-linked ROI ---------------------------------------------------
 
 XLR_FAMILY = {

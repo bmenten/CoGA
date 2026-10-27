@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import re
-from typing import Iterable
+from typing import Any, Iterable, cast
 from uuid import UUID
 
 from fastapi import HTTPException
 from sqlalchemy import bindparam
 from sqlalchemy.dialects.postgresql import UUID as PG_UUID
+from sqlalchemy.engine import CursorResult, Result
 from sqlalchemy.exc import DBAPIError
 
 _UUID_TYPE = PG_UUID(as_uuid=True)
@@ -67,6 +68,15 @@ def uuid_values(values: Iterable[str | UUID]) -> list[UUID]:
 
 def uuid_list_bindparam(name: str):
     return bindparam(name, expanding=True, type_=_UUID_TYPE)
+
+
+def rows_matched(result: Result[Any]) -> int:
+    """The rows an UPDATE or DELETE matched: its ``CursorResult.rowcount``.
+
+    ``AsyncSession.execute`` is typed to return a ``Result`` whatever the statement, but for
+    an UPDATE or a DELETE it returns the ``CursorResult`` that counts them; SQLAlchemy's
+    types leave that cast to the caller."""
+    return cast("CursorResult[Any]", result).rowcount
 
 
 def is_missing_postgres_schema_error(exc: BaseException) -> bool:

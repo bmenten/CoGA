@@ -233,6 +233,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
             "dry_run": False,
             "worker_id": WORKER,
             "requested_by": "admin@example.com",
+            "requested_by_id": _admin().id,
             "requested_at": now,
             "started_at": now,
             "heartbeat_at": now,
@@ -246,7 +247,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
         }
     )
 
-    async def user(_session: Any, _email: str) -> CurrentUser:
+    async def user(_session: Any, _user_id: str) -> CurrentUser:
         return _admin()
 
     async def no_warnings(*_args: Any, **_kwargs: Any) -> list[Any]:
@@ -276,7 +277,7 @@ def jobs(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _JobTable:
 
     for name, value in {
         "get_postgres_sessionmaker": lambda: table.session,
-        "get_current_user_by_email": user,
+        "get_current_user_by_id": user,
         "_existing_package_entity_warnings": no_warnings,
         "_ensure_family_from_ped": register,
         "hold_family_variant_writes": hold,

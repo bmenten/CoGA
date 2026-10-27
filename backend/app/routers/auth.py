@@ -21,6 +21,7 @@ from ..dependencies import (
     get_current_admin_user,
 )
 from ..schemas import (
+    ApiId,
     MicrosoftSignInOut,
     SignInConfigOut,
     SignupAck,
@@ -300,7 +301,7 @@ async def sign_in_config() -> SignInConfigOut:
 @router.get("/me", response_model=UserRead)
 async def read_me(user: CurrentUser = Depends(get_current_user)):
     return UserRead(
-        id=user.id,
+        id=ApiId(user.id),
         username=user.username,
         email=user.email,
         first_name=user.first_name,

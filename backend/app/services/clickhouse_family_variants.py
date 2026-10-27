@@ -2888,6 +2888,18 @@ def _small_inheritance_items(
     )
 
 
+def _pair_phase(
+    pair: SmallVariantCompoundHetPair,
+) -> tuple[Literal["trans", "unknown"], Literal["read", "segregation"] | None]:
+    """A compound-het pair's phase and how it was established, as the response names them.
+    The pairing (``_compound_het_pair_verdict``) gives no other, and leaves a pair in cis
+    out; a pair with any other is refused here rather than reported."""
+    match pair.phase, pair.phase_evidence:
+        case ("trans" | "unknown") as phase, ("read" | "segregation" | None) as evidence:
+            return phase, evidence
+    raise ValueError(f"A compound-het pair has phase {pair.phase!r} with evidence {pair.phase_evidence!r}")
+
+
 async def _small_item_outs(
     session: AsyncSession,
     *,
@@ -2917,14 +2929,15 @@ async def _small_item_outs(
             left_variant = variant_out(value.left)
             right_variant = variant_out(value.right)
             group_variants.extend([left_variant, right_variant])
+            phase, phase_evidence = _pair_phase(value)
             groups.append(
                 SmallVariantGroupOut(
                     group_key=value.pair_key,
                     gene=value.gene,
                     gene_id=value.gene_id,
                     variants=[left_variant, right_variant],
-                    phase=value.phase,
-                    phase_evidence=value.phase_evidence,
+                    phase=phase,
+                    phase_evidence=phase_evidence,
                 )
             )
         else:
@@ -3196,8 +3209,8 @@ async def _small_variants_candidate_page(
         if inheritance_candidates_capped and inheritance_candidate_limit is not None
         else None
     )
-    if inheritance_candidates_capped:
-        records = records[: inheritance_candidate_limit - 1]
+    if inheritance_candidate_rows is not None:
+        records = records[:inheritance_candidate_rows]
     filtered = _kept_small_candidates(records, filters, scope, context)
     if track_mode:
         unfiltered_total = None
@@ -4005,7 +4018,7 @@ async def get_family_structural_variants_page(
         and ((not include_review_filter_active) or record.variant_id in review_variant_ids)
         and _structural_record_matches(record, filters, include_regions, selected_samples, panel=panel_match)
     ]
-    summary: dict[str, dict[str, int]] = {}
+    summary = {}
     for record in filtered:
         summary.setdefault(record.sv_type or "", {})
         source_key = record.source or ""

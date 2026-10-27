@@ -760,8 +760,9 @@ async def test_each_admin_delete_holds_its_familys_locks_from_its_first_read_unt
         "delete_family_structural_variants": None,
         "delete_interval_tracks": None,
         "delete_interval_track_sources": 0,
-        "purge_sample_managed_files": 0,
-        "purge_family_managed_files": 0,
+        # The kept copies of uploads, none here: read before the commit, unlinked after it.
+        "sample_managed_files": [],
+        "family_managed_files": [],
     }.items():
         monkeypatch.setattr(admin_service, name, _recorder(postgres, name, result))
 
@@ -865,8 +866,13 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
         return None
 
     monkeypatch.setattr(ped_service, "_existing_family_rows", existing_rows)
-    monkeypatch.setattr(ped_service, "delete_family_small_variants", _recorder(postgres, "delete small variants"))
-    monkeypatch.setattr(ped_service, "delete_family_structural_variants", _recorder(postgres, "delete SVs"))
+    # The structure clear's ClickHouse deletes, which the replacement runs.
+    for name, step in {
+        "delete_family_small_variants": "delete small variants",
+        "delete_family_structural_variants": "delete SVs",
+        "delete_interval_tracks": "delete tracks",
+    }.items():
+        monkeypatch.setattr(family_structure_service, name, _recorder(postgres, step))
     monkeypatch.setattr(ped_service, "record_family_deleted", no_event)
     monkeypatch.setattr(
         ped_service, "record_phenotypes_deleted_with_family", _recorder(postgres, "record the phenotypes")
@@ -894,10 +900,10 @@ async def test_a_ped_overwrite_locks_each_replaced_family_in_one_order_before_de
     ]
     assert replaced == [("GRCh38", "uuid-b"), ("GRCh38", "uuid-a")]
 
-    await ped_service._delete_replaced_family_variants(replaced)
+    await ped_service._delete_replaced_family_data(replaced)
 
     # Under the locks the replacement took, which its transaction still holds.
-    assert postgres.trace("ped")[6:] == ["delete small variants", "delete SVs"] * 2
+    assert postgres.trace("ped")[6:] == ["delete small variants", "delete SVs", "delete tracks"] * 2
     assert len(session.held) == 4
 
 

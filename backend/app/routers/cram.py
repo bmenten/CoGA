@@ -2,6 +2,7 @@ import asyncio
 from dataclasses import dataclass
 import logging
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import FileResponse, RedirectResponse
@@ -283,7 +284,11 @@ def _resolve_alignment_manifest_entry(
     """In remote mode the URLs are short-lived presigned/signed URLs (absolute);
     otherwise they are backend-relative paths the frontend prefixes with the API base,
     with each ID percent-encoded as one segment (it may hold `/`, `?`, `#`, `%` or `..`)."""
-    for fmt, ext, index_suffix in (("cram", "cram", ".crai"), ("bam", "bam", ".bai")):
+    formats: tuple[tuple[Literal["cram", "bam"], str, str], ...] = (
+        ("cram", "cram", ".crai"),
+        ("bam", "bam", ".bai"),
+    )
+    for fmt, ext, index_suffix in formats:
         if storage_is_remote():
             data_key = _remote_alignment_key(family_id, sample_id, ext, "", recorded)
             index_key = (

@@ -28,11 +28,15 @@ A dataset of one file per sample checks every sample's file before it writes any
 later sample's refused file used to fail the dataset with the earlier samples' data replaced.
 The APCAD file per embryo and the coverage BED or per-target table per sample were the last
 checked as each was written. A TRGT value that is no number is refused with 400 (it answered
-500), and a dry run warns of a data file without a record, which the import will refuse.
+500), and a dry run warns of a data file without a record, which the import will refuse. A
+Paraphase copy number that its Postgres ``integer`` column cannot hold fails the dataset as such
+a TRGT value does (DATA-7: it failed the insert with a database error, after the sample's
+results were deleted).
 
 The stores are faked at their edge: the interval table answers the statements
 ``clickhouse_interval_tracks`` sends ClickHouse, and the session the Postgres statements the
-loaders send (the track records, the TRGT calls, Paraphase's results, the family row).
+loaders send (the track records, the TRGT calls, Paraphase's results, the family row). The
+session refuses a Paraphase copy number beyond Postgres's ``integer``, as the driver does.
 """
 
 from __future__ import annotations
@@ -101,6 +105,23 @@ def _matches(key: tuple[str, ...], params: Mapping[str, Any]) -> bool:
     )
 
 
+# Postgres's ``integer``, the type of the Paraphase copy-number columns (03_assay.sql).
+_PG_INTEGER = (-(2**31), 2**31 - 1)
+_PARAPHASE_INTEGER_COLUMNS = ("total_cn", "gene_cn", "highest_total_cn")
+
+
+class _PostgresDataError(Exception):
+    """A bound value its column's type cannot hold, as the driver refuses it (asyncpg's
+    ``DataError``, "value out of int32 range"): the statement fails, as on the database."""
+
+
+def _bind_integer_columns(row: Mapping[str, Any], columns: tuple[str, ...]) -> None:
+    for column in columns:
+        value = row[column]
+        if value is not None and not _PG_INTEGER[0] <= value <= _PG_INTEGER[1]:
+            raise _PostgresDataError(f"invalid input for query argument {column}: {value} (value out of int32 range)")
+
+
 def _result(*, scalar: Any = None, rows: list[dict[str, Any]] | None = None) -> SimpleNamespace:
     found = rows or []
     return SimpleNamespace(
@@ -114,15 +135,17 @@ class _Stores:
     """The family's stored data. ``rows``: the interval table's rows, and ``records``:
     Postgres's record of each track, both a row count by (sample uuid, track type, source,
     file name). ``repeats`` and ``paraphase``: each sample's TRGT calls and Paraphase results
-    (by sample uuid). ``unfinished``, ``flag`` and ``imported``: the family row's
-    ``import_unfinished``, ``import_incomplete`` and ``imported_scopes``. ``deletes`` lists
-    each delete sent to either store, ``statements`` every Postgres statement in order."""
+    (by sample uuid); ``paraphase_rows`` the Paraphase rows inserted. ``unfinished``, ``flag``
+    and ``imported``: the family row's ``import_unfinished``, ``import_incomplete`` and
+    ``imported_scopes``. ``deletes`` lists each delete sent to either store, ``statements``
+    every Postgres statement in order."""
 
     def __init__(self) -> None:
         self.rows: dict[tuple[str, ...], int] = {}
         self.records: dict[tuple[str, ...], int] = {}
         self.repeats: dict[str, int] = {}
         self.paraphase: dict[str, int] = {}
+        self.paraphase_rows: list[dict[str, Any]] = []
         self.unfinished: Any = None
         self.flag: Any = None
         self.imported: Any = None
@@ -212,7 +235,10 @@ class _Session:
                 return _result()
             assert sql.startswith("INSERT INTO"), sql
             for row in params:
+                _bind_integer_columns(row, _PARAPHASE_INTEGER_COLUMNS)
+            for row in params:
                 stores.paraphase[row["sample_id"]] = stores.paraphase.get(row["sample_id"], 0) + 1
+                stores.paraphase_rows.append(dict(row))
             return _result()
         if sql.startswith("UPDATE samples"):
             return _result()
@@ -1595,3 +1621,95 @@ async def test_a_needlr_file_whose_calls_state_no_extent_says_why_it_holds_none(
         + _EXTENT_REFUSAL
         + "; no NeedlR call was replaced"
     )
+
+
+# --- DATA-7: a Paraphase copy number that no Postgres integer column holds -----------------------
+#
+# The copy numbers are Postgres ``integer`` columns (``total_cn``, ``gene_cn``,
+# ``highest_total_cn``) filled from the sample's JSON. One beyond them failed the insert with a
+# database error, after the sample's results were deleted. Such a file is refused as a TRGT
+# value that cannot be read as a number is (#985): before any sample's results are replaced,
+# the dataset failed with a message that names where the value is, never the value.
+
+
+def _paraphase_json(**smn1: Any) -> str:
+    """A sample's Paraphase JSON: GBA's result, and SMN1's with ``smn1`` over its values."""
+    result = {"total_cn": 2, "gene_cn": 2, "highest_total_cn": 2, "sample_sex": "female", "genome_depth": 30.5}
+    return json.dumps({"GBA": dict(result), "SMN1": {**result, **smn1}})
+
+
+def _paraphase_refusal(sample_id: str, where: str) -> str:
+    return (
+        f"Paraphase JSON for {sample_id} holds a value that cannot be read where a number is expected "
+        f"({where}); nothing was stored"
+    )
+
+
+# Each beyond Postgres's ``integer`` (-2,147,483,648 to 2,147,483,647), however the JSON writes it.
+_COPY_NUMBERS_NO_INTEGER_HOLDS = [
+    pytest.param({"total_cn": 2**31}, "total_cn", id="total-cn-one-above"),
+    pytest.param({"gene_cn": -(2**31) - 1}, "gene_cn", id="gene-cn-one-below"),
+    pytest.param({"highest_total_cn": "99999999999"}, "highest_total_cn", id="highest-total-cn-as-text"),
+    pytest.param({"total_cn": 1e10}, "total_cn", id="total-cn-as-a-float"),
+]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("smn1", "field"), _COPY_NUMBERS_NO_INTEGER_HOLDS)
+async def test_a_paraphase_copy_number_no_integer_column_holds_fails_the_dataset_with_the_results_as_they_were(
+    stores: _Stores, tmp_path: Path, smn1: dict[str, Any], field: str
+) -> None:
+    stores.paraphase[_uuid("S1")] = 3
+    dataset = ManifestDataset(per_sample={"S1": {"json": _file(tmp_path, "paraphase/S1.json", _paraphase_json(**smn1))}})
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    # Before: the sample's results deleted, then the insert failed with a database error.
+    assert str(refused.value) == _paraphase_refusal("S1", f"{field} of SMN1")
+    assert stores.paraphase == {_uuid("S1"): 3}
+    assert stores.deletes == []
+    assert stores.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_a_later_samples_paraphase_copy_number_no_integer_column_holds_fails_the_dataset_with_every_samples_results(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.paraphase = {_uuid("S1"): 3, _uuid("S2"): 4}
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"json": _file(tmp_path, "paraphase/S1.json", _paraphase_json())},
+            "S2": {"json": _file(tmp_path, "paraphase/S2.json", _paraphase_json(total_cn=2**31))},
+        }
+    )
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    # Before: S1's results were replaced and committed, then S2's insert failed with a
+    # database error.
+    assert str(refused.value) == _paraphase_refusal("S2", "total_cn of SMN1")
+    assert stores.paraphase == {_uuid("S1"): 3, _uuid("S2"): 4}
+    assert stores.deletes == []
+    assert stores.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_a_paraphase_copy_number_at_the_integer_columns_bounds_is_stored_as_the_file_has_it(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.paraphase = {_uuid("S1"): 3, _uuid("S2"): 4}
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"json": _file(tmp_path, "paraphase/S1.json", _paraphase_json(total_cn=2**31 - 1))},
+            "S2": {"json": _file(tmp_path, "paraphase/S2.json", _paraphase_json(gene_cn=-(2**31)))},
+        }
+    )
+
+    outcome = await _run(_job(stores, tmp_path, "paraphase", dataset))
+
+    assert outcome.status == "imported"
+    assert stores.paraphase == {_uuid("S1"): 2, _uuid("S2"): 2}
+    smn1 = {row["sample_id"]: row for row in stores.paraphase_rows if row["gene_symbol"] == "SMN1"}
+    assert (smn1[_uuid("S1")]["total_cn"], smn1[_uuid("S2")]["gene_cn"]) == (2**31 - 1, -(2**31))

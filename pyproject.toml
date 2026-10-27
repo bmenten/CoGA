@@ -24,10 +24,12 @@ select = ["E9", "E402", "F", "B023", "B904", "ASYNC", "BLE001", "RUF100"]
 "backend/tests/**" = ["ASYNC"]
 
 # Type-check gate (#526), run by the `backend` CI job over the clinical-critical modules:
-# classification and scoring, the traceability and sign-out stack, and sample integrity.
-# Each one type-checks clean; add a module once it does. The rest of backend/app is not
-# gated yet (about 300 errors when measured for #526; haplotype_lineage_service and
-# clickhouse_family_variants are the largest).
+# classification and scoring, variant search and storage, the family-package import, the
+# traceability and sign-out stack, and sample integrity. Each one type-checks clean; add a
+# module once it does. They are the modules with a coverage floor
+# (scripts/check-coverage-floor.py), every one of them since OPS-11. The rest of backend/app
+# is not gated yet (179 errors in 43 files when measured for OPS-11;
+# reference_metadata_service, main and metadata_service are the largest).
 [tool.mypy]
 python_version = "3.12"
 files = [
@@ -35,16 +37,24 @@ files = [
     "backend/app/services/annotation_manifest_service.py",
     "backend/app/services/assembly_scope.py",
     "backend/app/services/classification_drift_service.py",
+    "backend/app/services/clickhouse_family_variants.py",
+    "backend/app/services/clickhouse_variant_storage.py",
     "backend/app/services/clinical_audit_service.py",
+    "backend/app/services/clinical_cnv_kb_jobs.py",
     "backend/app/services/cnv_acmg_points.py",
     "backend/app/services/compound_het_phase.py",
     "backend/app/services/coverage_content.py",
     "backend/app/services/coverage_read_depth.py",
     "backend/app/services/family_identifiers.py",
+    "backend/app/services/family_package_datasets.py",
+    "backend/app/services/family_package_import.py",
+    "backend/app/services/family_package_jobs.py",
+    "backend/app/services/family_package_registration.py",
     "backend/app/services/family_structure_audit.py",
     "backend/app/services/family_variant_filters.py",
     "backend/app/services/family_variant_write_lock.py",
     "backend/app/services/genotypes.py",
+    "backend/app/services/haplotype_lineage_service.py",
     "backend/app/services/hash_chain.py",
     "backend/app/services/integrity_anchor_service.py",
     "backend/app/services/mitochondrial_analysis.py",
@@ -67,7 +77,9 @@ files = [
     "backend/app/services/sample_integrity_service.py",
     "backend/app/services/signed_record_nipt.py",
     "backend/app/services/signed_record_sections.py",
+    "backend/app/services/small_variant_review_tags.py",
     "backend/app/services/structural_variant_evidence.py",
+    "backend/app/services/structural_variant_review_pg.py",
     "backend/app/services/sv_copy_change.py",
     "backend/app/services/sv_gene_index_service.py",
     "backend/app/services/variant_ranking_cache.py",

@@ -15,7 +15,9 @@ from ..schemas import (
 from .access_control import CurrentUser, RecordNotVisible
 from .review_pg_utils import _json_payload
 
-# A small-variant preset is its owner's, reusable in every family they can open (#681).
+# A small-variant preset is its owner's, reusable in every family they can open (#681). The
+# owner is the account (owner_id), whatever its user name is now; owner, the user name it was
+# last saved under, is what the preset shows (SEC-32).
 _PRESET_COLUMNS = """
     id::text AS id,
     owner,
@@ -53,11 +55,11 @@ async def list_small_variant_filter_presets_for_owner(
             f"""
             SELECT {_PRESET_COLUMNS}
             FROM small_variant_filter_presets
-            WHERE owner = :owner
+            WHERE owner_id = CAST(:owner_id AS uuid)
             ORDER BY lower(name)
             """
         ),
-        {"owner": user.username},
+        {"owner_id": user.id},
     )
     return [_serialize_preset(dict(row)) for row in result.mappings().all()]
 
@@ -91,6 +93,7 @@ async def save_small_variant_filter_preset(
     now = datetime.now(timezone.utc)
     params = {
         "owner": user.username,
+        "owner_id": user.id,
         "name": normalized_name,
         "description": (payload.description or "").strip() or None,
         "filters_json": _json_payload(payload.filters),
@@ -103,6 +106,7 @@ async def save_small_variant_filter_preset(
             f"""
             INSERT INTO small_variant_filter_presets (
                 owner,
+                owner_id,
                 name,
                 description,
                 filters,
@@ -113,6 +117,7 @@ async def save_small_variant_filter_preset(
             )
             VALUES (
                 :owner,
+                CAST(:owner_id AS uuid),
                 :name,
                 :description,
                 CAST(:filters_json AS jsonb),
@@ -121,7 +126,8 @@ async def save_small_variant_filter_preset(
                 :now,
                 :now
             )
-            ON CONFLICT (owner, name) DO UPDATE SET
+            ON CONFLICT (owner_id, name) DO UPDATE SET
+                owner = EXCLUDED.owner,
                 description = EXCLUDED.description,
                 filters = EXCLUDED.filters,
                 sample_filters = EXCLUDED.sample_filters,
@@ -149,7 +155,7 @@ async def delete_small_variant_filter_preset_for_owner(
     result = await session.execute(
         text(
             """
-            SELECT owner
+            SELECT owner_id::text AS owner_id
             FROM small_variant_filter_presets
             WHERE id = CAST(:preset_id AS uuid)
             """
@@ -159,7 +165,7 @@ async def delete_small_variant_filter_preset_for_owner(
     row = result.mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail="Preset not found")
-    if row["owner"] != user.username:
+    if row["owner_id"] != user.id:
         # Another user's preset answers as an unknown one does (SEC-9, REQ-SEC-001).
         raise RecordNotVisible("filter_preset", "Preset not found")
     await session.execute(

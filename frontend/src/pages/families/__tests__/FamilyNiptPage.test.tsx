@@ -443,11 +443,13 @@ describe('FamilyNiptPage', () => {
     const serve = ({
       latest = null,
       changed = null,
+      notCompared = [],
       projects,
       readOnly = false,
     }: {
       latest?: typeof LATEST | null;
       changed?: string[] | null;
+      notCompared?: string[];
       projects?: unknown[];
       readOnly?: boolean;
     } = {}) =>
@@ -488,7 +490,7 @@ describe('FamilyNiptPage', () => {
               content_hash: latest?.content_hash ?? null,
               matches: !changed,
               changed_sections: changed ?? [],
-              not_compared: [],
+              not_compared: notCompared,
               not_captured: [],
               checked_at: '2026-10-16T09:00:00Z',
             },
@@ -672,6 +674,19 @@ describe('FamilyNiptPage', () => {
       expect(within(status).getByRole('link', { name: 'View signed version 2' })).toHaveAttribute(
         'href',
         '/families/NIPT001/report?version=2',
+      );
+    });
+
+    it('names what the check could not compare with the latest signed version (TRACE-19)', async () => {
+      serve({ latest: LATEST, notCompared: ['nipt'] });
+      renderWithReport();
+
+      expect(await screen.findByRole('button', { name: 'Amend sign-out' })).toBeEnabled();
+      const status = screen.getByRole('region', { name: 'Sign-out' });
+      await waitFor(() =>
+        expect(status).toHaveTextContent(
+          'The family’s current data still matches it in everything it holds. Not in signed version 2, so not compared: NIPT results.',
+        ),
       );
     });
 

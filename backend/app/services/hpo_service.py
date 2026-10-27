@@ -29,7 +29,7 @@ from ..core.config import (
     HPO_PINNED_RELEASE,
     settings,
 )
-from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid
+from ..core.sql import canonical_uuid, is_missing_postgres_schema_error, require_uuid, rows_matched
 from .access_control import CurrentUser
 from .clinical_audit_service import record_clinical_event
 from .family_identifiers import visible as visible_text
@@ -422,7 +422,8 @@ def parse_hpo_json_text(text_value: str) -> ParsedHpoOntology:
             label = str(node.get("lbl") or node.get("label") or node.get("name") or "").strip()
             if not label:
                 continue
-            meta = node.get("meta") if isinstance(node.get("meta"), dict) else {}
+            raw_meta = node.get("meta")
+            meta = raw_meta if isinstance(raw_meta, dict) else {}
             terms[hpo_id] = ParsedHpoTerm(
                 hpo_id=hpo_id,
                 label=label,
@@ -2507,7 +2508,7 @@ async def delete_individual_hpo_annotation(
         ),
         {"family_uuid": family_uuid, "annotation_id": annotation_uuid},
     )
-    if result.rowcount == 0:
+    if rows_matched(result) == 0:
         raise HTTPException(status_code=404, detail=_ANNOTATION_NOT_FOUND)
     await mark_family_hpo_annotations_stale(
         session,

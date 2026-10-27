@@ -9,7 +9,8 @@ Two kinds of records exist:
 
 * ``managed`` files are copies we own under ``data/raw_imports/<family_id>/``. These
   come from web uploads where the original bytes would otherwise be discarded after
-  parsing. We delete them when the owning family is deleted.
+  parsing. We delete them when the owning family or sample is deleted, once that deletion
+  has committed: a deletion that fails keeps every file its records name (SAFE-35).
 * referenced files live at their original on-disk location (e.g. a family package
   import directory). We never move or delete those; we only record where they are.
   For a package imported from a bucket, that location is the object's gs:// or s3://
@@ -42,7 +43,7 @@ from fastapi import HTTPException, UploadFile
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.coga_logging import scrub_log
+from ..core.coga_logging import describe_error, scrub_log
 from ..core.object_storage import is_remote_uri, parse_remote_uri, remote_object_identity
 from ..core.sql import canonical_uuid
 # The import's folder rules, read through their module (a test that moves them moves them here).
@@ -728,7 +729,9 @@ def _managed_file_to_unlink(storage_path: str, managed_root: str) -> str | None:
 def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
     """Unlink the managed copy each ``(storage_path, record id)`` names, where it is a file
     inside the upload folder; returns the number unlinked. A row naming any other place is
-    skipped with a log line, and its path is never unlinked. Blocking."""
+    skipped with a log line, and its path is never unlinked. A copy that cannot be unlinked
+    is left, with a log line naming the error by its kind (``describe_error``): its text
+    quotes the path, and the record was deleted before this ran. Blocking."""
     managed_root = _managed_root()
     removed = 0
     for storage_path, record_id in rows:
@@ -745,15 +748,22 @@ def _unlink_managed_files(rows: Iterable[tuple[str, str]]) -> int:
             if os.path.isfile(target):
                 os.unlink(target)
                 removed += 1
-        except OSError:
+        except FileNotFoundError:  # gone meanwhile: nothing is left
             continue
+        except OSError as exc:
+            logger.warning(
+                "The file of deleted raw-file record %s could not be unlinked (%s) and is left at %s",
+                scrub_log(record_id),
+                describe_error(exc),
+                scrub_log(target),
+            )
     return removed
 
 
-async def purge_family_managed_files(session: AsyncSession, family_uuid: str) -> int:
-    """Delete managed file copies owned by a family from disk, each only inside the upload
-    folder (``_managed_file_to_unlink``). Database rows cascade away when the family is
-    removed. Returns the number of files unlinked."""
+async def family_managed_files(session: AsyncSession, family_uuid: str) -> list[tuple[str, str]]:
+    """The managed copies the family's rows name, ``(storage_path, record id)``: read in the
+    transaction that deletes the family, before its rows go (they cascade away with it), for
+    ``unlink_managed_files`` once that transaction has committed (SAFE-35)."""
     result = await session.execute(
         text(
             """
@@ -765,13 +775,12 @@ async def purge_family_managed_files(session: AsyncSession, family_uuid: str) ->
         ),
         {"family_uuid": family_uuid},
     )
-    return await asyncio.to_thread(_unlink_managed_files, [(row[0], row[1]) for row in result.fetchall()])
+    return [(row[0], row[1]) for row in result.fetchall()]
 
 
-async def purge_sample_managed_files(session: AsyncSession, sample_uuid: str) -> int:
-    """Delete managed file copies owned by a single sample from disk, each only inside the
-    upload folder (``_managed_file_to_unlink``). Database rows cascade away when the sample
-    is removed. Returns the number of files unlinked."""
+async def sample_managed_files(session: AsyncSession, sample_uuid: str) -> list[tuple[str, str]]:
+    """The managed copies the sample's rows name, as ``family_managed_files`` reads the
+    family's: for ``unlink_managed_files`` once the sample's deletion has committed."""
     result = await session.execute(
         text(
             """
@@ -783,4 +792,25 @@ async def purge_sample_managed_files(session: AsyncSession, sample_uuid: str) ->
         ),
         {"sample_uuid": sample_uuid},
     )
-    return await asyncio.to_thread(_unlink_managed_files, [(row[0], row[1]) for row in result.fetchall()])
+    return [(row[0], row[1]) for row in result.fetchall()]
+
+
+async def unlink_managed_files(files: Iterable[tuple[str, str]]) -> int:
+    """Unlink the managed copies ``files`` names (``family_managed_files``,
+    ``sample_managed_files``) once the deletion of their rows has committed, each only inside
+    the upload folder (``_managed_file_to_unlink``). Returns the number unlinked.
+
+    Unlinked before the commit, a copy was gone when the deletion then failed and its rows
+    came back: a record naming a file that was gone (SAFE-35). After it, the deletion stands
+    whatever becomes of this: a copy that cannot be unlinked is left, a file without a
+    record, never a record without its file, and the log says so. Never raises."""
+    try:
+        rows = list(files)
+        return await asyncio.to_thread(_unlink_managed_files, rows) if rows else 0
+    except Exception as exc:  # noqa: BLE001 - the deletion has committed; it stands
+        logger.warning(
+            "The files of deleted raw-file records were not all unlinked (%s); any not "
+            "unlinked are left in the upload folder",
+            describe_error(exc),
+        )
+        return 0
