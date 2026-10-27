@@ -651,8 +651,13 @@ def _package_ped(root: Path, relative_path: str) -> Path | None:
 
 def _package_peds(root: Path, found: Iterable[Path]) -> list[Path]:
     """The PED files a listing of the package found, in name order, but for one that is a
-    symlink leading out of the package."""
-    return sorted(path for path in found if package_path_within(root, path.relative_to(root).as_posix()) is not None)
+    symlink leading out of the package, and for a folder named like one (``FAM1.ped/``),
+    which Discover read as a file and failed on (SEC-27)."""
+    return sorted(
+        path
+        for path in found
+        if package_path_within(root, path.relative_to(root).as_posix()) is not None and path.is_file()
+    )
 
 
 def _detect_ped_path(

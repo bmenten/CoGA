@@ -163,10 +163,13 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   local `FAMILY_IMPORT_ROOTS` folder, the staging folder of a bucket package or the upload
   folder `data/raw_imports` (`services/raw_import_files_pg.py`); any other path answers 403
   and is logged, and the file list shows it unavailable without looking it up. Verify asks
-  the object store only about an object below a remote `FAMILY_IMPORT_ROOTS` entry. A family
-  or sample delete unlinks a managed copy only inside the upload folder, and skips any other
-  path a managed row names with a log line. An edited row could download any file the
-  backend can read, and make a delete remove any file it may write (SEC-29).
+  the object store only about an object below a remote `FAMILY_IMPORT_ROOTS` entry. The list
+  marks a row of either kind as recorded outside what CoGA reads (`outside_read_folders`),
+  and the page gives the reason a Verify was refused; it listed such an object as kept in the
+  object store, and said only that Verify failed (SEC-27). A family or sample delete unlinks
+  a managed copy only inside the upload folder, and skips any other path a managed row names
+  with a log line. An edited row could download any file the backend can read, and make a
+  delete remove any file it may write (SEC-29).
 - ✅ **A package import reads only its own folder.** Package Import takes a folder only below
   `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`), and the package list leaves out, and
   reads nothing in, a folder that is a symlink leading out of the roots. Every path a
@@ -178,7 +181,13 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   that loops, is refused (`manifest_outside_package`): Discover and validation do not read it,
   and **Write manifest** does not write through it. A linked manifest gave a package the
   family of any YAML or JSON file the backend could read, and Write manifest replaced the
-  file it pointed at (SEC-21, #842; [data-import.md](data-import.md)).
+  file it pointed at (SEC-21, #842; [data-import.md](data-import.md)). A package staged from
+  a bucket is read only by the import or validation that staged it: a typed folder in the
+  staging folder, or an import root linked there, is refused (`package_folder_not_allowed`),
+  where it read another import's staged copy (#850). The staging folder,
+  `coga-family-imports` in the temp folder, is made private to the backend (mode 0700); one
+  found there that is a symlink, no folder or another user's is refused rather than followed,
+  so a link planted on a shared temp folder cannot widen the rule (SEC-27).
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or

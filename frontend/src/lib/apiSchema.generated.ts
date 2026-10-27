@@ -2548,6 +2548,7 @@ export interface RawImportFileOut {
   exists: boolean | null;
   download_available: boolean;
   in_object_store: boolean;
+  outside_read_folders: boolean;
 }
 
 export interface RawImportFileVerifyOut {

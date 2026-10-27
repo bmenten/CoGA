@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 from contextlib import asynccontextmanager, contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 import errno
 import json
 import os
 from pathlib import Path
 import shutil
+import stat
 import tempfile
 from typing import Any
 
@@ -81,10 +83,24 @@ def package_folder_path(folder_path: str | Path) -> str:
     return os.path.normpath(os.path.expanduser(str(folder_path)))
 
 
+# The staged copy of the package the running import or validation downloaded from a bucket:
+# the one place under the staging root the folder guard admits. A typed path into the
+# staging root, or a root entry linked there, read another import's staged copy (#850,
+# SEC-27).
+_CURRENT_STAGED_ROOT: ContextVar[Path | None] = ContextVar("coga_current_staged_package", default=None)
+
+
 def _staging_root() -> Path:
-    """Local scratch dir under which s3:// packages are staged for an import."""
+    """Local scratch dir under which s3:// packages are staged for an import.
+
+    It must be this process's own folder. One planted on a shared temp dir, a symlink or
+    another user's folder, would put what it leads to under the staging root, so it is
+    refused (PermissionError, an OSError) rather than followed (SEC-27)."""
     root = Path(tempfile.gettempdir()) / "coga-family-imports"
-    root.mkdir(parents=True, exist_ok=True)
+    root.mkdir(mode=0o700, parents=True, exist_ok=True)
+    info = os.lstat(root)
+    if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode) or info.st_uid != os.getuid():
+        raise PermissionError(f"The staging folder {root} is not this process's own folder")
     return root.resolve()
 
 
@@ -137,11 +153,11 @@ def _listed_package_folder(entry: Path) -> Path | None:
     leaves it out.
 
     Left out: a folder selection refuses, a symlink that leads out of FAMILY_IMPORT_ROOTS
-    (403) or one that loops (400), and one in the staging root, which selection takes for a
-    package downloaded from a bucket but which is no import root. Nothing in a folder left out
-    is looked up. The list read the manifest of a folder linked out of the root, showed the
-    package under that manifest's family and analysis type, and named its path outside the
-    roots, which selection then refused.
+    (403) or one that loops (400), and one in the staging root, which is no import root
+    (selection takes there only the package the running import staged). Nothing in a
+    folder left out is looked up. The list read the manifest of a folder linked out of the
+    root, showed the package under that manifest's family and analysis type, and named its
+    path outside the roots, which selection then refused.
     """
     try:
         folder = _ensure_authorized_package_path(entry)
@@ -177,7 +193,10 @@ def scan_family_import_packages() -> list[dict[str, Any]]:
             if folder is None or not folder.is_dir():
                 continue
             manifest_path = _find_manifest(folder)
-            ped_paths = sorted(folder.glob("*.ped")) or sorted((folder / PED_FOLDER).glob("*.ped"))
+            # A folder named like a PED (``FAM1.ped/``) is none, as Discover reads it (SEC-27).
+            ped_paths = [path for path in sorted(folder.glob("*.ped")) if path.is_file()] or [
+                path for path in sorted((folder / PED_FOLDER).glob("*.ped")) if path.is_file()
+            ]
             if manifest_path is None and not ped_paths and not long_read_sample_ids(folder):
                 continue
             resolved = str(folder)
@@ -270,13 +289,13 @@ def _ensure_authorized_package_path(path: Path) -> Path:
 
 
 def _authorized_package_folder(path: Path) -> Path:
-    """``path`` resolved, when it lies under FAMILY_IMPORT_ROOTS or the staging root; 403
-    otherwise. Callers go through ``_ensure_authorized_package_path``."""
+    """``path`` resolved, when it lies under FAMILY_IMPORT_ROOTS or in the package the running
+    import staged; 403 otherwise. Callers go through ``_ensure_authorized_package_path``."""
     resolved = path.expanduser().resolve()
-    staging_root = _staging_root()
-    # A package staged from S3 lives under the staging root and is pre-authorized
-    # (its s3:// source was checked before download).
-    if resolved == staging_root or staging_root in resolved.parents:
+    # The package this import or validation staged from a bucket (its s3:// or gs:// source
+    # was checked before the download), and nothing else under the staging root (SEC-27).
+    staged = _CURRENT_STAGED_ROOT.get()
+    if staged is not None and (resolved == staged or staged in resolved.parents):
         return resolved
     allowed_roots = _authorized_local_roots()
     if any(resolved == root or root in resolved.parents for root in allowed_roots):
@@ -343,9 +362,12 @@ def staged_package_source(folder_path: str | Path):
     (cleaned up on exit), all but its alignments; a local path is yielded unchanged."""
     if is_remote_uri(folder_path):
         staged = _stage_s3_package(str(folder_path).strip())
+        # Already resolved: mkdtemp made it in the resolved staging root.
+        token = _CURRENT_STAGED_ROOT.set(Path(staged.root))
         try:
             yield staged
         finally:
+            _CURRENT_STAGED_ROOT.reset(token)
             shutil.rmtree(staged.root, ignore_errors=True)
     else:
         yield StagedPackage(root=str(folder_path))
@@ -357,9 +379,12 @@ async def staged_package_source_async(folder_path: str | Path):
     loop is not blocked during a large package transfer."""
     if is_remote_uri(folder_path):
         staged = await asyncio.to_thread(_stage_s3_package, str(folder_path).strip())
+        # Already resolved: mkdtemp made it in the resolved staging root.
+        token = _CURRENT_STAGED_ROOT.set(Path(staged.root))
         try:
             yield staged
         finally:
+            _CURRENT_STAGED_ROOT.reset(token)
             await asyncio.to_thread(shutil.rmtree, staged.root, True)
     else:
         yield StagedPackage(root=str(folder_path))
