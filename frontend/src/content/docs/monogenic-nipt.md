@@ -24,7 +24,7 @@ CoGA models the case as a trio backed by two physical samples.
 | Mother | **cfDNA** from plasma (maternal plus fetal DNA) | observed allele fractions |
 | Fetus | none | **inferred**, never observed |
 
-A family is a NIPT family when it was created with the Monogenic NIPT option in Family Builder, or
+A family is a NIPT family when it was created with the Monogenic NIPT option in the family builder, or
 imported with a package whose manifest says `analysis_type: monogenic_nipt`. CoGA takes the sample
 marked as maternal-plasma cfDNA as the mother's sample (the mother's own sample if none is marked).
 
@@ -33,7 +33,7 @@ marked as maternal-plasma cfDNA as the mother's sample (the mother's own sample 
 CoGA takes either input. The analysis is the same for both.
 
 - **Two single-sample VCFs**, as the NIPT-M pipeline writes them: the plasma's calls (Mutect2 in
-  tumour-only mode) and the father's. Package Import finds a pair by the sample names of the PED and
+  tumour-only mode) and the father's. The package import finds a pair by the sample names of the PED and
   imports the plasma first. Each call keeps its own FILTER values and the caller's metrics (TLOD, FS,
   mapping quality, mismatches, repeat units and so on), which the quality filter and the de novo
   triage read.

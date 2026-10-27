@@ -198,7 +198,7 @@ const GlobalSmallVariantExplorerPage = () => {
       <section className="surface-card page-top-card">
         <div className="space-y-1">
           <p className="page-kicker">Variants</p>
-          <h1 className="catalog-card-title">Variant Explorer</h1>
+          <h1 className="catalog-card-title">Variant explorer</h1>
           <p className="page-copy">
             Aggregate SNVs and small indels across every project you can access. Each row is a
             unique variant with carrier counts summarised across the whole cohort.
@@ -238,7 +238,7 @@ const GlobalSmallVariantExplorerPage = () => {
 
       <section className="surface-card variant-explorer-genotype-card">
         <div className="variant-explorer-genotype-header">
-          <span className="variant-explorer-genotype-title">Sample - Genotype Filter</span>
+          <span className="variant-explorer-genotype-title">Sample - genotype filter</span>
           <label className="variant-explorer-toggle variant-explorer-genotype-imputed">
             <input
               type="checkbox"

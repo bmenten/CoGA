@@ -192,7 +192,9 @@ async def _collect(run: str) -> dict[str, Any]:
     finally:
         async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
             ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
-            out["cleanup"] = (await ac.delete(f"/api/admin/families/{family}?confirm=true")).status_code
+            out["cleanup"] = (
+                await ac.request("DELETE", f"/api/admin/families/{family}?confirm=true", json={"reason": "e2e"})
+            ).status_code
         async with sessionmaker() as session:
             await session.execute(text("DELETE FROM users WHERE email = :email"), {"email": viewer_email})
             await session.commit()

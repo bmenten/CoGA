@@ -64,6 +64,7 @@ import { memberLabel } from '../../lib/familyMembers';
 import { joinWithAnd } from '../../lib/format';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
 import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
+import { routePath } from '../../lib/routePath';
 
 // The report's SV list: its variants, and what the page says about its completeness.
 type StructuralReportPage = Omit<ReportedListPage, 'variants'> & { variants: StructuralVariant[] };
@@ -151,7 +152,8 @@ const modesOfInheritance = (profile?: GeneProfileResponse): string[] =>
 // its frozen consequence, frequencies, in-silico scores and gene missense Z, else its
 // annotation set.
 const describeClassificationDrift = (item: ApiClassificationDriftItem): string => {
-  if (item.status === 'variant_missing') return 'no longer present in the dataset';
+  // Worded as the signed version words it (ENG-10; it said "in the dataset").
+  if (item.status === 'variant_missing') return 'no longer present in the data';
   return (
     describeSmallVariantDrift({
       clinvarFrom: item.clinvar_from,
@@ -166,7 +168,7 @@ const describeClassificationDrift = (item: ApiClassificationDriftItem): string =
 // What moved in the evidence of an SV/CNV classification, in the words of its inputs. A missing
 // one names the caller whose call is gone: another caller may still call the SV (TRACE-12).
 const describeStructuralDrift = (item: ApiStructuralClassificationDriftItem): string => {
-  if (item.status === 'variant_missing') return `${describeMissingStructuralCall(item.evidence_from)} in the dataset`;
+  if (item.status === 'variant_missing') return `${describeMissingStructuralCall(item.evidence_from)} in the data`;
   if (item.status === 'unknown') return 'its frozen evidence cannot be compared';
   return (
     describeStructuralEvidenceChange(item.changed, item.evidence_from, item.evidence_to) ??
@@ -482,6 +484,7 @@ const LiveFamilyReport: React.FC = () => {
   ) {
     return (
       <PageState
+        loading
         kicker="Report"
         title="Preparing the family report"
         message="Gathering reported variants, gene context and phenotype data."
@@ -543,7 +546,7 @@ const LiveFamilyReport: React.FC = () => {
             >
               Retry
             </button>
-            <Link to={`/families/${familyId}`} className="button-secondary">
+            <Link to={routePath`/families/${familyId}`} className="button-secondary">
               Back to family
             </Link>
           </div>
@@ -1043,8 +1046,12 @@ const LiveFamilyReport: React.FC = () => {
               ) : null}
 
               <p className="report-variant-locus">
-                {variant.chr}:{variant.start.toLocaleString()}-{variant.end.toLocaleString()} ·{' '}
-                {variant.type || 'SV'}
+                {variant.chr}:{variant.start.toLocaleString()}-{variant.end.toLocaleString()}
+                {/* A breakend's mate, as the sentence above names it (CLIN-39). */}
+                {variant.remote_chr && variant.remote_start
+                  ? ` → ${variant.remote_chr}:${variant.remote_start.toLocaleString()}`
+                  : ''}{' '}
+                · {variant.type || 'SV'}
               </p>
             </article>
           );
@@ -1176,6 +1183,7 @@ const FamilyReportPage: React.FC = () => {
     if (!signouts.isFetched) {
       return (
         <PageState
+          loading
           kicker="Report"
           title="Preparing the family report"
           message="Looking up the signed versions."

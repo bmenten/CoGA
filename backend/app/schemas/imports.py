@@ -211,6 +211,9 @@ class RawImportFileOut(BaseModel):
     exists: Optional[bool] = None
     download_available: bool = False
     in_object_store: bool = False
+    # Whether the recorded location lies outside the folders and the object-store roots
+    # CoGA reads source files from: such a file is neither downloaded nor verified (SEC-27).
+    outside_read_folders: bool = False
 
 
 class FamilyRawFilesOut(BaseModel):

@@ -69,9 +69,9 @@ _DEL_30000 = "1-30000-31000-DEL---"
 _DEL_80000 = "1-80000-80800-DEL---"
 _BND_60000 = "1-60000-60000-BND-5-3000000-3000000"
 # The golden trio's NeedlR SVs (SVDEL1, SVBND1), by the ids their coordinates give them
-# (CLIN-43): the breakend's holds its mate.
+# (CLIN-43): the breakend's holds its mate, and its END is its POS (CLIN-39).
 _NEEDLR_DEL = "1-7000-12000-DEL---"
-_NEEDLR_BND = "1-20000-20001-BND-5-3000000-3000000"
+_NEEDLR_BND = "1-20000-20000-BND-5-3000000-3000000"
 
 
 def _cap(resp) -> dict:

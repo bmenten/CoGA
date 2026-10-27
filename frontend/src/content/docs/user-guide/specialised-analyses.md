@@ -23,7 +23,8 @@ and a **Gene symbol** both filled in, an SV must meet both.
 the list shows, without the minus sign of a deletion: the caller's SVLEN; for a call written as its
 sequence without an SVLEN (as VCF 4.4 writes one), the bases it inserts or deletes; otherwise the end
 minus the start. An insertion is as long as the sequence it inserts, although most callers write its end
-at its start. A translocation (BND, TRA) has no length: every minimum keeps it, and no exact length
+at its start. A length typed with a minus sign, as the list writes a deletion's, is read without it.
+A translocation (BND, TRA) has no length: the list shows none, every minimum keeps it, and no exact length
 finds it.
 
 A filtered search reads at most 50,000 SVs of the callset before it applies the filters, and with
@@ -49,10 +50,14 @@ The **Repeat expansions** page lists each repeat locus with every member's call:
 each allele, and a status read against the locus's thresholds in the repeat catalogue (STRchive):
 
 - *Normal*, *Grey zone* (the intermediate range), *Premutation* (an FMR1 allele of 55–200 repeats,
-  which can expand in a child) and *Pathogenic*.
+  which can expand in a child) and *Pathogenic*. Where the catalogue gives a locus a benign range
+  and a pathogenic threshold but no grey zone, a count between the two reads *Grey zone*: it is
+  neither benign nor pathogenic.
 - *Review: outside catalogued ranges*: a count the catalogue cannot classify at a locus that is
-  pathogenic by contraction. A male's call with two different chrX alleles also asks for review, in
-  a note that explains it.
+  pathogenic by contraction.
+- *Review: two chrX alleles in a male*: a male's call with two different chrX alleles, where he
+  carries one; a note explains it.
+- The genome tracks colour each call by the status the repeat page gives it.
 - *Not assessed*: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus
   the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold.
   CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*. Where the
@@ -84,15 +89,28 @@ focus the mark for the count, the nearest count on each side that reads another 
 known of TRGT's count at the gene. The status itself is not changed: read the call with the mark in
 mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
 boundary, and a genome track says it in the locus's tooltip. An administrator records each locus's
-validation, with its reason, on the admin page **Repeat Catalogue**; a validated locus is no longer
+validation, with its reason, on the admin page **Repeat catalogue**; a validated locus is no longer
 marked. Signing out freezes the mark beside its call, and for each locus whether QA had validated its
 counting units, with the reason, by whom and when: a locus validated or withdrawn after sign-out makes
 the report say the repeat expansions changed since.
 
+### Paraphase
+
+Some genes lie in regions with nearly identical copies, such as *SMN1/SMN2* or *PMS2*, where standard
+variant calling fails. The **Paraphase** page shows, per locus, what Paraphase found there for each
+member: the copy number, and a status read from a catalogue of medical regions. Where the catalogue has
+a rule for the locus, the copy number reads as *normal*, *carrier* or *pathogenic*, or as *review* when it
+fits none of them; at a locus without a rule, a copy-number change or a fusion reads as *review*. A change
+is a copy number outside the normal range the catalogue records for the locus (6 for *NEB*, 4 for a gene
+with its pseudogene). On chrX a man has one copy and a woman two, by the sex
+Paraphase infers, else the pedigree's; without a sex a chrX value is not called normal. A field without a
+fixed normal value (*highest_total_cn*) and a no-call are no change. **Copy-number changes only** shows
+only the loci with such a change.
+
 ### mtDNA
 
 Each sample's card on the **mtDNA analysis** page gives its mean chrM depth and the share of chrM
-covered, and a QC status judged against the lab's limits (**Sequencing QC Thresholds**). The depth
+covered, and a QC status judged against the lab's limits (**Sequencing QC thresholds**). The depth
 comes from one coverage track that holds read depth: the sample's coverage BED when it was declared as
 read depth, otherwise HiFiCNV's depth where the import stored it as read. WisecondorX's and QDNAseq's
 bins, HiFiCNV's normalised depth and a coverage BED declared as a log2 ratio hold log2 ratios, not

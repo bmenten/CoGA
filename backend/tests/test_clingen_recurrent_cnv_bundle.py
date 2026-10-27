@@ -95,10 +95,8 @@ def test_the_startup_loads_it_as_v2_1_and_never_stores_the_v2_0_track_name(
     monkeypatch.setattr(rms, "_assembly_dataset_count", nothing_loaded)
     monkeypatch.setattr(settings, "reference_bootstrap_enabled", True)
     monkeypatch.setattr(settings, "reference_bootstrap_assembly_name", "GRCh38")
-    # No configured file, so the startup loads the bundled one; no clinical-CNV file at all.
+    # No configured file, so the startup loads the bundled one.
     monkeypatch.setattr(settings, "reference_segmental_duplications_path", str(tmp_path / "absent.bed"))
-    monkeypatch.setattr(settings, "reference_clinical_cnvs_path", str(tmp_path / "absent.tsv"))
-    monkeypatch.setattr(rms, "REPO_CLINICAL_CNVS_PATH", tmp_path / "absent-too.tsv")
     session = _RecordingSession()
 
     asyncio.run(rms.seed_builtin_reference_tracks(session))  # type: ignore[arg-type]

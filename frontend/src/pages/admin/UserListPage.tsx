@@ -110,6 +110,7 @@ const UserListPage: React.FC = () => {
   if (usersLoading || projectsLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading users"
         message="Preparing user activation state and project access."

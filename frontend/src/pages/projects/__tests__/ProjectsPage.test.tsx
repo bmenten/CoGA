@@ -180,6 +180,37 @@ describe('ProjectsPage', () => {
     });
   });
 
+  // ENG-10: the Users page read the accounts' projects from its own cache, and showed a saved
+  // change of access only once that went stale, up to 30 s later.
+  it('refreshes the account list the Users page shows once project access is saved', async () => {
+    vi.mocked(api.put).mockResolvedValue({ data: {} });
+    const queryClient = createTestQueryClient();
+    queryClient.setQueryData(['admin', 'projects'], [{ id: 'p1', name: 'Project One' }]);
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={['/projects']}>
+          <Routes>
+            <Route path="/projects" element={<ProjectsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await screen.findByRole('combobox', { name: 'Access level of viewer@example.com' });
+    expect(queryClient.getQueryState(['admin', 'users'])?.isInvalidated).toBe(false);
+
+    const userAccess = screen.getByRole('heading', { name: 'User access' }).closest('.surface-card-muted') as HTMLElement;
+    fireEvent.click(within(userAccess).getByRole('checkbox', { name: /Stu Dent/ }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save settings' }));
+
+    await waitFor(() => expect(api.put).toHaveBeenCalledTimes(1));
+    // The users list is fetched again (it is in use here); the Users page's projects are stale.
+    await waitFor(() =>
+      expect(vi.mocked(api.get).mock.calls.filter(([url]) => url === '/auth/users')).toHaveLength(2),
+    );
+    expect(queryClient.getQueryState(['admin', 'projects'])?.isInvalidated).toBe(true);
+  });
+
   it('counts a project’s readers among its users', async () => {
     const get = api.get as unknown as Mock;
     const working = get.getMockImplementation()!;

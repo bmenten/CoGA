@@ -181,6 +181,7 @@ const Layout: React.FC = () => {
             <Suspense
               fallback={
                 <PageState
+                  loading
                   kicker="Preferences"
                   title="Loading settings"
                   message="Preparing your local viewer preferences."

@@ -907,7 +907,8 @@ async def record_family_deleted(
         actor=audit_actor(user),
         actor_id=str(actor_id) if actor_id is not None else None,
         action=FAMILY_DELETED_ACTION,
-        summary=family_deleted_summary(source, samples, data),
+        summary=family_deleted_summary(source, samples, data)
+        + (f". Reason: {stated_reason}" if stated_reason else ""),
         before={
             "samples": samples,
             "structure_version": int(latest) if latest is not None else None,

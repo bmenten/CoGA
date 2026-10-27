@@ -113,6 +113,8 @@ const Breadcrumbs: React.FC = () => {
     }
 
     if (segment === 'chromosome' && others[index - 1]) {
+      // A segment of the pathname, still percent-encoded: it goes into the path as it is
+      // (routePath would encode it twice).
       const familyId = others[index - 1];
       const params = new URLSearchParams(search);
       params.delete('start');

@@ -296,8 +296,15 @@ const ProjectsPage: React.FC = () => {
     };
   }, [projects, projectsFailed]);
 
+  // The Users page lists each account's projects, and their names, from caches of its own:
+  // without these, a saved change of access showed there only once they went stale, up to
+  // 30 s later (ENG-10).
   const refetchProjects = async () => {
-    await queryClient.invalidateQueries({ queryKey: ['projects'] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['projects'] }),
+      queryClient.invalidateQueries({ queryKey: userAccountsQuery.queryKey }),
+      queryClient.invalidateQueries({ queryKey: ['admin', 'projects'] }),
+    ]);
   };
 
   const toggleUserId = (

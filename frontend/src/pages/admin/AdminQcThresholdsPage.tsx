@@ -132,6 +132,7 @@ const AdminQcThresholdsPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Admin"
         title="Loading sequencing QC thresholds"
         message="Fetching the metric catalogue and threshold profiles."
@@ -341,6 +342,34 @@ const AdminQcThresholdsPage: React.FC = () => {
                   </tr>
                 );
               })}
+              {/* A limit whose metric has left the catalogue gates nothing, and the rows above
+                  are the catalogue's: it is listed here so that it can be removed, through the
+                  same confirmation and reason as any change (ENG-12, REQ-QC-003). */}
+              {(activeProfile?.thresholds ?? [])
+                .filter((threshold) => !threshold.known_metric)
+                .map((threshold) => (
+                  <tr key={threshold.metric_key}>
+                    <td>
+                      {threshold.metric_key}{' '}
+                      <span className="table-subtle">no longer in the catalogue: it gates nothing</span>
+                    </td>
+                    <td className="table-subtle">{boundText(threshold.warn_value) || 'none'}</td>
+                    <td className="table-subtle">{boundText(threshold.error_value) || 'none'}</td>
+                    <td>
+                      <button
+                        type="button"
+                        className="button-ghost"
+                        disabled={saveMutation.isPending}
+                        onClick={() => {
+                          setDraft(threshold.metric_key, { warn: '', error: '' });
+                          setPendingMetric(threshold.metric_key);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
             </tbody>
           </table>
         </div>

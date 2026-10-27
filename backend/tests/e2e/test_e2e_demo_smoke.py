@@ -171,6 +171,20 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
         q_coverage = (
             await count_interval_track_source_rows(s, family_uuid=q_uuid) if q_uuid else 0
         )
+        q_state = (
+            (
+                await s.execute(
+                    text(
+                        "SELECT metadata -> 'imported_scopes' AS imported, "
+                        "metadata -> 'import_unfinished' AS unfinished FROM families "
+                        "WHERE id = CAST(:f AS uuid)"
+                    ),
+                    {"f": q_uuid},
+                )
+            ).mappings().one()
+            if q_uuid
+            else {"imported": None, "unfinished": None}
+        )
     out["quartet"] = {
         "family_id": bundle.family_id,
         "family_uuid": q_uuid,
@@ -179,6 +193,8 @@ async def _collect(nipt_root: Path, nipt_family_id: str) -> dict:
         "sv": await count_family_structural_variants(bundle.assembly_name, q_uuid) if q_uuid else 0,
         "repeats": q_repeats,
         "coverage_rows": q_coverage,
+        "imported_scopes": q_state["imported"],
+        "unfinished": q_state["unfinished"],
     }
     return out
 
@@ -252,3 +268,20 @@ def test_quartet_bundle_loads_all_data_types(smoke):
     assert q["sv"] > 0, q
     assert q["repeats"] > 0, q
     assert q["coverage_rows"] > 0, q
+
+
+def test_quartet_loader_records_what_it_loads_for_the_family(smoke):
+    # SAFE-18. Before: the loader wrote through the upload services without their record, so
+    # the family recorded nothing it held, and a failed overwrite's restore that stopped
+    # part-way could not name the demo's data.
+    q = smoke["quartet"]
+    assert set(q["imported_scopes"] or {}) == {
+        "bed_apcad",
+        "bed_coverage",
+        "bed_segments",
+        "haplotypes",
+        "repeats_trgt",
+        "sv_manual",
+    }, q["imported_scopes"]
+    # Each upload's mark went with its commit.
+    assert q["unfinished"] is None, q["unfinished"]

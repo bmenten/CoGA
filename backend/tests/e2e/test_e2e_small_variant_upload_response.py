@@ -1,6 +1,6 @@
 """A successful family small-variant upload answers 200 with its result (E2E).
 
-``POST /families/{family_id}/small-variants/upload`` is what the **Family Small Variants**
+``POST /families/{family_id}/small-variants/upload`` is what the **Family small variants**
 form on the Upload page sends. The rows are written and committed before the response is
 built, so a response that fails is worse than no answer: the page reports an error for an
 upload that worked, and the user uploads again. The result holds a list

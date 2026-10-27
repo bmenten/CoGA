@@ -551,10 +551,6 @@ class Settings(BaseSettings):
         default="GRCh38",
         alias="REFERENCE_BOOTSTRAP_ASSEMBLY_NAME",
     )
-    reference_clinical_cnvs_path: str | None = Field(
-        default="/data/ref-data/clinical_cnv_syndromes_hg38_combined.tsv",
-        alias="REFERENCE_CLINICAL_CNVS_PATH",
-    )
     # The segmental-duplication file the startup reads first; the repository's copy when this
     # one does not exist. Whichever is read must be the shipped file, byte for byte
     # (SEGMENTAL_DUPLICATIONS_PINNED_SHA256 above), or it is not loaded (TRACE-14).

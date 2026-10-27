@@ -24,7 +24,7 @@ export default function StructuralVariantSummaryTable({
       <table className="analysis-table">
         <thead>
           <tr>
-            <th>Type / Source</th>
+            <th>Type / source</th>
             {sources.map((source) => (
               <th key={source}>{source || '—'}</th>
             ))}

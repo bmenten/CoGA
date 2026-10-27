@@ -683,9 +683,9 @@ def _package_family_id(validation: FamilyPackageValidationOut, bundle: FamilyPac
 #
 # A failed overwrite's restore is the exception. It rewrites the family's rows in every
 # variant and track table, whichever import or single-file upload wrote them, so once it
-# begins, its import's entry lists every dataset the family holds (`imported_scopes`:
-# ``merged_imported_scopes``, which the uploads add to as the imports do) besides its own,
-# under `whole_family`, each with its scope (``whole_family_entry``). A restore that puts
+# begins, its import's entry lists every dataset the family holds in ClickHouse
+# (`imported_scopes`: ``merged_imported_scopes``, which the uploads add to as the imports
+# do) besides its own, under `whole_family`, each with its scope (``whole_family_entry``). A restore that puts
 # the family back, or that refuses to start, removes the entry as before. One that fails
 # part-way, or whose process stops in it, leaves it: any dataset of the family may then be
 # partly written or missing, whichever import or upload wrote it. Each later import that
@@ -979,15 +979,22 @@ def merged_import_failure(
     imported: Iterable[str],
     scopes: Mapping[str, Any],
     imported_scopes: Mapping[str, Any],
-) -> dict[str, Any]:
+) -> Any:
     """The ``import_incomplete`` flag after an import that failed for ``failed``: its own
     failures, and those of the flag already stored that it did not import again
     (``imported_scopes``: the scope of each dataset it imported). A later failure never
     drops an earlier one, of another dataset or of the same dataset under another scope
     (another callset, other samples): each failure keeps its scope and the job whose record
     holds its error, and leaves the flag only once its scope has been brought again
-    (SAFE-26). The same scope failing again is one failure, with its latest job. A stored
-    flag not in the shape an import writes names nothing to keep."""
+    (SAFE-26). The same scope failing again is one failure, with its latest job.
+
+    A stored flag not in the shape an import writes (``true``, a list) is kept as it is: it
+    says the family is incomplete without naming what would complete it, as a sign-out reads
+    it, and a completed import leaves it too (``failures_left_after``). Replacing it would
+    let the family read as complete once this import's own failures had been imported again
+    (SAFE-18). This import's failures are then named in its job's record alone."""
+    if stored is not None and stored is not False and _flag_failures(stored) is None:
+        return stored
     failures = _failures_not_imported_again(_flag_failures(stored) or {}, imported_scopes)
     for name in sorted({str(name) for name in failed}):
         scope = scopes.get(name)
@@ -1239,10 +1246,17 @@ def whole_family_entry(
     ``imported_scopes``) and what the other imports that have not finished set out to
     import -- and every dataset of this import, each with its scope, one sample at a time;
     ``datasets`` names them all and none is finished. A sample that is no longer the
-    family's (``family_samples``) is left out: no import of the family can name it."""
+    family's (``family_samples``) is left out: no import of the family can name it.
+
+    Of the datasets this import did not carry, only those ClickHouse holds are listed
+    (``dataset_clickhouse_stores``): the restore rewrites ClickHouse table by table, but puts
+    Postgres back in one transaction, which a failure rolls back whole, so it cannot leave a
+    dataset held in Postgres alone (repeats, Paraphase, QC, phenotypes) partly written. Those
+    of this import are all listed, as its flag names each as failed. They used to be listed
+    all the same, so the whole family had to be imported again for them too (SAFE-18)."""
     pairs: list[tuple[str, Any]] = [(name, mark.scopes.get(name)) for name in mark.datasets]
     for dataset, held in merged_imported_scopes(imported, ()).items():
-        pairs.extend((dataset, scope) for scope in held)
+        pairs.extend((dataset, scope) for scope in held if dataset_clickhouse_stores(dataset))
     for key, other in unfinished.items():
         if key == mark.key or not isinstance(other, Mapping):
             continue
@@ -1251,13 +1265,16 @@ def whole_family_entry(
             pairs.extend(
                 (str(item["dataset"]), item.get("scope"))
                 for item in listed
-                if isinstance(item, Mapping) and item.get("dataset")
+                if isinstance(item, Mapping)
+                and item.get("dataset")
+                and dataset_clickhouse_stores(str(item["dataset"]))
             )
             continue
         scopes = other.get("scopes")
         pairs.extend(
             (name, scopes.get(name) if isinstance(scopes, Mapping) else None)
             for name in sorted(_dataset_names(other.get("datasets")) or ())
+            if dataset_clickhouse_stores(name)
         )
     members = {str(sample) for sample in family_samples} if family_samples else None
     items: dict[str, dict[str, Any]] = {}
@@ -1770,12 +1787,17 @@ async def _flag_family_import_incomplete(
     scopes: Mapping[str, Any] | None = None,
     imported_scopes: Mapping[str, Any] | None = None,
 ) -> None:
-    """Stamp a pre-existing family as import-incomplete after a failed update/overwrite.
+    """Stamp a family as import-incomplete after an import that failed for some datasets
+    and left the family in place.
 
-    We do not snapshot/restore existing family data, so a partial update/overwrite can
-    leave the family with some datasets (over)written and others missing (overwrite
-    even pre-clears before insert). Rather than let that state be silently queryable as
-    if complete, record it in the family metadata so it is explicit and auditable.
+    The family is left in place by an import that imported some datasets (a new family is
+    deleted only when none imported), a failed update (it takes no snapshot: it skips what
+    is there, so it replaced nothing), an overwrite whose snapshot could not be taken, and
+    one whose restore was refused before its first delete (``FamilyRestoreRefused``). A
+    restore that puts the family back leaves no flag, and one that fails part-way flags it
+    through ``_flag_family_restore_failed``. Rather than let that state be silently
+    queryable as if complete, record it in the family metadata so it is explicit and
+    auditable.
     Best-effort and self-committing: a flag-write failure must not mask the original
     import failure.
 

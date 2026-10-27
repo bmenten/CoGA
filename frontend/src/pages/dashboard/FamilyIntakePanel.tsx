@@ -657,8 +657,8 @@ const FamilyIntakePanel: React.FC = () => {
     <section className="surface-card intake-panel">
       <div className="grid gap-4 border-b border-(--color-border) pb-4 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
         <div className="space-y-3">
-          <p className="page-kicker">Pedigree Intake</p>
-          <h2 className="section-title">Family Builder</h2>
+          <p className="page-kicker">Pedigree intake</p>
+          <h2 className="section-title">Family builder</h2>
           <p className="page-subtitle">
             Build a pedigree manually. The workspace keeps parent assignments consistent, shows the
             PED rows that will be saved, and draws the family structure as you edit.
@@ -688,7 +688,7 @@ const FamilyIntakePanel: React.FC = () => {
               aria-pressed={mode === 'manual'}
               onClick={() => setMode('manual')}
             >
-              Manual Builder
+              Manual builder
             </button>
             {userIsAdmin ? (
               <button
@@ -738,7 +738,7 @@ const FamilyIntakePanel: React.FC = () => {
       {mode === 'upload' ? (
         <div className="surface-card-muted space-y-4">
           <div className="space-y-2">
-            <p className="page-kicker">Existing File</p>
+            <p className="page-kicker">Existing file</p>
             <h3 className="section-title">Import pedigree</h3>
             <p className="text-sm leading-7 text-(--color-text-muted)">
               Use this when the pedigree structure already exists in PED format.
@@ -1194,7 +1194,7 @@ const FamilyIntakePanel: React.FC = () => {
 
             <div className="surface-card-muted">
               <div className="flex items-center justify-between gap-3">
-                <h3 className="eyebrow-label">Pedigree Sketch</h3>
+                <h3 className="eyebrow-label">Pedigree sketch</h3>
                 <span className="text-xs text-(--color-text-muted)">
                   Black fill = affected
                 </span>
@@ -1218,7 +1218,7 @@ const FamilyIntakePanel: React.FC = () => {
             </div>
 
             <div className="surface-card-muted">
-              <h3 className="eyebrow-label">PED Preview</h3>
+              <h3 className="eyebrow-label">PED preview</h3>
               <textarea readOnly value={pedPreview} className="mono-panel mt-4 !h-64 !text-xs" />
             </div>
           </aside>

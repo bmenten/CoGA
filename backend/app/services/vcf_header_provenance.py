@@ -33,6 +33,10 @@ Design notes
   so it records the tool without a version and never stands in for the version
   line before or after it. The manifest is frozen into every sign-out, so a word
   that is not a version must never be recorded as one.
+* Several versions of one tool in one header are all kept, joined with ``, `` as the
+  pipeline record joins them (``extract_pipeline_versions``): a header that a merge or
+  a second annotation left with two version lines of a tool names both, never only the
+  first or the last (TRACE-8).
 * Raw captured lines are kept (truncated) under ``raw`` while a header is read, but
   ``as_modules`` stores neither them nor ``fileformat`` and ``file_date``: what reaches the
   manifest is the per-tool versions and details.
@@ -71,10 +75,16 @@ _CANONICAL: dict[str, str] = {
     "gatk": "gatk",
     "haplotypecaller": "gatk",
     "dragen": "dragen",
+    "dragensnv": "dragen",
     "clair3": "clair3",
     "octopus": "octopus",
     "glimpse": "glimpse",
     "glimpse2": "glimpse",
+    # GLIMPSE names the program in ``##source`` (``GLIMPSE_phase v2.0.0``).
+    "glimpsephase": "glimpse",
+    "glimpse2phase": "glimpse",
+    "glimpseligate": "glimpse",
+    "glimpse2ligate": "glimpse",
     # GATK's Mutect2 names itself in ``##source=Mutect2`` and states its version on
     # ``##MutectVersion=2.2``: one module.
     "mutect2": "mutect2",
@@ -85,6 +95,8 @@ _CANONICAL: dict[str, str] = {
     "spectre": "spectre",
     "needlr": "needlr",
     "manta": "manta",
+    # Manta names its candidate-generation program (``GenerateSVCandidates 1.6.0``).
+    "generatesvcandidates": "manta",
     "cutesv": "cutesv",
     "delly": "delly",
     # repeat / other callers
@@ -194,17 +206,37 @@ def _set_module(
     version: str | None = None,
     detail: str | None = None,
     overwrite: bool = True,
+    join: bool = False,
 ) -> None:
+    """Record ``version`` and ``detail`` for the tool ``key`` names. With ``join`` a version
+    the entry does not list yet is added after the ones it holds, joined with ``, ``;
+    otherwise ``overwrite`` decides whether a later value replaces an earlier one."""
     key = _canonical_key(key)
     if not key:
         return
     entry = modules.setdefault(key, {})
     version = _clean(version) if version is not None else ""
     detail = _clean(detail) if detail is not None else ""
-    if version and (overwrite or not entry.get("version")):
+    current = entry.get("version")
+    if version and join and current:
+        if not _lists_version(str(current), version):
+            entry["version"] = f"{current}, {version}"
+    elif version and (overwrite or not current):
         entry["version"] = version
     if detail and (overwrite or not entry.get("detail")):
         entry["detail"] = detail
+
+
+def _lists_version(joined: str, version: str) -> bool:
+    """Whether the versions ``joined`` holds include ``version``. A version may itself hold
+    a comma (DRAGEN's ``SW: 07.021.624.3.10.4, HW: 07.021.624``), so it is looked for as
+    a whole entry of the list, never by splitting it."""
+    return (
+        joined == version
+        or joined.startswith(f"{version}, ")
+        or joined.endswith(f", {version}")
+        or f", {version}, " in joined
+    )
 
 
 def _iter_kv(text: str) -> Iterable[tuple[str, str]]:
@@ -220,11 +252,11 @@ def _parse_vep_line(value: str, prov: HeaderProvenance) -> None:
     # the whole thing starts with a quoted token); capture it first.
     leading = re.match(r'^\s*"?v?([\w.+-]+)"?', value)
     if leading:
-        _set_module(prov.modules, "vep", version=leading.group(1))
+        _set_module(prov.modules, "vep", version=leading.group(1), join=True)
     for key, raw in pairs:
         low = key.lower()
         if low in {"vep", "ensembl-vep"}:
-            _set_module(prov.modules, "vep", version=raw)
+            _set_module(prov.modules, "vep", version=raw, join=True)
         elif low == "cache":
             _set_module(prov.modules, "vep", detail=raw, overwrite=False)
         elif low in {"ensembl", "ensembl-version"} and not prov.modules.get("vep", {}).get("version"):
@@ -234,7 +266,7 @@ def _parse_vep_line(value: str, prov: HeaderProvenance) -> None:
             if canonical == "assembly":
                 prov.reference = prov.reference or raw
             else:
-                _set_module(prov.modules, canonical, version=raw, overwrite=False)
+                _set_module(prov.modules, canonical, version=raw, join=True)
 
 
 def _parse_command_line_record(tool: str, value: str, prov: HeaderProvenance) -> None:
@@ -247,7 +279,7 @@ def _parse_command_line_record(tool: str, value: str, prov: HeaderProvenance) ->
     ``CommandLineOptions`` lists ``version=false`` among the tool's arguments.
     """
     version = _stated_version(tool, value) if _clean(value).startswith("<") else None
-    _set_module(prov.modules, tool, version=version, detail="caller", overwrite=False)
+    _set_module(prov.modules, tool, version=version, detail="caller", overwrite=False, join=True)
 
 
 def _source_name_and_version(word: str) -> tuple[str, str | None]:
@@ -290,7 +322,7 @@ def _parse_source(value: str, prov: HeaderProvenance) -> str | None:
     key = _canonical_key(name)
     if not key:
         return None
-    _set_module(prov.modules, key, version=version, detail="caller", overwrite=False)
+    _set_module(prov.modules, key, version=version, detail="caller", overwrite=False, join=True)
     if prov.caller is None:
         prov.caller = {"name": key, "version": version or ""}
     return key
@@ -341,7 +373,7 @@ def _parse_generic(key: str, value: str, prov: HeaderProvenance) -> None:
     if m:
         tool, line_kind = m.group(1), m.group(2)
         version = _stated_version(tool, value) if line_kind == "version" else None
-        _set_module(prov.modules, tool, version=version, overwrite=False)
+        _set_module(prov.modules, tool, version=version, overwrite=False, join=True)
         return
     if low in {"source", "fileformat", "filedate", "reference"}:
         return  # handled by dedicated parsers
@@ -396,7 +428,7 @@ def extract_header_provenance(
             elif low.startswith("sentieoncommandline"):
                 _parse_command_line_record("sentieon", value, prov)
             elif low == "snpeffversion":
-                _set_module(prov.modules, "snpeff", version=_stated_version("snpeff", value))
+                _set_module(prov.modules, "snpeff", version=_stated_version("snpeff", value), join=True)
             elif low == "snpeffcmd":
                 # genome db, e.g. SnpEff GRCh38.105
                 gm = re.search(r"GRCh\d+\.\d+|GRCm\d+\.\d+", value)

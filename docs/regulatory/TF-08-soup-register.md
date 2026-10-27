@@ -187,7 +187,7 @@ report rests on. Versions are captured **per family** from the pipeline's
 | GLnexus | Joint genotyping | pipeline manifest |
 | Sniffles2 | Structural-variant calling | pipeline manifest, `##source=Sniffles2` |
 | NeedlR | SV annotation + population filtering | filename release + `##INFO` descriptions |
-| HiFiCNV | Depth-based CNV calling | pipeline manifest, `##source=hificnv` |
+| HiFiCNV | Depth-based CNV calling | pipeline manifest, `##source=HiFiCNV v…` (read from each CNV VCF at import since TRACE-8) |
 | TRGT | Repeat-expansion genotyping | pipeline manifest, `##trgtVersion` |
 | Paraphase | Segmental-duplication resolution | pipeline manifest |
 | mutserve | mtDNA variant annotation | pipeline manifest |

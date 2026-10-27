@@ -284,7 +284,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
         <>
           <div className="variant-review-modal-header">
             <div>
-              <p className="page-kicker">Family Member</p>
+              <p className="page-kicker">Family member</p>
               <h2 className="catalog-card-title">
                 {selectedMemberDetail?.member.sample_id ?? memberId}
               </h2>
@@ -469,7 +469,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
               <div className="family-member-modal-review-grid">
                 <div className="variant-review-modal-section family-member-modal-section">
                   <div className="family-workspace-card-head">
-                    <h3 className="section-title">HPO Phenotypes</h3>
+                    <h3 className="section-title">HPO phenotypes</h3>
                     <span className="table-chip">
                       {selectedMemberDetail.hpo_annotations.length} terms
                     </span>

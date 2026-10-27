@@ -731,7 +731,7 @@ def test_a_polg_count_inside_its_benign_range_is_stored_normal_and_the_table_rea
             {"WOMAN": ("not_assessed", ["not_assessed", "not_assessed"])},
         ),
     }
-    # The genome track shows the status stored at import until the call is imported again
-    # (CLIN-14), then the one the rule gives.
-    assert (track_before, track_after) == ("not_assessed", "normal")
+    # The genome track reads the call as the table does, at once (CLIN-14): it showed the
+    # status stored at import ("not_assessed") until the call was imported again.
+    assert (track_before, track_after) == ("normal", "normal")
     assert stored_after == expected_stored

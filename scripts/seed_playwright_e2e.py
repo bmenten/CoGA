@@ -8,7 +8,7 @@ role=admin so it can see the golden family's project.
 
 Idempotent. Run from the repo root against a live Postgres + ClickHouse:
 
-    RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py
+    python scripts/seed_playwright_e2e.py
 
 Honours E2E_USER_EMAIL / E2E_USER_PASSWORD (defaults below) — the spec reads the
 same env so the two stay in sync.

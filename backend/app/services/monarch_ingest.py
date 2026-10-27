@@ -132,11 +132,12 @@ async def _fetch_release_version() -> str | None:
 async def _resolve_release_version(release_version: str | None) -> str:
     """Resolve the Monarch KG release id, raising if it cannot be determined.
 
-    A signed clinical report's gene-disease / phenotype provenance must record which
-    Monarch release produced it, so we refuse to load data with an unknown version.
+    A signed-out analysis records which Monarch release its gene-disease / phenotype data
+    came from (the annotation manifest's ``monarch`` module, frozen at sign-out), so we
+    refuse to load data with an unknown version.
     Previously a failed metadata fetch only logged a warning and the refresh committed
     every row with ``release_version = NULL`` and reported success — silently losing the
-    provenance of data that feeds clinical reports. Pass an explicit ``release_version``
+    provenance of data that feeds the analysis. Pass an explicit ``release_version``
     to bypass the network lookup.
     """
     if release_version is None:

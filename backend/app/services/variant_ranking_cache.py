@@ -87,26 +87,15 @@ def canonical_filters(filters: Any) -> dict[str, Any]:
 
 
 async def _pedigree_signature(session: AsyncSession, context: Any) -> Any:
-    # The pedigree structure hash already captures roles, parentage and affected
-    # status, and is bumped on every pedigree/phenotype edit — reuse it when present.
-    structure_hash = (
-        await session.execute(
-            text(
-                """
-                SELECT structure_hash
-                FROM family_structure_versions
-                WHERE family_id = CAST(:family_uuid AS uuid)
-                ORDER BY version DESC
-                LIMIT 1
-                """
-            ),
-            {"family_uuid": context.family_uuid},
-        )
-    ).scalar()
-    if structure_hash:
-        return {"structure_hash": structure_hash}
-    # Fallback: derive from the loaded context. Sex too, as the structure hash has it: the
-    # X-linked rules read it, in the segregation and in what a carrier screen keeps.
+    """The pedigree the ranking is computed on, as the loaded context holds it: each
+    member's role, sex (the X-linked rules read it, in the segregation and in what a carrier
+    screen keeps), affected and clinical status, and the relationships.
+
+    Not the family's latest ``structure_hash``: read after the context, a pedigree edit
+    committed between the two reads stored a ranking computed on the old pedigree under the
+    new pedigree's key, which every later request on the new pedigree was served (ENG-13).
+    """
+    del session  # what the ranking reads is the context's, not the database's latest
     samples = sorted(
         (
             {
@@ -374,13 +363,17 @@ async def find_superset_candidates(
     narrower panel with the segregation the narrower panel gives them (the caller,
     ``_serve_subpanel_from_superset``, checks). Largest first, so the broadest superset
     (e.g. a no-panel all-genes ranking) is preferred.
+
+    Without their rankings: the caller reads a candidate's (``get_cached_ranking``, by its
+    ``inputs_hash``) once its panel passes, so a candidate on another panel costs no read of
+    a ranking that can hold thousands of variants (ENG-13).
     """
     rows = (
         await session.execute(
             text(
                 """
                 SELECT inputs_hash, panel_id, total, total_is_estimated, ranking_truncated,
-                       ranking, provenance, computed_at
+                       provenance, computed_at
                 FROM family_variant_ranking_cache
                 WHERE family_id = CAST(:family_uuid AS uuid)
                   AND base_hash = :base_hash

@@ -72,6 +72,7 @@ const NewFeaturesPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Product updates"
         title="Loading release history"
         message="Fetching the latest release notes and feature history from GitHub."

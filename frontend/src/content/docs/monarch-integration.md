@@ -27,7 +27,7 @@ Every association CoGA shows names its relationship and its source.
 
 ## On the gene profile
 
-Open a gene in the **Gene Explorer**. The **Monarch gene–disease associations** list shows each disease
+Open a gene in the **Gene explorer**. The **Monarch gene–disease associations** list shows each disease
 linked to the gene, with:
 
 - the **relationship**: *Causes*, *Associated*, *Contributes to* or *Increased likelihood*, so a
@@ -106,7 +106,7 @@ PP4. See the [ACMG classification reference](/docs/reference/acmg-classification
 | Gene profile associations, Mendeliome panel, variant ranking, PP4 | Monarch release loaded into CoGA by an administrator | as of the last load |
 | Candidate-gene panel (family page) | a live call to Monarch's similarity service | at the time you press the button |
 
-An administrator loads the Monarch release from **Admin → Monarch Data**, about monthly. Loading it
+An administrator loads the Monarch release from **Admin → Monarch data**, about monthly. Loading it
 also rebuilds the Mendeliome panel. The release is recorded, so the report's provenance footer shows
 which Monarch release backed an interpretation.
 

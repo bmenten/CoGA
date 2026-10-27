@@ -10,7 +10,7 @@ freezes it. The clinical report is drafted and medically signed in the hospital'
 record (EPD), outside CoGA, and refers to exactly one signed version of the analysis, by its **report
 code** (below). CoGA does not see the EPD report and does not check that reference.
 
-How to prepare and sign out a report is in the [user guide](/docs), section *Clinical report and
+How to prepare and sign out a report is in the [user guide](/docs), section *Family report and
 sign-out*. This page holds the rules.
 
 ---
@@ -88,7 +88,7 @@ banner lists every classification whose evidence changed:
   evidence cannot be compared* when the frozen evidence cannot be read or does not name its caller;
 - the variant is no longer in the data (for a structural variant: the call of the caller its evidence
   was frozen from, even when another caller still calls the event, and the line names that caller:
-  *its needlr call is no longer present in the dataset*).
+  *its needlr call is no longer present in the data*).
 
 Re-review a listed variant before sign-out. Saving its classification again freezes the evidence as it
 is now.
@@ -138,7 +138,7 @@ Applying the same version again writes nothing; a new version of the panel is wr
 applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
-This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
+This is the record of clinical actions; the record of who opened what (**Admin → Audit logs**) is
 separate. The trail is for analysts and administrators: a reader of the family's project does not
 see it.
 
@@ -251,7 +251,9 @@ finish or refuses the sign-out, so a signed version never mixes the family's dat
 a write.
 
 If the family's project cannot be loaded, the assembly — and so the scope — is not known: the pages say
-*Validated scope not confirmed*, with **Retry**, and the report waits until it loads. If the family
+*Validated scope not confirmed*, with **Retry**, and the report waits until it loads. While it is still
+loading, every family page shows that it is loading, not the family's data, which would otherwise show a
+moment before *Not validated for clinical use*. If the family
 itself cannot be loaded, neither its import state nor its assembly is known: a family page then shows
 only *Family could not be loaded*, with **Retry**, and none of the family's data (a report: *Report
 could not be loaded*).

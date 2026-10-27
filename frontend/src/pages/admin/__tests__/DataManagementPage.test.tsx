@@ -207,7 +207,24 @@ describe('DataManagementPage', () => {
     expect(screen.getByText('S1_bins.bed')).toBeInTheDocument();
   });
 
-  it('requires typing the family name before the entire family can be deleted', async () => {
+  // ENG-10: "Sample type" headed the sex and "Metadata" the affected status.
+  it('heads each sample column with what it holds', async () => {
+    mockResponses();
+    renderPage();
+    await selectFamily();
+
+    const table = (await screen.findAllByText('Delete sample'))[0].closest('table') as HTMLTableElement;
+    const headings = [...table.querySelectorAll('thead th')].map((cell) => cell.textContent);
+    const row = [...table.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes('S1'));
+    const cells = [...(row?.querySelectorAll('td') ?? [])].map((cell) => cell.textContent);
+    const under = (heading: string) => cells[headings.indexOf(heading)];
+
+    expect([under('Sample'), under('Role'), under('Sex'), under('Status')]).toEqual(['S1', 'Proband', 'male', 'Affected']);
+    expect(headings).not.toContain('Sample type');
+    expect(headings).not.toContain('Metadata');
+  });
+
+  it('requires the family name and a reason before the entire family can be deleted', async () => {
     mockResponses();
     (api.delete as unknown as Mock).mockResolvedValue({ data: { ok: true } });
     renderPage();
@@ -220,15 +237,23 @@ describe('DataManagementPage', () => {
     expect(continueButton).toBeDisabled();
 
     fireEvent.change(screen.getByPlaceholderText('F1'), { target: { value: 'F1' } });
+    // The name alone is not enough: the deletion's reason is required (TRACE-16).
+    expect(continueButton).toBeDisabled();
+    const reason = screen.getByRole('textbox', { name: /reason for the deletion/i });
+    fireEvent.change(reason, { target: { value: '   ' } });
+    expect(continueButton).toBeDisabled();
+    fireEvent.change(reason, { target: { value: ' Duplicate of family F2 ' } });
     expect(continueButton).not.toBeDisabled();
     fireEvent.click(continueButton);
 
+    expect(screen.getByText('Reason: Duplicate of family F2')).toBeInTheDocument();
     const confirmButton = screen.getByRole('button', { name: /permanently delete F1/i });
     fireEvent.click(confirmButton);
 
     await waitFor(() =>
       expect(api.delete).toHaveBeenCalledWith('/admin/families/F1', {
         params: { confirm: true },
+        data: { reason: 'Duplicate of family F2' },
       }),
     );
   });

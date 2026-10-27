@@ -359,6 +359,24 @@ async def test_the_list_shows_a_file_outside_the_folders_unavailable(where: Simp
     # Before: every file outside the folders that is there was listed present and
     # downloadable (all but the relative path).
     assert availability == [(True, True, False), (True, True, False)] + [(False, False, False)] * (1 + len(OUTSIDE_CASES))
+    # And the row says why: a file that is gone is not a location CoGA does not read (SEC-27).
+    assert [row["outside_read_folders"] for row in listed] == [False, False, False] + [True] * len(OUTSIDE_CASES)
+
+
+@pytest.mark.asyncio
+async def test_the_list_marks_an_object_below_no_import_root(
+    where: SimpleNamespace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(settings, "family_import_roots", [str(where.imports), "gs://phi/imports"])
+    uris = ["gs://phi/imports/F1/bams/S1.cram", *REMOTE_OUTSIDE.values()]
+
+    listed = await rif.list_raw_import_files(  # type: ignore[arg-type]
+        _ListSession([{"storage_path": uri, "created_at": None} for uri in uris]), "family-uuid"
+    )
+
+    # Before: each was listed as kept in the object store, though Verify refuses it (SEC-27).
+    assert [row["in_object_store"] for row in listed] == [True] * len(uris)
+    assert [row["outside_read_folders"] for row in listed] == [False] + [True] * len(REMOTE_OUTSIDE)
 
 
 # --------------------------------------------------------------------------- #

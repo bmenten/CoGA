@@ -10,6 +10,7 @@ import { useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
 import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
+import { raw, routePath } from '../../lib/routePath';
 
 interface GeneTranscript {
   transcript_id: string;
@@ -874,9 +875,9 @@ const GeneInfoPage: React.FC = () => {
       ? `&project_id=${encodeURIComponent(resolvedProjectId)}`
       : '';
     return {
-      smallVariants: `/families/${familyId}/small-variants?gene=${encodeURIComponent(profile.symbol)}${projectQuery}`,
-      structuralVariants: `/families/${familyId}/structural-variants?gene=${encodeURIComponent(profile.symbol)}${projectQuery}`,
-      chromosomeView: `/families/${familyId}/chromosome/${familyAssemblyLocation.chr}?start=${familyAssemblyLocation.start}&end=${familyAssemblyLocation.end}${projectQuery}`,
+      smallVariants: routePath`/families/${familyId}/small-variants?gene=${profile.symbol}${raw(projectQuery)}`,
+      structuralVariants: routePath`/families/${familyId}/structural-variants?gene=${profile.symbol}${raw(projectQuery)}`,
+      chromosomeView: routePath`/families/${familyId}/chromosome/${familyAssemblyLocation.chr}?start=${familyAssemblyLocation.start}&end=${familyAssemblyLocation.end}${raw(projectQuery)}`,
     };
   }, [familyId, profile, resolvedProjectId]);
 
@@ -1076,7 +1077,7 @@ const GeneInfoPage: React.FC = () => {
                   {profile.panels.map((panel) => (
                     <Link
                       key={panel.panel_id}
-                      to={`/panels/${panel.panel_id}`}
+                      to={routePath`/panels/${panel.panel_id}`}
                       className="gene-compact-link"
                     >
                       {panel.name}
@@ -1117,7 +1118,7 @@ const GeneInfoPage: React.FC = () => {
     [hg38Location, profile, t2tLocation],
   );
 
-  const genccRows = useMemo<DetailRow[]>(
+  const clingenAndAcmgRows = useMemo<DetailRow[]>(
     () =>
       profile
         ? [
@@ -1210,6 +1211,7 @@ const GeneInfoPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Reference"
         title="Loading gene explorer"
         message="Resolving cached gene annotations, curated evidence, and assembly-aware context."
@@ -1223,7 +1225,7 @@ const GeneInfoPage: React.FC = () => {
         <div className="page-header">
           <div className="space-y-2">
             <p className="page-kicker">Genes</p>
-            <h1 className="catalog-card-title">Gene Explorer</h1>
+            <h1 className="catalog-card-title">Gene explorer</h1>
             <p className="page-copy">
               Search a human gene and open a compact reference summary with local panels, disease
               evidence, transcripts, and direct resource links.
@@ -1616,9 +1618,11 @@ const GeneInfoPage: React.FC = () => {
                   </button>
                 ) : null}
 
+                {/* What the rows hold: ClinGen's curation counts and the ACMG SF list, not GenCC's
+                    classifications, which are listed above (ENG-10). */}
                 <div className="gene-compact-subsection">
-                  <p className="gene-compact-subtitle-label">GenCC details</p>
-                  <DetailList rows={genccRows} />
+                  <p className="gene-compact-subtitle-label">ClinGen curations and ACMG SF</p>
+                  <DetailList rows={clingenAndAcmgRows} />
                 </div>
               </div>
 
@@ -1934,7 +1938,7 @@ const GeneInfoPage: React.FC = () => {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={7} className="table-empty">
+                        <td colSpan={8} className="table-empty">
                           No transcripts are cached for this gene.
                         </td>
                       </tr>

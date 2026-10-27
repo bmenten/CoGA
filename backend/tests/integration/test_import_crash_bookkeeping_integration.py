@@ -387,6 +387,7 @@ def test_a_restore_that_did_not_finish_marks_the_family_until_it_is_imported_aga
                 "at": own.at,
                 "datasets": ["coverage", "snv", "sv_needlr"],
                 "finished_datasets": [],
+                "whole_family": True,
             }
         }
 
@@ -455,7 +456,9 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
     # SAFE-19. A single-file upload's record, in the upload's transaction: what it brought
     # is added to imported_scopes, so a restore that fails part-way names it, and an upload
     # with overwrite strikes it off that entry; the record and a package import's
-    # bookkeeping take turns on the family row, so neither loses the other's.
+    # bookkeeping take turns on the family row, so neither loses the other's. An upload of
+    # data Postgres alone holds (the repeat calls) is not named: the restore puts Postgres
+    # back whole or not at all (SAFE-18).
     from backend.app.core.postgres import get_postgres_sessionmaker
     from backend.app.services import report_signout_service as rss
     from backend.app.services.family_package_registration import (
@@ -464,13 +467,17 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
         _flag_family_restore_failed,
         _mark_family_import_restoring,
         _mark_family_import_unfinished,
+        interval_track_upload_scope,
         record_family_upload,
+        repeat_upload_scope,
         structural_variant_upload_scope,
     )
 
     label = f"import-upload-{uuid4()}"
     snv = {"source": "clair3", "samples": None}
     sv_dataset, sv_scope = structural_variant_upload_scope("sniffles", "S1")
+    bed_dataset, bed_scope = interval_track_upload_scope("wisecondorx", "S1")
+    repeat_dataset, repeat_scope = repeat_upload_scope("S1")
 
     async def scenario() -> None:
         sm = get_postgres_sessionmaker()
@@ -524,8 +531,8 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
                     record_family_upload(
                         upload,
                         family_uuid=family_uuid,
-                        dataset="repeats_trgt",
-                        scope={"source": None, "samples": ["S1"]},
+                        dataset=bed_dataset,
+                        scope=bed_scope,
                         overwrite=False,
                     )
                 )
@@ -542,10 +549,19 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
                 await record
                 await upload.commit()
             metadata = await _metadata(package, family_uuid)
-        assert sorted(metadata["imported_scopes"]) == ["coverage", "repeats_trgt", "snv", "sv_sniffles"]
+        assert sorted(metadata["imported_scopes"]) == ["bed_wisecondorx", "coverage", "snv", "sv_sniffles"]
+
+        # An upload of the repeat calls, which Postgres alone holds, is recorded as well.
+        async with sm() as s:
+            await record_family_upload(
+                s, family_uuid=family_uuid, dataset=repeat_dataset, scope=repeat_scope, overwrite=False
+            )
+            await s.commit()
+            assert repeat_dataset in (await _metadata(s, family_uuid))["imported_scopes"]
 
         # An overwrite of the small variants fails, and its restore fails part-way: its entry
-        # names the uploaded SV calls besides what the imports recorded.
+        # names the uploaded SV calls and track besides what the imports recorded, and not the
+        # uploaded repeat calls.
         own = ImportMark.begin(job_id=str(uuid4()), datasets=["snv"], scopes={"snv": snv})
         async with sm() as s:
             await _mark_family_import_unfinished(s, family_uuid=family_uuid, mark=own)
@@ -559,7 +575,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
                 scopes=own.scopes,
                 family_samples=["S1"],
             )
-        assert listed == ["coverage", "repeats_trgt", "snv", "sv_sniffles"]
+        assert listed == ["bed_wisecondorx", "coverage", "snv", "sv_sniffles"]
 
         # The package's datasets imported again with overwrite: the uploads' data is still
         # to bring again.
@@ -567,7 +583,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
             again = {"snv": snv, "coverage": {"source": None, "samples": ["S1"]}}
             await _clear_family_import_incomplete(s, context, rewritten=again, imported=again)
             unfinished = await rss._import_unfinished_state(s, family_uuid)
-        assert unfinished[own.key]["datasets"] == ["repeats_trgt", "sv_sniffles"]
+        assert unfinished[own.key]["datasets"] == ["bed_wisecondorx", "sv_sniffles"]
 
         # An upload without overwrite strikes nothing off; one with overwrite strikes off what
         # it brought, and the last one the entry.
@@ -577,7 +593,7 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
             )
             await s.commit()
             assert (await rss._import_unfinished_state(s, family_uuid))[own.key]["datasets"] == [
-                "repeats_trgt",
+                "bed_wisecondorx",
                 "sv_sniffles",
             ]
             await record_family_upload(
@@ -585,14 +601,10 @@ def test_an_upload_records_what_it_brought_and_brings_it_again_with_overwrite() 
             )
             await s.commit()
             assert (await rss._import_unfinished_state(s, family_uuid))[own.key]["datasets"] == [
-                "repeats_trgt"
+                "bed_wisecondorx"
             ]
             await record_family_upload(
-                s,
-                family_uuid=family_uuid,
-                dataset="repeats_trgt",
-                scope={"source": None, "samples": ["S1"]},
-                overwrite=True,
+                s, family_uuid=family_uuid, dataset=bed_dataset, scope=bed_scope, overwrite=True
             )
             await s.commit()
             metadata = await _metadata(s, family_uuid)

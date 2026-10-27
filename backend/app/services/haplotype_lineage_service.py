@@ -35,6 +35,19 @@ whichever the affected father shares with her) and the other grey, which is what
 makes it possible to read off *which* paternal haplotype carries the dominant
 disease allele.
 
+On chrX a man has one X outside the pseudo-autosomal regions (PARs), and he passes it to
+his daughters, never to his sons. Where the assembly's PARs are known (``sex_chromosomes``),
+chrX is coloured one stretch at a time: a PAR as an autosome, and the X between the PARs by
+the members' recorded sexes. A member recorded as male has one copy there, his call written
+once or twice (a call of two different alleles is none), as the haplotype blocks read him
+(CLIN-60); a member whose sex is not recorded is read as two copies. Between two members with
+two copies the autosomal reading holds. Between a member with two copies and a man, whichever
+is the parent, his one X is one of her homologs run by run: one of them whole when he is her
+father, switching at her crossovers when he is her son. The runs are read at her
+heterozygous sites, and must agree with his allele there along the stretch
+(``one_copy_share_runs``). Between two men nothing is coloured. chrY and chrM, and chrX of an
+assembly whose PARs are not known, are not read: their relatives stay grey (CLIN-12).
+
 The functions here are deliberately pure (no DB/IO): they take the pedigree rows,
 the stored segments, and the raw phased genotype rows, and return lineage-tagged
 segments. The callers in ``bed_service`` do the fetching.
@@ -43,8 +56,12 @@ from __future__ import annotations
 
 import bisect
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Collection, Iterable
+
+from .pgt_embryo_calls import normalize_sex
+from .sex_chromosomes import X_STRETCH_LAST_POSITION, hemizygous_chromosome, x_stretches
 
 logger = logging.getLogger(__name__)
 
@@ -92,10 +109,10 @@ LINEAGE_SWITCH_MIN_MARKERS = 50
 LINEAGE_SWITCH_MIN_SPAN = 500_000
 
 
-# Autosomes after stripping any "chr" prefix. The diploid-autosomal IBD logic
-# here assumes two homologs at every site; sex chromosomes (hemizygous X in males,
-# Y) and the mitochondrion break that assumption, so relatives on them are left
-# grey rather than mis-coloured.
+# Autosomes after stripping any "chr" prefix. The diploid IBD logic here assumes two
+# homologs at every site, as on the autosomes, in the PARs and between two members with two
+# X's; chrX is read one stretch at a time (``_lineage_stretches``), and chrY and chrM not at
+# all, so relatives on them are left grey rather than mis-coloured.
 _AUTOSOMES = frozenset(str(number) for number in range(1, 23))
 
 
@@ -110,6 +127,20 @@ def _is_autosome(chrom: Any) -> bool:
 
 def _allele_int(allele: str) -> int | None:
     return int(allele) if allele.isdigit() else None
+
+
+def _one_copy_alleles(gt: str | None) -> tuple[int, int] | None:
+    """A man's call where he has one X, as the pair the matching reads: one allele written
+    alone (``1``) or twice (``1|1``, ``1/1``) is that allele, read as ``(1, 1)``. None for a
+    no-call and for two different alleles, which he cannot carry there (as the haplotype
+    blocks read him, ``haplotype_block_builder._one_copy_alleles``)."""
+    if not gt:
+        return None
+    values = [_allele_int(part) for part in re.split(r"[|/]", gt.strip())]
+    first = values[0]
+    if first is None or len(values) > 2 or any(value != first for value in values):
+        return None
+    return first, first
 
 
 def _phased_alleles(gt: str | None) -> tuple[int, int] | None:
@@ -740,6 +771,109 @@ def _same_colouring(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return all(a[k] == b[k] for k in ("hap1", "hap2", "hap1_lineage", "hap2_lineage"))
 
 
+# --- the X between the PARs ---------------------------------------------------------------------
+#
+# A man has one X there. Of a man and a member with two X's who are parent and child, his X is
+# one of hers: one of her homologs whole when he is her father, a mosaic of the two, switching
+# at her crossovers, when he is her son. At each site where she is heterozygous his allele
+# names the homolog it lies on (a pin); smoothed by the rule the autosomes' runs follow, the
+# pins give the homolog he shares, run by run, whichever of the two is the parent. The test
+# the autosomes use cannot read a son: he has no heterozygous site, and her side splits at her
+# crossovers. So the pair is read from the runs: they must agree with nearly every pin, over
+# enough pins, as only his true share does (an unrelated man's allele names one of her
+# homologs at random, and the runs then agree with about half the pins).
+
+
+def one_copy_share_runs(
+    two_copies: dict[int, tuple[int, int]],
+    one_copy: dict[int, tuple[int, int]],
+    *,
+    start: int,
+) -> list[tuple[int, int]] | None:
+    """Which homolog of a member with two X's (``two_copies``) a man (``one_copy``) carries,
+    as runs ``[(run_start, homolog), ...]`` from ``start``; None unless they share one along
+    the stretch. The pins must number at least ``MIN_INFORMATIVE_SITES``, at a density of at
+    least ``MIN_INFORMATIVE_PER_MB``, and the runs must agree with at least
+    ``MIN_SHARED_CONSISTENCY`` of them."""
+    pins: list[tuple[int, int]] = []
+    for pos in sorted(pos for pos in two_copies if pos in one_copy):
+        a0, a1 = two_copies[pos]
+        if a0 == a1:
+            continue
+        idx = _pin_shared_index((a0, a1), one_copy[pos][0])
+        if idx is not None:
+            pins.append((pos, idx))
+    if len(pins) < MIN_INFORMATIVE_SITES:
+        return None
+    span_mb = max(pins[-1][0] - pins[0][0], 1) / 1_000_000
+    if len(pins) / span_mb < MIN_INFORMATIVE_PER_MB:
+        return None
+    runs = _smooth_runs(pins, fallback=pins[0][1], start_pos=start)
+    agreeing = sum(1 for pos, idx in pins if _runs_value_at(runs, pos) == idx)
+    if agreeing < MIN_SHARED_CONSISTENCY * len(pins):
+        return None
+    return runs
+
+
+def _one_copy_relative_blocks(
+    *,
+    chrom: str,
+    runs: list[tuple[int, int]],
+    relative_has_one_copy: bool,
+    anchor_homologs: HomologResolver,
+    region_start: int,
+    region_end: int,
+) -> tuple[list[dict[str, Any]], dict[int, HomologAssignment], HomologResolver]:
+    """A relative's blocks on the X between the PARs, where one of it and its anchor is a man:
+    ``runs`` (``one_copy_share_runs``) name the homolog of the one with two X's that he
+    carries, run by run.
+
+    A relative that is the man carries the anchor's homolog of each run: his one X takes its
+    colour, on both lanes, as the views draw a man's one X on one lane of their choosing. A
+    relative with two X's carries the anchor's one X on the lane of each run's homolog, which
+    takes his colour; her other lane is grey (untransmitted). The anchor's colour is read per
+    position, as ``_segment_relative_blocks`` reads it. Returns ``(blocks,
+    global_assignment, resolver)`` as that function does."""
+    boundaries = sorted(
+        {region_start}
+        | {start for start, _ in runs if region_start < start < region_end}
+        | {
+            start
+            for homolog_runs in anchor_homologs.runs.values()
+            for start, _ in homolog_runs
+            if region_start < start < region_end
+        }
+    )
+    raw_blocks: list[dict[str, Any]] = []
+    homolog_runs: dict[int, list[tuple[int, HomologAssignment]]] = {0: [], 1: []}
+    for i, seg_start in enumerate(boundaries):
+        seg_end = boundaries[i + 1] if i + 1 < len(boundaries) else region_end
+        idx = _runs_value_at(runs, seg_start)
+        # The man's one X is homolog 0 of a coloured man (``_one_copy_homologs``).
+        colour = anchor_homologs.at(idx if relative_has_one_copy else 0, seg_start)
+        colour = colour if colour.is_founder else GREY
+        assignment = {0: colour, 1: colour} if relative_has_one_copy else {idx: colour, 1 - idx: GREY}
+        homolog_runs[0].append((int(seg_start), assignment[0]))
+        homolog_runs[1].append((int(seg_start), assignment[1]))
+        block = {"chr": chrom, "start": int(seg_start), "end": int(seg_end), "ps": None}
+        for lane_idx, lane in ((0, "hap1"), (1, "hap2")):
+            lane_colour = assignment[lane_idx]
+            block[lane] = str(lane_colour.shade) if lane_colour.shade is not None else "0"
+            block[f"{lane}_lineage"] = lane_colour.origin
+        raw_blocks.append(block)
+    global_assignment = {idx: runs_of[0][1] for idx, runs_of in homolog_runs.items()}
+    resolver = HomologResolver(
+        runs={idx: _collapse_assignment_runs(runs_of) for idx, runs_of in homolog_runs.items()}
+    )
+    return _merge_adjacent_blocks(raw_blocks), global_assignment, resolver
+
+
+def _one_copy_homologs(homologs: dict[int, HomologAssignment]) -> dict[int, HomologAssignment]:
+    """A man's homologs where he has one X: that X, his homolog 0 (the haplotype blocks show
+    a father's one X on ``hap1``, his homolog 0), on both."""
+    return {0: homologs[0], 1: homologs[0]}
+
+
 # --- relatives of unknown degree -------------------------------------------------
 #
 # A member linked to the family by a ``relative`` edge -- related through that member by
@@ -883,11 +1017,13 @@ def _locus_share_blocks(
     window: tuple[int, int],
     region_start: int,
     region_end: int,
+    one_copy: bool = False,
 ) -> list[dict[str, Any]]:
     """A relative's blocks when it shares the member's homolog ``anchor_homolog`` across
     ``window`` (the region of interest and its flanks): there, the lane carrying it -- the
     one holding that homolog's allele at most of the relative's heterozygous sites -- takes
-    the member's colour and the other is grey; elsewhere both are grey (unknown)."""
+    the member's colour and the other is grey; elsewhere both are grey (unknown). A relative
+    with ``one_copy`` (a man, on the X between the PARs) carries it on both lanes."""
     lo = min(max(window[0], region_start), region_end)
     hi = max(min(window[1], region_end), lo)
     votes = [0, 0]
@@ -901,6 +1037,7 @@ def _locus_share_blocks(
             votes[1] += 1
     lane = "hap1" if votes[0] >= votes[1] else "hap2"
     other = "hap2" if lane == "hap1" else "hap1"
+    other_colour = (str(colour.shade), colour.origin) if one_copy else ("0", UNTRANSMITTED)
     blocks: list[dict[str, Any]] = []
     if region_start < lo:
         blocks.append(
@@ -911,7 +1048,7 @@ def _locus_share_blocks(
         blocks.append(
             {"chr": chrom, "start": lo, "end": hi, "ps": None,
              lane: str(colour.shade), f"{lane}_lineage": colour.origin,
-             other: "0", f"{other}_lineage": UNTRANSMITTED}
+             other: other_colour[0], f"{other}_lineage": other_colour[1]}
         )
     if hi < region_end:
         blocks.append(
@@ -966,15 +1103,17 @@ def _merge_lane_claims(
 
 def _alleles_by_member(
     genotype_rows: Iterable[tuple[Any, ...]],
+    one_copy: Collection[str] = frozenset(),
 ) -> dict[str, dict[int, tuple[int, int]]]:
     """Per member, the phased alleles at each site: {name: {pos: (a0, a1)}}. Rows
     are ``(pos, ..., sample_ids, gts)`` — the optional middle holds ref/alt, which
-    this colouring path ignores."""
+    this colouring path ignores. A member of ``one_copy`` (a man, on the X between the
+    PARs) is read as one allele (``_one_copy_alleles``)."""
     out: dict[str, dict[int, tuple[int, int]]] = {}
     for row in genotype_rows:
         pos, sample_ids, gts = row[0], row[-2], row[-1]
         for name, gt in zip(sample_ids, gts):
-            alleles = _phased_alleles(gt)
+            alleles = _one_copy_alleles(gt) if name in one_copy else _phased_alleles(gt)
             if alleles is None:
                 continue
             out.setdefault(name, {})[pos] = alleles
@@ -1029,6 +1168,7 @@ def annotate_lineage(
     genotype_truncated: bool = False,
     parent_or_child: Collection[tuple[str, str]] = (),
     locus: tuple[int, int] | None = None,
+    assembly_name: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Return segments with per-lane lineage tags.
 
@@ -1050,10 +1190,15 @@ def annotate_lineage(
     fetched site — there is no IBD evidence there — so their coloured blocks are
     clamped to ``max(genotype pos)`` and a grey tail covers the rest of the
     chromosome, mirroring the marker path's truncation guard.
+
+    On chrX of an assembly whose PARs ``sex_chromosomes`` knows (``assembly_name``) each
+    stretch is coloured on its own (``_lineage_stretches``): a PAR as an autosome, the X
+    between the PARs by the members' recorded sexes (see the module's docstring). A
+    relative coloured in one stretch and not another is grey (unknown) in the other.
     """
     pedigree = build_pedigree(sample_rows, relationship_rows)
     core = identify_core(pedigree)
-    result: dict[str, list[dict[str, Any]]] = {}
+    result: dict[str, list[dict[str, Any]] | None] = {}
 
     two_parent = bool(core.father) and bool(core.mother)
     # Single-parent (donor) family: exactly one known parent of the embryos. The
@@ -1082,15 +1227,14 @@ def annotate_lineage(
         # No identifiable parent at all — cannot ground founder colours.
         return _grey_remaining(result, segments_by_name)
 
-    if not _is_autosome(chrom):
-        # Sex chromosomes / mitochondrion break the diploid two-homolog assumption
-        # the IBD logic relies on (hemizygous X in males, no recombination on Y).
-        # Rather than mis-colour, leave relatives grey on non-autosomes. The core
-        # itself keeps its role-based stored-block tags from step 1.
-        # TODO(follow-up): proper hemizygous-X handling (single-homolog matching).
+    stretches = _lineage_stretches(chrom, assembly_name)
+    if stretches is None:
+        # chrY and chrM, and chrX of an assembly whose PARs are not known: the two-homolog
+        # reading does not hold there, and nothing else is read. Rather than mis-colour,
+        # leave relatives grey. The core itself keeps its role-based stored-block tags from
+        # step 1.
         return _grey_remaining(result, segments_by_name)
 
-    alleles = _alleles_by_member(genotype_rows)
     eff_start, eff_end = _region_bounds(
         segments_by_name, genotype_rows, chrom, region_start, region_end
     )
@@ -1103,18 +1247,121 @@ def annotate_lineage(
         max_evidence_pos = max(row[0] for row in genotype_rows)
         eff_end = min(eff_end, max_evidence_pos + 1)
 
-    # 2) Seed the BFS roots, then colour neighbours by IBD matching.
+    males = {
+        str(row.get("sample_id") or "")
+        for row in sample_rows
+        if normalize_sex(row.get("sex")) == "male"
+    }
+    if single_known is not None:
+        # The known parent's own two homologs span the region (its own chromosomes do
+        # not recombine within themselves): one dark, one light of its origin colour; a
+        # man's one X, one homolog, where he has one.
+        result[single_known] = [
+            block
+            for first, last, one_copy in stretches
+            if max(eff_start, first) < min(region_full_end, last + 1)
+            for block in _founder_parent_blocks(
+                chrom,
+                single_origin,
+                max(eff_start, first),
+                min(region_full_end, last + 1),
+                one_copy=one_copy and single_known in males,
+            )
+        ]
+
+    # 2) Colour the relatives, one stretch at a time.
+    coloured_by_stretch: list[tuple[int, int, dict[str, list[dict[str, Any]]]]] = []
+    for first, last, one_copy in stretches:
+        lo, hi = max(eff_start, first), min(eff_end, last + 1)
+        if lo >= hi:
+            continue
+        rows = genotype_rows if len(stretches) == 1 else [row for row in genotype_rows if lo <= row[0] < hi]
+        stretch_males = frozenset(males) if one_copy else frozenset()
+        coloured_by_stretch.append(
+            (
+                lo,
+                hi,
+                _colour_stretch(
+                    pedigree=pedigree,
+                    core=core,
+                    single_known=single_known,
+                    single_origin=single_origin,
+                    segments_by_name=segments_by_name,
+                    alleles=_alleles_by_member(rows, one_copy=stretch_males),
+                    one_copy=stretch_males,
+                    chrom=chrom,
+                    region_start=lo,
+                    region_end=hi,
+                    parent_or_child=parent_or_child,
+                    locus=locus,
+                ),
+            )
+        )
+    for name in sorted({name for _lo, _hi, coloured in coloured_by_stretch for name in coloured}):
+        segs = [
+            block
+            for lo, hi, coloured in coloured_by_stretch
+            for block in coloured.get(name) or [_unknown_block(chrom, lo, hi)]
+        ]
+        if genotype_truncated and region_full_end > eff_end:
+            # No genotype evidence past the truncation point: grey the tail so the
+            # coloured block does not imply a share we never observed.
+            segs = segs + [_grey_tail_block(chrom, eff_end, region_full_end)]
+        result[name] = segs
+
+    return _grey_remaining(result, segments_by_name)
+
+
+def _lineage_stretches(chrom: str, assembly_name: str | None) -> list[tuple[int, int, bool]] | None:
+    """The stretches of ``chrom`` coloured one at a time, ``(first, last, one_copy)``,
+    inclusive, ``one_copy`` where a man has one X: an autosome whole, chrX of an assembly
+    whose PARs are known by its stretches (``sex_chromosomes.x_stretches``). None where
+    nothing is coloured: chrY, chrM, and chrX of an assembly whose PARs are not known."""
+    if _is_autosome(chrom):
+        return [(0, X_STRETCH_LAST_POSITION, False)]
+    stretches = x_stretches(assembly_name, chrom)
+    if stretches is None:
+        return None
+    # The first from 0, as an autosome's: a region starts there.
+    return [
+        (0 if index == 0 else first, last, hemizygous_chromosome(assembly_name, chrom, first) == "X")
+        for index, (first, last) in enumerate(stretches)
+    ]
+
+
+def _colour_stretch(
+    *,
+    pedigree: Pedigree,
+    core: NuclearCore,
+    single_known: str | None,
+    single_origin: str,
+    segments_by_name: dict[str, list[dict[str, Any]]],
+    alleles: dict[str, dict[int, tuple[int, int]]],
+    one_copy: frozenset[str],
+    chrom: str,
+    region_start: int,
+    region_end: int,
+    parent_or_child: Collection[tuple[str, str]],
+    locus: tuple[int, int] | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """The relatives coloured across ``[region_start, region_end)``, one stretch of the
+    chromosome, by IBD matching outward from the core's parents: each one's blocks there.
+    ``one_copy`` holds the men where the stretch is the X between the PARs."""
+    out: dict[str, list[dict[str, Any]]] = {}
+    # Seed the BFS roots, then colour neighbours by IBD matching.
     coloured: dict[str, ColouredMember] = {}
-    if two_parent:
-        father_shade = founder_shade_map(segments_by_name.get(core.father, []))
-        mother_shade = founder_shade_map(segments_by_name.get(core.mother, []))
-        for parent in (core.father, core.mother):
+    if single_known is None:
+        father_shade = founder_shade_map(segments_by_name.get(core.father or "", []))
+        mother_shade = founder_shade_map(segments_by_name.get(core.mother or "", []))
+        parents = [parent for parent in (core.father, core.mother) if parent]
+        for parent in parents:
+            homologs = _core_homologs(parent, core, father_shade, mother_shade)
             coloured[parent] = ColouredMember(
                 name=parent,
-                homologs=_core_homologs(parent, core, father_shade, mother_shade),
+                homologs=_one_copy_homologs(homologs) if parent in one_copy else homologs,
                 alleles=alleles.get(parent, {}),
             )
-        frontier = [core.father, core.mother]
+        frontier = list(parents)
         visited = set(core.members)
     else:
         # Single-parent (donor) family: root at the one known parent. Its two raw
@@ -1123,14 +1370,12 @@ def annotate_lineage(
         # affected grandparent identifies which homolog carries the disease. The
         # embryos are this root's children, so the BFS IBD-matches them: the
         # known-parent-derived lane is coloured and the donor lane greyed automatically.
+        homologs = {i: HomologAssignment(single_origin, i) for i in (0, 1)}
         coloured[single_known] = ColouredMember(
             name=single_known,
-            homologs={i: HomologAssignment(single_origin, i) for i in (0, 1)},
+            homologs=_one_copy_homologs(homologs) if single_known in one_copy else homologs,
             alleles=alleles.get(single_known, {}),
         )
-        # The known parent's own two homologs span the region (its own chromosomes do
-        # not recombine within themselves): one dark, one light of its origin colour.
-        result[single_known] = _founder_parent_blocks(chrom, single_origin, eff_start, region_full_end)
         frontier = [single_known]
         visited = {single_known}
     while frontier:
@@ -1144,28 +1389,19 @@ def annotate_lineage(
             rel_alleles = alleles.get(neighbor, {})
             if not rel_alleles:
                 continue
-            match = match_shared_homolog(rel_alleles, anchor.alleles)
-            if match is None:
-                continue
-            positions = sorted(pos for pos in rel_alleles if pos in anchor.alleles)
-            segs, assignment, rel_resolver = _segment_relative_blocks(
+            read = _colour_relative(
                 chrom=chrom,
-                positions=positions,
+                relative=neighbor,
                 rel_alleles=rel_alleles,
-                anc_alleles=anchor.alleles,
-                # Position-aware anchor colour: if this anchor is itself a relative that
-                # crossed over, its resolver hands the next hop the correct shade per
-                # position instead of one chromosome-wide shade (fix H3).
-                anchor_homologs=anchor.homolog_resolver(),
-                match=match,
-                region_start=eff_start,
-                region_end=eff_end,
+                anchor=anchor,
+                one_copy=one_copy,
+                region_start=region_start,
+                region_end=region_end,
             )
-            if genotype_truncated and region_full_end > eff_end:
-                # No genotype evidence past the truncation point: grey the tail so the
-                # coloured block does not imply a share we never observed.
-                segs = segs + [_grey_tail_block(chrom, eff_end, region_full_end)]
-            result[neighbor] = segs
+            if read is None:
+                continue
+            segs, assignment, rel_resolver = read
+            out[neighbor] = segs
             coloured[neighbor] = ColouredMember(
                 name=neighbor,
                 homologs=assignment,
@@ -1195,20 +1431,17 @@ def annotate_lineage(
             for name in linked:
                 anchor_member = coloured[name]
                 if (neighbor, name) in parent_or_child or (name, neighbor) in parent_or_child:
-                    match = match_shared_homolog(rel_alleles, anchor_member.alleles)
-                    if match is None:
-                        continue
-                    segs, _assignment, _resolver = _segment_relative_blocks(
+                    read = _colour_relative(
                         chrom=chrom,
-                        positions=sorted(pos for pos in rel_alleles if pos in anchor_member.alleles),
+                        relative=neighbor,
                         rel_alleles=rel_alleles,
-                        anc_alleles=anchor_member.alleles,
-                        anchor_homologs=anchor_member.homolog_resolver(),
-                        match=match,
-                        region_start=eff_start,
-                        region_end=eff_end,
+                        anchor=anchor_member,
+                        one_copy=one_copy,
+                        region_start=region_start,
+                        region_end=region_end,
                     )
-                    claims.append(segs)
+                    if read is not None:
+                        claims.append(read[0])
                     continue
                 if locus is None:
                     continue
@@ -1229,18 +1462,66 @@ def annotate_lineage(
                         anchor_homolog=shared,
                         colour=colour,
                         window=window,
-                        region_start=eff_start,
-                        region_end=eff_end,
+                        region_start=region_start,
+                        region_end=region_end,
+                        one_copy=neighbor in one_copy,
                     )
                 )
             if not claims:
                 continue
-            segs = claims[0] if len(claims) == 1 else _merge_lane_claims(chrom, claims, eff_start, eff_end)
-            if genotype_truncated and region_full_end > eff_end:
-                segs = segs + [_grey_tail_block(chrom, eff_end, region_full_end)]
-            result[neighbor] = segs
+            out[neighbor] = (
+                claims[0] if len(claims) == 1 else _merge_lane_claims(chrom, claims, region_start, region_end)
+            )
+    return out
 
-    return _grey_remaining(result, segments_by_name)
+
+def _colour_relative(
+    *,
+    chrom: str,
+    relative: str,
+    rel_alleles: dict[int, tuple[int, int]],
+    anchor: ColouredMember,
+    one_copy: frozenset[str],
+    region_start: int,
+    region_end: int,
+) -> tuple[list[dict[str, Any]], dict[int, HomologAssignment], HomologResolver] | None:
+    """A relative's blocks, global assignment and resolver from a coloured anchor it is the
+    parent or child of, or None when the two are not read to share a haplotype. Two men
+    (``one_copy``) share no X; a man and a member with two X's are read from the runs of
+    her homolog he carries (``one_copy_share_runs``); two members with two copies as on the
+    autosomes."""
+    relative_one, anchor_one = relative in one_copy, anchor.name in one_copy
+    if relative_one and anchor_one:
+        return None
+    if relative_one or anchor_one:
+        two_copies, man = (anchor.alleles, rel_alleles) if relative_one else (rel_alleles, anchor.alleles)
+        runs = one_copy_share_runs(two_copies, man, start=region_start)
+        if runs is None:
+            return None
+        return _one_copy_relative_blocks(
+            chrom=chrom,
+            runs=runs,
+            relative_has_one_copy=relative_one,
+            anchor_homologs=anchor.homolog_resolver(),
+            region_start=region_start,
+            region_end=region_end,
+        )
+    match = match_shared_homolog(rel_alleles, anchor.alleles)
+    if match is None:
+        return None
+    return _segment_relative_blocks(
+        chrom=chrom,
+        positions=sorted(pos for pos in rel_alleles if pos in anchor.alleles),
+        rel_alleles=rel_alleles,
+        anc_alleles=anchor.alleles,
+        # Position-aware anchor colour: if this anchor is itself a relative that
+        # crossed over, its resolver hands the next hop the correct shade per
+        # position instead of one chromosome-wide shade (fix H3).
+        anchor_homologs=anchor.homolog_resolver(),
+        match=match,
+        region_start=region_start,
+        region_end=region_end,
+    )
 
 
 def _normalize_chrom(value: Any) -> str:
@@ -1308,12 +1589,21 @@ def _grey_tail_block(chrom: str, start: int, end: int) -> dict[str, Any]:
     }
 
 
-def _founder_parent_blocks(chrom: str, origin: str, start: int, end: int) -> list[dict[str, Any]]:
+def _unknown_block(chrom: str, start: int, end: int) -> dict[str, Any]:
+    """A block of both lanes grey (unknown) across ``[start, end)``: a stretch of chrX where
+    a relative coloured in another one was not read."""
+    return {**_grey_tail_block(chrom, start, end), "hap1_lineage": UNKNOWN, "hap2_lineage": UNKNOWN}
+
+
+def _founder_parent_blocks(
+    chrom: str, origin: str, start: int, end: int, *, one_copy: bool = False
+) -> list[dict[str, Any]]:
     """Display block for a single-parent family's one known parent: its two raw
     homologs as a dark (hap1='0') and light (hap2='1') lane of ``origin`` colour,
     spanning ``[start, end)``. The absolute dark/light labels are arbitrary (the raw
     GLIMPSE phasing); consistency is what matters, and the affected grandparent
-    identifies which homolog carries the disease."""
+    identifies which homolog carries the disease. A man's ``one_copy`` X is his homolog 0,
+    dark on both lanes."""
     return [
         {
             "chr": chrom,
@@ -1321,7 +1611,7 @@ def _founder_parent_blocks(chrom: str, origin: str, start: int, end: int) -> lis
             "end": int(end),
             "ps": None,
             "hap1": "0",
-            "hap2": "1",
+            "hap2": "0" if one_copy else "1",
             "hap1_lineage": origin,
             "hap2_lineage": origin,
         }

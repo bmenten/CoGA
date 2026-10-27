@@ -48,6 +48,16 @@ const InfoTip: React.FC<Props> = ({
       ? { tabIndex: 0, 'aria-describedby': anchor ? tipId : undefined }
       : { tabIndex: 0, role: 'button', 'aria-label': label };
 
+  // A control child is what takes focus, so it is the one the tip describes while shown, as
+  // a static child is: the QC chip that opens a report gave a screen reader its value alone,
+  // never the verdict and the breach its tip names (ENG-10).
+  const content =
+    interactiveChild && anchor && React.isValidElement<{ 'aria-describedby'?: string }>(children)
+      ? React.cloneElement(children, {
+          'aria-describedby': [children.props['aria-describedby'], tipId].filter(Boolean).join(' '),
+        })
+      : children;
+
   return (
     <>
       <span
@@ -59,7 +69,7 @@ const InfoTip: React.FC<Props> = ({
         onFocusCapture={(e) => show(e.currentTarget)}
         onBlurCapture={hide}
       >
-        {children}
+        {content}
       </span>
       {anchor &&
         createPortal(

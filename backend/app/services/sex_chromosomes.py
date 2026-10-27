@@ -99,3 +99,26 @@ def hemizygous_interval(
     if any(start <= par_end and end >= par_start for par_start, par_end in regions[chrom]):
         return None
     return chrom
+
+
+# The last position of the stretch after PAR2: past the end of any chromosome.
+X_STRETCH_LAST_POSITION = 2**32 - 1
+
+
+def x_stretches(assembly_name: str | None, chromosome: str | None) -> tuple[tuple[int, int], ...] | None:
+    """chrX cut at the PAR edges of the assembly into stretches ``(first, last)``, inclusive
+    and in order: before PAR1, PAR1, the X between the PARs, PAR2 and after PAR2. None off
+    chrX and on an assembly whose PAR bounds are not listed here. The haplotype blocks and
+    their lineage read chrX one stretch at a time."""
+    regions = pseudoautosomal_regions(assembly_name)
+    if regions is None or sex_chromosome(chromosome) != "X":
+        return None
+    stretches: list[tuple[int, int]] = []
+    first = 1
+    for par_start, par_end in sorted(regions["X"]):
+        if par_start > first:
+            stretches.append((first, par_start - 1))
+        stretches.append((par_start, par_end))
+        first = par_end + 1
+    stretches.append((first, X_STRETCH_LAST_POSITION))
+    return tuple(stretches)

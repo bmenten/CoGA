@@ -3,8 +3,8 @@
 STRchive lists two repeat tracts in ARX (EIEE1_ARX, pathogenic from 17 GCN repeats; PRTS_ARX,
 from 20) and three in HOXA13 (HFG_HOXA13-I and -III from 22, -II from 18). A TRGT call whose
 TRID is the gene's name resolved to the first of them by locus ID, so a call at PRTS_ARX was
-read against EIEE1_ARX's thresholds: 17 repeats read pathogenic where PRTS_ARX calls them
-normal. The owner decided on 2026-10-14 that such a TRID is resolved by position: the STRchive
+read against EIEE1_ARX's thresholds: 17 repeats read pathogenic where PRTS_ARX does not call
+them so. The owner decided on 2026-10-14 that such a TRID is resolved by position: the STRchive
 locus the call's region overlaps, on the family's assembly. A region that overlaps none of
 them, or several, or an assembly STRchive gives no coordinates on, classifies the call by no
 locus: it reads *not assessed*, and the call carries the reason.
@@ -33,6 +33,9 @@ from backend.app.services import repeat_expansion_pg
 from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
 
 N, P, NOT_ASSESSED = "normal", "pathogenic", "not_assessed"
+# Between a tract's benign range and its pathogenic threshold, where STRchive states no grey
+# zone of its own: the grey zone (the owner's decision of 2026-10-27, CLIN-14).
+I = "intermediate"
 
 # The STRchive tracts of each gene, and each tract's thresholds in the shipped release.
 TRACT_THRESHOLDS = {
@@ -217,13 +220,13 @@ async def test_a_strchive_or_stripy_id_still_names_its_locus_wherever_the_call_l
 # gene disagree; the first tract by locus ID gave the other status before.
 OWN_TRACT_CASES = [
     ("EIEE1_ARX", 17, P),
-    ("PRTS_ARX", 17, N),  # pathogenic under EIEE1_ARX's 17 before
-    ("PRTS_ARX", 19, N),
+    ("PRTS_ARX", 17, I),  # pathogenic under EIEE1_ARX's 17 before
+    ("PRTS_ARX", 19, I),
     ("PRTS_ARX", 20, P),
-    ("HFG_HOXA13-I", 18, N),
+    ("HFG_HOXA13-I", 18, I),
     ("HFG_HOXA13-II", 18, P),  # normal under HFG_HOXA13-I's 22 before
-    ("HFG_HOXA13-II", 17, N),
-    ("HFG_HOXA13-III", 21, N),
+    ("HFG_HOXA13-II", 17, I),
+    ("HFG_HOXA13-III", 21, I),
     ("HFG_HOXA13-III", 22, P),
 ]
 
@@ -249,7 +252,7 @@ async def test_a_gene_name_trid_takes_the_thresholds_of_the_tract_its_region_ove
     assert _stored_reason(params) is None
 
 
-@pytest.mark.parametrize(("locus_id", "count", "status"), [("PRTS_ARX", 17, N), ("HFG_HOXA13-II", 18, P)])
+@pytest.mark.parametrize(("locus_id", "count", "status"), [("PRTS_ARX", 17, I), ("HFG_HOXA13-II", 18, P)])
 @pytest.mark.parametrize("assembly_name", ["T2T-CHM13v2.0", "T2T CHM13v2.0"])
 @pytest.mark.asyncio
 async def test_the_tract_is_found_on_t2t_by_its_t2t_coordinates(
@@ -275,7 +278,7 @@ async def test_a_tag_several_loci_share_is_resolved_by_position_too(monkeypatch)
     params = _call(lookup, trid="phenotypic_spectrum", chrom=chrom, start=start, end=stop, count=17)
 
     assert params["locus_id"] == "PRTS_ARX"
-    assert params["status"] == N
+    assert params["status"] == I
 
 
 # ---- None, several, or no coordinates: not assessed, with the reason --------------------------------
@@ -390,7 +393,7 @@ async def test_the_ingest_stores_each_call_against_its_own_tract(monkeypatch) ->
     )
 
     stored = [(record["locus_id"], record["pathogenic_min"], record["status"]) for record in session.inserted]
-    assert stored == [("PRTS_ARX", 20, N), ("EIEE1_ARX", 17, P), ("ARX", None, NOT_ASSESSED)]
+    assert stored == [("PRTS_ARX", 20, I), ("EIEE1_ARX", 17, P), ("ARX", None, NOT_ASSESSED)]
 
 
 # ---- The family table ----------------------------------------------------------------------------------

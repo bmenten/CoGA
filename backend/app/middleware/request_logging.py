@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 from fastapi import Request, Response
 
-from ..core.coga_logging import CoGALogger, describe_error, describe_traceback
+from ..core.coga_logging import CoGALogger, describe_error, describe_traceback, is_sensitive_key
 from ..core.config import API_PATH_PREFIX, settings
 from ..services.audit_log_pg import (
     AUDIT_PIPELINE_NAME,
@@ -21,14 +21,6 @@ from ..services.operational_metrics import record_request
 
 logger = CoGALogger(__name__)
 
-_SENSITIVE_PREFIXES = (
-    "password",
-    "secret",
-    "token",
-    "authorization",
-    "api_key",
-    "access_key",
-)
 _SENSITIVE_QUERY_KEYS = (
     "family",
     "sample",
@@ -52,8 +44,7 @@ def _sanitize_for_logging(value: Any) -> Any:
         sanitized: dict[str, Any] = {}
         for key, item in value.items():
             key_text = str(key)
-            lowered = key_text.lower()
-            if any(lowered.startswith(prefix) for prefix in _SENSITIVE_PREFIXES):
+            if is_sensitive_key(key_text):
                 sanitized[key_text] = "***"
             else:
                 sanitized[key_text] = _sanitize_for_logging(item)
@@ -65,7 +56,7 @@ def _sanitize_for_logging(value: Any) -> Any:
 
 def _sanitize_query_param(key: str, value: str) -> str:
     lowered = key.lower()
-    if any(lowered.startswith(prefix) for prefix in _SENSITIVE_PREFIXES):
+    if is_sensitive_key(key):
         return "***"
     if any(token in lowered for token in _SENSITIVE_QUERY_KEYS):
         return "***"

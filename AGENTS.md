@@ -73,7 +73,8 @@
   `frontend/src/components/visualizations/`.
 - Call the API through `frontend/src/lib/api.ts`, and build every path with ``apiPath`…` ``
   from `lib/apiPath.ts`, which encodes each interpolated segment (use `raw()` for a query
-  string).
+  string). Build an in-app route that carries an ID with ``routePath`…` `` from
+  `lib/routePath.ts`, which encodes the same way.
 - Reuse the shared styles for buttons, links, tables and layout (`base.css`, `controls.css`,
   `tables.css`, `layout.css` under `frontend/src/styles/theme/`). `theme.css` imports the modules in
   cascade order: put a rule in the module of the feature it styles, and never reorder the imports.

@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
@@ -13,6 +14,7 @@ import { apiPath } from '../../lib/apiPath';
 import { normalizeSex } from '../../lib/haplotypeRisk';
 import { alleleBase, nucleotideColor } from '../../lib/phasedMarkers';
 import { useFamilyReference } from '../../lib/reference';
+import { raw, routePath } from '../../lib/routePath';
 
 // Floor on the zoomed-in window so the view can't collapse to nothing.
 const MIN_SPAN = 2_000;
@@ -162,6 +164,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     data: family,
     isLoading: familyLoading,
     isError: familyFailed,
+    error: familyError,
     refetch: refetchFamily,
   } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
@@ -172,6 +175,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
   const {
     assemblyName,
     assemblyValidated,
+    isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects, projectId ?? undefined);
@@ -346,20 +350,22 @@ const FamilyRoiMarkersPage: React.FC = () => {
     return map;
   }, [parentsOf, shownSites, sampleOrder, sexBySample, hemizygousRanges]);
 
-  if (familyLoading || phasedLoading) {
-    return <PageState title="Loading ROI markers…" />;
+  // The project's reference too: the assembly-scope warning shows nothing while it loads
+  // (#515), so the markers showed without "Not validated for clinical use" (ENG-12).
+  if (familyLoading || phasedLoading || referenceLoading) {
+    return <PageState loading title="Loading ROI markers…" />;
   }
-  // Without the family its ROI is unknown, not absent (#607).
+  // Without the family its ROI is unknown, not absent (#607). A family that does not exist,
+  // or is not in the user's projects, is not found: the page said "could not be loaded" for
+  // a 404 too (ENG-10).
   if (familyFailed) {
     return (
-      <PageState
-        title="Family could not be loaded"
-        message="The family, and with it its region of interest, could not be loaded. This is not a family without a region of interest."
-        action={
-          <button type="button" className="button-secondary" onClick={() => void refetchFamily()}>
-            Retry
-          </button>
-        }
+      <FamilyLoadFailure
+        kicker="ROI markers"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
       />
     );
   }
@@ -369,13 +375,13 @@ const FamilyRoiMarkersPage: React.FC = () => {
         title="No region of interest"
         message="Set a region of interest for this family to review its markers."
         action={
-          <Link to={`/families/${familyId}${projectId ? `?project_id=${projectId}` : ''}`}>← Back to family</Link>
+          <Link to={routePath`/families/${familyId}${raw(projectId ? `?project_id=${encodeURIComponent(projectId)}` : '')}`}>← Back to family</Link>
         }
       />
     );
   }
 
-  const backLink = `/families/${familyId}${projectId ? `?project_id=${projectId}` : ''}`;
+  const backLink = routePath`/families/${familyId}${raw(projectId ? `?project_id=${encodeURIComponent(projectId)}` : '')}`;
   const inheritanceModel = (family?.metadata?.pgt as { inheritance_model?: string } | undefined)
     ?.inheritance_model;
   const inRoi = (pos: number) => pos >= roi.start && pos <= roi.end;

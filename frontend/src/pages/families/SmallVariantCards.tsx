@@ -11,6 +11,7 @@ import {
   type SmallVariant,
   type SmallVariantTranscript,
   type SmallVariantTagDefinition,
+  normalizeReviewClassification,
 } from './smallVariantSearch';
 import {
   buildSmallVariantExternalLinks,
@@ -779,13 +780,14 @@ export default function SmallVariantCards({
                     </span>
                   )
                 ) : null}
-                {variant.review?.classification ? (
+                {/* The word as the SV pages show it, not as typed (ENG-10). */}
+                {normalizeReviewClassification(variant.review?.classification) ? (
                   <span
                     className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
-                      variant.review.classification,
+                      variant.review?.classification,
                     )}`}
                   >
-                    {variant.review.classification}
+                    {normalizeReviewClassification(variant.review?.classification)}
                   </span>
                 ) : null}
               </div>

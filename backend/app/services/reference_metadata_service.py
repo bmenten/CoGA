@@ -99,7 +99,6 @@ def _clinical_cnv_header_index(row: list[str]) -> dict[str, int] | None:
         return field_index
     return None
 
-REPO_CLINICAL_CNVS_PATH = Path(__file__).resolve().parents[3] / "data" / "ref-data" / "clinical_cnv_syndromes_hg38_combined.tsv"
 REPO_SEGMENTAL_DUPLICATIONS_PATH = (
     Path(__file__).resolve().parents[3]
     / "data"
@@ -140,15 +139,6 @@ def _transcript_id_from_gene_row(row: dict[str, object]) -> str:
     return str(extra.get("transcript_id") or row.get("gene_id") or row.get("hgnc_symbol") or "")
 
 
-def _first_extra_value(*payloads: dict[str, object], keys: tuple[str, ...]) -> object | None:
-    for payload in payloads:
-        for key in keys:
-            value = payload.get(key)
-            if value is not None and value != "":
-                return value
-    return None
-
-
 def _field_marks_transcript(value: object, transcript_id: str) -> bool:
     if isinstance(value, bool):
         return value
@@ -168,43 +158,31 @@ def _transcript_matches_reference(value: object, transcript_id: str) -> bool:
     return bool(normalized_value and normalized_transcript and normalized_value == normalized_transcript)
 
 
+# The tag GENCODE gives a gene's Ensembl canonical transcript, kept in a row's ``tags`` by its
+# import (``gencode_import``).
+_ENSEMBL_CANONICAL_TAG = "Ensembl_canonical"
+
+
 def _gene_transcript_priority(row: dict[str, object]) -> tuple[int, int, int, str]:
+    """A transcript row's rank among its gene's: MANE Select first, then the Ensembl
+    canonical transcript, then the longest, the one with most exons.
+
+    Read from what the gene-reference imports write (ENG-8): GENCODE's ``mane_select`` and its
+    ``Ensembl_canonical`` tag on the transcript's row, and HGNC's MANE Select accessions for
+    the gene (``hgnc_identifiers.mane_select`` in ``gene_info``), an Ensembl transcript and a
+    RefSeq one, so that a RefSeq row of an uploaded reference is recognised too. It read keys
+    no import writes (``mane_select_transcript``, ``ensembl_canonical_transcript`` and their
+    other spellings), and so never recognised a canonical transcript."""
     extra = _json_dict(row.get("extra"))
-    gene_info_extra = _json_dict(row.get("gene_info_extra"))
-    clingen_facts = _json_dict(gene_info_extra.get("clingen_gene_facts"))
+    identifiers = _json_dict(_json_dict(row.get("gene_info_extra")).get("hgnc_identifiers"))
     transcript_id = _transcript_id_from_gene_row(row)
-    mane_reference = _first_extra_value(
-        extra,
-        gene_info_extra,
-        clingen_facts,
-        keys=(
-            "mane_select_transcript",
-            "maneSelectTranscript",
-            "MANE_SELECT",
-            "MANE Select Transcript",
-        ),
+    mane_accessions = identifiers.get("mane_select")
+    is_mane = _field_marks_transcript(extra.get("mane_select"), transcript_id) or any(
+        _transcript_matches_reference(accession, transcript_id)
+        for accession in (mane_accessions if isinstance(mane_accessions, list) else [mane_accessions])
     )
-    canonical_reference = _first_extra_value(
-        extra,
-        gene_info_extra,
-        keys=(
-            "ensembl_canonical_transcript",
-            "canonical_transcript",
-            "canonicalTranscript",
-        ),
-    )
-    is_mane = (
-        _field_marks_transcript(extra.get("mane_select"), transcript_id)
-        or _field_marks_transcript(extra.get("maneSelect"), transcript_id)
-        or _field_marks_transcript(extra.get("MANE_SELECT"), transcript_id)
-        or _transcript_matches_reference(mane_reference, transcript_id)
-    )
-    is_canonical = (
-        _field_marks_transcript(extra.get("canonical"), transcript_id)
-        or _field_marks_transcript(extra.get("is_canonical"), transcript_id)
-        or _field_marks_transcript(extra.get("CANONICAL"), transcript_id)
-        or _transcript_matches_reference(canonical_reference, transcript_id)
-    )
+    tags = extra.get("tags")
+    is_canonical = isinstance(tags, list) and _ENSEMBL_CANONICAL_TAG in tags
     rank = 0 if is_mane else 1 if is_canonical else 2
     length = int(row.get("end") or 0) - int(row.get("start") or 0)
     exon_count = len(row.get("exons") or [])
@@ -583,14 +561,18 @@ async def list_recent_reference_imports(
 
 
 async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
-    """Load the clinical CNVs and the segmental duplications of the bootstrap assembly from
-    their files, each only while the assembly holds none.
+    """Load the segmental duplications of the bootstrap assembly from their file, only while
+    the assembly holds none.
 
-    The segmental-duplication file is loaded only if it is the shipped file, byte for byte
+    The file is loaded only if it is the shipped file, byte for byte
     (``read_shipped_segmental_duplications``, TRACE-14). Another file is refused before
     anything is written, with one logged error that names the file, both digests and the fix;
-    that import is skipped and the start goes on: the track is shown for orientation, no
-    classification reads it, and the rows an earlier start loaded are never replaced here."""
+    the import is skipped and the start goes on: the track is shown for orientation, no
+    classification reads it, and the rows an earlier start loaded are never replaced here.
+
+    The clinical CNVs are not loaded at startup (OPS-17). The knowledgebase rebuild loads them
+    from its pinned sources and records them, and an administrator can upload a file; the
+    startup read any file at a configured path, unpinned, and its default was never shipped."""
     if not settings.reference_bootstrap_enabled:
         return
 
@@ -607,40 +589,23 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
         raise
 
     assembly_id = str(assembly["id"])
-    bootstrap_jobs: list[tuple[ReferenceDatasetType, Path]] = []
-
-    clinical_cnvs_path = _configured_reference_path(
-        settings.reference_clinical_cnvs_path,
-        REPO_CLINICAL_CNVS_PATH,
-    )
-    if clinical_cnvs_path is not None:
-        bootstrap_jobs.append(("clinical_cnvs", clinical_cnvs_path))
-
-    segdup_path = _configured_reference_path(
+    dataset_type: ReferenceDatasetType = "segmental_duplications"
+    path = _configured_reference_path(
         settings.reference_segmental_duplications_path,
         REPO_SEGMENTAL_DUPLICATIONS_PATH,
     )
-    if segdup_path is not None:
-        bootstrap_jobs.append(("segmental_duplications", segdup_path))
-
-    if not bootstrap_jobs:
+    if path is None:
         logger.info("Skipping reference track bootstrap: no source files found")
         return
 
-    for dataset_type, path in bootstrap_jobs:
-        existing = await _assembly_dataset_count(
-            session,
-            assembly_id=assembly_id,
-            dataset_type=dataset_type,
-        )
-        if existing > 0:
-            continue
+    existing = await _assembly_dataset_count(
+        session,
+        assembly_id=assembly_id,
+        dataset_type=dataset_type,
+    )
+    if existing == 0:
         try:
-            if dataset_type == "segmental_duplications":
-                raw = read_shipped_segmental_duplications(path)
-            else:
-                raw = path.read_bytes()
-            text_value = _reference_text(raw)
+            text_value = _reference_text(read_shipped_segmental_duplications(path))
             result = await apply_reference_dataset_text(
                 session,
                 assembly_id=assembly_id,
@@ -648,8 +613,8 @@ async def seed_builtin_reference_tracks(session: AsyncSession) -> None:
                 text_value=text_value,
                 overwrite=False,
                 commit=False,
-                # The file is all this import knows about its source; its name often
-                # carries the release (ClinGen_recurrent_CNV_V2.1-hg38.bed).
+                # The file is all this import knows about its source; its name carries the
+                # release (ClinGen_recurrent_CNV_V2.1-hg38.bed).
                 source=path.name,
             )
             logger.info(

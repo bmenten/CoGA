@@ -907,7 +907,17 @@ async def test_a_restore_that_fails_flags_every_dataset_of_the_import_as_failed(
     result = await _overwrite_import(job)
 
     assert result.completed is False
-    assert result.error == "Family package import failed for dataset(s): coverage"
+    # The job's record says what the flag says (SAFE-18; before, it named coverage alone,
+    # and its dataset table showed snv and paraphase imported, sv_needlr registered): each
+    # dataset failed, with how its loader had ended.
+    assert result.error == "Family package import failed for dataset(s): coverage, paraphase, snv, sv_needlr"
+    statuses = {dataset.dataset_type: dataset.status for dataset in result.datasets}
+    assert {name: statuses[name] for name in outcomes} == dict.fromkeys(outcomes, "failed")
+    messages = {dataset.dataset_type: dataset.message or "" for dataset in result.datasets}
+    assert messages["coverage"] == "bad BED"
+    assert messages["snv"].startswith("Its loader imported, but the import failed and the restore")
+    assert messages["sv_needlr"].startswith("Its loader registered its files, but")
+    assert "may be partly written or missing" in messages["paraphase"]
     if failing == "the Postgres restore":
         assert clickhouse.family_rows("SNV_INDEL/entries") == [(FAMILY_UUID, "snv before")] * 2
     else:

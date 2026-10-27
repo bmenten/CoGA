@@ -20,6 +20,7 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { apiPath } from '../../lib/apiPath';
 import InfoTip from '../../components/InfoTip';
 import { COUNT_UNIT_MARK, countUnitWarningText, repeatStatusLabel } from '../../lib/repeatStatus';
+import { raw, routePath } from '../../lib/routePath';
 
 
 
@@ -126,7 +127,7 @@ const buildRepeatChromosomeHref = (
   if (projectId) {
     params.set('project_id', projectId);
   }
-  return `/families/${familyId}/chromosome/${chrom}?${params.toString()}`;
+  return routePath`/families/${familyId}/chromosome/${chrom}${raw(`?${params.toString()}`)}`;
 };
 
 // A repeat locus is small, and what matters in IGV is the reads spanning it, so the
@@ -150,8 +151,8 @@ const buildRepeatIgvHref = (
   if (projectId) {
     params.set('project_id', projectId);
   }
-  params.set('back_path', `/families/${familyId}/repeat-expansions`);
-  return `/families/${familyId}/igv?${params.toString()}`;
+  params.set('back_path', routePath`/families/${familyId}/repeat-expansions`);
+  return routePath`/families/${familyId}/igv${raw(`?${params.toString()}`)}`;
 };
 
 const FamilyRepeatExpansionsPage: React.FC = () => {
@@ -267,6 +268,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   if (familyLoading || repeatLoading || (family?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Repeats"
         title="Loading repeat expansions"
         message="Preparing the family repeat expansion table and pedigree context."
@@ -417,7 +419,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                         <span
                           className={`table-chip family-repeat-table-locus-flag family-repeat-table-locus-flag--${row.status}`}
                         >
-                          {repeatStatusLabel(row.status)}
+                          {repeatStatusLabel(row.status, row.review_reason)}
                         </span>
                       )}
                     </div>
@@ -491,7 +493,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                                     </span>
                                     {call.status !== 'normal' && (
                                       <span className="family-repeat-table-call-flag">
-                                        {repeatStatusLabel(call.status)}
+                                        {repeatStatusLabel(call.status, call.review_reason)}
                                       </span>
                                     )}
                                   </div>

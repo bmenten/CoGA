@@ -35,7 +35,7 @@ Each row is keyed by `inputs_hash`, a SHA-256 over everything that changes the r
 | The genes and regions the panel filter applied | the panel's genes and regions as the query read them for the family's assembly: `gene_panel_genes`, `gene_panel_regions` and each gene's loci in `genes` (a digest, `panel_members_digest`) |
 | The regions the query kept to or left out, and the genes it left out | the intervals, the loci (from `genes`) of the excluded genes, and the excluded genes' names, as the query resolved them |
 | The present HPO terms of the affected members | `individual_hpo` |
-| The pedigree, who is affected and each member's sex, which name a carrier screen's couple and decide its X-linked findings | the family's latest `family_structure_versions.structure_hash` (members with their sex, role and status, and the relationships); for a family without one, the same read from the loaded family |
+| The pedigree, who is affected and each member's sex, which name a carrier screen's couple and decide its X-linked findings | the loaded family the ranking is computed on: its members with their sex, role and status, and the relationships. Until ENG-13 the key read the family's latest `family_structure_versions.structure_hash` after the family was loaded, so an edit committed in between stored a ranking computed on the old pedigree under the new pedigree's key |
 | The family's small-variant data | the ClickHouse `SNV_INDEL/family_data_version` table: every insert, delete or re-import of the family's variants adds a token |
 | The Monarch release | `monarch_gene_disease.release_version` |
 | The loaded HPO ontology: its release and import time | the most recently written `hpo_term` row (`release_version`, `updated_at`), read as the signed record reads it ([annotation-provenance.md](annotation-provenance.md#the-reference-modules)); the import time tells apart two imports that recorded no release |
@@ -333,7 +333,10 @@ On a miss, CoGA first fetches the variants the requested panel reaches, with the
 direct computation uses (by gene symbol and by position), and works out their segregation
 modes among themselves: the first steps of a direct computation, and quick ones. The
 phenotype scoring that follows them is what takes seconds. CoGA then looks for a cached row
-with the same `base_hash` that:
+with the same `base_hash` that meets the conditions below, reading the rows without their
+rankings and a row's ranking only once its panel passes: a row on another panel costs no
+read of a ranking that can hold thousands of variants (until ENG-13 every row's was read
+first). The row:
 
 1. is complete, not truncated (the ranking considers at most 5,000 candidates, and a
    truncated one may miss a low-ranked variant of the smaller panel). A request whose own
@@ -419,11 +422,13 @@ run; before that there is nothing to warm. Errors are logged and ignored.
 It runs after an HPO term is added, changed or removed, after a structure save or a member
 edit (single, batch or removal), and after a PED upload or manual family creation.
 
-The replay applies the query's panel, gene filter and other filters, but not its intervals,
-excluded intervals or excluded genes. Because the key covers the regions and genes a query
-applied, its ranking of such a query is stored under another key than the query's own, and
-the query's next open computes it again. Before the key covered them, that ranking was served
-to the query as if it had kept to its intervals and exclusions.
+The replay prepares the query as a live request does (`_resolve_small_variant_scope`): its
+panel, gene filter and other filters, its intervals, excluded intervals and excluded genes,
+and, for a search that asks for a structural-variant second hit, the genes the family's SVs
+hit as its SV→gene index holds them now. So its ranking goes under the key the query's next
+open reads. Until ENG-13 it left out the intervals and exclusions and replayed the SV hit
+genes the stored ranking had resolved (#845): its ranking went under a key no request read,
+and took one of the family's six rows.
 
 ## When the cache misses
 

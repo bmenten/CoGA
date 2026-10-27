@@ -31,8 +31,8 @@ tag and class list, the set of computed styles instead.
    (`APP_ENV=test`):
 
    ```bash
-   RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py   # golden trio + the e2e user
-   RUN_INTEGRATION=1 python scripts/seed_style_diff_demo.py  # NIPT demo + demo quartet
+   python scripts/seed_playwright_e2e.py   # golden trio + the e2e user
+   python scripts/seed_style_diff_demo.py  # NIPT demo + demo quartet
    ```
 
 3. **Backend.** Start it on a free port, with the same environment and the start-up bootstrap

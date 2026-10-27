@@ -13,7 +13,8 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 // One file on local disk, one gone from it, and one kept in the bucket the package was
-// imported from: the last is neither downloadable here nor missing.
+// imported from: the last is neither downloadable here nor missing. Two more are recorded
+// where CoGA does not read from, on disk and in a bucket (an edited row, say).
 const file = (overrides: Record<string, unknown>) => ({
   scope: 'individual',
   dataset: 'alignments',
@@ -49,8 +50,28 @@ const rawFiles = {
       download_available: false,
       in_object_store: true,
     }),
+    file({
+      id: 'outside',
+      file_name: 'edited.cram',
+      storage_path: '/elsewhere/edited.cram',
+      exists: false,
+      download_available: false,
+      outside_read_folders: true,
+    }),
+    file({
+      id: 'remote-outside',
+      file_name: 'report.pdf',
+      storage_path: 'gs://phi/reports/F1/report.pdf',
+      exists: null,
+      download_available: false,
+      in_object_store: true,
+      outside_read_folders: true,
+    }),
   ],
 };
+
+const OUTSIDE =
+  'Its recorded location lies outside the folders and stores CoGA reads source files from, so it is not read';
 
 const renderTable = () => {
   (api.get as unknown as Mock).mockResolvedValue({ data: rawFiles });
@@ -120,5 +141,33 @@ describe('RawFileProvenanceTable', () => {
       remote.getByText('The object is in the store with the recorded size and generation.'),
     ).toBeInTheDocument();
     expect(api.post).toHaveBeenCalledWith('/admin/data/files/remote/verify');
+  });
+
+  it('marks a file recorded where CoGA does not read from, not as kept in the store or gone', async () => {
+    renderTable();
+
+    for (const fileName of ['edited.cram', 'report.pdf']) {
+      const row = await rowOf(fileName);
+      // Before: the bucket row said it was kept in the object store, the disk row that it was gone.
+      expect(row.getByRole('button', { name: 'Download' })).toHaveAttribute('title', OUTSIDE);
+      expect(row.getByRole('button', { name: 'Verify' })).toHaveAttribute('title', OUTSIDE);
+      expect(row.getByText(`${OUTSIDE}.`)).toBeInTheDocument();
+    }
+    // The other rows carry no such line.
+    expect(screen.getAllByText(`${OUTSIDE}.`)).toHaveLength(2);
+  });
+
+  it('gives the reason a Verify was refused', async () => {
+    const reason =
+      "The file's recorded storage path names no object below FAMILY_IMPORT_ROOTS, so the object store is not asked about it.";
+    (api.post as unknown as Mock).mockRejectedValue({ response: { status: 403, data: { detail: reason } } });
+    renderTable();
+
+    const remote = await rowOf('report.pdf');
+    fireEvent.click(remote.getByRole('button', { name: 'Verify' }));
+
+    // Before: "Could not verify report.pdf." and nothing more.
+    expect(await screen.findByText(`Could not verify report.pdf: ${reason}`)).toBeInTheDocument();
+    expect(api.post).toHaveBeenCalledWith('/admin/data/files/remote-outside/verify');
   });
 });

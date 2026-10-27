@@ -98,7 +98,7 @@ row's evidence.
 
 **The clinical audit trail** is written in the same transaction as the change it describes,
 so it cannot drift from the data. Small-variant, structural-variant and CNV review saves write
-to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family), and every record of whether TRGT's counting units at a repeat locus are validated, on another (`system:repeat-loci`). So does every change to a family's phenotypes (SEC-1): a `phenotype` event per HPO term added, changed or removed, with the member, the term and its label, the status, onset, evidence, source and note before and after (none before a term added, none after one removed), and a summary that names what changed (*Phenotype changed for S1: HP:0001250 Seizure: status present → absent*); a save that changes nothing writes none. An import that changes a family's phenotypes writes `phenotype` events too, one per member whose phenotypes it changed, as the user who ran it, in the transaction of the change and under the lock an edit takes (`hpo_service.record_imported_phenotype_changes`): a package import's phenotypes (*Phenotypes imported for S1 by a package import of FAM1 (phenotypes.tsv): added HP:0001250 Seizure (present)*), the restore of a failed overwrite that puts them back (*Phenotypes put back for S1 after a failed package import of FAM1: …*), a failed import that removes the family it had created, and a PED upload or the Family Builder that replaces a family (*Phenotypes removed for S1: the family was replaced by a PED upload (FAM1.ped): …*); the last two are written just before the family's `family_deleted` event (below). Its before and after are each the member and its annotations the change touched (`{"sample_id": …, "phenotypes": […]}`, each annotation as an edit's event holds it): before, those it altered or removed, as they were; after, those it added or altered, as they are; none before when it only added, none after when it only removed, as for an edit. The summary names five changes at most; the metadata names the package (its folder or bucket) or the uploaded file, the phenotype files and the import job. An import that changes no phenotype writes none. Its actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree`, `phenotype`, `family_deleted`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `panel_applied` (below), `sign_out`, `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed), and `repeat_count_units_validated` and `repeat_count_units_not_validated` (the locus, and the record before and after, with its reason).
+to it, and so does sign-out. An admin's replacement of the annotation manifest writes to it too, and so does every change to the NIPT artifact list, on a chain of its own (`system:nipt-artifacts`, not a family), and every record of whether TRGT's counting units at a repeat locus are validated, on another (`system:repeat-loci`). So does every change to a family's phenotypes (SEC-1): a `phenotype` event per HPO term added, changed or removed, with the member, the term and its label, the status, onset, evidence, source and note before and after (none before a term added, none after one removed), and a summary that names what changed (*Phenotype changed for S1: HP:0001250 Seizure: status present → absent*); a save that changes nothing writes none. An import that changes a family's phenotypes writes `phenotype` events too, one per member whose phenotypes it changed, as the user who ran it, in the transaction of the change and under the lock an edit takes (`hpo_service.record_imported_phenotype_changes`): a package import's phenotypes (*Phenotypes imported for S1 by a package import of FAM1 (phenotypes.tsv): added HP:0001250 Seizure (present)*), the restore of a failed overwrite that puts them back (*Phenotypes put back for S1 after a failed package import of FAM1: …*), a failed import that removes the family it had created, a PED upload or the Family Builder that replaces a family (*Phenotypes removed for S1: the family was replaced by a PED upload (FAM1.ped): …*), and an administrator's deletion of a family or a sample with its data (*Phenotypes removed for S1: an administrator deleted the sample with its data: …*, metadata `source: admin_deletion`, TRACE-16); those that delete a family are written just before its `family_deleted` event (below), and a sample's deletion writes them before its `pedigree` event. A member removed from the pedigree keeps its phenotypes: its sample stays, made inactive. Its before and after are each the member and its annotations the change touched (`{"sample_id": …, "phenotypes": […]}`, each annotation as an edit's event holds it): before, those it altered or removed, as they were; after, those it added or altered, as they are; none before when it only added, none after when it only removed, as for an edit. The summary names five changes at most; the metadata names the package (its folder or bucket) or the uploaded file, the phenotype files and the import job. An import that changes no phenotype writes none. Its actions are `classification`, `tags`, `note`, `compound_het_pair`, `pedigree`, `phenotype`, `family_deleted`, `annotation_manifest` (the replacement, with the manifest it replaced and the new one), `panel_applied` (below), `sign_out`, `nipt_artifact_added`, `nipt_artifact_updated`, `nipt_artifact_removed`, `nipt_artifacts_auto_seeded` and `nipt_artifacts_imported` (an import of the NIPT-M pipeline's recurrent table, naming the file and every allele it listed), and `repeat_count_units_validated` and `repeat_count_units_not_validated` (the locus, and the record before and after, with its reason).
 `compound_het_pair` (SEC-7) is the review of a compound-heterozygous pair, given on one
 variant's review with its partner: a save that records a pair, changes it or breaks it up
 writes one event per pair that changed, with the pair as it was and as it is (its partner,
@@ -122,8 +122,11 @@ samples by ID, its latest structure version, and what went with it: the variant 
 calls, Paraphase results, interval tracks and raw files Postgres held, and for an admin's
 deletion the small and structural variants counted in ClickHouse (*Family deleted with its
 data: 3 samples (F1, M1, P1), 1204 small variants, 3 structural variants, 5 variant reviews*);
-`metadata.source` says which deletion it was. The deletion asks no reason, so the event holds
-none. It is written in the deletion's transaction, before anything of the family is deleted (an
+`metadata.source` says which deletion it was. An admin's deletion requires a reason (the dialog
+asks it, and `DELETE /api/admin/families/{family_id}` refuses one without `{"reason": …}` in its
+body with 400; TRACE-16, the owner's decision of 2026-10-27): the event holds it as
+`metadata.reason` and ends its summary with it (*… 5 variant reviews. Reason: duplicate of F2*).
+The other deletions, which their `source` explains, ask none. It is written in the deletion's transaction, before anything of the family is deleted (an
 admin's deletion) or before the family row goes, so a deletion that fails records nothing; the
 family's chains (its clinical audit events, sign-outs and structure versions) stay after it,
 unlinked from the family row and verifiable by the family's ID. A family made again under that
@@ -423,6 +426,9 @@ Five gates run first, in this order:
    again and finds the job ended, and leaves the family marked the same way (#746). Between
    the claim and that stop the job no longer refuses a sign-out, but the import's
    variant-write locks do (`variant_writes_in_progress`) while their connection holds them.
+   An import whose heartbeat has not reached the database for five minutes stops itself the
+   same way, before a worker can take its job for stopped, and one whose locks' connection
+   is lost is stopped where it is, its job ended `failed` and the family left marked (SAFE-15).
 3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
    variant or of a structural variant or CNV, gives 409, unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
@@ -477,12 +483,14 @@ Five gates run first, in this order:
    with warnings, or registers when its package carries nothing CoGA imports for it; a later
    failure keeps an earlier one's failed datasets, and every callset or set of samples a
    dataset failed for, each with its job, `failed_scopes`; the gate names each dataset with the
-   job of its latest failure, `failed_jobs`). A failed `overwrite` whose restore failed too, other than by refusing
+   job of its latest failure, `failed_jobs`, and one that failed in a single-file upload with none). A failed `overwrite` whose restore failed too, other than by refusing
    to start without its whole backup, may have lost rows of any dataset of the family,
    whichever import or upload wrote them: its flag names every dataset of the import as
    failed, those it imported too, and its `import_unfinished` entry stays, naming every dataset
-   the family holds (what its imports and single-file uploads recorded in
-   `metadata.imported_scopes`) and every dataset of the import, so the gate holds until the
+   the family holds in ClickHouse (what its imports and single-file uploads recorded in
+   `metadata.imported_scopes`; Postgres, put back in one transaction, cannot be left partly
+   written) and every dataset of the import, frozen with `whole_family: true` so the gate and
+   the signed record name it as a restore that did not finish, so the gate holds until the
    whole family has been imported again with `overwrite`, not only what failed: each import
    that completes with overwrite, and each upload with overwrite, removes from the entry what
    it brought again, for that scope, and an update removes nothing. Only an import that
@@ -765,12 +773,9 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   family. Searches made before the `panel_applied` event existed recorded nothing, so a record
   signed for such a family names only the panels applied since.
 - A repeat-expansion call's and a Paraphase result's status is frozen as CoGA classifies it at
-  sign-out, from the catalogue loaded then; the genome tracks still show the status stored at
-  import until the calls are imported again (*TRGT repeat catalogue*,
+  sign-out, from the catalogue loaded then. The repeat page and the genome tracks classify a
+  call alike, against the catalogue as it is now (CLIN-14; *TRGT repeat catalogue*,
   [data-import.md](data-import.md)).
-- The phenotypes that go with a sample, a family member or a family an administrator deletes
-  are not recorded as `phenotype` events: the deletion is a `pedigree` or `family_deleted`
-  event, which does not name them.
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
 - The export of each anchor to a store outside the database is not implemented (the
