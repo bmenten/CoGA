@@ -7,9 +7,10 @@ set -euo pipefail
 DATA_DEVICE="/dev/disk/by-id/google-clickhouse-data"
 MOUNT_POINT="/mnt/disks/clickhouse"
 CONFIG_DIR="/etc/coga-clickhouse/config.d"
+USERS_DIR="/etc/coga-clickhouse/users.d"
 CERTS_DIR="/etc/coga-clickhouse/certs"
 
-mkdir -p "$${MOUNT_POINT}" "$${CONFIG_DIR}" "$${CERTS_DIR}"
+mkdir -p "$${MOUNT_POINT}" "$${CONFIG_DIR}" "$${USERS_DIR}" "$${CERTS_DIR}"
 
 # Format the dedicated data disk on first boot only; never reformat existing data.
 if ! blkid "$${DATA_DEVICE}" >/dev/null 2>&1; then
@@ -70,6 +71,13 @@ cat > "$${CONFIG_DIR}/tls.xml" <<'XML'
 </clickhouse>
 XML
 
+# The query memory guards Docker Compose mounts too, from the same file in the repository
+# (clickhouse/users.d/memory-guards.xml, OPS-14): a cap of 4 GB on each query, and GROUP BY
+# and ORDER BY state spilled to disk past 2 GB.
+cat > "$${USERS_DIR}/memory-guards.xml" <<'XML'
+${memory_guards_xml}
+XML
+
 %{ if registry_host != "" ~}
 # Artifact Registry pulls need the VM's service-account credentials. COS keeps /root
 # read-only, so the Docker client configuration lives under a writable HOME.
@@ -81,6 +89,11 @@ docker-credential-gcr configure-docker --registries="${registry_host}"
 # Idempotent: remove any prior container before (re)starting.
 docker rm -f clickhouse-server >/dev/null 2>&1 || true
 
+# The memory guards go in as one file, as in Compose, not as the users.d folder: the
+# image's entrypoint writes the user it creates into that folder. --mount, not -v: Docker
+# then refuses a file that is missing rather than making an empty folder of it. /etc does
+# not outlive a reboot, and Docker can restart the container at boot before this script
+# has written the file again.
 docker run -d \
   --name clickhouse-server \
   --restart always \
@@ -89,6 +102,7 @@ docker run -d \
   -v "$${MOUNT_POINT}/clickhouse":/var/lib/clickhouse \
   -v "$${CERTS_DIR}":/etc/clickhouse-server/certs:ro \
   -v "$${CONFIG_DIR}":/etc/clickhouse-server/config.d:ro \
+  --mount type=bind,source="$${USERS_DIR}/memory-guards.xml",target=/etc/clickhouse-server/users.d/memory-guards.xml,readonly \
   -e CLICKHOUSE_DB="${ch_db}" \
   -e CLICKHOUSE_USER="${ch_user}" \
   -e CLICKHOUSE_PASSWORD="$${CH_PASSWORD}" \

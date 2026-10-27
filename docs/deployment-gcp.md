@@ -796,6 +796,12 @@ Then check that the app's health check is green and that a variant search answer
 has **no SSH ingress** (TF-13 S-8), which is why the restart, not a shell, is the way to
 make it reload.
 
+Terraform stores the new key and certificate in Secret Manager before it destroys their old
+versions, so a VM that boots during the apply still finds a key and a certificate to load.
+It used to destroy the old versions first, and a VM that booted in between found none and
+did not start ClickHouse (SEC-19). A VM that boots between the new key and the new
+certificate may load one new and one old: the restart after the apply loads the new pair.
+
 If an apply fails with `x509: provided PrivateKey doesn't match parent's PublicKey`, a change
 would have re-issued the server certificate without the CA (for example a new validity
 period on the server certificate alone). Raise `clickhouse_tls_key_version` in the same
@@ -809,6 +815,13 @@ change, apply, and restart the VM.
   grows the disk, but not the file system on it: afterwards run
   `sudo resize2fs /dev/disk/by-id/google-clickhouse-data` on the VM (through the
   break-glass SSH rule of 12.4). Plan capacity ahead.
+- **ClickHouse memory per query:** the VM runs ClickHouse with the memory guards Docker
+  Compose uses, from the same file, `clickhouse/users.d/memory-guards.xml` (OPS-14): each
+  query is capped at 4 GB, and spills GROUP BY and ORDER BY state to disk past 2 GB. A
+  larger machine therefore runs more such queries at once, not larger ones; the backend's
+  `CLICKHOUSE_MAX_MEMORY_USAGE`, when set, overrides the cap for the app's queries. The
+  startup script writes the file at each boot, so a change to it reaches the VM at its next
+  restart (12.4), after the apply.
 
 ### 12.6 Logs & monitoring
 
