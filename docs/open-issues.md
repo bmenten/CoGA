@@ -1,7 +1,7 @@
 # Open issues
 
-Every known open issue, ranked by priority. Status of **2026-10-27**, `main` at `21c0cb86`
-(after the fixes #790–#989). Sources: the open GitHub issues and pull requests, the
+Every known open issue, ranked by priority. Status of **2026-10-27** (evening), `main` at
+`91f54d0b` (after the fixes #790–#1027). Sources: the open GitHub issues and pull requests, the
 follow-ups recorded in the pull requests of the last weeks, the residuals and open items in
 `docs/` and the technical file, the codebase audit of 2026-10-08, whose agents checked each
 item in the code, and what the fixes of 2026-10-09 to 10-27 found. Line numbers drift:
@@ -27,17 +27,13 @@ manager · *LD* the laboratory director · *Ops* the operator or organisation ad
 the data protection officer · *RA* regulatory affairs.
 
 **The repository on that date:** 3 open issues (#1, #364, #518) and no open pull request
-besides the one that updates this page and #990, which brings TF-08 up to date with
-Dependabot's updates of 2026-10-27; two open Dependabot alerts (#125 and #126: certifi
-before 2026.10.18, GHSA-6q48-6c7w-9gw2) that `main` no longer matches, as #929 moved certifi
-to 2026.10.19 and #959 to 2026.10.23, while GitHub's dependency graph still lists the pin of
-2026.6.17 beside the new one, a stale snapshot the repository no longer holds: the owner
-dismisses them as inaccurate; one open code-scanning alert, CodeQL's `py/path-injection`
-(54) on the `resolve()` inside the package-path guard `_authorized_package_folder`
-(`family_package_source.py`), the false positive the owner dismissed as alert 35, raised
-again when #978 edited the function: the owner dismisses it, as the gh token cannot; twelve
-required checks on `main`, which requires no approving review and no branch to be up to date
-before it merges; CI green on `main`; no image pushed, nothing deployed, no release tagged.
+besides the one that updates this page; no open Dependabot or code-scanning alert: the owner
+dismissed Dependabot #125 and #126 (a stale certifi snapshot) and CodeQL 54 (the package-path
+guard's false positive, raised again by #978), and #1003 moved dnspython past
+GHSA-45c3-73f7-pv4m, which failed the required `deps` check on every branch the afternoon it
+was published; twelve required checks on `main`, which requires no approving review and no
+branch to be up to date before it merges; CI green on `main`; no image pushed, nothing
+deployed, no release tagged.
 
 ## Ranked list: P1 and P2
 
@@ -45,7 +41,7 @@ before it merges; CI green on `main`; no image pushed, nothing deployed, no rele
 |---:|---|---|---|---|
 | 1 | REG-1 | P1 | Traceability-matrix rows whose status no longer matches the software | QA, Owner |
 | 2 | CLIN-57 | P1 | TRGT's counting units are not validated per locus | QA, LD, Eng |
-| 3 | REG-13 | P1 | The technical file still says the embryo calls and NIPT results are unsigned | QA |
+| 3 | REG-13 | P1 | QA's review of the technical file's signed-record corrections (#997) | QA |
 | 4 | OPS-2 | P1 | No image pushed; the CI image build does not block a merge | Owner, Ops |
 | 5 | OPS-3 | P1 | Terraform never applied; one environment; every push would deploy | Ops, Owner |
 | 6 | OPS-4 | P1 | The go-live switches are all off (#364) | Ops |
@@ -56,19 +52,17 @@ before it merges; CI green on `main`; no image pushed, nothing deployed, no rele
 | 11 | REG-6 | P1 | Performance-evaluation inputs (TF-10) | Owner, QA |
 | 12 | REG-7 | P1 | Usability evaluation, DPIA filing, national provisions | Owner, DPO, RA, QA |
 | 13 | REG-8 | P1 | Independent (4-eye) review: QA's per-release review to confirm and run | QA |
-| 14 | CLIN-66 | P2 | Stored haplotype blocks are not rebuilt after the edits they rest on | Eng |
-| 15 | CLIN-67 | P2 | gnomAD's homozygote and hemizygote counts under VEP's prefixes are not read | Eng, Owner |
-| 16 | CLIN-61 | P2 | The PGT phasing-QC thresholds are provisional | LD, QA |
-| 17 | TRACE-18 | P2 | Some reference inputs are still read without a pin | Eng, Owner |
-| 18 | SEC-6 | P2 | The request audit holds clinical content with no retention period | Owner, DPO |
-| 19 | REG-12 | P2 | Owner and QA confirmations of the fixes of 2026-10-09 to 10-27 | Owner, QA |
-| 20 | CLIN-9 | P2 | QA confirmation of the carrier-screening preset and the chrM exclusion | QA |
-| 21 | CLIN-10 | P2 | Parent–embryo IBS0 never checked on real imputed data | Owner |
-| 22 | OPS-6 | P2 | Deployment settings: problem-report link, SMTP, the reference-data bucket | Ops |
-| 23 | OPS-24 | P2 | Release mechanics untried until Google Cloud is configured | Ops, Owner |
-| 24 | REG-10 | P2 | No regression truth set (GIAB / GeT-RM) | Eng, QA |
-| 25 | REG-11 | P2 | Post-market, vigilance and security-process inputs | QA, RA, Owner |
-| 26 | OPS-9 | P2 | Scale is unproven | Eng, Owner |
+| 14 | CLIN-68 | P2 | The laboratory's VCFs carry no gnomAD homozygote or hemizygote counts | LD, Owner |
+| 15 | CLIN-61 | P2 | The PGT phasing-QC thresholds are provisional | LD, QA |
+| 16 | SEC-6 | P2 | The request audit holds clinical content with no retention period | Owner, DPO |
+| 17 | REG-12 | P2 | Owner and QA confirmations of the fixes of 2026-10-09 to 10-27 | Owner, QA |
+| 18 | CLIN-9 | P2 | QA confirmation of the carrier-screening preset and the chrM exclusion | QA |
+| 19 | CLIN-10 | P2 | Parent–embryo IBS0 never checked on real imputed data | Owner |
+| 20 | OPS-6 | P2 | Deployment settings: problem-report link, SMTP, the reference-data bucket | Ops |
+| 21 | OPS-24 | P2 | Release mechanics untried until Google Cloud is configured | Ops, Owner |
+| 22 | REG-10 | P2 | No regression truth set (GIAB / GeT-RM) | Eng, QA |
+| 23 | REG-11 | P2 | Post-market, vigilance and security-process inputs | QA, RA, Owner |
+| 24 | OPS-9 | P2 | Scale is unproven | Eng, Owner |
 
 ## P1 — before the release candidate
 
@@ -114,19 +108,22 @@ correction field exists yet); QA words the TF-06 hazard H17 and the TF-09a requi
 proposes. Since #913 the signed record freezes each call's mark and its locus's
 validation state.
 
-### REG-13 · The technical file still says the embryo calls and NIPT results are unsigned
+### REG-13 · QA's review of the technical file's signed-record corrections (#997)
 
-The owner decided REG-2: CoGA's sign-out is the analyst's analytical sign-off and freezes
-the analysis, which the EPD report quotes by its report code, with its variant descriptions,
-panels, reference data, repeats, Paraphase, PGT and NIPT results and coverage declarations
-(#866, #879, #899, #900, #908, #911). Statements written while REG-2 was open now read
-wrong: TF-06 H4 (the NIPT gate acts only on a sign-out of the family report), H5 and H6 (🔲
-the embryo calls and the NIPT results are in no signed record) and H9 (🔲 no variant
-description; only the family report is signed); TF-01 §4 condition 7 (the NIPT report has no
-sign-out) and §3.3 (the embryo call "explicitly gated by QC", where #908's warning never
-blocks); TF-02 §6 (no variant description; the embryo calls and the NIPT results unsigned).
-**Next:** QA updates them, reconsiders the 🔲 on H5, H6 and H9, and sets the TF-09b rows of
-REG-1.
+The owner decided REG-2: CoGA's sign-out is the analyst's analytical sign-off and freezes the
+analysis, which the EPD report quotes by its report code. #997 corrected, as drafts for QA, the
+statements written while REG-2 was open: TF-06 H4, H5, H6, H9 and §4 item 1, TF-01 §3.3 and §4
+condition 7, TF-02 §6, TF-03 §16.1 and TF-15 §5 now say that the signed record holds each
+reported variant's description (#879), a PGT family's embryo calls with their phasing QC (#899,
+#908) and a monogenic NIPT family's NIPT results (#900), and that the embryo call's QC warns
+but never gates. No status symbol, score or decision field changed. **Next:** QA reviews the
+corrected text and reconsiders the 🔲 beside H5 (what remains: the provisional thresholds,
+CLIN-61, and the browser's second implementation of the risk rules), H6 (only the candidates
+tagged for the report are frozen) and both on H9 (the gene and phenotype context), the 🔲 OWNER
+item of TF-02 §6 (decided on 2026-10-14) and TF-03 §16.1's ◐; decides whether TF-06 §4's
+embryo-QC example belongs under item 2; and sets REQ-TRACE-007's gap text with REG-1. TF-12 U2
+and TF-15 §3 items 2 and 7 do not name the newer controls (the phasing-QC warning, *Sign out
+NIPT analysis*, the NIPT checks that gate): QA's call.
 
 ### OPS-2 · No image pushed; the CI image build does not block a merge
 
@@ -224,23 +221,15 @@ per-change approval, and records the first review before the RC tag.
 
 ## P2 — before the release candidate
 
-- **CLIN-66 · Stored haplotype blocks are not rebuilt after the edits they rest on.** The
-  blocks are built when the phased genotypes are imported, from the index couple, the
-  affected set and each member's recorded sex (the parents' haplotype labels are oriented by
-  the affected child), and the embryo calls read them. A later edit of the pedigree, an
-  affected status or a sex neither rebuilds them nor warns, so it takes effect only when the
-  phased genotypes are imported again. A single-file re-upload (`POST
-  /families/{id}/small-variants/upload`) rewrites the blocks but not the genome overview's
-  lineage precompute, whose fingerprint (`bed_service._lineage_hash`) leaves the blocks out,
-  so the overview and its risk line show the old blocks until a pedigree, member or ROI edit
-  refreshes them. Found while fixing the X-linked blocks (#927).
-- **CLIN-67 · gnomAD's homozygote and hemizygote counts under VEP's prefixes are not read.**
-  The parser reads `gnomAD_nhomalt` but not `gnomADe_nhomalt` or `gnomADg_nhomalt`, and no
-  exome or genome hemizygote count, so a pipeline that writes those names never has the
-  maximum homozygote and hemizygote filters or the BS2 suggestion applied, without a word;
-  when exome and genome counts both exist, `gnomad_ac` takes the exome count alone. The
-  owner confirms the names the laboratory's pipeline writes. Found while fixing CLIN-59
-  (#915).
+- **CLIN-68 · The laboratory's VCFs carry no gnomAD homozygote or hemizygote counts.** Their
+  CSQ holds gnomAD's allele frequencies, the population frequencies and `MAX_AF`, and their
+  INFO no count at all (read in a real VCF's header for #992). So every maximum gnomAD count
+  filter (the homozygotes, the hemizygotes, the allele count) keeps every variant as absent
+  from gnomAD, the *Phenotype priority* preset's limits included, and BS2 gets no suggestion;
+  since #992 the variant list says so for each count filter applied. **Next:** the laboratory
+  adds gnomAD's counts to the VEP run (`--custom` with `nhomalt` and the hemizygote counts),
+  outside the device; the laboratory director decides meanwhile whether the presets should rely
+  on the counts.
 - **CLIN-61 · The PGT phasing-QC thresholds are provisional.** Since #908, as the owner
   decided on 2026-10-20, an embryo call carries a warning, never a block, when its phasing
   QC at the ROI has fewer than 50 informative sites, a Mendelian error rate above 2 % or
@@ -251,15 +240,6 @@ per-change approval, and records the first review before the RC tag.
   ROI should include its flanks, as the warning will fire often there.
   Since #914 a man's one X counts outside the PARs; the validation could include an X-linked
   locus with men's calls written once and written twice (#914, #927).
-- **TRACE-18 · Some reference inputs are still read without a pin.** After #919 checked the
-  segmental-duplication file, an HPO file in place and the knowledgebase's ClinGen
-  recurrent-CNV file: the admin HPO sync (`POST /admin/hpo/sync`) loads any ontology file in
-  the folder unchecked and takes a release the admin types, which the terms store and signed
-  records freeze (pin it, or keep it as the route for a new release: the owner); the
-  knowledgebase's other inputs (ClinGen's dosage curation, ClinVar, UCSC's cytobands) are
-  identified only by the rebuild date; a GRCh37 knowledgebase rebuild is refused until
-  ClinGen's GRCh37 recurrent-CNV file is checked and pinned, though TF-10 §8 lists GRCh37
-  builds. Found while fixing TRACE-14 (#919).
 - **SEC-6 · The request audit holds clinical content with no retention period.**
   `audit_log_events` stores request bodies in an append-only table, and since #893 the
   UI-event log is append-only too, so neither can be cleaned up without a controlled
@@ -596,6 +576,54 @@ per-change approval, and records the first review before the RC tag.
   - #969 (TF-13 S-7): QA reads the corrected row.
   - #976 (Sample QC sites): QA reads it as a change to a clinical check.
   - #986 (chrX lineage): the TF-10 §8 clause that names chrX in the PGT validation scope.
+
+  Fixes of 2026-10-27 (CLIN-66, CLIN-67, TRACE-18 and the rest of the engineering items):
+  - #992 (gnomAD counts): whether the population filters keep their citation under
+    REQ-PERF-003, and REQ-UI-003's BS2 sentence.
+  - #993 (knowledgebase files): the TF-08 note on the GRCh37 ClinGen pin and the recorded
+    files; the REQ-TRACE-005 citation. #994 (HPO sync): the TF-08 HPO row and the REQ-TRACE-001
+    citation.
+  - #995, #996 (outdated haplotype blocks): the REQ-PGT-005 citations, the TF-09c row and
+    whether TF-10 §8's PGT area covers it; a PGT family's phased genotypes imported before #995
+    read as outdated until imported again.
+  - #998 (files checked first): the per-target coverage tables checked first too; the dry run's
+    new warnings. #999 (Paraphase copy numbers): refused like #985's TRGT values, not stored as
+    missing.
+  - #1000 (mypy gate): the ten floored modules joined the clinical-critical set, the owner's
+    decision of 2026-10-27; QA confirms TF-18 §3a's wording and the review scope (REG-8).
+  - #1001 (deletions): striking a deleted sample off the import flags lifts a gate for that
+    sample's data only; an unlink that fails after the commit is logged, not retried.
+  - #1002 (Sample QC, blocks, structure versions): a database error in the NIPT step is a
+    listed *could not run* concern, no longer a failed sign-out; zero-length blocks at a
+    stretch's end are gone from families imported again; the summary sentence of a re-created
+    family.
+  - #1004, #1008 (sign-out): the freeze follows what the page shows as reported (a pair
+    review's report tag); a monogenic NIPT family's record holds a PGT section only for an
+    embryo with haplotype blocks of its own; the acknowledged concerns' fingerprint in the
+    audit event only, strict matching, 422 without one, the drift 409's detail an object;
+    TF-09a's wording for REQ-TRACE-006, -012 and -013.
+  - #1005, #1017 (sign-in keys): a job and a preset show the address and name they were saved
+    under; revision 0008 removed presets no account's user name found; a job the previous
+    version queued after the migration fails; a job whose requester was deactivated ends
+    failed, a running import is not stopped.
+  - #1006 (segmental duplications): the GRCh38 alias rule rather than the exact name; a warning
+    at every start while the setting names another assembly; rows loaded earlier stay. #1013,
+    #1021 (assembly names): T2T-CHM13 v1.0 and v1.1 are no longer read as T2T; IGV opens no
+    genome for an assembly it has none for; a patched GRCh37 opens hg19; GRCh37 after T2T in
+    the panel list.
+  - #1007 (audit rows): a row stored without its user link is not counted as lost; TF-13 S-5's
+    wording. #1018, #1025 (UI events): kept in the browser until the same account signs in
+    again, the owner's decision of 2026-10-27, now also after a 401; the server keeps the
+    browser's event id; idle tabs renew their token hourly; the client half cited under
+    REQ-SEC-004.
+  - #1009, #1012, #1022 (saved searches): a filter a list does not apply is left out and named,
+    never refused; a man's `1|1` on his one X shown as one allele; the small-variant route
+    refuses the NIPT list's `de_novo`. #1019 (viewer): the chromosome list reads chr1…chrY and
+    chrM.
+  - #1010 (HSTS): one policy in the app and the load balancer; QA checks after the first apply
+    whether the load balancer's and Cloud Armor's own answers carry it. #1011 (ClickHouse VM):
+    the 4 GB cap per query now applies on Google Cloud; create-before-destroy extends to what
+    the secret versions depend on.
 - **CLIN-9 · QA confirmation of the carrier-screening preset and the chrM exclusion** (#763).
   TF-09a records the chrM exclusion as the owner's decision.
 - **CLIN-10 · Parent–embryo IBS0 never checked on real imputed data** since the genome-wide
@@ -645,29 +673,18 @@ per-change approval, and records the first review before the RC tag.
 
 ### Data integrity and import
 
-- **SAFE-3 ·** Two kinds of data file are still checked only as they are written (was SAFE-4
-  and SAFE-33; #955 and #985 fixed the rest). An APCAD file per embryo and a coverage BED
-  are checked sample by sample as each is written, so a later sample's bad file is found
-  after the earlier samples' tracks were replaced; checking them first would read each file
-  twice. A long-read SNV file out of position order is found only while streaming, after an
-  overwrite has deleted the stored callset: the overwrite snapshot restores it, so it is
-  lost only if that restore fails too (which flags every dataset of the import and keeps the
-  family marked until it is imported again in full) or if no snapshot could be taken; a
-  pre-scan would double the longest import.
+- **SAFE-3 ·** A long-read sample's SNV file out of position order is found only while
+  streaming, after an overwrite has deleted the stored callset: the overwrite snapshot restores
+  it, so it is lost only if that restore fails too (which flags every dataset of the import and
+  keeps the family marked until it is imported again in full) or if no snapshot could be taken.
+  Left as it is on purpose: a pre-scan would double the longest import. #998 checks the other
+  files first (was SAFE-4 and SAFE-33).
 - **DATA-4 ·** A bgzip file cut exactly at a block boundary still reads as complete (#817;
   was SAFE-10): requiring BGZF's end-of-file block would catch it, the owner's call (REG-12,
   under #817). #937 fixed the other download points.
-- **DATA-7 ·** The Paraphase copy numbers, Postgres integer columns filled from files, are
-  not checked for overflow. #938 fixed the allele fractions and the common-variant flag, and
-  #985 the TRGT values.
-- **SAFE-35 ·** Deletions after #926: the admin sample and family deletes remove the kept
-  copies of uploaded raw files from disk before they commit, so a deletion that then fails
-  leaves file records whose files are gone (a traceability gap); a PED or manual replacement
-  deletes the replaced family's small variants and SVs but not its interval tracks
-  (`ped_service._delete_replaced_family_variants`, where a structure clear deletes all
-  three), so those stay in ClickHouse under the deleted family, data that should be erased;
-  a flag scope that names a deleted sample can never be cleared. Found while fixing SAFE-31
-  (#926).
+- **DATA-9 ·** Refusal messages after #1014: the `repeats_trgt` family VCF's refusal names the
+  samples but not the file, and a per-target coverage table's names the file but not the
+  sample.
 
 ### Security and audit
 
@@ -691,20 +708,19 @@ per-change approval, and records the first review before the RC tag.
   system (a macOS bind mount) family IDs that differ only in case share one folder, for
   every folder named after an ID (#836); production storage is case-sensitive. #979 encoded
   the IDs in the app's links and in download names.
-- **SEC-17 ·** The request audit (was SEC-24): `audit_log_events` is append-only but not
-  hash-chained, a choice `security-posture.md` explains (a request row shows access and use,
-  not a clinical decision); a row naming a user deleted while it waited in the queue is
-  still lost (a foreign key; operator SQL only), and a retry after a commit with an unknown
-  outcome can duplicate rows (no idempotency key, #820). The UI-event log (`ui_events`) has
-  the same two gaps.
 - **SEC-19 ·** Terraform residuals to accept in TF-13: ClickHouse graceful shutdown is
-  best-effort, bucket grants are bucket-wide, secret rotation is manual. When Terraform
-  replaces a ClickHouse TLS secret version it destroys the old one before it creates the new
-  one, so a VM booting in between cannot fetch its key, and since #892 the VM must be
-  restarted right after any certificate reissue.
-- **SEC-23 ·** HSTS details after #941: the frontend's Cloud Run service sets no
-  `BACKEND_URL` (harmless while the load balancer routes `/api`); answers from Google's
-  infrastructure and the backend's bare 500s carry no HSTS.
+  best-effort, bucket grants are bucket-wide, secret rotation is manual, and the ClickHouse VM
+  must be restarted right after any certificate reissue (#892). Since #1011 a new TLS secret
+  version is created before the old one is destroyed; Terraform extends that to what the
+  versions depend on, so a later change that replaces one of those under the same name fails on
+  the name.
+- **SEC-23 ·** HSTS after #1010 and #1015 (the bare 500, the load balancer's HTTPS answers, the
+  frontend server's own 502 and 504 now carry it): QA checks after the first apply whether the
+  answers the load balancer and Cloud Armor make themselves (a refusal, a rate limit, the load
+  balancer's own 502) carry it; the frontend's `/api` fallback, now pointed at the backend,
+  still reaches it only through VPC egress (a network change, the owner's call); an exception
+  outside the proxy's handler gets Express's default 500, and Node's own 400 for a malformed
+  request carries no headers.
 - **SEC-27 ·** Package paths and file containment after #978 (was SEC-30 and SEC-31): Write
   manifest checks the link and then writes, so a concurrent swap to a symlink in between
   could still redirect the write (`O_NOFOLLOW` would refuse in-package links too). A
@@ -716,16 +732,20 @@ per-change approval, and records the first review before the RC tag.
   `families.metadata.package_import` since #653); `family_qc_reports._stored_report_url` and
   the CRAM remote probe check no path segments (object keys are literal, so a key cannot
   climb).
-- **SEC-32 ·** Sign-in after #895 and #939: the import job finds its requester by e-mail
-  (`family_package_import.py`), so a Microsoft account whose e-mail changes between the
-  request and the run is not found, and the change also hides the user's earlier import
-  jobs, listed by e-mail (`family_package_jobs.py`), and their review presets, kept by user
-  name, as a Microsoft sign-in rewrites both; the IGV viewer reads the stored token once, so
-  a long IGV session can outlive its token (a Microsoft token lasts about an hour).
+- **SEC-35 ·** Accounts after #1005 and #1017: a requester demoted from administrator between
+  queueing and the run still has the import run (the worker checks project access only,
+  `ped_service._resolve_accessible_project_id`; read in the code), and a clinical CNV
+  knowledgebase rebuild or a gene-info refresh queued by a since-deactivated administrator
+  still runs (those jobs act with no account's rights; they record who asked). The owner
+  decides whether either is refused.
 - **SEC-33 ·** `GET /api/users` still gives every signed-in user the names and e-mail
   addresses of all active accounts (the accepted staff-roster residual,
   `security-posture.md`), though no screen calls it since #909; removing the route would end
   it (owner).
+- **SEC-36 ·** The UI-event log after #1018 and #1025: the page-close keepalive's result is
+  never read, so a keepalive that fails is not retried; tabs share the kept store, so
+  concurrent writes from two tabs could in principle lose a kept event; events made with no
+  session at all (the sign-in page) are dropped when no session is found.
 
 ### Clinical behaviour and QC
 
@@ -777,37 +797,19 @@ per-change approval, and records the first review before the RC tag.
   for word: the check depends on the gene or panel queried, and the record's
   `coverage_tracks` freezes what the tracks hold; whether to freeze the notes too is the
   owner's call (#947 fixed the entry's other points).
-- **TRACE-19 ·** What the analyst sees and what a sign-out records. "Sign out anyway"
-  recomputes the QC, so a concern that arose after the dialog opened is acknowledged unseen,
-  and the drift and import gates do the same (a fix has the client send a fingerprint of
-  what it showed, an API change; found while fixing CLIN-58, #916). The report page and the
-  signed view say a record "still matches" without naming the sections they could not
-  compare (`not_compared`, such as the count units of a record signed before #913; the
-  frontend reads only `matches` and `changed_sections`). A `report` tag held only on a
-  compound-het pair review counts in the NIPT page's review-tag filter, the live report and
-  its variant descriptions, but not in what the NIPT sign-out freezes (`_reported_reviews`;
-  only the API sets such a tag, #920). Seen only in the unit wiring: a NIPT fetus whose sex
-  and status are unknown or unaffected is imported as an `embryo`, and a family with an
-  embryo gets a `pgt_analysis` section, so a NIPT record may hold an unrelated PGT section
-  (#922).
 
 ### Operations, CI and infrastructure
 
-- **OPS-11 ·** CI gates and workflow edits for the owner (was OPS-13). Coverage gate:
-  `ci.yml` passes `--cov-fail-under=70` while `check-coverage-floor.py` enforces 74 in the
-  same job (a workflow edit for the owner); several module floors lie far below what CI
-  measures; ten floored modules are outside the mypy gate (`family_package_import` would
-  pass now). Modules outside the gate carry mypy errors, among them five in `hpo_service.py`
-  (#863), one in `family_service.py` (#898), `get_current_user`'s `request: Request = None`
-  and `UserRead(id=str)` (#895), one in `_write_import_failure`
-  (`family_package_registration.py`; from SAFE-21), and `routers/cram.py`'s two arg-type
-  errors in `_resolve_alignment_manifest_entry` and `routers/signal_tracks.py`'s one, each a
-  `format` read as `str` (from SEC-28). Workflow tidy-ups (edits for the owner): an
-  unreachable branch-tag case in `build.yml` (#904 found its unused branch-build path too),
-  stale comments in `build.yml` and `ci.yml`, seventeen environment lines repeated across
-  three jobs, the coverage job installing the full dev lock.
-  A job that runs `./scripts/compile-requirements.sh` and fails on a diff would close the
-  gap in the lock's reproducibility that TF-13 S-7 now states (#969).
+- **OPS-11 ·** CI gates and workflow edits for the owner (was OPS-13). #1000 cleared the mypy
+  errors this entry named and added the ten floored modules to the gate. Left, as workflow
+  edits for the owner: the coverage gate (`ci.yml` passes `--cov-fail-under=70` while
+  `check-coverage-floor.py` enforces 74 in the same job), an unreachable branch-tag case and
+  stale comments in `build.yml` and `ci.yml`, seventeen environment lines repeated across three
+  jobs, the coverage job installing the full dev lock, a job that runs
+  `./scripts/compile-requirements.sh` and fails on a diff (TF-13 S-7, #969), and CI's
+  ClickHouse service, which does not mount the memory guards Compose and the VM read (#1011).
+  Outside the gate 179 mypy errors in 43 files remain (`reference_metadata_service`, `main` and
+  `metadata_service` the largest).
 - **OPS-12 ·** Dependency updates (was OPS-19). Dependabot does not track the CI service
   images (a test, `test_deployment_config.py`, holds them to the Compose images Dependabot
   does track, so each Compose image bump needs its `ci.yml` change by hand),
@@ -818,8 +820,6 @@ per-change approval, and records the first review before the RC tag.
   file is not committed. Dependabot holds back eslint 10 until eslint-plugin-react and
   eslint-plugin-jsx-a11y accept it, and TypeScript from 6.1 until typescript-eslint does
   (`dependabot.yml`, #674).
-- **OPS-14 ·** The ClickHouse memory guards (`clickhouse/users.d`) are not deployed to the
-  Google Cloud VM, so the 4 GB per-query cap exists only locally.
 - **OPS-15 ·** Build configuration after #967 (was OPS-16, OPS-20 and OPS-21): the clinical
   build passes no `VITE_GITHUB_*` values to Cloud Build (`build.yml`, a workflow edit for
   the owner), so the footer's GitHub links fall back to the owner's repository, and the
@@ -827,18 +827,21 @@ per-change approval, and records the first review before the RC tag.
   variable would fit the roles-not-names rule). Whether the Node in the pinned
   `node:22-alpine` digest meets the new floor of 22.22.2 is unchecked, and with
   `engine-strict` unset the floor only changes npm's warnings.
-- **OPS-17 ·** Reference data after #919 and #968 (was OPS-18): rebuild the clinical CNV
-  knowledgebase for both assemblies on each database (after #721), the GRCh38 one at least
-  once since #919, so its import record, and the records signed after it, name ClinGen's
-  recurrent-CNV file and its SHA-256; a `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME` other than
-  GRCh38 would load the shipped GRCh38 segmental-duplication file into that assembly, with
-  GRCh38 coordinates (#919). A start that cannot reach UCSC leaves GRCh38 without cytobands
-  (each later start tries again), and T2T gets one band per chromosome, as UCSC has no T2T
-  cytoband table (documented since #968).
+- **OPS-17 ·** Reference data (was OPS-18): rebuild the clinical CNV knowledgebase for both
+  assemblies on each database, the GRCh38 one at least once since #919 and the GRCh37 one since
+  #993 pinned its ClinGen file, so its import record, and the records signed after it, name
+  every file it read and its SHA-256. A start that cannot reach UCSC leaves GRCh38 without
+  cytobands (each later start tries again), and T2T gets one band per chromosome, as UCSC has
+  no T2T cytoband table (documented since #968). #1006 loads the shipped segmental-duplication
+  file into a GRCh38 assembly only.
 - **OPS-22 ·** `main` no longer requires a branch to be up to date before it merges, so two
   pull requests that each pass alone can fail together: #857 and #858 left a unit test
   failing on `main` until #860. A merge queue would test each against the one merged before
   it (owner).
+- **OPS-26 ·** The ClickHouse VM's daily certificate refresh runs
+  `/etc/coga-clickhouse/refresh-certs.sh` from systemd; if Container-Optimized OS mounts `/etc`
+  no-exec, it never runs (the restart after a reissue is not affected). Check at the first
+  apply (#1011; not verified).
 
 ### Engineering debt
 
@@ -848,12 +851,14 @@ per-change approval, and records the first review before the RC tag.
   (`ReferenceImportSourceAssemblyOut.cytobands_available/genes_available`); duplicate models
   (`FamilyStructureCoupleUpdate` = `ManualPedCoupleCreate`, `MonarchPhenotypeMatchOut` =
   `PhenotypeTermRefOut`); the CNV route's string-typed `end`;
-  `FamilyMemberUpdate.clear_existing_genomic_data`, accepted and ignored. The SV review
-  route's request model inherits `acmg` and `compound_het`, which the route ignores (#853).
-  The NIPT fields `cat7_transmitted` and `cat8_absent` and the profile summary's "categories
-  7/8" are named after the old paternity logic; the Sample QC page prints that summary and
-  signed records store it (`application_summary`), so renaming changes a stored text too
-  (the two fields are in no record signed since #749).
+  `FamilyMemberUpdate.clear_existing_genomic_data`, accepted and ignored. The SV review route's
+  request model inherits `acmg` and `compound_het`, which the route ignores (#853). The NIPT
+  fields `cat7_transmitted` and `cat8_absent` and the profile summary's "categories 7/8" are
+  named after the old paternity logic; the Sample QC page prints that summary and signed
+  records store it (`application_summary`), so renaming changes a stored text too (the two
+  fields are in no record signed since #749). Responses with no response model, read through
+  hand-written types since #1020 and #1027: the BED endpoints' JSON (declared `text/plain`),
+  `/shared-structural-variant-counts` and several `dict` answers.
 - **ENG-5 ·** Routes no screen calls (kept, or dropped by the owner):
   `GET /assemblies/{species_id}`, `GET /families/{id}/hpo/query`,
   `PUT /families/{id}/hpo/{annotation_id}`, `GET /hpo/{hpo_id}`,
@@ -874,15 +879,6 @@ per-change approval, and records the first review before the RC tag.
   API change (from SAFE-12).
   The classification tags ("Likely Pathogenic - class 4") and VUS tiers keep their capitals,
   as stored review labels: sentence case for them needs a migration (#982).
-- **ENG-7 ·** Frontend after #951: about 40 responses read through hand-written types where
-  a generated type exists (most visualisation tracks, the admin, gene, reference and import
-  pages, `apiTypes.ts` types without a contract check, the Mendeliome response read
-  untyped); eight admin alias routes nothing links to (`/admin/hpo`, `/admin/upload`,
-  `/admin/users`, `/admin/data/clickhouse`, `/admin/data/presets`, `/admin/data/tags`,
-  `/admin/data/logs`, `/admin/gene-reference`; owner: bookmarks — `/admin/data` itself is
-  the breadcrumbs' target); the viewer still offers `MT`; wheel-zoom leftovers (#489: a
-  shift scale always 1, a `[data-panning]` rule that never matches, so no grabbing cursor
-  during a pan).
 - **ENG-8 ·** Duplication left for a later refactor (was SEC-18): the audit and UI-event
   queue workers, the bounded download helper (Monarch, gene-info), several VCF INFO/FORMAT
   parsers with different flag handling, the interval-track tuple, small exact-copy helpers
@@ -894,18 +890,16 @@ per-change approval, and records the first review before the RC tag.
   and a segments-only `web` upload is not drawn (#846); the BED endpoints' segments and
   APCAD reads without `source` still return every caller's rows (not averaged, as coverage
   was before #949).
-- **ENG-19 ·** Minor points the fixes of 2026-10-20 found: the ROI marker review shows a
-  one-allele call as `·`, and its Mendelian-error note says a genotype "can't be inherited
-  from the parents" for a son's chrX too (#914); a re-created family's audit trail can name
-  two pedigree versions "structure version 1", told apart by their order and structure hash
-  (#917); a member is offered a small-variant track under a panel even where the list's
-  other filters, or its hiding of imputed callsets, leave it nothing to draw (never the
-  reverse), and ClickHouse's analyzer plans that availability query slowly in small windows
-  (#918); the NIPT page shows a saved search's classification or saved-notes chip, though
-  its list does not apply them (#920); a database error in the Sample QC's NIPT step, which
-  runs outside a savepoint, fails the sign-out (it fails closed, #922); the
-  haplotype-segregation reference's in-page links do not jump, as its headings have no ids,
-  and a one-site block can occur at a stretch's last position (#927).
+- **ENG-19 ·** ClickHouse's analyzer plans the panel track-availability query slowly in small
+  windows (#918); a member is offered a small-variant track where the list's other filters
+  leave it nothing to draw (never the reverse: by design, it errs towards offering). #1002 and
+  #1009 fixed the entry's other points.
+- **ENG-20 ·** Viewer leftovers after #1023 and #1026: the genome overview's haplotype track
+  looks a block up under its stored chromosome name (latent: the blocks are nuclear); the SV
+  tooltip writes the stored name (`M:…`), not `formatChromosomeLabel` (#602), which a test
+  pins; chrM stays on the genome overview though it is about 0.006 px wide (the Circos plot
+  leaves it out: the owner's call); three test files still cast partial objects to the variant
+  types.
 
 ### Product gaps and enhancements
 
@@ -913,6 +907,24 @@ Moved to [ROADMAP.md](ROADMAP.md#product) on 2026-10-20, as ideas rather than de
 PROD-1 to PROD-9 and ENG-9 under *Product*, SEC-16 under *Engineering*.
 
 ## Closed since the last review
+
+Fixed on 2026-10-27, the P2 items CLIN-66 (#995, #996), CLIN-67 (#992) and TRACE-18 (#993,
+#994), and the P3 items SAFE-35 (#1001), DATA-7 (#999), SEC-17 (#1007), SEC-32 (#1005),
+TRACE-19 (#1004, #1008), OPS-14 (#1011) and ENG-7 (#1019, #1020, #1027; the eight admin alias
+routes stay as the owner's bookmarks), with parts of SAFE-3 (#998), OPS-11 (#1000), OPS-17
+(#1006), SEC-19 (#1011), SEC-23 (#1010, #1015), ENG-19 (#1002, #1009) and REG-13 (#997, the
+corrections for QA). They fixed what they found too: a deactivated account's queued import
+(#1017); the UI events an expired token, a 401 or an unload lost (#1018, #1025); T2T-CHM13 read
+under each of its names and IGV opening hg38 for an unknown assembly (#1013); GRCh38 and GRCh37
+read under any name in the gene page's links and the assembly order (#1021); a saved search's
+filters across the NIPT and small-variant pages (#1012, #1022); a one-allele call in the
+haplotype tooltip (#1012); chrM in the ideograms, the repeat and SV tracks and a stuck pan
+(#1023, #1026); the file a refused BED or TRGT file is named by (#1014); the seven append-only
+tables and #985's citations (#1016); and the Paraphase sentence (#1024). #1003 moved dnspython
+past GHSA-45c3-73f7-pv4m. The owner's decisions behind them: the ten floored modules joined the
+mypy gate and so QA's per-release review (#1000); the UI events an expired token would lose are
+kept in the browser until the same account signs in again (#1018). What they left open is
+listed above.
 
 Fixed on 2026-10-21 to 10-27, the P3 items: SAFE-12 (#930), SEC-11 (#928, #929, #931),
 SEC-12 (#932), SEC-14 (#933), SAFE-5 (#934), SAFE-6 (#935), SAFE-34 (#936), UI-5 (#942),
