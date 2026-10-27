@@ -1976,7 +1976,8 @@ def _audit_actor(user: Any) -> str:
 #
 # A package import brings a family's phenotypes in (and a failed one puts them back as they
 # were, or removes the family it had created), and a PED upload or the Family Builder that
-# replaces a family deletes them with it. Each such change is on the family's clinical audit
+# replaces a family deletes them with it, as does an administrator's deletion of the family or
+# of a sample with its data (TRACE-16). Each such change is on the family's clinical audit
 # trail like an edit on screen: ``phenotype`` events, in the transaction of the change, under
 # the family's phenotype lock. One event per member whose phenotypes changed, so the trail
 # reads as the edits do (each of their events concerns one member), while an import of many
@@ -1987,12 +1988,16 @@ def _audit_actor(user: Any) -> str:
 PACKAGE_IMPORT = "package_import"
 PED_UPLOAD = "ped_upload"
 FAMILY_BUILDER = "family_builder"
+# Not an import: an administrator's deletion of a family or a sample with its data (Admin → Data).
+ADMIN_DELETION = "admin_deletion"
 
 # What it did to them (``change`` in the metadata).
 PHENOTYPES_IMPORTED = "imported"  # a package's phenotypes added or changed
 PHENOTYPES_PUT_BACK = "put_back"  # a failed import's restore put them back as they were
 PHENOTYPES_ROLLED_BACK = "rolled_back"  # deleted with the family a failed import had created
 PHENOTYPES_REPLACED = "replaced"  # deleted with the family a PED upload or the Family Builder replaced
+PHENOTYPES_DELETED_WITH_FAMILY = "deleted_with_family"  # an administrator deleted the family
+PHENOTYPES_DELETED_WITH_SAMPLE = "deleted_with_sample"  # an administrator deleted the sample
 
 # A summary names at most this many changes; the event's before and after hold them all.
 _MAX_SUMMARY_PHENOTYPES = 5
@@ -2004,11 +2009,13 @@ PhenotypeKey = tuple[str, str, str]
 @dataclass(frozen=True, slots=True)
 class PhenotypeImport:
     """An import that changes a family's phenotypes, as their clinical audit events name it:
-    who ran it, how (``via``: ``PACKAGE_IMPORT``, ``PED_UPLOAD`` or ``FAMILY_BUILDER``), what
+    who ran it, how (``via``: ``PACKAGE_IMPORT``, ``PED_UPLOAD``, ``FAMILY_BUILDER`` or, for a
+    deletion, ``ADMIN_DELETION``), what
     it read (``source``: the package's folder or bucket URI, or the uploaded PED file's name;
     ``files``: the package's phenotype files) and the import job that ran it, if any."""
 
-    user: CurrentUser
+    # None for an administrator's deletion made without a signed-in user (a script).
+    user: CurrentUser | None
     via: str
     source: str | None = None
     files: tuple[str, ...] = ()
@@ -2100,6 +2107,10 @@ def imported_phenotypes_summary(sample_id: str, phrases: list[str], origin: Phen
             f"Phenotypes removed for {sample_id} with the family a failed "
             f"{package.removeprefix('a ')} had created: {changes}"
         )
+    if change == PHENOTYPES_DELETED_WITH_FAMILY:
+        return f"Phenotypes removed for {sample_id}: an administrator deleted the family with its data: {changes}"
+    if change == PHENOTYPES_DELETED_WITH_SAMPLE:
+        return f"Phenotypes removed for {sample_id}: an administrator deleted the sample with its data: {changes}"
     if origin.via == PED_UPLOAD:
         upload = f"a PED upload ({visible_text(origin.source)})" if origin.source else "a PED upload"
         return f"Phenotypes removed for {sample_id}: the family was replaced by {upload}: {changes}"
@@ -2180,6 +2191,31 @@ async def record_phenotypes_deleted_with_family(
         family_uuid=family_uuid,
         family_identifier=family_identifier,
         before=before,
+        after={},
+        origin=origin,
+        change=change,
+    )
+
+
+async def record_phenotypes_deleted_with_sample(
+    session: AsyncSession,
+    *,
+    family_uuid: str,
+    family_identifier: str,
+    sample_id: str,
+    origin: PhenotypeImport,
+    change: str,
+) -> int:
+    """Before a sample is deleted, record the phenotypes it goes with as removed, as
+    ``record_phenotypes_deleted_with_family`` does for a family's: under the family's
+    phenotype lock, in the transaction of the deletion (no commit). ``sample_id`` is the
+    sample's ID, as the events name members."""
+    before = await lock_family_phenotype_states(session, family_uuid)
+    return await record_imported_phenotype_changes(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        before={key: state for key, state in before.items() if key[0] == sample_id},
         after={},
         origin=origin,
         change=change,

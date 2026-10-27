@@ -21,7 +21,6 @@ from .clickhouse_column_bounds import UINT32, column_int
 from .coverage_content import COVERAGE_CONTENT_KEY, declared_coverage_content
 from .clickhouse_interval_tracks import (
     count_interval_track_rows,
-    count_interval_track_source_rows,
     delete_interval_track_sources,
     delete_interval_tracks,
     insert_interval_track_rows,
@@ -36,6 +35,7 @@ from .clickhouse_variant_storage import (
     replace_family_structural_variants,
     rewrite_family_structural_variants,
 )
+from .data_scope import normalize_chromosome
 from .family_metadata_context import (
     FamilyMetadataContext,
     SampleMetadataContext,
@@ -49,6 +49,7 @@ from .repeat_expansion_pg import (
     decode_repeat_upload_text,
     ingest_family_trgt_text,
     ingest_trgt_text,
+    read_trgt_sample_calls,
 )
 from .upload_safety import read_path_text_bounded
 from .annotation_table_parser import parse_mutserve_annotation_path
@@ -60,7 +61,7 @@ from .variant_upload_service import (
 )
 
 from .family_package_bigwig import autosomal_median, open_bigwig
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetLeftMissing, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_sample_alias_map
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, CNV_SOURCE, HAPLOTYPE_ORIGIN_ROLES, QC_FAMILY_ROLES, DatasetLeftMissing, DatasetProgressCallback, FamilyPackageBundle, ManifestDataset, MITO_SOURCE, MITO_SV_SOURCE, _display_path, _read_package_text, _resolve_package_path, _run_with_periodic_progress, known_vcf_sample_ids, per_sample_vcf_column, read_vcf_sample_columns, resolve_vcf_sample_id, vcf_holds_a_data_line, vcf_sample_alias_map
 from .family_package_manifest import _ped_embryo_sample_ids
 from .family_package_nipt import (
     nipt_import_order,
@@ -97,6 +98,7 @@ from .family_package_qc import (
 from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
+from .structural_variant_ingest import SkippedRecords
 from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -190,6 +192,23 @@ async def _stored_track_rows(
         sample_uuid=sample_context.sample_uuid,
         track_type=track_type,
         source=source,
+    )
+
+
+async def _stored_imputed_blocks(family_context: FamilyMetadataContext) -> int:
+    """The family's haplotype blocks made from imputed genotypes, as the store holds them:
+    what an update of the imputed genotypes reads beside their small variants, as the
+    glimpse2 loader writes both and either is the dataset's data. Not what Postgres records
+    of the track, which a failed overwrite's restore that stopped part-way can leave for rows
+    it deleted (SAFE-20, SAFE-18). A family with no single assembly has no track rows."""
+    if not family_context.assembly_name:
+        return 0
+    return await count_interval_track_rows(
+        family_context.assembly_name,
+        family_uuid=family_context.family_uuid,
+        sample_uuid=None,
+        track_type="haplotype",
+        source="glimpse2",
     )
 
 
@@ -438,15 +457,24 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             project_ids=family_context.project_ids,
             source=snv_source,
         )
-        if existing_count:
+        # Imputed genotypes come with the haplotype blocks made from them, which the loader
+        # writes too: either is the dataset's data, as the haplotypes dataset's update reads
+        # it, so blocks stored without their genotypes are left as they are (SAFE-18).
+        existing_blocks = await _stored_imputed_blocks(family_context) if snv_source == "glimpse2" else 0
+        if existing_count or existing_blocks:
+            what = (
+                f"small variants of the {snv_source} callset"
+                if existing_count
+                else "haplotype blocks made from imputed genotypes"
+            )
             return summary.model_copy(
                 update={
                     "status": "skipped",
-                    "message": (
-                        f"Skipped SNV import in update mode because small variants of the {snv_source} "
-                        "callset already exist for this family"
-                    ),
-                    "summary": {"existing": existing_count},
+                    "message": f"Skipped SNV import in update mode because {what} already exist for this family",
+                    "summary": {
+                        "existing": existing_count,
+                        **({"existing_haplotypes": existing_blocks} if snv_source == "glimpse2" else {}),
+                    },
                 }
             )
     annotation_path = _resolve_package_path(bundle.root, dataset.annotation_tsv)
@@ -491,9 +519,7 @@ async def _import_snv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     # With overwrite the VCF is read once, not first checked whole before the callset it
     # replaces is deleted (check_before_replacing): the import has snapshotted an existing
     # family and puts it back when a dataset fails, and a whole-genome callset is the
-    # import's longest read. An update takes no snapshot: it replaces stored rows only
-    # where its check above did not count them (haplotype blocks stored without the
-    # imputed genotypes they were made from), and then reads the file whole first.
+    # import's longest read. An update takes no snapshot, and reads the file whole first.
     check_before_replacing = conflict_mode != "overwrite"
     # Whether the loader began writing ClickHouse: the clean-up below deletes the callset
     # only then. A file the loader refused before it replaced anything (an annotation table
@@ -600,12 +626,8 @@ async def _import_haplotypes_dataset(job: DatasetImportJob) -> FamilyImportDatas
             project_ids=family_context.project_ids,
             source="glimpse2",
         )
-        existing_haplotype_count = await count_interval_track_source_rows(
-            session,
-            family_uuid=family_context.family_uuid,
-            track_type="haplotype",
-            source="glimpse2",
-        )
+        # The stored blocks, not Postgres's record of them, as every update reads (SAFE-18).
+        existing_haplotype_count = await _stored_imputed_blocks(family_context)
         if existing_count or existing_haplotype_count:
             return summary.model_copy(
                 update={
@@ -760,6 +782,7 @@ async def _import_bins_and_segments(
     sample_contexts, conflict_mode = job.sample_contexts, job.conflict_mode
     progress = job.progress
     sample_results: dict[str, Any] = {}
+    tracks: list[tuple[str, SampleMetadataContext, str, str, Callable[..., Awaitable[dict[str, int]]]]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -790,24 +813,35 @@ async def _import_bins_and_segments(
             path = _resolve_package_path(bundle.root, paths[role])
             if path is None:
                 continue
-            sample_results[sample_id][role] = await _import_interval_track_unless_present(
+            importer = partial(
+                track_importer,
                 session,
                 sample_context=sample_context,
+                path=path,
                 track_type=track_type,
-                source=source,
-                conflict_mode=conflict_mode,
-                importer=partial(
-                    track_importer,
-                    session,
-                    sample_context=sample_context,
-                    path=path,
-                    track_type=track_type,
-                    progress=partial(report_track, role),
-                ),
+                progress=partial(report_track, role),
             )
-            if _is_update_skip(sample_results[sample_id][role]):
-                # A sample whose bins or segments were skipped is not imported again whole.
-                job.skipped_samples.add(sample_id)
+            tracks.append((sample_id, sample_context, role, track_type, importer))
+    for _sample_id, sample_context, _role, track_type, importer in tracks:
+        await _check_track_unless_present(
+            sample_context=sample_context,
+            track_type=track_type,
+            source=source,
+            conflict_mode=conflict_mode,
+            importer=importer,
+        )
+    for sample_id, sample_context, role, track_type, importer in tracks:
+        sample_results[sample_id][role] = await _import_interval_track_unless_present(
+            session,
+            sample_context=sample_context,
+            track_type=track_type,
+            source=source,
+            conflict_mode=conflict_mode,
+            importer=importer,
+        )
+        if _is_update_skip(sample_results[sample_id][role]):
+            # A sample whose bins or segments were skipped is not imported again whole.
+            job.skipped_samples.add(sample_id)
     track_results = [
         (f"{sample_id}:{role}", stats)
         for sample_id, roles in sample_results.items()
@@ -878,6 +912,7 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
     # The files read: the family VCF, or one VCF per sample (the long-read pipeline's).
     texts: dict[str, str] = {}
     filenames: str | dict[str, str]
+    skipped = SkippedRecords()
     if per_sample:
         sample_files = await _needlr_sample_files(job)
         if not sample_files:
@@ -888,6 +923,7 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
             [(sample_id, text_value) for sample_id, _path, text_value in sample_files],
             ped=bundle.ped,
             sample_contexts=sample_contexts,
+            skipped=skipped,
         )
     else:
         assert vcf_path is not None
@@ -898,9 +934,12 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
             text_value,
             ped=bundle.ped,
             sample_contexts=sample_contexts,
+            skipped=skipped,
         )
     if not records:
-        raise RuntimeError("No Needlr structural variants with PED sample calls were found")
+        raise RuntimeError(
+            "No Needlr structural variants with PED sample calls were found" + _without_extent_clause(skipped)
+        )
     # Held until the commit that records the SV file (the import holds it for its whole run).
     await lock_family_variant_writes(
         session,
@@ -956,13 +995,42 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
                 "Imported the per-sample Needlr SV VCFs into structural variant storage"
                 if per_sample
                 else "Imported Needlr family SV VCF into structural variant storage"
-            ),
+            )
+            + _without_extent_note(skipped),
             "summary": {
                 "processed": len(records),
                 "source": "needlr",
                 **({"per_sample": sorted(texts)} if per_sample else {}),
+                **_without_extent_count(skipped),
             },
         }
+    )
+
+
+def _without_extent_count(skipped: SkippedRecords) -> dict[str, int]:
+    """A dataset's or a sample's count of the records left out as their extent is not stated
+    (``SkippedRecords``), when there are any."""
+    return {"skipped_without_extent": skipped.without_extent} if skipped.without_extent else {}
+
+
+def _without_extent_clause(skipped: SkippedRecords) -> str:
+    """What a refusal says of the records left out as their extent is not stated."""
+    if not skipped.without_extent:
+        return ""
+    return (
+        f": {skipped.without_extent} record(s) of a deletion, duplication, inversion or CNV state "
+        "neither END nor SVLEN, so how far they reach is not known, and were left out"
+    )
+
+
+def _without_extent_note(skipped: SkippedRecords) -> str:
+    """What a dataset's message says of the records left out as their extent is not stated
+    (CLIN-39, the owner's decision, 2026-10-27: left out and counted)."""
+    if not skipped.without_extent:
+        return ""
+    return (
+        f"; left out {skipped.without_extent} record(s) of a deletion, duplication, inversion or "
+        "CNV that state neither END nor SVLEN"
     )
 
 
@@ -988,12 +1056,14 @@ async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, s
         if path is None:
             continue
         text_value = _read_package_text(path)
+        skipped = SkippedRecords()
         if not _iter_needlr_per_sample_records(
-            [(sample_id, text_value)], ped=bundle.ped, sample_contexts=job.sample_contexts
+            [(sample_id, text_value)], ped=bundle.ped, sample_contexts=job.sample_contexts, skipped=skipped
         ):
             raise RuntimeError(
-                f"The NeedlR file of {sample_id} ({path.name}) holds no structural variant; "
-                "no NeedlR call was replaced"
+                f"The NeedlR file of {sample_id} ({path.name}) holds no structural variant"
+                + _without_extent_clause(skipped)
+                + "; no NeedlR call was replaced"
             )
         queries = sorted(needlr_query_ids(text_value))
         known = await known_vcf_sample_ids(
@@ -1205,6 +1275,23 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
         vcf_path = _resolve_package_path(bundle.root, raw_entry.get("vcf") or raw_entry.get("file"))
         if vcf_path is not None:
             sample_files.append((sample_id, vcf_path))
+    # Every file is checked, its one sample column and a record, before the plasma's calls
+    # are written: the father's file was checked after them, so a refused one failed the
+    # dataset with the plasma's calls replaced (SAFE-3). The loader refuses a file without
+    # a record as well; here it is found before anything is written.
+    sample_columns: dict[str, list[str]] = {}
+    for sample_id, vcf_path in sample_files:
+        vcf_columns = read_vcf_sample_columns(vcf_path)
+        if len(vcf_columns) != 1:
+            raise RuntimeError(
+                f"The NIPT SNV file of {sample_id} must hold one sample; it has {len(vcf_columns)}"
+            )
+        if not vcf_holds_a_data_line(vcf_path):
+            raise RuntimeError(
+                f"The NIPT SNV file of {sample_id} ({vcf_path.name}) holds no record; "
+                "no NIPT call was replaced"
+            )
+        sample_columns[sample_id] = vcf_columns
     files_read = FilesReadInTurn(path for _sample_id, path in sample_files)
 
     async def report_file_progress(stats: dict[str, Any], *, sample_id: str) -> None:
@@ -1221,13 +1308,8 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
         )
 
     for sample_id, vcf_path in sample_files:
-        vcf_columns = read_vcf_sample_columns(vcf_path)
-        if len(vcf_columns) != 1:
-            raise RuntimeError(
-                f"The NIPT SNV file of {sample_id} must hold one sample; it has {len(vcf_columns)}"
-            )
         aliases, _unresolved = vcf_sample_alias_map(
-            vcf_columns, set(sample_contexts), target_sample_id=sample_id
+            sample_columns[sample_id], set(sample_contexts), target_sample_id=sample_id
         )
         is_plasma = sample_id == cfdna_sample_id
         if is_plasma:
@@ -1506,6 +1588,7 @@ async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     if not dataset.per_sample:
         return await _register_only(summary, "No PCF segment files were provided")
     sample_results: dict[str, Any] = {}
+    samples: list[tuple[str, SampleMetadataContext, list[tuple[str, Path]]]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -1524,14 +1607,17 @@ async def _import_pcf_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         if skip is not None:
             sample_results[sample_id] = skip
             continue
+        samples.append((sample_id, sample_context, role_paths))
 
-        # Each of the sample's tables is read up to its first segment before its track is
-        # deleted: one without a segment fails the dataset with the track as it was
-        # (SAFE-29).
+    # Each table of every sample is read up to its first segment before any sample's track is
+    # deleted: one without a segment fails the dataset with every track as it was (SAFE-29).
+    # A later sample's table failed it with the earlier samples' tracks replaced (SAFE-3).
+    for _sample_id, sample_context, role_paths in samples:
         for origin, path in role_paths:
             await _import_pcf_segment_file(
                 session, sample_context=sample_context, path=path, origin=origin, check_only=True
             )
+    for sample_id, sample_context, role_paths in samples:
         await _delete_sample_interval_source(
             session,
             sample_context=sample_context,
@@ -1607,7 +1693,7 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
             summary,
             "Registered only; no family VCF or per-sample TRGT files were provided",
         )
-    sample_results: dict[str, Any] = {}
+    entries: list[tuple[str, SampleMetadataContext, Path, str | None]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -1615,6 +1701,28 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
         vcf_path = _resolve_package_path(bundle.root, raw_entry.get("file") or raw_entry.get("vcf"))
         if vcf_path is None:
             continue
+        declared = raw_entry.get("vcf_sample") or raw_entry.get("sample_name")
+        entries.append((sample_id, sample_context, vcf_path, declared))
+
+    def metadata_of(vcf_path: Path) -> dict[str, Any]:
+        return {"source": "trgt", "filename": vcf_path.name, "uploaded_from": "family_package"}
+
+    # Every sample's file is read whole, and refused or accepted, before any sample's calls
+    # are replaced: a later sample's refused file failed the dataset with the earlier
+    # samples' calls already replaced (SAFE-3). Each file is read again to be stored, so only
+    # one sample's calls are held at a time: a genome-wide TRGT catalogue is large.
+    for _sample_id, sample_context, vcf_path, declared in entries:
+        async with _local_upload(vcf_path) as upload:
+            text_value = await decode_repeat_upload_text(upload)
+        await read_trgt_sample_calls(
+            session,
+            sample_context=sample_context,
+            text_value=text_value,
+            metadata=metadata_of(vcf_path),
+            declared=declared,
+        )
+    sample_results: dict[str, Any] = {}
+    for sample_id, sample_context, vcf_path, declared in entries:
         async with _local_upload(vcf_path) as upload:
             text_value = await decode_repeat_upload_text(upload)
             # The sample's stored calls are deleted once its file has been read whole: a
@@ -1623,12 +1731,8 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
                 session,
                 sample_context=sample_context,
                 text_value=text_value,
-                metadata={
-                    "source": "trgt",
-                    "filename": vcf_path.name,
-                    "uploaded_from": "family_package",
-                },
-                declared=raw_entry.get("vcf_sample") or raw_entry.get("sample_name"),
+                metadata=metadata_of(vcf_path),
+                declared=declared,
                 replace=True,
             )
     return summary.model_copy(
@@ -1819,7 +1923,9 @@ async def _import_interval_track_unless_present(
     track used to be fed by the copy-number bedgraph and is now fed by the depth
     bigWig, so a filename-scoped replace would leave the old copy-number rows
     behind to be averaged into the new depth values. It is cleared when Postgres
-    records the track, which also removes a record whose rows are gone.
+    records the track, which also removes a record whose rows are gone, or when the
+    store holds rows of it that no record names: such rows used to survive beside the
+    new ones (SAFE-18).
 
     Before that, ``importer`` reads its file up to the first row it stores
     (``check_only``): a file without one, or one it cannot read, is refused there
@@ -1837,7 +1943,7 @@ async def _import_interval_track_unless_present(
         sample_context=sample_context,
         track_type=track_type,
         source=source,
-    )
+    ) or await _stored_track_rows(sample_context, track_type=track_type, source=source)
     if existing:
         await _delete_sample_interval_source(
             session,
@@ -1846,6 +1952,26 @@ async def _import_interval_track_unless_present(
             source=source,
         )
     return await importer()
+
+
+async def _check_track_unless_present(
+    *,
+    sample_context: SampleMetadataContext,
+    track_type: str,
+    source: str,
+    conflict_mode: str,
+    importer: Callable[..., Awaitable[dict[str, int]]],
+) -> None:
+    """``importer``'s file read up to its first row (``check_only``), as
+    ``_import_interval_track_unless_present`` reads it before it clears the track, unless an
+    update leaves the track as stored. A per-sample dataset checks every sample's files so
+    before it clears any sample's track: a later sample's file without a row failed the
+    dataset with the earlier samples' tracks replaced (SAFE-3)."""
+    if conflict_mode == "update" and await _stored_track_rows(
+        sample_context, track_type=track_type, source=source
+    ):
+        return
+    await importer(check_only=True)
 
 
 def _signal_track_entry(bundle: FamilyPackageBundle, paths: dict[str, Path | None]) -> dict[str, Any]:
@@ -1893,8 +2019,19 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 }
             )
 
+    from .annotation_manifest_service import merge_vcf_header_provenance
+    from .vcf_header_provenance import extract_header_provenance, merge_module_maps
+
     records: list[Any] = []
     sample_results: dict[str, Any] = {}
+    # HiFiCNV states its version in its VCF header (``##source=HiFiCNV v1.0.1-…``): it goes
+    # into the family's annotation manifest, as the other callers' versions do (TRACE-8).
+    cnv_modules: dict[str, dict[str, Any]] = {}
+    # Every sample's VCF is read and checked (its column, its records), and each of its
+    # signal files up to its first value, before anything of the dataset is written: a later
+    # sample's refused file failed the dataset with the earlier samples' tracks already
+    # replaced (SAFE-3). The calls are few, and kept.
+    entries: list[tuple[str, SampleMetadataContext, dict[str, Any]]] = []
     for sample_id, raw_entry in dataset.per_sample.items():
         sample_context = sample_contexts.get(sample_id)
         if sample_context is None or not isinstance(raw_entry, dict):
@@ -1903,6 +2040,12 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         if vcf_path is None:
             continue
         text_value = _read_package_text(vcf_path)
+        cnv_modules = merge_module_maps(
+            cnv_modules,
+            extract_header_provenance(
+                [line for line in text_value.splitlines() if line.startswith("#")], modality="cnv"
+            ).as_modules(),
+        )
         vcf_columns = next(
             (
                 line.rstrip("\r").split("\t")[9:]
@@ -1925,17 +2068,52 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             label=f"CNV VCF of {sample_id}",
             remedy=_PER_SAMPLE_COLUMN_REMEDY,
         )
+        skipped = SkippedRecords()
         sample_records = _iter_cnv_structural_records(
             text_value,
             sample_id=sample_id,
             source=CNV_SOURCE,
             sample_column=sample_column,
+            skipped=skipped,
         )
+        if not sample_records and skipped.without_extent:
+            # Records were called, none of them readable: no answer that no CNV was called,
+            # which would remove the sample's earlier calls.
+            raise RuntimeError(
+                f"No HiFiCNV call was replaced: the CNV VCF of {sample_id} ({vcf_path.name}) "
+                f"holds no call it can read{_without_extent_clause(skipped)}"
+            )
         records.extend(sample_records)
         sample_results[sample_id] = {
             "calls": len(sample_records),
             "filename": vcf_path.name,
+            **_without_extent_count(skipped),
         }
+        for role, track_type, reader in (
+            ("copy_number_bedgraph", "segments", _import_copy_number_track),
+            ("depth_bigwig", "coverage", partial(_import_bigwig_interval_track, skip_zero=True)),
+            ("maf_bigwig", "apcad", _import_bigwig_interval_track),
+        ):
+            signal_path = _resolve_package_path(bundle.root, raw_entry.get(role))
+            if signal_path is None:
+                continue
+            await _check_track_unless_present(
+                sample_context=sample_context,
+                track_type=track_type,
+                source=CNV_SOURCE,
+                conflict_mode=conflict_mode,
+                importer=partial(
+                    reader,
+                    session,
+                    sample_context=sample_context,
+                    path=signal_path,
+                    track_type=track_type,
+                    source=CNV_SOURCE,
+                ),
+            )
+        entries.append((sample_id, sample_context, raw_entry))
+
+    for sample_id, sample_context, raw_entry in entries:
         # HiFiCNV ships two signal files per sample and they measure different
         # things, so they land on different tracks:
         #
@@ -2063,8 +2241,12 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 signal_tracks={CNV_SOURCE: signal_tracks},
             )
 
-    if not records:
-        return await _register_only(summary, "Registered only; no CNV calls were parsed")
+    if not sample_results:
+        return await _register_only(summary, "Registered only; no CNV VCF of a family sample could be found")
+    # A VCF that calls no CNV is the caller's answer for its sample, not a file that carries
+    # nothing: the dataset is imported, its tracks with it, and the family's earlier HiFiCNV
+    # calls go, as a VCF with calls replaces them. It used to end registered, its tracks not
+    # recorded as imported and the earlier calls left in place (SAFE-18).
     # Held until the commit that records the SV files (the import holds it for its whole run).
     await lock_family_variant_writes(
         session,
@@ -2072,12 +2254,14 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         [STRUCTURAL_VARIANTS],
         samples=[sample.sample_uuid for sample in sample_contexts.values()],
     )
-    # Replace only this source: a family can carry NeedlR SVs and HiFiCNV calls at once.
+    # Replace only this source: a family can carry NeedlR SVs and HiFiCNV calls at once. One
+    # event in two samples' VCFs is one SV with both calls: stored as two records under one
+    # id, a part merge kept one of them (CLIN-39).
     await replace_family_structural_variants(
         family_context.assembly_name,
         family_context.family_uuid,
         family_context.project_ids,
-        records,
+        _merge_sv_records_by_id(records),
         source=CNV_SOURCE,
     )
     await _update_sv_file_metadata(
@@ -2088,6 +2272,13 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             str(result.get("filename")) for result in sample_results.values() if result.get("filename")
         ),
     )
+    await merge_vcf_header_provenance(
+        session,
+        family_uuid=family_context.family_uuid,
+        assembly_id=getattr(family_context, "assembly_id", None),
+        modules=cnv_modules,
+        modality="cnv",
+    )
     skipped_tracks = [
         f"{sample_id}:{track}"
         for sample_id, result in sample_results.items()
@@ -2097,11 +2288,22 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
     return summary.model_copy(
         update={
             "status": "imported",
-            "message": "Imported CNV calls into structural variant storage"
+            "message": (
+                "Imported CNV calls into structural variant storage"
+                if records
+                else "Imported the CNV VCFs, which call no CNV"
+            )
             + (
                 f"; skipped existing tracks in update mode: {', '.join(skipped_tracks)}"
                 if skipped_tracks
                 else ""
+            )
+            + _without_extent_note(
+                SkippedRecords(
+                    without_extent=sum(
+                        int(result.get("skipped_without_extent") or 0) for result in sample_results.values()
+                    )
+                )
             ),
             "summary": {"processed": len(records), "source": CNV_SOURCE, "samples": sample_results},
         }
@@ -2175,6 +2377,15 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
                 f"the chrM VCF of {sample_id} ({name}) holds no variant record" for sample_id, name in empty
             )
         )
+    # And every chrM SV VCF is read before any chrM call is replaced: a file that cannot be
+    # read, or one whose records all lie on other chromosomes, failed the dataset after its
+    # SNV files were written, or removed the sample's chrM SVs as if it called none (SAFE-3).
+    sv_read = _read_mito_structural_variants(
+        job,
+        sv_columns={
+            sample_id: int(entry["sv_vcf"]) for sample_id, entry in columns.items() if "sv_vcf" in entry
+        },
+    )
     sample_results: dict[str, Any] = {}
     imported_any = False
     for sample_id, raw_entry in dataset.per_sample.items():
@@ -2220,12 +2431,7 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
             if mutserve_annotations is not None:
                 mutserve_annotations.close()
 
-    sv_summary = await _import_mito_structural_variants(
-        job,
-        sv_columns={
-            sample_id: int(entry["sv_vcf"]) for sample_id, entry in columns.items() if "sv_vcf" in entry
-        },
-    )
+    sv_summary = await _import_mito_structural_variants(job, sv_read)
     if sv_summary is not None:
         sample_results = {**sample_results, "structural_variants": sv_summary}
     sv_count = int(sv_summary["processed"]) if sv_summary else 0
@@ -2242,6 +2448,16 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     )
     if sv_count:
         message += f"; {sv_count} chrM structural variant(s) into structural-variant storage"
+    if sv_summary:
+        message += _without_extent_note(
+            SkippedRecords(
+                without_extent=sum(
+                    int(result.get("skipped_without_extent") or 0)
+                    for result in (sv_summary.get("samples") or {}).values()
+                    if isinstance(result, dict)
+                )
+            )
+        )
     return summary.model_copy(
         update={"status": "imported", "message": message, "summary": sample_results}
     )
@@ -2331,40 +2547,100 @@ async def _mito_sample_columns(job: DatasetImportJob) -> dict[str, dict[str, str
     return columns
 
 
-async def _import_mito_structural_variants(
+@dataclass
+class _MitoStructuralVariantsRead:
+    """Every sample's chrM SV calls, read before anything of the mito dataset is written."""
+
+    records: list[Any]
+    per_sample: dict[str, Any]
+    header_lines: list[str]
+
+
+def _records_off_chrM(text_value: str) -> int:
+    """How many records of a VCF lie on another chromosome than chrM, or 0 when one lies
+    on chrM: a chrM SV file holds the calls of chrM alone."""
+    off = 0
+    for line in text_value.splitlines():
+        if not line or line.startswith("#"):
+            continue
+        parts = line.split("\t", 1)
+        if normalize_chromosome(parts[0]).upper() in {"M", "MT"}:
+            return 0
+        off += 1
+    return off
+
+
+def _read_mito_structural_variants(
     job: DatasetImportJob,
     *,
     sv_columns: dict[str, int] | None = None,
-) -> dict[str, Any] | None:
-    """Each sample's chrM SV VCF into the SV store under the ``mito_sv`` source.
+) -> _MitoStructuralVariantsRead | None:
+    """Each sample's chrM SV VCF, read and checked before any of the mito dataset is written;
+    None when no sample declares one.
 
-    None when no sample declares one. Only the samples with a file are replaced; the
-    others' calls stay as stored. A declared file with no call removes that sample's
-    earlier chrM SVs, as the SNV path does.
+    A file with no call (no record on chrM, or none Sniffles called) is the sample's answer:
+    no chrM SV. A file whose records all lie on other chromosomes is no chrM callset, and
+    fails the dataset: read as one without a call, it removed the sample's chrM SVs (SAFE-3).
     """
-    session, bundle, dataset = job.session, job.bundle, job.dataset
-    family_context, sample_contexts = job.family_context, job.sample_contexts
-    if not family_context.assembly_name:
+    bundle, dataset = job.bundle, job.dataset
+    if not job.family_context.assembly_name:
         return None
     records: list[Any] = []
     per_sample: dict[str, Any] = {}
     sv_lines: list[str] = []
     for sample_id, raw_entry in (dataset.per_sample or {}).items():
-        if sample_id not in sample_contexts or not isinstance(raw_entry, dict):
+        if sample_id not in job.sample_contexts or not isinstance(raw_entry, dict):
             continue
         sv_path = _resolve_package_path(bundle.root, raw_entry.get("sv_vcf"))
         if sv_path is None:
             continue
         text_value = _read_package_text(sv_path)
+        elsewhere = _records_off_chrM(text_value)
+        if elsewhere:
+            raise RuntimeError(
+                f"No mitochondrial call was replaced: the chrM SV VCF of {sample_id} ({sv_path.name}) "
+                f"holds {elsewhere} record(s), none on chrM, so it is no chrM SV callset"
+            )
+        skipped = SkippedRecords()
         sample_records = _iter_mito_sv_records(
-            text_value, sample_id=sample_id, sample_column=(sv_columns or {}).get(sample_id, 0)
+            text_value, sample_id=sample_id, sample_column=(sv_columns or {}).get(sample_id, 0), skipped=skipped
         )
+        if not sample_records and skipped.without_extent:
+            # Records were called, none of them readable: no answer that the sample carries no
+            # chrM SV, which would remove its earlier ones.
+            raise RuntimeError(
+                f"No mitochondrial call was replaced: the chrM SV VCF of {sample_id} ({sv_path.name}) "
+                f"holds no call it can read{_without_extent_clause(skipped)}"
+            )
         records.extend(sample_records)
-        per_sample[sample_id] = {"calls": len(sample_records), "filename": sv_path.name}
+        per_sample[sample_id] = {
+            "calls": len(sample_records),
+            "filename": sv_path.name,
+            **_without_extent_count(skipped),
+        }
         if not sv_lines:
             sv_lines = [line for line in text_value.splitlines() if line.startswith("#")]
     if not per_sample:
         return None
+    return _MitoStructuralVariantsRead(records=records, per_sample=per_sample, header_lines=sv_lines)
+
+
+async def _import_mito_structural_variants(
+    job: DatasetImportJob,
+    read: _MitoStructuralVariantsRead | None,
+) -> dict[str, Any] | None:
+    """Each sample's chrM SV calls, as ``_read_mito_structural_variants`` read them, into the
+    SV store under the ``mito_sv`` source.
+
+    None when no sample declares a file. Only the samples with a file are replaced; the
+    others' calls stay as stored. A declared file with no call removes that sample's
+    earlier chrM SVs.
+    """
+    session = job.session
+    family_context, sample_contexts = job.family_context, job.sample_contexts
+    if read is None or not family_context.assembly_name:
+        return None
+    records, per_sample, sv_lines = read.records, read.per_sample, read.header_lines
     merged = _merge_sv_records_by_id(records)
     # Held from the read below until the commit that records the SV files (the import
     # holds it for its whole run), so no other SV write falls between read and rewrite.

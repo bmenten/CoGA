@@ -265,6 +265,7 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
         "count_family_small_variants": nothing,
         "count_family_structural_variants": nothing,
         "purge_sample_managed_files": nothing,
+        "record_phenotypes_deleted_with_sample": nothing,
         # The pedigree change of the delete is not what this test reads, nor its mark
         # (test_deletions_mark_the_family.py, SAFE-31).
         "read_structure_snapshot": no_pedigree,

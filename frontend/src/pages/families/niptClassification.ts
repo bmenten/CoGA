@@ -7,6 +7,30 @@ import type { ApiNiptCoverageLowRegion, NiptLowCoverageReason } from '../../lib/
 /** The family metadata `analysis_type` that marks a monogenic NIPT family. */
 export const MONOGENIC_NIPT_ANALYSIS_TYPE = 'monogenic_nipt';
 
+// How the NIPT quality checks' tokens read (nipt_quality_checks), on the screen's QC panel and
+// in the printed report alike: the report printed the raw tokens, "female_no_chrY_signal"
+// where the panel reads "no chrY signal" (ENG-10).
+export const NIPT_FETAL_SEX_LABEL: Record<string, string> = {
+  female: 'Female',
+  male: 'Male',
+  indeterminate: 'Indeterminate',
+  discordant: 'Discordant',
+};
+
+export const NIPT_CHRY_PROFILE_LABEL: Record<string, string> = {
+  female_no_chrY_signal: 'no chrY signal',
+  female_with_male_fetal_signal: 'male fetal chrY signal',
+  high_chrY_review: 'chrY near the autosomal level',
+  male_like_not_maternal_plasma: 'male DNA',
+  no_chrY_targets: 'no chrY target in the panel',
+};
+
+export const niptFetalSexLabel = (call: string): string => NIPT_FETAL_SEX_LABEL[call] ?? call;
+
+/** The chrY coverage profile, or "no target table" when the family has none. */
+export const niptChryProfileLabel = (profile: string | null | undefined): string =>
+  profile ? (NIPT_CHRY_PROFILE_LABEL[profile] ?? profile) : 'no target table';
+
 export const CATEGORY_LABELS: Record<number, string> = {
   1: 'De novo in fetus',
   2: 'Maternal het, not inherited',

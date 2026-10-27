@@ -14,15 +14,15 @@ detail (file formats, manifest fields, configuration) is kept by the bioinformat
 
 | Page | Who | What it does |
 | --- | --- | --- |
-| **Family Builder** | the analysts of a project and administrators; PED upload for administrators | Build a new family by hand: add samples, set sex and roles, link parents and couples, set affected and carrier status. An administrator can also upload a PED file. Metadata only: no data files. |
-| **Package Import** | administrators | Point at a family folder on the CoGA server, generate its manifest, validate it, then import the family **and all its data** in one job. |
+| **Family builder** | the analysts of a project and administrators; PED upload for administrators | Build a new family by hand: add samples, set sex and roles, link parents and couples, set affected and carrier status. An administrator can also upload a PED file. Metadata only: no data files. |
+| **Package import** | administrators | Point at a family folder on the CoGA server, generate its manifest, validate it, then import the family **and all its data** in one job. |
 
 **What needs an administrator.** An analyst of a project can build a new family in it by hand, and
 add, change and remove a family's HPO terms; a reader of the project can do neither. Uploading a PED
 file, replacing an existing family, editing an existing family's members or structure, setting the
 region of interest, and loading or replacing data are for administrators.
 
-**Replacing a family** with a PED file or the Family Builder deletes its small variants and structural
+**Replacing a family** with a PED file or the family builder deletes its small variants and structural
 variants with it, once the family has been saved again: a replacement refused before then (a sample ID
 another family has, a PED phenotype other than 0, -9, 1 or 2, such as a header line's) leaves the family
 and its variants as they were. Its HPO terms go with it: each is recorded as removed in the clinical audit
@@ -48,11 +48,12 @@ for the assembly is missing. Load it before you load a family.
 - **At first start** CoGA creates *Homo sapiens / GRCh38* and loads its cytobands (from UCSC) and genes
   (from GENCODE, with the UCSC gene table as a fallback) when they are missing. If the download fails,
   the assembly is created empty, to be filled later.
-- **Clinical CNVs and segmental duplications** are loaded at start-up only when their source files are
-  present on the server. Otherwise an administrator loads them. An empty *Clinical CNV explorer* means
-  they are not loaded for that assembly. The segmental-duplication file, and the HPO ontology, must be
-  the files CoGA ships, recognized by their SHA-256: another file is not loaded, and the server log says
-  which file and how to fix it.
+- **Segmental duplications** are loaded at start-up when their source file is present on the server.
+  **Clinical CNVs** never are: an administrator builds them with the clinical CNV knowledgebase rebuild
+  (*Species & assemblies*), or uploads a file. An empty *Clinical CNV explorer* means they are not
+  loaded for that assembly. The segmental-duplication file, and the HPO ontology, must be the files
+  CoGA ships, recognized by their SHA-256: another file is not loaded, and the server log says which
+  file and how to fix it.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
   downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
   segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
@@ -96,7 +97,7 @@ TRGT's repeat count need not be the clinical repeat number the catalogue's range
 the motif across the region its own catalogue gives a locus. At FMR1 it leaves out the AGG
 interruptions (an allele reads 1 to 3 below its clinical number), at HTT it counts the CAG after the
 CAA interruption (one above) and at POLG four flanking GCT copies (the common 10-repeat allele reads
-14). Until QA validates a locus's counting units (admin page **Repeat Catalogue**), the repeat page and
+14). Until QA validates a locus's counting units (admin page **Repeat catalogue**), the repeat page and
 the genome tracks mark a count within 3 repeats of a boundary there as *Near a boundary*, without
 changing its status: see the [user guide](/docs), section *Structural variants, repeats, Paraphase and
 mtDNA*.
@@ -186,7 +187,7 @@ lacks is added. The pipeline does not say how the index is related, so Discover 
 what KING measured against the couple: the couple's child when it is first-degree to both parents,
 otherwise a relative of unknown degree (**Related to**, a dotted arc in the pedigree) of the parent it is
 related to, or of the affected parent. The warning says which link it proposed; change it before you
-write the manifest, or afterwards in **Admin → Family & Sample Data**. Without a link, the index's
+write the manifest, or afterwards in **Admin → Family & sample data**. Without a link, the index's
 haplotype stays grey and does not help find the risk haplotype. The parent the pipeline traced is
 recorded as the affected
 parent (`metadata.pgt.affected_parents`) and its index as the index (`metadata.pgt.indexes`). Set the
@@ -284,6 +285,15 @@ records still fails its dataset when the import reaches the cut, and the family 
 for any failed dataset. A mitochondrial structural-variant file without a call is a result, not an empty
 file (most samples carry no mtDNA deletion): it removes that sample's earlier chrM deletions.
 
+**Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
+sample reads or checks the file of every sample first: the TRGT files, HiFiCNV's VCFs and signal files,
+the WisecondorX and QDNAseq bins and segments, the PCF tables, a monogenic NIPT's SNV files and the
+mitochondrial structural-variant files. A later sample's refused file then fails the dataset with every
+sample's data as it was; it used to fail it after the earlier samples' data had been replaced. A
+mitochondrial structural-variant file whose records all lie on other chromosomes is refused as no chrM
+callset (it used to remove the sample's chrM deletions). An APCAD file per embryo and a coverage BED are
+still checked as each is written.
+
 ### What validation checks
 
 - The folder and the manifest exist, and the manifest is a file in the folder, not a link out of it.
@@ -301,6 +311,10 @@ file (most samples carry no mtDNA deletion): it removes that sample's earlier ch
   files are checked only when the manifest names one.
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset
   is a warning; other missing datasets are simply absent.
+- A data file the import would refuse for holding no record (a family VCF of small variants, structural
+  variants or repeats; a sample's SNV, NeedlR, TRGT or mitochondrial VCF) with nothing after its header
+  is a warning: the import will fail that dataset and keep its stored data. A HiFiCNV or mitochondrial
+  structural-variant VCF without a call is a result, and gives none.
 - A phenotype row that names an unknown sample or HPO term is skipped with a warning; it never blocks the
   import.
 
@@ -311,7 +325,7 @@ file (most samples carry no mtDNA deletion): it removes that sample's earlier ch
   to open the pipeline's QC report. The chip reads *Warning* (amber) or *Fail* (red) when a metric
   crosses a warning or error cut-off, and the tooltip names each such metric with its value, rounded as
   on the chip, and the cut-off it crossed, in the metric's unit (*Mean depth 18.6x below 20x*). Cut-offs
-  are set per assay under **Admin → Sequencing QC Thresholds**; none ship by default, and a metric
+  are set per assay under **Admin → Sequencing QC thresholds**; none ship by default, and a metric
   without a cut-off reads as *not assessed*, not as a pass. A sample with no cut-off for any of its
   metrics, or with no verdict from the server, reads *Not run* in grey, and the tooltip says which.
   A sample with no mean depth or N50, such as an embryo that appears only in the PGT pipeline's
@@ -428,7 +442,9 @@ verified its tubes), the entry's `vcf_sample` says so.
 A repeat-expansion (TRGT) upload reads the whole file before it replaces anything. TRGT writes a record
 for every locus of its catalogue, so a file without a record for the sample (a header alone, or a file
 cut short in a copy) is refused (*No valid TRGT records found*), and the sample's stored calls stay as
-they were. Before, it replaced them with none.
+they were. Before, it replaced them with none. So is a file with a value that cannot be read as a number
+where TRGT writes one (a position, a motif count, an allele length, a purity): the answer names the line,
+and nothing is replaced. Such a file used to fail with a server error.
 
 A Sniffles or Spectre record without an END ends where the VCF standard (4.4) puts it: a deletion,
 duplication, inversion or copy-number change SVLEN bases after its start, any other call on its start.
@@ -452,7 +468,7 @@ samples' calls that share an ID but lie apart stay two SVs, each with its own sa
 in two samples' files, or repeated in the family file, is one SV with every sample's genotype, each
 sample keeping its own call. The record ID is kept with the SV's annotations.
 
-Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls from every
+Deleting a sample's structural variants on **Admin → Family & sample data** removes its calls from every
 source. The upload and this delete leave every other call as it was, with its phase, including the calls
 of a member removed from the family.
 
@@ -462,7 +478,7 @@ has that track from a BED (an earlier upload, or a package's coverage BED), and 
 replaces it;
 replacing it leaves the other callers' tracks of that type (WisecondorX, QDNAseq, HiFiCNV, a package's
 APCAD or PCF) as they are. A file that holds no record of the track type is refused before anything is
-replaced. Deleting a sample's track type on **Admin → Family & Sample Data** removes every caller's.
+replaced. Deleting a sample's track type on **Admin → Family & sample data** removes every caller's.
 
 The uploads, the deletes of a family's variants and the package imports of one family take turns. An
 upload started while another of them is writing the family waits until it has finished, a package import
@@ -485,7 +501,7 @@ it again, with or without overwrite.
 
 1. The species, assembly and project.
 2. The reference data for that assembly.
-3. The family: Family Builder, a PED upload, or a package import.
+3. The family: the family builder, a PED upload, or a package import.
 4. Small and structural variants.
 5. Repeat expansions and the interval tracks.
 

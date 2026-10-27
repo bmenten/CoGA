@@ -6,6 +6,7 @@ import logging
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+from functools import partial
 from itertools import zip_longest
 from typing import Any, Collection, Literal, Mapping, Sequence
 
@@ -1584,6 +1585,8 @@ async def fetch_genotype_site_sample(
     as the signed report's content hash needs. With fewer sites than ``limit``, every site is
     returned. A variant stored more than once (the family linked to two projects, or
     ``source`` matching two callsets) counts once, so a sample can hold fewer sites.
+    Only SNVs are sampled: an indel's genotype is called with more error, and every check
+    reads the sample as genotypes (CLIN-11, the owner's decision of 2026-10-27).
     Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
@@ -1591,6 +1594,8 @@ async def fetch_genotype_site_sample(
     where_clauses, params, _ = _small_query_filter_parts(context, filters)
     first, last = _GENOTYPE_SAMPLE_RANKS[scope]
     where_clauses.append("e.xpos BETWEEN %(sample_xpos_start)s AND %(sample_xpos_end)s")
+    # A single base for a single base: no indel, no MNV and no spanning deletion (``*``).
+    where_clauses.append("length(e.ref) = 1 AND length(e.alt) = 1 AND e.alt != '*'")
     params["sample_xpos_start"] = _xpos(first, 0)
     params["sample_xpos_end"] = _xpos(last, _XPOS_LAST_POSITION)
     if scope == "chrX":
@@ -2223,7 +2228,14 @@ async def _serve_subpanel_from_superset(
             if not request_genes.issubset(candidate_genes):
                 continue  # this superset doesn't cover all the requested genes
 
-        priorities = _priorities_from_ranking(candidate.get("ranking"), records, segregation_modes)
+        # Its ranking, read only now that its panel passed (ENG-13). A row the cache dropped
+        # meanwhile (it keeps a few per family) serves nothing.
+        cached = await get_cached_ranking(
+            session, family_uuid=context.family_uuid, inputs_hash=str(candidate.get("inputs_hash"))
+        )
+        if cached is None:
+            continue
+        priorities = _priorities_from_ranking(cached.get("ranking"), records, segregation_modes)
         if priorities is None:
             continue  # a variant it lacks (CLIN-34), or a pair the panel splits (CLIN-35)
         total = len(items)
@@ -2240,7 +2252,7 @@ async def _serve_subpanel_from_superset(
             capped=False,
             pairing=pairing,
             ranking_cached=True,
-            ranking_computed_at=candidate.get("computed_at"),
+            ranking_computed_at=cached.get("computed_at"),
             small_variant_summary=small_variant_summary,
         )
     return None
@@ -2716,29 +2728,44 @@ async def precompute_family_ranking_safe(
                 return  # nothing to replay yet — leave the first open as a (lazy) miss
 
             filters = SmallVariantQueryFilters(**{**stored_filters, "page": 1, "page_size": 100})
-            panel_constraints = (
-                await _fetch_panel_constraints(
-                    session, filters.panel_id, assembly_id=context.assembly_id
-                )
-                if filters.panel_id
-                else PanelFilterConstraints()
+            # Prepared as a live request prepares it, so the ranking goes under the key the
+            # next live request of that view reads (ENG-13). The SV hit genes are resolved
+            # again from the family's index, not replayed from the stored filters: a live
+            # request resolves them, and its key reads them (#845). The scope comes from the
+            # filters' intervals, excluded intervals and excluded genes: the warm computed
+            # every query without them, a ranking no live request matched, which took one of
+            # the family's few cache rows.
+            filters.sv_hit_genes = []
+            if filters.require_sv_second_hit:
+                await _ensure_family_sv_gene_index(session, context)
+                filters.sv_hit_genes = await get_sv_hit_genes(session, family_uuid=context.family_uuid)
+            # The no-review default view: the high-value cached case.
+            scope = await _resolve_small_variant_scope(
+                session,
+                context,
+                filters,
+                review_classifications=None,
+                review_tags=None,
+                exclude_review_tags=None,
+                has_notes=False,
             )
-            # Replay the no-review default view (the high-value cached case). Computing it
-            # stores the ranking under the now-current inputs hash.
+            if scope is None:
+                return  # a query that matches nothing ranks nothing
+            # Computing it stores the ranking under the now-current inputs hash.
             await _prioritized_small_variants_page(
                 session,
                 context=context,
                 filters=filters,
                 page=1,
                 page_size=100,
-                panel_constraints=panel_constraints,
-                review_variant_ids=None,
-                excluded_review_variant_ids=set(),
-                include_review_filter_active=False,
-                include_regions=[],
-                exclude_regions=[],
-                exclude_gene_regions=[],
-                exclude_gene_terms=[],
+                panel_constraints=scope.panel_constraints,
+                review_variant_ids=scope.review_variant_ids,
+                excluded_review_variant_ids=scope.excluded_review_variant_ids,
+                include_review_filter_active=scope.include_review_filter_active,
+                include_regions=scope.include_regions,
+                exclude_regions=scope.exclude_regions,
+                exclude_gene_regions=scope.exclude_gene_regions,
+                exclude_gene_terms=scope.exclude_gene_terms,
                 small_variant_summary=None,
             )
             logger.info("Warmed prioritised-ranking cache for family %s", family_identifier)
@@ -3379,6 +3406,49 @@ async def get_family_small_variants_page(
         # total (0 or 1) and no rows.
         exists = await _family_has_small_variants(context)
         return VariantPage(total=1 if exists else 0, variants=[])
+    # Each of the search's subqueries (a panel's window join, the annotation and sample
+    # subqueries) reads the family's rows apart from its main read, so a write landing between
+    # two of them could make the answer miss a row. Every write of the family's small variants
+    # moves its data version once done: a search during which it moved is run once more (ENG-17).
+    search = partial(
+        _search_family_small_variants,
+        session,
+        context=context,
+        filters=filters,
+        page=page,
+        page_size=page_size,
+        review_classifications=review_classifications,
+        review_tags=review_tags,
+        exclude_review_tags=exclude_review_tags,
+        has_notes=has_notes,
+        prioritize=prioritize,
+        track_mode=track_mode,
+        track_result_limit=track_result_limit,
+    )
+    before = await _family_small_variant_data_version(context)
+    result = await search()
+    if before is not None and await _family_small_variant_data_version(context) != before:
+        result = await search()
+    return result
+
+
+async def _search_family_small_variants(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    filters: SmallVariantQueryFilters,
+    page: int,
+    page_size: int,
+    review_classifications: list[str] | None,
+    review_tags: list[str] | None,
+    exclude_review_tags: list[str] | None,
+    has_notes: bool,
+    prioritize: bool,
+    track_mode: bool,
+    track_result_limit: int | None,
+) -> VariantPage:
+    """The family page's search over ``filters``, by the path its view takes: the
+    prioritised ranking, a track's page, ClickHouse's own page, or the candidate read."""
     if filters.require_sv_second_hit:
         # Resolve the family's SV-hit gene set once; every query path below reads it off
         # ``filters`` to intersect results with genes that also carry a structural variant.
@@ -3524,10 +3594,14 @@ async def export_family_small_variants(
         max_page_size=limit + 1,
         **filters,
     )
+    # A row is a variant, listed once: one in two compound-het pairs is in both groups, and
+    # the file says nothing of pairs, so the second row only repeated the first (CLIN-52).
     rows: list[VariantOut] = []
-    for group in page.variant_groups:
-        rows.extend(group.variants)
-    rows.extend(page.variants)
+    listed: set[str] = set()
+    for variant in [*(variant for group in page.variant_groups for variant in group.variants), *page.variants]:
+        if str(variant.id) not in listed:
+            listed.add(str(variant.id))
+            rows.append(variant)
     return VariantExport(rows=rows[:limit], truncated_reason=_export_truncation(page, rows, limit), limit=limit)
 
 

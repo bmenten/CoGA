@@ -92,6 +92,15 @@ def _json_key(value: Any) -> str:
     return json.dumps(value, sort_keys=True, default=str)
 
 
+# The ClinGen curations a count counts. Each source counts its own (dbNSFP its copy of the
+# haploinsufficiency curation, ClinGen's file its curations), and the merge combines their
+# lists: the count kept beside a gene's two dosage entries was the last source's, 1 (ENG-10).
+_CURATION_COUNT_LISTS = {
+    "dosage_sensitivity": "clingen_dosage_assertions",
+    "gene_disease_validity": "clingen_validity_assertions",
+}
+
+
 def merge_gene_extra(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str, Any]:
     merged = dict(base)
     for key, value in overlay.items():
@@ -113,6 +122,17 @@ def merge_gene_extra(base: dict[str, Any], overlay: dict[str, Any]) -> dict[str,
             merged[key] = combined
             continue
         merged[key] = value
+    counts = merged.get("clingen_curation_counts")
+    if isinstance(counts, dict):
+        # A count follows the merged list it counts.
+        merged["clingen_curation_counts"] = {
+            **counts,
+            **{
+                count_key: len(merged[list_key])
+                for count_key, list_key in _CURATION_COUNT_LISTS.items()
+                if count_key in counts and isinstance(merged.get(list_key), list)
+            },
+        }
     return merged
 
 

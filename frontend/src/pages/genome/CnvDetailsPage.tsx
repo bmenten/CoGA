@@ -78,7 +78,7 @@ const CnvDetailsPage: React.FC = () => {
   if (isLoading) {
     return (
       <div className="page-shell content-shell">
-        <PageState kicker="Clinical CNV" title="Loading CNV details…" />
+        <PageState loading kicker="Clinical CNV" title="Loading CNV details…" />
       </div>
     );
   }

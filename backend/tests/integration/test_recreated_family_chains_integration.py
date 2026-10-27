@@ -155,7 +155,7 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
             await _make_family("second", overwrite=True)
             signed += [await _sign_out(), await _sign_out()]
             async with sm() as s:
-                await delete_family_with_data(s, label, True, user=user)
+                await delete_family_with_data(s, label, True, user=user, reason="integration test")
             await _make_family("third", overwrite=False)
             signed.append(await _sign_out())
 

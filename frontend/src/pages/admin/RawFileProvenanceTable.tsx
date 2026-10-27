@@ -8,6 +8,7 @@ import {
   type RawFileVerifyResult,
 } from './dataManagementTypes';
 import { apiPath } from '../../lib/apiPath';
+import { getErrorMessage } from '../../lib/errorMessage';
 
 interface RawFileProvenanceTableProps {
   familyId: string;
@@ -30,11 +31,24 @@ const verifyToneClass = (status: RawFileVerifyResult['status']): string => {
   }
 };
 
+// A recorded location CoGA does not read from is neither downloaded nor verified: it is not
+// a file kept in the object store, nor one that is gone (SEC-27).
+const OUTSIDE_READ_FOLDERS =
+  'Its recorded location lies outside the folders and stores CoGA reads source files from, so it is not read';
+
 // A file kept in the bucket a package was imported from is not downloaded here, and it
 // is not missing either.
 const downloadTitle = (file: RawImportFile): string => {
+  if (file.outside_read_folders) return OUTSIDE_READ_FOLDERS;
   if (file.in_object_store) return 'Kept in the object store at its storage path; download it from there';
   return file.download_available ? `Download ${file.file_name}` : 'Source file is no longer available';
+};
+
+const verifyTitle = (file: RawImportFile): string => {
+  if (file.outside_read_folders) return OUTSIDE_READ_FOLDERS;
+  return file.in_object_store
+    ? 'Compare the object in the store with what was recorded about it at import'
+    : 'Recompute SHA-256 and compare to the stored checksum';
 };
 
 const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyId }) => {
@@ -89,8 +103,9 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
         ...current,
         [file.id]: response.data as RawFileVerifyResult,
       }));
-    } catch {
-      setActionError(`Could not verify ${file.file_name}.`);
+    } catch (error) {
+      // The refusal's reason (a location CoGA does not read from), not a bare failure.
+      setActionError(`Could not verify ${file.file_name}: ${getErrorMessage(error, 'the request failed')}`);
     } finally {
       setBusyFileId(null);
     }
@@ -137,15 +152,12 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
               className="button-secondary admin-track-inline-action"
               disabled={busyFileId === `verify:${file.id}`}
               onClick={() => verifyFile(file)}
-              title={
-                file.in_object_store
-                  ? 'Compare the object in the store with what was recorded about it at import'
-                  : 'Recompute SHA-256 and compare to the stored checksum'
-              }
+              title={verifyTitle(file)}
             >
               {busyFileId === `verify:${file.id}` ? 'Verifying…' : 'Verify'}
             </button>
           </div>
+          {file.outside_read_folders && <p className="admin-raw-file-verify-message">{OUTSIDE_READ_FOLDERS}.</p>}
           {/* A file in the object store is not re-hashed: say what was compared. */}
           {verify && (verify.status !== 'verified' || file.in_object_store) && (
             <p className="admin-raw-file-verify-message">{verify.message}</p>

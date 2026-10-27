@@ -613,26 +613,22 @@ async def count_interval_track_rows(
     assembly_name: str,
     *,
     family_uuid: str,
-    sample_uuid: str,
+    sample_uuid: str | None,
     track_type: str,
     source: str | None = None,
 ) -> int:
-    """How many rows the interval table holds of one sample's ``track_type`` track, of
-    ``source`` or of every source: what is stored. ``count_interval_track_source_rows``
-    reads instead what the loaders recorded in Postgres, which a failed overwrite's restore
-    does not rewrite with these rows: one that fails part-way can leave the record of a
-    track whose rows it deleted (SAFE-20)."""
+    """How many rows the interval table holds of one sample's ``track_type`` track, or with
+    ``sample_uuid`` None of every sample's of the family, of ``source`` or of every source:
+    what is stored. ``count_interval_track_source_rows`` reads instead what the loaders
+    recorded in Postgres, which a failed overwrite's restore does not rewrite with these
+    rows: one that fails part-way can leave the record of a track whose rows it deleted
+    (SAFE-20)."""
     await ensure_clickhouse_interval_table(assembly_name)
-    clauses = [
-        "family_guid = %(family_uuid)s",
-        "sample_guid = %(sample_uuid)s",
-        "track_type = %(track_type)s",
-    ]
-    params: dict[str, Any] = {
-        "family_uuid": str(family_uuid),
-        "sample_uuid": str(sample_uuid),
-        "track_type": track_type,
-    }
+    clauses = ["family_guid = %(family_uuid)s", "track_type = %(track_type)s"]
+    params: dict[str, Any] = {"family_uuid": str(family_uuid), "track_type": track_type}
+    if sample_uuid is not None:
+        clauses.append("sample_guid = %(sample_uuid)s")
+        params["sample_uuid"] = str(sample_uuid)
     if source is not None:
         clauses.append("source = %(source)s")
         params["source"] = source
@@ -814,15 +810,17 @@ async def interval_counts_by_family(
 ) -> dict[str, dict[str, int]]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory counts every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT family_id::text AS family_uuid, track_type, COALESCE(SUM(row_count), 0) AS count
             FROM sample_interval_track_sources
-            WHERE family_id IN :family_uuids
+            WHERE family_id = ANY(CAST(:family_uuids AS uuid[]))
             GROUP BY family_id, track_type
             """
-        ).bindparams(uuid_list_bindparam("family_uuids")),
+        ),
         {"family_uuids": uuid_values(list(family_uuids))},
     )
     counts: dict[str, dict[str, int]] = {
@@ -842,15 +840,17 @@ async def interval_counts_by_sample(
 ) -> dict[str, dict[str, int]]:
     if not sample_uuids:
         return {}
+    # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory counts every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT sample_id::text AS sample_uuid, track_type, COALESCE(SUM(row_count), 0) AS count
             FROM sample_interval_track_sources
-            WHERE sample_id IN :sample_uuids
+            WHERE sample_id = ANY(CAST(:sample_uuids AS uuid[]))
             GROUP BY sample_id, track_type
             """
-        ).bindparams(uuid_list_bindparam("sample_uuids")),
+        ),
         {"sample_uuids": uuid_values(list(sample_uuids))},
     )
     counts: dict[str, dict[str, int]] = {

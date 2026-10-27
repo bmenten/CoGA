@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Collection, Mapping
 from contextlib import AsyncExitStack, suppress
 from datetime import datetime, timedelta, timezone
 import logging
@@ -25,7 +25,11 @@ from .family_metadata_context import (
     SampleMetadataContext,
     build_family_metadata_context,
 )
-from .family_variant_write_lock import hold_family_variant_writes
+from .family_variant_write_lock import (
+    VariantWriteHoldLost,
+    hold_family_variant_writes,
+    watch_family_variant_holds,
+)
 from .hpo_service import PACKAGE_IMPORT, PhenotypeImport
 from .metadata_service import get_current_user_by_email
 from .access_control import CurrentUser
@@ -58,6 +62,7 @@ from .family_package_common import (
 from .family_package_source import package_folder_path, staged_package_source_async
 from .family_package_validation import load_validated_family_package
 from .family_package_jobs import (
+    FAMILY_IMPORT_STALE_HEARTBEAT,
     claim_next_family_import_job,
     running_family_import_job_ids,
     _beat_family_import_job,
@@ -106,6 +111,26 @@ FAMILY_IMPORT_WORKER_POLL_SECONDS = 2.0
 # FAMILY_IMPORT_STALE_HEARTBEAT means the process running it has stopped, or could not
 # write it; such an import is stopped when its heartbeat finds the job ended.
 FAMILY_IMPORT_HEARTBEAT_SECONDS = 60.0
+# An import whose heartbeat has not reached the database for this long stops itself where it
+# is, as a stopped process does: half the stale window, so it has stopped well before a
+# worker can take its job for stopped and another write of the family can start. It went on
+# for as long as its heartbeat could not be written (SAFE-15).
+FAMILY_IMPORT_SELF_STOP = FAMILY_IMPORT_STALE_HEARTBEAT / 2
+# How often a running import checks the connection that holds its family's variant-write
+# locks: Postgres releases them with a lost connection, and the import went on writing
+# beside the next writer, unaware (SAFE-15).
+FAMILY_IMPORT_LOCK_CHECK_SECONDS = 10.0
+# How long a beat or a lock check may take: one that has not answered by then counts as
+# failed, so that a database that does not answer cannot hold the heartbeat up (a lost
+# connection can take minutes to say so).
+FAMILY_IMPORT_DATABASE_TIMEOUT = 30.0
+# Why an import whose variant-write locks were lost was stopped, as its job records it.
+LOCKS_LOST_ERROR = (
+    "Stopped where it was: the connection that held the family's variant-write locks was "
+    "lost, and Postgres released the locks with it, so another write of the family may have "
+    "started. Nothing was restored; the family stays marked as not completely imported until "
+    "it is imported again with overwrite."
+)
 # How long a backup table of an import run outside a job is kept: nothing records whether
 # that import still runs (drop_orphaned_import_backups).
 IMPORT_BACKUP_GRACE = timedelta(days=1)
@@ -138,24 +163,27 @@ def _still_unfinished_message(family_id: str, remaining: Mapping[str, Any]) -> s
 
 def _still_failed_message(family_id: str, failures: FailuresLeft) -> str:
     """The log line of an import that completed while the family stays flagged by an
-    earlier import's failure it did not import again. A dataset is named with each job
-    that holds an error of it still flagged: one that failed for several scopes (callsets,
-    samples) can have more than one (SAFE-26)."""
+    earlier failure it did not import again. A dataset is named with each job that holds
+    an error of it still flagged: one that failed for several scopes (callsets, samples)
+    can have more than one (SAFE-26). A failure no job records is a single-file upload's
+    (SAFE-25), or an import's run outside a job, and is said so (SAFE-18)."""
     if failures.unreadable:
         return (
             f"Family {family_id} stays flagged import-incomplete: its flag is not in the shape "
             "an import writes, so nothing shows what would complete it."
         )
+    outside = "outside an import job"
     by_job: dict[str, list[str]] = {}
     for name, latest in sorted(failures.failed.items()):
         for job_id in failures.jobs.get(name) or [latest]:
-            names = by_job.setdefault(f"import job {job_id}" if job_id else "an import", [])
+            names = by_job.setdefault(f"in import job {job_id}" if job_id else outside, [])
             if name not in names:
                 names.append(name)
-    failed = "; ".join(f"{', '.join(names)} in {job}" for job, names in sorted(by_job.items()))
+    failed = "; ".join(f"{', '.join(names)} {where}" for where, names in sorted(by_job.items()))
+    who = "an earlier import or single-file upload" if outside in by_job else "an earlier import"
     return (
-        f"Family {family_id} stays flagged import-incomplete: an earlier import failed for "
-        "datasets this import did not import again, for the callset and samples that failed "
+        f"Family {family_id} stays flagged import-incomplete: {who} failed for datasets this "
+        "import did not import again, for the callset and samples that failed "
         f"({failed}). Import them again to complete the family."
     )
 
@@ -223,6 +251,35 @@ def _restore_failed_message(flagged_failed: list[str], whole: list[str] | None) 
         "and upload again with overwrite what a single-file upload brought: an update skips "
         "a dataset whose rows are there."
     )
+
+
+# How a dataset's loader ended, as the job's record says it once a restore has failed.
+_LOADER_ENDINGS = {
+    "imported": "imported",
+    "warning": "imported with warnings",
+    "registered": "registered its files",
+    "skipped": "was skipped",
+}
+
+
+def _record_left_by_restore(datasets: list[FamilyImportDatasetSummary], flagged: Collection[str]) -> None:
+    """Record, in the job's dataset table, each dataset of ``flagged`` whose loader ended
+    well as failed: after a failed overwrite whose restore failed part-way, the flag names
+    every dataset of the import as failed and none as imported, as the restore may have
+    removed the rows of any of them. The table then says the same, with how the loader had
+    ended (SAFE-18)."""
+    for position, dataset in enumerate(datasets):
+        if dataset.dataset_type not in flagged or dataset.status == "failed":
+            continue
+        ending = _LOADER_ENDINGS.get(dataset.status, f"ended {dataset.status}")
+        message = (
+            f"Its loader {ending}, but the import failed and the restore that followed did not "
+            "finish, so its rows may be partly written or missing. Import it again with "
+            "overwrite."
+        )
+        if dataset.message:
+            message += f" The loader's message: {dataset.message}"
+        datasets[position] = dataset.model_copy(update={"status": "failed", "message": message})
 
 
 def _datasets_set_out(
@@ -758,6 +815,10 @@ async def _import_family_datasets(
                 )
             else:
                 flagged_failed = sorted({*failed_datasets, *_datasets_set_out(validation, import_mark)})
+                # The job's record says what the flag says: each dataset failed, the ones
+                # whose loader ended well too (SAFE-18).
+                _record_left_by_restore(datasets, flagged_failed)
+                failed_datasets = list(flagged_failed)
                 whole: list[str] | None = None
                 if import_mark is not None:
                     whole = await _flag_family_restore_failed(
@@ -905,6 +966,43 @@ def _log_unrecorded_job_end(job_id: str, outcome: str) -> None:
     )
 
 
+async def _end_job_after_lost_locks(
+    session_factory: Callable[[], Any], *, job_id: str, worker_id: str
+) -> None:
+    """End the job of an import stopped where it was because the connection holding its
+    family's variant-write locks was lost: failed, with why, and its family left as a stopped
+    process leaves it (its ``import_unfinished`` entry stays). Nothing is restored, since
+    another write of the family may have run since the locks went, and the backups its
+    import made are dropped, as those of an interrupted job are. An end the job cannot record
+    is said in the log; a worker ends the job once its heartbeat is stale."""
+    logger.warning(
+        "Family package import job %s was stopped where it was: the connection that held its "
+        "family's variant-write locks was lost, so another write of the family may have started. "
+        "Nothing was restored, and the family stays marked as not completely imported.",
+        job_id,
+    )
+    try:
+        async with session_factory() as end_session:
+            recorded = await _update_job_progress(
+                end_session,
+                job_id=job_id,
+                worker_id=worker_id,
+                status="failed",
+                error=LOCKS_LOST_ERROR,
+                completed=True,
+            )
+    except Exception:
+        logger.warning("Could not record the end of import job %s", job_id, exc_info=True)
+        recorded = False
+    if not recorded:
+        _log_unrecorded_job_end(job_id, "failed")
+        return
+    try:
+        await drop_import_backup_tables(await list_import_backup_tables(owner=job_id))
+    except Exception:  # left for the startup sweep (drop_orphaned_import_backups)
+        logger.warning("Could not drop the backup tables of import job %s", job_id, exc_info=True)
+
+
 async def run_family_import_job(
     *,
     job_id: str,
@@ -919,6 +1017,12 @@ async def run_family_import_job(
     more, so its family keeps the import's ``import_unfinished`` entry, as the job's
     "Interrupted" record says, and the variant-write locks go with their connection. A
     progress or final update of the job that matches no row is said in the log.
+
+    The heartbeat stops the import the same way, by itself, when its beats have not reached
+    the database for FAMILY_IMPORT_SELF_STOP, before a worker can take the job for stopped,
+    and when the connection holding the family's variant-write locks is gone: the job of
+    the latter is ended failed (``LOCKS_LOST_ERROR``), and nothing is restored, since
+    another write of the family may have run once the locks went (SAFE-15).
     """
     session_factory = get_postgres_sessionmaker()
     async with session_factory() as session:
@@ -951,25 +1055,64 @@ async def run_family_import_job(
         # the import once it has ended and only its end is left to record.
         job_lost = asyncio.Event()
         ending = asyncio.Event()
+        # Set by the heartbeat when it stops the import itself: its beats have not reached
+        # the database for FAMILY_IMPORT_SELF_STOP, or the connection holding the family's
+        # variant-write locks is gone (SAFE-15).
+        beat_lost = asyncio.Event()
+        locks_lost = asyncio.Event()
+        loop = asyncio.get_running_loop()
 
-        async def keep_alive(run: asyncio.Task[None]) -> None:
+        async def keep_alive(run: asyncio.Task[None], check_holds: Callable[[], Awaitable[None]]) -> None:
             # The heartbeat, whatever the import is doing (waiting for another writer's
             # locks, copying a snapshot): a stale one means this process has stopped or
             # cannot write it, and the worker that finds it so ends the job or runs it
-            # again. A beat that fails is logged and tried again. One that matches no row
-            # finds the job no longer this worker's: the import, which may have gone on
-            # meanwhile, is stopped where it is -- unless it has ended, and only its end is
-            # left to record (an end the job cannot record is said in the log).
+            # again. A beat that fails is logged and tried again; once none has reached the
+            # database for FAMILY_IMPORT_SELF_STOP, the import stops itself where it is,
+            # before a worker can take the job for stopped. One that matches no row finds
+            # the job no longer this worker's: the import, which may have gone on meanwhile,
+            # is stopped where it is -- unless it has ended, and only its end is left to
+            # record (an end the job cannot record is said in the log). Between beats, every
+            # FAMILY_IMPORT_LOCK_CHECK_SECONDS, the connection holding the family's
+            # variant-write locks is checked, and the import stopped where it is when it is
+            # gone.
+            tick = min(FAMILY_IMPORT_HEARTBEAT_SECONDS, FAMILY_IMPORT_LOCK_CHECK_SECONDS)
+            last_beat = loop.time()
+            next_beat = last_beat + FAMILY_IMPORT_HEARTBEAT_SECONDS
             while True:
-                await asyncio.sleep(FAMILY_IMPORT_HEARTBEAT_SECONDS)
+                await asyncio.sleep(tick)
                 try:
-                    async with session_factory() as heartbeat_session:
-                        still_ours = await _beat_family_import_job(
-                            heartbeat_session, job_id=job_id, worker_id=worker_id
-                        )
+                    await asyncio.wait_for(check_holds(), FAMILY_IMPORT_DATABASE_TIMEOUT)
+                except (VariantWriteHoldLost, TimeoutError):
+                    logger.warning(
+                        "Family package import job %s lost the connection that held its "
+                        "family's variant-write locks",
+                        job_id,
+                        exc_info=True,
+                    )
+                    if not ending.is_set():
+                        locks_lost.set()
+                        run.cancel()
+                    return
+                if loop.time() < next_beat:
+                    continue
+                next_beat = loop.time() + FAMILY_IMPORT_HEARTBEAT_SECONDS
+                try:
+                    async with asyncio.timeout(FAMILY_IMPORT_DATABASE_TIMEOUT):
+                        async with session_factory() as heartbeat_session:
+                            still_ours = await _beat_family_import_job(
+                                heartbeat_session, job_id=job_id, worker_id=worker_id
+                            )
                 except Exception:
                     logger.warning("Family package import heartbeat failed", exc_info=True)
+                    if (
+                        loop.time() - last_beat >= FAMILY_IMPORT_SELF_STOP.total_seconds()
+                        and not ending.is_set()
+                    ):
+                        beat_lost.set()
+                        run.cancel()
+                        return
                     continue
+                last_beat = loop.time()
                 if not still_ours:
                     if not ending.is_set():
                         job_lost.set()
@@ -1110,15 +1253,18 @@ async def run_family_import_job(
             )
 
         # The import runs as a task of its own, so that its heartbeat can stop it without
-        # stopping this worker.
-        run = asyncio.create_task(run_import())
-        heartbeat = asyncio.create_task(keep_alive(run))
+        # stopping this worker; the heartbeat checks the locks the import holds.
+        with watch_family_variant_holds() as check_holds:
+            run = asyncio.create_task(run_import())
+            heartbeat = asyncio.create_task(keep_alive(run, check_holds))
         try:
             await run
         except asyncio.CancelledError:
             this_worker = asyncio.current_task()
-            if job_lost.is_set() and this_worker is not None and not this_worker.cancelling():
-                # Stopped by its heartbeat, not by this worker's own stop.
+            if this_worker is None or this_worker.cancelling():
+                raise
+            # Stopped by its heartbeat, not by this worker's own stop.
+            if job_lost.is_set():
                 logger.warning(
                     "Family package import job %s was stopped where it was: the job is no "
                     "longer this worker's (another worker ended it as interrupted, or claimed "
@@ -1126,6 +1272,21 @@ async def run_family_import_job(
                     "stopped process does.",
                     job_id,
                 )
+                return
+            if beat_lost.is_set():
+                logger.warning(
+                    "Family package import job %s stopped itself where it was: its heartbeat "
+                    "had not reached the database for %d minutes, and a worker takes a job "
+                    "whose heartbeat is %d minutes old for stopped. The import wrote nothing "
+                    "more and left its family as a stopped process does; the job is ended as "
+                    "interrupted once a worker finds its heartbeat stale.",
+                    job_id,
+                    FAMILY_IMPORT_SELF_STOP.total_seconds() // 60,
+                    FAMILY_IMPORT_STALE_HEARTBEAT.total_seconds() // 60,
+                )
+                return
+            if locks_lost.is_set():
+                await _end_job_after_lost_locks(session_factory, job_id=job_id, worker_id=worker_id)
                 return
             raise
         except Exception as exc:

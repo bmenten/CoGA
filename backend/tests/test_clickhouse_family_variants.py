@@ -46,8 +46,21 @@ from backend.app.services.family_variant_filters import (
     StructuralVariantQueryFilters,
     parse_genotype_filter,
 )
-from backend.app.schemas import SmallVariantSummaryOut
+from backend.app.schemas import SmallVariantSummaryOut, VariantPage
+import backend.app.services.clickhouse_family_variants as _cfv
 from backend.app.services.genotypes import genotype_vocabulary
+
+
+@pytest.fixture(autouse=True)
+def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The family's small-variant data version, read before and after each search (ENG-17):
+    steady, as no write lands during these searches. A test that keys a ranking on it sets
+    its own."""
+
+    async def steady(_context: object) -> str:
+        return "1:1"
+
+    monkeypatch.setattr(_cfv, "_family_small_variant_data_version", steady)
 
 
 @pytest.fixture(autouse=True)
@@ -2905,3 +2918,47 @@ async def test_genotype_site_sample_reads_its_rows_off_the_event_loop(
         ("X", 3_000_100, "A", "G", ["PROBAND", "MOM"], ["1/1", "0/1"]),
         ("X", 3_000_200, "C", "T", ["MOM"], ["0/0"]),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("versions", "runs"),
+    [
+        # A write of the family's small variants landed during the search: run once more.
+        (["1:1", "2:2"], 2),
+        # None did: once.
+        (["1:1", "1:1"], 1),
+    ],
+)
+async def test_a_search_a_write_lands_during_is_run_once_more(
+    monkeypatch: pytest.MonkeyPatch, versions: list[str], runs: int
+) -> None:
+    # ENG-17. A search's subqueries (a panel's window join, the annotation and sample
+    # subqueries) read the family's rows apart from its main read, so a write landing between
+    # two of them could make the answer miss a row. Every write moves the family's data
+    # version once done: a search during which it moved is run once more. Before: once, the
+    # row missed until the page was opened again.
+    read = iter(versions)
+    searched: list[object] = []
+
+    async def version(_context: object) -> str:
+        return next(read)
+
+    async def search(_session: object, **kwargs: object) -> VariantPage:
+        searched.append(kwargs["filters"])
+        return VariantPage(total=len(searched), variants=[])
+
+    monkeypatch.setattr(_cfv, "_family_small_variant_data_version", version)
+    monkeypatch.setattr(_cfv, "_search_family_small_variants", search)
+
+    page = await _cfv.get_family_small_variants_page(
+        None,  # type: ignore[arg-type]
+        context=_family_context(),
+        page=1,
+        page_size=50,
+        panel_id=None,
+    )
+
+    assert len(searched) == runs
+    assert page.total == runs  # the answer of the last run
+    assert next(read, None) is None  # read before and after the first run, not after the second

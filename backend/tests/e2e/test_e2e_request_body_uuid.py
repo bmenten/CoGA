@@ -519,7 +519,7 @@ async def _collect(run: str) -> dict[str, Any]:
             if "tag_key" in records:
                 await ac.delete(f"/api/admin/variant-tags/{records['tag_key']}")
             for made_family in (family, f"E2EBODYP{run}"):
-                await ac.delete(f"/api/admin/families/{made_family}?confirm=true")
+                await ac.request("DELETE", f"/api/admin/families/{made_family}?confirm=true", json={"reason": "e2e"})
             if "project" in records:
                 await ac.delete(f"/api/projects/{records['project']}")
         async with sessionmaker() as session:

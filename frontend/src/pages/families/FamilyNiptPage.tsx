@@ -66,6 +66,7 @@ import {
   liveReportSignedState,
   NIPT_NOT_CLASSIFIED_REASONS,
 } from './signedReportRecord';
+import { raw, routePath } from '../../lib/routePath';
 
 const PAGE_SIZE = 50;
 
@@ -208,6 +209,7 @@ const FamilyNiptPage: React.FC = () => {
     assemblyValidated,
     assemblyVersion,
     projectId,
+    isLoading: referenceLoading,
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects as string[] | undefined);
@@ -433,7 +435,7 @@ const FamilyNiptPage: React.FC = () => {
     const params = new URLSearchParams();
     if (projectId) params.set('project_id', projectId);
     params.set('version', String(version));
-    return { pathname: `/families/${familyId}/report`, search: `?${params.toString()}` };
+    return { pathname: routePath`/families/${familyId}/report`, search: `?${params.toString()}` };
   };
   const {
     signOut,
@@ -457,7 +459,9 @@ const FamilyNiptPage: React.FC = () => {
   const showReported = () => runSearch({ ...createEmptySmallFilters(), review_tags: REPORT_TAG_KEY });
   const notClassified = variantPage?.not_classified ?? [];
 
-  if (familyLoading) {
+  // The project's reference too: the assembly-scope warning shows nothing while it loads
+  // (#515), so the NIPT analysis showed without "Not validated for clinical use" (ENG-12).
+  if (familyLoading || referenceLoading) {
     return <PageState loading kicker="Monogenic NIPT" title="Loading family" />;
   }
   if (familyFailed) {
@@ -489,7 +493,7 @@ const FamilyNiptPage: React.FC = () => {
         title="Not a monogenic NIPT family"
         message={`Family ${familyId} is not configured for monogenic NIPT analysis.`}
         action={
-          <Link className="button-secondary" to={`/families/${familyId}`}>
+          <Link className="button-secondary" to={routePath`/families/${familyId}`}>
             Back to family
           </Link>
         }
@@ -527,7 +531,7 @@ const FamilyNiptPage: React.FC = () => {
   })();
   // The coverage page reads the same genes; its way back returns to this page as it is
   // now, filters and all (they live in the URL).
-  const coverageHref = `/families/${familyId}/nipt/coverage${niptReportQuerySuffix}`;
+  const coverageHref = routePath`/families/${familyId}/nipt/coverage${raw(niptReportQuerySuffix)}`;
   const coverageLinkState = { from: `${location.pathname}${location.search}` };
   // Whether the family's data still matches the latest signed version (sign-out-check), read
   // as the live reports read it.
@@ -585,11 +589,11 @@ const FamilyNiptPage: React.FC = () => {
                 </div>
               </div>
               <div className="inline-actions">
-                <Link to={`/families/${familyId}`} className="button-ghost hover:no-underline">
+                <Link to={routePath`/families/${familyId}`} className="button-ghost hover:no-underline">
                   Family
                 </Link>
                 <Link
-                  to={`/families/${familyId}/nipt/report${niptReportQuerySuffix}`}
+                  to={routePath`/families/${familyId}/nipt/report${raw(niptReportQuerySuffix)}`}
                   className="button-secondary hover:no-underline"
                 >
                   Report

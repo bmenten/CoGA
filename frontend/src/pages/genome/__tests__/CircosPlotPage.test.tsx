@@ -297,8 +297,11 @@ describe('CircosPlotPage', () => {
     });
     renderPage();
 
-    expect(await screen.findByRole('status')).toHaveTextContent(
-      'Too many structural variants to draw (more than 50,000).',
+    // The page's loading bar is a status too, until the list is in.
+    await waitFor(() =>
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Too many structural variants to draw (more than 50,000).',
+      ),
     );
     const props = circosSpy.mock.calls.at(-1)?.[0];
     expect(props.variants).toBeUndefined();

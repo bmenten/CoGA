@@ -190,6 +190,8 @@ class _World:
         self.records = [GENE1_A, GENE2_A, GENE3_A]
         # inputs_hash -> cache row, as family_variant_ranking_cache holds it
         self.cache: dict[str, dict[str, Any]] = {}
+        # Each cache row whose ranking was read, by its inputs_hash, in order.
+        self.reads: list[str] = []
 
     def set_panel(
         self, panel_id: str, *genes: str, version: int = 1, regions: tuple[Region, ...] = ()
@@ -272,6 +274,7 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
         ]
 
     async def _get_cached(_session, *, family_uuid, inputs_hash):
+        state.reads.append(inputs_hash)
         return state.cache.get(inputs_hash)
 
     async def _store(
@@ -301,8 +304,9 @@ def world(monkeypatch: pytest.MonkeyPatch) -> _World:
         }
 
     async def _supersets(_session, *, family_uuid, base_hash):
+        # Without their rankings, as find_superset_candidates reads them (ENG-13).
         rows = [
-            row
+            {key: value for key, value in row.items() if key != "ranking"}
             for row in state.cache.values()
             if row["base_hash"] == base_hash and not row["ranking_truncated"]
         ]
@@ -427,6 +431,33 @@ def test_a_ranking_of_another_panel_that_gained_the_gene_since_is_not_used(world
     narrow = _open(NARROW)
     assert narrow.ranking_cached is False
     assert _ids(narrow) == [GENE3_A.variant_id]
+
+
+def test_a_broader_ranking_is_read_only_once_its_panel_passes(world) -> None:
+    # ENG-13 (#858). Before: every candidate's whole ranking was read with the candidate
+    # list, before its panel was checked. The broader panel changed since its ranking, so
+    # that ranking is never read; the narrower panel is computed live.
+    world.set_panel(BROAD, "GENE1", "GENE3")
+    _open(BROAD)
+    broad = world.row_for(BROAD)["inputs_hash"]
+    world.set_panel(BROAD, "GENE1", "GENE3", "GENE2", version=2)
+    world.set_panel(NARROW, "GENE3")
+    world.reads.clear()
+
+    narrow = _open(NARROW)
+
+    assert narrow.ranking_cached is False
+    assert broad not in world.reads
+
+    # Unchanged, it is read, once, and serves the panel.
+    world.set_panel(BROAD, "GENE1", "GENE3", version=3)
+    _open(BROAD)
+    broad = world.row_for(BROAD)["inputs_hash"]
+    world.set_panel(NARROW, "GENE3", version=2)
+    world.reads.clear()
+    served = _open(NARROW)
+    assert served.ranking_cached is True
+    assert world.reads.count(broad) == 1
 
 
 def test_a_narrower_panel_is_served_from_a_broader_ranking_whose_panel_is_unchanged(world) -> None:

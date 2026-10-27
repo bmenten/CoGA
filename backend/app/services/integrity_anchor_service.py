@@ -1,8 +1,10 @@
 """External signed chain-head anchor (#263), the follow-up to the hash chains (#261).
 
-Periodically snapshot every per-family hash-chain HEAD (across ``report_signouts``,
+Snapshot every per-family hash-chain HEAD (across ``report_signouts``,
 ``clinical_audit_events`` and ``family_structure_versions``) and seal the snapshot with an Ed25519 signature whose private
-key lives in app config/env — never in the database. This closes the part of the
+key lives in app config/env — never in the database. A snapshot is taken when an
+administrator asks for one (``POST /api/admin/integrity/anchor``); nothing schedules it yet
+(OPS-7). This closes the part of the
 gap the in-DB chain cannot: an OWNER who DISABLEs the trigger can re-chain an interior
 edit or truncate a chain into a self-consistent state that ``verify_*_chain`` accepts, but
 they cannot mint a matching signed anchor (no key), so the divergence between the live

@@ -825,6 +825,10 @@ async def test_deleting_a_sample_with_its_data_records_the_pedigree_change(monke
         trace.append(("snapshot", family_uuid))
         return before
 
+    async def phenotypes_deleted(_session: Any, **kwargs: Any) -> int:
+        trace.append(("phenotypes", kwargs))
+        return 0
+
     async def structure_change(_session: Any, **kwargs: Any) -> None:
         trace.append(("change", kwargs))
 
@@ -848,6 +852,7 @@ async def test_deleting_a_sample_with_its_data_records_the_pedigree_change(monke
         "_small_variant_entries_without_sample": pairs,
         "_structural_variant_rows_without_sample": pairs,
         "purge_sample_managed_files": nothing,
+        "record_phenotypes_deleted_with_sample": phenotypes_deleted,
         "read_structure_snapshot": snapshot,
         "record_structure_change": structure_change,
         # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
@@ -857,9 +862,17 @@ async def test_deleting_a_sample_with_its_data_records_the_pedigree_change(monke
 
     await admin_service.delete_sample_with_data(_Session(), "P1", True, user=_admin())  # type: ignore[arg-type]
 
-    assert [step for step, _detail in trace] == ["lock", "snapshot", "delete", "change", "commit"]
-    assert trace[0] == ("lock", f"fsv:{FAMILY}")
-    change = trace[3][1]
+    # The sample's phenotypes are recorded as removed first, before the pedigree lock (TRACE-16).
+    assert [step for step, _detail in trace] == ["phenotypes", "lock", "snapshot", "delete", "change", "commit"]
+    phenotypes = trace[0][1]
+    assert (phenotypes["family_identifier"], phenotypes["sample_id"], phenotypes["change"]) == (
+        FAMILY,
+        "P1",
+        "deleted_with_sample",
+    )
+    assert (phenotypes["origin"].via, phenotypes["origin"].user.username) == ("admin_deletion", "analyst-a")
+    assert trace[1] == ("lock", f"fsv:{FAMILY}")
+    change = trace[4][1]
     assert change["before_snapshot"] is before
     assert (change["family_identifier"], change["source"], change["metadata"]) == (
         FAMILY,
@@ -971,6 +984,11 @@ def _admin_family_delete(monkeypatch, steps: list[str], *, failing: str | None =
     async def family_deleted(_session: Any, **kwargs: Any) -> None:
         steps.append(f"audit: family deleted {kwargs['family_identifier']} {kwargs['variant_counts']}")
 
+    async def phenotypes_deleted(_session: Any, **kwargs: Any) -> int:
+        origin = kwargs["origin"]
+        steps.append(f"audit: phenotypes {kwargs['change']} by {origin.via} as {origin.user.username}")
+        return 0
+
     for name, fake in {
         "_resolve_family_uuid": resolve,
         "_sample_rows_by_family": sample_rows,
@@ -978,6 +996,7 @@ def _admin_family_delete(monkeypatch, steps: list[str], *, failing: str | None =
         "lock_family_variant_writes": step("lock"),
         "count_family_small_variants": counted,
         "count_family_structural_variants": counted,
+        "record_phenotypes_deleted_with_family": phenotypes_deleted,
         "record_family_deleted": family_deleted,
         "delete_family_small_variants": step("ClickHouse: delete small variants"),
         "delete_family_structural_variants": step("ClickHouse: delete structural variants"),
@@ -1007,10 +1026,12 @@ async def test_the_admins_family_delete_records_its_event_before_it_deletes_anyt
     steps: list[str] = []
     _admin_family_delete(monkeypatch, steps)
 
-    await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin())  # type: ignore[arg-type]
+    await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason="duplicate")  # type: ignore[arg-type]
 
     event = f"audit: family deleted {FAMILY} {{'small_variants': 7, 'structural_variants': 7}}"
-    assert steps[: steps.index(event) + 1] == ["lock", "count", "count", event]
+    # The phenotypes that go with the family are recorded as removed just before (TRACE-16).
+    phenotypes = "audit: phenotypes deleted_with_family by admin_deletion as analyst-a"
+    assert steps[: steps.index(event) + 1] == ["lock", "count", "count", phenotypes, event]
     assert steps.index(event) < steps.index("ClickHouse: delete small variants")
     assert steps.index(event) < steps.index("DELETE FROM families")
     assert steps[-1] == "commit"
@@ -1024,7 +1045,46 @@ async def test_a_family_delete_that_fails_commits_nothing(monkeypatch) -> None:
     _admin_family_delete(monkeypatch, steps, failing="purge raw files")
 
     with pytest.raises(RuntimeError, match="purge raw files failed"):
-        await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin())  # type: ignore[arg-type]
+        await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason="duplicate")  # type: ignore[arg-type]
 
     assert any(step.startswith("audit: family deleted") for step in steps)
     assert "commit" not in steps and "DELETE FROM families" not in steps
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [None, "", "   "])
+async def test_a_family_delete_without_a_reason_does_nothing(monkeypatch, reason) -> None:
+    # The reason is on the family's last clinical audit event: without one, the deletion is
+    # refused before it locks, counts or deletes anything (TRACE-16, the owner's decision of
+    # 2026-10-27).
+    from fastapi import HTTPException
+
+    steps: list[str] = []
+    _admin_family_delete(monkeypatch, steps)
+
+    with pytest.raises(HTTPException) as refused:
+        await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason=reason)  # type: ignore[arg-type]
+
+    assert (refused.value.status_code, refused.value.detail) == (400, "A reason is required to delete a family.")
+    assert steps == []
+
+
+@pytest.mark.asyncio
+async def test_the_delete_route_takes_the_reason_from_its_body(monkeypatch) -> None:
+    # The reason is free text: it travels in the body, not the URL (TRACE-16).
+    from app.routers import admin as admin_router
+    from app.schemas import FamilyDeleteRequest
+
+    seen: list[dict[str, Any]] = []
+
+    async def deleted(_session: Any, family_id: str, confirm: bool, **kwargs: Any) -> dict[str, Any]:
+        seen.append({"family_id": family_id, "confirm": confirm, **kwargs})
+        return {}
+
+    monkeypatch.setattr(admin_router, "delete_family_with_data", deleted)
+    admin = _admin()
+
+    await admin_router.delete_family(FAMILY, True, FamilyDeleteRequest(reason="Duplicate of F2"), session=None, user=admin)  # type: ignore[arg-type]
+    await admin_router.delete_family(FAMILY, True, None, session=None, user=admin)  # type: ignore[arg-type]
+
+    assert [(call["reason"], call["user"]) for call in seen] == [("Duplicate of F2", admin), (None, admin)]

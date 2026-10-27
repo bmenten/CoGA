@@ -20,6 +20,8 @@ import io
 from collections.abc import Callable, Iterable, Sequence
 from typing import TypeVar
 
+from .content_disposition import content_disposition
+
 _Row = TypeVar("_Row")
 
 # The leading characters a spreadsheet may treat as the start of a formula. Tab / CR / LF
@@ -107,7 +109,7 @@ def export_response_headers(
         reason = None
         filename = f"{filename_stem}.csv"
     return {
-        "Content-Disposition": f'attachment; filename="{filename}"',
+        "Content-Disposition": content_disposition("attachment", filename),
         EXPORT_ROWS_HEADER: str(rows),
         EXPORT_TRUNCATED_HEADER: "true" if truncated else "false",
         EXPORT_LIMIT_HEADER: str(limit),

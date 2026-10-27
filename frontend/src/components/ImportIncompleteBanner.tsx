@@ -14,11 +14,18 @@ export interface FamilyImportIncomplete {
    * earlier import's failed datasets, so they can come from different jobs.
    */
   failedJobs: Record<string, string>;
+  /**
+   * The failed datasets no import job records an error of, beside others a job does: each
+   * failed in a single-file upload, or an import run outside a job, which the flag lists
+   * with no job. The flag's own job is another failure's. Empty when no dataset has a job.
+   */
+  withoutJob: string[];
 }
 
 /**
  * The jobs that hold the failed datasets' errors, each with its datasets, when they come
- * from more than one job; null when one job (or none) holds them all.
+ * from more than one job, or when a failure no job records is beside them
+ * ({@link FamilyImportIncomplete.withoutJob}); null when one job (or none) holds them all.
  */
 export const failuresByJob = (flag: FamilyImportIncomplete): [string, string[]][] | null => {
   const byJob = new Map<string, string[]>();
@@ -26,7 +33,7 @@ export const failuresByJob = (flag: FamilyImportIncomplete): [string, string[]][
     const job = flag.failedJobs[name];
     if (job) byJob.set(job, [...(byJob.get(job) ?? []), name]);
   });
-  if (byJob.size < 2) return null;
+  if (byJob.size < 2 && !(byJob.size && flag.withoutJob.length)) return null;
   return [...byJob.entries()].sort((a, b) => a[1][0].localeCompare(b[1][0]));
 };
 
@@ -55,10 +62,14 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
       ? (record.failed_jobs as Record<string, unknown>)
       : {};
   const failedJobs: Record<string, string> = {};
+  const listedWithoutJob: string[] = [];
   failedDatasets.forEach((name) => {
     const job = jobs[name];
-    const resolved = typeof job === 'string' && job ? job : jobId;
-    if (resolved) failedJobs[name] = resolved;
+    if (typeof job === 'string' && job) failedJobs[name] = job;
+    // Listed with no job: it failed outside one, so the flag's job, another failure's,
+    // does not hold its error (as report_signout_service._import_incomplete_state reads it).
+    else if (job === null && name in jobs) listedWithoutJob.push(name);
+    else if (jobId) failedJobs[name] = jobId;
   });
   return {
     at: typeof record.at === 'string' && record.at ? record.at : null,
@@ -66,6 +77,9 @@ export const importIncompleteFromMetadata = (metadata: unknown): FamilyImportInc
     importedDatasets: stringList(record.imported_datasets) ?? [],
     jobId,
     failedJobs,
+    // Named only beside a failure a job records: a flag written before jobs were recorded
+    // names none for any dataset.
+    withoutJob: Object.keys(failedJobs).length ? listedWithoutJob : [],
   };
 };
 
@@ -88,6 +102,12 @@ export interface FamilyImportUnfinished {
   datasets: string[];
   /** Those it finished; the others may be partly written or missing. */
   finishedDatasets: string[];
+  /**
+   * Left by a failed overwrite's restore that did not finish, its datasets the whole family's
+   * (`whole_family`: a list in the family's metadata, `true` in a signed record or a sign-out
+   * refusal). Never an upload's or a deletion's mark, which lists its items the same way.
+   */
+  wholeFamily: boolean;
 }
 
 /** What an unfinished import had not finished: it may be partly written or missing. */
@@ -147,6 +167,7 @@ export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnf
         at: typeof record.at === 'string' && record.at ? record.at : null,
         datasets: stringList(record.datasets) ?? [],
         finishedDatasets: stringList(record.finished_datasets) ?? [],
+        wholeFamily: unfinishedWriter(key) === 'import' && 'whole_family' in record,
       };
     })
     .sort((a, b) => (a.at ?? '').localeCompare(b.at ?? '') || a.key.localeCompare(b.key));
@@ -155,32 +176,22 @@ export const importUnfinishedFromMetadata = (metadata: unknown): FamilyImportUnf
 /**
  * The keys of the `import_unfinished` entries that a failed overwrite's restore left: the
  * restore rewrites the family's rows whichever import or upload wrote them, and it did not
- * finish, so the entry lists every dataset of the family (`whole_family`), each until an
- * import, or a single-file upload, has brought it again with overwrite
- * (family_package_registration.whole_family_entry, record_family_upload). Only the family's
- * own metadata says so: the signed record and the sign-out refusal freeze the entry's
- * datasets alone.
+ * finish, so the entry lists every dataset of the family that ClickHouse holds
+ * (`whole_family`), each until an import, or a single-file upload, has brought it again with
+ * overwrite (family_package_registration.whole_family_entry, record_family_upload). The
+ * signed record and the sign-out refusal freeze it as `whole_family: true` (SAFE-18).
  */
-export const wholeFamilyImportKeys = (metadata: unknown): Set<string> => {
-  if (!metadata || typeof metadata !== 'object') return new Set();
-  const map = (metadata as Record<string, unknown>).import_unfinished;
-  if (!map || typeof map !== 'object' || Array.isArray(map)) return new Set();
-  return new Set(
-    Object.entries(map as Record<string, unknown>)
-      // An upload's or a deletion's mark lists its items the same way, but is no restore.
-      .filter(([key]) => unfinishedWriter(key) === 'import')
-      .filter(([, value]) => value && typeof value === 'object' && 'whole_family' in value)
-      .map(([key]) => key),
+export const wholeFamilyImportKeys = (metadata: unknown): Set<string> =>
+  new Set(
+    importUnfinishedFromMetadata(metadata)
+      .filter((entry) => entry.wholeFamily)
+      .map((entry) => entry.key),
   );
-};
 
 const bannerTime = (iso: string): string => `${iso.replace('T', ' ').slice(0, 16)} UTC`;
 
 /** One unfinished import, as the banner says it. */
-const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: boolean }> = ({
-  entry,
-  wholeFamily,
-}) => {
+const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished }> = ({ entry }) => {
   const pending = pendingDatasets(entry);
   const writer = unfinishedWriter(entry.key);
   if (writer !== 'import') {
@@ -208,7 +219,7 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
       ) : null}
     </>
   );
-  if (wholeFamily) {
+  if (entry.wholeFamily) {
     // Its restore rewrites the family's rows table by table, whichever import or upload wrote
     // them, and did not finish: not an import that is running, or one that stopped in a dataset.
     return (
@@ -248,7 +259,6 @@ const UnfinishedImport: React.FC<{ entry: FamilyImportUnfinished; wholeFamily: b
 const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) => {
   const flag = importIncompleteFromMetadata(metadata);
   const unfinished = importUnfinishedFromMetadata(metadata);
-  const wholeFamily = wholeFamilyImportKeys(metadata);
   if (!flag && !unfinished.length) return null;
   const when = flag?.at ? ` (${bannerTime(flag.at)})` : '';
   const what = !flag
@@ -262,14 +272,22 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
     <div className="import-incomplete-banner" role="alert">
       <strong>Import incomplete.</strong> {what ? `${what} ` : null}
       {unfinished.map((entry) => (
-        <UnfinishedImport key={entry.key} entry={entry} wholeFamily={wholeFamily.has(entry.key)} />
+        <UnfinishedImport key={entry.key} entry={entry} />
       ))}
       {unfinished.length
         ? 'Data from what failed or did not finish may be missing or partly written here, so the results and the report may be incomplete. '
         : 'Data from what failed is missing here, so the results and the report may be incomplete. '}
       {flag && failuresByJob(flag) ? (
         <>
-          Each dataset&rsquo;s error is recorded in its import job:{' '}
+          {flag.withoutJob.length ? (
+            <>
+              No import job records the error of {joinWithAnd(flag.withoutJob)}, which failed in a
+              single-file upload or in an import run outside a job. Each other dataset&rsquo;s error
+              is recorded in its import job:{' '}
+            </>
+          ) : (
+            <>Each dataset&rsquo;s error is recorded in its import job: </>
+          )}
           {failuresByJob(flag)!.map(([job, names], index) => (
             <React.Fragment key={job}>
               {index ? '; ' : ''}
@@ -283,7 +301,7 @@ const ImportIncompleteBanner: React.FC<{ metadata?: unknown }> = ({ metadata }) 
           Each dataset&rsquo;s error is recorded in import job <code>{flag.jobId}</code>.{' '}
         </>
       ) : null}
-      {wholeFamily.size
+      {unfinished.some((entry) => entry.wholeFamily)
         ? 'Import this family again in full, with overwrite: every dataset named here, not only those that failed, and upload again what a single-file upload brought. An update keeps the data already there. '
         : unfinished.some((entry) => unfinishedWriter(entry.key) === 'import')
           ? 'Import what failed or did not finish again to complete it, with overwrite for what an import did not finish: an update keeps the data already there. '

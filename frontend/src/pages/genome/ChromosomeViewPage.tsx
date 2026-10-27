@@ -29,6 +29,7 @@ import ChromosomeViewWorkspace from './ChromosomeViewWorkspace';
 import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { roiOnAssembly, searchWithResolvedProject, useTrackWidth } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
+import { routePath } from '../../lib/routePath';
 
 interface ChromInfo {
   chr: string;
@@ -186,15 +187,15 @@ const ChromosomeViewPage: React.FC = () => {
   const backDest = useMemo(() => {
     const params = new URLSearchParams(location.search);
     const origin = params.get('origin');
-    const suffix = backSearch ? `?${backSearch}` : '';
+    const suffix = raw(backSearch ? `?${backSearch}` : '');
     if (origin === 'small') {
-      return `/families/${familyId}/small-variants${suffix}`;
+      return routePath`/families/${familyId}/small-variants${suffix}`;
     }
-    return `/families/${familyId}/structural-variants${suffix}`;
+    return routePath`/families/${familyId}/structural-variants${suffix}`;
   }, [backSearch, familyId, location.search]);
 
   const genomeViewHref = useMemo(
-    () => `/families/${familyId}/genome${backSearch ? `?${backSearch}` : ''}`,
+    () => routePath`/families/${familyId}/genome${raw(backSearch ? `?${backSearch}` : '')}`,
     [backSearch, familyId],
   );
 
@@ -203,7 +204,7 @@ const ChromosomeViewPage: React.FC = () => {
     const start1 = Math.max(1, region.start);
     const end1 = Math.max(start1, region.end || start1 + 1);
     const locus = `${chrLabel}:${start1}-${end1}`;
-    const base = `/families/${familyId}/igv?locus=${encodeURIComponent(locus)}`;
+    const base = routePath`/families/${familyId}/igv?locus=${locus}`;
     const backPath = `${location.pathname}${resolvedSearch ? `?${resolvedSearch}` : ''}`;
     const withProject = resolvedProjectId ? `${base}&project_id=${resolvedProjectId}` : base;
     return `${withProject}&back_path=${encodeURIComponent(backPath)}`;
@@ -368,7 +369,7 @@ const ChromosomeViewPage: React.FC = () => {
     const search = params.toString();
     navigate(
       {
-        pathname: `/families/${familyId}/chromosome/${nextChrom}`,
+        pathname: routePath`/families/${familyId}/chromosome/${nextChrom}`,
         search: search ? `?${search}` : '',
       },
       { replace },
@@ -442,6 +443,7 @@ const ChromosomeViewPage: React.FC = () => {
   if (isLoading || (data?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Visualization"
         title="Loading chromosome view"
         message="Preparing the chromosome workspace, tracks and filters."

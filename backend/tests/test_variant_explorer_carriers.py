@@ -77,12 +77,14 @@ async def test_fetch_annotation_display_maps_columns_without_gene_symbols(monkey
     captured: dict = {}
 
     async def fake_execute(query, params):
+        if "FROM db.annotations" in query:
+            return []
         captured["query"] = query
         # key, gene_ids, impacts, effects, clinvar_terms, hgvsc_values, hgvsp_values
         return [(1, ["ENSG1"], ["HIGH"], ["missense_variant"], ["Pathogenic"], ["c.1A>T"], ["p.Met1?"])]
 
     monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
-    monkeypatch.setattr(ves, "_small_table_name", lambda assembly, suffix: "db.annotation_index")
+    monkeypatch.setattr(ves, "_small_table_name", lambda assembly, suffix: f"db.{suffix.rsplit('/', 1)[1]}")
 
     result = await ves._fetch_annotation_display("GRCh38", [1])
 
@@ -97,3 +99,29 @@ async def test_fetch_annotation_display_maps_columns_without_gene_symbols(monkey
         "hgvsc_values": ["c.1A>T"],
         "hgvsp_values": ["p.Met1?"],
     }
+
+
+@pytest.mark.asyncio
+async def test_a_rows_consequence_and_hgvs_come_from_the_transcript_whose_impact_it_shows(monkeypatch) -> None:
+    # The row showed the most severe impact but the first distinct consequence and HGVS,
+    # so one transcript's consequence came with another's HGVS (CLIN-50).
+    async def fake_execute(query, params):
+        if "FROM db.annotations" in query:
+            # key, impact, effects, hgvsc, hgvsp, mane_select, canonical
+            return [
+                (1, "LOW", ["synonymous_variant"], "ENST1:c.3G>A", "ENSP1:p.Leu1=", True, True),
+                (1, "HIGH", ["stop_gained"], "ENST2:c.7C>T", "ENSP2:p.Gln3*", False, False),
+                (1, "HIGH", ["stop_gained"], "ENST3:c.9C>T", "ENSP3:p.Gln3*", False, True),
+            ]
+        return [
+            (1, ["ENSG1"], ["LOW", "HIGH"], ["synonymous_variant", "stop_gained"], [],
+             ["ENST1:c.3G>A", "ENST2:c.7C>T", "ENST3:c.9C>T"], ["ENSP1:p.Leu1=", "ENSP2:p.Gln3*", "ENSP3:p.Gln3*"])
+        ]
+
+    monkeypatch.setattr(ves, "execute_clickhouse", fake_execute)
+    monkeypatch.setattr(ves, "_small_table_name", lambda assembly, suffix: f"db.{suffix.rsplit('/', 1)[1]}")
+
+    result = await ves._fetch_annotation_display("GRCh38", [1])
+
+    # Of the two HIGH transcripts the canonical one, with its own consequence and HGVS.
+    assert result[1]["shown"] == ["stop_gained", "ENST3:c.9C>T", "ENSP3:p.Gln3*"]

@@ -41,7 +41,7 @@ from .family_metadata_context import FamilyMetadataContext, SampleMetadataContex
 from .haplotype_lineage_service import build_pedigree, identify_core
 from .haplotype_phase_correction import PhaseCorrection, find_phase_switches, is_autosome
 from .pgt_embryo_calls import normalize_sex
-from .sex_chromosomes import hemizygous_chromosome, pseudoautosomal_regions, sex_chromosome
+from .sex_chromosomes import X_STRETCH_LAST_POSITION, hemizygous_chromosome, x_stretches
 
 
 # A child's inherited homolog switches only after this many consecutive markers over at
@@ -59,7 +59,7 @@ _NO_HAPLOTYPE = 2
 # show there (``pgt_embryo_calls.renderable_lanes`` reads a father's one X on ``hap1``).
 _FATHER_ONE_X = "0"
 # The end of the stretch of chrX after PAR2, which no position reaches.
-_LAST_POSITION = 2**32 - 1
+_LAST_POSITION = X_STRETCH_LAST_POSITION
 
 
 class _ChildTransmissions:
@@ -144,24 +144,6 @@ def is_one_copy_x_site(assembly_name: str | None, chrom: str | None, pos: int) -
     bounds ``sex_chromosomes`` does not list (T2T-CHM13): every member is then read as two
     copies, by the haplotype blocks and the phasing QC alike."""
     return hemizygous_chromosome(assembly_name, chrom, pos) == "X"
-
-
-def _x_stretches(assembly_name: str | None, chrom: str | None) -> tuple[tuple[int, int], ...] | None:
-    """chrX cut at the PAR edges of the assembly into stretches ``(first, last)``, inclusive
-    and in order: before PAR1, PAR1, the X between the PARs, PAR2 and after PAR2. None off
-    chrX and on an assembly whose PAR bounds ``sex_chromosomes`` does not list."""
-    regions = pseudoautosomal_regions(assembly_name)
-    if regions is None or sex_chromosome(chrom) != "X":
-        return None
-    stretches: list[tuple[int, int]] = []
-    first = 1
-    for par_start, par_end in sorted(regions["X"]):
-        if par_start > first:
-            stretches.append((first, par_start - 1))
-        stretches.append((par_start, par_end))
-        first = par_end + 1
-    stretches.append((first, _LAST_POSITION))
-    return tuple(stretches)
 
 
 def _new_haplotype_state(
@@ -616,10 +598,10 @@ class HaplotypeBlockBuilder:
         self._stretches_by_chrom: dict[str, tuple[tuple[int, int], ...] | None] = {}
 
     def _stretch(self, chrom: str, pos: int) -> tuple[int, int] | None:
-        """The stretch of chrX (``_x_stretches``) that holds ``pos``; None off chrX and on an
+        """The stretch of chrX (``x_stretches``) that holds ``pos``; None off chrX and on an
         assembly whose PAR bounds are not known, where no block is cut."""
         if chrom not in self._stretches_by_chrom:
-            self._stretches_by_chrom[chrom] = _x_stretches(self.assembly_name, chrom)
+            self._stretches_by_chrom[chrom] = x_stretches(self.assembly_name, chrom)
         stretches = self._stretches_by_chrom[chrom]
         if stretches is None:
             return None

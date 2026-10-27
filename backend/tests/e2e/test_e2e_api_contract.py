@@ -239,7 +239,8 @@ def test_structural_variants_found_by_their_mate(api):
     resp = _resp(api, "sv_by_mate")
     assert resp["status"] == 200, resp["text"]
     assert [(v["_id"], v["type"], v["start"]) for v in resp["json"]["variants"]] == [
-        ("1-20000-20001-BND-5-3000000-3000000", "BND", 20000)
+        # Its END is its POS, as an upload puts a breakend without END (CLIN-39).
+        ("1-20000-20000-BND-5-3000000-3000000", "BND", 20000)
     ]
     assert resp["json"]["total"] == 1
     other = _resp(api, "sv_by_other_mate")

@@ -197,6 +197,8 @@ const serverError = () =>
  * until the promise given here resolves. Read at each request, so a retry sees a change.
  */
 let familyAnswer: 'answered' | 'failed' | Promise<void> = 'answered';
+/** How the request for the project list ends: answered, or held until the promise resolves. */
+let projectsAnswer: 'answered' | Promise<void> = 'answered';
 
 const serve = ({ family = {}, api = {} }: PageData) => {
   const record = { ...FAMILY, ...family };
@@ -210,6 +212,9 @@ const serve = ({ family = {}, api = {} }: PageData) => {
       if (familyAnswer === 'failed') return serverError();
       if (familyAnswer instanceof Promise) return familyAnswer.then(() => ({ data: record }));
       return Promise.resolve({ data: record });
+    }
+    if (key === '/projects' && projectsAnswer instanceof Promise) {
+      return projectsAnswer.then(() => ({ data: table[key] }));
     }
     return key in table ? Promise.resolve({ data: table[key] }) : serverError();
   });
@@ -241,6 +246,7 @@ const expectPageStateAlone = (container: HTMLElement, state: Element | null) => 
 beforeEach(() => {
   apiMock.get.mockReset();
   familyAnswer = 'answered';
+  projectsAnswer = 'answered';
   for (const method of [apiMock.post, apiMock.put, apiMock.patch, apiMock.delete]) {
     method.mockResolvedValue({ data: {} });
   }
@@ -300,6 +306,25 @@ describe('the family routes', () => {
       expectPageStateAlone(container, container.querySelector('.page-state'));
 
       family.release();
+      await findImportIncompleteBanner();
+      await findAssemblyScopeBanner();
+    },
+  );
+
+  it.each(FAMILY_ROUTES)(
+    '$routePath ($page) shows nothing of the family before its project’s reference is in',
+    async (route) => {
+      // The assembly-scope warning shows nothing while the project list loads (#515): a page
+      // that showed its data meanwhile showed it without "Not validated for clinical use",
+      // which came a moment later (ENG-12).
+      const projects = held();
+      projectsAnswer = projects.answered;
+      const { container } = await renderRoute(route);
+
+      await settle(apiMock.get);
+      expectPageStateAlone(container, container.querySelector('.page-state'));
+
+      projects.release();
       await findImportIncompleteBanner();
       await findAssemblyScopeBanner();
     },

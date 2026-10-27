@@ -29,7 +29,9 @@ Owner: ‹CMGG software lead› · Review cadence: each release, and on every De
 ([`scripts/frontend-audit-allowlist.json`](scripts/frontend-audit-allowlist.json)) is empty,
 so the production gate blocks on **any** high or critical advisory. Its one past exemption,
 the react-router RSC-mode CSRF bypass **GHSA-qwww-vcr4-c8h2**, was retired by the upgrade to
-react-router 8 (#389).
+react-router 8 (#389). The last production finding, `body-parser` **GHSA-27r3-jxmh-p828**
+(high, through express), was fixed on 2026-10-26 by the lockfile update to 2.4.0, within the
+range express 5.3.0 accepts.
 
 ### 1c. Frontend dev/build tree — report-only
 
@@ -37,7 +39,7 @@ react-router 8 (#389).
 | --- | --- |
 | Exposure | **Build and test tools only** — nothing in this tree ships in the deployed frontend. |
 | Mechanism | A non-blocking `npm audit --audit-level=high` step in `security.yml` shows any advisory as a CI `::warning::`. |
-| Status (2026-10-06) | `npm audit` over the full tree reports **no advisories**. The last known finding, `source-map-js` GHSA-68fv-2mgg-jv7q, which postcss, Tailwind, jsdom and the coverage tool pull in, was fixed by the non-breaking update to 1.2.2 (#755), as `brace-expansion` GHSA-q2hr-2g5m-vwhr was by 1.1.21 (#722). `minimatch@3` is still pulled in by `eslint-plugin-react@7.37.5`. |
+| Status (2026-10-26) | `npm audit` over the full tree reports **no advisories**. The last known finding, `zod` GHSA-mrhx-c7xc-m3w5, which eslint-plugin-react-hooks pulls in, was fixed by the non-breaking update to 4.6.7, as `source-map-js` GHSA-68fv-2mgg-jv7q was by 1.2.2 (#755) and `brace-expansion` GHSA-q2hr-2g5m-vwhr by 1.1.21 (#722). `minimatch@3` is still pulled in by `eslint-plugin-react@7.37.5`. |
 | Flip action | Make the step blocking. Nothing in the tree prevents it today; **🔲 owner decision**. |
 
 ---

@@ -44,7 +44,7 @@ Only an administrator edits a member: click the sample name to open **Family mem
 the fields, press **Apply to pending**, then **Save pending updates** on the family page. HPO terms are
 added and removed in the same dialog, by an analyst of the family's project or an administrator. Affected status and carrier status are separate: an unaffected person can be a
 carrier. **Remove member** in the dialog takes the person out of the family at once, after you confirm.
-Members are added in **Admin → Family & Sample Data**.
+Members are added in **Admin → Family & sample data**.
 
 Further down are the **Phenotype match (Monarch)** panel and, closed by default, the **Analysis
 pipeline settings** recorded at import.

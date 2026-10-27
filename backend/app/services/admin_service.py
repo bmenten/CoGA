@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.clickhouse import clickhouse_dataset_key
-from ..core.sql import uuid_list_bindparam, uuid_values
+from ..core.sql import uuid_values
 from ..schemas import (
     ClickHouseIntegrityMonitorOut,
     ClickHouseVariantAssemblyListOut,
@@ -69,6 +69,14 @@ from .family_structure_audit import (
     read_structure_snapshot,
     record_family_deleted,
     record_structure_change,
+)
+from .hpo_service import (
+    ADMIN_DELETION,
+    PHENOTYPES_DELETED_WITH_FAMILY,
+    PHENOTYPES_DELETED_WITH_SAMPLE,
+    PhenotypeImport,
+    record_phenotypes_deleted_with_family,
+    record_phenotypes_deleted_with_sample,
 )
 from .family_variant_write_lock import (
     SMALL_VARIANTS,
@@ -202,6 +210,8 @@ async def _sample_rows_by_family(
 ) -> dict[str, list[dict[str, Any]]]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory lists every one (DATA-6).
     result = await session.execute(
         text(
             """
@@ -219,11 +229,11 @@ async def _sample_rows_by_family(
                 fm.active
             FROM family_members fm
             JOIN samples s ON s.id = fm.sample_id
-            WHERE fm.family_id IN :family_uuids
+            WHERE fm.family_id = ANY(CAST(:family_uuids AS uuid[]))
               AND fm.active
             ORDER BY lower(s.sample_id)
             """
-        ).bindparams(uuid_list_bindparam("family_uuids")),
+        ),
         {"family_uuids": uuid_values(family_uuids)},
     )
     grouped: dict[str, list[dict[str, Any]]] = {family_uuid: [] for family_uuid in family_uuids}
@@ -325,15 +335,17 @@ async def _repeat_counts_by_family(
 ) -> dict[str, int]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory lists every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT family_id::text AS family_uuid, COUNT(*) AS count
             FROM repeat_expansions
-            WHERE family_id IN :family_uuids
+            WHERE family_id = ANY(CAST(:family_uuids AS uuid[]))
             GROUP BY family_id
             """
-        ).bindparams(uuid_list_bindparam("family_uuids")),
+        ),
         {"family_uuids": uuid_values(family_uuids)},
     )
     return {row["family_uuid"]: int(row["count"]) for row in result.mappings().all()}
@@ -345,15 +357,17 @@ async def _repeat_counts_by_sample(
 ) -> dict[str, int]:
     if not sample_uuids:
         return {}
+    # One uuid[] parameter, not one per sample (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the data inventory lists every one (DATA-6).
     result = await session.execute(
         text(
             """
             SELECT sample_id::text AS sample_uuid, COUNT(*) AS count
             FROM repeat_expansions
-            WHERE sample_id IN :sample_uuids
+            WHERE sample_id = ANY(CAST(:sample_uuids AS uuid[]))
             GROUP BY sample_id
             """
-        ).bindparams(uuid_list_bindparam("sample_uuids")),
+        ),
         {"sample_uuids": uuid_values(sample_uuids)},
     )
     return {row["sample_uuid"]: int(row["count"]) for row in result.mappings().all()}
@@ -863,6 +877,15 @@ async def delete_sample_data_by_type(
     sample_row = await _sample_row_or_404(session, sample_id)
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
+    if data_type in BED_TRACK_TYPES or data_type == "repeat_expansions":
+        # From before the delete until the commit below, as the single-file uploads of a
+        # sample's tracks and repeat calls hold them: a package import's restore rewrites
+        # those rows too, and the import holds these locks from its snapshot to its restore,
+        # so a delete in between was undone by the restore (SAFE-18). The sample must still be
+        # stored once it is this delete's turn.
+        await lock_family_variant_writes(
+            session, sample_row["family_uuid"], VARIANT_TYPES, samples=[sample_row["sample_uuid"]]
+        )
     if data_type in BED_TRACK_TYPES:
         sample_rows = (await _sample_rows_by_family(session, [sample_row["family_uuid"]]))[sample_row["family_uuid"]]
         contexts = await _family_assembly_contexts(
@@ -1119,6 +1142,17 @@ async def _delete_sample_with_data(
         )
 
     raw_files_removed = await purge_sample_managed_files(session, sample_row["sample_uuid"])
+    # The sample's phenotypes go with it (individual_hpo cascades from samples): recorded as
+    # removed, under the phenotype lock each change of them takes, before the pedigree lock,
+    # as a PED upload that replaces a family takes them (TRACE-16).
+    await record_phenotypes_deleted_with_sample(
+        session,
+        family_uuid=sample_row["family_uuid"],
+        family_identifier=sample_row["family_id"],
+        sample_id=str(sample_row["sample_id"]),
+        origin=PhenotypeImport(user=user, via=ADMIN_DELETION),
+        change=PHENOTYPES_DELETED_WITH_SAMPLE,
+    )
     # After the variant-write locks, as every writer that holds both takes them.
     await lock_family_pedigree(session, sample_row["family_id"])
     pedigree_before = await read_structure_snapshot(session, sample_row["family_uuid"])
@@ -1154,6 +1188,7 @@ async def delete_family_with_data(
     family_id: str,
     confirm: bool,
     user: CurrentUser | None = None,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     """Delete a family with every dataset of it. Its deletion is the last event of its
     clinical audit trail, written in this transaction before anything of the family is
@@ -1166,7 +1201,9 @@ async def delete_family_with_data(
     family, and the mark with it."""
     deletions: list[FamilyDeletion] = []
     try:
-        return await _delete_family_with_data(session, family_id, confirm, user=user, deletions=deletions)
+        return await _delete_family_with_data(
+            session, family_id, confirm, user=user, reason=reason, deletions=deletions
+        )
     except Exception:
         await end_failed_deletions(session, deletions)
         raise
@@ -1178,10 +1215,16 @@ async def _delete_family_with_data(
     confirm: bool,
     *,
     user: CurrentUser | None,
+    reason: str | None,
     deletions: list[FamilyDeletion],
 ) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
+    # Why the family goes is on its last clinical audit event (TRACE-16, the owner's
+    # decision of 2026-10-27): no reason, no deletion.
+    stated_reason = (reason or "").strip()
+    if not stated_reason:
+        raise HTTPException(status_code=400, detail="A reason is required to delete a family.")
     family_uuid = await _resolve_family_uuid(session, family_id)
     sample_rows = (await _sample_rows_by_family(session, [family_uuid]))[family_uuid]
     contexts = await _family_assembly_contexts(
@@ -1214,8 +1257,16 @@ async def _delete_family_with_data(
             context.family_uuid,
             project_ids=context.project_ids,
         )
-    # The family's last clinical audit event, before anything of it goes: a deletion that
-    # fails from here on rolls it back with the rest of the transaction.
+    # The phenotypes that go with the family, then its deletion, the family's last clinical
+    # audit event, before anything of it goes (TRACE-16): a deletion that fails from here on
+    # rolls them back with the rest of the transaction.
+    await record_phenotypes_deleted_with_family(
+        session,
+        family_uuid=family_uuid,
+        family_identifier=family_id,
+        origin=PhenotypeImport(user=user, via=ADMIN_DELETION),
+        change=PHENOTYPES_DELETED_WITH_FAMILY,
+    )
     await record_family_deleted(
         session,
         family_uuid=family_uuid,
@@ -1223,6 +1274,7 @@ async def _delete_family_with_data(
         user=user,
         source=ADMIN_DELETE,
         variant_counts={"small_variants": small_deleted, "structural_variants": structural_deleted},
+        reason=stated_reason,
     )
     for context in contexts:
         if not context.assembly_name:

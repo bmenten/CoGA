@@ -50,6 +50,7 @@ from ..services.nipt_service import (
 )
 from ..services.nipt_target_coverage import TargetCoverageRow, TargetCoverageSummary
 from ..services.nipt_triage import RecessiveGeneRisk
+from .query_params import FiniteThreshold
 
 
 router = APIRouter()
@@ -275,7 +276,7 @@ async def get_family_nipt_variants_page(
     page_size: int = Query(default=100, ge=0, le=MAX_VARIANT_PAGE_SIZE),
     project_id: str | None = None,
     category: list[int] | None = Query(None),
-    min_confidence: float | None = None,
+    min_confidence: FiniteThreshold = None,
     inheritance: str | None = None,
     # The paternal and maternal views: also the alleles the fetus did not inherit.
     include_not_inherited: bool = False,
@@ -303,17 +304,17 @@ async def get_family_nipt_variants_page(
     clinvar_overrides_frequency: bool = False,
     sift: str | None = None,
     polyphen: str | None = None,
-    max_gnomad_af: float | None = None,
-    max_gnomad_exomes_af: float | None = None,
-    max_gnomad_genomes_af: float | None = None,
-    max_gnomad_popmax_af: float | None = None,
-    max_topmed_af: float | None = None,
+    max_gnomad_af: FiniteThreshold = None,
+    max_gnomad_exomes_af: FiniteThreshold = None,
+    max_gnomad_genomes_af: FiniteThreshold = None,
+    max_gnomad_popmax_af: FiniteThreshold = None,
+    max_topmed_af: FiniteThreshold = None,
     max_gnomad_ac: int | None = None,
     max_gnomad_hom_count: int | None = None,
     max_gnomad_hemi_count: int | None = None,
-    min_cadd: float | None = None,
-    min_revel: float | None = None,
-    min_spliceai: float | None = None,
+    min_cadd: FiniteThreshold = None,
+    min_revel: FiniteThreshold = None,
+    min_spliceai: FiniteThreshold = None,
     canonical_only: bool = False,
     mane_only: bool = False,
     lof_only: bool = False,

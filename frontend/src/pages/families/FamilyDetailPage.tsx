@@ -69,6 +69,7 @@ import VariantWorkspaceLink from './VariantWorkspaceLink';
 import SampleQcCell from './SampleQcCell';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import { apiPath, raw } from '../../lib/apiPath';
+import { routePath } from '../../lib/routePath';
 
 interface FamilyDetailPageProps {
   editable?: boolean;
@@ -329,7 +330,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   const { data: projects = [] } = useProjectCatalog();
   const assemblyLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion, isError: referenceFailed },
-    data?.projects?.length && referenceLoading ? 'Loading linked reference...' : 'Not linked',
+    'Not linked',
   );
   const { data: reviewSummary, isError: reviewSummaryFailed } = useQuery<ApiSmallVariantReviewSummary>({
     queryKey: ['family', familyId, 'small-variant-review-summary'],
@@ -503,6 +504,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Family"
         title="Loading family workspace"
         message="Preparing family metadata, pedigree and navigation links."
@@ -528,6 +530,20 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
         kicker="Family"
         title="Family not found"
         message="This workspace could not resolve the requested family."
+      />
+    );
+  }
+
+  // The project's reference too, before anything of the family: the assembly-scope warning
+  // shows nothing while it loads (#515), so the workspace showed the family without "Not
+  // validated for clinical use", which came a moment later (ENG-12).
+  if (referenceLoading) {
+    return (
+      <PageState
+        loading
+        kicker="Family"
+        title="Loading family workspace"
+        message="Preparing family metadata, pedigree and navigation links."
       />
     );
   }
@@ -978,7 +994,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
-        kicker="Family Workspace"
+        kicker="Family workspace"
         familyId={data.family_id}
         family={data}
         isWorkspace
@@ -1134,7 +1150,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             {hasSmallVariants && (
               <div className="family-variant-row family-variant-row--small">
                 <Link
-                  to={`/families/${data.family_id}/small-variants${variantPageQuerySuffix}`}
+                  to={routePath`/families/${data.family_id}/small-variants${raw(variantPageQuerySuffix)}`}
                   className="button-secondary family-variant-link hover:no-underline"
                 >
                   Small variants
@@ -1163,7 +1179,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             {hasVariants && (
               <div className="family-variant-row family-variant-row--structural">
                 <Link
-                  to={`/families/${data.family_id}/structural-variants${variantPageQuerySuffix}`}
+                  to={routePath`/families/${data.family_id}/structural-variants${raw(variantPageQuerySuffix)}`}
                   className="button-secondary family-variant-link hover:no-underline"
                 >
                   Structural variants
@@ -1194,21 +1210,21 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               <div className="family-variant-row family-variant-row--assays">
                 <VariantWorkspaceLink
                   active={hasRepeatExpansions}
-                  to={`/families/${data.family_id}/repeat-expansions`}
+                  to={routePath`/families/${data.family_id}/repeat-expansions`}
                   className="button-secondary family-variant-link"
                 >
                   Repeat expansions
                 </VariantWorkspaceLink>
                 <VariantWorkspaceLink
                   active={hasParaphase}
-                  to={`/families/${data.family_id}/paraphase`}
+                  to={routePath`/families/${data.family_id}/paraphase`}
                   className="button-secondary family-variant-link"
                 >
                   Paraphase
                 </VariantWorkspaceLink>
                 <VariantWorkspaceLink
                   active={hasMitoDna}
-                  to={`/families/${data.family_id}/mitochondrial-dna${variantPageQuerySuffix}`}
+                  to={routePath`/families/${data.family_id}/mitochondrial-dna${raw(variantPageQuerySuffix)}`}
                   className="button-secondary family-variant-link"
                 >
                   mtDNA analysis
@@ -1216,7 +1232,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 {isMonogenicNipt && (
                   <VariantWorkspaceLink
                     active
-                    to={`/families/${data.family_id}/nipt`}
+                    to={routePath`/families/${data.family_id}/nipt`}
                     className="button-secondary family-variant-link"
                   >
                     Monogenic NIPT
@@ -1229,21 +1245,21 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
               <div className="family-variant-row family-variant-row--reports">
                 <VariantWorkspaceLink
                   active={hasVariantSummary}
-                  to={`/families/${data.family_id}/variant-summary`}
+                  to={routePath`/families/${data.family_id}/variant-summary`}
                   className="button-secondary family-variant-link"
                 >
                   Variant summary
                 </VariantWorkspaceLink>
                 <VariantWorkspaceLink
                   active={hasSmallVariants}
-                  to={`/families/${data.family_id}/qc`}
+                  to={routePath`/families/${data.family_id}/qc`}
                   className="button-secondary family-variant-link"
                 >
                   Sample QC
                 </VariantWorkspaceLink>
                 <VariantWorkspaceLink
                   active={hasSmallVariants || hasVariants}
-                  to={`/families/${data.family_id}/report${variantPageQuerySuffix}`}
+                  to={routePath`/families/${data.family_id}/report${raw(variantPageQuerySuffix)}`}
                   className="button-secondary family-variant-link"
                 >
                   Report
@@ -1279,25 +1295,25 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
             </div>
             <div className="compact-toolbar family-toolbar">
               <Link
-                to={`/families/${data.family_id}/genome`}
+                to={routePath`/families/${data.family_id}/genome`}
                 className="button-secondary workspace-button hover:no-underline"
               >
                 Genome view
               </Link>
               <Link
-                to={`/families/${data.family_id}/chromosome/1`}
+                to={routePath`/families/${data.family_id}/chromosome/1`}
                 className="button-secondary workspace-button hover:no-underline"
               >
                 Chromosome view
               </Link>
               <Link
-                to={`/families/${data.family_id}/circos`}
+                to={routePath`/families/${data.family_id}/circos`}
                 className="button-secondary workspace-button hover:no-underline"
               >
                 Circos plot
               </Link>
               <Link
-                to={`/families/${data.family_id}/igv`}
+                to={routePath`/families/${data.family_id}/igv`}
                 className="button-secondary workspace-button hover:no-underline"
               >
                 IGV viewer
@@ -1313,12 +1329,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 <h2 className="section-title">Region of interest</h2>
                 {data.roi ? (
                   <Link
-                    to={`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
+                    to={routePath`/families/${data.family_id}/chromosome/${data.roi.chr}?start=${Math.max(
                       0,
                       data.roi.start - 1_000_000,
-                    )}&end=${data.roi.end + 1_000_000}${
-                      projectId ? `&project_id=${projectId}` : ''
-                    }`}
+                    )}&end=${data.roi.end + 1_000_000}${raw(
+                      projectId ? `&project_id=${encodeURIComponent(projectId)}` : '',
+                    )}`}
                     className="family-roi-link"
                     title={`Open ${data.roi.label} in chromosome view`}
                   >
@@ -1334,9 +1350,9 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                     appears where there is something to review. */}
                 {data.roi && hasEmbryos && (
                   <Link
-                    to={`/families/${data.family_id}/roi-markers${
-                      projectId ? `?project_id=${projectId}` : ''
-                    }`}
+                    to={routePath`/families/${data.family_id}/roi-markers${raw(
+                      projectId ? `?project_id=${encodeURIComponent(projectId)}` : '',
+                    )}`}
                     className="family-roi-link family-roi-markers-link"
                     title="Review all phased markers across the ROI ± 1 Mb"
                   >
@@ -2033,7 +2049,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 onClick={saveStructure}
                 disabled={structureBusy || activeStructureMembers.length === 0}
               >
-                Update Family Structure
+                Update family structure
               </button>
               {data.structure_version?.version !== undefined && (
                 <span className="table-chip">Version {data.structure_version.version}</span>

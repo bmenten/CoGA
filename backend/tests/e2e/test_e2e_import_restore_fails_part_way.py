@@ -510,7 +510,12 @@ def test_the_family_was_complete_before_the_overwrite(snap) -> None:
 def test_the_restore_failed_part_way_and_removed_the_small_variants(snap) -> None:
     step = snap["steps"]["snv/2_overwrite_restore_fails"]
     assert step["job"]["status"] == "failed"
-    assert step["job"]["error"] == "Family package import failed for dataset(s): coverage"
+    # The job's record says what the flag says (SAFE-18; before, it named coverage alone, and
+    # its dataset table showed snv imported): both failed.
+    assert step["job"]["error"] == "Family package import failed for dataset(s): coverage, snv"
+    summaries = {item["dataset_type"]: item for item in step["job"]["dataset_summaries"]}
+    assert (summaries["coverage"]["status"], summaries["snv"]["status"]) == ("failed", "failed")
+    assert summaries["snv"]["message"].startswith("Its loader imported, but the import failed and the restore")
     # The overwrite had replaced the 6 small variants with its 4; the restore deleted those
     # and failed before it put the 6 back.
     assert len(step["reinserts_failed"]) == 1 and "SNV_INDEL/entries" in step["reinserts_failed"][0]

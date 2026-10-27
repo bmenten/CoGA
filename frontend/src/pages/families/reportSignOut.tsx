@@ -11,6 +11,7 @@ import {
   importUnfinishedFromMetadata,
   pendingDatasets,
   unfinishedWriter,
+  type FamilyImportIncomplete,
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { apiErrorMessage } from './reportSignoutQueries';
@@ -52,6 +53,16 @@ const QC_CONCERN_GROUPS: ReadonlyArray<{ key: keyof QcConcerns; id: string; head
 
 const stringList = (value: unknown): string[] =>
   Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
+
+/** A flag naming nothing: what an import refusal whose detail holds no flag reads as. */
+const NO_FLAG: FamilyImportIncomplete = {
+  at: null,
+  failedDatasets: [],
+  importedDatasets: [],
+  jobId: null,
+  failedJobs: {},
+  withoutJob: [],
+};
 
 /** What decides whether a page offers the sign-out (`signOutRefusal`). */
 export interface SignOutOffer {
@@ -127,6 +138,8 @@ export const useReportSignOut = (
     imported: string[];
     jobId: string | null;
     failedByJob: [string, string[]][] | null;
+    /** Failed datasets no import job records an error of, beside others a job does. */
+    withoutJob: string[];
     unfinished: FamilyImportUnfinished[];
   } | null>(null);
   const [importReason, setImportReason] = useState('');
@@ -238,21 +251,16 @@ export const useReportSignOut = (
             failed_jobs?: Record<string, string | null>;
           } | null;
         };
+        const read = importIncompleteFromMetadata(detail);
         setImportGate({
           message: incomplete.message || 'The family’s import is incomplete.',
           failed: incomplete.import_incomplete?.failed_datasets ?? [],
           imported: incomplete.import_incomplete?.imported_datasets ?? [],
           jobId: incomplete.import_incomplete?.job_id ?? null,
-          // The jobs that hold the failed datasets' errors, when more than one does.
-          failedByJob: failuresByJob(
-            importIncompleteFromMetadata(detail) ?? {
-              at: null,
-              failedDatasets: [],
-              importedDatasets: [],
-              jobId: null,
-              failedJobs: {},
-            },
-          ),
+          // The jobs that hold the failed datasets' errors, when more than one does, or when
+          // a failure no job records is beside them (failed_jobs lists it with none).
+          failedByJob: failuresByJob(read ?? NO_FLAG),
+          withoutJob: read?.withoutJob ?? [],
           // The imports that began writing the family and did not finish (detail.import_unfinished).
           unfinished: importUnfinishedFromMetadata(detail),
           vars,
@@ -485,11 +493,18 @@ export const useReportSignOut = (
                   ) : importGate.jobId ? (
                     <li>Import job: {importGate.jobId}</li>
                   ) : null}
+                  {/* A single-file upload's failure, or an import's run outside a job: no
+                      job records its error, whatever the flag's own job (SAFE-18). */}
+                  {importGate.withoutJob.length ? (
+                    <li>No import job: {importGate.withoutJob.join(', ')}</li>
+                  ) : null}
                   {/* An import that stopped part-way: its record shows how far it got. A
                       single-file upload's or a deletion's mark has no job: its writer is named. */}
                   {importGate.unfinished.map((entry) => (
                     <li key={entry.key}>
-                      Not finished
+                      {/* A failed overwrite whose restore did not finish, not an import that
+                          stopped: the refusal freezes it as such (SAFE-18). */}
+                      {entry.wholeFamily ? 'Restore not finished' : 'Not finished'}
                       {unfinishedWriter(entry.key) === 'upload'
                         ? ' (single-file upload)'
                         : unfinishedWriter(entry.key) === 'deletion'
@@ -499,7 +514,9 @@ export const useReportSignOut = (
                             : ''}
                       :{' '}
                       {pendingDatasets(entry).length
-                        ? `${pendingDatasets(entry).join(', ')} may be partly written or missing`
+                        ? `${pendingDatasets(entry).join(', ')} may be partly written or missing${
+                            entry.wholeFamily ? ', whichever import or upload wrote them' : ''
+                          }`
                         : entry.datasets.length
                           ? 'it had finished each of its datasets'
                           : 'what it was importing was not recorded'}

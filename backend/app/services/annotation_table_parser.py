@@ -188,6 +188,19 @@ def _store_vep_annotation(
     )
 
 
+def _vep_extra_fields(value: str) -> dict[str, str]:
+    """The fields VEP's default output writes in its ``Extra`` column, as ``KEY=VALUE``
+    pairs joined by ``;`` (``IMPACT=MODERATE;SYMBOL=GENE1;SIFT=deleterious(0.01)``), which
+    ``--tab`` output writes as columns of their own. A key without a value is a flag."""
+    fields: dict[str, str] = {}
+    for item in value.split(";"):
+        key, sep, field_value = item.partition("=")
+        key = key.strip()
+        if key and key != "-":
+            fields[key] = field_value.strip() if sep else "1"
+    return fields
+
+
 def _parse_vep_tsv_annotation_lines(lines: Any) -> VepAnnotationLookup:
     return _indexed_lookup(_index_vep_tsv_lines, lines)
 
@@ -214,6 +227,11 @@ def _index_vep_tsv_lines(lookup: VepAnnotationLookup, lines: Any) -> None:
             continue
         values = line.split("\t")
         row = {key: value for key, value in zip(header, values)}
+        # VEP's default output (not ``--tab``) writes SYMBOL, IMPACT, CANONICAL, MANE, HGVS,
+        # SIFT, PolyPhen, CLIN_SIG and the frequencies in its Extra column: read as the
+        # columns ``--tab`` writes, a column of the row's own winning (CLIN-52).
+        for key, value in _vep_extra_fields(row.pop("Extra", "")).items():
+            row.setdefault(key, value)
         annotation = normalize_small_variant_annotation_entry(row)
         if not annotation:
             continue

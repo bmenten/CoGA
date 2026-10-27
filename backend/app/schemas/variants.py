@@ -163,7 +163,8 @@ class VariantOut(ApiDocumentModel):
     chr: str
     start: int
     end: int
-    length: int
+    # None for a translocation (BND, TRA), which has no length (CLIN-39).
+    length: Optional[int] = None
     type: str
     source: Optional[str] = None
     qual: Optional[float] = None

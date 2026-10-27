@@ -40,6 +40,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .config import settings
+from .content_disposition import content_disposition
 
 # Worker threads used to download objects under a prefix concurrently. Package
 # staging is dominated by per-object latency, so a small pool gives a large speedup
@@ -330,7 +331,7 @@ def presigned_get_url(key: str, *, filename: str | None = None, expires: int | N
 
     params: dict[str, str] = {"Bucket": _configured_bucket(), "Key": key}
     if filename:
-        params["ResponseContentDisposition"] = f'inline; filename="{filename}"'
+        params["ResponseContentDisposition"] = content_disposition("inline", filename)
     return _s3_client().generate_presigned_url(
         "get_object",
         Params=params,
@@ -367,7 +368,7 @@ def _gcs_signing_credentials() -> tuple[str, str]:
 
 def _gcs_signed_get_url(key: str, *, filename: str | None, expires: int) -> str:
     blob = _gcs_client().bucket(_configured_bucket()).blob(key)
-    disposition = f'inline; filename="{filename}"' if filename else None
+    disposition = content_disposition("inline", filename) if filename else None
     signer_email, access_token = _gcs_signing_credentials()
     return blob.generate_signed_url(
         version="v4",

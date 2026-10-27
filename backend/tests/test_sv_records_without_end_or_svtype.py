@@ -15,7 +15,8 @@ Now (``structural_variant_ingest``):
 * a record without END, or with END ``.``, ends at POS + SVLEN (its sign dropped) for a
   ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes included, and at
   POS + len(REF) - 1 for any other allele: an ``<INS>``, a breakend, a sequence allele. One
-  of the four without an SVLEN stays on its POS: the record does not say how far it reaches.
+  of the four without an SVLEN does not say how far it reaches: it is left out and counted
+  (CLIN-39, the owner's decision; it stayed on its POS, 0 bp).
   A written END is kept as written, and a Spectre POS written as a range keeps its end. (An
   END written ``.`` made both readers skip the record.)
 * a record without SVTYPE, or with SVTYPE ``.``, takes the type its ALT states: a symbolic
@@ -48,6 +49,7 @@ from backend.app.services.family_package_variants import (
 )
 from backend.app.services.structural_variant_ingest import (
     ParsedStructuralVariant,
+    SkippedRecords,
     is_breakend_alt,
     iter_structural_variant_records,
     structural_variant_end,
@@ -112,8 +114,6 @@ def test_a_spanning_symbolic_allele_without_end_ends_svlen_bases_after_its_pos(
         # A sequence-resolved deletion spans its REF after the padding base.
         ("A" + "C" * 100, "A", "", POS + 100),
         ("A", "A" + "T" * 50, "", POS),
-        # A deletion without SVLEN: the record does not say how far it reaches.
-        ("N", "<DEL>", "SVTYPE=DEL", POS),
     ],
 )
 def test_any_other_allele_without_end_ends_on_the_last_base_of_its_ref(
@@ -155,29 +155,30 @@ def test_structural_variant_end_follows_vcf_4_4() -> None:
 # --- SVTYPE -------------------------------------------------------------------------------
 
 _TYPE_FROM_ALT = [
-    ("N", "<DEL>", "DEL"),
-    ("N", "<DUP:TANDEM>", "DUP:TANDEM"),
-    ("N", "N]5:3000000]", "BND"),
-    ("N", "]5:3000000]N", "BND"),
-    ("N", "N[5:3000000[", "BND"),
-    ("N", "[5:3000000[N", "BND"),
-    ("G", "G.", "BND"),
-    ("G", ".G", "BND"),
-    ("A", "ATTTTTTTTT", "INS"),
-    ("ATTTTTTTTT", "A", "DEL"),
-    ("ac", "acgt", "INS"),
+    # A symbolic deletion or duplication states its length: one without is left out.
+    ("N", "<DEL>", "DEL", "SVLEN=-500;"),
+    ("N", "<DUP:TANDEM>", "DUP:TANDEM", "SVLEN=500;"),
+    ("N", "N]5:3000000]", "BND", ""),
+    ("N", "]5:3000000]N", "BND", ""),
+    ("N", "N[5:3000000[", "BND", ""),
+    ("N", "[5:3000000[N", "BND", ""),
+    ("G", "G.", "BND", ""),
+    ("G", ".G", "BND", ""),
+    ("A", "ATTTTTTTTT", "INS", ""),
+    ("ATTTTTTTTT", "A", "DEL", ""),
+    ("ac", "acgt", "INS", ""),
 ]
 
 
 @pytest.mark.parametrize("record_format", _UPLOAD_FORMATS)
 @pytest.mark.parametrize("svtype_field", ["", "SVTYPE=.;"], ids=["absent", "missing"])
-@pytest.mark.parametrize(("ref", "alt", "svtype"), _TYPE_FROM_ALT)
+@pytest.mark.parametrize(("ref", "alt", "svtype", "extent"), _TYPE_FROM_ALT)
 def test_a_record_without_svtype_takes_the_type_its_alt_states(
-    record_format: str, svtype_field: str, ref: str, alt: str, svtype: str
+    record_format: str, svtype_field: str, ref: str, alt: str, svtype: str, extent: str
 ) -> None:
     # Before: the ALT without <> -- a breakend's type was "N]5:3000000]", a sequence's its
     # bases.
-    record = _one(_vcf(_record(ref, alt, f"{svtype_field}SUPPORT=8")), record_format)
+    record = _one(_vcf(_record(ref, alt, f"{svtype_field}{extent}SUPPORT=8")), record_format)
     assert record.svtype == svtype
 
 
@@ -375,3 +376,131 @@ async def test_an_uploaded_deletion_without_end_is_listed_with_the_genes_it_span
         # An insertion spans no reference base: the gene it lands in, not the bases after it.
         "INS": (80000, 80000, ["INS_HOST"], None),
     }
+
+
+# --- A record whose extent is not stated is left out and counted (CLIN-39) ------------------------
+#
+# A <DEL>, <DUP>, <INV> or <CNV> that states neither END nor SVLEN does not say how far it
+# reaches. It was stored on its POS, as 0 bp, and a gene or panel search missed the genes it
+# spans; every reader now leaves it out and counts it (the owner's decision, 2026-10-27).
+
+_WITHOUT_EXTENT = [
+    pytest.param("<DEL>", "SVTYPE=DEL", id="deletion"),
+    pytest.param("<DUP:TANDEM>", "SVTYPE=DUP", id="duplication"),
+    pytest.param("<INV>", "", id="inversion-without-svtype"),
+    pytest.param("<CNV>", "SVTYPE=CNV;END=.", id="cnv-with-end-missing"),
+    pytest.param("<del>", "SVTYPE=DEL;SVLEN=.", id="deletion-with-svlen-missing"),
+]
+
+
+@pytest.mark.parametrize("record_format", _UPLOAD_FORMATS)
+@pytest.mark.parametrize(("alt", "info"), _WITHOUT_EXTENT)
+def test_an_uploaded_record_whose_extent_is_not_stated_is_left_out_and_counted(
+    record_format: str, alt: str, info: str
+) -> None:
+    skipped = SkippedRecords()
+    text = _vcf(_record("N", alt, info), _record("N", "<INS>", "SVTYPE=INS", pos=40000))
+
+    records = list(iter_structural_variant_records(text, record_format, skipped=skipped))  # type: ignore[arg-type]
+
+    # Before: stored on its POS, 0 bp. An insertion without SVLEN stays: it spans no base.
+    assert [(record.svtype, record.start) for record in records] == [("INS", 40000)]
+    assert skipped.without_extent == 1
+
+
+@pytest.mark.parametrize(
+    ("read", "line"),
+    [
+        pytest.param(
+            "needlr",
+            "chr1\t20000\tSV1\tN\t<DEL>\t.\t.\tSVTYPE=DEL;Query_ID=PROBAND_sv_phased;Genotype=0/1;Alt_Reads=8\n",
+            id="needlr",
+        ),
+        pytest.param("hificnv", "chr1\t20000\t.\tN\t<DUP>\t20\tPASS\tSVTYPE=DUP\tGT:CN\t0/1:3\n", id="hificnv"),
+        pytest.param("chrm", "chrM\t8470\tS1\tN\t<DEL>\t60\tPASS\tVAF=0.3\tGT:DV\t0/1:40\n", id="chrm"),
+    ],
+)
+def test_every_package_reader_leaves_out_a_record_whose_extent_is_not_stated(read: str, line: str) -> None:
+    skipped = SkippedRecords()
+    if read == "needlr":
+        header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\n"
+        records = _iter_needlr_per_sample_records(
+            [("PROBAND", header + line)], ped=_proband_ped(), sample_contexts=_proband_contexts(), skipped=skipped
+        )
+    else:
+        header = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tSample0\n"
+        reader = _iter_cnv_structural_records if read == "hificnv" else _iter_mito_sv_records
+        records = reader(header + line, sample_id="PROBAND", skipped=skipped)
+
+    # Before: NeedlR and HiFiCNV stored it at POS..POS+1, the chrM reader on its POS.
+    assert (records, skipped.without_extent) == ([], 1)
+
+
+async def _upload_records(monkeypatch: pytest.MonkeyPatch, *records: str) -> tuple[dict[str, Any], list[Any]]:
+    written: list[StoredStructuralVariantRow] = []
+
+    async def no_rows(*_args: Any, **_kwargs: Any) -> list[StoredStructuralVariantRow]:
+        return []
+
+    async def rewrite(_assembly: Any, _family: Any, rows: Any, **_kwargs: Any) -> None:
+        written.extend(rows)
+
+    async def genes(*_args: Any, **_kwargs: Any) -> dict[str, list[tuple[int, int, str]]]:
+        return _GENES
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(variant_upload_service, "fetch_family_structural_variant_rows", no_rows)
+    monkeypatch.setattr(variant_upload_service, "rewrite_family_structural_variants", rewrite)
+    monkeypatch.setattr(variant_upload_service, "_fetch_genes_for_chroms", genes)
+    monkeypatch.setattr(variant_upload_service, "lock_family_variant_writes", nothing)
+    monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", nothing)
+    result = await variant_upload_service.upload_structural_variant_file(
+        _Session(),  # type: ignore[arg-type]
+        family_context=FamilyMetadataContext(
+            family_uuid="family-uuid",
+            family_id="FAM",
+            project_ids=["project-uuid"],
+            sample_rows=[],
+            sample_uuid_to_name={"uuid-proband": "PROBAND"},
+            sample_name_to_uuid={"PROBAND": "uuid-proband"},
+            affected_sample_names=[],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        ),
+        sample_context=_proband_contexts()["PROBAND"],
+        file=UploadFile(file=BytesIO(_vcf(*records).encode()), filename="PROBAND.sniffles.vcf"),
+        overwrite=False,
+        format_hint="sniffles",
+    )
+    return result, written
+
+
+@pytest.mark.asyncio
+async def test_an_upload_says_how_many_records_it_left_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, written = await _upload_records(
+        monkeypatch,
+        _record("N", "<DEL>", "SVTYPE=DEL;SUPPORT=12"),
+        _record("N", "<DEL>", "SVTYPE=DEL;SVLEN=-1000;SUPPORT=12", pos=50000),
+    )
+
+    # Before: two SVs, one of them 0 bp at 1:30000, listed with the gene at its POS alone.
+    assert (result["processed"], result["skipped_without_extent"]) == (1, 1)
+    assert [(row.record.start, row.record.end) for row in written] == [(50000, 51000)]
+
+
+@pytest.mark.asyncio
+async def test_an_upload_of_records_whose_extent_is_never_stated_is_refused_saying_why(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as refused:
+        await _upload_records(monkeypatch, _record("N", "<DEL>", "SVTYPE=DEL;SUPPORT=12"))
+
+    assert refused.value.status_code == 400
+    assert refused.value.detail == (
+        "No valid structural-variant records found: 1 record(s) of a deletion, duplication, inversion "
+        "or CNV state neither END nor SVLEN, so how far they reach is not known"
+    )

@@ -73,7 +73,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   records, a **reader** (a student, say) only reads them. An admin has every right in every
   project, member or not. One person may be an analyst in one project and a reader in another,
   and a record of several projects may be changed by an analyst of any one of them. An admin
-  sets each member's level on the *Projects & Access* page (`reader_user_ids` in the project
+  sets each member's level on the *Projects & access* page (`reader_user_ids` in the project
   API); a membership made without one is an analyst's, and each membership made before the
   levels became one. `get_current_user` records whether a request changes something: any
   method but GET, HEAD and OPTIONS, unless its route is marked `changes_only_own_data`
@@ -163,10 +163,31 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   local `FAMILY_IMPORT_ROOTS` folder, the staging folder of a bucket package or the upload
   folder `data/raw_imports` (`services/raw_import_files_pg.py`); any other path answers 403
   and is logged, and the file list shows it unavailable without looking it up. Verify asks
-  the object store only about an object below a remote `FAMILY_IMPORT_ROOTS` entry. A family
-  or sample delete unlinks a managed copy only inside the upload folder, and skips any other
-  path a managed row names with a log line. An edited row could download any file the
-  backend can read, and make a delete remove any file it may write (SEC-29).
+  the object store only about an object below a remote `FAMILY_IMPORT_ROOTS` entry. The list
+  marks a row of either kind as recorded outside what CoGA reads (`outside_read_folders`),
+  and the page gives the reason a Verify was refused; it listed such an object as kept in the
+  object store, and said only that Verify failed (SEC-27). A family or sample delete unlinks
+  a managed copy only inside the upload folder, and skips any other path a managed row names
+  with a log line. An edited row could download any file the backend can read, and make a
+  delete remove any file it may write (SEC-29).
+- ✅ **A package import reads only its own folder.** Package Import takes a folder only below
+  `FAMILY_IMPORT_ROOTS` (`package_folder_not_allowed`), and the package list leaves out, and
+  reads nothing in, a folder that is a symlink leading out of the roots. Every path a
+  manifest names must lie inside the package folder (`_resolve_package_path` in
+  `services/family_package_common.py`): validation refuses with 400, before anything is read,
+  an absolute path elsewhere, `..` that climbs out, a symlink that leads out, a path that
+  starts with `~` (never expanded to a home folder) and one that runs through a symlink loop.
+  A `manifest.yaml`, `.yml` or `.json` that is a symlink leading out of the folder, or one
+  that loops, is refused (`manifest_outside_package`): Discover and validation do not read it,
+  and **Write manifest** does not write through it. A linked manifest gave a package the
+  family of any YAML or JSON file the backend could read, and Write manifest replaced the
+  file it pointed at (SEC-21, #842; [data-import.md](data-import.md)). A package staged from
+  a bucket is read only by the import or validation that staged it: a typed folder in the
+  staging folder, or an import root linked there, is refused (`package_folder_not_allowed`),
+  where it read another import's staged copy (#850). The staging folder,
+  `coga-family-imports` in the temp folder, is made private to the backend (mode 0700); one
+  found there that is a symlink, no folder or another user's is refused rather than followed,
+  so a link planted on a shared temp folder cannot widen the rule (SEC-27).
 - ✅ **No weak secrets outside development.** `Settings.validate_security_defaults` refuses to
   start when `SECRET_KEY` is a placeholder or shorter than 32 characters, when
   `CLICKHOUSE_PASSWORD` is empty or a placeholder, when `POSTGRES_PASSWORD` or
@@ -427,6 +448,16 @@ What the application relies on there:
   sign-in always asks which account continues, so a shared workstation never signs the next
   person in as the previous one silently, and the page CoGA asked for before it travels to
   Microsoft only as a random key (the path, with any family ID in it, stays in the tab).
+- ✅ **A sign-in returns only to a page of this site.** The login page follows a `next` only
+  in the form the route guards and the expired-session handler write (`signInPath` in
+  `lib/auth.ts`): a `/`, a letter or a digit, then printable ASCII without a backslash
+  (`SAME_SITE_PATH` in `pages/auth/LoginPage.tsx`, REQ-UI-006). Any other value opens the
+  dashboard, as an absent one does: a scheme, `//`, a backslash, whitespace or a control
+  character, and a path that starts with a percent-encoded character, such as `/%09/host`,
+  which a browser reads as `//host` once the query string is decoded (#833). The backend reads
+  no `next` and builds no redirect from user input. The proxy rewrites only a redirect on the
+  backend's own internal origin, into a path on this site with one leading slash, so it never
+  turns one into `//host` or `/\host` (`frontend/proxyLocation.mjs`, #948).
 - ✅ **Encoded path segments.** API paths are built with `apiPath` (`lib/apiPath.ts`), which
   percent-encodes every identifier, so an imported id such as `../families/F1` cannot
   redirect a call. Query strings go through `raw()`. The URLs the backend hands the browser
@@ -436,7 +467,17 @@ What the application relies on there:
   still cannot be reached through a path segment: one that is exactly `.` or `..` (a browser
   resolves it whatever its encoding) and one holding `/` (the backend matches its routes on
   the decoded path); such a request answers 404. Whether the ID rule should refuse them is
-  open.
+  open. In-app routes are built the same way, with `routePath` (`lib/routePath.ts`), so a
+  link or a navigation to a family, panel, CNV or report code keeps an ID holding `?`, `#`,
+  `%` or `/` whole; raw, `?` and `#` cut the path short and `/` added a segment no route
+  matched (SEC-15). A guard test finds any route template left raw. The IGV page's Back link
+  takes its `back_path` only when it is one of the family pages, as the HPO page's (#526)
+  does: a link could send it to another site. A file named after an ID, the PED download, a
+  variant export or a signed URL's file, carries its name in `Content-Disposition` encoded
+  as RFC 6266 has it (`backend/app/core/content_disposition.py`): a name with a quote, a
+  backslash, a percent sign or a character outside ASCII goes in `filename*`, with an ASCII
+  stand-in in `filename`. Raw, a quote ended the name early, and an ID beyond Latin-1 failed
+  the PED download with a 500.
 - ✅ **Escaped tooltips.** The d3 tooltips built as HTML escape their values
   (`lib/escapeHtml.ts`).
 - ✅ **Proxy robustness** (`frontend/server.mjs`, `proxyRequest.mjs`). A reset mid-stream ends

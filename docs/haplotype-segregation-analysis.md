@@ -119,9 +119,13 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
 
 - **Pedigree IBD colouring** — `backend/app/services/haplotype_lineage_service.py` (`annotate_lineage`:
   builds the pedigree, finds the embryo-anchored nuclear core, propagates founder colour by IBD
-  matching, splits each relative at recombinations, greys non-autosomes, unplaceable members and
-  truncation tails). Pure; the callers in `bed_service.py` fetch the data, including the genome-wide
-  `/haplotypes/batch` path.
+  matching, splits each relative at recombinations, reads chrX one stretch at a time by the PARs of
+  the family's assembly (`_lineage_stretches`; between the PARs a man recorded as male is one copy, a
+  man and a member with two copies are read from the runs of her homolog he carries,
+  `one_copy_share_runs` and `_one_copy_relative_blocks`, and two men not at all; CLIN-12), and greys
+  chrY, chrM, unplaceable members and truncation tails). Pure; the callers in `bed_service.py` fetch
+  the data, including the genome-wide `/haplotypes/batch` path, and pass the family's assembly; the
+  precompute's fingerprint holds each member's sex.
 - **Genome-overview precompute** — `backend/app/services/bed_service.py`
   (`precompute_family_haplotype_lineage`, the hash-guarded read `_fetch_precomputed_lineage` used by
   `_apply_haplotype_lineage_genomewide`, and the best-effort background refresh
@@ -186,8 +190,8 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   maternal homolog is read with her father's one allele, and her paternal side is his one X
   (`_FATHER_ONE_X`, his `hap1`, set in `_enter_stretch` rather than read, so it does not count
   towards orienting his labels by the affected child). Unrecorded sex is read as two copies. Every
-  block lies in one stretch of chrX (`_x_stretches`: before PAR1, PAR1, between the PARs, PAR2,
-  after PAR2): at a PAR edge a member's open block ends with its stretch (`end_limit`, also at the
+  block lies in one stretch of chrX (`sex_chromosomes.x_stretches`, which the lineage reads chrX by
+  too: before PAR1, PAR1, between the PARs, PAR2, after PAR2): at a PAR edge a member's open block ends with its stretch (`end_limit`, also at the
   chromosome's end) and a child's segregation states start afresh, so no homolog read in a PAR runs
   over the X and `hemizygous_in_males` marks exactly the blocks between the PARs. No stretch is cut
   on an assembly without PAR bounds (T2T-CHM13). Before this (CLIN-60's follow-up), with men's calls

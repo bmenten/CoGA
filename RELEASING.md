@@ -170,6 +170,12 @@ new images. Record the rollback as a change under TF-18 — a rollback is a rele
 
 Stated here so nobody discovers them mid-release:
 
+- **A tag on its own builds nothing.** `build.yml` starts a release build only when a GitHub
+  Release is published: publishing is the deliberate, recorded act, and the only tag-borne
+  event that can reach `deploy`. A `push: tags` trigger used to start a second, complete build
+  of the same commit, which raced the release's run to push the same image tags and could never
+  deploy: duplicate work with a winner nobody could predict. A tag pushed without its release
+  therefore leaves no images; publish the release (step 2) for the build to run.
 - **A release does not deploy by default.** `deploy` runs on a release only when the
   repository variable `COGA_DEPLOY_TRIGGER` is `release`; otherwise pushes to `main` deploy
   and a release only builds its images. Only one of the two may deploy, because there is one

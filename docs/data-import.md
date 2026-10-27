@@ -10,12 +10,12 @@ guide ([Data import](../frontend/src/content/docs/data-import.md), shown in the 
 
 A family gets into CoGA in one of two ways:
 
-- **Family Builder** (`/family-builder`): a pedigree typed in by hand. Metadata only. Its
+- **Family builder** (`/family-builder`): a pedigree typed in by hand. Metadata only. Its
   request may mark the family as a monogenic NIPT family (`analysis_type: monogenic_nipt`)
   and a sample as the mother's cfDNA (`assay: nipt_cfdna`), and nothing else: the keys an
   import or an audited edit writes (the annotation manifest, a sample's sequencing QC, the
   import state) are refused with 400 (SAFE-12).
-- **Package Import** (`/package-import`, admins): one folder with the PED, the assay files and
+- **Package import** (`/package-import`, admins): one folder with the PED, the assay files and
   a manifest. One job imports the family and all its data.
 
 Loading data files, replacing an existing family and every reference-data upload are
@@ -23,7 +23,7 @@ admin-only. All API paths below sit under `/api`. Every setting named here is li
 its default in [.env.example](../.env.example).
 
 For a new family: check that its assembly has its reference data (section 1), make sure its
-project exists (**Admin → Projects & Access**), then import the package (section 3).
+project exists (**Admin → Projects & access**), then import the package (section 3).
 
 ## 1. Reference data
 
@@ -39,13 +39,13 @@ for the assembly is left alone.
 | What | Where it comes from | Settings |
 | --- | --- | --- |
 | Homo sapiens / GRCh38 | Created if absent | `REFERENCE_BOOTSTRAP_ENABLED` |
-| GRCh38 cytobands | UCSC `hg38` download | |
+| GRCh38 cytobands | UCSC `hg38` download (`cytoBandIdeo`, else `cytoBand`). A start that cannot reach UCSC leaves GRCh38 without cytobands, and each later start tries again while there are none | |
 | GRCh38 gene loci | GENCODE GTF (see below); the UCSC gene table if GENCODE fails | `REFERENCE_GENCODE_GTF_URL`, `REFERENCE_GENCODE_REFSEQ_METADATA_URL` |
-| T2T-CHM13v2.0 (off by default) | UCSC `hs1` RefSeq GTF | `REFERENCE_BOOTSTRAP_T2T`, `REFERENCE_T2T_GTF_URL` |
+| T2T-CHM13v2.0 (off by default) | UCSC `hs1` RefSeq GTF. UCSC has no cytoband table for `hs1`, so each chromosome gets one band that spans it, from UCSC's chromosome sizes; without UCSC, none | `REFERENCE_BOOTSTRAP_T2T`, `REFERENCE_T2T_GTF_URL` |
 | Segmental duplications / LCRs | The ClinGen recurrent-CNV BED in `data/ref-data/`: ClinGen's V2.1 GRCh38 file, unchanged ([checked against ClinGen by SHA-256](../data/ref-data/clinical_cnv_syndromes_hg38_bundle/COGA-PROVENANCE.md)). The file read (the setting's, else the repository's) must be that file byte for byte, SHA-256 `e6a7428f58b0…` (`SEGMENTAL_DUPLICATIONS_PINNED_SHA256`, which no setting overrides): another file is not loaded, and the log names it, both SHA-256 digests and the fix (copy the repository's file there unchanged). The start goes on without the track | `REFERENCE_SEGMENTAL_DUPLICATIONS_PATH` |
-| Clinical CNV syndromes | Only if the file exists; it is not shipped | `REFERENCE_CLINICAL_CNVS_PATH` |
+| Clinical CNV syndromes | Not loaded on startup: the knowledgebase rebuild loads them (below). The removed `REFERENCE_CLINICAL_CNVS_PATH`, whose default file was never shipped, is ignored if still set | |
 | HPO ontology | `data/ref-data/hpo/hp.obo`, imported only if its SHA-256 is the vendored file's: an ontology file found in place that is not, such as another release, is refused and logged (the file, both digests and the fix), and nothing is imported or downloaded instead. If no ontology file is found, the same release is downloaded over HTTPS from its versioned URL and imported only if its SHA-256 is the vendored file's; another file is refused and logged. The URL and the SHA-256 are fixed in the code, not settings ([the pin](../data/ref-data/hpo/README.md#the-download-fallback)): the removed `HPO_ONTOLOGY_URL` and `HPO_ONTOLOGY_SHA256` are ignored if still set | `HPO_BOOTSTRAP_ON_STARTUP`, `HPO_ONTOLOGY_PATH`, `HPO_DOWNLOAD_IF_MISSING` |
-| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start. The STRchive file must be that release byte for byte, or the backend does not start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. The name of a gene with several STRchive loci (ARX, HOXA13) picks the locus the call's region overlaps. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal, except a count inside the benign range such a row states, which is normal (POLG: exactly 10; MUC1 states none). The count is TRGT's count of the catalogue motif across the locus, flanking copies included: in the TRGT catalogue in use (TRID `CPEO_POLG`, chr15:89333579-89333629, motifs GCT and GTT), POLG's common allele of 10 repeats counts 14 and stays not assessed. The repeat page classifies imported calls again against it; the genome tracks show the status stored at import until the calls are imported again | `TRGT_STRCHIVE_LOCI_PATH` |
+| TRGT repeat catalogue | The built-in loci (`repeat_expansion_catalog.py`) and the shipped STRchive release, `data/ref-data/STRchive-loci.json`, both refreshed on every start. The STRchive file must be that release byte for byte, or the backend does not start ([The STRchive release](#the-strchive-release)). A built-in locus carries its STRchive row's thresholds, so a call classifies the same whether its TRID is the gene name or STRchive's locus ID. The name of a gene with several STRchive loci (ARX, HOXA13) picks the locus the call's region overlaps. A call whose TRID no row names, or whose row states no intermediate, premutation or pathogenic threshold (STRchive's MUC1 and POLG), is not assessed (`not_assessed`), never normal, except a count inside the benign range such a row states, which is normal (POLG: exactly 10; MUC1 states none). The count is TRGT's count of the catalogue motif across the locus, flanking copies included: in the TRGT catalogue in use (TRID `CPEO_POLG`, chr15:89333579-89333629, motifs GCT and GTT), POLG's common allele of 10 repeats counts 14 and stays not assessed. A count between a row's benign range and its pathogenic threshold, where the row states no grey zone of its own (24 of STRchive's 75 loci, ABCD3 and PRTS_ARX among them), reads as the grey zone (`intermediate`; the owner's decision of 2026-10-27, CLIN-14); it read normal. The repeat page and the genome tracks classify imported calls again against the catalogue as it is now, alike: the tracks showed the status stored at import until the calls were imported again (CLIN-14) | `TRGT_STRCHIVE_LOCI_PATH` |
 | First gene reference sync | Queued only when the dbNSFP gene file is present and no gene has been synced yet | `GENE_REFERENCE_BOOTSTRAP_ON_STARTUP`, `GENE_REFERENCE_DBNSFP_GENE_PATH` |
 
 **TRGT's counting units.** TRGT counts the motif across the region its own catalogue gives a
@@ -56,19 +56,20 @@ about 31 triplets reads 29 (1 to 3 below; a premutation of 55 can read 53, in th
 at HTT it also counts the CAG after the CAA interruption, so HG002's pure 17-repeat allele
 reads 18; at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
 QA and the laboratory director check, per catalogue locus, that TRGT's count is the clinical
-repeat number, and an administrator records it on the admin page **Repeat Catalogue**
+repeat number, and an administrator records it on the admin page **Repeat catalogue**
 (`repeat_locus_count_units`, which no start rewrites; [database.md](database.md)). Until a
 locus is validated, the repeat page and the genome tracks mark a count within 3 repeats of a
 boundary its classification uses (`services/repeat_count_units.py`); no status changes. No
 correction is applied yet.
 
-The segmental duplications and clinical CNVs are loaded into the assembly named by
+The segmental duplications are loaded into the assembly named by
 `REFERENCE_BOOTSTRAP_ASSEMBLY_NAME` (GRCh38). If UCSC cannot be reached, startup still
 creates the empty GRCh38 assembly and carries on.
 
-The default clinical-CNV file is not in the repository, so a fresh install has no clinical
-CNVs, and nothing warns about it. Build them with the clinical CNV knowledgebase rebuild
-(the ↻ button next to the clinical-CNV count on **Admin → Species & Assemblies**;
+A start loads no clinical CNVs, so a fresh install has none, and nothing warns about it. It
+used to read them from any file at `REFERENCE_CLINICAL_CNVS_PATH`, unpinned, whose default
+was never shipped (OPS-17). Build them with the clinical CNV knowledgebase rebuild
+(the ↻ button next to the clinical-CNV count on **Admin → Species & assemblies**;
 `POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below). A rebuild whose ClinGen dosage
 curation or recurrent CNV regions cannot be loaded fails, says why on that page, and leaves the
 clinical CNVs as they were.
@@ -104,7 +105,7 @@ identifiers or MANE tags, and the cytobands are one band per chromosome.
 
 ### Loading or replacing reference data
 
-Admins manage reference data on **Admin → Species & Assemblies**
+Admins manage reference data on **Admin → Species & assemblies**
 (`/admin/reference/assemblies`; everyone can view it at `/reference-data`):
 
 - **Add organism / assembly (from UCSC)** downloads cytobands and genes for any UCSC genome
@@ -135,7 +136,7 @@ backend container with `scripts/import_dgv.py`, which inserts in batches (see
 ### Updating the HPO ontology
 
 To move to a newer HPO release, put the new `hp.obo` in `/data/ref-data/hpo/` and run the sync
-on **Admin → HPO Terminology** (`POST /admin/hpo/sync`). The page starts from the file the
+on **Admin → HPO terminology** (`POST /admin/hpo/sync`). The page starts from the file the
 backend is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the changes first.
 It only reads files inside the configured ontology folders. The startup import, of a file in
 place or downloaded, stays pinned to the vendored release: on a database without HPO terms, a
@@ -188,7 +189,7 @@ change is also recorded in `CHANGELOG.md` and TF-18 §8.
 
 The gene reference is the cached information per human gene: names and identifiers, disease
 links, dosage, constraint, expression and more (`gene_info`). An admin refreshes it from
-**Admin → Species & Assemblies** (↻ next to the gene count) or the gene reference page
+**Admin → Species & assemblies** (↻ next to the gene count) or the gene reference page
 (`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`).
 
 HGNC decides which human genes exist. The sync takes the HGNC complete set as its list of
@@ -278,6 +279,13 @@ record and the raw-file provenance ([database.md](database.md), `raw_import_file
 without `family_id` takes the bucket folder's name, the last part of its URI, as a local
 package takes its folder's name.
 
+Only the import or validation that downloaded a package reads its temporary folder: a typed
+folder path into it, or an import root linked there, is refused (`package_folder_not_allowed`);
+it read another import's staged copy (#850). The temporary folders lie in
+`coga-family-imports` in the server's temp folder, which the backend makes private to itself.
+When it finds there a symlink, a file or another user's folder, it refuses to stage a bucket
+package rather than follow it (SEC-27).
+
 The **Discover** and **Write manifest** steps only work on local folders, so a package in a
 bucket must already contain its manifest.
 
@@ -322,7 +330,9 @@ The API behind the page:
   `cnv` track by track, its calls whole), and the dataset's message names what was skipped; a
   dataset skipped whole ends `skipped`, not `imported`. The SNV family VCF is skipped when the
   family holds small variants of the callset the file holds, which the message names
-  ([below](#the-small-variant-callset-an-import-records)). A track dataset reads its own source's
+  ([below](#the-small-variant-callset-an-import-records)); imputed genotypes, and the
+  `haplotypes` dataset, are skipped too when the family holds the haplotype blocks made from
+  imputed genotypes, as the store holds them, since the loader writes both. A track dataset reads its own source's
   track only ([Where each dataset lands](#where-each-dataset-lands)): a sample's coverage BED is
   imported though the sample holds WisecondorX bins, and its APCAD though it holds HiFiCNV's
   minor allele fraction.
@@ -356,7 +366,18 @@ of the clean-up below runs and it writes nothing more, so the family keeps the i
 `import_unfinished` entry, as the job's *Interrupted* record says, and the family's
 variant-write locks are released with their connection. Until then the import may have gone
 on: an update of the job that matches no row (its progress, or how it ended) changes nothing,
-and the backend log says so, naming the job.
+and the backend log says so, naming the job. It does not go on for long: an import whose
+heartbeat has not reached the database for five minutes, half that window, stops itself
+where it is, the same way, before any worker can take its job for stopped; its job is ended
+as interrupted once a worker finds its heartbeat stale (SAFE-15).
+
+The family's variant-write locks are held on a database connection of their own, and
+Postgres releases them with it. A running import checks that connection every ten seconds
+(`SELECT 1` in the locks' transaction; one that does not answer within thirty seconds counts
+as lost). When it is gone, another write of the family may already have started, so the
+import is stopped where it is and nothing is restored: its job ends `failed`, saying why, the
+backups it made of the family are dropped, and the family keeps the import's
+`import_unfinished` entry until it is imported again with overwrite (SAFE-15).
 
 If a dataset fails, the job ends as `failed` and CoGA does not leave a half-loaded family
 that looks complete:
@@ -386,7 +407,11 @@ that looks complete:
   the flag lists every scope a dataset failed for, each with the job that holds its error
   (`failed_scopes`), and a dataset leaves it only once each has been brought again.
   `failed_jobs` names the job of each dataset's latest failure, which the family pages and a
-  sign-out show.
+  sign-out show. A dataset it names with no job failed outside one, in a single-file upload or
+  an import run outside a job: the family pages and a sign-out say no import job records its
+  error, and never name the flag's own job, another failure's, for it. A flag CoGA cannot read
+  (`true`, say) stays as it is when a later import or upload fails, as it does when one
+  completes: nothing shows what would complete it.
 
 An import whose process stops part-way does none of this: nothing runs in a process that
 has ended. So an import marks the family before it writes anything of it, with an entry in
@@ -416,6 +441,8 @@ the family's datasets, whichever import wrote them: table by table, it deletes t
 rows before it puts the backup's back. So the flag it leaves names every dataset the import
 set out to import as failed, including those that imported and those it only registered, and
 none as imported; the family stays flagged until an import has imported each of them again.
+The job's record says the same: its dataset table shows each of them as failed, with how its
+loader had ended, and its error names them all.
 Postgres is put back after ClickHouse, so after such a restore Postgres can still record a
 track whose rows it removed: an `update` reads the rows. It imports again a dataset whose rows
 the restore removed, which then leaves the flag, and skips one whose rows are there, which
@@ -424,10 +451,15 @@ stays flagged.
 Such a restore also removes rows of datasets the import did not carry (another small-variant
 source, another package's SV calls, an upload's data), which its flag cannot name. So the
 import's `import_unfinished` entry stays too: once its restore begins, it names every dataset
-the family holds, as the family's imports and single-file uploads record what they brought
-(`families.metadata.imported_scopes`; [What an upload records](#what-an-upload-records)), and
-every dataset of the import, each with its samples and (for the small variants) its
-callset. The family stays marked import-incomplete until each of them has been brought
+the family holds in ClickHouse, as the family's imports and single-file uploads record what they
+brought (`families.metadata.imported_scopes`; [What an upload records](#what-an-upload-records)),
+and every dataset of the import, each with its samples and (for the small variants) its
+callset. A dataset of another import or upload that Postgres alone holds (the repeat calls, the
+Paraphase results, the QC, the phenotypes) is not named: the restore puts Postgres back in one
+transaction, which a failure rolls back whole, so it cannot leave such a dataset partly written
+(it used to be named all the same). A sign-out refused for such an entry, its dialog and the
+signed record call it a restore that did not finish, not an import that stopped: the record
+freezes the entry with `whole_family: true`. The family stays marked import-incomplete until each of them has been brought
 again with `overwrite`: import the whole family again, every package of it, not only the
 datasets that failed, and upload again with `overwrite` what an upload brought. Each import
 that completes with `overwrite`, and each upload with `overwrite`, removes from the entry what
@@ -626,6 +658,8 @@ Discover looks for, Discover warns about it (`family_id_leaves_package`,
 such a family ID. A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
 package, or one that loops, counts as absent, as validation refuses it; so does a long-read
 per-sample entry that loops (looked up, it failed Discover and the package list with a 500).
+A folder named like a PED (`FAM1.ped/`) is no PED to Discover or the package list (Discover
+read it as the PED and failed with a 500).
 
 ### The manifest
 
@@ -790,7 +824,7 @@ is migrated; import or upload such a BED again with what it holds.
 
 | Dataset | Stored as |
 | --- | --- |
-| `snv` | small variants (ClickHouse), with the VEP table if given; a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format: clair3`) as the primary callset, source `clair3` ([below](#per-sample-callsets-of-a-long-read-couple)) |
+| `snv` | small variants (ClickHouse), with the VEP table if given (VEP's `--tab` output, or its default output, whose `Extra` column's `KEY=VALUE` fields are read as the `--tab` columns, CLIN-52); a monogenic NIPT pair's one-sample VCFs (`per_sample`) as one callset, source `nipt` ([below](#monogenic-nipt-pairs)); a long-read couple's one-sample VCFs (`per_sample`, `source_format: clair3`) as the primary callset, source `clair3` ([below](#per-sample-callsets-of-a-long-read-couple)) |
 | `sv_needlr` | structural variants (ClickHouse), source `needlr`: one family VCF, or one VCF per sample (`per_sample`), each file's calls bound to its sample; a breakend with its mate, the position its ALT names in brackets, read as a structural-variant upload reads it ([below](#6-single-file-uploads)); each SV under the id its coordinates give it, never the record's ID, which its annotation keeps (below this table) |
 | `repeats_trgt` | repeat expansions (Postgres), scored against the TRGT catalogue |
 | `wisecondorx`, `qdnaseq` | bins as the `coverage` track, segments as the `segments` track |
@@ -799,7 +833,7 @@ is migrated; import or upload such a BED again with what it holds.
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
-| `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md); a depth file without autosomal depth gives no median to normalise by, and its depths are stored as read, recorded as `none`), and the MAF bigWig as `apcad` |
+| `cnv` (HiFiCNV) | structural variants, source `hificnv`, each named by its coordinates, type and source, never by the record's ID, which its annotation keeps, and one event in two samples' VCFs one SV with both calls (CLIN-39); the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md); a depth file without autosomal depth gives no median to normalise by, and its depths are stored as read, recorded as `none`), and the MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name; the chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
@@ -836,14 +870,16 @@ attached to it and its own deletion lost. The record's ID is kept in the SV's an
   parent), then its own call (its line's query call) over the genotype another sample's line
   gives it as a parent, whichever file comes first.
 - Two calls on one position, type and mate with other alleles, or a symbolic allele (`<INS>`)
-  of another length, are two SVs: the first keeps the id, the other gets its length as a
-  suffix (`1-20000-20007-INS----7`).
+  of another length, are two SVs: the shortest keeps the id, then by REF and ALT, and each
+  other one gets its length as a suffix (`1-20000-20000-INS----7`), then `.2`. The events'
+  order decides, not the lines': the first line's call kept the id, so reading a file, or the
+  samples' files, in another order moved a review to the other event (CLIN-39).
 - The same event uploaded from Sniffles or Spectre has the same id, and so one review, as
   two uploads' calls of one event have; each caller's call stays a row of its own
-  ([database.md](database.md#row-identity)). A NeedlR record without END ends at POS + SVLEN,
-  or at POS + 1 without one, where an upload ends an insertion, a breakend or a record without
-  SVLEN at POS + the length of REF − 1 (VCF 4.4): such a call has one id from NeedlR and
-  another from the upload.
+  ([database.md](database.md#row-identity)). A NeedlR record without END ends where VCF 4.4
+  puts it, as an upload does ([below](#6-single-file-uploads)), so one call has one id from
+  either. It ended at POS + SVLEN for any type, or at POS + 1 without SVLEN, so an insertion
+  or a breakend had another id from NeedlR than from an upload (CLIN-39).
 
 Tracks carry their caller's source tag too. A sample's track of one type can come from several callers, each under its
 own source: `coverage` from a BED (`web`), WisecondorX, QDNAseq and HiFiCNV; `segments` from the
@@ -881,9 +917,35 @@ none, the dataset `imported`; now the dataset fails, with every sample's mitocho
 they were, and an import that keeps the family flags it import-incomplete for `mito`. A file
 without a record is a result where a sample can have no call: a chrM SV file with its `#CHROM`
 line and no call (most samples carry no mtDNA deletion) replaces the sample's earlier chrM SVs
-with none; a HiFiCNV VCF without a call leaves the sample without `hificnv` calls (when no sample's VCF holds one, the calls stay as they were and the
-dataset is only registered). A chrM SV file without its `#CHROM` line is refused before anything
+with none; a HiFiCNV VCF without a call leaves the sample without `hificnv` calls, whether or
+not another sample's VCF holds one, and the `cnv` dataset ends `imported` with its tracks (when no
+sample's VCF held one, the calls used to stay as they were and the dataset was only registered,
+its tracks not recorded as imported: SAFE-18). A chrM SV file without its `#CHROM` line is refused before anything
 of the `mito` dataset is written.
+
+**Every sample's file before any sample's data.** A dataset of one file per sample reads every
+sample's file, or checks it up to its first record, before it replaces any sample's data, so a later
+sample's refused file fails the dataset with every sample's data as it was. Each used to be checked as
+it was written, after the earlier samples' data was replaced (SAFE-3); the family was then put back or
+flagged as for any failed dataset. The `repeats_trgt` dataset reads each sample's TRGT VCF whole, and
+again to store it, so that one sample's calls are held at a time. The `cnv` dataset checks each
+sample's HiFiCNV VCF (its sample column, its records) and reads each signal file up to its first value
+before it writes a track; the `wisecondorx` and `qdnaseq` datasets read every sample's bins and segments,
+and the `pcf` dataset every sample's tables, up to the first row, before they clear a track. A
+monogenic NIPT's per-sample SNV files are checked for their one sample column and a record before the
+plasma's calls are written. The `mito` dataset reads every chrM SV file before it replaces a chrM call:
+one whose records all lie on other chromosomes is no chrM callset and fails the dataset (it read as a
+file without a call, which removed the sample's chrM SVs), and one that cannot be read fails it before
+the chrM VCFs are written. An update checks no file of a track it leaves as stored. Still checked
+sample by sample, as each is written: an APCAD file per embryo (read whole to find its embryo's values)
+and a coverage BED (read whole by the BED loader); the family is put back or flagged when a later one
+fails.
+
+A TRGT value that cannot be read as a number (a position that is no whole number or exceeds
+2³² − 1, a motif count, an allele length or a purity that is no number, a purity or
+methylation of `nan` or `inf`) is refused before anything is replaced: a TRGT upload answers 400
+naming the line, and a package fails the dataset. It answered 500: from the read, or from the insert,
+as Postgres holds no NaN in JSON (DATA-7).
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
 lists them, with the transform each coverage track's record names, `coverage_normalizations`,
@@ -1086,6 +1148,13 @@ Discover, dry run and import check that:
   `mean` (`coverage_target_table_columns`);
 - a coverage BED's `content` is `read_depth` or `log2_ratio` (`coverage_content_invalid`); a BED
   without one is a warning (`coverage_content_undeclared`): it imports as `unknown`;
+- a data file the import refuses when it holds no record (a family VCF of `snv`, `sv_needlr` or
+  `repeats_trgt`; a sample's SNV, NeedlR, TRGT or chrM VCF) holds a line after its header. One
+  with nothing after it is a warning (`dataset_file_without_record`): the import fails that
+  dataset with the stored data as it was ([A file without a record](#where-each-dataset-lands)).
+  The check reads each file up to its first line after the header, so a line the loader cannot
+  read as a record passes it; a HiFiCNV VCF or a chrM SV VCF without a call is a result, and is not
+  warned of. A dry run used to report none of these files (SAFE-3);
 - every dataset key is a known one.
 
 A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional without a
@@ -1237,7 +1306,7 @@ An interval-track upload loads one sample's track of `bed_type` from a BED, unde
   partly written, and the family marked until the track has been uploaded again with
   `overwrite` ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)).
 
-Deleting a sample's track type on **Admin → Family & Sample Data** removes every caller's track
+Deleting a sample's track type on **Admin → Family & sample data** removes every caller's track
 of that type.
 
 A family small-variant upload is one family VCF from one callset:
@@ -1319,9 +1388,20 @@ calls are checked and replaced:
 - A Sniffles or Spectre record without END, or with END `.`, ends where VCF 4.4 puts it: at
   POS + SVLEN (its sign dropped) for a `<DEL>`, `<DUP>`, `<INV>` or `<CNV>` allele, subtypes
   included, and at POS + the length of REF − 1 for any other allele (an `<INS>`, a
-  breakend, a sequence allele); one of the four without an SVLEN stays on its POS. An SV is
+  breakend, a sequence allele). One of the four without an SVLEN (and without END) does not
+  say how far it reaches: it is left out, and the upload's result counts it
+  (`skipped_without_extent`), as does the import's dataset summary of a package's NeedlR,
+  HiFiCNV or chrM Sniffles2 file. It was stored on its POS, as 0 bp, so a gene or panel search
+  missed the genes it spans (CLIN-39, the owner's decision, 2026-10-27). A file whose every
+  record is so is refused: an upload answers 400 saying why, and a HiFiCNV or chrM SV file,
+  where a file without a call is an answer, fails its dataset with the earlier calls as they
+  were (a NeedlR file without a call fails it anyway). An SV is
   listed with the genes its POS–END span overlaps, so a deletion written with SVLEN alone is
-  found by a search for a gene it deletes. A written END is kept as written.
+  found by a search for a gene it deletes. A written END is kept as written, except a
+  translocation's whose INFO/CHR2 names another chromosome: that END is its mate's position
+  (below), and the record ends on its own breakpoint. A package's NeedlR, HiFiCNV and chrM
+  Sniffles2 files end a record by the same rule (CLIN-39); they ended it at POS + SVLEN for
+  any type, or at POS + 1 (NeedlR, HiFiCNV) or POS (chrM) without SVLEN.
 - A record without SVTYPE, or with SVTYPE `.`, takes the type its ALT states, as VCF 4.4
   deprecates SVTYPE as redundant with ALT: a symbolic allele's name (`<DUP:TANDEM>` is
   `DUP:TANDEM`), BND for breakend notation (`N]5:3000000]`, or a single breakend such as
@@ -1338,18 +1418,34 @@ calls are checked and replaced:
   one are still measured by END − POS; the record's END and its SV id do not change. A
   package's NeedlR, HiFiCNV and chrM Sniffles2 files are stored by the same rule, so a
   sequence deletion written without END or SVLEN is as long there as its alleles, where it
-  was one base (NeedlR, HiFiCNV) or of no length (the mtDNA page); their END rule is
-  unchanged. An SV stored before this rule keeps the length it was stored with until its
-  file is uploaded or imported again.
-- A breakend (a record of type BND) keeps its mate, the position its ALT names in brackets:
-  `N]5:3000000]` has its mate on 5:3000000. The SV list has it in its *Remote chr* and
+  was one base (NeedlR, HiFiCNV) or of no length (the mtDNA page). An SV stored before this
+  rule keeps the length it was stored with until its file is uploaded or imported again. A
+  translocation (BND, TRA) has no length: the list, its export and the report show none,
+  where they showed 0 or 1 bp (the report read "A 0 bp breakend"), and the length filters
+  give it none, as before. The filters read a length typed with a minus sign without it, as
+  they measure: an exact length copied from a deletion in the list (`-5000`) matched nothing
+  (CLIN-39).
+- A breakend keeps its mate, the position its ALT names in brackets: `N]5:3000000]` has its
+  mate on 5:3000000. A record is read so when its ALT is written in breakend notation,
+  whatever its SVTYPE says, and when its type is BND or TRA, in any capitals; a translocation
+  without breakend notation (`<TRA>`, as Sniffles 1 writes one) has its mate in INFO/CHR2,
+  where that names another chromosome, and its END. The SV list has it in its *Remote chr* and
   *Remote start* columns, and so does its CSV export, beside the locus (empty for an SV
-  without a mate); the report sentence names it as the remote breakpoint, and the
-  *Remote chr* and *Remote start ≥* filters find the breakend by it. The import of a package's
-  NeedlR file reads the mate the same way, for a record of type BND (in any capitals) or with
-  an ALT in breakend notation, whatever its SVTYPE says; before, it stored every breakend
-  without its mate. A NeedlR breakend's id holds its mate, as an uploaded breakend's does
-  ([above](#where-each-dataset-lands)).
+  without a mate); the report sentence names it as the remote breakpoint, and so does the
+  report's locus line under it; the *Remote chr* and *Remote start ≥* filters find the
+  breakend by it. Every reader reads the mate so: the uploads, and a package's NeedlR,
+  HiFiCNV and chrM Sniffles2 files. The uploads read a mate only for a type written `BND`, so
+  a `bnd` and a TRA in breakend notation had none, the HiFiCNV and chrM files read none, and
+  a TRA's END was stored as the end of the SV on its own chromosome, where the tracks and
+  Circos drew it (CLIN-39). A breakend's id holds its mate, an uploaded's and a NeedlR
+  breakend's alike ([above](#where-each-dataset-lands)).
+- A call keeps its copy number (`FORMAT/CN`), which gives a CNV its gain or loss: without it an
+  uploaded CNV counted as a possible deletion in the second-hit badge and ranked as a loss,
+  whatever it called (CLIN-39). Two calls of one position, type and mate with other alleles or
+  another length are two SVs, as a NeedlR import's are ([above](#where-each-dataset-lands)):
+  the SV this source already stores under the id keeps it, matched by its length (an upload
+  stores no alleles), and the same event twice in the file is one call of the sample. They were
+  one SV with the first one's length and two calls of the sample.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another
@@ -1370,7 +1466,7 @@ calls are checked and replaced:
 - The caller the VCF header names is recorded in the family's annotation manifest
   ([annotation-provenance.md](annotation-provenance.md)).
 
-Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls
+Deleting a sample's structural variants on **Admin → Family & sample data** removes its calls
 from every source, and so does deleting the sample with its data. Both these deletes and an
 upload rewrite the stored rows, and write every call they do not change back as stored: with
 its phase set and breakend end, in its project, an inactive member's included. A delete whose
@@ -1423,7 +1519,16 @@ The repeat-expansion and interval-track uploads hold the family's write locks fr
 read until they commit, as the small-variant and structural-variant uploads do
 ([database.md](database.md#one-write-at-a-time-per-family)): such an upload waits while a
 package import of the family runs, which would otherwise undo it when it puts the family back,
-and a sign-out is refused while one runs.
+and a sign-out is refused while one runs. So does an admin's delete of a sample's interval track
+or repeat calls, which such a restore used to undo. The demo loader
+(`scripts/load_demo_quartet.py`) loads through the same uploads and records what it loads as they
+do; it used to record nothing.
+
+An interval-track upload with `overwrite` that fails after its delete also removes Postgres's
+record of the track, in a transaction of its own: the record's delete was the upload's, and
+rolled back with it, so Postgres named rows that were gone. A package dataset that replaces a
+caller's track clears that caller's rows whether or not Postgres records them; it used to clear
+them only when it did, and such rows stayed beside the new ones.
 
 ### The mark of an upload that did not finish
 
@@ -1584,6 +1689,10 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "… holds no record of the … track", "… holds no interval on a primary chromosome …", "… holds no segment", "… holds no APCAD value for …" | A package's track file holds nothing its reader can store: an empty or truncated pipeline output, or another file than the manifest means. Its dataset failed before the track was deleted ([Where each dataset lands](#where-each-dataset-lands)). Correct the file and import again. |
 | "Paraphase JSON for … holds no gene result", "The NeedlR file of … holds no structural variant", "The SNV file of … holds no record" | That sample's file holds no result; its dataset failed before the sample's data was replaced. |
 | "No mitochondrial call was replaced: the chrM VCF of … holds no variant record" (the `mito` dataset) | A sample's chrM VCF holds no variant record: a failed analysis or a file cut short. Every sample's mitochondrial calls are as they were; rerun the analysis and import its VCF. |
+| "No mitochondrial call was replaced: the chrM SV VCF of … holds … record(s), none on chrM" (the `mito` dataset) | The entry's `sv_vcf` is another SV callset than Sniffles2's chrM calls, such as the sample's genome-wide SV VCF. Point it at the chrM SV VCF. |
+| `dataset_file_without_record` (warning) | A data file holds nothing after its header. The import will fail its dataset and keep the stored data as it was: use the complete file. |
+| "TRGT VCF line … holds a value that cannot be read where a number is expected; nothing was stored" (TRGT upload, 400, or the `repeats_trgt` dataset) | A record of the TRGT VCF holds a position, motif count, allele length or purity that is no number, or a position beyond any chromosome: a damaged file or another format. Nothing was replaced. |
+| "The NIPT SNV file of … holds no record; no NIPT call was replaced" | A monogenic NIPT's per-sample SNV file holds nothing after its header. Neither file's calls were replaced. |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |
 | dbNSFP `missing` on every gene | The dbNSFP gene file is not at `GENE_REFERENCE_DBNSFP_GENE_PATH`. |
 

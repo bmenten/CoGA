@@ -125,6 +125,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Admin"
         title="Loading family statuses"
         message="Fetching the family status catalogue."

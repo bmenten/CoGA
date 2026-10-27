@@ -282,7 +282,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   if (familyFailed) {
     return (
       <FamilyLoadFailure
-        kicker="Small Variants"
+        kicker="Small variants"
         what="Family"
         error={familyError}
         notFoundMessage="This family could not be found."
@@ -296,7 +296,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   if (referenceFailed) {
     return (
       <PageState
-        kicker="Small Variants"
+        kicker="Small variants"
         title="Reference could not be loaded"
         message="The family's project, and with it the reference assembly, could not be loaded. The search runs within that project, so it cannot run without it."
         action={
@@ -312,7 +312,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     return (
       <PageState
         loading
-        kicker="Small Variants"
+        kicker="Small variants"
         title="Loading small variants"
         message="Collecting filtered small variant calls for this family."
       />
@@ -322,7 +322,7 @@ const FamilySmallVariantsPage: React.FC = () => {
   if (isError) {
     return (
       <PageState
-        kicker="Small Variants"
+        kicker="Small variants"
         title="Unable to load small variants"
         message={getErrorMessage(error, 'The small-variant query failed before results could be loaded.')}
       />
@@ -338,7 +338,7 @@ const FamilySmallVariantsPage: React.FC = () => {
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
-        kicker="Small Variants"
+        kicker="Small variants"
         familyId={familyId}
         family={family}
         projectId={preferredProjectId}

@@ -110,7 +110,7 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
         {/* Prominent destructive action at the very top of the overview. */}
         <div className="page-header admin-family-overview-header">
           <div className="space-y-2">
-            <p className="page-kicker">Selected Family</p>
+            <p className="page-kicker">Selected family</p>
             <h2 className="section-title">{selectedFamily.family_id}</h2>
             <p className="catalog-card-copy">
               Manage this family directly below: edit members and structure, review
@@ -137,7 +137,7 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
         <section className="surface-card-muted admin-project-access-card">
           <div className="page-header">
             <div className="space-y-2">
-              <p className="page-kicker">Project Access</p>
+              <p className="page-kicker">Project access</p>
               <h3 className="section-title">Link family to projects</h3>
               <p className="catalog-card-copy">
                 Project assignments here are inherited by every sample in the family and are
@@ -264,9 +264,9 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
               <thead>
                 <tr>
                   <th>Sample</th>
-                  <th>Individual</th>
-                  <th>Sample type</th>
-                  <th>Metadata</th>
+                  <th>Role</th>
+                  <th>Sex</th>
+                  <th>Status</th>
                   {SAMPLE_TRACK_ORDER.map((trackType) => (
                     <th key={trackType}>{TRACK_LABELS[trackType]}</th>
                   ))}

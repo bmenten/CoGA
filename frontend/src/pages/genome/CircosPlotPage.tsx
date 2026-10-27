@@ -14,6 +14,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 import { apiPath, raw } from '../../lib/apiPath';
 import { searchWithResolvedProject } from './viewerShared';
+import { routePath } from '../../lib/routePath';
 
 // A nuclear chromosome's name without "chr": a number, a number with a letter (2A) or one
 // letter (X, W). Contigs (1_KI270706v1_random, Un_GL000195v1, EBV) and the mitochondrion
@@ -156,6 +157,7 @@ const CircosPlotPage: FC = () => {
 
   const loadingState = (
     <PageState
+      loading
       kicker="Visualization"
       title="Loading circos plot"
       message="Preparing chromosome scaffolds and structural variant links."
@@ -253,7 +255,7 @@ const CircosPlotPage: FC = () => {
   const chromData = placement.drawn;
 
   const handleChromClick = (chr: string) =>
-    navigate(`/families/${familyId}/chromosome/${chr}${resolvedSearch ? `?${resolvedSearch}` : ''}`);
+    navigate(routePath`/families/${familyId}/chromosome/${chr}${raw(resolvedSearch ? `?${resolvedSearch}` : '')}`);
 
   const handleVariantClick = (v: Variant) => {
     // A breakend, or a TRA, drawn as one: its two chromosomes open in the genome view.
@@ -269,7 +271,7 @@ const CircosPlotPage: FC = () => {
     if (resolvedProjectId) {
       params.set('project_id', resolvedProjectId);
     }
-    navigate(`/families/${familyId}/genome?${params.toString()}`);
+    navigate(routePath`/families/${familyId}/genome${raw(`?${params.toString()}`)}`);
   };
 
   return (
@@ -322,7 +324,7 @@ const CircosPlotPage: FC = () => {
               </p>
             </div>
             <Link
-              to={`/families/${familyId}/structural-variants${resolvedSearch ? `?${resolvedSearch}` : ''}`}
+              to={routePath`/families/${familyId}/structural-variants${raw(resolvedSearch ? `?${resolvedSearch}` : '')}`}
               className="button-secondary hover:no-underline"
             >
               Back to variants

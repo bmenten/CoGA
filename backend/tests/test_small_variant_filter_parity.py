@@ -410,3 +410,10 @@ def test_python_compares_a_calls_allele_fraction_at_32_bits() -> None:
     record = _record("11-100-C-T", calls=[call])
     assert _keeps(record, sample_filters=["PROBAND::::0.45"])
     assert not _keeps(record, sample_filters=["PROBAND::::0.46"])
+
+
+def test_a_region_is_read_from_its_lower_coordinate_to_its_higher_as_the_sql_reads_it() -> None:
+    # A region written end first missed every variant in it, where the SQL kept them (CLIN-50).
+    assert _variant_overlaps_regions("1", 100, 100, [Region("1", 150, 50)])
+    assert _variant_overlaps_regions("1", 40, 60, [Region("1", 150, 50)])
+    assert not _variant_overlaps_regions("1", 151, 160, [Region("1", 150, 50)])

@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 import copy
+import dataclasses
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -420,7 +421,11 @@ async def test_an_update_reads_pcf_overlays_from_the_store(
 async def test_an_update_of_wisecondorx_reads_each_track_from_the_store(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def import_track(_session: Any, *, sample_context: Any, track_type: str, **_kwargs: Any) -> dict[str, int]:
+    async def import_track(
+        _session: Any, *, sample_context: Any, track_type: str, check_only: bool = False, **_kwargs: Any
+    ) -> dict[str, int]:
+        if check_only:  # the reader's check of its file, up to the first row: nothing written
+            return {}
         stores.track(sample_context.sample_id, track_type, "wisecondorx", rows=4)
         return {"processed": 4, "inserted": 4, "skipped": 0}
 
@@ -496,6 +501,133 @@ async def test_an_update_of_cnv_calls_leaves_out_a_sample_whose_tracks_it_skippe
     assert job.skipped_samples == {"S1"}
 
 
+# A family VCF of the samples, with no record: the importers below never read past its header.
+_FAMILY_VCF = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\tS2\n"
+
+
+def _small_variant_loader(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """The small-variant loader at the importers' edge, the family holding no small variants:
+    records each callset it is told to store."""
+    loaded: list[str] = []
+
+    async def no_small_variants(*_args: Any, **_kwargs: Any) -> int:
+        return 0
+
+    async def load(_session: Any, *, format_hint: str, **_kwargs: Any) -> dict[str, Any]:
+        loaded.append(format_hint)
+        return {"inserted": 3, "source_format": format_hint}
+
+    async def no_origin(_job: Any) -> None:
+        return None
+
+    monkeypatch.setattr(family_package_datasets, "count_family_small_variants", no_small_variants)
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", load)
+    monkeypatch.setattr(family_package_datasets, "_record_pipeline_haplotype_origin", no_origin)
+    return loaded
+
+
+@pytest.mark.asyncio
+async def test_an_update_of_the_haplotypes_reads_the_stored_blocks_not_their_record(
+    stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SAFE-18. The imputed genotypes and their blocks are gone; Postgres still records the
+    # blocks, as a restore that stopped part-way leaves it. Before: the update read that
+    # record and skipped, the blocks staying missing.
+    loaded = _small_variant_loader(monkeypatch)
+    stores.track("S1", "haplotype", "glimpse2", rows=0)
+    dataset = ManifestDataset(family_vcf=_file(tmp_path, "haplotypes/family.vcf", _FAMILY_VCF))
+
+    result = await _run(_job(stores, tmp_path, "haplotypes", dataset))
+
+    assert (result.status, loaded) == ("imported", ["glimpse2"])
+
+    # The blocks stored, whatever Postgres records of them: skipped.
+    stores.records.clear()
+    stores.track("S2", "haplotype", "glimpse2", rows=5, recorded=False)
+    loaded.clear()
+    result = await _run(_job(stores, tmp_path, "haplotypes", dataset))
+    assert (result.status, loaded) == ("skipped", [])
+    assert result.summary == {"existing_small_variants": 0, "existing_haplotypes": 5}
+
+
+@pytest.mark.asyncio
+async def test_an_snv_update_of_imputed_genotypes_reads_their_blocks_too(
+    stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SAFE-18 (#873). The family holds the blocks made from imputed genotypes, not the
+    # genotypes. Before: the SNV dataset's update counted the genotypes alone, imported them
+    # and replaced the blocks, where the haplotypes dataset's update skipped.
+    loaded = _small_variant_loader(monkeypatch)
+    stores.track("S1", "haplotype", "glimpse2", rows=5, recorded=False)
+    imputed = ManifestDataset(
+        family_vcf=_file(tmp_path, "snv/family.vcf", _FAMILY_VCF), source_format="glimpse2"
+    )
+
+    result = await _run(_job(stores, tmp_path, "snv", imputed))
+
+    assert (result.status, loaded) == ("skipped", [])
+    assert result.message == (
+        "Skipped SNV import in update mode because haplotype blocks made from imputed genotypes "
+        "already exist for this family"
+    )
+    assert result.summary == {"existing": 0, "existing_haplotypes": 5}
+
+    # Direct calls are another callset: the blocks are no reason to skip them.
+    direct = ManifestDataset(family_vcf=imputed.family_vcf, source_format="clair3")
+    result = await _run(_job(stores, tmp_path, "snv", direct))
+    assert (result.status, loaded) == ("imported", ["clair3"])
+
+
+@pytest.mark.asyncio
+async def test_a_cnv_dataset_whose_vcfs_call_no_cnv_is_imported_and_replaces_the_earlier_calls(
+    stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SAFE-18. Before: it ended "registered", so the import did not count it as brought
+    # again (its tracks were not recorded in imported_scopes), and an overwrite left the
+    # family's earlier HiFiCNV calls in place.
+    replaced: list[tuple[list[Any], str | None]] = []
+
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    async def known_samples(*_args: Any, **_kwargs: Any) -> set[str]:
+        return {"S1"}
+
+    async def replace(_assembly: str, _family: str, _projects: Any, records: Any, *, source: str | None = None) -> None:
+        replaced.append((list(records), source))
+
+    for name, fake in (
+        ("known_vcf_sample_ids", known_samples),
+        ("lock_family_variant_writes", nothing),
+        ("replace_family_structural_variants", replace),
+        ("_update_sv_file_metadata", nothing),
+        ("_record_sample_signal_tracks", nothing),
+    ):
+        monkeypatch.setattr(family_package_datasets, name, fake)
+    no_calls = "".join(f"{line}\n" for line in _CNV_VCF.splitlines() if line.startswith("#"))
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {
+                "vcf": _file(tmp_path, "cnv/S1.vcf", no_calls),
+                "copy_number_bedgraph": _file(tmp_path, "cnv/S1.copynum.bedgraph", "chr1\t0\t1000\t2\n"),
+            }
+        }
+    )
+    job = dataclasses.replace(_job(stores, tmp_path, "cnv", dataset), conflict_mode="overwrite")
+
+    result = await _run(job)
+
+    assert result.status == "imported"
+    assert result.message == "Imported the CNV VCFs, which call no CNV"
+    assert replaced == [([], CNV_SOURCE)]
+    assert stores.rows[(_uuid("S1"), "segments", CNV_SOURCE)] == 1
+    # So the import counts it as brought again, for the samples it names.
+    scope = {"source": None, "samples": ["S1"]}
+    assert registration.imported_dataset_scopes(
+        registration.datasets_brought_again([("cnv", result.status)], {"cnv": scope}), {"cnv": scope}, {}
+    ) == {"cnv": scope}
+
+
 @pytest.mark.asyncio
 async def test_an_update_that_skips_every_paraphase_sample_ends_skipped(stores: _Stores, tmp_path: Path) -> None:
     # Paraphase results are stored in Postgres: their table is what the update reads.
@@ -513,6 +645,51 @@ async def test_an_update_that_skips_every_paraphase_sample_ends_skipped(stores: 
         "Skipped Paraphase import in update mode because Paraphase results already exist for S1, S2"
     )
     assert job.skipped_samples == {"S1", "S2"}
+
+
+@pytest.mark.asyncio
+async def test_an_overwrite_of_a_track_clears_its_rows_no_record_names(
+    stores: _Stores, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # SAFE-18. The sample's WisecondorX segments are stored without a record (a restore that
+    # stopped part-way, a failed upload). Before: the source's track was cleared only when
+    # Postgres recorded it, and the importer's own clear takes its file's rows alone, so those
+    # rows stayed beside the new ones.
+    cleared: list[tuple[str, str]] = []
+
+    async def clear(_session: Any, *, sample_context: Any, track_type: str, source: str) -> None:
+        cleared.append((track_type, source))
+
+    async def importer(*, check_only: bool = False) -> dict[str, int]:
+        return {} if check_only else {"inserted": 2}
+
+    monkeypatch.setattr(family_package_datasets, "_delete_sample_interval_source", clear)
+    stores.track("S1", "segments", "wisecondorx", rows=4, recorded=False)
+
+    result = await family_package_datasets._import_interval_track_unless_present(
+        _Session(stores),  # type: ignore[arg-type]
+        sample_context=_samples()["S1"],
+        track_type="segments",
+        source="wisecondorx",
+        conflict_mode="overwrite",
+        importer=importer,
+    )
+
+    assert result == {"inserted": 2}
+    assert cleared == [("segments", "wisecondorx")]
+
+    # Neither recorded nor stored: nothing to clear.
+    cleared.clear()
+    stores.rows.clear()
+    await family_package_datasets._import_interval_track_unless_present(
+        _Session(stores),  # type: ignore[arg-type]
+        sample_context=_samples()["S1"],
+        track_type="segments",
+        source="wisecondorx",
+        conflict_mode="overwrite",
+        importer=importer,
+    )
+    assert cleared == []
 
 
 # --- what the import counts as imported again ------------------------------------------------
