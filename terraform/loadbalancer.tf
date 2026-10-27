@@ -7,7 +7,8 @@
 # TLS terminates here on a Google-managed cert for var.app_domain. Because TLS is in
 # front of them, both Cloud Run services send HSTS (ENABLE_HSTS=true on each, in
 # cloudrun.tf), so the app page and the API answer with
-# Strict-Transport-Security: max-age=63072000; includeSubDomains.
+# Strict-Transport-Security: max-age=63072000; includeSubDomains. The HTTPS URL map sets
+# the same header on every answer it relays, Cloud Run's own error pages included.
 
 # ---- Serverless NEGs -------------------------------------------------------
 
@@ -67,6 +68,18 @@ resource "google_compute_backend_service" "frontend" {
 resource "google_compute_url_map" "https" {
   name            = "${local.name_prefix}-urlmap"
   default_service = google_compute_backend_service.frontend.id
+
+  # HSTS on every answer relayed from either service, for every host and path: the policy
+  # both servers send, set in place of theirs (replace), so an answer carries one header.
+  # Answers Cloud Run gives itself, such as its error page when no instance can serve, had
+  # none (SEC-23). Only this HTTPS path: the plain-HTTP listener below only redirects.
+  header_action {
+    response_headers_to_add {
+      header_name  = "Strict-Transport-Security"
+      header_value = "max-age=63072000; includeSubDomains"
+      replace      = true
+    }
+  }
 
   host_rule {
     hosts        = [var.app_domain]
