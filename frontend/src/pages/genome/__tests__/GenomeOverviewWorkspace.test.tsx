@@ -309,6 +309,33 @@ describe('GenomeOverviewWorkspace', () => {
     expect(navigateToChromosome.mock.calls).toEqual([['1'], ['1']]);
   });
 
+  // ENG-7: the strip wrote the mitochondrion `MT`, where the sidebar, the chromosome view and
+  // the tracks name it chrM (#602). The strip writes each chromosome without its chr (1, X),
+  // so the mitochondrion is M; it still opens the chromosome view's `MT` route.
+  it('names the mitochondrion M in the chromosome strip, as chrM without its chr', () => {
+    const navigateToChromosome = vi.fn();
+    renderWithoutTracks({
+      navigateToChromosome,
+      layout: {
+        chroms: ['X', 'Y', 'MT'],
+        offsets: { X: 0, Y: 1000, MT: 1500 },
+        lengths: { X: 1000, Y: 500, MT: 10 },
+        total: 1510,
+      },
+    });
+
+    const strip = screen.getByRole('region', { name: 'Chromosomes' });
+    expect(
+      within(strip)
+        .getAllByRole('button', { name: /^Open chromosome / })
+        .map((chromosome) => chromosome.getAttribute('aria-label')),
+    ).toEqual(['Open chromosome X', 'Open chromosome Y', 'Open chromosome M']);
+    expect(within(strip).queryByText('MT')).not.toBeInTheDocument();
+
+    fireEvent.click(within(strip).getByText('M'));
+    expect(navigateToChromosome).toHaveBeenCalledWith('MT');
+  });
+
   it('draws one labelled coverage track per CNV caller', () => {
     render(
       <MemoryRouter>

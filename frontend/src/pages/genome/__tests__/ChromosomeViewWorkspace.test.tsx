@@ -208,6 +208,27 @@ describe('ChromosomeViewWorkspace', () => {
     expect(screen.queryByText('Not validated for clinical use.')).not.toBeInTheDocument();
   });
 
+  // ENG-7: the list offered `MT` (and `1`, `X`), where the header, the tracks and the genome
+  // overview name the mitochondrion chrM (#602). Its value stays the route's key, `MT`, which
+  // the API reads as M, chrM and chrMT alike.
+  it('names each chromosome in its list as the header does, the mitochondrion chrM', () => {
+    const onChromChange = vi.fn();
+    renderWorkspace(vi.fn(), { chrom: 'MT', region: { start: 0, end: 16_569 }, onChromChange });
+
+    const list = screen.getByRole('combobox', { name: 'Chromosome' });
+    expect(within(list).getAllByRole('option').map((option) => option.textContent)).toEqual([
+      ...Array.from({ length: 22 }, (_, index) => `chr${index + 1}`),
+      'chrX',
+      'chrY',
+      'chrM',
+    ]);
+    expect(list).toHaveDisplayValue('chrM');
+    expect(screen.getByText(/GRCh38.* • chrM • /)).toBeInTheDocument();
+
+    fireEvent.change(list, { target: { value: '7' } });
+    expect(onChromChange).toHaveBeenLastCalledWith('7');
+  });
+
   it('requests coverage and segments for the active chromosome window', () => {
     const queryClient = createTestQueryClient();
     const member = {
