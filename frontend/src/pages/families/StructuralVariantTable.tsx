@@ -25,6 +25,7 @@ import {
 import { SV_IGV_FLANK_BP, buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import VariantScoreCell from './VariantScoreCell';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
+import { raw, routePath } from '../../lib/routePath';
 
 interface StructuralVariantTableProps {
   familyId?: string;
@@ -431,7 +432,7 @@ export default function StructuralVariantTable({
                       projectId,
                       variant,
                     });
-                    const backPath = `/families/${familyId}/structural-variants${linkSearch}`;
+                    const backPath = routePath`/families/${familyId}/structural-variants${raw(linkSearch)}`;
                     const hasRemote = !!variant.remote_chr && !!variant.remote_start;
                     const remoteChr = variant.remote_chr?.startsWith('chr')
                       ? variant.remote_chr
@@ -447,11 +448,9 @@ export default function StructuralVariantTable({
                         }`
                       : '';
                     const hrefB = hasRemote
-                      ? `/families/${familyId}/igv?locus=${encodeURIComponent(
-                          locusB,
-                        )}${projectId ? `&project_id=${projectId}` : ''}&back_path=${encodeURIComponent(
-                          backPath,
-                        )}`
+                      ? routePath`/families/${familyId}/igv?locus=${locusB}${raw(
+                          projectId ? `&project_id=${encodeURIComponent(projectId)}` : '',
+                        )}&back_path=${backPath}`
                       : '';
                     return (
                       <div className="inline-actions">

@@ -21,6 +21,7 @@ import type {
 import { apiPath } from '../../lib/apiPath';
 import { useFamilyReference } from '../../lib/reference';
 import { parsePedigree } from '../../lib/pedigree';
+import { routePath } from '../../lib/routePath';
 
 // A check that could not run makes the overall a warning, so "skip" means no check ran.
 const OVERALL_COPY: Record<QcStatus, string> = {
@@ -444,7 +445,7 @@ const FamilySampleQcPage: React.FC = () => {
         title="QC could not be computed"
         message="The genotypes for this family could not be analysed."
         action={
-          <Link to={`/families/${familyId}`} className="button-secondary">
+          <Link to={routePath`/families/${familyId}`} className="button-secondary">
             Back to family
           </Link>
         }

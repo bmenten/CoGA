@@ -8,6 +8,7 @@ import { apiPath } from '../../lib/apiPath';
 import type { ApiErrorLike } from '../../lib/errorMessage';
 import QueryFailure from '../../components/QueryFailure';
 import { formatDateTime } from '../../lib/format';
+import { routePath } from '../../lib/routePath';
 
 interface PanelAppPanelSummary {
   panelapp_id: number;
@@ -432,7 +433,7 @@ const GenePanelsPage: React.FC = () => {
             return (
               <tr key={p._id}>
                 <td>
-                  <Link to={`/panels/${p._id}`} className="table-link">
+                  <Link to={routePath`/panels/${p._id}`} className="table-link">
                     {p.name}
                   </Link>
                 </td>

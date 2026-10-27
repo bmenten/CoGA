@@ -16,6 +16,7 @@ import {
   useNow,
   type DatasetProgress,
 } from './importProgress';
+import { routePath } from '../../lib/routePath';
 
 type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed';
 type PackageTargetMode = 'new' | 'existing';
@@ -881,7 +882,7 @@ const FamilyPackageImportPanel: React.FC = () => {
           ) : null}
 
           {currentJob.status === 'completed' && currentJob.family_id && !currentJob.dry_run ? (
-            <Link to={`/families/${currentJob.family_id}`} className="button-secondary hover:no-underline">
+            <Link to={routePath`/families/${currentJob.family_id}`} className="button-secondary hover:no-underline">
               Open imported family
             </Link>
           ) : null}

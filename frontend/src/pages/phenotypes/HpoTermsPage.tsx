@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link, useSearchParams } from 'react-router';
+import { familyPagePath, routePath } from '../../lib/routePath';
 
 const normalizeTerms = (values: string[]) =>
   Array.from(
@@ -16,10 +17,8 @@ const hpoBrowserHref = (term: string) =>
 
 // The SV page to return to, as the link sent it: only a path inside the app's family
 // pages, never another site. Without one, the family's SV page (id encoded, #526).
-const backToSvsHref = (from: string, familyId: string): string | null => {
-  if (from.startsWith('/families/') && !from.includes('\\')) return from;
-  return familyId ? `/families/${encodeURIComponent(familyId)}/structural-variants` : null;
-};
+const backToSvsHref = (from: string, familyId: string): string | null =>
+  familyPagePath(from) ?? (familyId ? routePath`/families/${familyId}/structural-variants` : null);
 
 const HpoTermsPage: React.FC = () => {
   const [searchParams] = useSearchParams();

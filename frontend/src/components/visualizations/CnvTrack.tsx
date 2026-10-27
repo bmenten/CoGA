@@ -8,6 +8,7 @@ import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
+import { routePath } from '../../lib/routePath';
 
 interface Cnv {
   _id: string;
@@ -140,7 +141,7 @@ const CnvTrack: React.FC<Props> = ({
               setTooltip({ x: event.clientX, y: event.clientY, label: r.label })
             }
             onMouseLeave={() => setTooltip(null)}
-            onClick={() => navigate(`/cnv-details/${r._id}`)}
+            onClick={() => navigate(routePath`/cnv-details/${r._id}`)}
           />
         );
       })}

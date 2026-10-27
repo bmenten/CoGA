@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.content_disposition import content_disposition
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user
 from ..schemas import (
@@ -455,7 +456,7 @@ async def download_family_pedigree(
         content=ped_text,
         media_type="text/plain; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{family_id}.ped"',
+            "Content-Disposition": content_disposition("attachment", f"{family_id}.ped"),
         },
     )
 

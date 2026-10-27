@@ -8,6 +8,7 @@ import { apiPath } from '../../lib/apiPath';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { CLINVAR_SUPPORT_NOT_RECORDED, clinvarSupportSummary } from '../../lib/clinicalCnvSupport';
 import { formatRegionSize } from '../../lib/format';
+import { routePath } from '../../lib/routePath';
 
 // The catalogue request's page size; reaching it means there may be more (#526).
 const CATALOG_LIMIT = 1000;
@@ -173,7 +174,7 @@ const ClinicalCnvExplorerPage = () => {
                 {rows.map((cnv) => (
                   <tr key={cnv._id}>
                     <td>
-                      <Link to={`/cnv-details/${cnv._id}`} className="table-link">
+                      <Link to={routePath`/cnv-details/${cnv._id}`} className="table-link">
                         {cnv.label}
                       </Link>
                     </td>
