@@ -59,7 +59,7 @@ from .clickhouse_variant_queries import (
     _small_region_window_rows,
     _small_variant_windows,
 )
-from .clickhouse_variant_records import PanelFilterConstraints, Region
+from .clickhouse_variant_records import PanelFilterConstraints, Region, _status_filter_terms
 from .family_variant_filters import SmallVariantQueryFilters
 from .genotypes import ALT_CLASSES, HET, HOM_ALT, classify_genotype, clickhouse_genotype_condition
 from .access_control import CurrentUser, is_admin_user, user_metadata_project_ids
@@ -604,15 +604,17 @@ def _annotation_index_clauses(
             " OR arrayExists(g -> lowerUTF8(g) IN %(ann_genes)s, ai.gene_ids))"
         )
 
-    exclude_clinvar = [value.lower() for value in filters.exclude_clinvar if str(value).strip()]
+    # Normalised as the stored terms are and as the family search reads them
+    # (``Likely_benign`` is ``likely benign``): lowercased alone, an API value with an
+    # underscore excluded nothing (CLIN-50).
+    exclude_clinvar = list(_status_filter_terms(filters.exclude_clinvar))
     if exclude_clinvar:
         params["ann_exclude_clinvar"] = exclude_clinvar
-        clauses.append(
-            "NOT arrayExists(x -> lowerUTF8(x) IN %(ann_exclude_clinvar)s, ai.clinvar_terms)"
-        )
+        clauses.append("NOT hasAny(ai.clinvar_terms, %(ann_exclude_clinvar)s)")
 
-    if filters.rsid:
-        params["ann_rsid"] = filters.rsid
+    rsid = (filters.rsid or "").strip()
+    if rsid:
+        params["ann_rsid"] = rsid
         clauses.append("positionCaseInsensitive(ifNull(ai.rsid, ''), %(ann_rsid)s) > 0")
 
     return clauses
@@ -1091,6 +1093,8 @@ async def _fetch_variant_rows(
         ]
         impacts = annotation.get("impacts", [])
         effects = annotation.get("effects", [])
+        # The transcript the row's consequence and HGVS come from: [effect, HGVSc, HGVSp].
+        shown = annotation.get("shown", [])
         clinvar_terms = annotation.get("clinvar_terms", [])
         classification = _most_severe(review.get("classifications", []), _CLASSIFICATION_RANK)
         impact = _most_severe(impacts, _IMPACT_RANK) or _first_non_empty(impacts)
@@ -1109,10 +1113,10 @@ async def _fetch_variant_rows(
                 or _first_non_empty(annotation.get("gene_ids", [])),
                 gene_symbols=gene_symbols,
                 impact=impact.upper() if impact else None,
-                consequence=_first_non_empty(effects),
+                consequence=_first_non_empty(shown[:1]) or _first_non_empty(effects),
                 effects=effects,
-                hgvsc=_first_non_empty(annotation.get("hgvsc_values", [])),
-                hgvsp=_first_non_empty(annotation.get("hgvsp_values", [])),
+                hgvsc=_first_non_empty(shown[1:2]) if shown else _first_non_empty(annotation.get("hgvsc_values", [])),
+                hgvsp=_first_non_empty(shown[2:3]) if shown else _first_non_empty(annotation.get("hgvsp_values", [])),
                 clinvar=_most_severe(clinvar_terms, _CLINVAR_RANK) or _first_non_empty(clinvar_terms),
                 classification=classification,
                 tags=sorted(review.get("tags", set())),
@@ -1266,6 +1270,28 @@ async def _fetch_annotation_display(
             "hgvsc_values": [str(value) for value in (row[5] or [])],
             "hgvsp_values": [str(value) for value in (row[6] or [])],
         }
+    # The row shows the most severe impact over the transcripts; its consequence and HGVS
+    # come from a transcript of that impact (MANE Select, then canonical, first), never
+    # the first distinct value of each, which paired one transcript's consequence with
+    # another's HGVS (CLIN-50).
+    annotations = _small_table_name(assembly_name, "variants/annotations")
+    transcripts = await execute_clickhouse(
+        f"""
+        SELECT key, impact, effects, hgvsc, hgvsp, mane_select, canonical
+        FROM {annotations}
+        WHERE key IN %(keys)s
+        """,
+        {"keys": tuple(keys)},
+    )
+    shown: dict[int, tuple[tuple[int, bool, bool], list[str]]] = {}
+    for key, impact, effects, hgvsc, hgvsp, mane_select, canonical in transcripts:
+        rank = (_IMPACT_RANK.get(str(impact or "").lower(), 0), bool(mane_select), bool(canonical))
+        if int(key) not in shown or rank > shown[int(key)][0]:
+            first_effect = next((str(value) for value in (effects or []) if value), "")
+            shown[int(key)] = (rank, [first_effect, str(hgvsc or ""), str(hgvsp or "")])
+    for key, (_rank, (effect, hgvsc, hgvsp)) in shown.items():
+        if key in result:
+            result[key]["shown"] = [effect, hgvsc, hgvsp]
     return result
 
 

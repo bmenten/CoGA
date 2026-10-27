@@ -450,12 +450,18 @@ def _row_to_dict(row: Any, folders: Iterable[str] | None = None) -> dict[str, An
     # -- and it is not downloaded through CoGA.
     in_object_store = is_remote_uri(storage_path)
     exists: bool | None = None
+    # A recorded location CoGA does not read from: a local path outside its folders, or an
+    # object below no remote FAMILY_IMPORT_ROOTS entry. Such a remote row was listed as kept
+    # in the object store, though Verify refuses it (SEC-27).
+    outside = in_object_store and not readable_remote_uri(storage_path)
     if not in_object_store:
         # A recorded path outside the folders a file is read from is shown unavailable,
         # whether or not a file lies there: it is not looked up.
         path = readable_local_path(storage_path, folders) if storage_path else None
         exists = path is not None and os.path.isfile(path)
+        outside = bool(storage_path) and path is None
     record["in_object_store"] = in_object_store
+    record["outside_read_folders"] = outside
     record["exists"] = exists
     record["download_available"] = bool(exists)
     created = record.get("created_at")

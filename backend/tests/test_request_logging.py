@@ -54,6 +54,21 @@ def test_log_model_update_sorts_fields() -> None:
     }
 
 
+def test_the_request_audit_and_the_ui_events_mask_one_list_of_keys() -> None:
+    # ENG-8. Each kept a copy of the list of secret-looking keys, so either could come to
+    # mask less than the other; both now read the one in coga_logging.
+    from app.core import coga_logging
+    from app.routers import ui_events
+
+    assert not hasattr(rl, "_SENSITIVE_PREFIXES") and not hasattr(ui_events, "_SENSITIVE_PREFIXES")
+    for key in ("Password", "secret_value", "TOKEN", "authorization", "api_key_id", "access_key"):
+        assert coga_logging.is_sensitive_key(key)
+        assert _sanitize_for_logging({key: "value"}) == {key: "***"}
+        assert ui_events._sanitize_detail({key: "value"}) == {key: "***"}
+    assert not coga_logging.is_sensitive_key("family_id")
+    assert _sanitize_for_logging({"family_id": "F1"}) == {"family_id": "F1"}
+
+
 def test_sanitize_for_logging_masks_sensitive_keys_recursively() -> None:
     payload = {
         "email": "a@example.com",

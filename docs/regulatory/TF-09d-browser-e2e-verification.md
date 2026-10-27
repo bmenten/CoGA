@@ -88,7 +88,7 @@ workstation. It is the controlled, citable form of "examining the e2e validation
 
 ### 4.0 Prerequisites
 
-- **Docker** (for the datastores), **Node.js 22** (at least 22.22.0), and a **Python** interpreter with the backend
+- **Docker** (for the datastores), **Node.js 22** (at least 22.22.2, the `engines` floor in `frontend/package.json`), and a **Python** interpreter with the backend
   dependencies installed (`pip install -r backend/requirements-dev.txt`). If those deps live in a
   specific interpreter, point Playwright at it with `E2E_PYTHON=/path/to/python` (used in §4.1).
 - Run all commands from the **repository root** unless noted.
@@ -102,7 +102,7 @@ workstation. It is the controlled, citable form of "examining the e2e validation
 docker compose up -d postgres clickhouse
 
 # 2. Seed the synthetic golden trio + the known e2e login user (idempotent)
-RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py
+python scripts/seed_playwright_e2e.py
 
 # 3. Install the browser engine once (Chromium)
 cd frontend && npx playwright install chromium

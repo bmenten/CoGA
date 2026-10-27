@@ -33,6 +33,7 @@ import { addableTagDefinitions } from './smallVariantSearch';
 import { fetchFamilyReviewTags, quickTagTogglePayload } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
 import type { CandidateCapFlags } from './CandidateCapNotice';
+import { routePath } from '../../lib/routePath';
 
 type StructuralVariantPage = CandidateCapFlags & {
   variants: StructuralVariant[];
@@ -325,7 +326,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   if (familyFailed) {
     return (
       <FamilyLoadFailure
-        kicker="Structural Variants"
+        kicker="Structural variants"
         what="Family"
         error={familyError}
         notFoundMessage="This family could not be found."
@@ -339,7 +340,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     return (
       <PageState
         loading
-        kicker="Structural Variants"
+        kicker="Structural variants"
         title="Loading structural variants"
         message="Preparing the structural variant table, summaries, and filters."
       />
@@ -355,7 +356,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
-        kicker="Structural Variants"
+        kicker="Structural variants"
         familyId={familyId}
         family={familyData}
         projectId={projectId}
@@ -363,14 +364,14 @@ const FamilyStructuralVariantsPage: React.FC = () => {
         actions={
           <>
             <GenomeWorkspaceLink
-              to={`/families/${familyId}/genome${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
+              to={routePath`/families/${familyId}/genome${raw(linkSearch)}${raw(projectId ? `${linkSearch ? '&' : '?'}project_id=${encodeURIComponent(projectId)}` : '')}`}
               className="button-secondary workspace-button hover:no-underline"
               label="Open the genome overview"
             >
               Genome
             </GenomeWorkspaceLink>
             <GenomeWorkspaceLink
-              to={`/families/${familyId}/circos${linkSearch}${projectId ? `${linkSearch ? '&' : '?'}project_id=${projectId}` : ''}`}
+              to={routePath`/families/${familyId}/circos${raw(linkSearch)}${raw(projectId ? `${linkSearch ? '&' : '?'}project_id=${encodeURIComponent(projectId)}` : '')}`}
               className="button-secondary workspace-button hover:no-underline"
               label="Open the Circos view"
             >

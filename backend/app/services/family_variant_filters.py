@@ -138,15 +138,19 @@ def structural_variant_length_filters_match(
     any minimum and matches no exact length, whatever SVLEN or END its caller wrote (the
     owner's decision, 2026-10-13). Another SV without SVLEN whose END is its POS measures
     0 bp, as the list shows it: any minimum above 0 drops it.
+
+    Both filters are read without their sign, as they measure: the list writes a deletion's
+    length with a minus sign, and an exact length copied from it (``-5000``) matched nothing
+    (CLIN-39).
     """
     if length is None and min_length is None:
         return True
     if is_translocation_sv_type(sv_type):
         return length is None
     measured = abs(structural_variant_length(sv_len=sv_len, start=start, end=end))
-    if length is not None and measured != length:
+    if length is not None and measured != abs(length):
         return False
-    return min_length is None or measured >= min_length
+    return min_length is None or measured >= abs(min_length)
 
 
 # SIFT and PolyPhen name a prediction, where the other in-silico predictors give a score.

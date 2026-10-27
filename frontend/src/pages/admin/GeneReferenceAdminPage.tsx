@@ -129,6 +129,7 @@ const GeneReferenceAdminPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading gene reference sync"
         message="Preparing the cached gene reference job status and provider summaries."

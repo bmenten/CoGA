@@ -6,6 +6,7 @@ import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
 import type { ReportCodeLookupOut } from '../../lib/apiSchema.generated';
 import { formatReportTime } from '../families/signedReportRecord';
+import { routePath } from '../../lib/routePath';
 
 type LookupError = { response?: { status?: number; data?: { detail?: unknown } } };
 
@@ -49,7 +50,7 @@ const ReportCodeLookupPage: React.FC = () => {
   const submit = (event: React.FormEvent) => {
     event.preventDefault();
     const typed = draft.trim();
-    if (typed) navigate(`/report-codes/${encodeURIComponent(typed)}`);
+    if (typed) navigate(routePath`/report-codes/${typed}`);
   };
 
   const found = lookup.data;
@@ -110,7 +111,7 @@ const ReportCodeLookupPage: React.FC = () => {
           <p className="report-signout-actions">
             <Link
               className="form-button"
-              to={`/families/${encodeURIComponent(found.family_id)}/report?version=${found.version}`}
+              to={routePath`/families/${found.family_id}/report?version=${found.version}`}
             >
               Open signed version {found.version}
             </Link>

@@ -243,10 +243,7 @@ async def _exercise(run: str) -> dict[str, Any]:
                     {"email": email, "hashed_password": get_password_hash(password)},
                 )
             ).scalar_one()
-        await session.execute(
-            text("INSERT INTO hpo_term (hpo_id, label) VALUES (:id, 'Seizure') ON CONFLICT (hpo_id) DO NOTHING"),
-            {"id": SEIZURE},
-        )
+        await _harness.seed_hpo_term(session, SEIZURE, "Seizure")
         await session.commit()
 
     out: dict[str, Any] = {"users": users, "emails": emails}

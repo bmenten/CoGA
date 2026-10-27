@@ -343,7 +343,7 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
         "The NIPT parents' sex could not be checked.",
         f"Sex could not be checked for samples FATHER and MOTHER. {_NOT_A_PASS}",
     ]
-    not_checked = "Sex could not be checked: the genotypes could not be loaded."
+    not_checked = "The genotypes could not be loaded, so the sex could not be checked."
     assert [
         (c.sample_id, c.recorded_sex, c.inferred_sex, c.x_sites, c.status, c.message)
         for c in report.sex_checks
@@ -354,10 +354,11 @@ def test_service_nipt_parent_sex_that_could_not_be_read_warns_and_gates_sign_out
     assert _warnings(caplog) == ["NIPT parents' sex could not be checked for family FAM1: DatabaseError"]
     assert _QUOTED_VALUE not in _frozen(report)
     assert "DB::Exception" not in _frozen(report)
-    # The gate holds each parent by name: the same sentence twice named neither (CLIN-8).
+    # The gate holds each parent by name: the same sentence twice named neither (CLIN-8),
+    # with one colon (ENG-10; it read "Sample FATHER: sex could not be checked: the …").
     assert _unverifiable_swap_checks(_canonical_sample_qc(report)) == [
-        "Sample FATHER: sex could not be checked: the genotypes could not be loaded.",
-        "Sample MOTHER: sex could not be checked: the genotypes could not be loaded.",
+        "Sample FATHER: the genotypes could not be loaded, so the sex could not be checked.",
+        "Sample MOTHER: the genotypes could not be loaded, so the sex could not be checked.",
     ]
 
 

@@ -84,7 +84,7 @@ def test_annotation_index_clauses_hold_the_per_variant_filters_only() -> None:
     joined = " AND ".join(_annotation_index_clauses(filters, params))
     assert "ai.gene_symbols" in joined
     assert "ai.rsid" in joined
-    assert "NOT arrayExists(x -> lowerUTF8(x) IN %(ann_exclude_clinvar)s, ai.clinvar_terms)" in joined
+    assert "NOT hasAny(ai.clinvar_terms, %(ann_exclude_clinvar)s)" in joined
     for pooled in ("ai.impacts", "ai.effects", "ai.hgvs", "ai.max_", "ai.has_", "ai.sift", "ai.polyphen"):
         assert pooled not in joined
     # Gene terms are normalised for matching.
@@ -93,6 +93,17 @@ def test_annotation_index_clauses_hold_the_per_variant_filters_only() -> None:
         "ann_exclude_clinvar": ["benign"],
         "ann_rsid": "rs123",
     }
+
+
+def test_the_explorer_reads_excluded_clinvar_statuses_and_the_rsid_as_the_family_search_does() -> None:
+    # An API value with an underscore excluded nothing: the stored terms read
+    # "likely benign" (CLIN-50). The rsID is trimmed, as the family search trims it.
+    from backend.app.services.variant_explorer_service import _annotation_index_clauses
+
+    params: dict = {}
+    filters = GlobalVariantFilters(exclude_clinvar=["Likely_benign", " Benign ", ""], rsid="  rs123 ")
+    _annotation_index_clauses(filters, params)
+    assert params == {"ann_exclude_clinvar": ["likely benign", "benign"], "ann_rsid": "rs123"}
 
 
 def test_entries_where_binds_as_valid_clickhouse_query() -> None:

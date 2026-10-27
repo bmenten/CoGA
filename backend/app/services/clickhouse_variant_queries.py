@@ -59,6 +59,7 @@ from .family_variant_filters import (
     SmallVariantQueryFilters,
     StructuralVariantQueryFilters,
     in_silico_prediction_pattern,
+    is_translocation_sv_type,
     parse_small_variant_sample_filter,
     parse_structural_sample_filter,
     small_variant_type_matches,
@@ -529,12 +530,13 @@ def _variant_overlaps_regions(chr_value: str, start: int, end: int, regions: Seq
     """Whether a variant overlaps one of the regions. The chromosomes are compared by
     ``_chromosome_match_key``, as the SQL region conditions compare them: in any capitals,
     with or without ``chr``, and chrM by any of its names. Compared as written, an interval
-    typed as ``x:…`` or a region on chrMT missed a variant the SQL kept (ENG-1)."""
+    typed as ``x:…`` or a region on chrMT missed a variant the SQL kept (ENG-1). A region
+    reaches from the lower of its two coordinates to the higher, as the SQL reads it (CLIN-50)."""
     chromosome = _chromosome_match_key(chr_value)
     return any(
         chromosome == _chromosome_match_key(region.chr)
-        and start <= region.end
-        and end >= region.start
+        and start <= max(region.start, region.end)
+        and end >= min(region.start, region.end)
         for region in regions
     )
 
@@ -603,8 +605,10 @@ class _RegionLookup:
     def _of_keyed(cls, bounds: dict[str, list[tuple[int, int]]]) -> _RegionLookup:
         starts: dict[str, list[int]] = {}
         furthest_ends: dict[str, list[int]] = {}
-        for chromosome, chromosome_bounds in bounds.items():
-            chromosome_bounds.sort()
+        for chromosome, unordered in bounds.items():
+            # Each region from the lower of its coordinates to the higher, as
+            # _variant_overlaps_regions and the SQL read it (CLIN-50).
+            chromosome_bounds = sorted((min(start, end), max(start, end)) for start, end in unordered)
             starts[chromosome] = [start for start, _end in chromosome_bounds]
             furthest: list[int] = []
             for _start, end in chromosome_bounds:
@@ -1182,7 +1186,9 @@ def _structural_record_matches(
 ) -> bool:
     """Whether the search's ``filters``, its regions (a gene filter's loci) and its gene
     panel (``panel``, prepared once per search) keep ``record``."""
-    if filters.chromosome and normalize_chromosome(record.chr) != normalize_chromosome(filters.chromosome):
+    # As the SQL reads the filter (its aliases), so chrM is chrM by any of its names: compared
+    # as written, MT against M dropped what the SQL kept (CLIN-50).
+    if filters.chromosome and not _chromosome_filter_matches(record.chr, filters.chromosome):
         return False
     if filters.overlap:
         if filters.start is not None and record.end < filters.start:
@@ -2044,7 +2050,13 @@ def _structural_variant_out(
     """
     allowed_samples = set(selected_samples)
     calls = [call for call in record.calls if not allowed_samples or call.sample in allowed_samples]
-    length = structural_variant_length(sv_len=record.sv_len, start=record.start, end=record.end)
+    # A translocation has no length: it showed 0 or 1 bp, its END − POS, and the report read
+    # "A 0 bp breakend" (CLIN-39), while the length filters already gave it none.
+    length = (
+        None
+        if is_translocation_sv_type(record.sv_type)
+        else structural_variant_length(sv_len=record.sv_len, start=record.start, end=record.end)
+    )
     annotation_extra = _structural_annotation_extra(record, track_mode=track_mode)
     if cytoband and not track_mode:
         annotation_extra["cytoband"] = cytoband

@@ -340,11 +340,10 @@ def test_both_keys_cover_the_inheritance_mode_and_carrier_screening(monkeypatch)
 
 
 class _NoStructureVersionSession:
-    """A family without a recorded structure version: the pedigree is read from the context."""
+    """A session the pedigree signature must not ask: it reads the loaded context alone."""
 
     async def execute(self, statement, params=None):
-        assert "family_structure_versions" in str(statement), str(statement)
-        return types.SimpleNamespace(scalar=lambda: None)
+        raise AssertionError(f"the pedigree signature read the database: {statement}")
 
 
 def test_the_pedigree_read_from_the_context_covers_each_members_sex() -> None:
@@ -383,3 +382,37 @@ def test_superset_candidates_carry_what_their_panel_held() -> None:
     session = _RecordingSession()
     assert asyncio.run(vrc.find_superset_candidates(session, family_uuid="f", base_hash="b")) == []
     assert "provenance" in session.statements[0]
+
+
+def test_the_pedigree_signed_is_the_contexts_never_the_latest_structure_hash() -> None:
+    # ENG-13. The ranking is computed on the pedigree the context loaded. Before: the key read
+    # the family's latest structure hash after that, so an edit committed in between stored a
+    # ranking computed on the old pedigree under the new pedigree's key. Now two contexts that
+    # differ in an affected status sign differently whatever the database's latest version
+    # says, and the database is not asked.
+    def context(affected: list[str]):
+        return types.SimpleNamespace(
+            family_uuid="u1",
+            affected_sample_names=affected,
+            sample_rows=[
+                {"sample_id": "S1", "role": "proband", "sex": "male", "affected": "S1" in affected},
+                {"sample_id": "S2", "role": "mother", "sex": "female", "affected": "S2" in affected},
+            ],
+            relationship_rows=[{"parent": "S2", "child": "S1", "relationship": "mother"}],
+        )
+
+    session = _NoStructureVersionSession()
+    before = asyncio.run(vrc._pedigree_signature(session, context(["S1"])))
+    after = asyncio.run(vrc._pedigree_signature(session, context(["S1", "S2"])))
+    assert before != after
+    assert "structure_hash" not in before
+
+
+def test_superset_candidates_are_read_without_their_rankings() -> None:
+    # ENG-13 (#858). Before: every candidate's whole ranking was read before the caller
+    # checked its panel; the caller now reads the one that passes.
+    session = _RecordingSession()
+    asyncio.run(vrc.find_superset_candidates(session, family_uuid="f", base_hash="b"))
+    columns = session.statements[0].split("SELECT", 1)[1].split("FROM", 1)[0]
+    assert "ranking" not in {column.strip() for column in columns.split(",")}
+    assert "inputs_hash" in columns and "provenance" in columns

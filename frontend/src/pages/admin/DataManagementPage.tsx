@@ -99,12 +99,16 @@ const DataManagementPage: React.FC = () => {
     }
   };
 
-  const deleteSelectedFamily = async () => {
+  const deleteSelectedFamily = async (reason: string) => {
     if (!selectedFamilyId) return;
     setBusyKey(`family:${selectedFamilyId}`);
     setStatus(null);
     try {
-      await api.delete(apiPath`/admin/families/${selectedFamilyId}`, { params: { confirm: true } });
+      // The reason is required and recorded on the family's last audit event (TRACE-16).
+      await api.delete(apiPath`/admin/families/${selectedFamilyId}`, {
+        params: { confirm: true },
+        data: { reason },
+      });
       const deletedId = selectedFamilyId;
       setDeleteDialogOpen(false);
       setSelectedFamilyId(null);
@@ -178,6 +182,7 @@ const DataManagementPage: React.FC = () => {
   if (projectsLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading data management"
         message="Preparing the family catalog and project inventory."

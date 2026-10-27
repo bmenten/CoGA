@@ -250,6 +250,18 @@ const describeSignedUnfinished = (entry: FamilyImportUnfinished): string => {
       pending.length ? `: ${joinWithAnd(pending)} may have been partly written or missing` : ''
     }.`;
   }
+  if (entry.wholeFamily) {
+    // A failed overwrite whose restore did not finish, as the record froze it (SAFE-18).
+    return `An import${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''}${
+      entry.jobId ? `, import job ${entry.jobId},` : ''
+    } had failed, and putting the family’s data back had not finished${
+      pending.length
+        ? `: ${joinWithAnd(pending)} may have been partly written or missing, whichever import or upload wrote ${
+            pending.length === 1 ? 'it' : 'them'
+          }`
+        : ''
+    }.`;
+  }
   return `An import${entry.at ? ` (begun ${formatReportTime(entry.at)})` : ''}${
     entry.jobId ? `, import job ${entry.jobId},` : ''
   } had begun writing the family’s data and had not finished${
@@ -1061,7 +1073,10 @@ const SignedChecks: React.FC<{ record: SignedReport }> = ({ record }) => {
                       .join('; ')}.`
                   : failedImport.jobId
                     ? ` Import job ${failedImport.jobId}.`
-                    : ''}{' '}
+                    : ''}
+                {failedImport.withoutJob.length
+                  ? ` No import job records the error of ${joinWithAnd(failedImport.withoutJob)}, which failed in a single-file upload or in an import run outside a job.`
+                  : ''}{' '}
               </>
             ) : null}
             {unfinished.map((entry) => (

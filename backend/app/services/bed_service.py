@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from contextlib import suppress
 import hashlib
 from datetime import datetime, timezone
 import json
@@ -37,6 +38,7 @@ from .family_package_registration import (
 )
 from .haplotype_lineage_service import annotate_lineage, parent_or_child_links, relative_link_matches, relative_links
 from .haplotype_phase_correction import corrected_genotype_rows
+from .pgt_embryo_calls import normalize_sex
 from .sex_chromosomes import hemizygous_interval
 
 logger = logging.getLogger(__name__)
@@ -210,6 +212,40 @@ def _bed_rows(
     return rows
 
 
+async def _forget_track_after_failed_write(
+    session: AsyncSession,
+    sample_context: SampleMetadataContext,
+    *,
+    bed_type: str,
+    source: str,
+) -> None:
+    """Remove Postgres's record of the sample's ``bed_type`` track of ``source`` after an
+    overwrite failed once it may have deleted the track's rows. The upload's transaction
+    rolls back, and with it the record's delete: the record left named rows that are gone,
+    which the coverage readers and the signed record read (SAFE-18, #846). Removed in a
+    transaction of its own, after the upload's is rolled back. Best-effort: the upload's own
+    error is what the caller raises, and a single-file upload's mark still marks the family
+    (SAFE-28)."""
+    try:
+        await session.rollback()
+        await delete_interval_track_sources(
+            session,
+            sample_uuid=sample_context.sample_uuid,
+            track_type=bed_type,
+            source=source,
+        )
+        await session.commit()
+    except Exception:  # the upload's own error is the one raised
+        # A fixed sentence: the track type is the request's, and a request's value is never
+        # written into a log line.
+        logger.warning(
+            "Failed to remove the record of a track whose rows a failed upload may have deleted",
+            exc_info=True,
+        )
+        with suppress(Exception):
+            await session.rollback()
+
+
 async def upload_bed_data(
     session: AsyncSession,
     *,
@@ -321,22 +357,27 @@ async def upload_bed_data(
                 mark=upload_mark,
             )
             raise
-    if overwrite:
-        await delete_interval_tracks(
-            sample_context.assembly_name,
+    try:
+        if overwrite:
+            await delete_interval_tracks(
+                sample_context.assembly_name,
+                sample_uuid=sample_context.sample_uuid,
+                track_type=bed_type,
+                source=source,
+            )
+        # The source's record goes with or without overwrite: without, none of its rows is
+        # stored (the check above), so a record left would name rows that are gone.
+        await delete_interval_track_sources(
+            session,
             sample_uuid=sample_context.sample_uuid,
             track_type=bed_type,
             source=source,
         )
-    # The source's record goes with or without overwrite: without, none of its rows is stored
-    # (the check above), so a record left would name rows that are gone.
-    await delete_interval_track_sources(
-        session,
-        sample_uuid=sample_context.sample_uuid,
-        track_type=bed_type,
-        source=source,
-    )
-    await insert_interval_track_rows(sample_context.assembly_name, rows)
+        await insert_interval_track_rows(sample_context.assembly_name, rows)
+    except Exception:
+        if overwrite:
+            await _forget_track_after_failed_write(session, sample_context, bed_type=bed_type, source=source)
+        raise
     await upsert_interval_track_source(
         session,
         sample_context=sample_context,
@@ -797,6 +838,8 @@ async def _apply_haplotype_lineage(
         # Even in a bounded region the fetch can cap; do not colour relatives past the
         # last fetched site within the window.
         genotype_truncated=len(genotype_rows) >= LINEAGE_PHASED_FETCH_LIMIT,
+        # chrX is read by the PARs of the family's assembly (CLIN-12).
+        assembly_name=context.assembly_name,
     )
     links = relative_links(context.relationship_rows)
     if links:
@@ -947,9 +990,9 @@ async def get_family_haplotypes_batch_response(
 
 def _lineage_hash(context: FamilyMetadataContext) -> str:
     """Fingerprint of the inputs that determine the lineage colours: the pedigree
-    edges, each member's role, the affected set, the parents' phase corrections and, for a
-    family with a relative of unknown degree, the ROI. If this changes, a stored precompute
-    is stale and must not be served."""
+    edges, each member's role and sex, the affected set, the parents' phase corrections and,
+    for a family with a relative of unknown degree, the ROI. If this changes, a stored
+    precompute is stale and must not be served."""
     pedigree = sorted(
         (
             str(r.get("relationship_type") or ""),
@@ -968,6 +1011,11 @@ def _lineage_hash(context: FamilyMetadataContext) -> str:
         "pedigree": pedigree,
         "roles": roles,
         "affected": sorted(context.affected_sample_names),
+        # chrX between the PARs is read by each member's sex (CLIN-12): a precompute made
+        # before it was read there, or before a sex changed, is stale.
+        "sexes": sorted(
+            (str(row.get("sample_id") or ""), normalize_sex(row.get("sex"))) for row in context.sample_rows
+        ),
     }
     if context.roi is not None and any(
         str(row.get("relationship_type")) == "relative" for row in context.relationship_rows
@@ -1059,6 +1107,7 @@ async def _compute_genomewide_lineage(
             genotype_truncated=len(genotype_rows) >= LINEAGE_PRECOMPUTE_FETCH_LIMIT,
             parent_or_child=parent_or_child,
             locus=locus,
+            assembly_name=context.assembly_name,
         )
         for name, segs in annotated.items():
             merged[name].extend(segs)

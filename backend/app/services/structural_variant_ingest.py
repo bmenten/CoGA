@@ -42,6 +42,31 @@ class ParsedStructuralVariant:
     # Phase set (PS) from the sample FORMAT — present only for phased (e.g. long-read) SV
     # calls; lets the SNV+SV second-hit analysis read cis/trans directly. None when unphased.
     phase_set: int | None = None
+    # The sample's copy number (FORMAT/CN), which gives a CNV its direction
+    # (``sv_copy_change``). None when the call states none.
+    copy_number: int | None = None
+
+
+@dataclass
+class SkippedRecords:
+    """The records an SV reader left out, and why.
+
+    ``without_extent``: a ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes
+    included, that states neither END nor SVLEN (``extent_not_stated``), so how far it reaches
+    is not known. Stored on its POS it read as 0 bp, and a gene or panel search missed the
+    genes it spans; it is left out and counted (CLIN-39, the owner's decision, 2026-10-27)."""
+
+    without_extent: int = 0
+
+
+def extent_not_stated(*, alt: str, sv_len: int | None, end: Any) -> bool:
+    """Whether a record is a ``<DEL>``, ``<DUP>``, ``<INV>`` or ``<CNV>`` allele, subtypes
+    included, that states neither an END (``end``, missing or ``.``) nor an SVLEN: VCF 4.4
+    computes such an allele's END from its SVLEN, and the record gives neither."""
+    symbolic = _SYMBOLIC_ALLELE_RE.fullmatch(alt.strip())
+    if symbolic is None or symbolic.group(1).split(":", 1)[0].upper() not in _SPANNING_SYMBOLIC_TYPES:
+        return False
+    return sv_len is None and (end is None or str(end).strip() in {"", "."})
 
 
 def parse_info(info_field: str) -> Dict[str, str]:
@@ -158,6 +183,15 @@ def record_sv_len(*, sv_len: int | None, ref: str, alt: str) -> int | None:
     return sv_len if sv_len is not None else sequence_allele_sv_len(ref, alt)
 
 
+def sv_event(*, ref: str, alt: str, sv_len: int | None, start: int, end: int) -> tuple[str, str, int]:
+    """A call's event within its SV id (``clickhouse_variant_ids.event_discriminators``): its
+    REF, its ALT and the length the SV list measures it by, without its sign: the length it
+    states (``record_sv_len``), else END − POS. A deletion written with SVLEN and one written
+    with END alone are one event."""
+    length = record_sv_len(sv_len=sv_len, ref=ref, alt=alt)
+    return ref, alt, abs(length if length is not None else end - start)
+
+
 def sv_type_from_alt(ref: str, alt: str) -> str | None:
     """The SV type a record's ALT allele states, for a record without INFO/SVTYPE, which
     VCF 4.4 deprecates as redundant with ALT: a symbolic allele states its name
@@ -188,6 +222,60 @@ def structural_variant_end(*, pos: int, ref: str, alt: str, sv_len: int | None) 
         if symbolic.group(1).split(":", 1)[0].upper() in _SPANNING_SYMBOLIC_TYPES:
             return pos + abs(sv_len)
     return pos + max(len(ref.strip()), 1) - 1
+
+
+# The types of a translocation, a breakend joining two loci: BND, as VCF writes one, and TRA,
+# as older callers (Sniffles 1) do. Compared in capitals.
+_TRANSLOCATION_TYPES = frozenset({"BND", "TRA"})
+
+
+def mate_chromosome(info: Dict[str, str], chrom: str) -> str | None:
+    """INFO/CHR2 when it names another chromosome than the record's: the END such a record
+    writes is its mate's position, not where it ends (a TRA as Sniffles 1 writes one). None
+    without CHR2, and when CHR2 names the record's own chromosome."""
+    chr2 = info_value(info, "CHR2")
+    if chr2 is None:
+        return None
+    other = normalize_chromosome(chr2)
+    return other if other and other != normalize_chromosome(chrom) else None
+
+
+def breakend_mate(
+    *, sv_type: str, alt: str, info: Dict[str, str], chrom: str
+) -> tuple[Optional[str], Optional[int]]:
+    """A breakend's mate, ``(chromosome, position)``, as every SV reader reads it: from its
+    ALT written in breakend notation (``N]5:3000000]``), whatever its SVTYPE, and for a
+    translocation, BND or TRA in any capitals, without one from INFO/CHR2 and its END when
+    CHR2 names another chromosome. ``(None, None)`` for any other record, and for a single
+    breakend (``G.``), which names no mate.
+
+    The uploads read a mate only for an SVTYPE written ``BND``, so a ``bnd`` and a TRA
+    written in breakend notation lost theirs; the chrM and HiFiCNV readers read none; and a
+    TRA naming its mate in CHR2 and END was stored with its END on its own chromosome, so
+    the tracks and Circos drew it there (CLIN-39)."""
+    is_translocation = sv_type.strip().upper() in _TRANSLOCATION_TYPES
+    if is_translocation or is_breakend_alt(alt):
+        remote_chr, remote_start = parse_bnd_alt(alt)
+        if remote_chr is not None:
+            return remote_chr, remote_start
+    other = mate_chromosome(info, chrom) if is_translocation else None
+    if other is not None:
+        return other, _position(info_value(info, "END"))
+    return None, None
+
+
+def record_end(
+    *, pos: int, ref: str, alt: str, sv_len: int | None, info: Dict[str, str], chrom: str, end: Any = None
+) -> int | None:
+    """Where a record ends: its END (``end`` when the caller names it otherwise, else
+    INFO/END) as written, else as VCF 4.4 computes it (``structural_variant_end``). An END
+    that is a mate's position on another chromosome (``mate_chromosome``) is not the
+    record's: such a record ends where its own breakpoint lies. None when the END written
+    is no position."""
+    written = end if end is not None else info_value(info, "END")
+    if written is not None and mate_chromosome(info, chrom) is None:
+        return _position(written)
+    return structural_variant_end(pos=pos, ref=ref, alt=alt, sv_len=sv_len)
 
 
 def record_sv_type(info: Dict[str, str], ref: str, alt: str) -> str:
@@ -242,13 +330,8 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
         if start is None or end is None:
             # Unpositionable record — skip rather than raise mid-ingest.
             continue
-        remote_chr: str | None = None
-        remote_start: int | None = None
-        remote_end: int | None = None
-        if svtype == "BND":
-            remote_chr, remote_start = parse_bnd_alt(alt)
-            if remote_start is not None:
-                remote_end = remote_start
+        # A TSV has no INFO: a breakend's mate is the one its ALT names.
+        remote_chr, remote_start = breakend_mate(sv_type=svtype, alt=alt, info={}, chrom=chrom)
         yield ParsedStructuralVariant(
             variant_id=variant_id,
             chrom=normalize_chromosome(chrom),
@@ -263,12 +346,12 @@ def _iter_manual_records(lines: Iterable[str]) -> Iterator[ParsedStructuralVaria
             svlen=record_sv_len(sv_len=None, ref=ref, alt=alt),
             remote_chr=remote_chr,
             remote_start=remote_start,
-            remote_end=remote_end,
+            remote_end=remote_start,
         )
 
 
 def _iter_sniffles_records(
-    lines: Iterable[str], sample_column: int = 0
+    lines: Iterable[str], sample_column: int = 0, skipped: SkippedRecords | None = None
 ) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
@@ -283,26 +366,18 @@ def _iter_sniffles_records(
         fmt_vals = parse_format(fmt, sample_f)
         svtype = record_sv_type(info, ref, alt)
         svlen = parse_svlen(info.get("SVLEN"))
-        remote_chr: str | None = None
-        remote_start: int | None = None
-        remote_end: int | None = None
 
         start = _position(pos)
         if start is None:
             continue
-        end_value = info_value(info, "END")
-        end = _position(
-            end_value
-            if end_value is not None
-            else structural_variant_end(pos=start, ref=ref, alt=alt, sv_len=svlen)
-        )
+        if extent_not_stated(alt=alt, sv_len=svlen, end=info_value(info, "END")):
+            if skipped is not None:
+                skipped.without_extent += 1
+            continue
+        end = _position(record_end(pos=start, ref=ref, alt=alt, sv_len=svlen, info=info, chrom=chrom))
         if end is None:
             continue
-
-        if svtype == "BND":
-            remote_chr, remote_start = parse_bnd_alt(alt)
-            if remote_start is not None:
-                remote_end = remote_start
+        remote_chr, remote_start = breakend_mate(sv_type=svtype, alt=alt, info=info, chrom=chrom)
 
         yield ParsedStructuralVariant(
             variant_id=variant_id,
@@ -319,13 +394,14 @@ def _iter_sniffles_records(
             svlen=record_sv_len(sv_len=svlen, ref=ref, alt=alt),
             remote_chr=remote_chr,
             remote_start=remote_start,
-            remote_end=remote_end,
+            remote_end=remote_start,
             phase_set=parse_phase_set(fmt_vals.get("PS")),
+            copy_number=_coerce_int(fmt_vals.get("CN")),
         )
 
 
 def _iter_spectre_records(
-    lines: Iterable[str], sample_column: int = 0
+    lines: Iterable[str], sample_column: int = 0, skipped: SkippedRecords | None = None
 ) -> Iterator[ParsedStructuralVariant]:
     for line in lines:
         if not line or line.startswith("#"):
@@ -340,6 +416,11 @@ def _iter_spectre_records(
         fmt_vals = parse_format(fmt, sample_f)
         svlen = parse_svlen(info.get("SVLEN"))
         end_value = info_value(info, "END")
+        range_end = pos.split(":", 1)[-1] if "-" in pos.split(":", 1)[-1] else None
+        if extent_not_stated(alt=alt, sv_len=svlen, end=end_value or range_end):
+            if skipped is not None:
+                skipped.without_extent += 1
+            continue
         try:
             chrom, start = split_chrom_pos(chrom_raw, pos)
             if end_value is not None:
@@ -369,6 +450,7 @@ def _iter_spectre_records(
             filter=filt or None,
             svlen=record_sv_len(sv_len=svlen, ref=ref, alt=alt),
             phase_set=parse_phase_set(fmt_vals.get("PS")),
+            copy_number=_coerce_int(fmt_vals.get("CN")),
         )
 
 
@@ -377,16 +459,19 @@ def iter_structural_variant_records(
     record_format: StructuralVariantRecordFormat,
     *,
     sample_column: int = 0,
+    skipped: SkippedRecords | None = None,
 ) -> Iterator[ParsedStructuralVariant]:
     """The records of an uploaded SV file. A Sniffles or Spectre VCF's call is read from
     its ``#CHROM`` sample column ``sample_column`` (0 is the first), the one the upload
     checked holds its sample (``per_sample_vcf_column``); a record without that column is
-    skipped. A manual TSV has no sample column: each row is one call of its sample."""
+    skipped. A manual TSV has no sample column: each row is one call of its sample. A
+    record whose extent is not stated is left out and counted in ``skipped``
+    (``SkippedRecords``); a TSV row states its end."""
     lines = text.splitlines()
     if record_format == "manual":
         return _iter_manual_records(lines)
     if record_format == "sniffles":
-        return _iter_sniffles_records(lines, sample_column)
+        return _iter_sniffles_records(lines, sample_column, skipped)
     if record_format == "spectre":
-        return _iter_spectre_records(lines, sample_column)
+        return _iter_spectre_records(lines, sample_column, skipped)
     raise ValueError(f"Unsupported structural variant record format: {record_format}")

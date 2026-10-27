@@ -21,6 +21,7 @@ import asyncio
 import types
 from datetime import datetime, timezone
 
+import pytest
 from sqlalchemy.dialects.postgresql.asyncpg import dialect as asyncpg_dialect
 
 from backend.app.services import clickhouse_family_variants as cfv
@@ -35,6 +36,19 @@ from backend.app.services.small_variant_review_pg import get_small_variant_revie
 from backend.app.services.small_variant_review_repository import _fetch_review_rows_for_variants
 from backend.app.services.structural_variant_review_pg import get_structural_variant_review_map
 from backend.app.services.sv_gene_index_service import get_sv_second_hits
+
+
+@pytest.fixture(autouse=True)
+def _a_steady_small_variant_data_version(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The family's small-variant data version, read before and after each search (ENG-17):
+    steady, as no write lands during these searches. A test that keys a ranking on it sets
+    its own."""
+
+    async def steady(_context: object) -> str:
+        return "1:1"
+
+    monkeypatch.setattr(cfv, "_family_small_variant_data_version", steady)
+
 
 _FAMILY = "00000000-0000-0000-0000-00000000da73"
 # The family's assembly, whose gene profiles the constraint lookup reads (TRACE-15).

@@ -619,5 +619,29 @@ describe('FamilySampleQcPage', () => {
       expect(await screen.findByText(/All sample-integrity checks passed/)).toBeInTheDocument();
       expect(screen.getByRole('heading', { name: 'Family FAM1' })).toBeInTheDocument();
     });
+
+    // ENG-10: the checks' own failure offered only "Back to family".
+    it('runs the checks again on Retry when they could not be computed', async () => {
+      let qcFails = true;
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/FAM1/qc/sample-integrity') {
+          return qcFails
+            ? Promise.reject(Object.assign(new Error('HTTP 503'), { response: { status: 503 } }))
+            : Promise.resolve({ data: PASSING_QC });
+        }
+        if (url === '/families/FAM1') return Promise.resolve({ data: TRIO_FAMILY });
+        return Promise.resolve({ data: {} });
+      });
+      renderPage();
+
+      const failure = (await screen.findByRole('heading', { name: 'QC could not be computed' })).closest(
+        '.page-state',
+      ) as HTMLElement;
+      expect(within(failure).getByRole('link', { name: 'Back to family' })).toBeInTheDocument();
+
+      qcFails = false;
+      fireEvent.click(within(failure).getByRole('button', { name: 'Retry' }));
+      expect(await screen.findByText(/All sample-integrity checks passed/)).toBeInTheDocument();
+    });
   });
 });

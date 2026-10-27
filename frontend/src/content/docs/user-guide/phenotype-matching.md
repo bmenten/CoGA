@@ -18,7 +18,7 @@ PanelApp. Choose a panel in the **Locations** filter of the small-variant or str
 limit a search to its genes. The **Mendeliome** — every gene that Monarch says causes a disease or is
 associated with one — is the default scope of both pages. A gene Monarch links to a disease only as
 contributing to it or raising its likelihood is not in it. On the small-variant and structural-variant
-pages and in the Variant Explorer a panel keeps the variants annotated with one of its genes and those
+pages and in the variant explorer a panel keeps the variants annotated with one of its genes and those
 inside one of its regions (PanelApp's regions for the assembly, and each gene's position in the gene
 reference; a structural variant that overlaps one), whatever its size: the Mendeliome too keeps a variant
 inside one of its genes whose annotation names another gene.
@@ -28,7 +28,7 @@ inside one of its genes whose annotation names another gene.
 CoGA uses the [Monarch Initiative](https://monarchinitiative.org/) knowledge graph, which links genes,
 diseases and HPO phenotypes.
 
-- **On the gene profile** (Gene Explorer), *Monarch gene–disease associations* lists each linked
+- **On the gene profile** (gene explorer), *Monarch gene–disease associations* lists each linked
   disease with its relationship, source and number of expected phenotypes. Opened from a family, it also
   says how many the family shows (*"3 observed in family"*).
 - **On the family page**, the **Phenotype match (Monarch)** panel ranks candidate genes when you press
@@ -41,7 +41,7 @@ diseases and HPO phenotypes.
 > thousand genes and gives a weak ranking by design. Add the patient's distinctive features — a
 > particular seizure type, a dysmorphic feature, a metabolic finding — and the ranking sharpens.
 
-An administrator loads the Monarch data about monthly (**Admin → Monarch Data**). Until it is loaded, the
+An administrator loads the Monarch data about monthly (**Admin → Monarch data**). Until it is loaded, the
 gene profile shows no associations and the ranking has no phenotype signal.
 
 [Phenotype matching with Monarch reference (the graph, the ranking, PP4)](/docs/reference/monarch-integration "further-reading")

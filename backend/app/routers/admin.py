@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Upload
 from fastapi.responses import FileResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.content_disposition import content_disposition
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user
 from ..schemas import (
@@ -51,6 +52,7 @@ from ..schemas import (
     RawImportFileVerifyOut,
     RepeatLocusCountUnitsCatalogueOut,
     RepeatLocusCountUnitsSetOut,
+    FamilyDeleteRequest,
     RepeatLocusCountUnitsUpdate,
     SmallVariantFilterPresetOut,
     SmallVariantTagDefinitionCreate,
@@ -454,7 +456,7 @@ async def download_family_pedigree(
         content=ped_text,
         media_type="text/plain; charset=utf-8",
         headers={
-            "Content-Disposition": f'attachment; filename="{family_id}.ped"',
+            "Content-Disposition": content_disposition("attachment", f"{family_id}.ped"),
         },
     )
 
@@ -782,6 +784,8 @@ async def delete_sample(
 async def delete_family(
     family_id: str,
     confirm: bool = False,
+    # The reason goes in the body, not the query string: it is free text (TRACE-16).
+    payload: FamilyDeleteRequest | None = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> Dict:
@@ -790,6 +794,7 @@ async def delete_family(
         family_id,
         confirm,
         user=user,
+        reason=payload.reason if payload is not None else None,
     )
 
 

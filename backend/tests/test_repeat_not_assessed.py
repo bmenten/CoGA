@@ -133,17 +133,20 @@ def test_a_benign_range_with_an_end_missing_is_not_stated(ends: dict, count: int
     [
         (ABCD3, 2, "normal"),
         (ABCD3, 44, "normal"),
-        # Between the benign range and the threshold, normal as before (CLIN-38 asks about it).
-        (ABCD3, 117, "normal"),
+        # Between the benign range and the threshold, where the row states no grey zone: the
+        # grey zone (the owner's decision of 2026-10-27, CLIN-14; normal before).
+        (ABCD3, 45, "intermediate"),
+        (ABCD3, 117, "intermediate"),
         (ABCD3, 118, "pathogenic"),
         ({**POLG, "warning_min": 20}, 5, "normal"),
         ({**POLG, "warning_min": 20}, 15, "normal"),
         ({**POLG, "warning_min": 20}, 20, "intermediate"),
     ],
 )
-def test_a_benign_range_changes_nothing_at_a_locus_with_a_threshold(locus: dict, count: int, status: str) -> None:
-    # The thresholds decide there, a count outside the benign range included: only a locus
-    # without one reads its benign range.
+def test_at_a_locus_with_a_threshold_the_benign_range_only_bounds_the_gap(locus: dict, count: int, status: str) -> None:
+    # The thresholds decide there. The benign range adds one thing: at a row without a grey
+    # zone of its own, a count above it and under the pathogenic threshold is the grey zone
+    # (CLIN-14). A row with its own grey zone keeps it, whatever its benign range.
     assert classify(count, locus) == status
 
 

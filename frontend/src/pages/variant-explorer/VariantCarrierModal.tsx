@@ -5,6 +5,7 @@ import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
 import type { CarrierModalMode, GlobalVariantRow, VariantCarriers } from './types';
 import { apiPath } from '../../lib/apiPath';
+import { routePath } from '../../lib/routePath';
 
 interface VariantCarrierModalProps {
   variant: GlobalVariantRow;
@@ -110,7 +111,7 @@ const VariantCarrierModal = ({
                   <li key={family.family_uuid} className="variant-carrier-family">
                     <div className="variant-carrier-family-header">
                       <Link
-                        to={`/families/${encodeURIComponent(family.family_id)}`}
+                        to={routePath`/families/${family.family_id}`}
                         className="table-link"
                       >
                         {family.family_id}
@@ -125,7 +126,7 @@ const VariantCarrierModal = ({
                         {family.samples.map((sample) => (
                           <li key={`${family.family_uuid}:${sample.sample_id}`} className="variant-carrier-sample">
                             <Link
-                              to={`/families/${encodeURIComponent(family.family_id)}`}
+                              to={routePath`/families/${family.family_id}`}
                               className="table-link"
                             >
                               {sample.sample_id}

@@ -95,3 +95,20 @@ test('saves window sizes and shows saved small-variant filters', async () => {
   expect(screen.getByText('Dominant shortlist')).toBeInTheDocument();
   expect(screen.getByText('Clinical dominant review filter')).toBeInTheDocument();
 });
+
+// ENG-10: a failed delete left its button at "Removing…", disabled, for good.
+test('gives the Delete button back when removing a saved filter fails', async () => {
+  vi.mocked(api.delete).mockRejectedValueOnce({ response: { status: 500, data: { detail: 'The database is unavailable.' } } });
+  render(
+    <QueryClientProvider client={createTestQueryClient()}>
+      <SettingsPage />
+    </QueryClientProvider>,
+  );
+
+  fireEvent.click(await screen.findByRole('button', { name: 'Delete' }));
+
+  expect(await screen.findByText('The database is unavailable.')).toBeInTheDocument();
+  const button = screen.getByRole('button', { name: 'Delete' });
+  expect(button).toBeEnabled();
+  expect(screen.queryByText('Removing…')).not.toBeInTheDocument();
+});

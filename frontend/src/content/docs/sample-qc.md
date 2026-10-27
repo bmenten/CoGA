@@ -30,7 +30,8 @@ otherwise; if neither is present, from the first call set the family has.
 
 ### Which sites are read
 
-The checks read a fixed sample of that call set's sites:
+The checks read a fixed sample of that call set's SNV sites (a single base for a single base; an
+indel's genotype is called with more error):
 
 - **Relatedness and Mendelian errors:** up to **90,000** sites spread over all 22 autosomes.
 - **Sex:** up to **20,000** sites on chromosome X outside the pseudo-autosomal regions, where a man has
@@ -230,4 +231,7 @@ cards, and the parent-sex rows appear in the per-sample table.
 - **A screening check, not an identity test.** Relatedness and Mendelian errors use a sample of up to
   90,000 sites from all autosomes, and sex up to 20,000 X sites (see *Which sites are read*). A call set
   that covers only part of the genome (a few chromosomes or a region) cannot give a genome-wide sample;
-  there siblings can read as more or less related than first degree.
+  there siblings can read as more or less related than first degree. When the sampled sites lie on fewer
+  than 20 of the 22 autosomes, the checks still run and the report warns: *The callset covers part of
+  the genome: its sites lie on N of the 22 autosomes, so the checks read only that part.* The warning
+  makes the verdict a warning, and the signed report records it.

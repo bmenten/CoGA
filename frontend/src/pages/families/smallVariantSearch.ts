@@ -1971,10 +1971,15 @@ export const buildPresetPayload = ({
   };
 };
 
-export const countPresetRules = (preset: SmallVariantFilterPreset) => {
+export const countPresetRules = (preset: Pick<SmallVariantFilterPreset, 'filters' | 'sample_filters' | 'sample_templates'>) => {
   const filterCount = Object.keys(preset.filters || {}).length;
   const sampleCount = Object.keys(preset.sample_filters || {}).length;
-  const templateCount = Object.keys(preset.sample_templates || {}).length;
+  // A template is a rule when it holds a filter, as a small-variant preset's do. An SV preset
+  // keeps each member's role there (`buildStructuralPresetPayload`), which filters nothing: it
+  // counted one rule per member (ENG-10).
+  const templateCount = Object.values(preset.sample_templates || {}).filter(
+    (template) => template !== null && typeof template === 'object',
+  ).length;
   return filterCount + sampleCount + templateCount;
 };
 

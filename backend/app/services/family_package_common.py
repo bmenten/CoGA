@@ -570,6 +570,20 @@ def read_vcf_sample_columns(path: Path) -> list[str]:
     return []
 
 
+def vcf_holds_a_data_line(path: Path) -> bool:
+    """Whether a VCF holds a line after its header, reading only as far as the first one.
+
+    Used by validation to report a data file the import refuses for holding no record
+    (SAFE-3) without materialising a multi-GB VCF. Any line counts: only the loader reads a
+    record, so a file whose lines it cannot read passes here and fails at import.
+    """
+    with package_text_handle(path) as handle:
+        for line in handle:
+            if line.strip() and not line.startswith("#"):
+                return True
+    return False
+
+
 def runs_through_symlink_loop(path: str | os.PathLike[str]) -> bool:
     """Whether looking ``path`` up meets a symlink loop.
 

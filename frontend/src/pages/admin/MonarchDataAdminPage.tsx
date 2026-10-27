@@ -197,6 +197,7 @@ const MonarchDataAdminPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading Monarch data"
         message="Reading the currently loaded Monarch release and table sizes."

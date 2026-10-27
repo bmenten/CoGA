@@ -402,6 +402,162 @@ def test_the_backend_image_ships_only_the_scripts_it_runs() -> None:
     assert Settings(_env_file=None).clinical_cnv_kb_script_path == "/app/scripts/clinical_cnv_knowledgebase.py"
 
 
+# ---- The images' build context --------------------------------------------------------
+#
+# Compose and Cloud Build build both images from the repository root, so .dockerignore decides
+# what reaches them. Docker reads it as moby's patternmatcher does: each pattern from the root
+# of the context, `**` across folders, `*` and `?` within one, a pattern that matches a folder
+# leaving out everything in it, `!` taking a path back, and the last pattern that matches
+# deciding.
+
+
+def _dockerignore() -> list[tuple[bool, re.Pattern[str]]]:
+    """.dockerignore's patterns in order, each as (takes a path back, its regular expression)."""
+    patterns: list[tuple[bool, re.Pattern[str]]] = []
+    for line in (REPO / ".dockerignore").read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        pattern = os.path.normpath(line.removeprefix("!").strip()).lstrip("/")
+        regex, index = "", 0
+        while index < len(pattern):
+            if pattern.startswith("**", index):
+                index += 3 if pattern.startswith("/", index + 2) else 2
+                regex += ".*" if index == len(pattern) else "(.*/)?"
+                continue
+            char = pattern[index]
+            regex += {"*": "[^/]*", "?": "[^/]", "[": "[", "]": "]"}.get(char, re.escape(char))
+            index += 1
+        patterns.append((line.startswith("!"), re.compile(regex)))
+    return patterns
+
+
+def _left_out(path: str, patterns: list[tuple[bool, re.Pattern[str]]]) -> bool:
+    """Whether Docker leaves ``path``, relative to the repository, out of the build context."""
+    parts = path.split("/")
+    left_out = False
+    for takes_back, regex in patterns:
+        if any(regex.fullmatch("/".join(parts[:end])) for end in range(1, len(parts) + 1)):
+            left_out = not takes_back
+    return left_out
+
+
+def test_no_local_file_reaches_the_images_at_any_depth() -> None:
+    # The patterns left a local file out only at the root of the repository: a
+    # frontend/.env.local reached the frontend's build stage, where Vite reads it into the
+    # bundle, and backend/app's __pycache__ the backend image (OPS-15).
+    patterns = _dockerignore()
+    for path in (
+        "frontend/.env.local",
+        "frontend/.env.production",
+        "backend/.env",
+        "frontend/src/.DS_Store",
+        "backend/app/__pycache__/main.cpython-312.pyc",
+        "backend/app/services/stray.pyc",
+        "backend/.pytest_cache/v/cache/lastfailed",
+        "backend/app/.ruff_cache/CACHEDIR.TAG",
+        "frontend/node_modules/react/index.js",
+        "frontend/npm-debug.log",
+        ".git/HEAD",
+        "data/families/F1/F1.vcf.gz",
+    ):
+        assert _left_out(path, patterns), f"{path} reaches the build context"
+
+
+def test_the_build_context_holds_every_file_an_image_copies() -> None:
+    # Every tracked file a Dockerfile's COPY takes from the context reaches it: a pattern made
+    # to reach deeper must not take a source file with it.
+    sources = [
+        source
+        for dockerfile in ("backend/Dockerfile", "frontend/Dockerfile")
+        for line in (REPO / dockerfile).read_text().splitlines()
+        if line.startswith("COPY ") and "--from=" not in line
+        for source in line.split()[1:-1]
+    ]
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", *sources], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout
+    tracked = [path for path in listed.split("\0") if path]
+    assert {"VERSION", "backend/app/main.py", "backend/db/schema/postgres/01_access.sql", "frontend/package.json"} <= set(tracked)
+    patterns = _dockerignore()
+    left_out = [path for path in tracked if _left_out(path, patterns)]
+    assert not left_out, f"the build context leaves out what an image copies: {left_out}"
+
+
+def test_the_dev_stack_starts_the_backend_with_the_dev_images_command() -> None:
+    # docker-compose.dev.yml started uvicorn with a command of its own, without the image's
+    # --proxy-headers (OPS-15). uvicorn turns that on by default, so the two behaved alike, but
+    # two commands drift apart: the dev stack runs the dev image's own.
+    dev = yaml.safe_load((REPO / "docker-compose.dev.yml").read_text())["services"]["backend"]
+    assert dev["build"]["target"] == "dev"
+    assert "command" not in dev, "the dev stack starts the backend with a command of its own"
+    stage = re.search(r"^FROM base AS dev\n(.*?)(?=^FROM )", (REPO / "backend" / "Dockerfile").read_text(), re.M | re.S)
+    assert stage, "the backend image has no dev stage"
+    command = re.search(r"^CMD (\[.*\])$", stage[1], re.M)
+    assert command, "the dev stage has no command"
+    arguments = json.loads(command[1])
+    assert arguments[:2] == ["uvicorn", "app.main:app"] and {"--proxy-headers", "--reload"} <= set(arguments)
+
+
+def _node_version(text: str) -> tuple[int, ...]:
+    """A Node version, or the start of one (``22``, ``v12.22.7``), as three numbers."""
+    numbers = [int(part) for part in text.removeprefix("v").split(".")]
+    return tuple(numbers + [0] * (3 - len(numbers)))
+
+
+def _node_meets(version: tuple[int, ...], comparator: str) -> bool:
+    if comparator == "*":
+        return True
+    if comparator.startswith(">="):
+        return version >= _node_version(comparator[2:])
+    if comparator.startswith("^"):
+        lowest = _node_version(comparator[1:])
+        assert lowest[0] > 0, f"this test reads no {comparator!r}"
+        return lowest <= version and version[0] == lowest[0]
+    assert re.fullmatch(r"v?\d+(\.\d+){0,2}", comparator), f"this test reads no range {comparator!r}"
+    given = comparator.removeprefix("v").split(".")
+    return version[: len(given)] == tuple(int(part) for part in given)
+
+
+def _node_satisfies(version: tuple[int, ...], node_range: str) -> bool:
+    """Whether Node ``version`` lies in an ``engines.node`` range, in the forms the lockfile
+    holds: ``*``, alternatives joined by ``||``, ``>=``, ``^`` and a bare, possibly partial,
+    version."""
+    for alternative in node_range.split("||"):
+        comparators = re.sub(r"(>=|\^)\s+", r"\1", alternative).split()
+        if all(_node_meets(version, comparator) for comparator in comparators):
+            return True
+    return False
+
+
+def test_the_node_floor_runs_every_locked_package() -> None:
+    # The engines field allowed Node 22.22.0, while jsdom, in which the frontend's tests run,
+    # needs 22.22.2 (OPS-15). The floor, which package.json and the lockfile's root state
+    # alike, must lie in every locked package's engines range, the dev dependencies' included.
+    package = json.loads((REPO / "frontend" / "package.json").read_text())
+    lock = json.loads((REPO / "frontend" / "package-lock.json").read_text())
+    floor = package["engines"]["node"]
+    assert lock["packages"][""]["engines"]["node"] == floor, "the lockfile's root states another floor"
+    lowest = re.fullmatch(r">=(\d+\.\d+\.\d+)", floor)
+    assert lowest, f"the floor is no plain >=: {floor}"
+    version = _node_version(lowest[1])
+    # The reader of the ranges, on the forms it meets.
+    assert _node_satisfies(_node_version("22.22.2"), "^22.22.2 || ^24.15.0 || >=26.0.0")
+    assert not _node_satisfies(_node_version("22.22.0"), "^22.22.2 || >=26")
+    assert _node_satisfies(_node_version("22.0.0"), "18 || 20 || >=22")
+    assert not _node_satisfies(_node_version("21.7.0"), "18 || 20 || >=22")
+    assert _node_satisfies(_node_version("22.0.0"), ">= 0.4") and _node_satisfies(_node_version("22.0.0"), "*")
+    refused = {
+        name.rpartition("node_modules/")[2]: engines["node"]
+        for name, entry in lock["packages"].items()
+        if name
+        and isinstance(engines := entry.get("engines"), dict)
+        and "node" in engines
+        and not _node_satisfies(version, engines["node"])
+    }
+    assert not refused, f"Node {lowest[1]} is below what these need: {refused}"
+
+
 # ---- The environment of every container that runs the backend image ------------------
 #
 # Each Cloud Run service and job that runs var.backend_image loads the backend's settings
@@ -673,6 +829,52 @@ def test_terraform_gives_every_container_of_the_backend_image_no_cross_origin_ac
         environment = _environment(container, optional=True)
         assert json.loads(environment.get("CORS_ORIGINS", "null")) == [f"https://{domain}"], address
         assert environment.get("CORS_ORIGIN_REGEX") == "", address
+
+
+def _accepted(variable: str) -> list[str]:
+    """The values a variable's ``contains([...], var.<name>)`` validation admits."""
+    block = re.search(rf'variable "{variable}"\s*\{{(.*?)\n\}}', _terraform("variables.tf"), re.S)
+    assert block, f"no variable {variable}"
+    accepted = re.search(rf"condition\s*=\s*contains\((\[[^\]]*\]),\s*var\.{variable}\)", block.group(1))
+    assert accepted, f"variable {variable} is not validated against a list"
+    return json.loads(accepted.group(1))
+
+
+def test_the_api_starts_with_every_storage_backend_terraform_accepts(monkeypatch) -> None:
+    # storage_backend accepted "s3", which nothing in the configuration wires (no bucket, no
+    # S3_BUCKET), so an apply with it gave an API that refused to start (OPS-15). The API,
+    # given each value the variable admits as cloudrun.tf gives it, loads its settings.
+    api = _backend_containers()["google_cloud_run_v2_service.backend"]
+    environment = {**_image_environment(), **_environment(api, optional=True)}
+    assert environment["STORAGE_BACKEND"] == json.loads(_variable_default("storage_backend"))
+    accepted = _accepted("storage_backend")
+    assert "gcs" in accepted
+    for backend in accepted:
+        try:
+            _load_settings(monkeypatch, {**environment, "STORAGE_BACKEND": backend})
+        except ValidationError as error:
+            pytest.fail(f"storage_backend = {backend!r}: the API cannot start: {error}")
+
+
+def test_the_migration_job_reaches_the_database_and_seeds_the_administrator_the_api_uses() -> None:
+    # cloudrun.tf and migrate.tf each write the database connection and the bootstrap
+    # administrator (OPS-15). The job connects as the table owner where the API connects as
+    # local.app_db_user, and each reads its own password; any other of these settings written
+    # apart would have the job migrate, or seed its administrator in, another database than
+    # the one the API serves.
+    containers = _backend_containers()
+    api = _environment(containers["google_cloud_run_v2_service.backend"], optional=True)
+    job = _environment(containers["google_cloud_run_v2_job.db_migrate"], optional=True)
+    secrets = set(_map("local.db_migrate_secret_env"))
+    shared = {
+        name
+        for name in job
+        if name.startswith(("POSTGRES_", "CLOUD_SQL_", "ADMIN_")) and name not in secrets | {"POSTGRES_USER"}
+    }
+    assert {"POSTGRES_DB", "POSTGRES_INSTANCE_CONNECTION_NAME", "ADMIN_USERNAME", "ADMIN_EMAIL"} <= shared
+    differ = {name: (api.get(name), job[name]) for name in sorted(shared) if api.get(name) != job[name]}
+    assert not differ, f"the API and the db-migrate job set these apart (API, job): {differ}"
+    assert job["POSTGRES_USER"] == _COMPUTED["google_sql_user.coga.name"], "the job migrates as the table owner"
 
 
 def _frontend_hsts_switches() -> set[str]:

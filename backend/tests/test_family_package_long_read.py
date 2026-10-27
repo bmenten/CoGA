@@ -879,6 +879,80 @@ async def test_the_cnv_import_refuses_another_members_file_before_any_write(
     assert writes == []
 
 
+@pytest.mark.asyncio
+async def test_the_cnv_import_records_hificnvs_version_from_its_header(monkeypatch: pytest.MonkeyPatch) -> None:
+    # TF-08 B.1 names HiFiCNV's ##source line as where its version comes from, but the
+    # import never read the header of a HiFiCNV VCF (TRACE-8).
+    from types import SimpleNamespace
+
+    from app.schemas import FamilyImportDatasetSummary
+    from app.services import annotation_manifest_service, family_package_datasets
+    from app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
+
+    merged: list[dict] = []
+
+    async def known(_session, **_kwargs) -> set[str]:
+        return set(_FAMILY)
+
+    async def nothing(*_args, **_kwargs) -> None:
+        return None
+
+    async def merge(_session, **kwargs) -> None:
+        merged.append(kwargs)
+
+    hificnv_vcf = CNV_VCF.replace(
+        "##fileformat=VCFv4.2\n", '##fileformat=VCFv4.2\n##source="HiFiCNV v1.0.1-4de7d40"\n'
+    )
+    for name, fn in {
+        "_resolve_package_path": lambda _root, value: Path(value) if value else None,
+        "_read_package_text": lambda _path: hificnv_vcf,
+        "known_vcf_sample_ids": known,
+        "lock_family_variant_writes": nothing,
+        "replace_family_structural_variants": nothing,
+        "_update_sv_file_metadata": nothing,
+    }.items():
+        monkeypatch.setattr(family_package_datasets, name, fn)
+    monkeypatch.setattr(annotation_manifest_service, "merge_vcf_header_provenance", merge)
+    contexts = {
+        name: SampleMetadataContext(
+            sample_uuid=f"{name.lower()}-uuid",
+            sample_id=name,
+            family_uuid="family-uuid",
+            family_id="FAM",
+            sex="female",
+            project_ids=["p1"],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        )
+        for name in _FAMILY
+    }
+    job = family_package_datasets.DatasetImportJob(
+        session=SimpleNamespace(),  # type: ignore[arg-type]
+        bundle=SimpleNamespace(root=Path("/package")),  # type: ignore[arg-type]
+        dataset=ManifestDataset(per_sample={"CHILD": {"vcf": "cnv/CHILD.vcf"}}),
+        summary=FamilyImportDatasetSummary(dataset_type="cnv", status="valid"),
+        family_context=FamilyMetadataContext(
+            family_uuid="family-uuid",
+            family_id="FAM",
+            project_ids=["p1"],
+            sample_rows=[],
+            sample_uuid_to_name={},
+            sample_name_to_uuid={},
+            affected_sample_names=[],
+            assembly_id="assembly-uuid",
+            assembly_name="GRCh38",
+        ),
+        sample_contexts=contexts,
+    )
+
+    summary = await family_package_datasets._import_cnv_dataset(job)
+
+    assert summary.status == "imported"
+    [record] = merged
+    assert record["family_uuid"] == "family-uuid" and record["modality"] == "cnv"
+    assert record["modules"] == {"hificnv": {"version": "v1.0.1-4de7d40", "detail": "cnv caller"}}
+
+
 @pytest.mark.parametrize(
     ("query_id", "expected"),
     [

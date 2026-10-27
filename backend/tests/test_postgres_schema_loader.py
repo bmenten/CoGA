@@ -42,6 +42,17 @@ def test_split_plain_statements_unchanged() -> None:
     assert stmts == ["CREATE TABLE a (id int)", "CREATE TABLE b (id int)"]
 
 
+def test_split_ignores_a_semicolon_in_a_line_comment() -> None:
+    # Comments are dropped before the split, so a baseline's comment may hold a semicolon.
+    sql = """
+    -- a note; with a semicolon
+    CREATE TABLE a (
+        id int  -- the key; never null
+    );
+    """
+    assert _split_sql_script(sql) == ["CREATE TABLE a (\n        id int  \n    )"]
+
+
 def test_traceability_immutable_trigger_parses_with_dollar_quoted_body() -> None:
     # The append-only audit immutability (block-mutation function + trigger) lives in the
     # consolidated 04_traceability.sql. Its dollar-quoted PL/pgSQL body has internal

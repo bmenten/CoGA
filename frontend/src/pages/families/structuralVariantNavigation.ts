@@ -1,4 +1,5 @@
 import type { StructuralVariant } from './structuralVariantSearch';
+import { raw, routePath } from '../../lib/routePath';
 
 /**
  * Flanking context added on each side of a structural variant when it is opened in a
@@ -43,15 +44,12 @@ export const buildStructuralVariantNavigation = ({
   const igvLocus = `${chr}:${Math.max(1, variant.start - SV_IGV_FLANK_BP)}-${
     callEnd + SV_IGV_FLANK_BP
   }`;
-  const backPath = `/families/${familyId}/structural-variants${linkSearch}`;
-  const igvHref = `/families/${familyId}/igv?locus=${encodeURIComponent(igvLocus)}${
-    projectId ? `&project_id=${projectId}` : ''
-  }&back_path=${encodeURIComponent(backPath)}`;
-  const viewHref = `/families/${familyId}/chromosome/${variant.chr.replace(/^chr/, '')}?start=${Math.max(
+  const projectQuery = raw(projectId ? `&project_id=${encodeURIComponent(projectId)}` : '');
+  const backPath = routePath`/families/${familyId}/structural-variants${raw(linkSearch)}`;
+  const igvHref = routePath`/families/${familyId}/igv?locus=${igvLocus}${projectQuery}&back_path=${backPath}`;
+  const viewHref = routePath`/families/${familyId}/chromosome/${variant.chr.replace(/^chr/, '')}?start=${Math.max(
     0,
     variant.start - SV_CHROMOSOME_FLANK_BP,
-  )}&end=${callEnd + SV_CHROMOSOME_FLANK_BP}${linkSearch ? `&${linkSearch.slice(1)}` : ''}${
-    projectId ? `&project_id=${projectId}` : ''
-  }`;
+  )}&end=${callEnd + SV_CHROMOSOME_FLANK_BP}${raw(linkSearch ? `&${linkSearch.slice(1)}` : '')}${projectQuery}`;
   return { locus, igvLocus, igvHref, viewHref };
 };

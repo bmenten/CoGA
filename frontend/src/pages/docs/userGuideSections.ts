@@ -39,7 +39,7 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
       'Get an account, see how CoGA is organised, review a first case, and keep the five rules for safe use in mind.',
     quickLinks: [
       { label: 'Dashboard', to: '/dashboard', note: 'Start here' },
-      { label: 'Family Builder', to: '/family-builder', note: 'New case' },
+      { label: 'Family builder', to: '/family-builder', note: 'New case' },
       { label: 'Variant explorer', to: '/variant-explorer', note: 'Cross-cohort' },
     ],
   },
@@ -49,8 +49,8 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
     summary:
       'Create a family, import a data package, and know what each kind of data unlocks.',
     quickLinks: [
-      { label: 'Family Builder', to: '/family-builder', note: 'New family' },
-      { label: 'Package Import', to: '/package-import', note: 'Admin' },
+      { label: 'Family builder', to: '/family-builder', note: 'New family' },
+      { label: 'Package import', to: '/package-import', note: 'Admin' },
       { label: 'Upload data', to: '/upload-data', note: 'Admin' },
       { label: 'Reference data', to: '/reference-data', note: 'Assemblies' },
     ],
@@ -92,9 +92,9 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
   },
   {
     id: 'clinical-report',
-    title: 'Clinical report and sign-out',
+    title: 'Family report and sign-out',
     summary:
-      'Draft the report from the tagged variants, see what changed, and sign it out into a version that can never change.',
+      'Draft the family report from the tagged variants, see what changed, and sign the analysis out into a version that can never change. The clinical report is signed in the EPD.',
   },
   {
     id: 'specialised-analyses',

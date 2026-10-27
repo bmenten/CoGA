@@ -376,6 +376,25 @@ async def test_a_flag_not_in_the_shape_an_import_writes_stays(flag) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("flag", ["garbage", True, {"failed_datasets": "snv"}, {}])
+async def test_a_later_failure_keeps_a_flag_not_in_the_shape_an_import_writes(flag) -> None:
+    # SAFE-18. Before: the later failure's flag replaced it, so the family read as complete
+    # once coverage was imported again, whatever the first flag stood for.
+    row = _FamilyRow(flag=copy.deepcopy(flag))
+    await fpi._flag_family_import_incomplete(
+        row, _ctx(), failed_datasets=["coverage"], imported_datasets=["snv"], job_id="job-2", scopes=_SCOPES
+    )
+    assert row.flag == flag
+    # So does an upload's failure.
+    await registration.record_family_upload_failure(
+        row, family_uuid="uuid-1", family_id="F1", dataset="snv", scope=_SCOPES["snv"]
+    )
+    assert row.flag == flag
+    left = await fpi._clear_family_import_incomplete(row, _ctx(), imported={"coverage": _SCOPES["coverage"]})
+    assert row.flag == flag and left.failures.unreadable
+
+
+@pytest.mark.asyncio
 async def test_a_completed_import_removes_its_own_entry_and_those_it_completed() -> None:
     stored = {
         "job-own": _entry("job-own", ["snv", "coverage"]),
@@ -647,6 +666,36 @@ async def test_what_the_family_s_imports_imported_is_recorded_for_it() -> None:
     row = _FamilyRow()
     await fpi._clear_family_import_incomplete(row, _ctx())
     assert row.imported is None
+
+
+def test_the_whole_family_entry_leaves_out_what_postgres_alone_holds_of_other_imports() -> None:
+    # SAFE-18. The restore puts Postgres back in one transaction, which a failure rolls back
+    # whole: a dataset held in Postgres alone that this import did not carry cannot be left
+    # partly written. Before: listed all the same, so the whole family had to be imported
+    # again for the repeats, the Paraphase results, the QC and the phenotypes too.
+    mark = registration.ImportMark.begin(
+        job_id="job-2", datasets=("snv", "repeats_trgt"), scopes={"snv": _SCOPES["snv"], "repeats_trgt": _one("S1")}
+    )
+    stopped = _entry("job-stopped", ["paraphase", "coverage"])
+    entry = registration.whole_family_entry(
+        mark,
+        imported={
+            "sv_needlr": [_one()],
+            "repeats_trgt": [_one("S1")],
+            "paraphase": [_one("S1")],
+            "qc": [_one()],
+            "phenotypes": [_one()],
+            # A dataset of no known kind counts as held in ClickHouse: listed, the safe side.
+            "unknown_caller": [_one()],
+        },
+        unfinished={"job-stopped": stopped},
+        family_samples=["S1", "S2"],
+    )
+
+    # This import's own repeats stay listed: its flag names them as failed. The stopped
+    # import's paraphase is left out here; its own entry still names it.
+    assert entry["datasets"] == ["coverage", "repeats_trgt", "snv", "sv_needlr", "unknown_caller"]
+    assert {item["dataset"] for item in entry["whole_family"]} == set(entry["datasets"])
 
 
 def test_a_second_restore_that_fails_keeps_what_the_first_left_to_import() -> None:
@@ -1041,6 +1090,11 @@ async def test_a_restore_that_fails_part_way_names_what_an_upload_brought(upload
     # Before: the entry named the import's coverage alone, and an import of that again
     # opened the gate with the uploaded data gone.
     dataset, scope = _UPLOADS[kind]
+    if not registration.dataset_clickhouse_stores(dataset):
+        # The TRGT calls are Postgres's alone, which the restore puts back in one transaction:
+        # it cannot leave them partly written, so the entry does not name them (SAFE-18).
+        assert listed == ["coverage"]
+        return
     assert listed == sorted({"coverage", dataset})
     assert {"dataset": dataset, "scope": scope} in row.unfinished[mark.key]["whole_family"]
 
@@ -1096,11 +1150,11 @@ async def test_an_upload_strikes_off_only_the_samples_and_the_callset_it_brought
     await uploads("repeats", row, sample_id="S2", overwrite=True)
     await uploads("small_variants", row, overwrite=True)
 
-    # S2's manual SV calls and the clair3 callset are struck off. S1's calls, the TRGT
-    # calls of S1 and the package's imputed callset (an snv dataset stored as glimpse2) are
-    # still to bring again.
+    # S2's manual SV calls and the clair3 callset are struck off. S1's calls and the
+    # package's imputed callset (an snv dataset stored as glimpse2) are still to bring again.
+    # The TRGT calls are not listed: Postgres's alone, which the restore cannot leave partly
+    # written (SAFE-18).
     assert [item for item in row.unfinished[mark.key]["whole_family"] if item["dataset"] != "coverage"] == [
-        {"dataset": "repeats_trgt", "scope": _one("S1")},
         {"dataset": "snv", "scope": imputed},
         {"dataset": "sv_manual", "scope": _one("S1")},
     ]
@@ -1814,6 +1868,20 @@ def test_the_job_log_names_each_job_that_holds_an_error_left() -> None:
     )
 
 
+def test_the_job_log_says_a_failure_no_job_records_failed_outside_one() -> None:
+    # SAFE-18: an upload's failure (SAFE-25) runs in no job. Before: "coverage in an import".
+    flag = registration.merged_import_failure(
+        None, at=_AT, job_id="job-1", failed=["snv"], imported=[], scopes={"snv": _CLAIR3}, imported_scopes={}
+    )
+    flag = registration.merged_import_failure(
+        flag, at=_AT, job_id=None, failed=["coverage"], imported=[], scopes=_SCOPES, imported_scopes={}
+    )
+    message = fpi._still_failed_message("F1", registration.failures_left_after(flag, {}))
+    assert "an earlier import or single-file upload failed" in message
+    assert "(snv in import job job-1; coverage outside an import job)" in message
+    assert "in an import" not in message
+
+
 # --- an auto SNV import's update check and clean-up read the callset it stores (SAFE-27) ----
 #
 # With source_format auto the SNV importer counted, and after a failure deleted, the family's
@@ -1853,6 +1921,11 @@ def _snv_store(monkeypatch, *, held=None, fail=False, refuse=False):
     async def delete(_assembly, _family, *, source):
         store.deleted.append(source)
 
+    async def no_blocks(*_args, **_kwargs):
+        # The haplotype blocks an update of imputed genotypes reads beside them: none here.
+        return 0
+
+    monkeypatch.setattr(family_package_datasets, "count_interval_track_rows", no_blocks)
     monkeypatch.setattr(family_package_datasets, "count_family_small_variants", count)
     monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", load)
     monkeypatch.setattr(family_package_datasets, "delete_family_small_variants", delete)

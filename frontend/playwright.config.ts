@@ -4,7 +4,7 @@ import { defineConfig } from '@playwright/test';
 // a uvicorn backend plus the production frontend server (server.mjs serving the built
 // bundle, with its CSP and /api proxy), so the journeys exercise what is deployed (#526).
 // Seed the data first (golden trio + a known e2e user):
-//   RUN_INTEGRATION=1 python scripts/seed_playwright_e2e.py
+//   python scripts/seed_playwright_e2e.py
 // then: npx playwright test   (locally pass E2E_PYTHON=/path/to/python with deps).
 // E2E_FRONTEND=dev runs the journeys against the Vite dev server instead (no build, no
 // CSP), and E2E_BACKEND_PORT moves the backend off 8000 when that port is taken.

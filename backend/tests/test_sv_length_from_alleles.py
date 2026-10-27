@@ -303,18 +303,20 @@ def _chrm(ref: str, alt: str, info: str) -> StructuralVariantRecord:
 @pytest.mark.parametrize(
     ("read", "ref", "alt", "info", "stored"),
     [
-        # NeedlR's END rule is its own (POS + 1 without END or SVLEN), and so is its id: both
-        # unchanged. Before: 1 bp, its END − POS.
-        pytest.param(_needlr_family, _INS_REF, _INS_ALT, "", ("1-100000-100001-INS---", 100_001, 350), id="needlr-insertion"),
-        pytest.param(_needlr_family, _DEL_REF, _DEL_ALT, "SVLEN=.;", ("1-100000-100001-DEL---", 100_001, -100), id="needlr-deletion"),
-        pytest.param(_needlr_per_sample, _INS_REF, _INS_ALT, "SVTYPE=INS;", ("1-100000-100001-INS---", 100_001, 350), id="needlr-per-sample-insertion"),
-        pytest.param(_needlr_family, _INS_REF, _INS_ALT, "SVLEN=345;", ("1-100000-100345-INS---", 100_345, 345), id="needlr-written-svlen"),
-        pytest.param(_needlr_family, "N", "<INS>", "SVTYPE=INS;", ("1-100000-100001-INS---", 100_001, None), id="needlr-symbolic"),
+        # NeedlR ends a call without END where VCF 4.4 puts it, as the uploads do, and its id
+        # is theirs (CLIN-39; before: POS + SVLEN, else POS + 1). Before CLIN-41: 1 bp, its
+        # END − POS.
+        pytest.param(_needlr_family, _INS_REF, _INS_ALT, "", ("1-100000-100000-INS---", 100_000, 350), id="needlr-insertion"),
+        pytest.param(_needlr_family, _DEL_REF, _DEL_ALT, "SVLEN=.;", ("1-100000-100100-DEL---", 100_100, -100), id="needlr-deletion"),
+        pytest.param(_needlr_per_sample, _INS_REF, _INS_ALT, "SVTYPE=INS;", ("1-100000-100000-INS---", 100_000, 350), id="needlr-per-sample-insertion"),
+        pytest.param(_needlr_family, _INS_REF, _INS_ALT, "SVLEN=345;", ("1-100000-100000-INS---", 100_000, 345), id="needlr-written-svlen"),
+        pytest.param(_needlr_family, "N", "<INS>", "SVTYPE=INS;", ("1-100000-100000-INS---", 100_000, None), id="needlr-symbolic"),
         # HiFiCNV names an SV without a record ID by its coordinates and its source.
         pytest.param(_hificnv, _DEL_REF, _DEL_ALT, f"END={POS + 100}", ("1-100000-100100-DEL----hificnv", 100_100, -100), id="hificnv-deletion"),
         pytest.param(_hificnv, "N", "<DEL>", f"SVTYPE=DEL;END={POS + 100}", ("1-100000-100100-DEL----hificnv", 100_100, None), id="hificnv-symbolic"),
-        # The chrM reader ends a call without END or SVLEN on its POS. Before: no length.
-        pytest.param(_chrm, "A" + "C" * 500, "A", "", ("M-8470-8470-DEL----mito_sv", 8_470, -500), id="chrm-deletion"),
+        # The chrM reader ends a sequence deletion without END on its REF's last base, where
+        # VCF 4.4 puts it (CLIN-39; before: on its POS). Before CLIN-41: no length.
+        pytest.param(_chrm, "A" + "C" * 500, "A", "", ("M-8470-8970-DEL----mito_sv", 8_970, -500), id="chrm-deletion"),
         pytest.param(_chrm, "N", "<DEL>", "SVLEN=-500;", ("M-8470-8970-DEL----mito_sv", 8_970, -500), id="chrm-written-svlen"),
     ],
 )
@@ -490,8 +492,9 @@ def test_the_mtdna_page_shows_a_chrm_sequence_deletion_by_its_alleles() -> None:
 
     shown = _mtdna_sv_out(record, member_by_sample={})
 
-    # Before: no SVLEN and its END on its POS, so "length n/a".
-    assert (shown.sv_type, shown.start, shown.end, shown.length) == ("DEL", 8470, 8470, 500)
+    # Before: no SVLEN and its END on its POS, so "length n/a". Its END is where VCF 4.4 puts
+    # it, its REF's last base (CLIN-39; before: its POS).
+    assert (shown.sv_type, shown.start, shown.end, shown.length) == ("DEL", 8470, 8970, 500)
 
 
 # --------------------------------------------------------------------------- #

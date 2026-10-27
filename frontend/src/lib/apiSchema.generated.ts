@@ -402,6 +402,14 @@ export interface DgvVariantOut {
 }
 
 /**
+ * Why an administrator deletes a family with its data (required, TRACE-16): recorded on
+ * the family's last clinical audit event.
+ */
+export interface FamilyDeleteRequest {
+  reason: string;
+}
+
+/**
  * When a dataset's import ran and how far it got. ``fraction_read`` is the share of
  * its input files' bytes read (of a gzip file, the compressed bytes), measured at
  * ``measured_at``, by an importer that reports it; ``seconds_left`` is the time it should
@@ -1944,7 +1952,7 @@ export interface NiptVariantOut {
   chr: string;
   start: number;
   end: number;
-  length: number;
+  length: number | null;
   type: string;
   source: string | null;
   qual: number | null;
@@ -2548,6 +2556,7 @@ export interface RawImportFileOut {
   exists: boolean | null;
   download_available: boolean;
   in_object_store: boolean;
+  outside_read_folders: boolean;
 }
 
 export interface RawImportFileVerifyOut {
@@ -2695,6 +2704,7 @@ export interface RepeatExpansionRowOut {
   count_units_validated: boolean;
   count_units_note: string | null;
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+  review_reason: "outside_ranges" | "male_x_alleles" | null;
   calls: Record<string, RepeatExpansionSampleCallOut>;
 }
 
@@ -2707,6 +2717,7 @@ export interface RepeatExpansionSampleCallOut {
   allele_count: number;
   alleles: RepeatExpansionAlleleOut[];
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+  review_reason: "outside_ranges" | "male_x_alleles" | null;
   note: string | null;
 }
 
@@ -2723,6 +2734,7 @@ export interface RepeatExpansionTrackItemOut {
   warning_min: number | null;
   pathogenic_min: number | null;
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+  review_reason: "outside_ranges" | "male_x_alleles" | null;
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
   count_units_validated: boolean;
@@ -3555,7 +3567,7 @@ export interface VariantOut {
   chr: string;
   start: number;
   end: number;
-  length: number;
+  length: number | null;
   type: string;
   source: string | null;
   qual: number | null;

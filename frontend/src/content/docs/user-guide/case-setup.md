@@ -1,15 +1,15 @@
 Choose the way in that matches how your data arrives.
 
 ```cards
-Family Builder | Build a new family by hand: add samples, set sex and roles, link parents and couples, and set affected and carrier status. Open to the analysts of a project, who add families to it, and to administrators; uploading a PED file here is for administrators.
-Package Import | An administrator points at a family folder on the CoGA server, lets CoGA write its manifest, validates it, and imports the family with all its data in one job.
+Family builder | Build a new family by hand: add samples, set sex and roles, link parents and couples, and set affected and carrier status. Open to the analysts of a project, who add families to it, and to administrators; uploading a PED file here is for administrators.
+Package import | An administrator points at a family folder on the CoGA server, lets CoGA write its manifest, validates it, and imports the family with all its data in one job.
 ```
 
-- **Loading data is for administrators**: Package Import, single uploads on the **Upload family and
+- **Loading data is for administrators**: package import, single uploads on the **Upload family and
   sample data** page, and replacing an existing family. Editing an existing family's members or
   structure is for administrators too. Adding, changing and removing HPO terms is for the analysts of
   the family's project and for administrators.
-- For a **monogenic NIPT** case, tick *Monogenic NIPT (cfDNA from maternal plasma)* in Family Builder:
+- For a **monogenic NIPT** case, tick *Monogenic NIPT (cfDNA from maternal plasma)* in the family builder:
   see [Monogenic NIPT](#monogenic-nipt).
 - Each kind of data switches on part of CoGA: small variants the small-variant page and Sample QC;
   structural variants the SV page and the variant summary; TRGT calls the repeat page; Paraphase the

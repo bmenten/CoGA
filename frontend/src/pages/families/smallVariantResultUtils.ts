@@ -8,6 +8,7 @@ import {
   type SmallVariantReviewTagMetadata,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
+import { raw, routePath } from '../../lib/routePath';
 
 /**
  * A variant total as the page shows it. An estimated total is a lower bound, marked `+`.
@@ -495,14 +496,10 @@ export const buildSmallVariantNavigation = ({
   const chr = variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`;
   const locus = `${chr}:${Math.max(1, variant.start)}-${Math.max(variant.start, variant.end)}`;
   const backSearch = locationSearch.startsWith('?') ? locationSearch.slice(1) : locationSearch;
-  const igvBackPath = backSearch
-    ? `/families/${familyId}/small-variants?${backSearch}`
-    : `/families/${familyId}/small-variants`;
-  const igvHref = `/families/${familyId}/igv?locus=${encodeURIComponent(locus)}${
-    projectId ? `&project_id=${projectId}` : ''
-  }${backSearch ? `&back=${encodeURIComponent(backSearch)}` : ''}&back_path=${encodeURIComponent(
-    igvBackPath,
-  )}`;
+  const igvBackPath = routePath`/families/${familyId}/small-variants${raw(backSearch ? `?${backSearch}` : '')}`;
+  const igvHref = routePath`/families/${familyId}/igv?locus=${locus}${raw(
+    projectId ? `&project_id=${encodeURIComponent(projectId)}` : '',
+  )}${raw(backSearch ? `&back=${encodeURIComponent(backSearch)}` : '')}&back_path=${igvBackPath}`;
   const viewHref = (() => {
     const chrom = variant.chr.replace(/^chr/, '');
     const start = Math.max(0, variant.start - 1_000_000);
@@ -512,7 +509,7 @@ export const buildSmallVariantNavigation = ({
     params.set('end', String(end));
     params.set('origin', 'small');
     if (projectId) params.set('project_id', projectId);
-    return `/families/${familyId}/chromosome/${chrom}?${params.toString()}`;
+    return routePath`/families/${familyId}/chromosome/${chrom}${raw(`?${params.toString()}`)}`;
   })();
 
   return { igvHref, locus, viewHref };
@@ -560,7 +557,7 @@ export const buildSvSecondHitHref = (
     params.set('gene', geneLabel);
   }
   if (projectId) params.set('project_id', projectId);
-  return `/families/${familyId}/structural-variants?${params.toString()}`;
+  return routePath`/families/${familyId}/structural-variants${raw(`?${params.toString()}`)}`;
 };
 
 export const buildSmallVariantExternalLinks = ({

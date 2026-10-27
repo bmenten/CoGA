@@ -15,6 +15,7 @@ import {
   sequencingQcForMember,
 } from './familyDetailHelpers';
 import { apiPath } from '../../lib/apiPath';
+import { crossedLimit, formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
 
 interface SampleQcCellProps {
   familyId: string;
@@ -65,77 +66,19 @@ const NOT_RUN_NO_VERDICT =
   `${QC_STATUS_LABEL.skip}: not assessed, because the server returned no QC verdict ` +
   'for this sample';
 
-/**
- * How a metric's value is written, per unit, rounded as the chip and the tooltip's metric
- * list round it: "18.6x", "6.4%", "Q32", "14,283 bp". `digits` is the default rounding;
- * a unit not listed here is written as served, with its unit after it.
- */
-interface UnitFormat {
-  digits?: number;
-  write: (value: number, digits: number) => string;
-}
-
-const grouped = (value: number, digits: number): string =>
-  value.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
-
-const UNIT_FORMAT: Record<string, UnitFormat> = {
-  x: { digits: 1, write: (value, digits) => `${value.toFixed(digits)}x` },
-  '%': { digits: 1, write: (value, digits) => `${value.toFixed(digits)}%` },
-  Q: { digits: 0, write: (value, digits) => `Q${value.toFixed(digits)}` },
-  bp: { digits: 0, write: (value, digits) => `${grouped(value, digits)} bp` },
-  reads: { digits: 0, write: (value, digits) => `${grouped(value, digits)} reads` },
-  fraction: { digits: 3, write: (value, digits) => value.toFixed(digits) },
-};
-
-const unitFormat = (unit: string): UnitFormat =>
-  UNIT_FORMAT[unit] ?? { write: (value, digits) => `${value.toFixed(digits)} ${unit}`.trim() };
-
-/** The decimals a number is written with ("19.96" → 2), so it can be shown as it is. */
-const decimalsOf = (value: number): number => {
-  const [mantissa, exponent = '0'] = String(value).split('e');
-  const decimals = (mantissa.split('.')[1] ?? '').length - Number(exponent);
-  return Math.min(20, Math.max(0, decimals));
-};
-
-/** The limit a breaching metric crossed: its error limit for a fail, its warning limit otherwise. */
-const crossedLimit = (metric: ApiSampleSequencingQcMetric): number | null | undefined =>
-  metric.verdict === 'fail' ? metric.error_value : metric.warn_value;
-
 const isBreach = (metric: ApiSampleSequencingQcMetric): boolean =>
   metric.verdict === 'warn' || metric.verdict === 'fail';
 
 /**
- * A metric's value as the chip and the breach sentence write it, in its unit. It is rounded
- * as the metric list rounds it, unless the metric breached and that rounding would put it
- * on or past the limit it crossed (19.96 against 20 is not "20.0x below 20x"): then it gets
- * the decimals it needs to stay on the failing side.
- */
-const formatMetricValue = (metric: ApiSampleSequencingQcMetric): string => {
-  const format = unitFormat(metric.unit);
-  const exact = decimalsOf(metric.value);
-  let digits = format.digits ?? exact;
-  const bound = crossedLimit(metric);
-  if (isBreach(metric) && typeof bound === 'number') {
-    const lowerIsWorse = metric.direction === 'lower_is_worse';
-    while (digits < exact) {
-      const shown = Number(metric.value.toFixed(digits));
-      if (lowerIsWorse ? shown < bound : shown > bound) break;
-      digits += 1;
-    }
-  }
-  return format.write(metric.value, digits);
-};
-
-/**
  * A breaching metric in the tooltip: "Mean depth 18.6x below 20x". The value is written as
- * the chip writes it (`formatMetricValue`); the limit exactly as configured.
+ * the chip writes it (`formatQcMetricValue`, shared with a signed version's sequencing QC);
+ * the limit exactly as configured.
  */
 const describeBreach = (metric: ApiSampleSequencingQcMetric): string => {
   const bound = crossedLimit(metric);
-  const value = formatMetricValue(metric);
+  const value = formatQcMetricValue(metric);
   if (typeof bound !== 'number') return `${metric.label} ${value}`;
-  const limit = unitFormat(metric.unit).write(bound, decimalsOf(bound));
-  return `${metric.label} ${value} ${metric.direction === 'lower_is_worse' ? 'below' : 'above'} ${limit}`;
+  return `${metric.label} ${value} ${metric.direction === 'lower_is_worse' ? 'below' : 'above'} ${formatQcLimit(metric.unit, bound)}`;
 };
 
 /**
@@ -169,7 +112,7 @@ const decidingMetric = (
 const formatDecidingMetric = (evaluation: ApiSampleSequencingQcEvaluation | null | undefined): string | null => {
   const metric = decidingMetric(evaluation);
   if (!metric) return null;
-  return `${CHIP_METRIC_NAME[metric.metric_key] ?? metric.label} ${formatMetricValue(metric)}`;
+  return `${CHIP_METRIC_NAME[metric.metric_key] ?? metric.label} ${formatQcMetricValue(metric)}`;
 };
 
 /** Sentence describing which metrics breached, for the tooltip. */

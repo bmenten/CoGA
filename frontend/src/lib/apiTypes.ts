@@ -713,6 +713,10 @@ export type ApiRepeatStatus =
   | 'pathogenic'
   | 'unknown';
 
+/** Why a call or a locus reads `review`: a count the catalogue cannot classify, or a man's two
+ *  different chrX alleles (CLIN-14). */
+export type ApiRepeatReviewReason = 'outside_ranges' | 'male_x_alleles';
+
 export interface ApiRepeatExpansionMotifCount {
   motif: string;
   count: number;
@@ -744,6 +748,7 @@ export interface ApiRepeatExpansionSampleCall {
   allele_count: number;
   alleles: ApiRepeatExpansionAllele[];
   status: ApiRepeatStatus;
+  review_reason?: ApiRepeatReviewReason | null;
   // Why the call needs a second look (a male with two different chrX alleles).
   note?: string | null;
 }
@@ -771,6 +776,7 @@ export interface ApiRepeatExpansionRow {
   count_units_validated?: boolean;
   count_units_note?: string | null;
   status: ApiRepeatStatus;
+  review_reason?: ApiRepeatReviewReason | null;
   calls: Record<string, ApiRepeatExpansionSampleCall>;
 }
 
@@ -1011,10 +1017,12 @@ export interface ApiRepeatExpansionTrackItem {
   motif?: string | null;
   warning_min?: number | null;
   pathogenic_min?: number | null;
+  // As the family table reads the call: against the catalogue row that classifies it now
+  // (CLIN-14), not the status stored at import.
   status: ApiRepeatStatus;
+  review_reason?: ApiRepeatReviewReason | null;
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
-  // As on the family table, against the thresholds stored with the call.
   count_units_validated?: boolean;
   count_units_note?: string | null;
   count_unit_warnings?: RepeatCountUnitWarningOut[];

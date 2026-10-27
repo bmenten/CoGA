@@ -166,6 +166,13 @@ class RepeatLocusCountUnitsCatalogueOut(BaseModel):
     changes: List[RepeatLocusCountUnitsChangeOut] = Field(default_factory=list)
 
 
+class FamilyDeleteRequest(BaseModel):
+    """Why an administrator deletes a family with its data (required, TRACE-16): recorded on
+    the family's last clinical audit event."""
+
+    reason: str
+
+
 class RepeatLocusCountUnitsUpdate(BaseModel):
     """Whether TRGT's counting units at a locus are validated, and why (required)."""
 

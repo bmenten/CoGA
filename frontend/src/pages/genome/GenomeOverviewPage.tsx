@@ -26,6 +26,7 @@ import {
   useTrackWidth,
 } from './viewerShared';
 import { apiPath, raw } from '../../lib/apiPath';
+import { routePath } from '../../lib/routePath';
 
 // Inter-chromosome gap in px. Module-level so it is referentially stable and
 // does not need to appear in render memo dependency arrays.
@@ -405,6 +406,7 @@ const GenomeOverviewPage: React.FC = () => {
   if (isLoading || (data?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Visualization"
         title="Loading genome overview"
         message="Preparing genome-wide tracks and family context."
@@ -524,7 +526,7 @@ const GenomeOverviewPage: React.FC = () => {
         assemblyValidated={assemblyValidated}
         familyMetadata={data.metadata}
         projectId={resolvedProjectId}
-        backDest={`/families/${familyId}/structural-variants${backSearch ? `?${backSearch}` : ''}`}
+        backDest={routePath`/families/${familyId}/structural-variants${raw(backSearch ? `?${backSearch}` : '')}`}
         visibleRoi={visibleRoi}
         inheritanceModel={inheritanceModel}
         genomeRoiRange={genomeRoiRange}
@@ -538,7 +540,7 @@ const GenomeOverviewPage: React.FC = () => {
             params.delete('end');
           }
           const search = params.toString();
-          navigate(`/families/${familyId}/chromosome/${chrom}${search ? `?${search}` : ''}`);
+          navigate(routePath`/families/${familyId}/chromosome/${chrom}${raw(search ? `?${search}` : '')}`);
         }}
         familyMembers={orderedMembers}
         visibleMembers={visibleMembers}

@@ -16,6 +16,7 @@ import {
   useNow,
   type DatasetProgress,
 } from './importProgress';
+import { routePath } from '../../lib/routePath';
 
 type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed';
 type PackageTargetMode = 'new' | 'existing';
@@ -339,7 +340,7 @@ const FamilyPackageImportPanel: React.FC = () => {
     <section className="surface-card space-y-4 family-package-import-panel">
       <div className="catalog-card-header">
         <div>
-          <p className="page-kicker">Package Import</p>
+          <p className="page-kicker">Package import</p>
           <h2 className="catalog-card-title">Folder package</h2>
         </div>
         <span className="badge-chip badge-chip--signature">
@@ -434,7 +435,7 @@ const FamilyPackageImportPanel: React.FC = () => {
       <div className="surface-card-muted space-y-4">
         <div className="catalog-card-header">
           <div>
-            <p className="page-kicker">Import Target</p>
+            <p className="page-kicker">Import target</p>
             <h3 className="section-title">Family destination</h3>
           </div>
           <span className="badge-chip">
@@ -507,7 +508,7 @@ const FamilyPackageImportPanel: React.FC = () => {
       <div className="surface-card-muted space-y-4">
         <div className="catalog-card-header">
           <div>
-            <p className="page-kicker">Manifest Builder</p>
+            <p className="page-kicker">Manifest builder</p>
             <h3 className="section-title">Discover available data</h3>
           </div>
           <span className="badge-chip">{manifestResult?.family_id || 'No draft'}</span>
@@ -704,7 +705,7 @@ const FamilyPackageImportPanel: React.FC = () => {
       <div className="surface-card-muted space-y-4">
         <div className="catalog-card-header">
           <div>
-            <p className="page-kicker">Job History</p>
+            <p className="page-kicker">Job history</p>
             <h3 className="section-title">Recent family imports</h3>
           </div>
           <span className="badge-chip">{recentJobs.length}</span>
@@ -814,7 +815,7 @@ const FamilyPackageImportPanel: React.FC = () => {
 
           {currentJob.validation_errors.length > 0 ? (
             <div>
-              <h3 className="eyebrow-label">Validation Errors</h3>
+              <h3 className="eyebrow-label">Validation errors</h3>
               <ul className="mt-3 space-y-2 text-sm text-(--color-variant-del)">
                 {currentJob.validation_errors.map((issue, index) => (
                   <li key={`${issue.code}-${index}`}>
@@ -881,7 +882,7 @@ const FamilyPackageImportPanel: React.FC = () => {
           ) : null}
 
           {currentJob.status === 'completed' && currentJob.family_id && !currentJob.dry_run ? (
-            <Link to={`/families/${currentJob.family_id}`} className="button-secondary hover:no-underline">
+            <Link to={routePath`/families/${currentJob.family_id}`} className="button-secondary hover:no-underline">
               Open imported family
             </Link>
           ) : null}

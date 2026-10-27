@@ -2,10 +2,8 @@ from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy import text
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..core.sql import is_missing_postgres_schema_error
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
 from ..schemas import (
@@ -66,23 +64,6 @@ from ..services.bed_service import precompute_family_lineage_safe
 from ..services.clickhouse_family_variants import precompute_family_ranking_safe
 
 router = APIRouter(prefix="/families", tags=["families"])
-
-
-async def _raise_metadata_schema_error_if_needed(
-    session: AsyncSession,
-    exc: DBAPIError,
-) -> None:
-    if not is_missing_postgres_schema_error(exc):
-        return
-    await session.rollback()
-    raise HTTPException(
-        status_code=503,
-        detail=(
-            "Family metadata database schema is not available. Restart the backend or apply "
-            "the latest Postgres schema so family relationship and structure-version tables "
-            "are created, then retry the metadata update."
-        ),
-    ) from exc
 
 
 @router.get("/", response_model=List[FamilyOut])
@@ -157,23 +138,19 @@ async def update_family_structure(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyStructureUpdateOut:
-    try:
-        result = await update_family_structure_for_admin(
-            session,
-            family_id=family_id,
-            update=update,
-            user=user,
-        )
-        # The structure editor's save changes members, roles, affected status and
-        # relationships: the same pedigree edit as the member routes below, so it
-        # refreshes the genome-overview lineage (grey until then, by the hash guard) and
-        # warms the prioritised ranking whose key it changed.
-        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
-        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
-        return result
-    except DBAPIError as exc:
-        await _raise_metadata_schema_error_if_needed(session, exc)
-        raise
+    result = await update_family_structure_for_admin(
+        session,
+        family_id=family_id,
+        update=update,
+        user=user,
+    )
+    # The structure editor's save changes members, roles, affected status and
+    # relationships: the same pedigree edit as the member routes below, so it
+    # refreshes the genome-overview lineage (grey until then, by the hash guard) and
+    # warms the prioritised ranking whose key it changed.
+    background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.put("/{family_id}/members/batch", response_model=FamilyMemberBatchUpdateOut)
@@ -184,22 +161,18 @@ async def update_family_members_batch(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberBatchUpdateOut:
-    try:
-        result = await update_family_members_batch_for_admin(
-            session,
-            family_id=family_id,
-            update=update,
-            user=user,
-        )
-        # Roles / affected status drive the haplotype lineage colours; refresh the
-        # precomputed genome-overview lineage in the background (the hash guard keeps
-        # the overview safe-but-grey until the new precompute lands).
-        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
-        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
-        return result
-    except DBAPIError as exc:
-        await _raise_metadata_schema_error_if_needed(session, exc)
-        raise
+    result = await update_family_members_batch_for_admin(
+        session,
+        family_id=family_id,
+        update=update,
+        user=user,
+    )
+    # Roles / affected status drive the haplotype lineage colours; refresh the
+    # precomputed genome-overview lineage in the background (the hash guard keeps
+    # the overview safe-but-grey until the new precompute lands).
+    background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.get("/{family_id}/members/{sample_id}", response_model=FamilyMemberDetailOut)
@@ -226,22 +199,18 @@ async def update_family_member(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberUpdateOut:
-    try:
-        result = await update_family_member_for_admin(
-            session,
-            family_id=family_id,
-            sample_id=sample_id,
-            update=update,
-            user=user,
-        )
-        # Role / affected status feed the haplotype lineage colours — refresh the
-        # precomputed genome-overview lineage in the background.
-        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
-        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
-        return result
-    except DBAPIError as exc:
-        await _raise_metadata_schema_error_if_needed(session, exc)
-        raise
+    result = await update_family_member_for_admin(
+        session,
+        family_id=family_id,
+        sample_id=sample_id,
+        update=update,
+        user=user,
+    )
+    # Role / affected status feed the haplotype lineage colours — refresh the
+    # precomputed genome-overview lineage in the background.
+    background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.delete("/{family_id}/members/{sample_id}", response_model=FamilyMemberDeleteOut)
@@ -253,22 +222,18 @@ async def delete_family_member(
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> FamilyMemberDeleteOut:
-    try:
-        result = await delete_family_member_for_admin(
-            session,
-            family_id=family_id,
-            sample_id=sample_id,
-            confirmed=confirm,
-            user=user,
-        )
-        # Removing a member changes the pedigree — refresh the precomputed
-        # genome-overview lineage in the background.
-        background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
-        background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
-        return result
-    except DBAPIError as exc:
-        await _raise_metadata_schema_error_if_needed(session, exc)
-        raise
+    result = await delete_family_member_for_admin(
+        session,
+        family_id=family_id,
+        sample_id=sample_id,
+        confirmed=confirm,
+        user=user,
+    )
+    # Removing a member changes the pedigree — refresh the precomputed
+    # genome-overview lineage in the background.
+    background_tasks.add_task(precompute_family_lineage_safe, family_id, user)
+    background_tasks.add_task(precompute_family_ranking_safe, family_id, user)
+    return result
 
 
 @router.get("/{family_id}/hpo", response_model=List[HpoAnnotationOut])

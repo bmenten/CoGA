@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from backend.app.routers.families_small_variants import (
     _FAMILY_EXPORT_COLUMNS,
     _family_export_cell,
@@ -127,3 +129,36 @@ def test_family_export_leaves_the_filter_columns_empty_when_the_row_s_transcript
     assert len(filter_columns) == 11
     for field, label in filter_columns:
         assert _family_export_cell(row, field) == "", label
+
+
+@pytest.mark.asyncio
+async def test_a_variant_in_two_compound_het_pairs_is_one_row_of_the_export(monkeypatch) -> None:
+    # The export flattened each pair into its rows, so a variant in two pairs was listed
+    # twice; the file says nothing of pairs, so the second row only repeated the first
+    # (CLIN-52).
+    from types import SimpleNamespace
+
+    from backend.app.schemas import SmallVariantGroupOut, VariantPage
+    from backend.app.services import clickhouse_family_variants
+
+    def snv(position: int) -> VariantOut:
+        return VariantOut(id=f"1-{position}-A-T", chr="1", start=position, end=position, length=1, type="SNV")
+
+    async def page(*_args, **_kwargs) -> VariantPage:
+        return VariantPage(
+            total=2,
+            variant_groups=[
+                SmallVariantGroupOut(group_key="g1", gene="GENE_CH", variants=[snv(100), snv(200)]),
+                SmallVariantGroupOut(group_key="g2", gene="GENE_CH", variants=[snv(100), snv(300)]),
+            ],
+        )
+
+    monkeypatch.setattr(clickhouse_family_variants, "get_family_small_variants_page", page)
+
+    export = await clickhouse_family_variants.export_family_small_variants(
+        None,  # type: ignore[arg-type]
+        context=SimpleNamespace(),  # type: ignore[arg-type]
+        inheritance="compound_het",
+    )
+
+    assert [str(row.id) for row in export.rows] == ["1-100-A-T", "1-200-A-T", "1-300-A-T"]

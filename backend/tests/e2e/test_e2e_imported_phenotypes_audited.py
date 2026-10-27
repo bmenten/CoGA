@@ -80,10 +80,7 @@ async def _exercise(base: Path) -> dict[str, Any]:
     async with sessionmaker() as session:
         admin, project_id, _assembly_id = await _harness.ensure_e2e_project(session)
         for term, label in _TERMS.items():
-            await session.execute(
-                text("INSERT INTO hpo_term (hpo_id, label) VALUES (:id, :label) ON CONFLICT (hpo_id) DO NOTHING"),
-                {"id": term, "label": label},
-            )
+            await _harness.seed_hpo_term(session, term, label)
         await session.commit()
         labels = {
             row["hpo_id"]: row["label"]

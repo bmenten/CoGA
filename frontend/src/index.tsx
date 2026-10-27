@@ -133,6 +133,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 
 const RouteFallback: React.FC = () => (
   <PageState
+    loading
     kicker="Workspace"
     title="Loading workspace"
     message="Preparing the requested view."

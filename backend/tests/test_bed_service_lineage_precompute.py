@@ -51,6 +51,19 @@ def test_lineage_hash_is_deterministic_and_sensitive():
     assert baseline != bed_service._lineage_hash(_ctx(relationship_rows=[]))
 
 
+def test_lineage_hash_holds_each_members_sex():
+    # chrX between the PARs is read by each member's sex (CLIN-12): a recorded or corrected
+    # sex makes a precompute stale, an unchanged one keeps it, and "M" reads as "male".
+    rows = [dict(r) for r in _ctx().sample_rows]
+    rows[0]["sex"] = "male"
+    recorded = bed_service._lineage_hash(_ctx(sample_rows=rows))
+    assert recorded != bed_service._lineage_hash(_ctx())
+    rows[0]["sex"] = "M"
+    assert recorded == bed_service._lineage_hash(_ctx(sample_rows=rows))
+    rows[0]["sex"] = "female"
+    assert recorded != bed_service._lineage_hash(_ctx(sample_rows=rows))
+
+
 def test_lineage_hash_holds_the_roi_only_for_a_family_with_a_relative_of_unknown_degree():
     # A relative of unknown degree is read at the ROI, so moving the ROI makes its
     # colours stale; a family without one keeps its fingerprint.

@@ -233,6 +233,38 @@ describe('FamilyReportPage', () => {
     expect(printNotice?.textContent).toMatch(expected);
   });
 
+  // CLIN-39: a reported breakend's footer line named its locus and type, not its mate, which
+  // the sentence above it names; and the sentence read "A 0 bp breakend".
+  it("names a reported breakend's mate in its footer line, and gives it no size", async () => {
+    mockApi();
+    const base = apiMock.get.getMockImplementation()!;
+    const breakend = {
+      _id: '1-20000-20000-BND-5-3000000-3000000',
+      chr: '1',
+      start: 20000,
+      end: 20000,
+      length: null,
+      type: 'BND',
+      remote_chr: '5',
+      remote_start: 3000000,
+      genotypes: [{ sample: 'S1', gt: '0/1' }],
+      review: { tags: ['report'] },
+    };
+    apiMock.get.mockImplementation((url: string, config?: unknown) =>
+      url.startsWith('/families/F1/structural-variants')
+        ? Promise.resolve({ data: { variants: [breakend], total: 1 } })
+        : base(url, config),
+    );
+    renderPage();
+
+    expect(await screen.findByText('1:20,000-20,000 → 5:3,000,000 · BND')).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'A breakend / translocation at 1:20,000-20,000 in an intergenic region with a remote breakpoint at 5:3,000,000.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   // The report asked for 500 reported variants and never looked at the total: a longer list
   // ended at 500 without a trace, while the signed record holds every reported variant.
   it('asks for every reported variant, not the first 500', async () => {
@@ -500,9 +532,22 @@ describe('FamilyReportPage', () => {
         return Promise.resolve({
           data: {
             family_id: 'F1',
-            checked: 0,
-            drifted_count: 0,
-            drifted: [],
+            checked: 1,
+            drifted_count: 1,
+            drifted: [
+              {
+                variant_id: '1-100-A-G',
+                classification: 'Likely Pathogenic - class 4',
+                classified_by: 'bob',
+                classified_at: null,
+                status: 'variant_missing',
+                clinvar_from: null,
+                clinvar_to: null,
+                changed: [],
+                evidence_from: null,
+                evidence_to: null,
+              },
+            ],
             structural: {
               checked: 4,
               drifted_count: 4,
@@ -525,16 +570,18 @@ describe('FamilyReportPage', () => {
 
     // One banner counts the SV/CNV classifications with the small variants.
     expect(
-      await screen.findByText(/4 classifications have evidence changes since being made/),
+      await screen.findByText(/5 classifications have evidence changes since being made/),
     ).toBeInTheDocument();
     const items = screen.getAllByRole('listitem').map((item) => item.textContent ?? '');
+    // Worded as the signed version words it (ENG-10; before: "in the dataset").
+    expect(items).toContain('1-100-A-G — no longer present in the data (classified by bob)');
     expect(items).toContain(
       'sv-genes (structural variant) — genes TCF4, TXNL1 → TCF4; pLI 0.990 → 0.410 (classified by bob)',
     );
     expect(items).toContain('sv-annotation (structural variant) — annotation changed (classified by bob)');
     // The caller whose call is gone is named: another caller may still call the SV (TRACE-12).
     expect(items).toContain(
-      'sv-gone (structural variant) — its needlr call is no longer present in the dataset (classified by bob)',
+      'sv-gone (structural variant) — its needlr call is no longer present in the data (classified by bob)',
     );
     expect(items).toContain(
       'sv-unreadable (structural variant) — its frozen evidence cannot be compared (classified by bob)',
@@ -1270,7 +1317,7 @@ describe('FamilyReportPage', () => {
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent('Overall: Pass (Trio WGS).');
       expect(checks).toHaveTextContent('Sex of PROBAND: Pass — Recorded and inferred sex agree.');
-      expect(checks).toHaveTextContent('PROBAND: Warning — Mean coverage 18 × (Warning; warning 20, fail 10)');
+      expect(checks).toHaveTextContent('PROBAND: Warning — Mean coverage 18 × (Warning; warning 20 ×, fail 10 ×)');
       expect(checks).toHaveTextContent('The family’s data had imported completely.');
       expect(screen.getByText(/No reported classification had changed evidence/)).toHaveTextContent(
         'No reported classification had changed evidence when this version was signed (1 checked).',
@@ -2957,6 +3004,106 @@ describe('FamilyReportPage', () => {
       await signedRecordCard();
       const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
       expect(checks).toHaveTextContent(`Import jobs: snv in ${IMPORT_JOB_ID}; sv in job-earlier.`);
+    });
+
+    it('names a failure no job records apart from the job of another, in the dialog and on the signed record', async () => {
+      // SAFE-18: an upload of sv failed (no job), then the import failed for snv. Before: sv
+      // was named under the import's job, whose record holds no error of it.
+      const flag = { ...IMPORT_FLAG, failed_jobs: { snv: IMPORT_JOB_ID, sv: null } };
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: { detail: { gate: 'import_incomplete', message: 'incomplete', import_incomplete: flag } },
+          },
+        }),
+      );
+      const { unmount } = renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(within(dialog).getByText(`Import job ${IMPORT_JOB_ID}: snv`)).toBeInTheDocument();
+      expect(within(dialog).getByText('No import job: sv')).toBeInTheDocument();
+      expect(within(dialog).queryByText(`Import job: ${IMPORT_JOB_ID}`)).not.toBeInTheDocument();
+      unmount();
+
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_incomplete: flag,
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        `Import jobs: snv in ${IMPORT_JOB_ID}. No import job records the error of sv, which failed in a single-file upload or in an import run outside a job.`,
+      );
+    });
+
+    it('names a restore that did not finish as one, in the dialog and on the signed record', async () => {
+      // SAFE-18: the refusal and the record freeze its entry with whole_family. Before: named
+      // as an import that had not finished, as one that stopped part-way.
+      const restore = {
+        job_id: 'job-r',
+        at: '2026-10-13T09:00:00+00:00',
+        datasets: ['coverage', 'snv'],
+        finished_datasets: [],
+        whole_family: true,
+      };
+      mockUnsignedFamily();
+      apiMock.post.mockImplementation(() =>
+        Promise.reject({
+          response: {
+            status: 409,
+            data: {
+              detail: {
+                gate: 'import_incomplete',
+                message: 'incomplete',
+                import_incomplete: null,
+                import_unfinished: { 'job-r': restore },
+              },
+            },
+          },
+        }),
+      );
+      const { unmount } = renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Incomplete import acknowledgement required/i,
+      });
+      expect(
+        within(dialog).getByText(
+          'Restore not finished (import job job-r): coverage, snv may be partly written or missing, whichever import or upload wrote them',
+        ),
+      ).toBeInTheDocument();
+      unmount();
+
+      mockSignedCase({
+        versions: [{ ...SIGNED_ENTRY, import_incomplete_acknowledged: true, import_incomplete_acknowledgement_reason: REASON }],
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          import_unfinished: { 'job-r': restore },
+          acknowledged_import_incomplete: true,
+          import_incomplete_acknowledgement_reason: REASON,
+        },
+      });
+      renderPage();
+
+      await signedRecordCard();
+      const checks = screen.getByRole('heading', { name: 'Checks at sign-out' }).closest('section')!;
+      expect(checks).toHaveTextContent(
+        /import job job-r, had failed, and putting the family’s data back had not finished: coverage and snv may have been partly written or missing, whichever import or upload wrote them\./,
+      );
+      expect(checks).not.toHaveTextContent(/had begun writing the family’s data/);
     });
 
     it('shows on the signed record an import that had not finished', async () => {

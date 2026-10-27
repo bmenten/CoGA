@@ -26,7 +26,7 @@ structural_variants:
   del_gene: BRCA2
   ids:
     1-7000-12000-DEL---: SVDEL1
-    1-20000-20001-BND-5-3000000-3000000: SVBND1
+    1-20000-20000-BND-5-3000000-3000000: SVBND1
 sv_second_hit:
   gene: BRCA2
   phase: trans

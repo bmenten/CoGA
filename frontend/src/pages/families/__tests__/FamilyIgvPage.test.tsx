@@ -154,6 +154,59 @@ describe('FamilyIgvPage', () => {
     expect(screen.queryByText(/Mus musculus • GRCm39 v1/i)).not.toBeInTheDocument();
   });
 
+  // The link that opens the viewer chooses its back_path: taken as it came, one to another
+  // site sent the Back link there (SEC-15).
+  it('goes Back only to one of the family pages', async () => {
+    apiGetMock.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            projects: ['p1'],
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }],
+          },
+        });
+      }
+      if (url === '/projects') {
+        return Promise.resolve({
+          data: [
+            {
+              _id: 'p1',
+              name: 'Project one',
+              species_id: 'sp1',
+              assembly_id: 'asm1',
+              species_name: 'Homo sapiens',
+              assembly_name: 'GRCh38',
+              assembly_version: 'p14',
+              families: [],
+              samples: [],
+            },
+          ],
+        });
+      }
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    const backAt = async (backPath: string) => {
+      const { unmount } = render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[`/families/F1/igv?back_path=${encodeURIComponent(backPath)}`]}>
+            <Routes>
+              <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+      const href = (await screen.findByRole('link', { name: 'Back' })).getAttribute('href');
+      unmount();
+      return href;
+    };
+
+    expect(await backAt('/families/F1/structural-variants?type=DEL')).toBe('/families/F1/structural-variants?type=DEL');
+    for (const offSite of ['https://example.org/x', '//example.org/x', '/admin/users']) {
+      expect(await backAt(offSite)).toBe('/families/F1/small-variants');
+    }
+  });
+
   // The viewer shows the family's reads like any family page shows its data: a partly
   // imported family, or one off the validated scope, is said so above them.
   it('warns in its header that the import is incomplete and the assembly is not validated', async () => {

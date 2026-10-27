@@ -310,8 +310,12 @@ def test_family_member_management_endpoints(hpo_api_client) -> None:
     assert delete_response.json()["warnings"] == ["Removed family members are inactive."]
 
 
-def test_family_member_batch_reports_missing_metadata_schema(hpo_api_client) -> None:
-    client, monkeypatch = hpo_api_client
+def test_a_database_error_in_a_member_edit_is_a_server_error_that_names_no_table(hpo_api_client) -> None:
+    # ENG-8. The member routes turned a missing table into a 503 that named the family's
+    # relationship and structure-version tables and asked to restart the backend: a leftover
+    # of the time tables were created at runtime. Startup now applies the schema, or refuses to
+    # serve on another revision, so such an error is the server's, answered as any other.
+    _client, monkeypatch = hpo_api_client
 
     async def fake_batch_update(*args, **kwargs):
         del args, kwargs
@@ -323,10 +327,12 @@ def test_family_member_batch_reports_missing_metadata_schema(hpo_api_client) -> 
 
     monkeypatch.setattr(families_router, "update_family_members_batch_for_admin", fake_batch_update)
 
-    response = client.put(
-        "/api/families/FAM1/members/batch",
-        json={"updates": [{"sample_id": "PROBAND", "carrier_status": "carrier"}]},
-    )
+    with TestClient(app, raise_server_exceptions=False) as client:
+        response = client.put(
+            "/api/families/FAM1/members/batch",
+            json={"updates": [{"sample_id": "PROBAND", "carrier_status": "carrier"}]},
+        )
 
-    assert response.status_code == 503
-    assert "Family metadata database schema is not available" in response.json()["detail"]
+    assert response.status_code == 500
+    assert "family_structure_versions" not in response.text
+    assert "schema" not in response.text.lower()

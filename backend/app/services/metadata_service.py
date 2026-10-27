@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from fastapi import HTTPException
-from sqlalchemy import bindparam, text
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.sql import require_uuid, uuid_list_bindparam, uuid_values
@@ -888,14 +888,16 @@ async def _fetch_project_family_rows(
     if not family_ids:
         return {}, {}
 
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the projects' families grow with the laboratory (DATA-6).
     family_project_stmt = text(
         """
         SELECT family_id::text AS family_uuid, project_id::text AS project_id
         FROM family_projects
-        WHERE family_id IN :family_ids
+        WHERE family_id = ANY(CAST(:family_ids AS uuid[]))
           AND project_id IN :project_ids
         """
-    ).bindparams(uuid_list_bindparam("family_ids"), uuid_list_bindparam("project_ids"))
+    ).bindparams(uuid_list_bindparam("project_ids"))
     family_project_result = await session.execute(
         family_project_stmt,
         {"family_ids": uuid_values(family_ids), "project_ids": uuid_values(project_ids)},
@@ -1113,8 +1115,9 @@ async def _fetch_family_rows(
     if family_identifiers is not None:
         if not family_identifiers:
             return []
-        clauses.append("f.family_id IN :family_identifiers")
-        bind_params.append(bindparam("family_identifiers", expanding=True))
+        # One text[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+        # per statement, and a caller may name every family (DATA-6).
+        clauses.append("f.family_id = ANY(CAST(:family_identifiers AS text[]))")
         params["family_identifiers"] = family_identifiers
 
     if metadata_project_ids is not None:
@@ -1190,6 +1193,8 @@ async def _fetch_family_sample_rows(
     if not family_uuids:
         return {}
 
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the family list reads every family the caller may see (DATA-6).
     stmt = text(
         """
         SELECT
@@ -1207,11 +1212,11 @@ async def _fetch_family_sample_rows(
             s.metadata AS sample_metadata
         FROM family_members fm
         JOIN samples s ON s.id = fm.sample_id
-        WHERE fm.family_id IN :family_uuids
+        WHERE fm.family_id = ANY(CAST(:family_uuids AS uuid[]))
           AND fm.active
         ORDER BY lower(s.sample_id)
         """
-    ).bindparams(uuid_list_bindparam("family_uuids"))
+    )
     result = await session.execute(stmt, {"family_uuids": uuid_values(family_uuids)})
     rows_by_family: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in result.mappings().all():
@@ -1226,6 +1231,8 @@ async def _fetch_family_relationship_rows(
 ) -> dict[str, list[FamilyRelationshipOut]]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the family list reads every family the caller may see (DATA-6).
     stmt = text(
         """
         SELECT
@@ -1241,11 +1248,11 @@ async def _fetch_family_relationship_rows(
         FROM family_relationships fr
         JOIN samples sa ON sa.id = fr.sample_id_a
         JOIN samples sb ON sb.id = fr.sample_id_b
-        WHERE fr.family_id IN :family_uuids
+        WHERE fr.family_id = ANY(CAST(:family_uuids AS uuid[]))
           AND fr.active
         ORDER BY fr.relationship_type, lower(sa.sample_id), lower(sb.sample_id)
         """
-    ).bindparams(uuid_list_bindparam("family_uuids"))
+    )
     result = await session.execute(stmt, {"family_uuids": uuid_values(family_uuids)})
     rows_by_family: dict[str, list[FamilyRelationshipOut]] = defaultdict(list)
     for row in result.mappings().all():
@@ -1271,6 +1278,8 @@ async def _fetch_family_structure_version_rows(
 ) -> dict[str, FamilyStructureVersionOut]:
     if not family_uuids:
         return {}
+    # One uuid[] parameter, not one per family (an expanding IN): asyncpg takes at most 32,767
+    # per statement, and the family list reads every family the caller may see (DATA-6).
     stmt = text(
         """
         SELECT DISTINCT ON (family_id)
@@ -1279,10 +1288,10 @@ async def _fetch_family_structure_version_rows(
             structure_hash,
             metadata
         FROM family_structure_versions
-        WHERE family_id IN :family_uuids
+        WHERE family_id = ANY(CAST(:family_uuids AS uuid[]))
         ORDER BY family_id, version DESC
         """
-    ).bindparams(uuid_list_bindparam("family_uuids"))
+    )
     result = await session.execute(stmt, {"family_uuids": uuid_values(family_uuids)})
     return {
         str(row["family_uuid"]): FamilyStructureVersionOut(

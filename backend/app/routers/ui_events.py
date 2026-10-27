@@ -6,6 +6,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 
+from ..core.coga_logging import is_sensitive_key
 from ..dependencies import get_current_user
 from ..schemas import (
     UI_EVENT_BATCH_MAX_EVENTS,
@@ -42,15 +43,6 @@ OCCURRED_AT_MAX_LEAD = timedelta(minutes=5)
 # The key, in ``ui_events.detail``, holding the ``occurred_at`` the client sent when the server
 # stored its receive time instead. Only this endpoint sets it: a client's own is dropped.
 CLIENT_OCCURRED_AT_KEY = "_client_occurred_at"
-
-_SENSITIVE_PREFIXES = (
-    "password",
-    "secret",
-    "token",
-    "authorization",
-    "api_key",
-    "access_key",
-)
 
 _UUID_RE = re.compile(
     r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
@@ -105,8 +97,7 @@ def _sanitize_detail(detail: dict[str, Any] | None) -> dict[str, Any]:
     sanitized: dict[str, Any] = {}
     for key, value in detail.items():
         key_text = str(key)
-        lowered = key_text.lower()
-        if any(lowered.startswith(prefix) for prefix in _SENSITIVE_PREFIXES):
+        if is_sensitive_key(key_text):
             sanitized[key_text] = "***"
         elif isinstance(value, str):
             sanitized[key_text] = value[:_MAX_SHORT_LEN]

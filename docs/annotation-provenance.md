@@ -21,6 +21,7 @@ The `##` header lines are parsed by
 | Small variants (SNV/indel), package or direct upload | `variant_upload_service.upload_family_small_variant_file` (a monogenic NIPT pair's files one by one); for a long-read package's one VCF per sample read as one callset, `per_sample_small_variants.upload_family_per_sample_small_variant_files` | the VCF header: caller (`##source`, `##DeepVariant_version`, `##GATKCommandLine`, `##SentieonCommandLine`), annotation engine (`##VEP=…` with the gnomAD, ClinVar, dbNSFP, SpliceAI, dbSNP, COSMIC, SIFT, PolyPhen, assembly and GENCODE releases it embeds; `##SnpEffVersion`; `##bcftools_*Version`); and, when the annotation comes as a separate VEP table, that file's `## … version …` lines (`extract_vep_tab_provenance`) |
 | Structural variants, from a package (NeedlR, and the `mito` dataset's chrM SV files) or a per-sample upload (Sniffles, Spectre) | `family_package_datasets._import_sv_needlr_dataset`, `_import_mito_structural_variants`, `variant_upload_service.upload_structural_variant_file` | the SV caller (`##source=Sniffles2_…`, Spectre, NeedlR) and `##reference`; for NeedlR and an upload also the database releases named in the `##INFO` descriptions (`extract_info_description_provenance`: GENCODE, OMIM, GenCC, gnomAD, GIAB, ClinVar, dbSNP, COSMIC, each tied to a version-shaped token) |
 | Repeat expansions (TRGT), family or per sample | `repeat_expansion_pg.ingest_family_trgt_text`, `ingest_trgt_text` | `##trgtVersion`, `##source=TRGT`, `##reference` |
+| Copy-number calls (HiFiCNV), from a package's `cnv` dataset | `family_package_datasets._import_cnv_dataset` | each sample's VCF header: `##source=HiFiCNV v…`, recorded as the `cnv caller` (TRACE-8) |
 | The pipeline run record of a long-read or PGT package | `family_package_datasets._import_pipeline_info_dataset` | not a VCF: the Nextflow `software_versions.yaml` (the PGT pipeline's `copgtm_software_mqc_versions.yml`), recorded with `source='manifest'`. It names every tool behind the data, including tools whose outputs carry no version. The run parameters go to `families.metadata["pipeline"]`. |
 
 A version is read only from a line that states one: a `##<tool>Version` or
@@ -45,7 +46,15 @@ release 5.1.1, and LoFreq writes its command line there. Nor does a number glued
 (`shapeit4.1.3`, which SHAPEIT4 4.2.2 still writes). Strelka states its version on
 `##source_version`, which gives the version of the tool `##source` names when the header names
 one. Clair3's `##source=Clair3` and `##clair3_version` make one module, `clair3`, and Mutect2's
-`##source=Mutect2` and `##MutectVersion` one module, `mutect2`.
+`##source=Mutect2` and `##MutectVersion` one module, `mutect2`. A tool that names one of its
+programs there is that tool: `GLIMPSE_phase` (and GLIMPSE's ligate) is `glimpse`, Manta's
+`GenerateSVCandidates` is `manta`, and `DRAGEN_SNV` is `dragen`.
+
+When one header names a tool at several versions (`##bcftools_viewVersion=1.10.2+htslib-1.10.2`
+and `##bcftools_normVersion=1.21+htslib-1.21`, two `##SnpEffVersion` lines, gnomAD's exome and
+genome releases on one `##VEP=` line), every version is kept, joined with `, ` as the pipeline
+run record joins them; the same version twice is listed once (TRACE-8). Before, the first was
+kept, and of several `##SnpEffVersion` lines the last.
 
 The parser is best-effort and never raises: a header it does not recognise yields less
 information, never an error, so capture cannot fail an import.
@@ -142,8 +151,8 @@ VCF `##reference` line), the pipeline's value is the one listed.
 
 ## Limitations
 
-- HiFiCNV CNV files are not header-parsed for provenance, and a manual TSV of structural
-  variants has no header. For long-read packages the pipeline run record names their tools.
+- A manual TSV of structural variants has no header. For long-read packages the pipeline run
+  record names their tools.
 - Paraphase results are JSON, with no header. Their version is recorded only if the package
   declares it.
 - Mining free-text `##INFO` descriptions is more fragile than reading a `##VEP=` line, hence
@@ -155,8 +164,8 @@ VCF `##reference` line), the pipeline's value is the one listed.
 - A tool that a header names only in a command line, with no version line, has no version in
   that header, and the manifest does not list it from that file. The package's pipeline run
   record, or an admin's replacement, can state it.
-- When one header names a tool at several versions (`##bcftools_viewVersion=1.10.2+htslib-1.10.2`
-  and then `##bcftools_normVersion=1.21+htslib-1.21`), the first version read is kept.
+- Of several files of one dataset (a per-sample dataset's VCFs), the first file's version of
+  a tool is kept (`merge_module_maps`); within one header every version is.
 
 ## Tests
 

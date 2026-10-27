@@ -14,6 +14,7 @@ import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
 import { apiPath } from '../../lib/apiPath';
+import { familyPagePath, raw, routePath } from '../../lib/routePath';
 
 const FamilyIgvPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -21,7 +22,8 @@ const FamilyIgvPage: React.FC = () => {
   const initialLocus = searchParams.get('locus') || undefined;
   const projectIdParam = searchParams.get('project_id') || undefined;
   const backSearch = searchParams.get('back') || undefined;
-  const backPathParam = searchParams.get('back_path') || undefined;
+  // Only one of the app's family pages: the link chose it (SEC-15).
+  const backPathParam = familyPagePath(searchParams.get('back_path')) ?? undefined;
 
   const { data, isLoading, isError, error, refetch } = useQuery<
     Pick<ApiFamilyRecord, 'members' | 'projects' | 'metadata'>
@@ -59,6 +61,7 @@ const FamilyIgvPage: React.FC = () => {
   if (isLoading || (data?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Viewer"
         title="Loading IGV workspace"
         message="Resolving family context and genome reference before opening the viewer."
@@ -129,7 +132,7 @@ const FamilyIgvPage: React.FC = () => {
             </p>
           </div>
           <Link
-            to={backPathParam || (backSearch ? `/families/${familyId}/small-variants?${backSearch}` : `/families/${familyId}/small-variants`)}
+            to={backPathParam || routePath`/families/${familyId}/small-variants${raw(backSearch ? `?${backSearch}` : '')}`}
             className="button-secondary hover:no-underline"
           >
             Back

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import replace
+
 from backend.app.services.clickhouse_variant_queries import _structural_record_matches, _StructuralPanelMatch
 from backend.app.services.clickhouse_variant_records import PanelFilterConstraints, StructuralVariantRecord
 from backend.app.services.family_variant_filters import StructuralVariantQueryFilters
@@ -49,3 +51,12 @@ def test_no_panel_is_unconstrained_by_gene() -> None:
 def test_panel_genes_with_no_record_genes_excluded() -> None:
     record = _sv_record([])
     assert _structural_record_matches(record, _filters(), [], [], panel=_panel("BRCA1")) is False
+
+
+def test_the_chromosome_filter_names_chrm_by_either_name_as_the_sql_does() -> None:
+    # The Python filter compared the names as written, so MT against M dropped an SV the SQL
+    # kept by its aliases (CLIN-50).
+    for stored, named in (("chrM", "MT"), ("MT", "chrM"), ("M", "mt"), ("chr1", "1")):
+        record = replace(_sv_record([]), chr=stored)
+        assert _structural_record_matches(record, replace(_filters(), chromosome=named), [], []), (stored, named)
+    assert not _structural_record_matches(_sv_record([]), replace(_filters(), chromosome="2"), [], [])
