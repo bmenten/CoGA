@@ -15,33 +15,33 @@ type AdminGroup = {
 
 const adminGroups: AdminGroup[] = [
   {
-    title: 'Reference Data',
+    title: 'Reference data',
     description: 'System-wide reference datasets and annotations.',
     modules: [
       {
-        label: 'Species & Assemblies',
+        label: 'Species & assemblies',
         to: '/admin/reference/assemblies',
         description:
           'Per-assembly reference datasets (cytobands, genes, clinical CNVs, SegDups), gene metadata sync, dataset status, and updates.',
       },
       {
-        label: 'Gene Panels',
+        label: 'Gene panels',
         to: '/admin/reference/gene-panels',
         description: 'Panel catalog, source metadata, and panel membership.',
       },
       {
-        label: 'HPO Terminology',
+        label: 'HPO terminology',
         to: '/admin/reference/hpo',
         description: 'Ontology terms, synonyms, relationships, release status, and sync.',
       },
       {
-        label: 'Monarch Data',
+        label: 'Monarch data',
         to: '/admin/reference/monarch',
         description:
           'Gene–disease and disease–phenotype associations from the Monarch knowledge graph: view the loaded release and update to the latest.',
       },
       {
-        label: 'Repeat Catalogue',
+        label: 'Repeat catalogue',
         to: '/admin/reference/repeat-loci',
         description:
           "Record, per repeat locus, whether QA validated that TRGT's count is the clinical repeat number; until then counts near a boundary are marked.",
@@ -49,7 +49,7 @@ const adminGroups: AdminGroup[] = [
     ],
   },
   {
-    title: 'User & Access Management',
+    title: 'User & access management',
     description: 'Users, permissions, projects, and access assignments.',
     modules: [
       {
@@ -58,60 +58,60 @@ const adminGroups: AdminGroup[] = [
         description: 'User accounts, roles, and activation status.',
       },
       {
-        label: 'Projects & Access',
+        label: 'Projects & access',
         to: '/admin/access/projects',
         description: 'Project catalog and family/sample access assignments.',
       },
     ],
   },
   {
-    title: 'Data Management',
+    title: 'Data management',
     description: 'Imported and stored family, sample, and assay data.',
     modules: [
       {
-        label: 'Family & Sample Data',
+        label: 'Family & sample data',
         to: '/admin/data/families',
         description: 'Inventory, project assignment, and deletion workflows.',
       },
       {
-        label: 'Family Statuses',
+        label: 'Family statuses',
         to: '/admin/data/family-statuses',
         description: 'Curate the workflow statuses analysts assign to families.',
       },
       {
-        label: 'Sequencing QC Thresholds',
+        label: 'Sequencing QC thresholds',
         to: '/admin/data/qc-thresholds',
         description: 'Set the warning and error cut-offs that flag an inadequate sequencing run.',
       },
       {
-        label: 'Package Import',
+        label: 'Package import',
         to: '/admin/data/upload',
         description: 'Validate manifests and run package-based initial or incremental imports.',
       },
     ],
   },
   {
-    title: 'Variant Configuration',
+    title: 'Variant configuration',
     description: 'Interpretation labels and reusable variant filters.',
     modules: [
       {
-        label: 'Variant Tags',
+        label: 'Variant tags',
         to: '/admin/variants/tags',
         description: 'Review tag definitions and project-scoped tag configuration.',
       },
       {
-        label: 'Preset Filters',
+        label: 'Preset filters',
         to: '/admin/variants/presets',
         description: 'Saved small-variant filter presets for consistent review.',
       },
     ],
   },
   {
-    title: 'Database & Operations',
+    title: 'Database & operations',
     description: 'Technical storage and operational controls.',
     modules: [
       {
-        label: 'ClickHouse Tables & Operations',
+        label: 'ClickHouse tables & operations',
         to: '/admin/operations/clickhouse',
         description:
           'Per-assembly table status plus manual maintenance: ensure, optimize, and gene-index rebuilds.',
@@ -119,11 +119,11 @@ const adminGroups: AdminGroup[] = [
     ],
   },
   {
-    title: 'Monitoring & Audit',
+    title: 'Monitoring & audit',
     description: 'Traceability for operational and administrative activity.',
     modules: [
       {
-        label: 'Audit Logs',
+        label: 'Audit logs',
         to: '/admin/monitoring/audit-logs',
         description: 'Request, user, status, and update-event history.',
       },

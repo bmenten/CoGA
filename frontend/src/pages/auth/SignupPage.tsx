@@ -93,21 +93,21 @@ const SignupPage: React.FC = () => {
           ) : (
           <form onSubmit={handleSubmit} className="field-grid">
             <label className="field-label">
-              First Name
+              First name
               <input
                 value={firstName}
                 onChange={(e) => setFirstName(e.target.value)}
-                placeholder="First Name"
+                placeholder="First name"
                 autoComplete="given-name"
                 required
               />
             </label>
             <label className="field-label">
-              Last Name
+              Last name
               <input
                 value={lastName}
                 onChange={(e) => setLastName(e.target.value)}
-                placeholder="Last Name"
+                placeholder="Last name"
                 autoComplete="family-name"
                 required
               />
@@ -154,7 +154,7 @@ const SignupPage: React.FC = () => {
               className="form-button"
               disabled={submitting}
             >
-              {submitting ? 'Signing up…' : 'Sign Up'}
+              {submitting ? 'Signing up…' : 'Sign up'}
             </button>
             {error && (
               <p className="status-note status-note--error text-center" aria-live="polite">

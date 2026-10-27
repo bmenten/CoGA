@@ -104,7 +104,7 @@ describe('FamilyBuilderPage', () => {
   it('renders the family builder workspace with a dashboard back link', () => {
     renderPage();
 
-    expect(screen.getByRole('heading', { name: 'Family Builder', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Family builder', level: 1 })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /back to dashboard/i })).toHaveAttribute(
       'href',
       '/dashboard'

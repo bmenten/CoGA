@@ -10,7 +10,7 @@ const FamilyBuilderPage: React.FC = () => {
         <div className="page-header">
           <div className="space-y-2">
             <p className="page-kicker">Intake</p>
-            <h1 className="catalog-card-title">Family Builder</h1>
+            <h1 className="catalog-card-title">Family builder</h1>
             <p className="catalog-card-copy">
               Create family and sample metadata by building a pedigree manually or from a PED file.
               To bulk-import a prepared data package instead, use Package Import.

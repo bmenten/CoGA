@@ -247,7 +247,7 @@ export default function SmallVariantReviewDialog({
       >
         <div className="variant-review-modal-header">
           <div className="variant-review-modal-summary">
-            <p className="page-kicker">Variant Review</p>
+            <p className="page-kicker">Variant review</p>
             <h2 id="small-variant-review-title" className="catalog-card-title">
               {variant.gene || variant.gene_id || 'Intergenic variant'}
             </h2>

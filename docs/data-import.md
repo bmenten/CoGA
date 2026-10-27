@@ -10,12 +10,12 @@ guide ([Data import](../frontend/src/content/docs/data-import.md), shown in the 
 
 A family gets into CoGA in one of two ways:
 
-- **Family Builder** (`/family-builder`): a pedigree typed in by hand. Metadata only. Its
+- **Family builder** (`/family-builder`): a pedigree typed in by hand. Metadata only. Its
   request may mark the family as a monogenic NIPT family (`analysis_type: monogenic_nipt`)
   and a sample as the mother's cfDNA (`assay: nipt_cfdna`), and nothing else: the keys an
   import or an audited edit writes (the annotation manifest, a sample's sequencing QC, the
   import state) are refused with 400 (SAFE-12).
-- **Package Import** (`/package-import`, admins): one folder with the PED, the assay files and
+- **Package import** (`/package-import`, admins): one folder with the PED, the assay files and
   a manifest. One job imports the family and all its data.
 
 Loading data files, replacing an existing family and every reference-data upload are
@@ -23,7 +23,7 @@ admin-only. All API paths below sit under `/api`. Every setting named here is li
 its default in [.env.example](../.env.example).
 
 For a new family: check that its assembly has its reference data (section 1), make sure its
-project exists (**Admin → Projects & Access**), then import the package (section 3).
+project exists (**Admin → Projects & access**), then import the package (section 3).
 
 ## 1. Reference data
 
@@ -56,7 +56,7 @@ about 31 triplets reads 29 (1 to 3 below; a premutation of 55 can read 53, in th
 at HTT it also counts the CAG after the CAA interruption, so HG002's pure 17-repeat allele
 reads 18; at POLG it counts four flanking GCT copies, so the common 10-repeat allele reads 14.
 QA and the laboratory director check, per catalogue locus, that TRGT's count is the clinical
-repeat number, and an administrator records it on the admin page **Repeat Catalogue**
+repeat number, and an administrator records it on the admin page **Repeat catalogue**
 (`repeat_locus_count_units`, which no start rewrites; [database.md](database.md)). Until a
 locus is validated, the repeat page and the genome tracks mark a count within 3 repeats of a
 boundary its classification uses (`services/repeat_count_units.py`); no status changes. No
@@ -69,7 +69,7 @@ creates the empty GRCh38 assembly and carries on.
 A start loads no clinical CNVs, so a fresh install has none, and nothing warns about it. It
 used to read them from any file at `REFERENCE_CLINICAL_CNVS_PATH`, unpinned, whose default
 was never shipped (OPS-17). Build them with the clinical CNV knowledgebase rebuild
-(the ↻ button next to the clinical-CNV count on **Admin → Species & Assemblies**;
+(the ↻ button next to the clinical-CNV count on **Admin → Species & assemblies**;
 `POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below). A rebuild whose ClinGen dosage
 curation or recurrent CNV regions cannot be loaded fails, says why on that page, and leaves the
 clinical CNVs as they were.
@@ -105,7 +105,7 @@ identifiers or MANE tags, and the cytobands are one band per chromosome.
 
 ### Loading or replacing reference data
 
-Admins manage reference data on **Admin → Species & Assemblies**
+Admins manage reference data on **Admin → Species & assemblies**
 (`/admin/reference/assemblies`; everyone can view it at `/reference-data`):
 
 - **Add organism / assembly (from UCSC)** downloads cytobands and genes for any UCSC genome
@@ -136,7 +136,7 @@ backend container with `scripts/import_dgv.py`, which inserts in batches (see
 ### Updating the HPO ontology
 
 To move to a newer HPO release, put the new `hp.obo` in `/data/ref-data/hpo/` and run the sync
-on **Admin → HPO Terminology** (`POST /admin/hpo/sync`). The page starts from the file the
+on **Admin → HPO terminology** (`POST /admin/hpo/sync`). The page starts from the file the
 backend is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the changes first.
 It only reads files inside the configured ontology folders. The startup import, of a file in
 place or downloaded, stays pinned to the vendored release: on a database without HPO terms, a
@@ -189,7 +189,7 @@ change is also recorded in `CHANGELOG.md` and TF-18 §8.
 
 The gene reference is the cached information per human gene: names and identifiers, disease
 links, dosage, constraint, expression and more (`gene_info`). An admin refreshes it from
-**Admin → Species & Assemblies** (↻ next to the gene count) or the gene reference page
+**Admin → Species & assemblies** (↻ next to the gene count) or the gene reference page
 (`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`).
 
 HGNC decides which human genes exist. The sync takes the HGNC complete set as its list of
@@ -1262,7 +1262,7 @@ An interval-track upload loads one sample's track of `bed_type` from a BED, unde
   partly written, and the family marked until the track has been uploaded again with
   `overwrite` ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)).
 
-Deleting a sample's track type on **Admin → Family & Sample Data** removes every caller's track
+Deleting a sample's track type on **Admin → Family & sample data** removes every caller's track
 of that type.
 
 A family small-variant upload is one family VCF from one callset:
@@ -1395,7 +1395,7 @@ calls are checked and replaced:
 - The caller the VCF header names is recorded in the family's annotation manifest
   ([annotation-provenance.md](annotation-provenance.md)).
 
-Deleting a sample's structural variants on **Admin → Family & Sample Data** removes its calls
+Deleting a sample's structural variants on **Admin → Family & sample data** removes its calls
 from every source, and so does deleting the sample with its data. Both these deletes and an
 upload rewrite the stored rows, and write every call they do not change back as stored: with
 its phase set and breakend end, in its project, an inactive member's included. A delete whose

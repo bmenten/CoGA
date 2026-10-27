@@ -73,7 +73,7 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   records, a **reader** (a student, say) only reads them. An admin has every right in every
   project, member or not. One person may be an analyst in one project and a reader in another,
   and a record of several projects may be changed by an analyst of any one of them. An admin
-  sets each member's level on the *Projects & Access* page (`reader_user_ids` in the project
+  sets each member's level on the *Projects & access* page (`reader_user_ids` in the project
   API); a membership made without one is an analyst's, and each membership made before the
   levels became one. `get_current_user` records whether a request changes something: any
   method but GET, HEAD and OPTIONS, unless its route is marked `changes_only_own_data`

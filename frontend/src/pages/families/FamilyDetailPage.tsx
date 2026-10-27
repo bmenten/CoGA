@@ -992,7 +992,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
-        kicker="Family Workspace"
+        kicker="Family workspace"
         familyId={data.family_id}
         family={data}
         isWorkspace
@@ -2047,7 +2047,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
                 onClick={saveStructure}
                 disabled={structureBusy || activeStructureMembers.length === 0}
               >
-                Update Family Structure
+                Update family structure
               </button>
               {data.structure_version?.version !== undefined && (
                 <span className="table-chip">Version {data.structure_version.version}</span>

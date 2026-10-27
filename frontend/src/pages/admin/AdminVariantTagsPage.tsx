@@ -349,7 +349,7 @@ const AdminVariantTagsPage: React.FC = () => {
         <section className="surface-card admin-data-detail space-y-6">
           <div className="page-header">
             <div className="space-y-2">
-              <p className="page-kicker">Selected Context</p>
+              <p className="page-kicker">Selected context</p>
               <h2 className="section-title">
                 {selectedProjectId ? projectNameById.get(selectedProjectId) || selectedProjectId : 'All projects'}
               </h2>

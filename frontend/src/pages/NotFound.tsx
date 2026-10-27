@@ -6,14 +6,14 @@ const NotFound: React.FC = () => {
   const location = useLocation();
   return (
     <PageState
-      kicker="Not Found"
+      kicker="Not found"
       title="Page not found"
       message={`No route matches ${location.pathname}.`}
       narrow
       action={
         <>
           <Link to="/dashboard" className="form-button hover:no-underline">
-            Go to Dashboard
+            Go to dashboard
           </Link>
           <button onClick={() => window.history.back()} className="button-ghost">
             Go back

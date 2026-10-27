@@ -42,7 +42,7 @@ const Dashboard: React.FC = () => {
             Panel catalog
           </Link>
           <Link to="/family-builder" className="button-secondary hover:no-underline">
-            Family Builder
+            Family builder
           </Link>
           {userIsAdmin && (
             <Link to="/admin" className="button-secondary hover:no-underline">
@@ -73,10 +73,10 @@ const Dashboard: React.FC = () => {
           </div>
           <div className="compact-toolbar dashboard-toolbar">
             <Link to="/admin" className="button-secondary hover:no-underline">
-              Open Admin dashboard
+              Open admin dashboard
             </Link>
             <Link to="/admin/data/upload" className="button-secondary hover:no-underline">
-              Package Import
+              Package import
             </Link>
             <Link to="/admin/data/families" className="button-secondary hover:no-underline">
               Family & sample data

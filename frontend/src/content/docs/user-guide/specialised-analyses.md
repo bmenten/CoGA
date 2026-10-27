@@ -84,7 +84,7 @@ focus the mark for the count, the nearest count on each side that reads another 
 known of TRGT's count at the gene. The status itself is not changed: read the call with the mark in
 mind. **Aberrant only** keeps such a locus whatever its status, the page header counts the calls near a
 boundary, and a genome track says it in the locus's tooltip. An administrator records each locus's
-validation, with its reason, on the admin page **Repeat Catalogue**; a validated locus is no longer
+validation, with its reason, on the admin page **Repeat catalogue**; a validated locus is no longer
 marked. Signing out freezes the mark beside its call, and for each locus whether QA had validated its
 counting units, with the reason, by whom and when: a locus validated or withdrawn after sign-out makes
 the report say the repeat expansions changed since.
@@ -105,7 +105,7 @@ only the loci with such a change.
 ### mtDNA
 
 Each sample's card on the **mtDNA analysis** page gives its mean chrM depth and the share of chrM
-covered, and a QC status judged against the lab's limits (**Sequencing QC Thresholds**). The depth
+covered, and a QC status judged against the lab's limits (**Sequencing QC thresholds**). The depth
 comes from one coverage track that holds read depth: the sample's coverage BED when it was declared as
 read depth, otherwise HiFiCNV's depth where the import stored it as read. WisecondorX's and QDNAseq's
 bins, HiFiCNV's normalised depth and a coverage BED declared as a log2 ratio hold log2 ratios, not

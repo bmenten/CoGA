@@ -5,13 +5,13 @@ fetus.
 
 ### Setting up a NIPT family
 
-In **Family Builder**, tick **Monogenic NIPT (cfDNA from maternal plasma)**. Add the father, the cfDNA
+In **Family builder**, tick **Monogenic NIPT (cfDNA from maternal plasma)**. Add the father, the cfDNA
 sample as the mother (mark it **cfDNA (maternal plasma)**) and the fetus as the proband. A package import
 does the same when its manifest says `analysis_type: monogenic_nipt`. The family page then shows a
 **Monogenic NIPT** button.
 
 The data is the NIPT-M pipeline's output: a single-sample VCF of the plasma and one of the father, with
-a per-target coverage table for each (`coverage_<sample>.txt`). Package Import finds them by the sample
+a per-target coverage table for each (`coverage_<sample>.txt`). The package import finds them by the sample
 names of the PED. One combined VCF with a father column and a cfDNA column works as well. The calls
 must carry FORMAT/AD.
 

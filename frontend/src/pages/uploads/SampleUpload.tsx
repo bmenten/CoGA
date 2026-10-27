@@ -230,7 +230,7 @@ const SampleUpload: FC = () => {
       <div className="grid gap-6 xl:grid-cols-4">
         <section className="surface-card space-y-5">
           <div className="space-y-2">
-            <h2 className="section-title">Family Small Variants</h2>
+            <h2 className="section-title">Family small variants</h2>
             <p className="section-copy">
               Upload a family VCF in Clair3 or GLIMPSE2 style. GLIMPSE2 uploads also
               create haplotype blocks for the haplotype tracks.
@@ -267,7 +267,7 @@ const SampleUpload: FC = () => {
               className="form-button"
               disabled={familyLoading}
             >
-              Upload Family Variants
+              Upload family variants
             </button>
           </form>
           {familyLoading && <div className="loading-spinner" />}
@@ -276,7 +276,7 @@ const SampleUpload: FC = () => {
 
         <section className="surface-card space-y-5">
           <div className="space-y-2">
-            <h2 className="section-title">Structural Variants</h2>
+            <h2 className="section-title">Structural variants</h2>
             <p className="section-copy">
               Upload manual TSVs or real Sniffles and Spectre VCFs with parser selection or
               auto detection.
@@ -314,7 +314,7 @@ const SampleUpload: FC = () => {
               className="form-button"
               disabled={variantLoading}
             >
-              Upload Structural Variants
+              Upload structural variants
             </button>
           </form>
           {variantLoading && <div className="loading-spinner" />}
@@ -323,7 +323,7 @@ const SampleUpload: FC = () => {
 
         <section className="surface-card space-y-5">
           <div className="space-y-2">
-            <h2 className="section-title">BED Tracks</h2>
+            <h2 className="section-title">BED tracks</h2>
             <p className="section-copy">
               Upload coverage, APCAD, PCF APCAD segments, or segments per sample. A coverage
               BED says whether it holds read depth or a log2 ratio.
@@ -373,7 +373,7 @@ const SampleUpload: FC = () => {
               className="form-button"
               disabled={bedLoading}
             >
-              Upload BED Track
+              Upload BED track
             </button>
           </form>
           {bedLoading && <div className="loading-spinner" />}
@@ -382,7 +382,7 @@ const SampleUpload: FC = () => {
 
         <section className="surface-card space-y-5">
           <div className="space-y-2">
-            <h2 className="section-title">Repeat Expansions</h2>
+            <h2 className="section-title">Repeat expansions</h2>
             <p className="section-copy">
               Upload TRGT VCF output for one sample. Known repeat loci are classified into
               normal, grey-zone, and pathogenic ranges for the repeat table and viewer tracks.
