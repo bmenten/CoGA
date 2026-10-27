@@ -62,6 +62,12 @@ hom*, *Recessive broad*, *Any affected* and *ClinVar review*. A preset saves the
 save your own to standardise a search. Compound-heterozygous candidates are shown as pairs. Up to 100
 matches show as cards, more as a table.
 
+Your saved searches are shared with the monogenic NIPT page. A search saved there can carry filters only
+the NIPT list applies: an inheritance view such as *De novo in the fetus*, the maternal/fetal
+categories, the minimum confidence. This list does not apply them: the page does not send them, shows no
+chip for them, and names them once under the active filters. *De novo in the fetus* is not
+*De novo / dominant*, which reads the family members' own genotypes.
+
 > **A search can stop part-way.** Compound-het and recessive pairing and *Expanded carrier screening*
 > read a limited number of candidates (up to 5,000) before they filter, ranked or not. When a search
 > fills that window, a warning above the results says *"Results may be incomplete"* and after how many

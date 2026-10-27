@@ -17,7 +17,10 @@ import VariantResultsLoading from './VariantResultsLoading';
 import {
   addableTagDefinitions,
   buildPresetPayload,
+  describeUnappliedFilters,
   hasLocationProblems,
+  SMALL_VARIANT_UNSUPPORTED_FILTERS,
+  smallVariantAppliesFilterChip,
   smallVariantLocationProblems,
   useSmallVariantSearchState,
   type GenePanel,
@@ -131,6 +134,23 @@ const FamilySmallVariantsPage: React.FC = () => {
     mendeliomePanelId,
     panelsLoaded: !panelsLoading,
   });
+  // Chipped (and counted, activeFilterCount): the filters the small-variant list applies. A
+  // search saved on the NIPT page, which shares the saved searches, or a link, may carry the NIPT
+  // list's own: an inheritance view, which failed the whole search or, the fetal de novo one, was
+  // read as de novo / dominant, and filters the list never applied though they were chipped
+  // (found while fixing #1012). They are not sent, and are named once instead.
+  const appliedFilterChips = useMemo(
+    () => activeFilterChips.filter(smallVariantAppliesFilterChip),
+    [activeFilterChips],
+  );
+  const unappliedFiltersNote = useMemo(
+    () =>
+      describeUnappliedFilters(
+        'small-variant list',
+        activeFilterChips.filter((chip) => !smallVariantAppliesFilterChip(chip)),
+      ),
+    [activeFilterChips],
+  );
   const [workspaceFeedback, setWorkspaceFeedback] = useState<{
     tone: 'error' | 'success';
     message: string;
@@ -351,7 +371,9 @@ const FamilySmallVariantsPage: React.FC = () => {
         />
         {!filtersCollapsed && (
         <SmallVariantFilterForm
-          activeFilterChips={activeFilterChips}
+          unsupportedFilters={SMALL_VARIANT_UNSUPPORTED_FILTERS}
+          unappliedFiltersNote={unappliedFiltersNote}
+          activeFilterChips={appliedFilterChips}
           applyPreset={applyPreset}
           applySavedPreset={applySavedPreset}
           draftFilters={draftFilters}
