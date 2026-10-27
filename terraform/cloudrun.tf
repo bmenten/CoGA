@@ -437,12 +437,20 @@ resource "google_cloud_run_v2_service" "frontend" {
 
       # The load balancer ends TLS in front of this service as in front of the backend, so
       # the app page sends HSTS as the API does:
-      # Strict-Transport-Security: max-age=63072000; includeSubDomains. Exactly "true": the
-      # frontend server compares the string (frontend/securityHeaders.mjs), where the
-      # backend reads its setting as a boolean.
+      # Strict-Transport-Security: max-age=63072000; includeSubDomains. The frontend server
+      # reads the value as the backend reads its setting (frontend/securityHeaders.mjs).
       env {
         name  = "ENABLE_HSTS"
         value = "true"
+      }
+      # Where the frontend server's /api proxy sends a request (frontend/server.mjs). The load
+      # balancer routes /api to the backend itself, so none reaches this service; without it
+      # the proxy aimed at Compose's http://backend:8000 (SEC-23). The backend's ingress
+      # admits the load balancer and internal traffic only, so this service, whose traffic
+      # does not go through the VPC, would still be refused there.
+      env {
+        name  = "BACKEND_URL"
+        value = google_cloud_run_v2_service.backend.uri
       }
     }
   }

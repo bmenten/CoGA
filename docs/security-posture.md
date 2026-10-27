@@ -436,7 +436,12 @@ their own; see
   `MODERN` profile. Behind it the app page and the API both send
   `Strict-Transport-Security: max-age=63072000; includeSubDomains`: Terraform sets
   `ENABLE_HSTS=true` on both Cloud Run services, so a browser that has opened the app keeps
-  to HTTPS for that host for two years. Docker Compose serves plain HTTP and leaves it off.
+  to HTTPS for that host for two years. The API's 500 for an exception that nothing else
+  answers carries it too (SEC-23). The load balancer's HTTPS URL map sets the same header on
+  every answer it relays, in place of the services' own, so Cloud Run's own error pages carry
+  it as well. Whether it reaches the answers the load balancer and Cloud Armor give
+  themselves (a refusal, a rate limit) is to be checked on the deployed load balancer.
+  Docker Compose serves plain HTTP and leaves it off.
 
 ## 4. Object storage / deployment path & PHI scoping
 
@@ -516,13 +521,18 @@ What the application relies on there:
   or what the trusted proxy in front of it added) plus `X-Forwarded-Proto` and `-Host`, so a
   browser cannot choose the address the backend throttles and audits. On Cloud Run the load
   balancer sends `/api` straight to the backend; this proxy is the path for Docker Compose.
+  Terraform still gives the frontend service the backend service's address as `BACKEND_URL`
+  (SEC-23), where the proxy used to aim at Compose's `http://backend:8000`. The backend's
+  ingress admits only the load balancer and internal traffic, and the frontend's traffic does
+  not go through the VPC, so on Cloud Run the proxy would be refused there all the same.
 - ✅ **Headers** (`frontend/securityHeaders.mjs`): a CSP that allows scripts only from the app
   itself (`script-src 'self'`), no framing and no plugins, and a `Permissions-Policy` that
   denies the camera, microphone, geolocation, payment, USB and the other device APIs. API
-  responses carry `default-src 'none'` (`backend/app/middleware/security_headers.py`).
+  responses carry `default-src 'none'` (`backend/app/middleware/security_headers.py`), the
+  500 for an exception that nothing else answers included (SEC-23).
   Where TLS ends in front of the app, `ENABLE_HSTS=true` adds the HSTS header the API sends
-  (§3). The frontend server takes only the exact string `true`; the backend reads the
-  setting as a boolean, so `1` or `True` would turn on the API's header alone.
+  (§3). The frontend server reads the setting as the backend does, so `1`, `True` or `yes`
+  turn on both headers (SEC-23).
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
   changing set of hosts and a signed CRAM URL points at the object store. A deployment that
   knows its hosts narrows it with `CSP_CONNECT_SRC`, keeping

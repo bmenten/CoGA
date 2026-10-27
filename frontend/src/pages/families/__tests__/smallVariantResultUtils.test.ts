@@ -12,6 +12,7 @@ import {
   getClinvarHighlightTone,
   getClinvarTone,
   getReviewTagStyle,
+  getUcscDb,
   isDeletedReviewTag,
   parseVariantIds,
   visibleReviewTagKeys,
@@ -385,6 +386,26 @@ describe('buildGnomadSvRegionHref', () => {
       assemblyName: 'GRCh38',
     });
     expect(href).toContain('/region/1-500-500');
+  });
+});
+
+describe('getUcscDb', () => {
+  it('links T2T-CHM13 to UCSC hs1 under each name the assembly carries', () => {
+    for (const [name, version] of [
+      ['T2T CHM13v2.0', 'T2T-CHM13v2.0'],
+      ['T2T-CHM13v2.0', 'hs1'],
+      ['T2T_CHM13v2.0', ''],
+      ['hs1', 'hs1'],
+    ]) {
+      expect(getUcscDb('Homo sapiens', name, version)).toBe('hs1');
+    }
+  });
+
+  it('links GRCh38 and GRCh37 as before, and another CHM13 release not to hs1', () => {
+    expect(getUcscDb('Homo sapiens', 'GRCh38', 'p14')).toBe('hg38');
+    expect(getUcscDb('Homo sapiens', 'GRCh37', 'p13')).toBe('hg19');
+    // hs1 is T2T-CHM13v2.0: another release's genes lie elsewhere on the acrocentric arms.
+    expect(getUcscDb('Homo sapiens', 'T2T-CHM13v1.0', 'v1.0')).toBeNull();
   });
 });
 

@@ -107,6 +107,41 @@ describe('GenePanelsPage', () => {
     ).toBeInTheDocument();
   });
 
+  // The UCSC reference import names T2T `T2T CHM13v2.0`, with a space: read as T2T, it comes
+  // after GRCh38 and before the other assemblies, as under its hyphenated name.
+  it('lists the T2T size second under the name the UCSC import gives it', async () => {
+    localStorage.setItem('role', 'viewer');
+    (api.get as unknown as Mock).mockResolvedValueOnce({
+      data: [
+        {
+          _id: '3',
+          name: 'PanelC',
+          genes: ['BRCA1'],
+          gene_count: 1,
+          regions: [
+            { gene: 'BRCA1', chr: '17', start: 0, end: 30000, assembly: 'GRCh37' },
+            { gene: 'BRCA1', chr: '17', start: 0, end: 20000, assembly: 'T2T CHM13v2.0' },
+            { gene: 'BRCA1', chr: '17', start: 0, end: 10000, assembly: 'GRCh38' },
+          ],
+          created_by: 'admin-id',
+          created_at: '2026-04-28T08:00:00Z',
+          source: 'local',
+        },
+      ],
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter>
+          <GenePanelsPage />
+        </MemoryRouter>
+      </QueryClientProvider>
+    );
+
+    expect(
+      await screen.findByText('10.00 kb (GRCh38) · 20.00 kb (T2T CHM13v2.0) · 30.00 kb (GRCh37)'),
+    ).toBeInTheDocument();
+  });
+
   it('shows server message when creation returns warning', async () => {
     localStorage.setItem('role', 'admin');
     (api.post as unknown as Mock).mockResolvedValueOnce({

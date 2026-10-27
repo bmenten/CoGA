@@ -17,6 +17,7 @@ import {
   getRenderableHaplotypeLanes,
   inferDiseaseHaplotypes,
   interpretSampleHaplotypeRisk,
+  normalizeSex,
   resolveHaplotypeInheritanceModel,
   type DiseaseHaplotypeKind,
   type HaplotypeLane,
@@ -29,7 +30,14 @@ import VizTooltip from './VizTooltip';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
-import { alleleBase, isDeletedHaplotype, nucleotideColor } from '../../lib/phasedMarkers';
+import {
+  NO_ALLELE,
+  alleleBase,
+  inRanges,
+  isDeletedHaplotype,
+  nucleotideColor,
+  rowAlleles,
+} from '../../lib/phasedMarkers';
 
 interface Segment {
   start: number;
@@ -93,6 +101,8 @@ interface PhasedMarkerResponse {
   // and misleading, so the markers/sites are empty and we show a 'zoom in' hint.
   truncated?: boolean;
   covered?: number[] | null;
+  // Where in the window a man has one X: chrX outside the PARs of the family's assembly.
+  hemizygous_x_ranges?: number[][];
 }
 
 const regionLabel = (chrom: string, start: number, end: number): string =>
@@ -106,15 +116,35 @@ const baseSpan = (base: string, key: number): React.ReactNode => (
   </span>
 );
 
-/** Render a member's phased ``a|b`` genotype as two colour-coded nucleotides. */
-const renderPhasedGenotype = (gt: string, ref: string, alt: string): React.ReactNode => {
-  if (!gt || !gt.includes('|')) return <span style={{ color: '#9ca3af' }}>—</span>;
-  const [a, b] = gt.split('|');
+/**
+ * Render a member's call as colour-coded nucleotides, its two homologs side by side (`a | b`),
+ * by the ROI marker review's rule (`rowAlleles`). A call of one allele (a man's one X outside the
+ * PARs written once, or the same allele twice where he has one X) shows its allele once, on the
+ * side the track draws his one X on (the father's first, anyone else's second), and – on the
+ * other. It read '—', as a missing or unphased call does (ENG-19).
+ */
+const renderPhasedGenotype = (
+  gt: string,
+  ref: string,
+  alt: string,
+  oneCopyMan: boolean,
+  role: string | null | undefined,
+): React.ReactNode => {
+  const { hap1, hap2 } = rowAlleles(gt, oneCopyMan, role);
+  if (hap1 === '' && hap2 === '') return <span style={{ color: '#9ca3af' }}>—</span>;
+  const homolog = (index: string | null, key: number) =>
+    index === null ? (
+      <span key={key} style={{ color: '#9ca3af' }}>
+        {NO_ALLELE}
+      </span>
+    ) : (
+      baseSpan(alleleBase(index, ref, alt), key)
+    );
   return (
     <span>
-      {baseSpan(alleleBase(a, ref, alt), 0)}
+      {homolog(hap1, 0)}
       <span style={{ color: '#94a3b8' }}> | </span>
-      {baseSpan(alleleBase(b, ref, alt), 1)}
+      {homolog(hap2, 1)}
     </span>
   );
 };
@@ -675,6 +705,8 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
       return;
     }
     const site = sitesByPos?.get(sitePos);
+    // Where a man has one X here, his call is one allele, as the QC and the ROI marker review read it.
+    const oneCopyX = inRanges(phasedData?.hemizygous_x_ranges ?? [], sitePos);
     const swatch = (color: string, key: number) => (
       <span
         key={key}
@@ -739,7 +771,13 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
                       {block ? swatch(laneColor(member, block, 'hap2'), 1) : null}
                     </span>
                     <span style={{ fontFamily: 'monospace' }}>
-                      {renderPhasedGenotype(site.gts[i] ?? '', site.ref, site.alt)}
+                      {renderPhasedGenotype(
+                        site.gts[i] ?? '',
+                        site.ref,
+                        site.alt,
+                        oneCopyX && normalizeSex(member.sex) === 'male',
+                        member.role,
+                      )}
                     </span>
                     {/* Does the raw marker agree with the cleaned block here? */}
                     <span style={{ color: agrees === false ? '#d6453d' : '#5fb37a', fontWeight: 700 }}>

@@ -107,9 +107,9 @@ Mislukte logins worden per e-mailadres én per bron-IP geteld; na een drempel vo
 
 ### Security-headers en CORS
 
-Elk API-antwoord krijgt strikte headers (behalve de kale `500` die Starlette zelf stuurt bij een onafgehandelde fout): een Content-Security-Policy die niets toelaat (`default-src 'none'; frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` en cross-origin-isolatie. HSTS staat alleen aan waar TLS vóór de app eindigt (`ENABLE_HSTS`). CORS laat alleen de ingestelde origins toe, en een origin-patroon moet volledig verankerd zijn (hoofdstuk 1).
+Elk API-antwoord krijgt strikte headers, ook de `500` bij een fout die niets anders afhandelt (SEC-23): een Content-Security-Policy die niets toelaat (`default-src 'none'; frame-ancestors 'none'`), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer` en cross-origin-isolatie. HSTS staat alleen aan waar TLS vóór de app eindigt (`ENABLE_HSTS`). Op Google Cloud zet ook de load balancer die HSTS-header op elk antwoord dat hij over HTTPS doorgeeft, ook op de foutpagina's van Cloud Run zelf. CORS laat alleen de ingestelde origins toe, en een origin-patroon moet volledig verankerd zijn (hoofdstuk 1).
 
-**Waar in de code:** `backend/app/middleware/security_headers.py`; CORS in `backend/app/core/config.py`.
+**Waar in de code:** `backend/app/middleware/security_headers.py` en de 500-handler in `backend/app/main.py`; CORS in `backend/app/core/config.py`; de header van de load balancer in `terraform/loadbalancer.tf`.
 
 ### Weigering te starten met zwakke geheimen
 

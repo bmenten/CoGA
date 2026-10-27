@@ -632,6 +632,26 @@ describe('GeneInfoPage', () => {
     expect(await screen.findByRole('heading', { name: 'BRCA1' })).toBeInTheDocument();
   });
 
+  // The T2T locus was the one whose label holds "t2t" or "chm13": the T2T assembly the UCSC
+  // import names `hs1` (UCSC's name for it, where its description gives no other) had none,
+  // and another telomere-to-telomere genome would have been taken for it.
+  const renameT2t = (name: string, version: string) => (profile: ProfileFixture) => {
+    const [, t2t] = (profile as unknown as { assembly_locations: Record<string, unknown>[] }).assembly_locations;
+    Object.assign(t2t, { assembly_name: name, assembly_version: version });
+  };
+
+  it('finds the T2T-CHM13 locus under UCSC’s name for the assembly', async () => {
+    renderGeneFrom('BRCA2', renameT2t('hs1', 'hs1'));
+
+    expect(await screen.findByText(/T2T chr17:43,110,000-43,190,000 \(hs1 hs1\)/)).toBeInTheDocument();
+  });
+
+  it('takes no other telomere-to-telomere genome for T2T-CHM13', async () => {
+    renderGeneFrom('PALB2', renameT2t('T2T-YAO', 'v2.0'));
+
+    expect(await screen.findByText(/T2T Not imported/)).toBeInTheDocument();
+  });
+
   // ENG-10: the row saying there are none spanned 7 of the table's 8 columns.
   it('spans the whole transcript table with the row saying none are cached', async () => {
     renderGeneFrom('CFTR', (profile) => {

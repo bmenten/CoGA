@@ -117,6 +117,19 @@ Its annotation is poorer than GRCh38's: GENCODE publishes none, so the genes com
 RefSeq GTF (labelled `ucsc ncbiRefSeq`). These rows have coordinates but no biotypes, Ensembl
 identifiers or MANE tags, and the cytobands are one band per chromosome.
 
+The import names the assembly as UCSC's description of it does, `T2T CHM13v2.0` with a space
+(UCSC's `hs1` where the description gives no name). Its ClickHouse tables are keyed
+`T2T_CHM13v2.0`, and NCBI writes `T2T-CHM13v2.0`. CoGA reads T2T-CHM13v2.0 under any of these
+names, in any case: `T2T-CHM13`, `T2T CHM13` or `T2T_CHM13`, with or without `v2.0`,
+`CHM13v2.0` and `hs1` (`is_t2t_chm13` in `services/sex_chromosomes.py`, beside `grc_build`;
+`isT2tChm13` in the frontend's `lib/reference.ts`). Another CHM13 release (v1.0, v1.1) or
+another telomere-to-telomere genome is not read as it: `hs1` is v2.0. By that rule IGV opens
+the `hs1` genome for a T2T family, the gene page links to UCSC's `hs1`, a gene's loci and a
+panel's regions list T2T after GRCh38, and a repeat call is placed by STRchive's T2T
+coordinates. Before, most of these places read only `T2T-CHM13…` with a hyphen, not the name
+the import itself gives, and IGV opened `hg38` for it. IGV now opens no genome for an assembly
+it has none for, and says so. T2T is outside the validated scope (GRCh38 only).
+
 ### Loading or replacing reference data
 
 Admins manage reference data on **Admin → Species & assemblies**

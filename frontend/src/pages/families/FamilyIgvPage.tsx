@@ -117,6 +117,18 @@ const FamilyIgvPage: React.FC = () => {
     );
   }
 
+  // Another assembly's genome would draw the reads and variants at the wrong positions: any
+  // name the mapping did not know opened hg38, the T2T assembly's among them.
+  if (!resolvedGenome) {
+    return (
+      <PageState
+        kicker="Viewer"
+        title={`No IGV genome for ${assemblyName}`}
+        message={`IGV shows the reads on the genome of the family's reference assembly, and CoGA knows no IGV genome for ${assemblyName}. It opens none rather than another assembly's, on which the reads and variants would be drawn at the wrong positions.`}
+      />
+    );
+  }
+
   const sampleIds = sortFamilyMembersProbandFirst(data.members).map((m) => m.sample_id);
 
   return (
