@@ -373,6 +373,76 @@ describe('FamilyRepeatExpansionsPage — review status (#535)', () => {
     expect(await screen.findByText('90 / 300')).toBeInTheDocument();
     expect(screen.getByText(note)).toBeInTheDocument();
   });
+
+  // CLIN-14: a man's two normal chrX alleles read review for that reason, which the page
+  // named "outside catalogued ranges", the reason of a count the catalogue cannot classify.
+  it("names a man's two chrX alleles as the reason a call needs review", async () => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            members: [{ sample_id: 'SON', role: 'proband', affected: true, sex: 'male' }],
+            projects: [],
+          },
+        });
+      }
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({
+          data: {
+            samples: [{ sample_id: 'SON', role: 'proband', affected: true, sex: 'male' }],
+            loci: [
+              {
+                locus_id: 'FXS_FMR1',
+                gene: 'FMR1',
+                display_name: 'FMR1',
+                disease: 'Fragile X syndrome',
+                chr: 'X',
+                start: 147912051,
+                end: 147912110,
+                motif: 'CGG',
+                warning_min: 45,
+                pathogenic_min: 201,
+                status: 'review',
+                review_reason: 'male_x_alleles',
+                calls: {
+                  SON: {
+                    sample: 'SON',
+                    role: 'proband',
+                    affected: true,
+                    sex: 'male',
+                    genotype: '1/2',
+                    allele_count: 2,
+                    status: 'review',
+                    review_reason: 'male_x_alleles',
+                    note: 'Two different chrX alleles in a male.',
+                    alleles: [
+                      { repeat_count: 20, status: 'normal' },
+                      { repeat_count: 30, status: 'normal' },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        });
+      }
+      return Promise.resolve({ data: [] });
+    });
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
+          <Routes>
+            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect((await screen.findAllByText('Review: two chrX alleles in a male')).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/outside catalogued ranges/)).not.toBeInTheDocument();
+  });
 });
 
 describe('FamilyRepeatExpansionsPage — FMR1 premutation', () => {

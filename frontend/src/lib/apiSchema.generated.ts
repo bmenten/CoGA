@@ -2704,6 +2704,7 @@ export interface RepeatExpansionRowOut {
   count_units_validated: boolean;
   count_units_note: string | null;
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+  review_reason: "outside_ranges" | "male_x_alleles" | null;
   calls: Record<string, RepeatExpansionSampleCallOut>;
 }
 
@@ -2716,6 +2717,7 @@ export interface RepeatExpansionSampleCallOut {
   allele_count: number;
   alleles: RepeatExpansionAlleleOut[];
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+  review_reason: "outside_ranges" | "male_x_alleles" | null;
   note: string | null;
 }
 
@@ -2732,6 +2734,7 @@ export interface RepeatExpansionTrackItemOut {
   warning_min: number | null;
   pathogenic_min: number | null;
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
+  review_reason: "outside_ranges" | "male_x_alleles" | null;
   allele_repeat_counts: number[];
   allele_bp_lengths: number[];
   count_units_validated: boolean;

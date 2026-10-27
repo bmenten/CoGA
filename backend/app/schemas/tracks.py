@@ -192,6 +192,9 @@ class FamilyTrackAvailabilityOut(BaseModel):
 RepeatStatus = Literal[
     "normal", "review", "not_assessed", "intermediate", "premutation", "pathogenic", "unknown"
 ]
+# Why a call or a locus reads ``review``: a count the catalogue cannot classify
+# (``outside_ranges``), or a male's two different chrX alleles (``male_x_alleles``).
+RepeatReviewReason = Literal["outside_ranges", "male_x_alleles"]
 
 
 class RepeatExpansionMotifCountOut(BaseModel):
@@ -243,6 +246,8 @@ class RepeatExpansionSampleCallOut(BaseModel):
     allele_count: int = 0
     alleles: List[RepeatExpansionAlleleOut] = Field(default_factory=list)
     status: RepeatStatus = "unknown"
+    # Why a ``review`` call reads so (RepeatReviewReason); None for any other status.
+    review_reason: Optional[RepeatReviewReason] = None
     # Why the call needs a second look beyond its allele sizes (a male with two
     # different chrX alleles), or why no catalogue locus classifies it (its TRID names
     # several STRchive loci and its region does not pick one, CLIN-31), or None.
@@ -276,6 +281,9 @@ class RepeatExpansionRowOut(BaseModel):
     count_units_validated: bool = False
     count_units_note: Optional[str] = None
     status: RepeatStatus = "unknown"
+    # Why a ``review`` locus reads so: a count the catalogue cannot classify in any call,
+    # else the male chrX note; None for any other status.
+    review_reason: Optional[RepeatReviewReason] = None
     calls: Dict[str, RepeatExpansionSampleCallOut] = Field(default_factory=dict)
 
 
@@ -395,12 +403,15 @@ class RepeatExpansionTrackItemOut(BaseModel):
     motif: Optional[str] = None
     warning_min: Optional[int] = None
     pathogenic_min: Optional[int] = None
+    # The call as the family table reads it (CLIN-14): against the catalogue row that
+    # classifies it now, not the status and thresholds stored at import.
     status: RepeatStatus = "unknown"
+    review_reason: Optional[RepeatReviewReason] = None
     allele_repeat_counts: List[int] = Field(default_factory=list)
     allele_bp_lengths: List[int] = Field(default_factory=list)
-    # As on the family table, against the thresholds stored with the call (the status the
-    # track shows): QA's record for the call's catalogue row, what is known of TRGT's count
-    # at the gene, and one warning per allele near a boundary while it is not validated.
+    # As on the family table, against the same catalogue row: QA's record for it, what is
+    # known of TRGT's count at the gene, and one warning per allele near a boundary while it
+    # is not validated.
     count_units_validated: bool = False
     count_units_note: Optional[str] = None
     count_unit_warnings: List[RepeatCountUnitWarningOut] = Field(default_factory=list)

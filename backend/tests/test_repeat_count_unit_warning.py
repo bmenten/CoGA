@@ -392,7 +392,7 @@ def _stored(counts: list[int], *, status: str, **extra) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_the_genome_track_marks_an_fmr1_count_of_53_with_the_status_it_stored() -> None:
+async def test_the_genome_track_marks_an_fmr1_count_of_53_as_the_family_table_does() -> None:
     session = _RowsSession([_stored([30, 53], status="intermediate")])
 
     response = await repeat_expansion_pg.get_sample_repeat_expansion_track_response(
@@ -407,9 +407,12 @@ async def test_the_genome_track_marks_an_fmr1_count_of_53_with_the_status_it_sto
     assert [(warning.repeat_count, [(b.repeat_count, b.status) for b in warning.boundaries]) for warning in item.count_unit_warnings] == [
         (53, [(55, "premutation")])
     ]
+    # The catalogue row that classifies the call, found as the family table finds it (CLIN-14);
+    # the track joined the row of the stored locus ID alone.
     statement = session.statements[0]
-    assert "LEFT JOIN repeat_loci AS catalog ON catalog.locus_id = repeat_expansions.locus_id" in statement
-    assert "LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = repeat_expansions.locus_id" in statement
+    assert ") AS strchive_named ON TRUE" in statement and ") AS catalog ON TRUE" in statement
+    assert "LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = catalog.locus_id" in statement
+    assert "ON catalog.locus_id = repeat_expansions.locus_id" not in statement
 
 
 @pytest.mark.asyncio
