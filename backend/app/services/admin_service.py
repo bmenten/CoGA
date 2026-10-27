@@ -85,10 +85,11 @@ from .family_variant_write_lock import (
     lock_family_variant_writes,
 )
 from .raw_import_files_pg import (
+    family_managed_files,
     get_raw_import_file,
     list_raw_import_files,
-    purge_family_managed_files,
-    purge_sample_managed_files,
+    sample_managed_files,
+    unlink_managed_files,
     verify_raw_import_file as _verify_raw_import_file,
 )
 
@@ -1021,9 +1022,13 @@ async def delete_sample_with_data(
     small and structural variant of it and the sample's tracks (``FamilyDeletion``,
     SAFE-31): a deletion that stops after it leaves the family marked, sign-out gated, while
     the sample may be back without its data. Its commit removes the mark, and the sample's
-    items from every mark (nothing of a sample that is gone can be missing); one that fails
-    leaves it listing what it may have left partly written or missing, given how far it
-    got, or removes it."""
+    items from every mark and from the import-incomplete flag (nothing of a sample that is
+    gone can be missing, SAFE-35); one that fails leaves it listing what it may have left
+    partly written or missing, given how far it got, or removes it.
+
+    A file cannot be put back either: the kept copies of the sample's uploaded files are
+    unlinked only once the deletion has committed, so a deletion that fails keeps every file
+    its records name (SAFE-35)."""
     deletions: list[FamilyDeletion] = []
     try:
         return await _delete_sample_with_data(session, sample_id, confirm, user=user, deletions=deletions)
@@ -1141,7 +1146,9 @@ async def _delete_sample_with_data(
             project_ids=context.project_ids,
         )
 
-    raw_files_removed = await purge_sample_managed_files(session, sample_row["sample_uuid"])
+    # The kept copies of the sample's uploaded files, read before its rows go and unlinked
+    # once they have gone, after the commit (SAFE-35).
+    managed_files = await sample_managed_files(session, sample_row["sample_uuid"])
     # The sample's phenotypes go with it (individual_hpo cascades from samples): recorded as
     # removed, under the phenotype lock each change of them takes, before the pedigree lock,
     # as a PED upload that replaces a family takes them (TRACE-16).
@@ -1171,6 +1178,9 @@ async def _delete_sample_with_data(
     )
     await deletion.finished(session, deleted_sample=sample_name)
     await session.commit()
+    # Committed: the files go now. One that cannot be unlinked is left and logged; the
+    # deletion stands.
+    raw_files_removed = await unlink_managed_files(managed_files)
     return {
         "deleted": {
             "samples": 1,
@@ -1198,7 +1208,9 @@ async def delete_family_with_data(
     Postgres rows. So the family is marked before the first of those deletes, for each of its
     datasets held there (``FamilyDeletion``, SAFE-31): a deletion that fails or stops after
     it brings the family back, without what it deleted, marked; its commit removes the
-    family, and the mark with it."""
+    family, and the mark with it. The kept copies of its uploaded files are unlinked only
+    once it has committed, so a deletion that fails keeps every file its records name
+    (SAFE-35)."""
     deletions: list[FamilyDeletion] = []
     try:
         return await _delete_family_with_data(
@@ -1293,7 +1305,9 @@ async def _delete_family_with_data(
         session,
         family_uuid=family_uuid,
     )
-    raw_files_removed = await purge_family_managed_files(session, family_uuid)
+    # The kept copies of the family's uploaded files, read before its rows go and unlinked
+    # once they have gone, after the commit (SAFE-35).
+    managed_files = await family_managed_files(session, family_uuid)
     repeat_result = await session.execute(
         text(
             """
@@ -1319,6 +1333,9 @@ async def _delete_family_with_data(
         {"family_uuid": family_uuid},
     )
     await session.commit()
+    # Committed: the files go now. One that cannot be unlinked is left and logged; the
+    # deletion stands.
+    raw_files_removed = await unlink_managed_files(managed_files)
     return {
         "deleted": {
             "families": len(family_result.fetchall()),

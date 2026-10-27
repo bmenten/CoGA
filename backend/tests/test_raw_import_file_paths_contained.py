@@ -380,12 +380,13 @@ async def test_the_list_marks_an_object_below_no_import_root(
 
 
 # --------------------------------------------------------------------------- #
-# The purges
+# The purges: the managed rows read in a delete's transaction, their copies unlinked once
+# it has committed (test_deletions_unlink_files_after_commit.py, SAFE-35)
 # --------------------------------------------------------------------------- #
 
 
 class _PurgeSession:
-    """Answers the purge's query with ``(storage_path, record id)`` rows."""
+    """Answers the read of the managed rows with ``(storage_path, record id)`` rows."""
 
     def __init__(self, rows: list[tuple[str, str]]) -> None:
         self.rows = rows
@@ -425,9 +426,11 @@ async def test_a_family_delete_unlinks_only_managed_copies_in_the_upload_folder(
     session = _PurgeSession(rows)
 
     with caplog.at_level(logging.WARNING, logger=rif.__name__):
-        removed = await rif.purge_family_managed_files(session, "family-uuid")  # type: ignore[arg-type]
+        listed = await rif.family_managed_files(session, "family-uuid")  # type: ignore[arg-type]
+        removed = await rif.unlink_managed_files(listed)
 
     assert session.params == [{"family_uuid": "family-uuid"}]
+    assert listed == rows
     assert removed == 3
     assert not where.upload.exists() and not renamed.exists()
     # The link inside the folder is unlinked, never its target.
@@ -450,7 +453,8 @@ async def test_a_family_delete_unlinks_only_managed_copies_in_the_upload_folder(
 async def test_a_sample_delete_unlinks_only_managed_copies_in_the_upload_folder(where: SimpleNamespace) -> None:
     session = _PurgeSession([(str(where.upload), "rec-upload"), (str(where.secret), "rec-secret")])
 
-    removed = await rif.purge_sample_managed_files(session, "sample-uuid")  # type: ignore[arg-type]
+    listed = await rif.sample_managed_files(session, "sample-uuid")  # type: ignore[arg-type]
+    removed = await rif.unlink_managed_files(listed)
 
     assert session.params == [{"sample_uuid": "sample-uuid"}]
     assert removed == 1 and not where.upload.exists()

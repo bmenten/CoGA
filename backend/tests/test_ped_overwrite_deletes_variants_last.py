@@ -11,7 +11,9 @@ Now they are deleted once everything else of the replacement is written.
 
 ``ped_service`` runs against a fake of the request's transaction and of the stores; the
 family's variants are deleted by ``delete_family_small_variants`` and
-``delete_family_structural_variants``.
+``delete_family_structural_variants``, and its interval tracks by ``delete_interval_tracks``,
+as a structure change that clears a family's data deletes them (``family_structure_service``),
+whose code the replacement runs. The tracks used to stay (SAFE-35).
 """
 
 from __future__ import annotations
@@ -24,7 +26,7 @@ from fastapi import HTTPException, UploadFile
 import pytest
 
 from backend.app.schemas import ManualPedFamilyCreate, ManualPedMemberCreate
-from backend.app.services import family_package_registration, ped_service
+from backend.app.services import family_package_registration, family_structure_service, ped_service
 from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
 _STORED = {"family_uuid": "uuid-old", "family_id": "FAM1", "project_id": "project-1", "assembly_name": "GRCh38"}
@@ -55,7 +57,7 @@ class _Transaction:
 @pytest.fixture
 def events(monkeypatch) -> list[tuple[Any, ...]]:
     """What the replacement did, in order: the family's locks, its delete, the new family,
-    its variants' deletes and the commit."""
+    its variants' and tracks' deletes and the commit."""
     recorded: list[tuple[Any, ...]] = []
 
     async def project(_session, _user, project_id):
@@ -85,8 +87,10 @@ def events(monkeypatch) -> list[tuple[Any, ...]]:
     monkeypatch.setattr(ped_service, "_existing_family_rows", stored)
     monkeypatch.setattr(ped_service, "lock_family_variant_writes", lock)
     monkeypatch.setattr(ped_service, "_create_family", create)
-    monkeypatch.setattr(ped_service, "delete_family_small_variants", delete("small variants"))
-    monkeypatch.setattr(ped_service, "delete_family_structural_variants", delete("structural variants"))
+    # The structure clear's ClickHouse deletes, which the replacement runs.
+    monkeypatch.setattr(family_structure_service, "delete_family_small_variants", delete("small variants"))
+    monkeypatch.setattr(family_structure_service, "delete_family_structural_variants", delete("structural variants"))
+    monkeypatch.setattr(family_structure_service, "delete_interval_tracks", delete("interval tracks"))
     monkeypatch.setattr(ped_service, "record_family_deleted", family_deleted)
 
     async def record_phenotypes(_session, *, family_uuid, change, **_kwargs) -> int:
@@ -160,7 +164,8 @@ async def test_a_ped_upload_that_replaces_a_family_deletes_its_variants_last(eve
     )
 
     assert [family.family_id for family in result.families] == ["FAM1"]
-    # Once the new family is written, before the commit (before: before the checks).
+    # Once the new family is written, before the commit (before: before the checks); its
+    # tracks with them (before: never, SAFE-35).
     assert events == [
         ("lock", "uuid-old"),
         ("audit: phenotypes removed", "uuid-old", "replaced"),
@@ -169,6 +174,7 @@ async def test_a_ped_upload_that_replaces_a_family_deletes_its_variants_last(eve
         ("create family", "FAM1"),
         ("delete small variants", "GRCh38", "uuid-old"),
         ("delete structural variants", "GRCh38", "uuid-old"),
+        ("delete interval tracks", "GRCh38", "uuid-old"),
         ("commit",),
     ]
 
@@ -213,9 +219,10 @@ async def test_a_manual_family_that_replaces_a_family_deletes_its_variants_last(
         _ADMIN,  # type: ignore[arg-type]
     )
 
-    assert events[-3:] == [
+    assert events[-4:] == [
         ("delete small variants", "GRCh38", "uuid-old"),
         ("delete structural variants", "GRCh38", "uuid-old"),
+        ("delete interval tracks", "GRCh38", "uuid-old"),
         ("commit",),
     ]
     assert events.index(("create family", "FAM1")) < events.index(("delete small variants", "GRCh38", "uuid-old"))

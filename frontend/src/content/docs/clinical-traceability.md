@@ -298,6 +298,7 @@ built by hand that replaces the family, and a structure change that clears its d
 the server stops, the warning names exactly what may be partly written or missing. Upload again, or
 import again, with **overwrite** what the warning names: each part goes as it is brought again. A
 sample's items also go once the sample is deleted: nothing of a sample that is gone can be missing.
+So does what a failed or stopped import's warning names of that sample alone.
 
 ### Who may sign out
 
