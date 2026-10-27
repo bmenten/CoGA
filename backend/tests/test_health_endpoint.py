@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from backend.app.core.config import settings
 from backend.app.main import _docs_kwargs, app
+from backend.app.routers import health as health_router
 
 
 def test_health_liveness_and_routing_without_datastores() -> None:
@@ -50,6 +52,54 @@ def test_hsts_absent_by_default_present_when_enabled(monkeypatch) -> None:
             monkeypatch.setattr(settings, "enable_hsts", True)
             hsts = client.get("/api/health").headers.get("strict-transport-security")
             assert hsts is not None and "max-age=" in hsts
+    finally:
+        app.state.skip_startup_tasks = False
+
+
+def _fail_the_readiness_check(monkeypatch) -> None:
+    """Make ``/api/health/ready`` raise an exception no handler of the app answers."""
+
+    async def _fails() -> bool:
+        raise RuntimeError("synthetic failure")
+
+    monkeypatch.setattr(health_router, "_postgres_ok", _fails)
+
+
+def test_an_unhandled_error_is_answered_with_the_security_headers(monkeypatch) -> None:
+    # SEC-23. Starlette's ServerErrorMiddleware answers such an exception, outside every
+    # middleware the app adds, so its plain 500 went without the headers the security-headers
+    # middleware sets, HSTS included. Its text stays the same.
+    _fail_the_readiness_check(monkeypatch)
+    app.state.skip_startup_tasks = True
+    try:
+        with TestClient(app, raise_server_exceptions=False) as client:
+            off = client.get("/api/health/ready")
+            monkeypatch.setattr(settings, "enable_hsts", True)
+            on = client.get("/api/health/ready")
+            expected_hsts = client.get("/api/health").headers["strict-transport-security"]
+    finally:
+        app.state.skip_startup_tasks = False
+
+    for response in (off, on):
+        assert response.status_code == 500
+        assert response.text == "Internal Server Error"
+        assert response.headers["x-content-type-options"] == "nosniff"
+        assert response.headers["x-frame-options"] == "DENY"
+        assert response.headers["content-security-policy"] == "default-src 'none'; frame-ancestors 'none'"
+        assert response.headers["referrer-policy"] == "no-referrer"
+    # HSTS only when it is on, as on every other answer.
+    assert "strict-transport-security" not in off.headers
+    assert on.headers["strict-transport-security"] == expected_hsts
+
+
+def test_an_unhandled_error_still_reaches_the_server(monkeypatch) -> None:
+    # Answering it does not swallow it: Starlette raises it again, so uvicorn still logs it,
+    # by its frames and kinds (#769), after the request middleware has logged and audited it.
+    _fail_the_readiness_check(monkeypatch)
+    app.state.skip_startup_tasks = True
+    try:
+        with TestClient(app) as client, pytest.raises(RuntimeError, match="synthetic failure"):
+            client.get("/api/health/ready")
     finally:
         app.state.skip_startup_tasks = False
 

@@ -21,10 +21,14 @@ import { parsePedigree } from '../../lib/pedigree';
 import {
   buildPresetPayload,
   createEmptySmallFilters,
+  isNiptInheritanceView,
   NIPT_BUILT_IN_PRESETS,
+  NIPT_INHERITANCE_LABELS,
+  NIPT_INHERITANCE_VIEWS,
   NIPT_UNSUPPORTED_FILTERS,
   niptAppliesFilterChip,
   REPORT_TAG_KEY,
+  SMALL_INHERITANCE_LABELS,
   useSmallVariantSearchState,
   type ActiveSmallFilterChip,
   type GenePanel,
@@ -73,16 +77,14 @@ import { raw, routePath } from '../../lib/routePath';
 
 const PAGE_SIZE = 50;
 
-// The inheritance views of the variant list. Picking one clears the category ticks
-// (`categories: ''`): a view reads the fetal inheritance itself, and a category tick would
-// narrow it (a de novo candidate whose father's call is too weak to tell it from a
-// paternal allele is category 7). "Any" leaves whatever is checked.
+// The inheritance views of the variant list (NIPT_INHERITANCE_VIEWS, the ones the server
+// takes). Picking one clears the category ticks (`categories: ''`): a view reads the fetal
+// inheritance itself, and a category tick would narrow it (a de novo candidate whose father's
+// call is too weak to tell it from a paternal allele is category 7). "Any" leaves whatever is
+// checked.
 const INHERITANCE_PRESETS: { value: string; label: string; categories?: string }[] = [
   { value: '', label: 'Any inheritance' },
-  { value: 'de_novo', label: 'De novo in the fetus', categories: '' },
-  { value: 'paternal_dominant', label: 'Paternal, inherited by the fetus', categories: '' },
-  { value: 'maternal_dominant', label: 'Maternal, inherited by the fetus', categories: '' },
-  { value: 'recessive_at_risk', label: 'Recessive: both parents carriers', categories: '' },
+  ...NIPT_INHERITANCE_VIEWS.map((value) => ({ value, label: NIPT_INHERITANCE_LABELS[value], categories: '' })),
 ];
 
 const FILTER_STEPS: { key: string; label: string }[] = [
@@ -109,8 +111,10 @@ const niptParamsSerializer = (params: Record<string, unknown>): string => {
 // Map the shared small-variant filter state to the /nipt/variants params. Only
 // the NIPT-supported keys are emitted: the review tags and excluded review tags by the
 // small-variant list's names, but no per-sample genotype, review classification,
-// saved-notes or phenotype params; the maternal/fetal category + inheritance preset + min
-// confidence are NIPT-specific.
+// saved-notes or phenotype params; the maternal/fetal category + inheritance view + min
+// confidence are NIPT-specific. An inheritance mode that is not one of the list's views, from
+// a saved search made on the small-variant list or a link, is not sent: the server refused
+// the whole search for it (400).
 const buildVariantParams = (f: SmallFilterState, page: number): Record<string, unknown> => {
   const params: Record<string, unknown> = { page, page_size: PAGE_SIZE };
   const str = (key: string, value: string) => {
@@ -171,7 +175,7 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
     .filter((value) => Number.isFinite(value));
   if (categories.length) params.category = categories;
   numeric('min_confidence', f.min_confidence);
-  if (f.inheritance) params.inheritance = f.inheritance;
+  if (isNiptInheritanceView(f.inheritance)) params.inheritance = f.inheritance;
   if (f.include_not_inherited === 'true') params.include_not_inherited = true;
   str('de_novo_priority', f.de_novo_priority);
   return params;
@@ -187,13 +191,24 @@ const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = 
   locus: 'location',
 };
 
+const unappliedFilterName = (chip: ActiveSmallFilterChip): string => {
+  if (chip.kind !== 'top') return 'per-sample';
+  // An inheritance mode that is not one of the list's views, by the label the small-variant
+  // list gives it: “De novo / dominant” inheritance.
+  if (chip.key === 'inheritance') {
+    const mode = chip.value ?? '';
+    return `“${SMALL_INHERITANCE_LABELS[mode] ?? mode}” inheritance`;
+  }
+  return UNAPPLIED_FILTER_NAMES[chip.key] ?? chip.key;
+};
+
 // A saved search made on the small-variant list, or a link, can carry filters the NIPT list
 // does not apply. They get no chip, which would claim them, and are named once: null when the
 // search carries none.
 const describeUnappliedFilters = (chips: ActiveSmallFilterChip[]): string | null => {
   const names: string[] = [];
   chips.forEach((chip) => {
-    const name = chip.kind === 'top' ? (UNAPPLIED_FILTER_NAMES[chip.key] ?? chip.key) : 'per-sample';
+    const name = unappliedFilterName(chip);
     if (!names.includes(name)) names.push(name);
   });
   if (!names.length) return null;
