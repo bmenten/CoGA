@@ -272,6 +272,18 @@ still-active user stays valid until it expires; there is no revocation list, and
 sign-out does not end the Microsoft session in the browser (the sign-in page offers *Sign out
 of Microsoft*). For a single-lab internal deployment this is an **accepted residual**.
 
+The UI telemetry sends its last events as the page is hidden or closed, with a `keepalive`
+request that cannot wait for a renewal: it sends the token the session holds. Its flush timer
+therefore renews a Microsoft session's token that expires within five minutes, also when
+nothing is queued, and again when the page is hidden or shown (`lib/telemetry.ts`). Before, a
+page closed after an idle hour sent its last events with an expired token, and the API refused
+them (found while fixing SEC-32). Events that would go with an expired token anyway (the
+device slept, or MSAL needs the user), and a batch the API refuses for its session (401), are
+neither sent to be refused nor dropped: they wait in the browser's `localStorage` under their
+account (the token's Microsoft object ID, else its subject), at most 200 per account, and go
+out with that account's next flush the API takes, after a renewal or its next sign-in. They
+are never sent under another account.
+
 **Emergency (break-glass) administrator.** With Microsoft sign-in there is one local
 account, the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on
 Google Cloud), seeded by the deployment, bound to no Microsoft object ID, with an
@@ -465,7 +477,9 @@ What the application relies on there:
 
 - ✅ **Logout leaves nothing behind.** It flushes the pending UI telemetry, clears the query
   cache (which holds family data) and only then the session, and after a Microsoft sign-in
-  MSAL's accounts and tokens in the tab. Login starts with an empty cache. The Microsoft
+  MSAL's accounts and tokens in the tab. The one exception: UI events whose token has expired
+  by the logout wait in the browser under their account for its next sign-in, rather than
+  being lost (*Session tokens*, §1). Login starts with an empty cache. The Microsoft
   sign-in always asks which account continues, so a shared workstation never signs the next
   person in as the previous one silently, and the page CoGA asked for before it travels to
   Microsoft only as a random key (the path, with any family ID in it, stays in the tab).
