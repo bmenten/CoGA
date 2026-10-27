@@ -8,7 +8,7 @@ import logging
 import math
 from pathlib import Path
 import re
-from typing import Any, Iterable
+from typing import Any, Iterable, Mapping
 
 from fastapi import HTTPException, UploadFile
 from sqlalchemy import bindparam, text
@@ -541,8 +541,13 @@ def classify_repeat_count(
     is ``normal``: the catalogue calls that count benign (STRchive's POLG, exactly 10; the
     owner's decision of 2026-10-14, CLIN-36). Any other count there, above the range or
     below it, stays ``not_assessed``: a benign range is not a threshold, and nothing says
-    where harm starts. A range is stated by both of its ends. A row with one threshold
-    keeps it: normal below it, its benign range not consulted.
+    where harm starts. A range is stated by both of its ends.
+
+    A row with a pathogenic threshold and a benign range below it, but no grey zone of its
+    own (no intermediate threshold), leaves the counts between the two unclassified: such a
+    count is neither benign nor pathogenic, and reads ``intermediate``, the cautious reading
+    of a gap (the owner's decision of 2026-10-27, CLIN-14). It read ``normal``. Below the
+    benign range, and at a row without one, a count under the threshold stays ``normal``.
     """
     if repeat_count is None:
         return "unknown"
@@ -568,6 +573,8 @@ def classify_repeat_count(
     if premutation_min is not None and repeat_count >= premutation_min:
         return "premutation"
     if warning_min is not None and repeat_count >= warning_min:
+        return "intermediate"
+    if warning_min is None and pathogenic_min is not None and has_benign_range and repeat_count > benign_max:
         return "intermediate"
     return "normal"
 
@@ -756,6 +763,55 @@ def _call_status(alleles: list[dict[str, Any]], *, note: str | None) -> str:
     if note and REPEAT_STATUS_RANK.get(status, 0) < REPEAT_STATUS_RANK["review"]:
         return "review"
     return status
+
+
+def _review_reason(alleles: list[dict[str, Any]], status: str) -> str | None:
+    """Why a call reads ``review``: a count the catalogue cannot classify (an allele's own
+    status), else the male chrX note that raised it. The page said "outside catalogued
+    ranges" for both, the wrong reason for the note (CLIN-14). None for any other status."""
+    if status != "review":
+        return None
+    if any(allele.get("status") == "review" for allele in alleles):
+        return "outside_ranges"
+    return "male_x_alleles"
+
+
+def _classified_call(
+    row: Mapping[str, Any], *, sex: str | None, assembly_name: str | None
+) -> tuple[list[dict[str, Any]], str, str | None]:
+    """A stored call as the family table and the genome track read it (CLIN-14): its alleles
+    reclassified against the catalogue row that classifies it (``_CALL_CATALOGUE_COLUMNS``),
+    each with its count-unit warning, and the call's status with the male chrX note, which
+    it returns too. A call whose alleles say nothing keeps its stored status."""
+    warning_min = row.get("warning_min")
+    pathogenic_min = row.get("pathogenic_min")
+    ranges = {
+        "benign_min": row.get("benign_min"),
+        "benign_max": row.get("benign_max"),
+        "pathogenic_max": row.get("pathogenic_max"),
+        "premutation_min": row.get("premutation_min"),
+    }
+    alleles = _reclassify_repeat_alleles(
+        row.get("alleles", []), warning_min=warning_min, pathogenic_min=pathogenic_min, **ranges
+    )
+    alleles = _with_count_unit_warnings(
+        alleles,
+        validated=bool(row.get("count_units_validated")),
+        warning_min=warning_min,
+        pathogenic_min=pathogenic_min,
+        **ranges,
+    )
+    note = _male_x_allele_note(
+        alleles,
+        sex=sex,
+        chrom=str(row.get("chr") or ""),
+        position=int(row.get("start", 0)),
+        assembly_name=assembly_name,
+    )
+    status = _call_status(alleles, note=note)
+    if status == "unknown":
+        status = row.get("status", "unknown")
+    return alleles, status, note
 
 
 _REPEAT_LOCI_LOOKUP_SQL = text(
@@ -1587,36 +1643,13 @@ async def ingest_family_trgt_text(
     }
 
 
-async def get_family_repeat_expansion_table_response(
-    session: AsyncSession,
-    *,
-    context: FamilyMetadataContext,
-    count_only: bool = False,
-) -> FamilyRepeatExpansionTableOut:
-    sample_ids = list(context.sample_uuid_to_name)
-    if not sample_ids:
-        return FamilyRepeatExpansionTableOut(samples=[], loci=[])
-    if count_only:
-        # Presence check only: count distinct loci without the catalog LATERAL
-        # join, grouping, or row serialization the full table response does.
-        count_result = await session.execute(
-            text(
-                """
-                SELECT count(DISTINCT locus_id) AS loci_count
-                FROM repeat_expansions
-                WHERE family_id = CAST(:family_id AS uuid)
-                  AND sample_id IN :sample_ids
-                """
-            ).bindparams(uuid_list_bindparam("sample_ids")),
-            {"family_id": context.family_uuid, "sample_ids": uuid_values(sample_ids)},
-        )
-        return FamilyRepeatExpansionTableOut(loci_count=int(count_result.scalar() or 0))
-    result = await session.execute(
-        text(
-            """
-            SELECT
-                repeat_expansions.sample_id::text AS sample_uuid,
-                COALESCE(catalog.locus_id, repeat_expansions.locus_id) AS locus_id,
+# The catalogue row that classifies a stored call, and what the call reads against it: the
+# family table and the genome track read a call alike. The track showed the status and the
+# thresholds stored at import, and found the catalogue's ranges by the stored locus ID alone,
+# so the two disagreed once the catalogue was reseeded (an FMR1 call of 200 under #799, the
+# thresholds #806 moved, a call stored as normal at a locus without thresholds; CLIN-14).
+# Fixed SQL, interpolated into the two queries: nothing in it comes from a request.
+_CALL_CATALOGUE_COLUMNS = """                COALESCE(catalog.locus_id, repeat_expansions.locus_id) AS locus_id,
                 COALESCE(catalog.gene, repeat_expansions.gene) AS gene,
                 COALESCE(catalog.display_name, repeat_expansions.display_name) AS display_name,
                 COALESCE(catalog.disease, repeat_expansions.disease) AS disease,
@@ -1647,9 +1680,9 @@ async def get_family_repeat_expansion_table_response(
                 -- Why the import classified the call by no catalogue locus, where its TRID
                 -- names several (CLIN-31); shown while no row matches it.
                 CASE WHEN catalog.locus_id IS NULL
-                     THEN repeat_expansions.metadata ->> 'locus_not_resolved' END AS locus_not_resolved
-            FROM repeat_expansions
-            -- The STRchive loci the call's names reach, as the catalogue join below matches
+                     THEN repeat_expansions.metadata ->> 'locus_not_resolved' END AS locus_not_resolved"""
+
+_CALL_CATALOGUE_JOINS = """            -- The STRchive loci the call's names reach, as the catalogue join below matches
             -- them: its locus_id, gene, display name and TRID.
             LEFT JOIN LATERAL (
                 SELECT count(*) AS loci
@@ -1724,7 +1757,41 @@ async def get_family_repeat_expansion_table_response(
                     repeat_loci.locus_id
                 LIMIT 1
             ) AS catalog ON TRUE
-            LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = catalog.locus_id
+            LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = catalog.locus_id"""
+
+
+async def get_family_repeat_expansion_table_response(
+    session: AsyncSession,
+    *,
+    context: FamilyMetadataContext,
+    count_only: bool = False,
+) -> FamilyRepeatExpansionTableOut:
+    sample_ids = list(context.sample_uuid_to_name)
+    if not sample_ids:
+        return FamilyRepeatExpansionTableOut(samples=[], loci=[])
+    if count_only:
+        # Presence check only: count distinct loci without the catalog LATERAL
+        # join, grouping, or row serialization the full table response does.
+        count_result = await session.execute(
+            text(
+                """
+                SELECT count(DISTINCT locus_id) AS loci_count
+                FROM repeat_expansions
+                WHERE family_id = CAST(:family_id AS uuid)
+                  AND sample_id IN :sample_ids
+                """
+            ).bindparams(uuid_list_bindparam("sample_ids")),
+            {"family_id": context.family_uuid, "sample_ids": uuid_values(sample_ids)},
+        )
+        return FamilyRepeatExpansionTableOut(loci_count=int(count_result.scalar() or 0))
+    result = await session.execute(
+        text(
+            f"""
+            SELECT
+                repeat_expansions.sample_id::text AS sample_uuid,
+{_CALL_CATALOGUE_COLUMNS}
+            FROM repeat_expansions
+{_CALL_CATALOGUE_JOINS}
             WHERE repeat_expansions.family_id = CAST(:family_id AS uuid)
               AND repeat_expansions.sample_id IN :sample_ids
             ORDER BY repeat_expansions.chr, repeat_expansions.start, gene
@@ -1748,37 +1815,12 @@ async def get_family_repeat_expansion_table_response(
     for row in rows:
         warning_min = row.get("warning_min")
         pathogenic_min = row.get("pathogenic_min")
-        alleles = _reclassify_repeat_alleles(
-            row.get("alleles", []),
-            warning_min=warning_min,
-            pathogenic_min=pathogenic_min,
-            benign_min=row.get("benign_min"),
-            benign_max=row.get("benign_max"),
-            pathogenic_max=row.get("pathogenic_max"),
-            premutation_min=row.get("premutation_min"),
-        )
         count_units_validated = bool(row.get("count_units_validated"))
-        alleles = _with_count_unit_warnings(
-            alleles,
-            validated=count_units_validated,
-            warning_min=warning_min,
-            pathogenic_min=pathogenic_min,
-            benign_min=row.get("benign_min"),
-            benign_max=row.get("benign_max"),
-            pathogenic_max=row.get("pathogenic_max"),
-            premutation_min=row.get("premutation_min"),
-        )
         meta = member_meta.get(row["sample_uuid"], {})
-        note = _male_x_allele_note(
-            alleles,
-            sex=meta.get("sex"),
-            chrom=str(row.get("chr") or ""),
-            position=int(row.get("start", 0)),
-            assembly_name=context.assembly_name,
+        alleles, row_status, note = _classified_call(
+            row, sex=meta.get("sex"), assembly_name=context.assembly_name
         )
-        row_status = _call_status(alleles, note=note)
-        if row_status == "unknown":
-            row_status = row.get("status", "unknown")
+        review_reason = _review_reason(alleles, row_status)
         # Why no catalogue locus classifies the call, where its TRID names several (CLIN-31).
         # It explains the status the alleles already have, so it does not raise it.
         call_note = " ".join(part for part in (note, row.get("locus_not_resolved")) if part) or None
@@ -1804,10 +1846,16 @@ async def get_family_repeat_expansion_table_response(
                 "count_units_validated": count_units_validated,
                 "count_units_note": known_count_unit_difference(row.get("gene")),
                 "status": row_status,
+                "review_reason": review_reason,
                 "calls": {},
             },
         )
         locus["status"] = summarize_repeat_status((locus["status"], row_status))
+        if locus["status"] == "review" and locus["review_reason"] != "outside_ranges":
+            # A count the catalogue cannot classify, in any call, is the locus's reason.
+            locus["review_reason"] = review_reason or locus["review_reason"]
+        elif locus["status"] != "review":
+            locus["review_reason"] = None
         sample_name = context.sample_uuid_to_name.get(row["sample_uuid"], row["sample_uuid"])
         locus["calls"][sample_name] = RepeatExpansionSampleCallOut(
             sample=sample_name,
@@ -1818,6 +1866,7 @@ async def get_family_repeat_expansion_table_response(
             allele_count=int(row.get("allele_count", 0)),
             alleles=alleles,
             status=row_status,
+            review_reason=review_reason,
             note=call_note,
         )
 
@@ -1863,32 +1912,14 @@ async def get_sample_repeat_expansion_track_response(
         where_clauses.append("repeat_expansions.\"end\" >= :start")
         params["start"] = start
         params["end"] = end
+    # The catalogue row that classifies each call, and the call read against it, as the
+    # family table reads it (CLIN-14).
     query = text(
         f"""
         SELECT
-            repeat_expansions.locus_id,
-            repeat_expansions.gene,
-            repeat_expansions.display_name,
-            repeat_expansions.disease,
-            repeat_expansions.chr,
-            repeat_expansions.start,
-            repeat_expansions."end",
-            repeat_expansions.motif,
-            repeat_expansions.warning_min,
-            repeat_expansions.pathogenic_min,
-            repeat_expansions.status,
-            repeat_expansions.alleles,
-            -- The ranges the import classified the call with, from the catalogue row it
-            -- stored the call under (the thresholds are stored with the call), and QA's
-            -- record for that row: the count-unit warning goes with the stored status.
-            (catalog.metadata ->> 'benign_min')::int AS benign_min,
-            (catalog.metadata ->> 'benign_max')::int AS benign_max,
-            (catalog.metadata ->> 'pathogenic_max')::int AS pathogenic_max,
-            (catalog.metadata ->> 'premutation_min')::int AS premutation_min,
-            COALESCE(units.validated, false) AS count_units_validated
+{_CALL_CATALOGUE_COLUMNS}
         FROM repeat_expansions
-        LEFT JOIN repeat_loci AS catalog ON catalog.locus_id = repeat_expansions.locus_id
-        LEFT JOIN repeat_locus_count_units AS units ON units.locus_id = repeat_expansions.locus_id
+{_CALL_CATALOGUE_JOINS}
         WHERE {' AND '.join(where_clauses)}
         ORDER BY repeat_expansions.chr, repeat_expansions.start
         """
@@ -1896,19 +1927,13 @@ async def get_sample_repeat_expansion_track_response(
     if chrom_values:
         query = query.bindparams(bindparam("chromosomes", expanding=True))
     result = await session.execute(query, params)
+    sex = next(
+        (row.get("sex") for row in context.sample_rows if str(row.get("sample_uuid")) == str(sample_uuid)),
+        None,
+    )
     items = []
     for row in result.mappings().all():
-        count_units_validated = bool(row.get("count_units_validated"))
-        alleles = _with_count_unit_warnings(
-            [allele for allele in row.get("alleles", []) if isinstance(allele, dict)],
-            validated=count_units_validated,
-            warning_min=row.get("warning_min"),
-            pathogenic_min=row.get("pathogenic_min"),
-            benign_min=row.get("benign_min"),
-            benign_max=row.get("benign_max"),
-            pathogenic_max=row.get("pathogenic_max"),
-            premutation_min=row.get("premutation_min"),
-        )
+        alleles, status, _note = _classified_call(row, sex=sex, assembly_name=context.assembly_name)
         items.append(
             RepeatExpansionTrackItemOut(
                 sample=sample_name,
@@ -1922,7 +1947,8 @@ async def get_sample_repeat_expansion_track_response(
                 motif=row.get("motif"),
                 warning_min=row.get("warning_min"),
                 pathogenic_min=row.get("pathogenic_min"),
-                status=row.get("status", "unknown"),
+                status=status,
+                review_reason=_review_reason(alleles, status),
                 allele_repeat_counts=[
                     int(allele["repeat_count"])
                     for allele in row.get("alleles", [])
@@ -1933,7 +1959,7 @@ async def get_sample_repeat_expansion_track_response(
                     for allele in row.get("alleles", [])
                     if allele.get("bp_length") is not None
                 ],
-                count_units_validated=count_units_validated,
+                count_units_validated=bool(row.get("count_units_validated")),
                 count_units_note=known_count_unit_difference(row.get("gene")),
                 count_unit_warnings=[
                     allele["count_unit_warning"]

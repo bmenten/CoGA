@@ -773,8 +773,8 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   family. Searches made before the `panel_applied` event existed recorded nothing, so a record
   signed for such a family names only the panels applied since.
 - A repeat-expansion call's and a Paraphase result's status is frozen as CoGA classifies it at
-  sign-out, from the catalogue loaded then; the genome tracks still show the status stored at
-  import until the calls are imported again (*TRGT repeat catalogue*,
+  sign-out, from the catalogue loaded then. The repeat page and the genome tracks classify a
+  call alike, against the catalogue as it is now (CLIN-14; *TRGT repeat catalogue*,
   [data-import.md](data-import.md)).
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.

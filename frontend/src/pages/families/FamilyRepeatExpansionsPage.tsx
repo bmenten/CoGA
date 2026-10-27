@@ -419,7 +419,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                         <span
                           className={`table-chip family-repeat-table-locus-flag family-repeat-table-locus-flag--${row.status}`}
                         >
-                          {repeatStatusLabel(row.status)}
+                          {repeatStatusLabel(row.status, row.review_reason)}
                         </span>
                       )}
                     </div>
@@ -493,7 +493,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
                                     </span>
                                     {call.status !== 'normal' && (
                                       <span className="family-repeat-table-call-flag">
-                                        {repeatStatusLabel(call.status)}
+                                        {repeatStatusLabel(call.status, call.review_reason)}
                                       </span>
                                     )}
                                   </div>

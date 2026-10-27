@@ -109,6 +109,7 @@ def test_a_gene_name_trid_is_stored_and_read_against_the_tract_its_call_lies_on(
     from backend.app.services.family_metadata_context import FamilyMetadataContext, SampleMetadataContext
     from backend.app.services.repeat_expansion_pg import (
         get_family_repeat_expansion_table_response,
+        get_sample_repeat_expansion_track_response,
         ingest_trgt_text,
         seed_builtin_repeat_catalog,
     )
@@ -165,51 +166,59 @@ def test_a_gene_name_trid_is_stored_and_read_against_the_tract_its_call_lies_on(
                     int(row.start): (str(row.locus_id), str(row.status), row.pathogenic_min, row.reason)
                     for row in (await session.execute(stored_query, {"f": family_uuid})).all()
                 }
-                table = await get_family_repeat_expansion_table_response(
-                    session,
-                    context=FamilyMetadataContext(
-                        family_uuid=family_uuid,
-                        family_id=label,
-                        project_ids=[],
-                        sample_rows=[
-                            {"sample_uuid": sample_uuid, "sample_id": sample_id, "role": "proband", "affected": True, "sex": "female"}
-                        ],
-                        sample_uuid_to_name={sample_uuid: sample_id},
-                        sample_name_to_uuid={sample_id: sample_uuid},
-                        affected_sample_names=[sample_id],
-                        assembly_id=None,
-                        assembly_name="GRCh38",
-                    ),
+                context = FamilyMetadataContext(
+                    family_uuid=family_uuid,
+                    family_id=label,
+                    project_ids=[],
+                    sample_rows=[
+                        {"sample_uuid": sample_uuid, "sample_id": sample_id, "role": "proband", "affected": True, "sex": "female"}
+                    ],
+                    sample_uuid_to_name={sample_uuid: sample_id},
+                    sample_name_to_uuid={sample_id: sample_uuid},
+                    affected_sample_names=[sample_id],
+                    assembly_id=None,
+                    assembly_name="GRCh38",
                 )
+                table = await get_family_repeat_expansion_table_response(session, context=context)
                 read_by_table = {
                     row.start: (row.locus_id, row.calls[sample_id].status, row.pathogenic_min, row.calls[sample_id].note)
                     for row in table.loci
                 }
-                return stored, read_by_table
+                # The genome track, through the same catalogue fragment on Postgres (CLIN-14).
+                track = await get_sample_repeat_expansion_track_response(
+                    session, context=context, sample_name=sample_id, chromosomes=["X"]
+                )
+                read_by_track = {
+                    item.start: (item.locus_id, item.status, item.pathogenic_min) for item in track.items
+                }
+                return stored, read_by_table, read_by_track
         finally:
             async with sessionmaker() as session:
                 await session.execute(text("DELETE FROM families WHERE family_id = :f"), {"f": label})
                 await session.commit()
             await close_postgres_engine()
 
-    stored, read_by_table = asyncio.run(_run())
+    stored, read_by_table, read_by_track = asyncio.run(_run())
 
     reason = (
         "TRID ARX names 2 STRchive loci (EIEE1_ARX, PRTS_ARX), and the call's region, "
         "chrX:25020000-25020060, overlaps none of them, so none of their thresholds applies."
     )
     prts, eiee1, between = (start for start, _end in _ARX_CALLS.values())
-    # Each call against its own tract: 17 repeats are normal at PRTS_ARX (pathogenic from 20),
-    # pathogenic at EIEE1_ARX (from 17). Between the tracts: no thresholds, not assessed.
+    # Each call against its own tract: 17 repeats are the grey zone at PRTS_ARX (benign 12,
+    # pathogenic from 20, no grey zone stated: CLIN-14), pathogenic at EIEE1_ARX (from 17).
+    # Between the tracts: no thresholds, not assessed.
     assert stored == {
-        prts: ("PRTS_ARX", "normal", 20, None),
+        prts: ("PRTS_ARX", "intermediate", 20, None),
         eiee1: ("EIEE1_ARX", "pathogenic", 17, None),
         between: ("ARX", "not_assessed", None, reason),
     }
     # The table's query no longer matches the call between the tracts to EIEE1_ARX by the
     # gene's name (pathogenic at 17 there); it shows why the call is not assessed.
     assert read_by_table == {
-        prts: ("PRTS_ARX", "normal", 20, None),
+        prts: ("PRTS_ARX", "intermediate", 20, None),
         eiee1: ("EIEE1_ARX", "pathogenic", 17, None),
         between: ("ARX", "not_assessed", None, reason),
     }
+    # The track reads each call as the table does.
+    assert read_by_track == {start: (locus, status, threshold) for start, (locus, status, threshold, _note) in read_by_table.items()}

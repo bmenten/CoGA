@@ -1,10 +1,16 @@
-import type { ApiRepeatStatus } from './apiTypes';
+import type { ApiRepeatReviewReason, ApiRepeatStatus } from './apiTypes';
 import type { RepeatCountUnitWarningOut } from './apiSchema.generated';
 
-/** A repeat status as the repeat page names it: on its chips, and in a count-unit warning. */
-export const repeatStatusLabel = (status: ApiRepeatStatus): string => {
+/**
+ * A repeat status as the repeat page names it: on its chips, and in a count-unit warning. A
+ * review says why, by the reason the API gives with it (CLIN-14): it said "outside catalogued
+ * ranges" for a man's two chrX alleles too.
+ */
+export const repeatStatusLabel = (status: ApiRepeatStatus, reviewReason?: ApiRepeatReviewReason | null): string => {
   switch (status) {
     case 'review':
+      // A man's two different chrX alleles at a locus where he carries one.
+      if (reviewReason === 'male_x_alleles') return 'Review: two chrX alleles in a male';
       // A count outside every catalogued range at a contraction locus: the catalog
       // cannot classify it, so it is surfaced rather than read as normal (#535).
       return 'Review: outside catalogued ranges';
