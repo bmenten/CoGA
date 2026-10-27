@@ -139,7 +139,7 @@ change a prior classification ([clinical-traceability.md](../clinical-traceabili
 | PanelApp | Gene panels | reference import | Release |
 | HPO | Phenotype ontology | reference import | Release pinned: the vendored `hp.obo`; the startup imports a file in place, or a download, only if it matches its SHA-256 (TRACE-14), and logs and imports nothing otherwise. The release, URL and SHA-256 are fixed in the code, and no setting overrides them ([README](../../data/ref-data/hpo/README.md)) |
 | Monarch | Gene-disease/phenotype | `monarch_gene_disease.release_version` | Release |
-| ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date; ClinGen's recurrent-CNV file: release V2.1, pinned by SHA-256 where the startup and the knowledgebase build read it (note below) |
+| ClinGen / dbNSFP-gene / clinical-CNV catalogue | Constraint, gene-condition, CNV knowledge | reference import / build script | Release / build date; ClinGen's recurrent-CNV file: release V2.1, pinned by SHA-256 for GRCh38 and GRCh37 where the startup and the knowledgebase build read it; every other file a knowledgebase rebuild reads recorded by its SHA-256 (note below) |
 | ACMG SF list (secondary findings) | Whether a gene is on the ACMG secondary-findings list, shown on the gene page only | vendored `data/ref-data/acmg-sf/`; gene reference sync (`acmg_sf` release and SHA-256 per gene) | Version pinned: ACMG SF v3.3 (*Genet Med* 2025), its SHA-256 in the [README](../../data/ref-data/acmg-sf/README.md) |
 | AlphaMissense | Missense pathogenicity prediction | VEP plugin, per-family manifest | Model version |
 | STRchive disease-locus catalogue | Repeat-expansion loci and thresholds | pipeline manifest (`trgt_repeats`) + `repeat_loci` | Release pinned: the shipped `data/ref-data/STRchive-loci.json` (75 loci), SHA-256 `a0295e1fe3e2…` (`STRCHIVE_PINNED_LOCI_SHA256` in `core/config.py`); a start on any other file, or none, is refused, and `repeat_loci` holds that release's loci only ([data-import.md](../data-import.md#the-strchive-release)). The file names no upstream release; it is byte-identical to the `STRchive-loci-v2.18.0.json` STRchive published with release **v2.18.0** (2026-04-28) (`STRCHIVE_PINNED_RELEASE`), checked on 2026-10-20 against the loci file of every published STRchive release, with the owner's permission |
@@ -167,9 +167,15 @@ Cloud Run the reference-data bucket's copy) only if its SHA-256 is this one
 log names it, both digests and the fix. The clinical CNV knowledgebase build downloads ClinGen's
 recurrent-CNV file itself and reads it only if its SHA-256 is pinned for the assembly
 (`CLINGEN_RECURRENT_CNV_SHA256` in `scripts/clinical_cnv_knowledgebase.py`): GRCh38's is this
-digest; GRCh37 has none yet, as no copy of ClinGen's V2.1 GRCh37 file has been checked, so a
-GRCh37 rebuild stops before it downloads the file. A rebuild records the file it read, by
-release and SHA-256, as the knowledgebase's release, which the signed analysis record freezes.
+digest. GRCh37's is `92f331fe6dd2ba2932db747fdf29e6284efe53e033a8775c2c1ad5e22ce2e0b1`, the
+SHA-256 of ClinGen's V2.1 GRCh37 file `ClinGen_recurrent_CNV_V2.1-hg37.bed` as downloaded from
+ftp.clinicalgenome.org on 2026-10-27, with the owner's permission (16,772 bytes, last modified
+2026-03-18, the day ClinGen moved to V2.1; TRACE-18). Until then a GRCh37 rebuild stopped before
+it downloaded the file. The repository holds no copy of it: only the build reads it. A rebuild
+records the file it read, by release and SHA-256, and every other file it read as published that
+day (ClinGen's dosage curation, the UCSC cytobands, ClinVar's variant summary, Orphanet's
+nomenclature, a DECIPHER map) by file name and SHA-256 (TRACE-18), as the knowledgebase's
+release, which the signed analysis record freezes.
 [`test_reference_file_pins.py`](../../backend/tests/test_reference_file_pins.py) fails until the
 file, both pins, this note and the note beside the file agree.
 

@@ -66,9 +66,10 @@ the **ClinVar P/LP** column of the Clinical CNV explorer. A knowledgebase built 
 "—" there, which means *not recorded*, not zero. A rebuild whose ClinGen dosage curation or recurrent
 CNV regions cannot be loaded fails: the Reference catalogue says why, and the clinical CNVs stay as
 they were. The recurrent CNV regions come from ClinGen's recurrent CNV file of release V2.1, recognized
-by its SHA-256: another file fails the rebuild the same way, as does a GRCh37 rebuild, for which no
-file has been checked yet. A rebuild records that file's release and SHA-256 as the knowledgebase's
-release, which a signed analysis freezes.
+by its SHA-256 for each assembly: another file fails the rebuild the same way. The other sources are read
+as published on the day of the rebuild. A rebuild records the files it read as the knowledgebase's
+release, which a signed analysis freezes: the recurrent CNV file by release and SHA-256, and each other
+file (the ClinGen dosage curation, the cytobands, ClinVar, Orphanet, a DECIPHER map) by name and SHA-256.
 
 **Gene reference refresh.** From the Reference catalogue an administrator can refresh the cached gene
 information for all human genes. The refresh reads a local dbNSFP gene file, the ACMG secondary-findings

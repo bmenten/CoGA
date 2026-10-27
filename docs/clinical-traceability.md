@@ -765,9 +765,11 @@ anchors can be deleted without trace unless a copy is kept outside the database.
 - The gene reference is frozen for the reported variants' genes only: a record without a reported
   variant names no gene-reference release. The gene loci the panel filters read are in the
   manifest (`gene_loci`). The clinical CNV knowledgebase states no release of its own: the record
-  names the one pinned file a rebuild read, ClinGen's recurrent CNV file, by release and SHA-256,
-  and dates the rest (the ClinGen dosage curation, ClinVar and the cytobands as they were that day)
-  by its load. A rebuild loaded before the pin (TRACE-14) reads `not stated`.
+  names the files a rebuild read, the pinned one, ClinGen's recurrent CNV file, by release and
+  SHA-256, and the rest (the ClinGen dosage curation, ClinVar, the cytobands, Orphanet and a
+  DECIPHER map, as they were that day) by file name and SHA-256 (TRACE-18). A rebuild loaded
+  before the pin (TRACE-14) reads `not stated`, and one loaded before TRACE-18 names its pinned
+  file alone.
 - A panel version is recorded the first time a search of the family applies it, not at each search,
   and a panel applied in the variant explorer, which searches across families, is recorded for no
   family. Searches made before the `panel_applied` event existed recorded nothing, so a record
