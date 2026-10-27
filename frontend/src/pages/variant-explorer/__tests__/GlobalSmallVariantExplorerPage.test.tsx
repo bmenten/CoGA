@@ -8,6 +8,7 @@ import { MemoryRouter } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { tagDefinition } from '../../../test/tagDefinitions';
 import type { SmallVariantTagDefinition } from '../../families/smallVariantSearch';
 import GlobalSmallVariantExplorerPage from '../GlobalSmallVariantExplorerPage';
 import type {
@@ -29,7 +30,7 @@ const ASSEMBLIES: VariantExplorerAssembly[] = [
 ];
 
 const TAGS: SmallVariantTagDefinition[] = [
-  {
+  tagDefinition({
     key: 'review',
     label: 'Review',
     group: 'collaboration',
@@ -37,7 +38,7 @@ const TAGS: SmallVariantTagDefinition[] = [
     sort_order: 10,
     scope: 'system',
     is_custom: false,
-  },
+  }),
 ];
 
 const PANELS = [{ _id: 'panel-1', name: 'Hereditary cancer' }];

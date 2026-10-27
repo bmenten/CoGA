@@ -4,13 +4,11 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import api from '../../lib/api';
+import type { BlacklistRegionOut, SegmentalDuplicationOut } from '../../lib/apiSchema.generated';
 import { cssVar } from '../../lib/colors';
 
-interface ReferenceInterval {
-  start: number;
-  end: number;
-  label: string;
-}
+/** An interval of either reference the track draws: the blacklist or the segmental duplications. */
+type ReferenceInterval = BlacklistRegionOut | SegmentalDuplicationOut;
 
 export interface ReferenceIntervalTrackProps {
   assembly: string;

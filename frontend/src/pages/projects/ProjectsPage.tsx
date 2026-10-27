@@ -1,14 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import type { ApiProjectRecord } from '../../lib/apiTypes';
 import type {
-  ApiAssemblyRecord,
-  ApiFamilyBase,
-  ApiFamilyMemberRef,
-  ApiProjectRecord,
-  ApiSpeciesRecord,
-  ApiUserRecord,
-} from '../../lib/apiTypes';
+  AssemblyOut,
+  ProjectDashboardOut,
+  SpeciesOut,
+  UserRead,
+} from '../../lib/apiSchema.generated';
 import { withEntityId } from '../../lib/entity';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatShortDate } from '../../lib/format';
@@ -17,10 +16,11 @@ import { userAccountsQuery } from '../../lib/users';
 import { memberAccessLevel, type ProjectAccessLevel } from '../../lib/familyAccess';
 import QueryFailure from '../../components/QueryFailure';
 
-type Project = ApiProjectRecord<ApiFamilyBase<ApiFamilyMemberRef>>;
-type Species = ApiSpeciesRecord;
-type Assembly = ApiAssemblyRecord;
-type User = ApiUserRecord;
+// Each served under its `_id`, which withEntityId copies to `id`.
+type Project = ApiProjectRecord;
+type Species = SpeciesOut & { id: string };
+type Assembly = AssemblyOut & { id: string };
+type User = UserRead;
 
 interface ProjectFormState {
   name: string;
@@ -51,7 +51,7 @@ const EMPTY_FORM: ProjectFormState = {
 const pluralize = (count: number, singular: string, plural = `${singular}s`) =>
   `${count} ${count === 1 ? singular : plural}`;
 
-const truncateText = (value?: string, maxLength = 110) => {
+const truncateText = (value?: string | null, maxLength = 110) => {
   const text = (value || '').trim();
   if (!text) return '—';
   if (text.length <= maxLength) return text;
@@ -161,7 +161,7 @@ const ProjectsPage: React.FC = () => {
     queryKey: ['projects'],
     queryFn: async () => {
       const res = await api.get('/projects');
-      return (res.data as Project[]).map((project) => withEntityId(project));
+      return (res.data as ProjectDashboardOut[]).map((project) => withEntityId(project));
     },
   });
 
@@ -169,7 +169,7 @@ const ProjectsPage: React.FC = () => {
     queryKey: ['species'],
     queryFn: async () => {
       const res = await api.get('/species');
-      return (res.data as Species[]).map((entry) => withEntityId(entry));
+      return (res.data as SpeciesOut[]).map((entry) => withEntityId(entry));
     },
   });
 
@@ -177,7 +177,7 @@ const ProjectsPage: React.FC = () => {
     queryKey: ['assemblies', 'all'],
     queryFn: async () => {
       const res = await api.get('/assemblies');
-      return (res.data as Assembly[]).map((entry) => withEntityId(entry));
+      return (res.data as AssemblyOut[]).map((entry) => withEntityId(entry));
     },
   });
 

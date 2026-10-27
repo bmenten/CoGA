@@ -3,7 +3,14 @@ import { Link } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import api from '../../lib/api';
-import type { ApiFamilySummary } from '../../lib/apiTypes';
+import type {
+  FamilyImportValidationIssue,
+  FamilyOut,
+  FamilyPackageCandidateOut,
+  FamilyPackageImportJobOut,
+  FamilyPackageManifestBuildOut,
+  FamilyPackageManifestWriteOut,
+} from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
@@ -14,104 +21,19 @@ import {
   jobProgressText,
   runningDatasetText,
   useNow,
-  type DatasetProgress,
 } from './importProgress';
 import { routePath } from '../../lib/routePath';
 
-type ImportStatus = 'queued' | 'validating' | 'running' | 'completed' | 'failed';
+type ImportStatus = FamilyPackageImportJobOut['status'];
 type PackageTargetMode = 'new' | 'existing';
 type ImportConflictMode = 'cancel' | 'update' | 'overwrite';
 
-type FamilyPackageCandidate = {
-  folder_path: string;
-  name: string;
-  family_id: string;
-  has_manifest: boolean;
-  has_ped: boolean;
-  analysis_type?: string | null;
-};
-
-type ValidationIssue = {
-  code: string;
-  message: string;
-  dataset?: string | null;
-  sample_id?: string | null;
-  path?: string | null;
-};
-
-type DatasetSummary = {
-  dataset_type: string;
-  enabled: boolean;
-  status: string;
-  files: string[];
-  samples: string[];
-  message?: string | null;
-  summary: Record<string, unknown>;
-  progress?: DatasetProgress | null;
-};
-
-type FileAvailability = {
-  role: string;
-  path: string;
-  exists: boolean;
-  sample_id?: string | null;
-};
-
-type ManifestDatasetAvailability = {
-  dataset_type: string;
-  enabled: boolean;
-  complete: boolean;
-  files: FileAvailability[];
-  samples: string[];
-  message?: string | null;
-};
-
-type ManifestBuildResult = {
-  valid: boolean;
-  family_id?: string | null;
-  ped_path?: string | null;
-  manifest_path: string;
-  naming_scheme: string;
-  sample_ids: string[];
-  manifest_yaml: string;
-  datasets: ManifestDatasetAvailability[];
-  errors: ValidationIssue[];
-  warnings: ValidationIssue[];
-  metadata: Record<string, unknown>;
-};
-
-type ManifestWriteResult = {
-  manifest_path: string;
-  validation: {
-    valid: boolean;
-    errors: ValidationIssue[];
-    warnings: ValidationIssue[];
-  };
-};
-
-type FamilyImportJob = {
-  _id: string;
-  submitted_path: string;
-  family_id?: string | null;
-  project_id?: string | null;
-  status: ImportStatus;
-  dry_run: boolean;
-  requested_by: string;
-  requested_at: string;
-  started_at?: string | null;
-  heartbeat_at?: string | null;
-  completed_at?: string | null;
-  validation_errors: ValidationIssue[];
-  validation_warnings: ValidationIssue[];
-  logs: string[];
-  datasets: DatasetSummary[];
-  metadata: Record<string, unknown>;
-  error?: string | null;
-};
+type FamilyImportJob = FamilyPackageImportJobOut;
+type ManifestBuildResult = FamilyPackageManifestBuildOut;
 
 const activeStatuses = new Set<ImportStatus>(['queued', 'validating', 'running']);
 
-const issueLabel = (issue: ValidationIssue) =>
+const issueLabel = (issue: FamilyImportValidationIssue) =>
   [issue.dataset, issue.sample_id, issue.path].filter(Boolean).join(' · ');
 
 // What Discover proposed and asks to be checked (a couple taken from a long-read package's
@@ -149,19 +71,19 @@ const FamilyPackageImportPanel: React.FC = () => {
     error: projectsError,
   } = useProjectCatalog();
 
-  const familiesQuery = useQuery<ApiFamilySummary[]>({
+  const familiesQuery = useQuery<FamilyOut[]>({
     queryKey: ['families'],
     queryFn: async () => {
       const response = await api.get('/families');
-      return response.data as ApiFamilySummary[];
+      return response.data as FamilyOut[];
     },
   });
 
-  const packagesQuery = useQuery<FamilyPackageCandidate[]>({
+  const packagesQuery = useQuery<FamilyPackageCandidateOut[]>({
     queryKey: ['family-import-packages'],
     queryFn: async () => {
       const response = await api.get('/family-imports/packages');
-      return (response.data as FamilyPackageCandidate[]) || [];
+      return (response.data as FamilyPackageCandidateOut[]) || [];
     },
   });
   const packages = packagesQuery.data || [];
@@ -266,7 +188,7 @@ const FamilyPackageImportPanel: React.FC = () => {
         overwrite: manifestOverwrite,
         family_id: targetFamilyId || null,
       });
-      return response.data as ManifestWriteResult;
+      return response.data as FamilyPackageManifestWriteOut;
     },
     onSuccess: (result) => {
       setStatusTone(result.validation.valid ? 'success' : 'error');

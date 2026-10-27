@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import AcmgClassificationModal from '../AcmgClassificationModal';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { tagDefinition } from '../../../test/tagDefinitions';
 import type {
   SmallVariant,
   SmallVariantReviewSavePayload,
@@ -336,7 +337,7 @@ describe('AcmgClassificationModal', () => {
   // A deleted custom tag stays on the reviews that hold it: the dialog lists it, marked,
   // only where the review holds it, so it can be removed, and adds it to no other review.
   const tagDefinitions: SmallVariantTagDefinition[] = [
-    {
+    tagDefinition({
       key: 'needs_segregation',
       label: 'Needs segregation',
       group: 'custom',
@@ -345,8 +346,8 @@ describe('AcmgClassificationModal', () => {
       scope: 'global',
       is_custom: true,
       is_active: true,
-    },
-    {
+    }),
+    tagDefinition({
       key: 'probe_x',
       label: 'Probe X',
       group: 'custom',
@@ -355,7 +356,7 @@ describe('AcmgClassificationModal', () => {
       scope: 'global',
       is_custom: true,
       is_active: false,
-    },
+    }),
   ];
 
   it('offers a deleted tag only to a review that holds it, marked, to be removed', async () => {

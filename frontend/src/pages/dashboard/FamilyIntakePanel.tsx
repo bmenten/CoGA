@@ -8,6 +8,7 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { useProjectCatalog } from '../../lib/reference';
 import type { PedRow } from '../../lib/pedigree';
 import { MONOGENIC_NIPT_ANALYSIS_TYPE } from '../families/niptClassification';
+import type { PedUploadResult } from '../../lib/apiSchema.generated';
 
 type IntakeMode = 'manual' | 'upload';
 type Sex = 'male' | 'female' | 'und';
@@ -44,13 +45,6 @@ type PedigreeRelationship = {
   role_b: 'partner';
   source: 'manual';
   metadata: Record<string, unknown>;
-};
-
-type PedUploadResult = {
-  families: Array<{
-    family_id: string;
-    samples: string[];
-  }>;
 };
 
 let memberSequence = 0;

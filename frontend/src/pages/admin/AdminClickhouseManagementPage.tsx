@@ -3,14 +3,14 @@ import { Link } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
-import type { ClickHouseIntegrityMonitorOut } from '../../lib/apiSchema.generated';
+import type {
+  ClickHouseIntegrityMonitorOut,
+  ClickHouseVariantAssemblyListOut,
+} from '../../lib/apiSchema.generated';
 import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
 import ClickhouseVariantOperationsSection from './ClickhouseVariantOperationsSection';
-import type {
-  ClickHouseVariantAssemblyList,
-  StatusTone,
-} from './dataManagementTypes';
+import type { StatusTone } from './dataManagementTypes';
 
 const AdminClickhouseManagementPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -24,11 +24,11 @@ const AdminClickhouseManagementPage: React.FC = () => {
     data: variantStorage,
     isLoading,
     error,
-  } = useQuery<ClickHouseVariantAssemblyList>({
+  } = useQuery<ClickHouseVariantAssemblyListOut>({
     queryKey: ['admin', 'clickhouse', 'variants'],
     queryFn: async () => {
       const response = await api.get('/admin/clickhouse/variants');
-      return response.data as ClickHouseVariantAssemblyList;
+      return response.data as ClickHouseVariantAssemblyListOut;
     },
     retry: false,
   });

@@ -32,9 +32,11 @@ _MAX_USER_AGENT_LEN = 256
 
 # An event's ``occurred_at`` is the browser's clock. The server keeps it when it lies between a
 # day before and five minutes after the moment the server received the event: the browser sends
-# its events every few seconds, holding them only while a send fails and at most as long as its
-# sign-in lasts (two hours by default), and its clock may be a few minutes ahead. Any other value
-# is replaced by the receive time, with the client's value kept as text in the event's detail.
+# its events every few seconds, holding them only while a send fails, and its clock may be a few
+# minutes ahead. Events whose session's token had expired wait in the browser until their
+# account's next flush (frontend lib/telemetry.ts), after its next sign-in, which may be days
+# later. Any other value is replaced by the receive time, with the client's value kept as text
+# in the event's detail.
 # Unbounded, a value such as 0001-01-01T00:00:00+05:00 (before the year 1 in UTC) made the
 # database driver fail, and in the async mode it took every other event of its batch, any
 # user's, with it.

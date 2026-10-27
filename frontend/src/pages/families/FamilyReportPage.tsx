@@ -13,6 +13,7 @@ import type {
   ApiClinicalAudit,
   ApiStructuralClassificationDriftItem,
 } from '../../lib/apiTypes';
+import type { GeneProfileOut, HpoAnnotationOut } from '../../lib/apiSchema.generated';
 import {
   useReportSignoutCheck,
   useReportSignouts,
@@ -80,25 +81,17 @@ interface GeneGenccAssertion {
   moi_title?: string | null;
 }
 
-interface GeneProfileResponse {
-  symbol: string;
-  display_name?: string | null;
-  summary?: string | null;
-  omim_gene_id?: string | null;
-  panels?: Array<{ panel_id: string; name: string }>;
-  extra?: {
+// GET /genes/profile: its `extra`, which the backend serves as an open object, holds what the
+// gene reference sync wrote.
+type GeneProfileResponse = GeneProfileOut & {
+  extra: {
     hpo_terms?: GeneHpoTerm[];
     gencc_assertions?: GeneGenccAssertion[];
     omim_diseases?: Array<string | { disease?: string | null; title?: string | null }>;
   };
-}
+};
 
-interface FamilyHpoAnnotation {
-  sample_id: string;
-  hpo_id: string;
-  label: string;
-  status: 'present' | 'absent' | 'unknown';
-}
+type FamilyHpoAnnotation = Pick<HpoAnnotationOut, 'sample_id' | 'hpo_id' | 'label' | 'status'>;
 
 const STRUCTURAL_TYPE_HEADINGS: Record<string, string> = {
   DEL: 'Deletion',
@@ -320,7 +313,7 @@ const LiveFamilyReport: React.FC = () => {
     enabled: Boolean(familyId),
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/hpo`);
-      return res.data as FamilyHpoAnnotation[];
+      return res.data as HpoAnnotationOut[];
     },
   });
 

@@ -9,6 +9,7 @@ import StructuralVariantTable, { formatStructuralLength } from '../StructuralVar
 import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type { StructuralVariant } from '../structuralVariantSearch';
 import type { SmallVariantTagDefinition } from '../smallVariantSearch';
+import { tagDefinition } from '../../../test/tagDefinitions';
 
 const ALL_COLUMNS = {
   chr: true,
@@ -32,11 +33,11 @@ const ALL_COLUMNS = {
 };
 
 const TAGS: SmallVariantTagDefinition[] = [
-  { key: 'review', label: 'Review', group: 'collaboration', color: '#111111', sort_order: 1, scope: 'system', is_custom: false },
-  { key: 'excluded', label: 'Excluded', group: 'collaboration', color: '#222222', sort_order: 2, scope: 'system', is_custom: false },
-  { key: 'report', label: 'Report', group: 'collaboration', color: '#333333', sort_order: 3, scope: 'system', is_custom: false },
-  { key: 'mosaic', label: 'Mosaic?', group: 'custom', color: '#7c3aed', sort_order: 10, scope: 'global', is_custom: true },
-  { key: 'acmg_class_4', label: 'Likely Pathogenic - class 4', group: 'classification', color: '#dc2626', sort_order: 20, scope: 'system', is_custom: false },
+  tagDefinition({ key: 'review', label: 'Review', group: 'collaboration', color: '#111111', sort_order: 1, scope: 'system', is_custom: false }),
+  tagDefinition({ key: 'excluded', label: 'Excluded', group: 'collaboration', color: '#222222', sort_order: 2, scope: 'system', is_custom: false }),
+  tagDefinition({ key: 'report', label: 'Report', group: 'collaboration', color: '#333333', sort_order: 3, scope: 'system', is_custom: false }),
+  tagDefinition({ key: 'mosaic', label: 'Mosaic?', group: 'custom', color: '#7c3aed', sort_order: 10, scope: 'global', is_custom: true }),
+  tagDefinition({ key: 'acmg_class_4', label: 'Likely Pathogenic - class 4', group: 'classification', color: '#dc2626', sort_order: 20, scope: 'system', is_custom: false }),
 ];
 
 const sv = (overrides: Partial<StructuralVariant> = {}): StructuralVariant => ({
@@ -261,7 +262,7 @@ describe('StructuralVariantTable', () => {
       variants: [sv({ review: { tags: ['probe_x'] } as StructuralVariant['review'] })],
       tags: [
         ...TAGS,
-        {
+        tagDefinition({
           key: 'probe_x',
           label: 'Probe X',
           group: 'custom',
@@ -270,7 +271,7 @@ describe('StructuralVariantTable', () => {
           scope: 'global',
           is_custom: true,
           is_active: false,
-        },
+        }),
       ],
     });
     const chip = within(row()).getByText('Probe X (deleted)');

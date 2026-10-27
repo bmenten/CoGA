@@ -5,12 +5,12 @@ import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
 import ProjectCatalogWorkspace from '../../components/ProjectCatalogWorkspace';
 import { withEntityId } from '../../lib/entity';
+import type { FamilyInventoryDetailOut, ProjectDashboardOut } from '../../lib/apiSchema.generated';
 import DataInventoryDetail from './DataInventoryDetail';
 import DeleteFamilyDialog from './DeleteFamilyDialog';
 import {
   EMPTY_PROJECTS,
   normalizeProjectIds,
-  type FamilyData,
   type ProjectOption,
   type StatusTone,
 } from './dataManagementTypes';
@@ -30,11 +30,11 @@ const DataManagementPage: React.FC = () => {
     data: selectedFamily,
     isLoading: selectedFamilyLoading,
     error: selectedFamilyError,
-  } = useQuery<FamilyData>({
+  } = useQuery<FamilyInventoryDetailOut>({
     queryKey: ['admin', 'data-inventory', 'family', selectedFamilyId],
     queryFn: async () => {
       const response = await api.get(apiPath`/admin/data/families/${selectedFamilyId}`);
-      return response.data as FamilyData;
+      return response.data as FamilyInventoryDetailOut;
     },
     enabled: Boolean(selectedFamilyId),
     retry: false,
@@ -48,7 +48,7 @@ const DataManagementPage: React.FC = () => {
     queryKey: ['projects'],
     queryFn: async () => {
       const response = await api.get('/projects');
-      return (response.data as ProjectOption[]).map((entry) => withEntityId(entry));
+      return (response.data as ProjectDashboardOut[]).map((entry) => withEntityId(entry));
     },
     retry: false,
   });

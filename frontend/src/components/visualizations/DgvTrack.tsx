@@ -4,42 +4,15 @@ import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import api from '../../lib/api';
+import type { DgvDensityBin, DgvTrackOut, DgvVariantOut } from '../../lib/apiSchema.generated';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
 
+// The classes the backend writes (reference_metadata_service.dgv_variant_class); it serves the
+// class as a string, and any other is drawn as other.
 type DgvClass = 'gain' | 'loss' | 'mixed' | 'other';
-
-interface DgvVariant {
-  chr: string;
-  start: number;
-  end: number;
-  accession?: string | null;
-  variant_type?: string | null;
-  variant_subtype?: string | null;
-  variant_class: DgvClass;
-  frequency?: number | null;
-  observed_gains?: number | null;
-  observed_losses?: number | null;
-  source?: string | null;
-}
-
-interface DgvDensityBin {
-  start: number;
-  end: number;
-  gain: number;
-  loss: number;
-  mixed: number;
-  other: number;
-}
-
-interface DgvTrackData {
-  total: number;
-  mode: 'lines' | 'density';
-  bin_size: number;
-  variants: DgvVariant[];
-  bins: DgvDensityBin[];
-}
+type DgvVariant = DgvVariantOut;
 
 interface Props {
   assembly: string;
@@ -64,7 +37,9 @@ const DOWN_CLASSES: DgvClass[] = ['loss'];
 const LANE_GAP_PX = 1;
 const LANE_MIN_HEIGHT = 2.5;
 
-const dgvColor = (klass: DgvClass) => cssVar(CLASS_VAR[klass] ?? '--color-dgv-other');
+const isDgvClass = (klass: string): klass is DgvClass =>
+  Object.prototype.hasOwnProperty.call(CLASS_VAR, klass);
+const dgvColor = (klass: string) => cssVar(isDgvClass(klass) ? CLASS_VAR[klass] : '--color-dgv-other');
 
 // How many variants are in view, by class as drawn: an unknown class is drawn as other.
 const describeClasses = (variants: DgvVariant[]): string => {
@@ -120,13 +95,13 @@ const DgvTrack: React.FC<Props> = ({
     node: React.ReactNode;
   } | null>(null);
 
-  const { data: rawData, isError, refetch } = useQuery<DgvTrackData>({
+  const { data: rawData, isError, refetch } = useQuery<DgvTrackOut>({
     queryKey: ['dgv', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(apiPath`/dgv/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
-      return res.data as DgvTrackData;
+      return res.data as DgvTrackOut;
     },
     enabled: regionEnd > regionStart,
     staleTime: Infinity,

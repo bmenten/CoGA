@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import { apiPath } from '../../lib/apiPath';
-import type { UserRead, UserUpdate } from '../../lib/apiSchema.generated';
+import type { ProjectDashboardOut, UserRead, UserUpdate } from '../../lib/apiSchema.generated';
 import { getStoredUsername } from '../../lib/auth';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { userAccountsQuery } from '../../lib/users';
@@ -44,8 +44,10 @@ const UserListPage: React.FC = () => {
     queryKey: ['admin', 'projects'],
     queryFn: async () => {
       const response = await api.get('/projects');
-      return (response.data as Array<{ id: string; name: string }>).map((p) => ({
-        id: p.id,
+      // A project's id is `_id`; the page read `id`, which is never sent, and so listed no
+      // user's projects (ENG-7).
+      return (response.data as ProjectDashboardOut[]).map((p) => ({
+        id: p._id,
         name: p.name,
       }));
     },

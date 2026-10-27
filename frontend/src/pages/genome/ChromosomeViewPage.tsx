@@ -3,12 +3,8 @@ import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { phaseCorrectionsFromMetadata } from '../../lib/haplotypePhaseCorrections';
-import type {
-  ApiChromosomeTrackAvailability,
-  ApiFamilyRecord,
-  ApiFamilyRegionOfInterest,
-  ApiTrackAvailabilityResponse,
-} from '../../lib/apiTypes';
+import type { ApiFamilyRecord, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
+import type { ChromosomeOut, FamilyTrackAvailabilityOut } from '../../lib/apiSchema.generated';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -31,10 +27,7 @@ import { roiOnAssembly, searchWithResolvedProject, useTrackWidth } from './viewe
 import { apiPath, raw } from '../../lib/apiPath';
 import { routePath } from '../../lib/routePath';
 
-interface ChromInfo {
-  chr: string;
-  size: number;
-}
+type ChromInfo = Pick<ChromosomeOut, 'chr' | 'size'>;
 
 const getRoiViewWindow = (roi: ApiFamilyRegionOfInterest, chromSize?: number): { start: number; end: number } => {
   const span = Math.max(roi.end - roi.start, 1);
@@ -220,7 +213,7 @@ const ChromosomeViewPage: React.FC = () => {
     queryKey: ['chrom-info', assemblyName, chrom],
     queryFn: async () => {
       const response = await api.get(apiPath`/chromosomes/${assemblyName}/${chrom}`);
-      return response.data as ChromInfo;
+      return response.data as ChromosomeOut;
     },
     enabled: Boolean(assemblyName),
   });
@@ -285,11 +278,11 @@ const ChromosomeViewPage: React.FC = () => {
     isError: availabilityFailed,
     error: availabilityError,
     refetch: refetchAvailability,
-  } = useQuery<ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>>({
+  } = useQuery<FamilyTrackAvailabilityOut>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}/track-availability?${raw(availabilitySearch)}`);
-      return response.data as ApiTrackAvailabilityResponse<ApiChromosomeTrackAvailability>;
+      return response.data as FamilyTrackAvailabilityOut;
     },
     enabled: !!familyId && !!data && region.end > region.start,
     placeholderData: keepPreviousData,

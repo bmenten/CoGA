@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import type { ApiFamilyRecord, ApiGenomeTrackAvailability, ApiTrackAvailabilityResponse } from '../../lib/apiTypes';
+import type { ApiFamilyRecord } from '../../lib/apiTypes';
+import type { ChromosomeSizeOut, FamilyTrackAvailabilityOut } from '../../lib/apiSchema.generated';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -174,7 +175,7 @@ const GenomeOverviewPage: React.FC = () => {
     queryFn: async () => {
       const response = await api.get(apiPath`/chromosomes/${assemblyName}`);
       const lengths: Record<string, number> = {};
-      (response.data as Array<{ chr: string; size: number }>).forEach((entry) => {
+      (response.data as ChromosomeSizeOut[]).forEach((entry) => {
         lengths[normalizeChrom(entry.chr)] = entry.size;
       });
       return lengths;
@@ -324,11 +325,11 @@ const GenomeOverviewPage: React.FC = () => {
     isError: availabilityFailed,
     error: availabilityError,
     refetch: refetchAvailability,
-  } = useQuery<ApiTrackAvailabilityResponse<ApiGenomeTrackAvailability>>({
+  } = useQuery<FamilyTrackAvailabilityOut>({
     queryKey: ['family', familyId, 'track-availability', availabilitySearch],
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}/track-availability?${raw(availabilitySearch)}`);
-      return response.data as ApiTrackAvailabilityResponse<ApiGenomeTrackAvailability>;
+      return response.data as FamilyTrackAvailabilityOut;
     },
     enabled: !!familyId && !!data,
   });

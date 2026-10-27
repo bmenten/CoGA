@@ -3,49 +3,19 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import PageState from '../../components/PageState';
 import api from '../../lib/api';
-import type { HpoAdminSummaryOut } from '../../lib/apiSchema.generated';
+import type {
+  HpoAdminSummaryOut,
+  HpoAdminTermOut,
+  HpoOntologySyncOut,
+} from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatDate, formatDateTime } from '../../lib/format';
 
-type HpoRelation = {
-  hpo_id: string;
-  label: string;
-  relation: string;
-};
-
-type HpoAdminTerm = {
-  hpo_id: string;
-  label: string;
-  definition?: string | null;
-  is_obsolete: boolean;
-  replaced_by?: string | null;
-  release_version?: string | null;
-  release_date?: string | null;
-  synonyms: string[];
-  parents: HpoRelation[];
-  children: HpoRelation[];
-  parent_count: number;
-  child_count: number;
-};
-
-// As the backend serves it, including the ontology file it is configured to load.
+// As the backend serves them, the summary with the ontology file it is configured to load, a
+// sync with the release its file states and the SHA-256 of its bytes (TRACE-18).
+type HpoAdminTerm = HpoAdminTermOut;
 type HpoAdminSummary = HpoAdminSummaryOut;
-
-type HpoSyncResult = {
-  preview_only: boolean;
-  // The release the file states and the SHA-256 of its bytes (TRACE-18).
-  release_version?: string | null;
-  release_date?: string | null;
-  release_sha256?: string | null;
-  current: HpoAdminSummary;
-  preview: Record<string, number>;
-  imported?: {
-    terms: number;
-    synonyms: number;
-    edges: number;
-    closure_rows: number;
-  } | null;
-};
+type HpoSyncResult = HpoOntologySyncOut;
 
 const formatNumber = (value?: number | null) =>
   typeof value === 'number' ? value.toLocaleString() : '0';

@@ -8,6 +8,7 @@ import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SmallVariantTagDefinition } from '../../families/smallVariantSearch';
+import { tagDefinition } from '../../../test/tagDefinitions';
 import GlobalSmallVariantTable from '../GlobalSmallVariantTable';
 import type { GlobalVariantSort } from '../globalSmallVariantSearch';
 import type { CarrierModalMode, GlobalVariantRow } from '../types';
@@ -38,7 +39,7 @@ const makeVariant = (overrides: Partial<GlobalVariantRow> = {}): GlobalVariantRo
 });
 
 const TAGS: SmallVariantTagDefinition[] = [
-  {
+  tagDefinition({
     key: 'review',
     label: 'Review',
     group: 'collaboration',
@@ -46,7 +47,7 @@ const TAGS: SmallVariantTagDefinition[] = [
     sort_order: 10,
     scope: 'system',
     is_custom: false,
-  },
+  }),
 ];
 
 const renderTable = (props: Partial<ComponentProps<typeof GlobalSmallVariantTable>> = {}) => {
@@ -173,7 +174,7 @@ describe('GlobalSmallVariantTable', () => {
       variants: [makeVariant({ key: '1', tags: ['probe_x'] })],
       tagDefinitions: [
         ...TAGS,
-        {
+        tagDefinition({
           key: 'probe_x',
           label: 'Probe X',
           group: 'custom',
@@ -182,7 +183,7 @@ describe('GlobalSmallVariantTable', () => {
           scope: 'global',
           is_custom: true,
           is_active: false,
-        },
+        }),
       ],
     });
 

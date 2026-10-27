@@ -10,7 +10,7 @@ import {
   orderCoverageSources,
 } from '../../lib/coverageSources';
 import type { ApiFamilyMember, ApiFamilyRegionOfInterest } from '../../lib/apiTypes';
-import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
+import type { GeneProfileOut, GeneSearchResultOut } from '../../lib/apiSchema.generated';
 import CoverageSegmentsChart from '../../components/visualizations/CoverageSegmentsChart';
 import ApcadChart from '../../components/visualizations/ApcadChart';
 import Ideogram from '../../components/visualizations/Ideogram';
@@ -132,12 +132,7 @@ interface ChromosomeViewWorkspaceProps {
   tracksFailure?: { what: string; error: unknown; retry: () => void } | null;
 }
 
-interface GeneJumpProfile {
-  symbol: string;
-  chr: string;
-  start: number;
-  end: number;
-}
+type GeneJumpProfile = Pick<GeneProfileOut, 'symbol' | 'chr' | 'start' | 'end'>;
 
 // normalizeChrom already trims, strips `chr`, maps m/mt→MT, collapses numeric
 // strings, and uppercases — so no further post-processing is needed here.
@@ -311,7 +306,7 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           project_id: projectId || undefined,
         },
       });
-      const profile = response.data as GeneJumpProfile;
+      const profile = response.data as GeneProfileOut;
       const nextRegion = buildGeneJumpRegion(profile);
       setJumpQuery(profile.symbol);
       onJumpToRegion(nextRegion.chrom, {
@@ -356,9 +351,10 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           <label className="field-label">
             Chromosome
             <select value={chrom} onChange={(event) => onChromChange(event.target.value)}>
+              {/* Named as the header names them (chr1, chrM); the value stays the route's key. */}
               {CHROMS.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {formatChromosomeLabel(value)}
                 </option>
               ))}
             </select>
