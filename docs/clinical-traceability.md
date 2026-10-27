@@ -426,6 +426,9 @@ Five gates run first, in this order:
    again and finds the job ended, and leaves the family marked the same way (#746). Between
    the claim and that stop the job no longer refuses a sign-out, but the import's
    variant-write locks do (`variant_writes_in_progress`) while their connection holds them.
+   An import whose heartbeat has not reached the database for five minutes stops itself the
+   same way, before a worker can take its job for stopped, and one whose locks' connection
+   is lost is stopped where it is, its job ended `failed` and the family left marked (SAFE-15).
 3. **Evidence drift.** Any drifted, unknown, missing or unsnapshotted classification, of a small
    variant or of a structural variant or CNV, gives 409, unless the request sets
    `acknowledge_drift` with a `drift_acknowledgement_reason` (422 without a reason). One
