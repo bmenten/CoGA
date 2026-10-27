@@ -62,32 +62,31 @@ _POPULATION_ALIASES = {
     "topmed_af": ["TOPMed_AF", "TOPMED_AF"],
 }
 
+# gnomAD's counts are read as gnomAD's total (CLIN-67): its combined count where the record
+# has one, else its exome and genome counts added (``gnomADe_…`` and ``gnomADg_…``, as VEP
+# names a --custom gnomAD file's fields), either alone when the other is missing. That is
+# the total gnomAD's browser shows, the owner's choice of 2026-10-27. Each count lists its
+# combined, exome and genome aliases. Before, ``gnomADe_nhomalt`` and ``gnomADg_nhomalt``
+# were not read at all, and the allele count took the exome count alone.
 _COUNT_ALIASES = {
-    "gnomad_hom_count": [
-        "gnomAD_Hom",
-        "GNOMAD_HOM",
-        "gnomAD_hom",
-        "gnomad_hom",
-        "gnomAD_nhomalt",
-        "GNOMAD_NHOMALT",
-    ],
+    "gnomad_hom_count": (
+        ["gnomAD_Hom", "GNOMAD_HOM", "gnomAD_hom", "gnomad_hom", "gnomAD_nhomalt", "GNOMAD_NHOMALT"],
+        ["gnomADe_nhomalt", "GNOMADE_NHOMALT", "gnomADe_Hom", "GNOMADE_HOM"],
+        ["gnomADg_nhomalt", "GNOMADG_NHOMALT", "gnomADg_Hom", "GNOMADG_HOM"],
+    ),
 }
 
 _EXTRA_COUNT_ALIASES = {
-    "gnomad_ac": [
-        "gnomAD_AC",
-        "GNOMAD_AC",
-        "gnomADe_AC",
-        "GNOMADE_AC",
-        "gnomADg_AC",
-        "GNOMADG_AC",
-    ],
-    "gnomad_hemi_count": [
-        "gnomAD_Hemi",
-        "GNOMAD_HEMI",
-        "gnomAD_hemi",
-        "gnomad_hemi",
-    ],
+    "gnomad_ac": (
+        ["gnomAD_AC", "GNOMAD_AC"],
+        ["gnomADe_AC", "GNOMADE_AC"],
+        ["gnomADg_AC", "GNOMADG_AC"],
+    ),
+    "gnomad_hemi_count": (
+        ["gnomAD_Hemi", "GNOMAD_HEMI", "gnomAD_hemi", "gnomad_hemi"],
+        ["gnomADe_Hemi", "GNOMADE_HEMI", "gnomADe_hemi"],
+        ["gnomADg_Hemi", "GNOMADG_HEMI", "gnomADg_hemi"],
+    ),
 }
 
 _SPLICE_ALIASES = {
@@ -211,6 +210,24 @@ def _first_value(mapping: Dict[str, Any], aliases: List[str]) -> Any:
     return None
 
 
+def _gnomad_count(mapping: Dict[str, Any], aliases: tuple[List[str], List[str], List[str]]) -> Optional[int]:
+    """gnomAD's count in ``mapping``: its combined count, else its exome and genome counts
+    added, either alone when the other is missing; None when it holds none (CLIN-67)."""
+    combined_aliases, exome_aliases, genome_aliases = aliases
+    combined = _parse_int(_first_value(mapping, combined_aliases))
+    if combined is not None:
+        return combined
+    parts = [
+        count
+        for count in (
+            _parse_int(_first_value(mapping, exome_aliases)),
+            _parse_int(_first_value(mapping, genome_aliases)),
+        )
+        if count is not None
+    ]
+    return sum(parts) if parts else None
+
+
 def _extract_format_fields(line: str, *, info_id: str) -> List[str] | None:
     if not line.startswith(f"##INFO=<ID={info_id},"):
         return None
@@ -273,14 +290,14 @@ def _apply_numeric_and_population_aliases(
         if value is not None:
             annotation[key] = value
 
-    for key, aliases in _COUNT_ALIASES.items():
-        value = _parse_int(_first_value(source, aliases))
+    for key, count_aliases in _COUNT_ALIASES.items():
+        value = _gnomad_count(source, count_aliases)
         if value is not None:
             annotation[key] = value
 
     extra = dict(extra_seed)
-    for key, aliases in _EXTRA_COUNT_ALIASES.items():
-        value = _parse_int(_first_value(source, aliases))
+    for key, count_aliases in _EXTRA_COUNT_ALIASES.items():
+        value = _gnomad_count(source, count_aliases)
         if value is not None:
             extra[key] = value
     if extra:

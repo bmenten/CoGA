@@ -78,7 +78,7 @@ De evaluator leest de variant, en waar beschikbaar het genprofiel (ClinGen-dosag
 | Criterium | Bron | Regel (samengevat) |
 | --- | --- | --- |
 | **PVS1** | gevolg, LOFTEE, ClinGen-dosage | Een voorspeld verlies van functie (stopcodon, frameshift, canonieke splicing, …). *Very strong* als LOFTEE `HC` zegt én het verliesmechanisme bewezen is; anders *strong*, of *consider* als het mechanisme niet bevestigd is |
-| **PM2**, **BA1**, **BS1**, **BS2** | gnomAD | Afwezig of zeer zeldzaam → PM2 (*supporting*); zeer frequent → BA1, dat op zichzelf de variant benigne maakt; frequent → BS1; homozygoten aanwezig → BS2 (*strong* als het gen een recessieve overervingswijze heeft, anders *consider* op *supporting*) |
+| **PM2**, **BA1**, **BS1**, **BS2** | gnomAD | Afwezig of zeer zeldzaam → PM2 (*supporting*); zeer frequent → BA1, dat op zichzelf de variant benigne maakt; frequent → BS1; homozygoten aanwezig → BS2 (*strong* als het gen een recessieve overervingswijze heeft, anders *consider* op *supporting*); zonder homozygotenaantal in de annotatie blijft BS2 ongemarkeerd: kijk gnomAD zelf na |
 | **PP2** | gnomAD missense-Z | Missense in een gen dat weinig missense verdraagt |
 | **PP3** / **BP4** | REVEL, SpliceAI, AlphaMissense | REVEL beslist eerst, dan SpliceAI, dan AlphaMissense, en bepaalt de sterkte; alleen een oordeel op REVEL markeert het andere criterium als tegenargument. Zonder enige voorspelling zijn beide niet van toepassing; een REVEL tussen de drempels of een *ambiguous* AlphaMissense-klasse laat beide open (TRACE-15: zo'n klasse telde als geen voorspelling) |
 | **BP7** | gevolg en SpliceAI | Synoniem zonder voorspelde splice-impact |

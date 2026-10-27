@@ -17,6 +17,7 @@ import SmallVariantPairCards from './SmallVariantPairCards';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import SmallVariantTable from './SmallVariantTable';
 import { formatVariantTotal } from './smallVariantResultUtils';
+import { gnomadCountNotes } from './gnomadCountNotes';
 import { apiPath, raw } from '../../lib/apiPath';
 import type { ApiFamilyRelationship } from '../../lib/apiTypes';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
@@ -98,6 +99,8 @@ export default function SmallVariantResults({
   const hasFlatVariants = Boolean(data?.variants.length);
   const hasGroupedPairs = Boolean(pairGroups.length);
   const hasResults = hasFlatVariants || hasGroupedPairs;
+  // A maximum gnomAD count filter cannot exclude a variant without that count (CLIN-67).
+  const countNotes = gnomadCountNotes(requestQueryString, data);
 
   const handleDownloadCsv = async () => {
     if (!familyId) {
@@ -192,6 +195,14 @@ export default function SmallVariantResults({
         ) : null}
 
         <CandidateCapNotice page={data} noun="variants" />
+
+        {countNotes.length ? (
+          <div className="variant-workspace-feedback variant-workspace-feedback--warning" role="note">
+            {countNotes.map((note) => (
+              <p key={note}>{note}</p>
+            ))}
+          </div>
+        ) : null}
 
         {data?.ranking_cached ? (
           <p className="ranking-cache-note" title="The ranking refreshes automatically when phenotypes, the pedigree, the gene panel, or annotations change.">

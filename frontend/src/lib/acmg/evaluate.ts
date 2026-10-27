@@ -261,13 +261,17 @@ export function evaluateAcmg(
     notApplicable('BS1', 'Absent from gnomAD — not a common variant.');
   }
 
-  // ---- BS2: observed homozygous in population; ruled out when none observed. ----
-  if ((variant.gnomad_hom_count ?? 0) > 0) {
+  // ---- BS2: observed homozygous in population; ruled out when gnomAD counts none. An
+  //      annotation without a homozygote count says nothing either way, so BS2 is left
+  //      unmarked for the analyst to check in gnomAD: it read "No homozygotes observed"
+  //      for a count the pipeline never wrote (CLIN-67). ----
+  const homCount = variant.gnomad_hom_count;
+  if (homCount != null && homCount > 0) {
     const recessive = isRecessiveGene(gene);
     add(
       'BS2',
       recessive ? 'strong' : 'supporting',
-      `${variant.gnomad_hom_count} homozygote(s) in gnomAD${
+      `${homCount} homozygote(s) in gnomAD${
         recessive
           ? ' for a recessive-associated gene'
           : gene?.unavailable
@@ -276,7 +280,7 @@ export function evaluateAcmg(
       }.`,
       recessive ? 'applies' : 'consider',
     );
-  } else {
+  } else if (homCount === 0) {
     notApplicable('BS2', 'No homozygotes observed in gnomAD.');
   }
 
