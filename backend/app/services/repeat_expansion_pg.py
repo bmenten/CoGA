@@ -35,7 +35,7 @@ from .family_package_common import (
 )
 from .repeat_count_units import count_unit_warning, known_count_unit_difference
 from .repeat_expansion_catalog import BUILTIN_REPEAT_LOCI, PREMUTATION_MIN_BY_GENE
-from .sex_chromosomes import hemizygous_chromosome
+from .sex_chromosomes import grc_build, hemizygous_chromosome, is_t2t_chm13
 from .vcf_header_provenance import extract_header_provenance
 
 
@@ -928,18 +928,19 @@ async def _build_repeat_locus_lookup(session: AsyncSession) -> RepeatLocusLookup
 
 
 # STRchive places each locus on three assemblies: GRCh38 (start_hg38/stop_hg38), GRCh37
-# (_hg19) and T2T-CHM13 (_t2t). Another assembly has no STRchive coordinates.
-_ASSEMBLY_PATCH_SUFFIX = re.compile(r"\.p\d+$")
+# (_hg19) and T2T-CHM13v2.0 (_t2t). Another assembly has no STRchive coordinates.
+_STRCHIVE_SUFFIX_OF_BUILD = {"GRCh38": "hg38", "GRCh37": "hg19"}
 
 
 def _strchive_coordinates_of(assembly_name: str | None) -> str | None:
-    """The suffix of STRchive's coordinates on this assembly, or None."""
-    name = _ASSEMBLY_PATCH_SUFFIX.sub("", str(assembly_name or "").strip().lower())
-    if name in {"grch38", "hg38"}:
-        return "hg38"
-    if name in {"grch37", "hg19"}:
-        return "hg19"
-    if "chm13" in name or name == "hs1":
+    """The suffix of STRchive's coordinates on this assembly, or None.
+
+    The assembly is read by the rules the rest of the backend reads it by: ``grc_build`` for
+    GRCh38 and GRCh37, ``is_t2t_chm13`` for T2T-CHM13v2.0 under any of its names."""
+    build = grc_build(assembly_name)
+    if build is not None:
+        return _STRCHIVE_SUFFIX_OF_BUILD[build]
+    if is_t2t_chm13(assembly_name):
         return "t2t"
     return None
 
