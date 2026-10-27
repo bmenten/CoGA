@@ -49,10 +49,14 @@ The **Repeat expansions** page lists each repeat locus with every member's call:
 each allele, and a status read against the locus's thresholds in the repeat catalogue (STRchive):
 
 - *Normal*, *Grey zone* (the intermediate range), *Premutation* (an FMR1 allele of 55–200 repeats,
-  which can expand in a child) and *Pathogenic*.
+  which can expand in a child) and *Pathogenic*. Where the catalogue gives a locus a benign range
+  and a pathogenic threshold but no grey zone, a count between the two reads *Grey zone*: it is
+  neither benign nor pathogenic.
 - *Review: outside catalogued ranges*: a count the catalogue cannot classify at a locus that is
-  pathogenic by contraction. A male's call with two different chrX alleles also asks for review, in
-  a note that explains it.
+  pathogenic by contraction.
+- *Review: two chrX alleles in a male*: a male's call with two different chrX alleles, where he
+  carries one; a note explains it.
+- The genome tracks colour each call by the status the repeat page gives it.
 - *Not assessed*: a call at a locus without thresholds. No catalogued locus matches its TRID (a locus
   the catalogue lacks, or a TRID spelled differently), or the catalogue gives the locus no threshold.
   CoGA cannot say whether such a count is normal; its cutoff reads *No reference cutoff*. Where the
