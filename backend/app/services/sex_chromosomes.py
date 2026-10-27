@@ -47,6 +47,11 @@ XY_CHROMOSOME_NAMES: dict[SexChromosome, tuple[str, ...]] = {
 
 _PATCH_SUFFIX = re.compile(r"\.p\d+$")
 
+# T2T-CHM13v2.0 under the names it carries: NCBI's T2T-CHM13v2.0, the "T2T CHM13v2.0" the UCSC
+# reference import takes from UCSC's description, the T2T_CHM13v2.0 key of its ClickHouse
+# tables, CHM13v2.0, and UCSC's hs1. A version, where the name gives one, is v2.0: hs1's.
+_T2T_CHM13_NAME = re.compile(r"(?:t2t[-_ ]?)?chm13(?:v2(?:\.0)?)?|hs1")
+
 
 def grc_build(assembly_name: str | None) -> str | None:
     """The Genome Reference Consortium build an assembly's name denotes, or None.
@@ -57,6 +62,17 @@ def grc_build(assembly_name: str | None) -> str | None:
     segmental-duplication file only into an assembly it reads as GRCh38 (OPS-17)."""
     key = _PATCH_SUFFIX.sub("", str(assembly_name or "").strip().lower())
     return _ASSEMBLY_ALIASES.get(key)
+
+
+def is_t2t_chm13(assembly_name: str | None) -> bool:
+    """Does an assembly's name denote T2T-CHM13v2.0, UCSC's hs1?
+
+    Under any of its names, in any case: ``T2T-CHM13``, ``T2T CHM13`` or ``T2T_CHM13``, with or
+    without ``v2.0``, ``CHM13v2.0`` and ``hs1``. Not another CHM13 release (``T2T-CHM13v1.0``,
+    whose acrocentric arms differ) nor another telomere-to-telomere genome. The UCSC link and
+    the order of a gene's or a panel's assemblies read it, and the STRchive coordinates a
+    repeat call is placed by; the frontend reads the same rule (``isT2tChm13``)."""
+    return _T2T_CHM13_NAME.fullmatch(str(assembly_name or "").strip().lower()) is not None
 
 
 def pseudoautosomal_regions(assembly_name: str | None) -> dict[SexChromosome, tuple[Interval, ...]] | None:

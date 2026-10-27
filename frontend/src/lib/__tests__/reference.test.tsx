@@ -3,7 +3,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createTestQueryClient } from '../../test/createTestQueryClient';
-import { formatResolvedReferenceLabel, useFamilyReference } from '../reference';
+import {
+  formatResolvedReferenceLabel,
+  isT2tChm13,
+  mapAssemblyToIgvGenome,
+  useFamilyReference,
+} from '../reference';
 
 const apiGetMock = vi.hoisted(() => vi.fn());
 
@@ -198,5 +203,53 @@ describe('useFamilyReference', () => {
     // Unknown, not "off scope": no project means nothing to judge yet.
     expect(readReference().assemblyValidated).toBeUndefined();
     expect(apiGetMock).not.toHaveBeenCalled();
+  });
+});
+
+// The UCSC reference import names T2T-CHM13v2.0 as UCSC's description does, `T2T CHM13v2.0`
+// with a space; NCBI writes `T2T-CHM13v2.0`, its ClickHouse tables `T2T_CHM13v2.0`, and UCSC
+// calls it `hs1`. Only the hyphen was recognised, and IGV opened hg38 for any other name: a
+// T2T family's reads and variants were drawn on another reference.
+const T2T_NAMES = ['T2T CHM13v2.0', 'T2T-CHM13v2.0', 'T2T_CHM13v2.0', 'T2T-CHM13', 'CHM13v2.0', 'hs1', 'HS1'];
+const UNKNOWN_NAMES = ['T2T-YAO', 'T2T-CHM13v1.0', 'GRCz11', 'GRCh38_no_alt', 'hs2'];
+
+describe('isT2tChm13', () => {
+  it('reads T2T-CHM13 under each of its names, as the backend does', () => {
+    expect(T2T_NAMES.map((name) => isT2tChm13(name))).toEqual(T2T_NAMES.map(() => true));
+    expect(isT2tChm13(' T2T CHM13v2.0 ')).toBe(true);
+  });
+
+  it('reads no other assembly, nor another CHM13 release, as T2T-CHM13', () => {
+    const others = ['GRCh38', 'hg38', 'GRCh37', 'hg19', ...UNKNOWN_NAMES, 'T2T', ''];
+    expect(others.map((name) => isT2tChm13(name))).toEqual(others.map(() => false));
+    expect(isT2tChm13(undefined)).toBe(false);
+    expect(isT2tChm13(null)).toBe(false);
+  });
+});
+
+describe('mapAssemblyToIgvGenome', () => {
+  it('opens hs1 for T2T-CHM13 under each of its names', () => {
+    expect(T2T_NAMES.map((name) => mapAssemblyToIgvGenome(name))).toEqual(T2T_NAMES.map(() => 'hs1'));
+  });
+
+  it('opens the genomes of GRCh38, GRCh37 and the other known assemblies as before', () => {
+    const grch38 = ['GRCh38', 'hg38', 'GRCh38.p14', 'grch38'];
+    expect(grch38.map((name) => mapAssemblyToIgvGenome(name))).toEqual(grch38.map(() => 'hg38'));
+    expect(['GRCh37', 'hg19'].map((name) => mapAssemblyToIgvGenome(name))).toEqual(['hg19', 'hg19']);
+    expect(['GRCm39', 'GRCm38', 'EquCab3.0'].map((name) => mapAssemblyToIgvGenome(name))).toEqual([
+      'mm39',
+      'mm10',
+      'equCab3',
+    ]);
+  });
+
+  it('opens the GRCh37 genome for a patched GRCh37 name, which it took for GRCh38', () => {
+    expect(mapAssemblyToIgvGenome('GRCh37.p13')).toBe('hg19');
+  });
+
+  it('opens no genome, never hg38, for an assembly it has none for', () => {
+    expect(UNKNOWN_NAMES.map((name) => mapAssemblyToIgvGenome(name))).toEqual(UNKNOWN_NAMES.map(() => null));
+    expect(mapAssemblyToIgvGenome('')).toBeNull();
+    expect(mapAssemblyToIgvGenome(undefined)).toBeNull();
   });
 });

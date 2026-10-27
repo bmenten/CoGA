@@ -1,4 +1,5 @@
 import { compareChromosomes } from '../../lib/chromosomes';
+import { isT2tChm13 } from '../../lib/reference';
 import type { StructuralVariant } from './structuralVariantSearch';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -431,7 +432,7 @@ export const getUcscDb = (
   if (species.includes('human') || species.includes('homo sapiens') || !species) {
     if (assembly.includes('grch38') || assembly.includes('hg38')) return 'hg38';
     if (assembly.includes('grch37') || assembly.includes('hg19')) return 'hg19';
-    if (assembly.includes('chm13') || assembly.includes('hs1')) return 'hs1';
+    if (isT2tChm13(assemblyName) || isT2tChm13(assemblyVersion)) return 'hs1';
   }
 
   return null;
