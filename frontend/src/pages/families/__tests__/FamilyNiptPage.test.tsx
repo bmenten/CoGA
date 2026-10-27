@@ -733,8 +733,9 @@ describe('FamilyNiptPage', () => {
     };
     const ARTIFACT = { variant_id: '1-9501-A-G', reason: 'artifact_list' };
 
-    const serve = ({ reported = 2 }: { reported?: number } = {}) => {
+    const serve = ({ reported = 2, presets = [] }: { reported?: number; presets?: unknown[] } = {}) => {
       apiMock.get.mockImplementation((url: string, config?: { params?: Record<string, unknown> }) => {
+        if (url === '/families/NIPT001/small-variant-filter-presets') return Promise.resolve({ data: presets });
         if (url === '/families/NIPT001') {
           return Promise.resolve({
             data: {
@@ -828,6 +829,68 @@ describe('FamilyNiptPage', () => {
       fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
       await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
       expect(variantSearches().at(-1)?.inheritance).toBe('de_novo');
+    });
+
+    // ENG-19: a saved search, made on the small-variant list, filtered on what the NIPT list does
+    // not apply, and its chips showed as if it did.
+    it('shows no chip for a saved search’s filters the list does not apply, and says once which they are', async () => {
+      serve({
+        presets: [
+          {
+            _id: 'preset-1',
+            name: 'Reported, classified',
+            filters: {
+              review_tags: ['report'],
+              classification: ['Pathogenic - class 5', 'Likely Pathogenic - class 4'],
+              has_notes: true,
+              prioritize: true,
+            },
+            sample_filters: { FATHER: { gt: ['0/1', '1/0', '0|1', '1|0'], qual: '20', dp: '', af: '', ad_alt: '' } },
+            sample_templates: {},
+          },
+        ],
+      });
+      renderAt('/families/NIPT001/nipt');
+
+      // The De novo preset it opened on carries none.
+      await screen.findByRole('option', { name: 'Reported, classified' });
+      expect(screen.queryByText(/The NIPT list does not apply/)).not.toBeInTheDocument();
+
+      fireEvent.change(screen.getByLabelText('Preset or saved search'), { target: { value: 'saved:preset-1' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Apply filters' }));
+
+      await waitFor(() => expect(variantSearches().at(-1)?.review_tag).toEqual(['report']));
+      const params = variantSearches().at(-1) ?? {};
+      for (const key of ['classification', 'has_notes', 'prioritize', 'sample_filter']) {
+        expect(params).not.toHaveProperty(key);
+      }
+      // Only the review tag it applies is chipped and counted.
+      expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Classification/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Has notes' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Phenotype prioritization' })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^FATHER/ })).not.toBeInTheDocument();
+      expect(screen.getByText('Active filters 1')).toBeInTheDocument();
+      // Said once, beside the chips.
+      expect(
+        screen.getAllByText(
+          'The NIPT list does not apply this search’s phenotype-prioritization, classification, saved-notes and per-sample filters.',
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('shows no chip for a classification or saved-notes filter a link carries, and says so', async () => {
+      serve();
+      renderAt(
+        '/families/NIPT001/nipt?review_tag=report&classification=Pathogenic%20-%20class%205&has_notes=true&prioritize=false',
+      );
+
+      expect(await screen.findByRole('button', { name: 'Review tags: Report' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Classification/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Has notes' })).not.toBeInTheDocument();
+      expect(
+        screen.getByText('The NIPT list does not apply this search’s classification and saved-notes filters.'),
+      ).toBeInTheDocument();
     });
 
     it('lists what a sign-out freezes with Show reported, and names what the analysis does not classify', async () => {

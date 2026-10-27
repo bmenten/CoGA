@@ -4,6 +4,7 @@ import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import PageState from '../../components/PageState';
+import { rehypeHeadingIds } from './headingIds';
 import { referenceDocBySlug } from './referenceDocs';
 
 // Reuse the app's prose styles: wrap GFM tables so they scroll, and route
@@ -55,7 +56,12 @@ const ReferenceDocPage: React.FC = () => {
         <span className="page-kicker">In-depth reference</span>
       </div>
       <article className="content-prose reference-doc-prose">
-        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+        {/* Each heading gets the id GitHub gives it, which the docs' own in-page links name. */}
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm]}
+          rehypePlugins={[rehypeHeadingIds]}
+          components={markdownComponents}
+        >
           {doc.markdown}
         </ReactMarkdown>
       </article>

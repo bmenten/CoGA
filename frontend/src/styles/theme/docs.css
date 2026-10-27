@@ -226,6 +226,10 @@
 .reference-doc-prose h1 {
   margin-top: 0;
 }
+/* A heading an in-page link jumps to stops below the sticky header, as a guide section does. */
+.reference-doc-prose [id] {
+  scroll-margin-top: var(--sticky-offset);
+}
 
 /* Mini grid: flat hairline-topped blocks, no boxes. */
 .user-guide-mini-grid {

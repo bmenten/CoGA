@@ -79,6 +79,11 @@ type SmallVariantFilterFormProps = Pick<
    */
   unsupportedFilters?: ReadonlySet<keyof SmallFilterState>;
   /**
+   * Said once under the active filters: which filters of the search (from a saved search or
+   * a link) the list does not apply, and so has no chip for (the NIPT page, ENG-19).
+   */
+  unappliedFiltersNote?: string | null;
+  /**
    * Monogenic NIPT mode. When 'nipt', the genotype/inheritance subsection is
    * replaced by a maternal/fetal Categories subsection. The NIPT page passes the review
    * filters its list does not apply as `unsupportedFilters` (NIPT_UNSUPPORTED_FILTERS):
@@ -139,6 +144,7 @@ const SmallVariantFilterForm = ({
   feedback = null,
   familyAware = true,
   unsupportedFilters,
+  unappliedFiltersNote = null,
   mode = 'small-variant',
   categoryCounts = {},
   draftLocationProblems = null,
@@ -423,23 +429,30 @@ const SmallVariantFilterForm = ({
         </div>
       ) : null}
 
-      {activeFilterChips.length ? (
+      {activeFilterChips.length || unappliedFiltersNote ? (
         <section className="variant-search-section">
           <div className="variant-search-section-copy">
             <p className="analysis-section-title">Active filters</p>
           </div>
-          <div className="variant-filter-chip-list">
-            {activeFilterChips.map((chip: ActiveSmallFilterChip) => (
-              <button
-                key={chip.id}
-                type="button"
-                className="badge-chip variant-filter-chip"
-                onClick={() => removeActiveFilterChip(chip)}
-              >
-                {getActiveChipLabel(chip)}
-              </button>
-            ))}
-          </div>
+          {activeFilterChips.length ? (
+            <div className="variant-filter-chip-list">
+              {activeFilterChips.map((chip: ActiveSmallFilterChip) => (
+                <button
+                  key={chip.id}
+                  type="button"
+                  className="badge-chip variant-filter-chip"
+                  onClick={() => removeActiveFilterChip(chip)}
+                >
+                  {getActiveChipLabel(chip)}
+                </button>
+              ))}
+            </div>
+          ) : null}
+          {unappliedFiltersNote ? (
+            <p className="status-note status-note--warning" role="note">
+              {unappliedFiltersNote}
+            </p>
+          ) : null}
         </section>
       ) : null}
 

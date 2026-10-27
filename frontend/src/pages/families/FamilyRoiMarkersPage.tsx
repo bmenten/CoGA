@@ -133,6 +133,25 @@ const twoDifferentAlleles = (gt: string): boolean => {
 const inRanges = (ranges: number[][], pos: number): boolean =>
   ranges.some(([first, last]) => first <= pos && pos <= last);
 
+// What a member's two homolog rows draw at a site: the allele index on each, '' when the call
+// is missing or unphased, null for no allele. A phased call has one allele per row. A call of
+// one allele, written once, or a man's same allele twice where he has one X (which the QC reads
+// as his one allele), is drawn once (ENG-19): on the row the haplotype tracks draw a man's one X
+// on, the father's first and anyone else's second (a child's maternal row: a son's X is his
+// mother's), with no allele on the other. It read '·' on both rows, as a missing call does.
+type RowAlleles = Record<Lane, string | null>;
+const rowAlleles = (gt: string, oneCopyMan: boolean, role: string | undefined): RowAlleles => {
+  const alleles = callAlleles(gt);
+  const single = alleles?.length === 1 ? alleles[0] : oneCopyMan ? oneCopyAlleles(gt)?.[0] : undefined;
+  if (single !== undefined) {
+    return role === 'father' ? { hap1: String(single), hap2: null } : { hap1: null, hap2: String(single) };
+  }
+  const [hap1, hap2] = gt.includes('|') ? gt.split('|') : ['', ''];
+  return { hap1, hap2 };
+};
+// Drawn on the row without an allele: not '·', which is a missing allele.
+const NO_ALLELE = '–';
+
 // Mirrors the backend Mendelian check: the child genotype must form from one
 // allele of each parent (two parents), or share an allele with the lone parent.
 const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
@@ -147,6 +166,19 @@ const mendelianConsistent = (parents: number[][], child: number[]): boolean => {
   }
   const parentAlleles = new Set(parents[0]);
   return child.some((allele) => parentAlleles.has(allele));
+};
+
+// Why a child's genotype is a Mendelian error, as its cell's note says it: it cannot come from
+// the parents; or, for a son on his one X, which is his mother's (ENG-19), his mother does not
+// carry his allele, or he has two different alleles.
+type MendelError = 'parents' | 'not-his-mothers' | 'two-alleles';
+const MENDEL_ERROR_NOTES: Record<MendelError, string> = {
+  parents:
+    "⚠ Mendelian error — this genotype can't be inherited from the parents (sample swap, wrong pedigree, or genotyping noise).",
+  'not-his-mothers':
+    '⚠ Mendelian error — his mother does not carry this allele, and on chrX outside the PARs a son’s one X is hers (sample swap, wrong pedigree, or genotyping noise).',
+  'two-alleles':
+    '⚠ Mendelian error — two different alleles, which a son cannot have on his one X outside the PARs (a sex mix-up or contamination).',
 };
 
 // One empty list, so the memos below see a stable value before data arrive.
@@ -306,11 +338,11 @@ const FamilyRoiMarkersPage: React.FC = () => {
   const hemizygousRanges = phased?.hemizygous_x_ranges ?? NO_RANGES;
 
   // Per child, the shown positions whose genotype can't be inherited from its
-  // (genotyped) parents — a Mendelian error, highlighted for emphasis. Where a man has one X
-  // (chrX outside the PARs), a man's call is one copy, and a son is checked against his
-  // mother alone, as the QC counts; a member whose sex is not recorded has two copies.
+  // (genotyped) parents — a Mendelian error, highlighted for emphasis — and why. Where a man
+  // has one X (chrX outside the PARs), a man's call is one copy, and a son is checked against
+  // his mother alone, as the QC counts; a member whose sex is not recorded has two copies.
   const mendelErrorPosBySample = useMemo(() => {
-    const map = new Map<string, Set<number>>();
+    const map = new Map<string, Map<number, MendelError>>();
     const idxBySample = new Map(sampleOrder.map((sample, index) => [sample, index]));
     parentsOf.forEach((parents, child) => {
       const childIdx = idxBySample.get(child);
@@ -321,7 +353,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
         genotyped.find((parent) => parent.role === 'mother') ??
         genotyped.find((parent) => parent.role !== 'father' && sexBySample.get(parent.sample) === 'female');
       const male = (sample: string) => sexBySample.get(sample) === 'male';
-      const errors = new Set<number>();
+      const errors = new Map<number, MendelError>();
       shownSites.forEach((site) => {
         const gtOf = (sample: string) => site.gts[idxBySample.get(sample) ?? -1] ?? '';
         const oneCopy = inRanges(hemizygousRanges, site.pos);
@@ -330,11 +362,11 @@ const FamilyRoiMarkersPage: React.FC = () => {
           const motherAlleles = mother ? parseAlleleIndices(gtOf(mother.sample)) : null;
           if (!motherAlleles) return;
           if (twoDifferentAlleles(gtOf(child))) {
-            errors.add(site.pos); // two different alleles: a genotype a son cannot have
+            errors.set(site.pos, 'two-alleles'); // a genotype a son cannot have
             return;
           }
           const son = oneCopyAlleles(gtOf(child));
-          if (son && !motherAlleles.includes(son[0])) errors.add(site.pos);
+          if (son && !motherAlleles.includes(son[0])) errors.set(site.pos, 'not-his-mothers');
           return;
         }
         const childAlleles = parseAlleleIndices(gtOf(child));
@@ -343,7 +375,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
           .map((parent) => (oneCopy && male(parent.sample) ? oneCopyAlleles : parseAlleleIndices)(gtOf(parent.sample)))
           .filter((a): a is number[] => a !== null);
         if (parentAlleles.length < genotyped.length) return; // need every parent genotyped
-        if (!mendelianConsistent(parentAlleles, childAlleles)) errors.add(site.pos);
+        if (!mendelianConsistent(parentAlleles, childAlleles)) errors.set(site.pos, 'parents');
       });
       if (errors.size) map.set(child, errors);
     });
@@ -416,7 +448,11 @@ const FamilyRoiMarkersPage: React.FC = () => {
     const target = event.target as HTMLElement;
     const badge = target.closest('.roi-markers-mendel') as HTMLElement | null;
     if (badge) {
-      const qc = qcBySample.get(badge.dataset.sample ?? '');
+      const child = badge.dataset.sample ?? '';
+      const qc = qcBySample.get(child);
+      // Where the window holds chrX outside the PARs, the QC counted a son on his one X
+      // against his mother alone (ENG-19).
+      const sonOnOneX = sexBySample.get(child) === 'male' && hemizygousRanges.length > 0;
       if (qc) {
         setTooltip({
           x: event.clientX,
@@ -427,10 +463,17 @@ const FamilyRoiMarkersPage: React.FC = () => {
                 <strong>Mendelian error rate: {(qc.mendel_rate * 100).toFixed(1)}%</strong>
               </div>
               <div className="roi-markers-tip-row">
-                {qc.mendel_errors.toLocaleString()} of {qc.informative_sites.toLocaleString()} sites where both
-                parents and {badge.dataset.sample} are genotyped have a genotype that cannot be inherited from
-                these parents (an impossible transmission).
+                {qc.mendel_errors.toLocaleString()} of {qc.informative_sites.toLocaleString()}{' '}
+                {sonOnOneX
+                  ? `sites where ${child} and the parents he is checked against are genotyped have a genotype he cannot have from them`
+                  : `sites where both parents and ${child} are genotyped have a genotype that cannot be inherited from these parents`}{' '}
+                (an impossible transmission).
               </div>
+              {sonOnOneX ? (
+                <div className="roi-markers-tip-row">
+                  On chrX outside the PARs a son’s one X is his mother’s: there he is checked against her alone.
+                </div>
+              ) : null}
               <div className="roi-markers-tip-row roi-markers-tip-region">
                 A high rate points to a sample swap, an incorrect pedigree, or genotyping noise rather than a
                 real variant.
@@ -451,7 +494,8 @@ const FamilyRoiMarkersPage: React.FC = () => {
     const lane = cell.dataset.lane ?? '';
     const base = cell.dataset.base ?? '';
     const informative = cell.dataset.informative === '1';
-    const mendelError = cell.dataset.mendel === '1';
+    const noAllele = cell.dataset.noAllele === '1';
+    const mendelError = mendelErrorPosBySample.get(sample)?.get(pos) ?? null;
     const blockMismatch = cell.dataset.blockMismatch === '1';
     const site = siteByPos.get(pos);
     const role = roleBySample.get(sample);
@@ -480,17 +524,20 @@ const FamilyRoiMarkersPage: React.FC = () => {
             {role && <span className="roi-markers-tip-role"> ({role})</span>} · homolog {lane}
           </div>
           <div className="roi-markers-tip-row">
-            allele{' '}
-            <span style={{ color: informative ? nucleotideColor(base) : UNINFORMATIVE_COLOR, fontWeight: 700 }}>
-              {base}
-            </span>
-            {informative ? '' : ' — uninformative (parent-of-origin unresolved here)'}
+            {noAllele ? (
+              'no allele: one copy here, its allele on the other row'
+            ) : (
+              <>
+                allele{' '}
+                <span style={{ color: informative ? nucleotideColor(base) : UNINFORMATIVE_COLOR, fontWeight: 700 }}>
+                  {base}
+                </span>
+                {informative ? '' : ' — uninformative (parent-of-origin unresolved here)'}
+              </>
+            )}
           </div>
           {mendelError && (
-            <div className="roi-markers-tip-row roi-markers-tip-mendel">
-              ⚠ Mendelian error — this genotype can&apos;t be inherited from the parents (sample swap,
-              wrong pedigree, or genotyping noise).
-            </div>
+            <div className="roi-markers-tip-row roi-markers-tip-mendel">{MENDEL_ERROR_NOTES[mendelError]}</div>
           )}
           {blockMismatch && !mendelError && (
             <div className="roi-markers-tip-row roi-markers-tip-mendel">
@@ -527,7 +574,10 @@ const FamilyRoiMarkersPage: React.FC = () => {
           (blue = paternal, green = maternal, grey = untransmitted/donor), matching the chromosome view. The
           ROI is bracketed by an orange line between members and any flanking markers are dimmed; each member
           shows its two homolog rows — the allele is nucleotide-coloured where the lane is informative and
-          light grey where it is not. A cell is shaded <strong>darker orange</strong> for an impossible
+          light grey where it is not. A call of one allele, such as a man&apos;s one X outside the
+          pseudo-autosomal regions, shows its allele once (on the father&apos;s first row, on anyone else&apos;s
+          second: a son&apos;s maternal row) and {NO_ALLELE} on the other row. A cell is shaded{' '}
+          <strong>darker orange</strong> for an impossible
           transmission (a Mendelian error) and <strong>lighter orange</strong> when the marker merely
           disagrees with the haplotype block, and a very light grey when the genotype is homozygous
           (uninformative for phasing). Use it to re-check the ROI for errors, artefacts and recombination.
@@ -653,19 +703,23 @@ const FamilyRoiMarkersPage: React.FC = () => {
                   {shownSites.map((site) => {
                     const seg = coveringSegment(segs, site.pos);
                     const gt = site.gts[memberIdx] ?? '';
-                    const [a, b] = gt.includes('|') ? gt.split('|') : ['', ''];
-                    const idx = lane === 'hap1' ? a : b;
-                    const base = idx ? alleleBase(idx, site.ref, site.alt) : '·';
+                    const oneCopyMan = sexBySample.get(sample) === 'male' && inRanges(hemizygousRanges, site.pos);
+                    const rows = rowAlleles(gt, oneCopyMan, role);
+                    const idx = rows[lane];
+                    // The other row of a call of one allele has none: it is not a missing one.
+                    const noAllele = idx === null;
+                    const base = noAllele ? NO_ALLELE : idx ? alleleBase(idx, site.ref, site.alt) : '·';
                     const bg = laneColor(seg, lane);
                     // Colour the allele by nucleotide only where this member's lane is
                     // informative (a resolved marker); otherwise mute it to grey.
                     const laneValue = markerLanes.get(sample)?.get(site.pos)?.[lane] ?? null;
-                    const informative = laneValue !== null;
+                    const informative = laneValue !== null && !noAllele;
                     const mendelError = mendelErrorPosBySample.get(sample)?.has(site.pos) ?? false;
                     // Raw marker disagrees with the cleaned haplotype block here.
-                    const blockMismatch = laneMatchesBlock(seg, laneValue, lane) === false;
-                    // Both homologs carry the same allele → uninformative for phasing.
-                    const homozygous = /^\d+$/.test(a) && a === b;
+                    const blockMismatch = !noAllele && laneMatchesBlock(seg, laneValue, lane) === false;
+                    // Both homologs carry the same allele → uninformative for phasing. One
+                    // allele is one copy, not two.
+                    const homozygous = /^\d+$/.test(rows.hap1 ?? '') && rows.hap1 === rows.hap2;
                     // Orange emphasises a suspect marker (impossible transmission or a
                     // block disagreement); homozygous (uninformative) sites are a faint grey.
                     const flagClass = mendelError
@@ -684,6 +738,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
                         data-lane={laneIdx + 1}
                         data-base={base}
                         data-informative={informative ? '1' : '0'}
+                        data-no-allele={noAllele ? '1' : '0'}
                         data-mendel={mendelError ? '1' : '0'}
                         data-block-mismatch={blockMismatch ? '1' : '0'}
                       >

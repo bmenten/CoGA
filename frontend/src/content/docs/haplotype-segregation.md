@@ -309,6 +309,12 @@ across the ROI. Use it to re-check a surprising call against the genotypes:
 The markers are computed only for the parents' own children (in a single-parent family, the known
 parent's children). Relatives appear on the track but carry no marker dots.
 
+Each member has a row per homolog. A call of one allele, such as a man's one X outside the
+pseudo-autosomal regions, shows its allele once (on the father's first row, on anyone else's second:
+a son's maternal row) and – on the other row. Where a man has one X, his call of the same allele
+twice is shown the same way, as the QC reads it. There, a son's Mendelian error says that his mother
+does not carry his allele, or that he has two different alleles: his father gave him a Y.
+
 ### Per-child checks
 
 Per child, CoGA reports two numbers:

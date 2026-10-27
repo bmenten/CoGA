@@ -42,4 +42,44 @@ describe('ReferenceDocPage', () => {
       expect(heading?.textContent || '').toMatch(/— reference$/);
     },
   );
+
+  // ENG-19: the headings had no ids, so a link to a heading of the same page did not jump.
+  describe('heading ids', () => {
+    const ids = () => Array.from(document.querySelectorAll('article [id]')).map((element) => element.id);
+
+    it('gives each heading the id GitHub gives it, so the haplotype reference’s own links jump', () => {
+      renderAt('/docs/reference/haplotype-segregation');
+
+      expect(screen.getByRole('heading', { level: 1, name: /Haplotype segregation analysis/ })).toHaveAttribute(
+        'id',
+        'haplotype-segregation-analysis--reference',
+      );
+      expect(screen.getByRole('heading', { level: 2, name: 'The embryo call (at the ROI)' })).toHaveAttribute(
+        'id',
+        'the-embryo-call-at-the-roi',
+      );
+      expect(screen.getByRole('heading', { level: 3, name: 'The blocks on chrX' })).toHaveAttribute(
+        'id',
+        'the-blocks-on-chrx',
+      );
+      const toQc = screen.getAllByRole('link', { name: 'Phasing QC at the ROI' })[0];
+      expect(toQc).toHaveAttribute('href', '#phasing-qc-at-the-roi');
+      expect(document.getElementById('phasing-qc-at-the-roi')).toHaveTextContent('Phasing QC at the ROI');
+    });
+
+    it.each(referenceDocs.map((doc) => doc.slug))('leads each in-page link of "%s" to one heading', (slug) => {
+      renderAt(`/docs/reference/${slug}`);
+
+      const pageIds = ids();
+      expect(new Set(pageIds).size).toBe(pageIds.length);
+      const fragments = Array.from(document.querySelectorAll('article a[href^="#"]')).map((link) =>
+        decodeURIComponent((link.getAttribute('href') ?? '').slice(1)),
+      );
+      fragments.forEach((fragment) => {
+        const target = document.getElementById(fragment);
+        expect(target, `#${fragment}`).not.toBeNull();
+        expect(target?.tagName, `#${fragment}`).toMatch(/^H[1-6]$/);
+      });
+    });
+  });
 });
