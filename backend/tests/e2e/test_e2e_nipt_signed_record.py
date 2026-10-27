@@ -612,7 +612,9 @@ async def _collect_pair(root: Path, family_id: str) -> dict:
         r["review_summary"] = _cap(await ac.get(f"{family}/small-variant-review-summary"))
         # The live report's list of the reported small variants.
         r["live_report"] = _cap(await ac.get(f"{family}/small-variants", params={"review_tag": "report"}))
-        r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        # Through the dialogs, each acknowledgement with the fingerprint of what its refusal
+        # listed (TRACE-19).
+        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
         r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
         r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))

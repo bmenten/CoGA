@@ -496,7 +496,7 @@ async def _flags_cleared(run: str) -> dict[str, Any]:
                 )
                 await session.commit()
             sign_out = f"/api/families/{family}/report/sign-out"
-            await state("signout_flagged", await ac.post(sign_out, json=_OTHER_GATES))
+            await state("signout_flagged", await _harness.sign_out(ac, sign_out, _OTHER_GATES))
             await state("child_deleted", await ac.delete(f"/api/admin/samples/{child}", params={"confirm": "true"}))
             await state(
                 "father_trgt",
@@ -506,7 +506,7 @@ async def _flags_cleared(run: str) -> dict[str, Any]:
                     files={"file": ("father.trgt.vcf", _trgt_vcf(father).encode(), "text/plain")},
                 ),
             )
-            await state("signout", await ac.post(sign_out, json=_OTHER_GATES))
+            await state("signout", await _harness.sign_out(ac, sign_out, _OTHER_GATES))
     finally:
         await _drop_families(sessionmaker, [family])
     return out
