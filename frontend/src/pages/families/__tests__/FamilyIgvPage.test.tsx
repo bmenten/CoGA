@@ -241,6 +241,52 @@ describe('FamilyIgvPage', () => {
     expect(screen.getByTestId('igv-viewer')).toHaveTextContent('hg19|PROBAND');
   });
 
+  const renderOnAssembly = (assemblyName: string) => {
+    apiGetMock.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            projects: ['p1'],
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }],
+          },
+        });
+      }
+      if (url === '/projects') {
+        return Promise.resolve({
+          data: [{ ...offScopeProject('p1'), assembly_name: assemblyName, assembly_version: 'v1' }],
+        });
+      }
+      throw new Error(`Unexpected GET ${url}`);
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/igv']}>
+          <Routes>
+            <Route path="/families/:familyId/igv" element={<FamilyIgvPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+
+  // The UCSC reference import names the T2T assembly `T2T CHM13v2.0`, with a space. IGV
+  // recognised only `T2T-CHM13…` and opened hg38 for it: the family's reads and variants
+  // were drawn on another reference.
+  it('opens the hs1 genome for a family on T2T-CHM13 as the UCSC import names it', async () => {
+    renderOnAssembly('T2T CHM13v2.0');
+
+    expect(await screen.findByTestId('igv-viewer')).toHaveTextContent('hs1|PROBAND');
+  });
+
+  it('opens no genome for an assembly it has none for, and says so, rather than hg38', async () => {
+    renderOnAssembly('GRCz11');
+
+    expect(await screen.findByRole('heading', { name: 'No IGV genome for GRCz11' })).toBeInTheDocument();
+    expect(screen.getByText(/opens none rather than another assembly's/)).toBeInTheDocument();
+    expect(screen.queryByTestId('igv-viewer')).not.toBeInTheDocument();
+  });
+
   // #610 — a server error is not a family that does not exist.
   it('says the family could not be loaded, not that it was not found, and retries', async () => {
     let familyRequests = 0;

@@ -28,15 +28,8 @@ _STATIC_HEADERS = {
 }
 
 
-async def security_headers_middleware(request: Request, call_next):
-    """Set hardening headers on every response the application returns.
-
-    Registered in main.py just inside TrustedProxyClientMiddleware, which is the
-    outermost, so it wraps every route and every other middleware. The bare 500 that
-    Starlette's ServerErrorMiddleware sends for an unhandled exception is produced
-    outside it and carries none of these headers.
-    """
-    response: Response = await call_next(request)
+def apply_security_headers(response: Response) -> Response:
+    """Set the hardening headers on ``response``, HSTS when it is on, and return it."""
     for name, value in _STATIC_HEADERS.items():
         response.headers.setdefault(name, value)
     if settings.enable_hsts:
@@ -44,3 +37,15 @@ async def security_headers_middleware(request: Request, call_next):
             "Strict-Transport-Security", "max-age=63072000; includeSubDomains"
         )
     return response
+
+
+async def security_headers_middleware(request: Request, call_next):
+    """Set hardening headers on every response the application returns.
+
+    Registered in main.py just inside TrustedProxyClientMiddleware, which is the
+    outermost, so it wraps every route and every other middleware. The 500 that
+    Starlette's ServerErrorMiddleware sends for an unhandled exception is produced
+    outside it, by main.py's handler, which sets the same headers (SEC-23).
+    """
+    response: Response = await call_next(request)
+    return apply_security_headers(response)

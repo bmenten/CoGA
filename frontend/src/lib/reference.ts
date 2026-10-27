@@ -37,14 +37,48 @@ export function useProjectCatalog(enabled = true) {
   });
 }
 
-export function mapAssemblyToIgvGenome(assemblyName?: string): string {
-  if (!assemblyName || assemblyName === 'GRCh38') return 'hg38';
-  if (assemblyName === 'GRCh37' || assemblyName === 'hg19') return 'hg19';
-  if (assemblyName === 'GRCm39') return 'mm39';
-  if (assemblyName === 'GRCm38') return 'mm10';
-  if (assemblyName.startsWith('T2T-CHM13')) return 'hs1';
-  if (assemblyName === 'EquCab3.0') return 'equCab3';
-  return 'hg38';
+// T2T-CHM13v2.0 under the names it carries: NCBI's T2T-CHM13v2.0, the `T2T CHM13v2.0` the UCSC
+// reference import takes from UCSC's description, the T2T_CHM13v2.0 key of its ClickHouse
+// tables, CHM13v2.0, and UCSC's hs1. A version, where the name gives one, is v2.0: hs1's.
+const T2T_CHM13_NAME = /^(?:(?:t2t[-_ ]?)?chm13(?:v2(?:\.0)?)?|hs1)$/i;
+
+/**
+ * Does an assembly's name denote T2T-CHM13v2.0, UCSC's hs1? In any case and under any of its
+ * names, not another CHM13 release nor another telomere-to-telomere genome: the rule the
+ * backend reads it by (`sex_chromosomes.is_t2t_chm13`).
+ */
+export function isT2tChm13(assemblyName?: string | null): boolean {
+  return T2T_CHM13_NAME.test((assemblyName ?? '').trim());
+}
+
+// GRCh38 and GRCh37 under their GRC and UCSC names, in any case and with or without a patch
+// suffix (GRCh38.p14), as the backend reads them (`sex_chromosomes.grc_build`).
+const GRC_IGV_GENOMES = new Map([
+  ['grch38', 'hg38'],
+  ['hg38', 'hg38'],
+  ['grch37', 'hg19'],
+  ['hg19', 'hg19'],
+]);
+
+const OTHER_IGV_GENOMES = new Map([
+  ['GRCm39', 'mm39'],
+  ['GRCm38', 'mm10'],
+  ['EquCab3.0', 'equCab3'],
+]);
+
+/**
+ * The IGV genome of an assembly, or null where there is none for it.
+ *
+ * Never another assembly's genome in its place: IGV draws the reads and variants at their
+ * positions on the genome it opens. Any name it did not know opened hg38, among them the
+ * `T2T CHM13v2.0` the UCSC import gives T2T.
+ */
+export function mapAssemblyToIgvGenome(assemblyName?: string | null): string | null {
+  const name = (assemblyName ?? '').trim();
+  const grcGenome = GRC_IGV_GENOMES.get(name.toLowerCase().replace(/\.p\d+$/, ''));
+  if (grcGenome) return grcGenome;
+  if (isT2tChm13(name)) return 'hs1';
+  return OTHER_IGV_GENOMES.get(name) ?? null;
 }
 
 export function formatResolvedReferenceLabel(

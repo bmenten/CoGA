@@ -30,6 +30,7 @@ from .monarch_ingest import (
     list_monarch_gene_disease,
     summarize_disease_phenotypes,
 )
+from .sex_chromosomes import is_t2t_chm13
 
 
 def _gene_symbol_candidates(symbol: str) -> list[str]:
@@ -124,7 +125,7 @@ def _ucsc_db_name(assembly_name: str) -> str | None:
         return "mm39"
     if assembly_name == "GRCm38":
         return "mm10"
-    if assembly_name.startswith("T2T-CHM13"):
+    if is_t2t_chm13(assembly_name):
         return "hs1"
     if assembly_name == "EquCab3.0":
         return "equCab3"

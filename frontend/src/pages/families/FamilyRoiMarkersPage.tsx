@@ -12,7 +12,15 @@ import VizTooltip from '../../components/visualizations/VizTooltip';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
 import { normalizeSex } from '../../lib/haplotypeRisk';
-import { alleleBase, nucleotideColor } from '../../lib/phasedMarkers';
+import {
+  NO_ALLELE,
+  alleleBase,
+  inRanges,
+  nucleotideColor,
+  oneCopyAlleles,
+  rowAlleles,
+  twoDifferentAlleles,
+} from '../../lib/phasedMarkers';
 import { useFamilyReference } from '../../lib/reference';
 import { raw, routePath } from '../../lib/routePath';
 
@@ -114,43 +122,9 @@ const parseAlleleIndices = (gt: string): number[] | null => {
   return alleles.some((n) => Number.isNaN(n)) ? null : alleles;
 };
 
-// On chrX outside the PARs a man has one X (CLIN-60), as the backend's QC counts read it:
-// his call written as one allele ('1') or twice ('1|1') is that allele, read as a pair; a
-// call of two different alleles is one he cannot have.
-const callAlleles = (gt: string): number[] | null => {
-  const parts = gt.trim().split(/[|/]/);
-  if (parts.length > 2 || parts.some((part) => !/^\d+$/.test(part))) return null;
-  return parts.map((part) => parseInt(part, 10));
-};
-const oneCopyAlleles = (gt: string): number[] | null => {
-  const alleles = callAlleles(gt);
-  return alleles && new Set(alleles).size === 1 ? [alleles[0], alleles[0]] : null;
-};
-const twoDifferentAlleles = (gt: string): boolean => {
-  const alleles = callAlleles(gt);
-  return !!alleles && alleles.length === 2 && alleles[0] !== alleles[1];
-};
-const inRanges = (ranges: number[][], pos: number): boolean =>
-  ranges.some(([first, last]) => first <= pos && pos <= last);
-
-// What a member's two homolog rows draw at a site: the allele index on each, '' when the call
-// is missing or unphased, null for no allele. A phased call has one allele per row. A call of
-// one allele, written once, or a man's same allele twice where he has one X (which the QC reads
-// as his one allele), is drawn once (ENG-19): on the row the haplotype tracks draw a man's one X
-// on, the father's first and anyone else's second (a child's maternal row: a son's X is his
-// mother's), with no allele on the other. It read '·' on both rows, as a missing call does.
-type RowAlleles = Record<Lane, string | null>;
-const rowAlleles = (gt: string, oneCopyMan: boolean, role: string | undefined): RowAlleles => {
-  const alleles = callAlleles(gt);
-  const single = alleles?.length === 1 ? alleles[0] : oneCopyMan ? oneCopyAlleles(gt)?.[0] : undefined;
-  if (single !== undefined) {
-    return role === 'father' ? { hap1: String(single), hap2: null } : { hap1: null, hap2: String(single) };
-  }
-  const [hap1, hap2] = gt.includes('|') ? gt.split('|') : ['', ''];
-  return { hap1, hap2 };
-};
-// Drawn on the row without an allele: not '·', which is a missing allele.
-const NO_ALLELE = '–';
+// A man's call on his one X (chrX outside the PARs) is read, and what a member's two homolog rows
+// draw at a site (`rowAlleles`: a call of one allele, once), by lib/phasedMarkers.ts, which the
+// haplotype track's tooltip shares (ENG-19).
 
 // Mirrors the backend Mendelian check: the child genotype must form from one
 // allele of each parent (two parents), or share an allele with the lone parent.

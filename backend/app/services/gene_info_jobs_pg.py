@@ -31,6 +31,7 @@ from .gene_info_bulk_sources import (
     load_human_gene_bulk_context,
 )
 from .gene_info_external import fetch_external_gene_bundle
+from .sex_chromosomes import is_t2t_chm13
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,7 @@ class HumanGeneContext:
 def _assembly_priority(assembly_name: str) -> tuple[int, str]:
     if assembly_name == "GRCh38":
         return (0, assembly_name)
-    if assembly_name in {"T2T-CHM13", "T2T-CHM13v2.0"} or assembly_name.startswith("T2T-CHM13"):
+    if is_t2t_chm13(assembly_name):
         return (1, assembly_name)
     if assembly_name in {"GRCh37", "hg19"}:
         return (2, assembly_name)
