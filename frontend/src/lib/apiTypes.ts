@@ -1,20 +1,35 @@
-import type { NiptQcOut, NiptTargetCoverageOut, RepeatCountUnitWarningOut } from './apiSchema.generated';
+// The frontend's hand-written API types. A response is read through its generated type
+// (apiSchema.generated.ts) where it has one: what stays here are the types apiContract.ts
+// checks against theirs, aliases of generated types, and those with no generated equivalent,
+// each saying why.
+import type {
+  FamilyOut,
+  IdeogramBandOut,
+  NiptQcOut,
+  NiptTargetCoverageOut,
+  ProjectDashboardOut,
+  QcMetricCatalogueOut,
+  RepeatCountUnitWarningOut,
+  RepeatExpansionRowOut,
+  ReportSignoutSummary,
+  TrackAvailabilityOut,
+} from './apiSchema.generated';
 
-export interface ApiPaginatedTotalResponse {
-  total: number;
-}
+/**
+ * A response the backend serialises without its null fields (`exclude_none`): each field that
+ * can be null is left out instead, at every depth. The SV list answers so in track mode
+ * (`track_mode=true`), to keep the genome tracks' payload small.
+ */
+export type WithoutNulls<T> = T extends (infer Item)[]
+  ? WithoutNulls<Item>[]
+  : T extends object
+    ? { [K in keyof T as null extends T[K] ? never : K]: WithoutNulls<T[K]> } & {
+        [K in keyof T as null extends T[K] ? K : never]?: WithoutNulls<Exclude<T[K], null>>;
+      }
+    : T;
 
-export interface ApiVariantPage<TVariant> extends ApiPaginatedTotalResponse {
-  total_is_estimated?: boolean;
-  count_limit?: number | null;
-  variants: TVariant[];
-}
-
-export interface ApiFamilyMemberRef {
+export interface ApiFamilyMember {
   sample_id: string;
-}
-
-export interface ApiFamilyMember extends ApiFamilyMemberRef {
   role: string;
   affected: boolean;
   sex: string;
@@ -48,14 +63,6 @@ export interface ApiSampleSequencingQcEvaluation {
   breached: string[];
   profile_key?: string | null;
   profile_label?: string | null;
-}
-
-export interface ApiQcMetricCatalogueEntry {
-  key: string;
-  label: string;
-  unit: string;
-  direction: 'lower_is_worse' | 'higher_is_worse';
-  help_text: string;
 }
 
 export interface ApiQcThreshold {
@@ -93,7 +100,7 @@ export interface ApiQcThresholdChange {
 }
 
 export interface ApiQcThresholdCatalogue {
-  metrics: ApiQcMetricCatalogueEntry[];
+  metrics: QcMetricCatalogueOut[];
   profiles: ApiQcThresholdProfile[];
   changes: ApiQcThresholdChange[];
 }
@@ -127,23 +134,6 @@ export interface ApiFamilyMemberBatchUpdateItem {
   carrier_type?: 'obligate' | 'proven' | 'reported' | 'inferred' | null;
   father_id?: string | null;
   mother_id?: string | null;
-}
-
-export interface ApiFamilyMemberBatchUpdateResponse {
-  family: ApiFamilyRecord;
-  warnings?: string[];
-  stale_analysis_scopes?: string[];
-  data_counts?: Record<string, number>;
-  cleared_data_counts?: Record<string, number>;
-}
-
-export interface ApiFamilyMemberDeleteResponse {
-  family: ApiFamilyRecord;
-  impact: ApiFamilyMemberImpact;
-  warnings?: string[];
-  stale_analysis_scopes?: string[];
-  data_counts?: Record<string, number>;
-  cleared_data_counts?: Record<string, number>;
 }
 
 export interface ApiFamilyRelationship {
@@ -189,40 +179,8 @@ export interface ApiFamilyStatusRef {
   color: string;
 }
 
-/** Full admin-managed status definition (catalogue + dropdown options). */
-export interface ApiFamilyStatusDefinition extends ApiFamilyStatusRef {
-  id: string;
-  description?: string | null;
-  sort_order: number;
-  is_active: boolean;
-}
-
-export interface ApiFamilyBase<TMember = ApiFamilyMemberRef> {
-  family_id: string;
-  members: TMember[];
-  projects?: string[];
-  created_at?: string;
-  status?: ApiFamilyStatusRef | null;
-  assigned_to?: ApiUserRef | null;
-  reviewed_by?: ApiUserRef | null;
-  // The caller only reads this family: they are a reader in each of its projects they
-  // belong to (SEC-1). The server refuses their changes; the screens hide the controls.
-  read_only?: boolean;
-}
-
-export interface ApiFamilySummary extends ApiFamilyBase<ApiFamilyMember> {
-  id?: string;
-  _id?: string;
-}
-
-export interface ApiFamilyRecord extends ApiFamilyBase<ApiFamilyMember> {
-  _id?: string;
-  relationships?: ApiFamilyRelationship[];
-  structure_version?: ApiFamilyStructureVersion | null;
-  pedigree?: string | null;
-  roi?: ApiFamilyRegionOfInterest | null;
-  metadata?: Record<string, unknown>;
-}
+// A family as the family endpoints serve it (FamilyOut).
+export type ApiFamilyRecord = FamilyOut;
 
 export interface ApiHpoTerm {
   hpo_id: string;
@@ -286,6 +244,7 @@ export interface ApiNiptCoverageRegion {
   target_bases: number;
 }
 
+// The reasons the backend writes; it serves `NiptCoverageLowRegionOut.reason` as a string.
 export type NiptLowCoverageReason = 'no_coverage' | 'low_depth' | 'partial_coverage';
 
 export interface ApiNiptCoverageLowRegion {
@@ -311,6 +270,8 @@ export interface ApiNiptCoverageSummary {
   coverage_notes?: string[];
 }
 
+// The vocabulary the QC verdicts share. The sequencing-QC verdict is served as this union
+// (SampleSequencingQcMetricOut.verdict); the sample-integrity statuses as strings of it.
 export type QcStatus = 'pass' | 'warn' | 'fail' | 'skip';
 
 export interface ApiSampleIntegritySexCheck {
@@ -378,6 +339,7 @@ export interface ApiSampleIntegrityCategoryQc {
   message: string;
 }
 
+// The applications the backend names; it serves `SampleIntegrityQcOut.application` as a string.
 export type SampleQcApplication = 'wgs' | 'pgt' | 'nipt' | 'couple' | 'single' | 'unknown';
 
 export interface ApiAnnotationModule {
@@ -425,7 +387,8 @@ export interface ApiClassificationDriftItem {
 }
 
 // The evidence a structural-variant / CNV classification rested on, as frozen and as it
-// is now (backend services/structural_variant_evidence.py).
+// is now (backend services/structural_variant_evidence.py). The backend serves it as an open
+// object; this names the fields it writes.
 export interface ApiStructuralEvidence {
   source?: string | null;
   sv_type?: string | null;
@@ -488,42 +451,12 @@ export interface ApiClinicalAudit {
   events: ApiClinicalAuditEvent[];
 }
 
-export interface ApiReportSignout {
-  version: number;
-  signed_out_by: string;
-  signed_out_at: string;
-  content_hash: string;
-  // The code the EPD report quotes for the record, made from its family, version and content
-  // hash (services/report_code.py); null when the stored fields cannot make one.
-  report_code?: string | null;
-  // Frozen software identity that produced this sign-out (null for sign-outs created
-  // before version-binding shipped). Extracted from the frozen JSONB snapshot.
-  software_version?: string | null;
-  git_sha?: string | null;
-  // Frozen Sample-integrity QC verdict + override (null for sign-outs before the QC
-  // gate), surfaced as scalar fields from the JSONB snapshot for the report card.
-  qc_status?: string | null;
-  qc_acknowledged?: boolean | null;
-  qc_acknowledgement_reason?: string | null;
-  // Frozen evidence-drift override and its reason (null for sign-outs made before a drift
-  // override needed a reason).
-  drift_acknowledged?: boolean | null;
-  drift_acknowledgement_reason?: string | null;
-  // Frozen incomplete-import state and override: the datasets a partly failed package
-  // import had not loaded at sign-out (null when the import was complete), the import
-  // job whose record holds each dataset's error (null when not recorded), and the
-  // acknowledgement. All null for sign-outs made before the incomplete-import gate.
-  import_incomplete_failed_datasets?: string[] | null;
-  import_incomplete_job_id?: string | null;
-  import_incomplete_acknowledged?: boolean | null;
-  import_incomplete_acknowledgement_reason?: string | null;
-  snapshot?: Record<string, unknown> | null;
-}
-
+// The sign-outs are served as ReportSignoutSummary: each field's meaning is on the backend
+// model (schemas/traceability.py).
 export interface ApiReportSignoutList {
   family_id: string;
-  latest: ApiReportSignout | null;
-  signouts: ApiReportSignout[];
+  latest: ReportSignoutSummary | null;
+  signouts: ReportSignoutSummary[];
 }
 
 // Whether the report, as it would be signed now, matches the latest sign-out (#508).
@@ -564,52 +497,9 @@ export interface ApiSampleIntegrityQc {
   notes: string[];
 }
 
-export interface ApiProjectRecord<TFamily = ApiFamilySummary> {
-  id: string;
-  name: string;
-  description?: string;
-  species_id?: string;
-  assembly_id?: string;
-  species_name?: string;
-  assembly_name?: string;
-  assembly_version?: string;
-  // Inside the validated scope (VALIDATED_ASSEMBLIES)? Sign-out refuses a family that is not.
-  assembly_validated?: boolean;
-  user_ids?: string[];
-  // The members who only read the project's records; the others are analysts (SEC-1).
-  reader_user_ids?: string[];
-  // The caller is a reader in this project.
-  read_only?: boolean;
-  families: TFamily[];
-  samples: string[];
-}
-
-export interface ApiUserRecord {
-  id: string;
-  email: string;
-  first_name?: string | null;
-  last_name?: string | null;
-  affiliation?: string | null;
-  role: string;
-  is_active: boolean;
-  projects: string[];
-  // The projects among `projects` where the user is a reader (SEC-1).
-  reader_projects?: string[];
-}
-
-export interface ApiSpeciesRecord {
-  id: string;
-  name: string;
-  tax_id?: string | number;
-  common_name?: string | null;
-}
-
-export interface ApiAssemblyRecord {
-  id: string;
-  species_id?: string;
-  assembly_name: string;
-  version: string;
-}
+// A project as the catalogue holds it (useProjectCatalog): ProjectDashboardOut, with the `_id`
+// it is served under copied to `id` (withEntityId).
+export type ApiProjectRecord = ProjectDashboardOut & { id: string };
 
 export interface ApiClinicalCnv {
   _id: string;
@@ -635,12 +525,7 @@ export interface ApiClinicalCnv {
   clinvar_pathogenic_accessions?: string[] | null;
 }
 
-export interface ApiChromosomeBand {
-  name: string;
-  start: number;
-  end: number;
-  stain: string;
-}
+export type ApiChromosomeBand = IdeogramBandOut;
 
 export interface ApiChromosome {
   chr: string;
@@ -648,74 +533,19 @@ export interface ApiChromosome {
   bands: ApiChromosomeBand[];
 }
 
-export type ApiTrackAvailabilityResponse<TTrackAvailability> = {
-  samples: Record<string, TTrackAvailability>;
-};
-
-export interface ApiChromosomeTrackAvailability {
-  coverage: boolean;
-  /**
-   * Which CNV callers actually have coverage rows for this sample. A long-read
-   * package can carry HiFiCNV, WisecondorX and QDNAseq at once and each is drawn
-   * as its own track; `coverage` remains the "any at all" flag.
-   */
-  coverage_sources?: string[];
-  /**
-   * The transforms each caller's coverage track records, by caller; a caller whose
-   * records name none is absent.
-   */
-  coverage_normalizations?: Record<string, string[]>;
-  /**
-   * What each caller's coverage track holds (TRACE-9): read depth, a log2 ratio, or
-   * unknown. Decides the axis it is drawn on (`coverageScale`).
-   */
-  coverage_contents?: Record<string, CoverageContent>;
-  segments_sources?: string[];
-  /** Which callers wrote the APCAD track; decides the axis (see MAF_AXIS_MAX). */
-  apcad_sources?: string[];
-  apcad: boolean;
-  apcad_pcf: boolean;
-  variants: boolean;
-  small_variants: boolean;
-  haplotypes: boolean;
-  repeat_expansions: boolean;
-}
-
 /** What a coverage track holds, as the track availability serves it (TRACE-9). */
-export type CoverageContent = 'read_depth' | 'log2_ratio' | 'unknown';
-
-export interface ApiGenomeTrackAvailability {
-  coverage: boolean;
-  segments: boolean;
-  coverage_sources?: string[];
-  coverage_normalizations?: Record<string, string[]>;
-  coverage_contents?: Record<string, CoverageContent>;
-  segments_sources?: string[];
-  apcad_sources?: string[];
-  apcad: boolean;
-  apcad_pcf: boolean;
-  haplotypes: boolean;
-  variants: boolean;
-  repeat_expansions: boolean;
-}
+export type CoverageContent = TrackAvailabilityOut['coverage_contents'][string];
 
 /**
  * A repeat allele's, call's or locus's status. `not_assessed` is a call at a locus without
  * thresholds (no catalogue row names its TRID, or the row states none; CLIN-26) whose count is
  * outside any benign range the row states (CLIN-36); `unknown` a no-call.
  */
-export type ApiRepeatStatus =
-  | 'normal'
-  | 'review'
-  | 'not_assessed'
-  | 'intermediate'
-  | 'premutation'
-  | 'pathogenic'
-  | 'unknown';
+export type ApiRepeatStatus = RepeatExpansionRowOut['status'];
 
 /** Why a call or a locus reads `review`: a count the catalogue cannot classify, or a man's two
  *  different chrX alleles (CLIN-14). */
-export type ApiRepeatReviewReason = 'outside_ranges' | 'male_x_alleles';
+export type ApiRepeatReviewReason = NonNullable<RepeatExpansionRowOut['review_reason']>;
 
 export interface ApiRepeatExpansionMotifCount {
   motif: string;
@@ -834,6 +664,8 @@ export interface ApiParaphaseExtraField {
   description?: string | null;
 }
 
+// The statuses the backend writes; it serves `ParaphaseSampleResultOut.clinical_status` as a
+// string.
 export type ParaphaseClinicalStatus =
   | 'pathogenic'
   | 'carrier'
@@ -948,6 +780,7 @@ export interface ApiMitoDNAVariantAnnotation {
   source_keys: string[];
 }
 
+// Not checked in apiContract.ts, nor ApiFamilyMitoDNAAnalysis: the note there says why.
 export interface ApiMitoDNAVariant {
   variant_id: string;
   position: number;

@@ -4,28 +4,19 @@ import { Link } from 'react-router';
 import api from '../../lib/api';
 import { isAdmin } from '../../lib/auth';
 import type { GeneLocation, GenePanel } from '../../lib/apiTypes';
+import type {
+  GenePanelCreateResponse,
+  MendeliomeRegenerateResponse,
+  PanelAppImportResponse,
+  PanelAppPanelSearchResponse,
+  PanelAppPanelSummaryOut,
+} from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import type { ApiErrorLike } from '../../lib/errorMessage';
 import QueryFailure from '../../components/QueryFailure';
 import { formatDateTime } from '../../lib/format';
 import { isT2tChm13 } from '../../lib/reference';
 import { routePath } from '../../lib/routePath';
-
-interface PanelAppPanelSummary {
-  panelapp_id: number;
-  name: string;
-  disease_group?: string | null;
-  disease_sub_group?: string | null;
-  status?: string | null;
-  version?: string | null;
-  version_created?: string | null;
-  relevant_disorders: string[];
-  gene_count: number;
-  str_count: number;
-  region_count: number;
-  types: string[];
-  url: string;
-}
 
 // A panel request's error detail: a message, a validation list, or a message naming genes.
 type PanelErrorDetail =
@@ -80,7 +71,7 @@ const GenePanelsPage: React.FC = () => {
   const [status, setStatus] = useState('');
   const [panelSearch, setPanelSearch] = useState('');
   const [panelAppQuery, setPanelAppQuery] = useState('');
-  const [panelAppResults, setPanelAppResults] = useState<PanelAppPanelSummary[]>([]);
+  const [panelAppResults, setPanelAppResults] = useState<PanelAppPanelSummaryOut[]>([]);
   const [panelAppLoading, setPanelAppLoading] = useState(false);
   const [panelAppImporting, setPanelAppImporting] = useState<number | null>(null);
   const [confidencePreset, setConfidencePreset] = useState('3');
@@ -119,8 +110,8 @@ const GenePanelsPage: React.FC = () => {
     setMendeliomeBusy(true);
     setStatus('');
     try {
-      const res = await api.post('/panels/mendeliome/regenerate');
-      setStatus(res.data?.message || 'Mendeliome updated');
+      const res = await api.post<MendeliomeRegenerateResponse>('/panels/mendeliome/regenerate');
+      setStatus(res.data.message || 'Mendeliome updated');
       await refetch();
     } catch (err) {
       setStatus(apiErrorMessage(err, 'Error generating the Mendeliome'));
@@ -144,11 +135,11 @@ const GenePanelsPage: React.FC = () => {
     setPanelAppLoading(true);
     setStatus('');
     try {
-      const res = await api.get('/panels/panelapp/search', {
+      const res = await api.get<PanelAppPanelSearchResponse>('/panels/panelapp/search', {
         params: { query: panelAppQuery.trim(), page_size: 20 },
       });
-      setPanelAppResults(res.data?.results || []);
-      if (!res.data?.results?.length) {
+      setPanelAppResults(res.data.results);
+      if (!res.data.results.length) {
         setStatus('No PanelApp panels found');
       }
     } catch {
@@ -158,11 +149,11 @@ const GenePanelsPage: React.FC = () => {
     }
   };
 
-  const importPanelApp = async (panel: PanelAppPanelSummary) => {
+  const importPanelApp = async (panel: PanelAppPanelSummaryOut) => {
     setPanelAppImporting(panel.panelapp_id);
     setStatus('');
     try {
-      const res = await api.post('/panels/import/panelapp', {
+      const res = await api.post<PanelAppImportResponse>('/panels/import/panelapp', {
         panelapp_id: panel.panelapp_id,
         version: panel.version || undefined,
         confidence_levels: confidenceLevels,
@@ -170,7 +161,7 @@ const GenePanelsPage: React.FC = () => {
         include_strs: includePanelAppStrs,
         assembly: panelAppAssembly,
       });
-      setStatus(res.data?.message || 'PanelApp panel imported');
+      setStatus(res.data.message || 'PanelApp panel imported');
       await refetch();
     } catch (err) {
       setStatus(apiErrorMessage(err, 'Error importing PanelApp panel'));
@@ -186,7 +177,7 @@ const GenePanelsPage: React.FC = () => {
         setStatus('Panel name is required');
         return;
       }
-      const res = await api.post('/panels', {
+      const res = await api.post<GenePanelCreateResponse>('/panels', {
         name,
         genes: genes
           .split(/[\s,]+/)
@@ -197,7 +188,7 @@ const GenePanelsPage: React.FC = () => {
       setName('');
       setGenes('');
       setDescription('');
-      const msg = res.data?.message ?? 'Panel created';
+      const msg = res.data.message ?? 'Panel created';
       setStatus(msg);
       refetch();
     } catch (err) {

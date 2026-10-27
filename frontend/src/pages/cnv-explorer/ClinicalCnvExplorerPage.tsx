@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 
 import api from '../../lib/api';
-import type { ApiAssemblyRecord, ApiClinicalCnv } from '../../lib/apiTypes';
+import type { ApiClinicalCnv } from '../../lib/apiTypes';
+import type { AssemblyOut } from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { CLINVAR_SUPPORT_NOT_RECORDED, clinvarSupportSummary } from '../../lib/clinicalCnvSupport';
@@ -25,9 +26,9 @@ const ClinicalCnvExplorerPage = () => {
     isLoading: assembliesLoading,
     isError: assembliesFailed,
     refetch: refetchAssemblies,
-  } = useQuery<ApiAssemblyRecord[]>({
+  } = useQuery<AssemblyOut[]>({
     queryKey: ['assemblies'],
-    queryFn: async () => (await api.get('/assemblies')).data as ApiAssemblyRecord[],
+    queryFn: async () => (await api.get('/assemblies')).data as AssemblyOut[],
   });
 
   useEffect(() => {

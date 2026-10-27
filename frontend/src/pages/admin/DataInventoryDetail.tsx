@@ -2,7 +2,8 @@ import React from 'react';
 import api from '../../lib/api';
 import FamilyDetailPage from '../families/FamilyDetailPage';
 import RawFileProvenanceTable from './RawFileProvenanceTable';
-import type { FamilyData, ProjectOption } from './dataManagementTypes';
+import type { FamilyInventoryDetailOut } from '../../lib/apiSchema.generated';
+import type { ProjectOption } from './dataManagementTypes';
 import {
   FAMILY_TRACK_ORDER,
   SAMPLE_TRACK_ORDER,
@@ -16,7 +17,7 @@ import { formatCount } from '../../lib/format';
 
 interface DataInventoryDetailProps {
   selectedFamilyId: string;
-  selectedFamily?: FamilyData;
+  selectedFamily?: FamilyInventoryDetailOut;
   selectedFamilyLoading: boolean;
   selectedFamilyErrorMessage?: string | null;
   projects: ProjectOption[];

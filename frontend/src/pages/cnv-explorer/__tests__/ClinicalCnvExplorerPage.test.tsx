@@ -8,15 +8,29 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import ClinicalCnvExplorerPage from '../ClinicalCnvExplorerPage';
 import api from '../../../lib/api';
-import type { ApiAssemblyRecord, ApiClinicalCnv } from '../../../lib/apiTypes';
+import type { ApiClinicalCnv } from '../../../lib/apiTypes';
+import type { AssemblyOut } from '../../../lib/apiSchema.generated';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn() } }));
 
 const mockedGet = vi.mocked(api.get);
 
-const GRCH38: ApiAssemblyRecord = { id: 'asm38', assembly_name: 'GRCh38', version: 'p14' };
-const GRCH37: ApiAssemblyRecord = { id: 'asm37', assembly_name: 'GRCh37', version: 'p13' };
+// As /assemblies serves them (AssemblyOut).
+const GRCH38: AssemblyOut = {
+  _id: 'asm38',
+  species_id: 'hs',
+  assembly_name: 'GRCh38',
+  version: 'p14',
+  release_date: '2013-12-17',
+};
+const GRCH37: AssemblyOut = {
+  _id: 'asm37',
+  species_id: 'hs',
+  assembly_name: 'GRCh37',
+  version: 'p13',
+  release_date: '2009-02-27',
+};
 
 const cnv = (overrides: Partial<ApiClinicalCnv> & Pick<ApiClinicalCnv, '_id' | 'label'>): ApiClinicalCnv => ({
   chr: '1',
@@ -61,7 +75,7 @@ const serve = ({
   catalogue = [DEL_22Q11, DUP_17P12, DEL_1Q21],
   pendingCatalogue = false,
 }: {
-  assemblies?: ApiAssemblyRecord[];
+  assemblies?: AssemblyOut[];
   catalogue?: ApiClinicalCnv[];
   pendingCatalogue?: boolean;
 } = {}) => {
@@ -214,7 +228,7 @@ describe('ClinicalCnvExplorerPage', () => {
   });
 
   it('encodes the assembly name as one path segment (#521)', async () => {
-    serve({ assemblies: [{ id: 'odd', assembly_name: 'GRCh38/../admin', version: '1' }] });
+    serve({ assemblies: [{ ...GRCH38, _id: 'odd', assembly_name: 'GRCh38/../admin', version: '1' }] });
     renderPage();
 
     await waitFor(() =>

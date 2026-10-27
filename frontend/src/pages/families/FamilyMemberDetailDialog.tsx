@@ -2,12 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import ModalDialog from '../../components/ModalDialog';
-import type {
-  ApiFamilyRecord,
-  ApiFamilyMemberDeleteResponse,
-  ApiFamilyMemberDetail,
-  ApiHpoTerm,
-} from '../../lib/apiTypes';
+import type { ApiFamilyRecord, ApiFamilyMemberDetail, ApiHpoTerm } from '../../lib/apiTypes';
+import type { FamilyMemberDeleteOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import type {
   CarrierStatus,
@@ -197,7 +193,7 @@ const FamilyMemberDetailDialog: React.FC<FamilyMemberDetailDialogProps> = ({
           },
         },
       );
-      const payload = response.data as ApiFamilyMemberDeleteResponse;
+      const payload = response.data as FamilyMemberDeleteOut;
       queryClient.setQueryData(['family', familyId], payload.family);
       await queryClient.invalidateQueries({ queryKey: ['families'] });
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });

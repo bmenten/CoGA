@@ -42,6 +42,7 @@ import {
 import type { AcmgFamilyContext } from '../../lib/acmg';
 import { apiPath } from '../../lib/apiPath';
 import type { ApiFamilyRelationship } from '../../lib/apiTypes';
+import type { GeneProfileOut, HpoAnnotationOut } from '../../lib/apiSchema.generated';
 import QueryFailure from '../../components/QueryFailure';
 import ReadOnlyNote from '../../components/ReadOnlyNote';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
@@ -63,12 +64,7 @@ type AcmgClassificationModalProps = {
   errorMessage?: string | null;
 };
 
-type HpoAnnotationLite = {
-  sample_id: string;
-  hpo_id: string;
-  label: string;
-  status: 'present' | 'absent' | 'unknown';
-};
+type HpoAnnotationLite = Pick<HpoAnnotationOut, 'sample_id' | 'hpo_id' | 'label' | 'status'>;
 
 // Stable empty defaults — fresh `[]` literals as render-time defaults would change
 // identity every render and retrigger the seeding effect in an infinite loop.
@@ -77,9 +73,10 @@ const EMPTY_RELATIONSHIPS: ApiFamilyRelationship[] = [];
 const EMPTY_HPO: HpoAnnotationLite[] = [];
 const EMPTY_TAGS: SmallVariantTagDefinition[] = [];
 
-// Slice of GET /genes/profile we read for gene-level ACMG context.
-type GeneProfileResponse = {
-  extra?: {
+// GET /genes/profile, read for gene-level ACMG context: its `extra`, which the backend serves as
+// an open object, holds what the gene reference sync wrote.
+type GeneProfileResponse = GeneProfileOut & {
+  extra: {
     clingen_dosage_assertions?: Array<{ haploinsufficiency?: string | null }>;
     gencc_assertions?: Array<{ moi_title?: string | null }>;
     hpo_terms?: Array<{ hpo_id?: string | null }>;
@@ -207,7 +204,7 @@ export default function AcmgClassificationModal({
     enabled: Boolean(familyId),
     queryFn: async () => {
       const response = await api.get(apiPath`/families/${familyId}/hpo`);
-      return response.data as HpoAnnotationLite[];
+      return response.data as HpoAnnotationOut[];
     },
   });
 

@@ -9,52 +9,23 @@ import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { isT2tChm13, useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
-import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
+import type {
+  GeneAssemblyLocationOut,
+  GeneInfoSourceStatusOut,
+  GeneMonarchAssociationOut,
+  GeneProfileOut,
+  GeneSearchResultOut,
+  GeneTranscriptOut,
+} from '../../lib/apiSchema.generated';
 import { raw, routePath } from '../../lib/routePath';
 
-interface GeneTranscript {
-  transcript_id: string;
-  start: number;
-  end: number;
-  exon_count: number;
-  strand: number;
-  biotype?: string | null;
-  source?: string | null;
-  // Stated per transcript by the annotation itself, so these are known for every gene.
-  mane_select?: boolean;
-  mane_plus_clinical?: boolean;
-  ensembl_canonical?: boolean;
-  // Matching RefSeq transcript accessions. Empty for a transcript RefSeq has no
-  // equivalent of, which is most of them — GENCODE maps about a sixth.
-  refseq_accessions?: string[];
-  // CCDS membership: the coding sequence agreed across Ensembl, NCBI and UCSC.
-  ccds_id?: string | null;
-}
-
-interface GenePanelMembership {
-  panel_id: string;
-  name: string;
-  gene_count: number;
-}
-
-interface GeneVariantCounts {
-  small_variants: number;
-  structural_variants: number;
-}
-
-interface GeneSourceStatus {
-  // 'not_consulted' means the source was never queried for this gene — not a statement
-  // about whether it has anything.
-  status: 'success' | 'missing' | 'not_consulted' | 'error';
-  fetched_at: string;
-  source_url?: string | null;
-  message?: string | null;
-  // Which issue of the source answered: dbNSFP's version, HGNC's newest modification
-  // date, ClinGen's file date. Absent for sources that state no release of their own.
-  release?: string | null;
-  release_detail?: { label?: string | null; checksum?: string | null; size_bytes?: number | null };
-  payload: Record<string, unknown>;
-}
+// A source's answer for the gene. `not_consulted` means the source was never queried for this
+// gene, not a statement about whether it has anything; `release` is the issue of the source that
+// answered (dbNSFP's version, HGNC's newest modification date, ClinGen's file date). The backend
+// serves `release_detail` as an open object; these are the fields the sources write in it.
+type GeneSourceStatus = GeneInfoSourceStatusOut & {
+  release_detail: { label?: string | null; checksum?: string | null; size_bytes?: number | null };
+};
 
 // Readable names for the raw source keys, so the provenance strip reads as data sources
 // rather than as column names.
@@ -68,23 +39,6 @@ const SOURCE_LABELS: Record<string, string> = {
   ncbi: 'NCBI Gene',
   acmg_sf: 'ACMG SF',
 };
-
-interface GeneExternalLink {
-  label: string;
-  href: string;
-}
-
-interface GeneAssemblyLocation {
-  assembly_id: string;
-  assembly_name: string;
-  assembly_version?: string | null;
-  chr: string;
-  start: number;
-  end: number;
-  transcript_count: number;
-  is_primary: boolean;
-  is_family_context: boolean;
-}
 
 interface GeneClingenCurationCounts {
   gene_disease_validity?: number | null;
@@ -171,23 +125,6 @@ interface GeneHpoTerm {
   label?: string | null;
 }
 
-interface MonarchPhenotypeMatch {
-  hpo_id: string;
-  label?: string | null;
-}
-
-interface GeneMonarchAssociation {
-  mondo_id: string;
-  disease_label?: string | null;
-  predicate: string;
-  predicates?: string[];
-  sources?: string[];
-  causal?: boolean;
-  monarch_url?: string | null;
-  phenotype_count?: number;
-  matched_phenotypes?: MonarchPhenotypeMatch[];
-}
-
 interface GeneOntology {
   biological_process?: string[];
   cellular_component?: string[];
@@ -250,6 +187,8 @@ interface GeneDbnsfpExpression {
   hpa_highly_expressed?: string[];
 }
 
+// The profile's `extra` is served as an open object (GeneProfileOut.extra): these name what the
+// gene reference sync writes into it.
 interface GeneProfileExtra {
   hgnc_name?: string | null;
   hgnc_gene_group?: string[];
@@ -282,42 +221,10 @@ interface GeneProfileExtra {
   constraint_metrics?: GeneConstraintMetrics;
 }
 
-interface GeneProfile {
-  assembly_id: string;
-  assembly_name: string;
-  assembly_version?: string | null;
-  species_name: string;
-  symbol: string;
-  gene_id: string;
-  display_name?: string | null;
-  summary?: string | null;
-  chr: string;
-  start: number;
-  end: number;
-  strand: number;
-  biotype?: string | null;
-  transcript_count: number;
-  transcripts: GeneTranscript[];
-  aliases: string[];
-  previous_symbols: string[];
-  ensembl_gene_id?: string | null;
-  ncbi_gene_id?: string | null;
-  hgnc_id?: string | null;
-  omim_gene_id?: string | null;
-  gene_type?: string | null;
-  location?: string | null;
-  assembly_locations: GeneAssemblyLocation[];
-  panels: GenePanelMembership[];
-  family_counts?: GeneVariantCounts | null;
+type GeneProfile = GeneProfileOut & {
   source_status: Record<string, GeneSourceStatus>;
-  // The annotation the loci and transcripts came from, recorded per assembly at import.
-  gene_annotation_source?: string | null;
-  gene_annotation_imported_at?: string | null;
-  external_links: GeneExternalLink[];
-  monarch_associations?: GeneMonarchAssociation[];
   extra: GeneProfileExtra;
-  updated_at?: string | null;
-}
+};
 
 interface DetailRow {
   label: string;
@@ -362,7 +269,7 @@ const formatLocus = (profile: Pick<GeneProfile, 'chr' | 'start' | 'end'>) => {
 };
 
 const formatAssemblyLabel = (
-  location: Pick<GeneAssemblyLocation, 'assembly_name' | 'assembly_version'>,
+  location: Pick<GeneAssemblyLocationOut, 'assembly_name' | 'assembly_version'>,
 ) => `${location.assembly_name}${location.assembly_version ? ` ${location.assembly_version}` : ''}`;
 
 const formatPercent = (value?: number | null, digits = 1) =>
@@ -433,7 +340,7 @@ const matchesAnyTranscript = (transcriptId: string, references?: string[] | null
  */
 const transcriptBadgesFor = (
   transcript: Pick<
-    GeneTranscript,
+    GeneTranscriptOut,
     'transcript_id' | 'mane_select' | 'mane_plus_clinical' | 'ensembl_canonical' | 'ccds_id'
   >,
   context: TranscriptAnnotationContext,
@@ -500,11 +407,11 @@ const buildAdvancedConstraintRows = (metrics?: GeneConstraintMetrics | null): De
   });
 
 const pickAssemblyLocation = (
-  locations: GeneAssemblyLocation[],
-  matcher: (location: GeneAssemblyLocation) => boolean,
+  locations: GeneAssemblyLocationOut[],
+  matcher: (location: GeneAssemblyLocationOut) => boolean,
 ) => locations.find((location) => matcher(location)) || null;
 
-const formatAssemblyCoordinate = (location: GeneAssemblyLocation | null) =>
+const formatAssemblyCoordinate = (location: GeneAssemblyLocationOut | null) =>
   location ? `${formatLocus(location)} (${formatAssemblyLabel(location)})` : 'Not imported';
 
 const MONARCH_PREDICATE_LABELS: Record<string, string> = {
@@ -912,7 +819,7 @@ const GeneInfoPage: React.FC = () => {
     () => (profile ? extractDbnsfpAssociations(profile) : []),
     [profile],
   );
-  const monarchAssociations = useMemo<GeneMonarchAssociation[]>(
+  const monarchAssociations = useMemo<GeneMonarchAssociationOut[]>(
     () => profile?.monarch_associations || [],
     [profile],
   );
@@ -1183,7 +1090,7 @@ const GeneInfoPage: React.FC = () => {
     if (!profile) return [];
 
     return [...profile.transcripts].sort((left, right) => {
-      const score = (transcript: GeneTranscript) => {
+      const score = (transcript: GeneTranscriptOut) => {
         // Surface clinically annotated transcripts first (MANE Select, MANE
         // Plus Clinical, RefSeq Select, Ensembl Canonical), then by source.
         const annotated =

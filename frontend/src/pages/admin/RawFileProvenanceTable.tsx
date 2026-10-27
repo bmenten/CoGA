@@ -1,13 +1,13 @@
 import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
-import {
-  formatStorageBytes,
-  type FamilyRawFiles,
-  type RawImportFile,
-  type RawFileVerifyResult,
-} from './dataManagementTypes';
+import { formatStorageBytes } from './dataManagementTypes';
 import { apiPath } from '../../lib/apiPath';
+import type {
+  FamilyRawFilesOut,
+  RawImportFileOut,
+  RawImportFileVerifyOut,
+} from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 
 interface RawFileProvenanceTableProps {
@@ -19,7 +19,8 @@ const shortHash = (value: string | null): string => {
   return value.length > 16 ? `${value.slice(0, 12)}…` : value;
 };
 
-const verifyToneClass = (status: RawFileVerifyResult['status']): string => {
+// A verification's status: verified, mismatch, missing, unverifiable or too_large.
+const verifyToneClass = (status: string): string => {
   switch (status) {
     case 'verified':
       return 'badge-chip badge-chip--success';
@@ -38,13 +39,13 @@ const OUTSIDE_READ_FOLDERS =
 
 // A file kept in the bucket a package was imported from is not downloaded here, and it
 // is not missing either.
-const downloadTitle = (file: RawImportFile): string => {
+const downloadTitle = (file: RawImportFileOut): string => {
   if (file.outside_read_folders) return OUTSIDE_READ_FOLDERS;
   if (file.in_object_store) return 'Kept in the object store at its storage path; download it from there';
   return file.download_available ? `Download ${file.file_name}` : 'Source file is no longer available';
 };
 
-const verifyTitle = (file: RawImportFile): string => {
+const verifyTitle = (file: RawImportFileOut): string => {
   if (file.outside_read_folders) return OUTSIDE_READ_FOLDERS;
   return file.in_object_store
     ? 'Compare the object in the store with what was recorded about it at import'
@@ -52,7 +53,7 @@ const verifyTitle = (file: RawImportFile): string => {
 };
 
 const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyId }) => {
-  const [verifyResults, setVerifyResults] = useState<Record<string, RawFileVerifyResult>>({});
+  const [verifyResults, setVerifyResults] = useState<Record<string, RawImportFileVerifyOut>>({});
   const [busyFileId, setBusyFileId] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
@@ -60,17 +61,17 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
     data,
     isLoading,
     error,
-  } = useQuery<FamilyRawFiles>({
+  } = useQuery<FamilyRawFilesOut>({
     queryKey: ['admin', 'data-inventory', 'family', familyId, 'files'],
     queryFn: async () => {
       const response = await api.get(apiPath`/admin/data/families/${familyId}/files`);
-      return response.data as FamilyRawFiles;
+      return response.data as FamilyRawFilesOut;
     },
     enabled: Boolean(familyId),
     retry: false,
   });
 
-  const downloadFile = async (file: RawImportFile) => {
+  const downloadFile = async (file: RawImportFileOut) => {
     setActionError(null);
     setBusyFileId(`download:${file.id}`);
     try {
@@ -94,14 +95,14 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
     }
   };
 
-  const verifyFile = async (file: RawImportFile) => {
+  const verifyFile = async (file: RawImportFileOut) => {
     setActionError(null);
     setBusyFileId(`verify:${file.id}`);
     try {
       const response = await api.post(apiPath`/admin/data/files/${file.id}/verify`);
       setVerifyResults((current) => ({
         ...current,
-        [file.id]: response.data as RawFileVerifyResult,
+        [file.id]: response.data as RawImportFileVerifyOut,
       }));
     } catch (error) {
       // The refusal's reason (a location CoGA does not read from), not a bare failure.
@@ -111,7 +112,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
     }
   };
 
-  const renderRow = (file: RawImportFile) => {
+  const renderRow = (file: RawImportFileOut) => {
     const verify = verifyResults[file.id];
     return (
       <tr key={file.id}>
@@ -167,7 +168,7 @@ const RawFileProvenanceTable: React.FC<RawFileProvenanceTableProps> = ({ familyI
     );
   };
 
-  const renderTable = (files: RawImportFile[], emptyLabel: string) => (
+  const renderTable = (files: RawImportFileOut[], emptyLabel: string) => (
     <div className="data-table-shell overflow-x-auto">
       <table className="analysis-table admin-raw-file-table">
         <thead>
