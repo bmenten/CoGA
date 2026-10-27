@@ -21,6 +21,7 @@ import {
   type SmallVariantSampleFilter,
   type SmallVariantTagDefinition,
 } from '../smallVariantSearch';
+import { tagDefinition } from '../../../test/tagDefinitions';
 
 const members: FamilyMember[] = [
   { sample_id: 'S1', role: 'proband', affected: true, sex: 'male' },
@@ -440,16 +441,17 @@ describe('location filters that cannot be read', () => {
 describe('deleted tags', () => {
   // A deleted custom tag is listed (inactive) only for the reviews that still hold it: it is
   // never offered, and is listed where a review or a filter holds it, so it can be unticked.
-  const tag = (key: string, label: string, isActive?: boolean): SmallVariantTagDefinition => ({
-    key,
-    label,
-    group: 'custom',
-    color: '#336699',
-    sort_order: 500,
-    scope: 'global',
-    is_custom: true,
-    ...(isActive === undefined ? {} : { is_active: isActive }),
-  });
+  const tag = (key: string, label: string, isActive?: boolean): SmallVariantTagDefinition =>
+    tagDefinition({
+      key,
+      label,
+      group: 'custom',
+      color: '#336699',
+      sort_order: 500,
+      scope: 'global',
+      is_custom: true,
+      ...(isActive === undefined ? {} : { is_active: isActive }),
+    });
   const tags = [
     tag('review', 'Review'),
     tag('needs_segregation', 'Needs segregation', true),

@@ -64,10 +64,12 @@ const SURNAME_ONLY: TestUser = {
 };
 const USERS = [ANN, PENDING, SURNAME_ONLY];
 
+// As /projects serves them (ProjectDashboardOut): a project's id is `_id`. The page read `id`,
+// which the backend never sends, so it listed no user's projects (ENG-7).
 const PROJECTS = [
-  { id: 'p1', name: 'Rare disease', description: 'Trio exomes' },
-  { id: 'p2', name: 'NIPT' },
-  { id: 'p3', name: 'Oncology' },
+  { _id: 'p1', name: 'Rare disease', description: 'Trio exomes' },
+  { _id: 'p2', name: 'NIPT' },
+  { _id: 'p3', name: 'Oncology' },
 ];
 
 // Serve the two lists the page reads; any other GET is a request it should not make.

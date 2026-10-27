@@ -5,19 +5,11 @@ import VizErrorOverlay from './VizErrorOverlay';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { useNavigate } from 'react-router';
 import api from '../../lib/api';
+import type { ClinicalCnvOut } from '../../lib/apiSchema.generated';
 import { cssVar } from '../../lib/colors';
 import VizTooltip from './VizTooltip';
 import { apiPath } from '../../lib/apiPath';
 import { routePath } from '../../lib/routePath';
-
-interface Cnv {
-  _id: string;
-  start: number;
-  end: number;
-  type?: string;
-  label: string;
-  details_html?: string;
-}
 
 interface Props {
   assembly: string;
@@ -34,7 +26,7 @@ const MAX_LABEL_LENGTH = 150;
 
 // The surface's name for a screen reader (#529): how many clinical CNVs are in view and
 // as many of the first three names as fit in about 150 characters, then "…".
-const describeCnvs = (lead: string, cnvs: Cnv[]): string => {
+const describeCnvs = (lead: string, cnvs: ClinicalCnvOut[]): string => {
   const head = `${lead}: ${cnvs.length.toLocaleString()} (`;
   const budget = MAX_LABEL_LENGTH - head.length - ', …)'.length;
   let named = cnvs.slice(0, 3).map((cnv) => cnv.label.trim());
@@ -56,13 +48,13 @@ const CnvTrack: React.FC<Props> = ({
   const [tooltip, setTooltip] = React.useState<{ x: number; y: number; label: string } | null>(
     null,
   );
-  const { data: rawData, isError, refetch } = useQuery<Cnv[]>({
+  const { data: rawData, isError, refetch } = useQuery<ClinicalCnvOut[]>({
     queryKey: ['cnvs', assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(apiPath`/cnvs/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
-      return res.data as Cnv[];
+      return res.data as ClinicalCnvOut[];
     },
     enabled: regionEnd > regionStart,
     staleTime: Infinity,

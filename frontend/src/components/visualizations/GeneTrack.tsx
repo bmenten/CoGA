@@ -6,29 +6,10 @@ import VizErrorOverlay from './VizErrorOverlay';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { select } from "d3-selection";
 import api from "../../lib/api";
+import type { GeneOut, GenePanelOut } from "../../lib/apiSchema.generated";
 import { cssVar } from "../../lib/colors";
 import { apiPath } from '../../lib/apiPath';
 import { escapeHtml } from "../../lib/escapeHtml";
-
-interface GeneExon {
-  start: number;
-  end: number;
-  name: string;
-}
-
-interface Gene {
-  gene_id: string;
-  hgnc_symbol: string;
-  start: number;
-  end: number;
-  exons: GeneExon[];
-  strand: number;
-}
-
-interface GenePanel {
-  name: string;
-  genes: string[];
-}
 
 interface Props {
   assembly: string;
@@ -42,7 +23,7 @@ const GENE_HEIGHT = 8;
 const LINE_HEIGHT = GENE_HEIGHT + 4;
 
 // How many genes are in view and the first three, in the order drawn (#529).
-const describeGenes = (genes: Gene[]): string => {
+const describeGenes = (genes: GeneOut[]): string => {
   const names = genes.slice(0, 3).map((gene) => gene.hgnc_symbol).join(", ");
   return `${genes.length.toLocaleString()} (${names}${genes.length > 3 ? ", …" : ""})`;
 };
@@ -57,13 +38,13 @@ const GeneTrack: React.FC<Props> = ({
   const svgRef = useRef<SVGSVGElement | null>(null);
   const tooltipRef = useRef<HTMLDivElement | null>(null);
 
-  const { data: rawGenes, isError, refetch } = useQuery<Gene[]>({
+  const { data: rawGenes, isError, refetch } = useQuery<GeneOut[]>({
     queryKey: ["genes", assembly, chrom, regionStart, regionEnd],
     queryFn: async () => {
       const res = await api.get(apiPath`/genes/${assembly}/${chrom}`, {
         params: { start: regionStart, end: regionEnd },
       });
-      return res.data as Gene[];
+      return res.data as GeneOut[];
     },
     enabled: regionEnd > regionStart,
     staleTime: Infinity,
@@ -76,11 +57,11 @@ const GeneTrack: React.FC<Props> = ({
     isError,
   );
 
-  const { data: panels } = useQuery<GenePanel[]>({
+  const { data: panels } = useQuery<GenePanelOut[]>({
     queryKey: ["gene-panels"],
     queryFn: async () => {
       const res = await api.get(`/panels`);
-      return res.data as GenePanel[];
+      return res.data as GenePanelOut[];
     },
   });
 

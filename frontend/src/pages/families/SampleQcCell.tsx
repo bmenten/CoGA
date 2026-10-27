@@ -16,6 +16,7 @@ import {
 } from './familyDetailHelpers';
 import { apiPath } from '../../lib/apiPath';
 import { crossedLimit, formatQcLimit, formatQcMetricValue } from '../../lib/qcMetricValue';
+import type { FamilyQcReportLinkOut } from '../../lib/apiSchema.generated';
 
 interface SampleQcCellProps {
   familyId: string;
@@ -165,7 +166,7 @@ const SampleQcCell: React.FC<SampleQcCellProps> = ({ familyId, member }) => {
     setBusy(true);
     setError(null);
     try {
-      const response = await api.get(
+      const response = await api.get<FamilyQcReportLinkOut>(
         apiPath`/families/${familyId}/qc-report/${member.sample_id}/link`,
       );
       const url = response.data?.url;

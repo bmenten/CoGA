@@ -1,27 +1,26 @@
 import React from 'react';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
-import {
-  formatStorageBytes,
-  type ClickHouseVariantAssemblyStatus,
-  type ClickHouseVariantIntegrity,
-} from './dataManagementTypes';
+import { formatStorageBytes } from './dataManagementTypes';
 import { apiPath } from '../../lib/apiPath';
 import type {
   ClickHouseIntegrityMonitorOut,
   ClickHouseIntegrityMonitorResultOut,
+  ClickHouseVariantAssemblyStatusOut,
+  ClickHouseVariantIntegrityOut,
 } from '../../lib/apiSchema.generated';
 import { formatCount, formatTimestamp } from '../../lib/format';
 
-const INTEGRITY_LABELS: Record<ClickHouseVariantIntegrity['status'], string> = {
+// The statuses and health values the backend writes; it serves them as strings, and another is
+// shown as written.
+const INTEGRITY_LABELS: Record<string, string> = {
   ok: 'Healthy',
   degraded: 'Degraded',
   corrupt: 'Corrupt',
   missing: 'No tables',
 };
 
-const integrityLabel = (status: string): string =>
-  INTEGRITY_LABELS[status as ClickHouseVariantIntegrity['status']] ?? status;
+const integrityLabel = (status: string): string => INTEGRITY_LABELS[status] ?? status;
 
 const formatInterval = (seconds: number): string => {
   if (seconds % 3600 === 0) {
@@ -52,7 +51,7 @@ type RunAction = (
 ) => void;
 
 interface ClickhouseVariantOperationsSectionProps {
-  assemblies: ClickHouseVariantAssemblyStatus[];
+  assemblies: ClickHouseVariantAssemblyStatusOut[];
   errorMessage?: string | null;
   busyKey: string | null;
   onRunAction: RunAction;
@@ -61,7 +60,7 @@ interface ClickhouseVariantOperationsSectionProps {
   integrityMonitorError?: string | null;
 }
 
-const HEALTH_LABELS: Record<ClickHouseVariantAssemblyStatus['health'], string> = {
+const HEALTH_LABELS: Record<string, string> = {
   ready: 'Ready',
   mutating: 'Pending mutations',
   missing: 'Missing tables',
@@ -124,7 +123,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
   // The integrity check is a read-only probe (unlike the mutating onRunAction
   // operations), so it manages its own per-assembly fetch state and shows the
   // returned report inline.
-  const [integrity, setIntegrity] = React.useState<Record<string, ClickHouseVariantIntegrity>>({});
+  const [integrity, setIntegrity] = React.useState<Record<string, ClickHouseVariantIntegrityOut>>({});
   const [integrityBusy, setIntegrityBusy] = React.useState<string | null>(null);
   const [integrityError, setIntegrityError] = React.useState<Record<string, string>>({});
 
@@ -136,7 +135,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
       return next;
     });
     try {
-      const response = await api.get<ClickHouseVariantIntegrity>(
+      const response = await api.get<ClickHouseVariantIntegrityOut>(
         apiPath`/admin/clickhouse/variants/${assemblyName}/integrity`,
       );
       setIntegrity((prev) => ({ ...prev, [assemblyName]: response.data }));
@@ -177,7 +176,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
                 <div className="space-y-2">
                   <h3>{assembly.assembly_name}</h3>
                   <div className="admin-variant-metrics">
-                    <span className="badge-chip">{HEALTH_LABELS[assembly.health]}</span>
+                    <span className="badge-chip">{HEALTH_LABELS[assembly.health] ?? assembly.health}</span>
                     <span className="badge-chip">
                       {formatCount(assembly.small_variant_rows)} SNV rows
                     </span>
@@ -285,7 +284,7 @@ const ClickhouseVariantOperationsSection: React.FC<ClickhouseVariantOperationsSe
                 >
                   <div className="admin-variant-metrics">
                     <span className="badge-chip">
-                      Integrity: {INTEGRITY_LABELS[integrity[assembly.assembly_name].status]}
+                      Integrity: {integrityLabel(integrity[assembly.assembly_name].status)}
                     </span>
                     {integrity[assembly.assembly_name].detached_broken_parts.length > 0 && (
                       <span className="badge-chip">

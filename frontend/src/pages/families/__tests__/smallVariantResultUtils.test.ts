@@ -17,6 +17,7 @@ import {
   visibleReviewTagKeys,
 } from '../smallVariantResultUtils';
 import type { SmallVariantTagDefinition } from '../smallVariantSearch';
+import { tagDefinition } from '../../../test/tagDefinitions';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatGenomicChange>[0];
@@ -433,16 +434,17 @@ describe('visibleReviewTagKeys', () => {
 describe('review tag chips', () => {
   // A deleted custom tag stays on the reviews that hold it: its chip keeps the label and
   // colour, marked, so it is not taken for a tag that can still be added.
-  const tag = (key: string, label: string, isActive?: boolean): SmallVariantTagDefinition => ({
-    key,
-    label,
-    group: 'custom',
-    color: '#336699',
-    sort_order: 500,
-    scope: 'global',
-    is_custom: true,
-    ...(isActive === undefined ? {} : { is_active: isActive }),
-  });
+  const tag = (key: string, label: string, isActive?: boolean): SmallVariantTagDefinition =>
+    tagDefinition({
+      key,
+      label,
+      group: 'custom',
+      color: '#336699',
+      sort_order: 500,
+      scope: 'global',
+      is_custom: true,
+      ...(isActive === undefined ? {} : { is_active: isActive }),
+    });
   const tagMap = {
     needs_segregation: tag('needs_segregation', 'Needs segregation', true),
     probe_x: tag('probe_x', 'Probe X', false),

@@ -71,8 +71,6 @@ export type ApiContract = [
   Check<Fits<Api.ApiSampleIntegrityQc, Schema.SampleIntegrityQcOut>>,
   Check<Fits<Api.ApiClinicalCnv, Schema.ClinicalCnvOut>>,
   Check<Fits<Api.ApiChromosome, Schema.ChromosomeOut>>,
-  Check<Fits<Api.ApiGenomeTrackAvailability, Schema.TrackAvailabilityOut>>,
-  Check<Fits<Api.ApiChromosomeTrackAvailability, Schema.TrackAvailabilityOut>>,
   Check<Fits<Api.ApiRepeatExpansionMotifCount, Schema.RepeatExpansionMotifCountOut>>,
   Check<Fits<Api.ApiRepeatExpansionAllele, Schema.RepeatExpansionAlleleOut>>,
   Check<Fits<Api.ApiRepeatExpansionSampleCall, Schema.RepeatExpansionSampleCallOut>>,

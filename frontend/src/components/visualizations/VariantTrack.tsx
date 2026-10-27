@@ -3,7 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import VizErrorOverlay from './VizErrorOverlay';
 import api from '../../lib/api';
-import type { ApiVariantPage } from '../../lib/apiTypes';
+import type { WithoutNulls } from '../../lib/apiTypes';
+import type { VariantOut, VariantPage } from '../../lib/apiSchema.generated';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { getTrackVariantLimit } from '../../lib/trackSampling';
@@ -18,33 +19,13 @@ import {
   svTypeColors,
   svTypeKey,
   svTypeLabel,
-  type SvCopyChange,
   type SvTypeKey,
 } from './svTypes';
 
-interface Genotype {
-  sample: string;
-  gt: string;
-  read_support?: number;
-  qual?: number;
-  filter?: string;
-  cn?: number | null;
-}
-
-interface Variant {
-  chr: string;
-  start: number;
-  end: number;
-  type: string;
-  length?: number;
-  source?: string;
-  read_support?: number;
-  qual?: number;
-  filter?: string;
-  // Left out of the track payload when the SV changes no copy number.
-  copy_change?: SvCopyChange;
-  genotypes?: Genotype[];
-}
+// The SV list in track mode leaves out every null field (WithoutNulls): an SV that changes no
+// copy number comes without `copy_change`, a call without a read count without `read_support`.
+type TrackPage = WithoutNulls<VariantPage>;
+type Variant = WithoutNulls<VariantOut>;
 
 interface Props {
   familyId: string;
@@ -59,13 +40,13 @@ interface Props {
 
 type VariantType = SvTypeKey;
 
-interface PositionedVariant extends Variant {
+type PositionedVariant = Variant & {
   x1: number;
   x2: number;
   y1: number;
   y2: number;
   typeKey: VariantType;
-}
+};
 
 const VariantTrack: React.FC<Props> = ({
   familyId,
@@ -90,7 +71,7 @@ const VariantTrack: React.FC<Props> = ({
   );
   const pageSize = React.useMemo(() => getTrackVariantLimit(width), [width]);
   const regionInView = hasRegionInView(regionStart, regionEnd);
-  const { data: rawData, isLoading, isError, refetch } = useQuery<ApiVariantPage<Variant>>({
+  const { data: rawData, isLoading, isError, refetch } = useQuery<TrackPage>({
     queryKey: [
       'variants',
       familyId,
@@ -113,7 +94,7 @@ const VariantTrack: React.FC<Props> = ({
         ...(filters || {}),
       };
       const res = await api.get(apiPath`/families/${familyId}/structural-variants`, { params });
-      return res.data as ApiVariantPage<Variant>;
+      return res.data as TrackPage;
     },
     enabled: regionInView,
   });

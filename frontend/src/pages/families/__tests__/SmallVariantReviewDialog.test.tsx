@@ -108,10 +108,13 @@ const tagDefinition = (
 ): SmallVariantTagDefinition => ({
   key,
   label,
+  description: null,
   group: 'custom',
   color: '#336699',
   sort_order: 500,
   scope: 'global',
+  project_id: null,
+  shared_project_ids: [],
   is_custom: true,
   is_active: true,
   ...fields,

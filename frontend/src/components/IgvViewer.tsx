@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { Browser as IgvBrowser, CreateOpt as IgvCreateOpt } from 'igv';
 import api, { isAbsoluteUrl, resolveApiUrl, sessionAccessToken } from '../lib/api';
 import { apiPath, raw } from '../lib/apiPath';
+import type { AlignmentManifestEntryOut, SignalTrackManifestEntryOut } from '../lib/apiSchema.generated';
 import PageState from './PageState';
 import QueryFailure from './QueryFailure';
 import { getErrorMessage } from '../lib/errorMessage';
@@ -16,26 +17,6 @@ interface IgvViewerProps {
   sampleIds: string[];
   genome?: string;
   locus?: string;
-}
-
-interface AlignmentManifestEntry {
-  sample_id: string;
-  format: 'bam' | 'cram';
-  url: string;
-  index_url: string;
-}
-
-/** A CNV caller's signal file — read depth, minor allele fraction, copy number. */
-interface SignalTrackManifestEntry {
-  sample_id: string;
-  source: string;
-  kind: string;
-  name: string;
-  format: 'bigwig' | 'bedgraph';
-  url: string;
-  /** Fixed axis bounds where the quantity has them; null means autoscale. */
-  min: number | null;
-  max: number | null;
 }
 
 const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locus }) => {
@@ -157,13 +138,13 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
             if (!disposed && seq === createSeqRef.current && !isAbortLikeError(error)) {
               setSignalTracksFailed(true);
             }
-            return { data: [] as SignalTrackManifestEntry[] };
+            return { data: [] as SignalTrackManifestEntryOut[] };
           }),
         ]);
         // In S3 mode the manifest returns absolute presigned URLs (auth is baked
         // into the URL); IGV must fetch those directly without our bearer header.
         // In local mode the URLs are backend-relative and need the API base + auth.
-        const alignmentTracks = (manifestResponse.data as AlignmentManifestEntry[]).map((entry) => ({
+        const alignmentTracks = (manifestResponse.data as AlignmentManifestEntryOut[]).map((entry) => ({
           name: entry.sample_id,
           type: 'alignment',
           format: entry.format,
@@ -171,7 +152,9 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
           indexURL: resolveApiUrl(entry.index_url, base),
           ...(isAbsoluteUrl(entry.url) ? {} : auth),
         }));
-        const signalTracks = (signalResponse.data as SignalTrackManifestEntry[]).map((entry) => ({
+        // A CNV caller's signal file (read depth, minor allele fraction, copy number), with
+        // fixed axis bounds where the quantity has them; null bounds mean autoscale.
+        const signalTracks = (signalResponse.data as SignalTrackManifestEntryOut[]).map((entry) => ({
           name: entry.name,
           type: 'wig',
           format: entry.format,

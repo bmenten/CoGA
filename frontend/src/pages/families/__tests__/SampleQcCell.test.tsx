@@ -3,11 +3,11 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import SampleQcCell from '../SampleQcCell';
 import api from '../../../lib/api';
+import type { ApiFamilyRecord } from '../../../lib/apiTypes';
 import type {
-  ApiFamilyRecord,
-  ApiSampleSequencingQcEvaluation,
-  ApiSampleSequencingQcMetric,
-} from '../../../lib/apiTypes';
+  SampleSequencingQcEvaluationOut,
+  SampleSequencingQcMetricOut,
+} from '../../../lib/apiSchema.generated';
 
 vi.mock('../../../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../../../lib/api')>('../../../lib/api');
@@ -42,7 +42,7 @@ const QC = {
 };
 
 /** One metric as the backend judges it against its limits (`evaluate_sequencing_qc`). */
-const metric = (overrides: Partial<ApiSampleSequencingQcMetric> = {}): ApiSampleSequencingQcMetric => ({
+const metric = (overrides: Partial<SampleSequencingQcMetricOut> = {}): SampleSequencingQcMetricOut => ({
   metric_key: 'depth.mean_depth',
   label: 'Mean depth',
   unit: 'x',
@@ -63,9 +63,9 @@ const DUPLICATES = {
 
 /** The overall verdict the family read serves beside a member's recorded QC. */
 const evaluation = (
-  verdict: ApiSampleSequencingQcEvaluation['verdict'],
-  metrics: ApiSampleSequencingQcMetric[],
-): ApiSampleSequencingQcEvaluation => ({
+  verdict: SampleSequencingQcEvaluationOut['verdict'],
+  metrics: SampleSequencingQcMetricOut[],
+): SampleSequencingQcEvaluationOut => ({
   verdict,
   metrics,
   breached: metrics
@@ -76,7 +76,7 @@ const evaluation = (
 });
 
 const judged = (
-  verdict: ApiSampleSequencingQcEvaluation | null,
+  verdict: SampleSequencingQcEvaluationOut | null,
   sampleMetadata: Record<string, unknown> = QC,
 ): ApiFamilyRecord['members'][number] => ({ ...member(sampleMetadata), sequencing_qc: verdict });
 
@@ -246,8 +246,8 @@ describe('SampleQcCell', () => {
   });
 });
 
-const LOWER: ApiSampleSequencingQcMetric['direction'] = 'lower_is_worse';
-const HIGHER: ApiSampleSequencingQcMetric['direction'] = 'higher_is_worse';
+const LOWER: SampleSequencingQcMetricOut['direction'] = 'lower_is_worse';
+const HIGHER: SampleSequencingQcMetricOut['direction'] = 'higher_is_worse';
 
 /** A breaching metric per unit, and how the breach sentence writes it against its limit. */
 const UNIT_CASES = [
@@ -568,7 +568,7 @@ const IMPUTED_CONCORDANCE = {
   value: EMBRYO_PGT.mendelian_concordance_imputed,
 } as const;
 
-type Limits = Pick<ApiSampleSequencingQcMetric, 'warn_value' | 'error_value' | 'verdict'>;
+type Limits = Pick<SampleSequencingQcMetricOut, 'warn_value' | 'error_value' | 'verdict'>;
 const NO_LIMIT: Limits = { warn_value: null, error_value: null, verdict: 'skip' };
 const ADI_PASS: Limits = { warn_value: 5, error_value: 10, verdict: 'pass' };
 const IMPUTED_PASS: Limits = { warn_value: 95, error_value: 90, verdict: 'pass' };
@@ -579,7 +579,7 @@ const embryoMetrics = (
   adi: Limits = NO_LIMIT,
   concordance: Limits = NO_LIMIT,
   imputed: Limits = NO_LIMIT,
-): ApiSampleSequencingQcMetric[] => [
+): SampleSequencingQcMetricOut[] => [
   metric({ ...ADO, ...ado }),
   metric({ ...ADI, ...adi }),
   metric({ ...CONCORDANCE, ...concordance }),
@@ -587,7 +587,7 @@ const embryoMetrics = (
 ];
 
 const embryo = (
-  verdict: ApiSampleSequencingQcEvaluation | null,
+  verdict: SampleSequencingQcEvaluationOut | null,
   pgt: Record<string, number> = EMBRYO_PGT,
   extra: Record<string, unknown> = {},
 ): ApiFamilyRecord['members'][number] => ({
