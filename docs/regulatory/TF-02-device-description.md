@@ -113,27 +113,32 @@ The reference is written into the report by the person who drafts it.
 - Application-specific derived calls: NIPT fetal-fraction + per-variant category and fetal-inheritance probabilities, triaged de novo candidates, per-gene recessive fetal risk and quality checks; PGT per-embryo ROI classification with QC. For the analyst's aneuploidy and large-SV review, each embryo's segment, copy-number and APCAD tracks (no automatic aneuploidy call).
 - A **signed-out analysis** (the family report, signed out by the analyst: the analytical sign-off) with a provenance footer, and an immutable clinical audit trail. Each signed version is frozen and content-hashed, rendered and printed from its frozen record, and downloadable; the live report says when it no longer matches the latest signed version (TF-06 H9). The clinical report is not a CoGA output: it is drafted and medically signed in the EPD and refers 1:1 to a signed version (§3).
 
-**Which outputs are signed.** Only the family report is signed out. Its signed record holds the
-reported small variants, structural variants and CNVs (each with its classification, criteria,
-frozen evidence, tags and note), the annotation, reference and software versions, the evidence
-drift, the Sample QC, the sequencing QC with its cut-offs and the import state
-([clinical-traceability.md](../clinical-traceability.md)); it holds no variant description
-(TF-09b §3). The PGT embryo calls (REQ-PGT-005) are part of no signed record: CoGA derives them
-in the browser and shows them on the family page, and the family report does not include them.
-The NIPT results are part of no signed record either: the NIPT report has no sign-out, and a
-sign-out of a NIPT family's family report freezes none of the fetal-fraction estimate, the
-per-variant categories and fetal-inheritance probabilities, the de novo candidates or the
-per-gene recessive fetal risk; of the NIPT analysis it freezes only the Sample QC checks
-(paternity, the fetal sex read from the father's X alleles, the category QC). A clinical report
-in the EPD that states an embryo call or a NIPT result therefore refers to a signed version that
-does not hold it (§3). **🔲 OWNER:** decide per application what the signed record is to hold;
-until then the PGT embryo calls and the NIPT results are not signed (TF-06 H5, H6, H9;
-[open-issues.md](../open-issues.md) REG-2).
+**Which outputs are signed.** The sign-out freezes the family's analysis into one signed record,
+which the clinical report in the EPD quotes by its report code (§3; the owner's decision of
+2026-10-14). Every family's record holds the reported small variants, structural variants and
+CNVs (each with its classification, criteria, frozen evidence, tags and note, and its
+description as the analyst reviewed it, #879), the annotation, reference and software versions,
+the reference-data releases, the gene-panel versions the family's searches applied, the
+repeat-expansion and Paraphase calls with their status, what each coverage track held (#911),
+the evidence drift, the Sample QC, the sequencing QC with its cut-offs and the import state
+([clinical-traceability.md](../clinical-traceability.md)). A PGT family's record also holds the
+embryo calls (REQ-PGT-005): the backend makes them from the stored haplotype blocks, the family
+page shows the calls it serves, and the record freezes them with each embryo's phasing QC at
+the ROI and that QC's verdict against provisional thresholds (#899, #908). A monogenic NIPT
+family's analysis is signed out from the NIPT page or the report page, and its record also
+holds the NIPT results as the backend computes them: the fetal-fraction estimate, the quality
+checks with their verdicts, the target coverage, each variant tagged for the report with its
+category, fetal-inheritance probabilities and, for a de novo candidate, its triage, and the
+recessive fetal risk of those variants' genes (#900). The record holds no gene or phenotype
+context, no population frequencies or in silico predictions beyond those a small variant's
+classification froze in its evidence snapshot, and no NIPT candidate that is not tagged for the
+report (TF-09b §3). **🔲 OWNER:** decide per application what the signed record is to hold
+(decided on 2026-10-14, as above; TF-06 H5, H6, H9).
 
 > No output is an autonomous diagnosis. All outputs are reviewed by a qualified professional
 > (TF-01 §4). The analyst signs out the analysis in CoGA (the analytical sign-off), and the
-> clinical report is medically signed in the EPD (TF-01 §1); CoGA records a sign-out for the
-> family report only.
+> clinical report is medically signed in the EPD (TF-01 §1); CoGA records the sign-out of the
+> family's analysis, made from the report page or, for a monogenic NIPT family, the NIPT page.
 
 ## 7. Architecture & technology
 
