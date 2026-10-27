@@ -21,6 +21,7 @@ import { parsePedigree } from '../../lib/pedigree';
 import {
   buildPresetPayload,
   createEmptySmallFilters,
+  describeUnappliedFilters,
   isNiptInheritanceView,
   NIPT_BUILT_IN_PRESETS,
   NIPT_INHERITANCE_LABELS,
@@ -28,9 +29,7 @@ import {
   NIPT_UNSUPPORTED_FILTERS,
   niptAppliesFilterChip,
   REPORT_TAG_KEY,
-  SMALL_INHERITANCE_LABELS,
   useSmallVariantSearchState,
-  type ActiveSmallFilterChip,
   type GenePanel,
   type SmallFilterState,
   type SmallVariant,
@@ -181,41 +180,6 @@ const buildVariantParams = (f: SmallFilterState, page: number): Record<string, u
   return params;
 };
 
-// How the note names the filters of a search the NIPT list does not apply (ENG-19).
-const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = {
-  classification: 'classification',
-  has_notes: 'saved-notes',
-  prioritize: 'phenotype-prioritization',
-  expanded_carrier_screening: 'carrier-screening',
-  require_sv_second_hit: 'SV second-hit',
-  locus: 'location',
-};
-
-const unappliedFilterName = (chip: ActiveSmallFilterChip): string => {
-  if (chip.kind !== 'top') return 'per-sample';
-  // An inheritance mode that is not one of the list's views, by the label the small-variant
-  // list gives it: “De novo / dominant” inheritance.
-  if (chip.key === 'inheritance') {
-    const mode = chip.value ?? '';
-    return `“${SMALL_INHERITANCE_LABELS[mode] ?? mode}” inheritance`;
-  }
-  return UNAPPLIED_FILTER_NAMES[chip.key] ?? chip.key;
-};
-
-// A saved search made on the small-variant list, or a link, can carry filters the NIPT list
-// does not apply. They get no chip, which would claim them, and are named once: null when the
-// search carries none.
-const describeUnappliedFilters = (chips: ActiveSmallFilterChip[]): string | null => {
-  const names: string[] = [];
-  chips.forEach((chip) => {
-    const name = unappliedFilterName(chip);
-    if (!names.includes(name)) names.push(name);
-  });
-  if (!names.length) return null;
-  const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
-  return `The NIPT list does not apply this search’s ${listed} filter${names.length === 1 ? '' : 's'}.`;
-};
-
 const FamilyNiptPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
   const location = useLocation();
@@ -287,11 +251,12 @@ const FamilyNiptPage: React.FC = () => {
     // rests on genotype and phenotype filters that do not apply to cfDNA.
     freshOpenPreset: 'nipt_de_novo',
   });
-  // Chipped and counted: the filters the NIPT list applies. A saved search or a link may carry
-  // others, such as a classification: they showed as chips the list did not apply (ENG-19).
+  // Chipped and counted: the filters the NIPT list applies. A saved search made on the
+  // small-variant list, or a link, may carry others, such as a classification: they showed as
+  // chips the list did not apply (ENG-19). They are named once instead.
   const appliedFilterChips = useMemo(() => activeFilterChips.filter(niptAppliesFilterChip), [activeFilterChips]);
   const unappliedFiltersNote = useMemo(
-    () => describeUnappliedFilters(activeFilterChips.filter((chip) => !niptAppliesFilterChip(chip))),
+    () => describeUnappliedFilters('NIPT list', activeFilterChips.filter((chip) => !niptAppliesFilterChip(chip))),
     [activeFilterChips],
   );
 

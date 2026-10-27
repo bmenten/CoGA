@@ -4,18 +4,24 @@ import {
   ALL_GT_GROUPS,
   HET_GT_GROUP,
   addableTagDefinitions,
+  buildActiveFilterChips,
   buildSmallVariantQueryParams,
   buildPresetPayload,
   createEmptySmallFilters,
+  describeUnappliedFilters,
   deserializePresetFilters,
   hasLocationProblems,
   heldTagOptions,
+  niptAppliesFilterChip,
   resolveSampleFiltersFromPreset,
   serializePresetFilters,
+  smallVariantAppliesFilterChip,
+  smallVariantListFilters,
   smallVariantLocationProblems,
   tagDefinitionLabel,
   useSmallVariantSearchState,
   type FamilyMember,
+  type SmallFilterState,
   type SmallPreset,
   type SmallVariantFilterPreset,
   type SmallVariantSampleFilter,
@@ -544,5 +550,125 @@ describe('preset filter (de)serialisation', () => {
     expect(filters.prioritize).toBe('true');
     expect(filters.require_sv_second_hit).toBe('');
     expect(filters.impact).toBe('HIGH');
+  });
+});
+
+// Found while fixing #1012: a search saved on the NIPT page, or a link, carries the NIPT list's own
+// filters. The small-variant list reads none of them: its route refused a NIPT inheritance view
+// (400) and read the fetal de novo one as de novo / dominant, and declares none of the others. The
+// page sends none of them, and names them once instead of chipping them.
+describe('a NIPT search on the small-variant list', () => {
+  const niptSearch = (): SmallFilterState => ({
+    ...createEmptySmallFilters(),
+    inheritance: 'de_novo',
+    impact: 'HIGH, MODERATE',
+    max_gnomad_af: '0.01',
+    category: '1, 7',
+    min_confidence: '0.9',
+    include_not_inherited: 'true',
+    de_novo_priority: 'medium',
+  });
+  const readInheritance = (inheritance: string) =>
+    smallVariantListFilters({ ...createEmptySmallFilters(), inheritance }).inheritance;
+
+  it('reads none of the NIPT list’s own filters, nor any of its inheritance views', () => {
+    expect(smallVariantListFilters(niptSearch())).toEqual({
+      ...niptSearch(),
+      inheritance: '',
+      category: '',
+      min_confidence: '',
+      include_not_inherited: '',
+      de_novo_priority: '',
+    });
+    ['de_novo', 'paternal_dominant', 'maternal_dominant', 'recessive_at_risk'].forEach((view) =>
+      expect(readInheritance(view), view).toBe(''),
+    );
+  });
+
+  it('reads its own modes as they are, another spelling of one as that mode, and nothing else', () => {
+    expect(readInheritance('compound_het')).toBe('compound_het');
+    expect(readInheritance('recessive')).toBe('recessive');
+    expect(readInheritance('dominant')).toBe('de_novo_dominant');
+    expect(readInheritance('xlinked')).toBe('x_linked');
+    expect(readInheritance('custom_mode')).toBe('');
+    expect(readInheritance('constructor')).toBe('');
+    expect(readInheritance('')).toBe('');
+  });
+
+  it('chips only what the list applies, and names the rest once', () => {
+    const chips = buildActiveFilterChips(niptSearch(), members, {});
+    const applied = chips.filter(smallVariantAppliesFilterChip);
+    expect(applied.map((chip) => chip.label)).toEqual([
+      'Impact: HIGH',
+      'Impact: MODERATE',
+      'ClinVar P/LP overrides frequency',
+      'Max gnomAD AF: 0.01',
+    ]);
+    expect(
+      describeUnappliedFilters(
+        'small-variant list',
+        chips.filter((chip) => !smallVariantAppliesFilterChip(chip)),
+      ),
+    ).toBe(
+      'The small-variant list does not apply this search’s “De novo in the fetus” inheritance, maternal/fetal category, minimum-confidence, not-inherited-alleles and de novo priority filters.',
+    );
+    expect(describeUnappliedFilters('small-variant list', [])).toBeNull();
+  });
+
+  it('chips another spelling of a mode by that mode, and the NIPT page names it so', () => {
+    const search = { ...createEmptySmallFilters(), inheritance: 'dominant', has_notes: 'true' };
+    const chips = buildActiveFilterChips(search, members, {});
+    expect(chips.filter(smallVariantAppliesFilterChip).map((chip) => chip.label)).toEqual([
+      'Inheritance: De novo / dominant',
+      'ClinVar P/LP overrides frequency',
+      'Has notes',
+    ]);
+    expect(describeUnappliedFilters('NIPT list', chips.filter((chip) => !niptAppliesFilterChip(chip)))).toBe(
+      'The NIPT list does not apply this search’s “De novo / dominant” inheritance and saved-notes filters.',
+    );
+  });
+
+  it('keeps the search whole in the URL and a saved search, and requests and counts what the list applies', async () => {
+    const family = { members, relationships: [], projects: [] } as never;
+    const navigate = vi.fn();
+    const { result } = renderHook(() =>
+      useSmallVariantSearchState({ family, locationSearch: '?gene=BRCA1', navigate, panelsLoaded: true }),
+    );
+    await waitFor(() => expect(result.current.filters.gene).toBe('BRCA1'));
+    const saved: SmallVariantFilterPreset = {
+      _id: 'preset-nipt',
+      owner: 'analyst',
+      name: 'NIPT de novo',
+      description: null,
+      filters: serializePresetFilters(niptSearch()),
+      sample_filters: {},
+      sample_templates: {},
+      created_at: '2026-10-27T10:00:00Z',
+      updated_at: '2026-10-27T10:00:00Z',
+    };
+
+    act(() => result.current.applySavedPreset(saved));
+    act(() => result.current.handleApply({ preventDefault: () => {} } as never));
+
+    const url = new URLSearchParams(navigate.mock.calls.at(-1)?.[0].search);
+    expect(url.get('inheritance')).toBe('de_novo');
+    expect(url.getAll('category')).toEqual(['1', '7']);
+    expect(url.get('min_confidence')).toBe('0.9');
+    expect(url.get('include_not_inherited')).toBe('true');
+    expect(url.get('de_novo_priority')).toBe('medium');
+
+    const request = new URLSearchParams(result.current.requestQueryString);
+    ['inheritance', 'category', 'min_confidence', 'include_not_inherited', 'de_novo_priority'].forEach((name) =>
+      expect(request.has(name), name).toBe(false),
+    );
+    expect(request.getAll('impact')).toEqual(['HIGH', 'MODERATE']);
+    expect(request.get('max_gnomad_af')).toBe('0.01');
+    // The two impacts and the gnomAD AF (the ClinVar override is a modifier, not a filter).
+    expect(result.current.activeFilterCount).toBe(3);
+
+    expect(
+      buildPresetPayload({ filters: result.current.filters, members, sampleFilters: result.current.sampleFilters })
+        .filters,
+    ).toEqual(serializePresetFilters(niptSearch()));
   });
 });

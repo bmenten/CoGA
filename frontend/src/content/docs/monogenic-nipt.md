@@ -249,6 +249,12 @@ these views (*De novo / dominant*, for one). The NIPT list does not apply it: th
 shows no chip for it, and names it under the active filters, as it names the search's other filters
 the list does not apply.
 
+The other way round, a search saved here and opened on the small-variant page carries a view and
+filters the small-variant list does not apply (the categories, the minimum confidence, the alleles the
+fetus did not inherit, the lowest de novo priority). That page does not send them either, and names
+them. *De novo in the fetus* is not the small-variant list's *De novo / dominant*, which reads the family
+members' own genotypes; the small-variant list refuses it rather than read it as that mode.
+
 ### De novo in the fetus
 
 A candidate is a cfDNA call of the site's own that passes the quality filter, on an autosome, where the
