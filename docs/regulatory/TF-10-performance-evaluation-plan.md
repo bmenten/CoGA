@@ -224,8 +224,9 @@ pull request updates this list only when it adds clinical behaviour that no area
   call reads), and the risk-haplotype display, with a parent's phase switches undone where the embryos switch
   together, a relative of unknown degree coloured along the genome when it is the linked
   member's parent or child and otherwise at the ROI where both flanks name the haplotype
-  it shares, and the affected parent's and the index's statuses from the inheritance
-  model; the mtDNA
+  it shares, relatives and a donor family's embryos coloured on chrX by their recorded sex
+  (a man's one X between the PARs, none passed from a man to his son), and the affected
+  parent's and the index's statuses from the inheritance model; the mtDNA
   haplogroup and per-sample mitochondrial imports; the Sample QC read from sites across
   every autosome, so sibling embryos read as siblings, and its sex check from chrX outside
   the pseudo-autosomal regions.
