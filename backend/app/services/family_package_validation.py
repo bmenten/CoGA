@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Any
+import zlib
 
 from fastapi import HTTPException
 from pydantic import ValidationError
@@ -21,7 +22,7 @@ from .hpo_service import (
     parse_manifest_inline_hpo,
 )
 
-from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues
+from .family_package_common import CORE_DATASETS, HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PCF_ROLE_KEYS, QC_FAMILY_ROLES, FamilyPackageBundle, ManifestDataset, PackageManifest, ParsedPed, SUPPORTED_DATASETS, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, _vcf_index_candidates, family_id_issue, read_vcf_sample_columns, sample_id_issues, vcf_holds_a_data_line
 from .family_package_manifest import _manifest_added_member_entries, _manifest_added_ped_rows, _manifest_derived_statuses, _manifest_pgt_metadata, _manifest_relationship_issues, _manifest_roi_value, _normalize_manifest_samples, _parse_ped_text_strict
 from .family_package_source import _ensure_authorized_package_path, _find_manifest, _parse_manifest, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_path, staged_package_source
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -161,12 +162,51 @@ def _note_family_vcf_index(
                 break
 
 
+def _warn_file_without_a_record(
+    *,
+    root: Path,
+    dataset_type: str,
+    path: Path | None,
+    warnings: list[FamilyImportValidationIssue] | None,
+    sample_id: str | None = None,
+) -> None:
+    """A warning for a data file with nothing after its header, which the import refuses: it
+    fails the dataset with the stored data as it was (SAFE-29). A dry run did not report it
+    (SAFE-3). A file that cannot be read here is left to the import, which says what is
+    wrong with it."""
+    if warnings is None or path is None or not path.is_file():
+        return
+    try:
+        if vcf_holds_a_data_line(path):
+            return
+    except (OSError, EOFError, ValueError, zlib.error):
+        return
+    of_sample = f" of {sample_id}" if sample_id else ""
+    warnings.append(
+        _issue(
+            "dataset_file_without_record",
+            f"The '{dataset_type}' file{of_sample} ({_display_path(root, path)}) holds nothing after "
+            "its header: the import will fail the dataset and keep its stored data as it was",
+            dataset=dataset_type,
+            sample_id=sample_id,
+            path=path,
+        )
+    )
+
+
+# The per-sample datasets whose required file the import refuses when it holds no record
+# (SAFE-29): a sample's TRGT VCF, NeedlR VCF and chrM VCF. A HiFiCNV VCF or a chrM SV VCF
+# without a call is a result, and neither is warned of.
+_RECORD_REQUIRED_DATASETS = frozenset({"repeats_trgt", "sv_needlr", "mito"})
+
+
 def _validate_family_vcf_dataset(
     *,
     root: Path,
     dataset_type: str,
     dataset: ManifestDataset,
     errors: list[FamilyImportValidationIssue],
+    warnings: list[FamilyImportValidationIssue] | None = None,
 ) -> FamilyImportDatasetSummary:
     files: list[str] = []
     before = len(errors)
@@ -178,6 +218,9 @@ def _validate_family_vcf_dataset(
         errors=errors,
         files=files,
     )
+    # Every dataset read through here (snv, sv_needlr, repeats_trgt) refuses a family VCF
+    # without a record.
+    _warn_file_without_a_record(root=root, dataset_type=dataset_type, path=vcf_path, warnings=warnings)
     # An uncompressed .vcf without a declared index is accepted for every
     # family-VCF dataset (the small-variant loader reads plain text and needs no
     # tabix index); a .gz still requires its index.
@@ -333,6 +376,7 @@ def _validate_per_sample_snv_dataset(
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
     analysis_type: str | None,
+    warnings: list[FamilyImportValidationIssue] | None = None,
 ) -> FamilyImportDatasetSummary:
     """Validate ``snv.per_sample``: an SNV callset of one file per sample.
 
@@ -380,6 +424,9 @@ def _validate_per_sample_snv_dataset(
             errors=errors,
             files=files,
             sample_id=sample_id,
+        )
+        _warn_file_without_a_record(
+            root=root, dataset_type="snv", path=vcf_path, warnings=warnings, sample_id=sample_id
         )
         if vcf_path is not None and vcf_path.is_file():
             columns = read_vcf_sample_columns(vcf_path)
@@ -979,6 +1026,7 @@ def _validate_per_sample_file_dataset(
     ped_sample_ids: set[str],
     errors: list[FamilyImportValidationIssue],
     remote_only_files: frozenset[str] = frozenset(),
+    warnings: list[FamilyImportValidationIssue] | None = None,
 ) -> FamilyImportDatasetSummary:
     """Validate a dataset declared as ``per_sample: {<sample_id>: {<role>: <path>}}``.
 
@@ -1030,7 +1078,7 @@ def _validate_per_sample_file_dataset(
             errors=errors,
         )
         for role in required_roles:
-            _require_file(
+            path = _require_file(
                 root=root,
                 dataset_type=dataset_type,
                 value=entry.get(role),
@@ -1040,6 +1088,10 @@ def _validate_per_sample_file_dataset(
                 sample_id=sample_id,
                 remote_only_files=remote_only_files,
             )
+            if dataset_type in _RECORD_REQUIRED_DATASETS:
+                _warn_file_without_a_record(
+                    root=root, dataset_type=dataset_type, path=path, warnings=warnings, sample_id=sample_id
+                )
         for role in optional_roles:
             if entry.get(role):
                 _require_file(
@@ -1140,6 +1192,7 @@ def _validate_dataset(
             ped_sample_ids=ped_sample_ids,
             errors=errors,
             analysis_type=analysis_type,
+            warnings=warnings,
         )
     if dataset_type in {"snv", "sv_needlr", "repeats_trgt"}:
         # TRGT and NeedlR are family-level when a joint VCF exists and per-sample
@@ -1152,12 +1205,14 @@ def _validate_dataset(
                 dataset=dataset,
                 ped_sample_ids=ped_sample_ids,
                 errors=errors,
+                warnings=warnings,
             )
         return _validate_family_vcf_dataset(
             root=root,
             dataset_type=dataset_type,
             dataset=dataset,
             errors=errors,
+            warnings=warnings,
         )
     if dataset_type in _PER_SAMPLE_DATASET_ROLES:
         return _validate_per_sample_file_dataset(
@@ -1169,6 +1224,7 @@ def _validate_dataset(
             # Only the alignments importer never reads its files, so only its files may
             # stay in the object store; every other dataset needs a staged copy.
             remote_only_files=remote_only_files if dataset_type == "alignments" else frozenset(),
+            warnings=warnings,
         )
     if dataset_type == "pipeline_info":
         return _validate_pipeline_info_dataset(root=root, dataset=dataset, errors=errors)
