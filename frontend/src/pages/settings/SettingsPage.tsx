@@ -166,9 +166,9 @@ const SettingsPage: React.FC = () => {
           emptyMessage="No saved filters yet."
           // Only while the delete runs: a failed one kept its preset at "Removing…" (ENG-10).
           deletingPresetId={deletePresetMutation.isPending ? (deletePresetMutation.variables?._id ?? null) : null}
-          onDeletePreset={async (preset) => {
-            await deletePresetMutation.mutateAsync(preset);
-          }}
+          // `mutate`, not `mutateAsync`: the mutation's onError says why a delete failed, and
+          // the rejection `mutateAsync` returns went unhandled (ENG-10).
+          onDeletePreset={(preset) => deletePresetMutation.mutate(preset)}
         />
       </section>
     </div>
