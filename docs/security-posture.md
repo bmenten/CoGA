@@ -31,6 +31,14 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   (below). A half configuration (a tenant without a client ID, a tenant that is no GUID such
   as `common`, a scope or the override without Azure AD) is refused at startup, in every
   environment.
+- ✅ **A user's own records stay with the account (SEC-32).** A later Microsoft sign-in follows
+  the token's e-mail address and user name, so nothing a user keeps as their own is found by
+  either. An import job keeps its requester by the account's id
+  (`family_import_jobs.requested_by_id`), and the worker runs the import as that account; a
+  user's filter presets are the account's (`owner_id`). Their address or user name changing
+  keeps both theirs, and an account that later signs in with an address or user name another
+  left behind gets neither. The address and the user name stay with the record as it was made,
+  shown with it.
 - ✅ **Without Microsoft sign-in** (development), JWT bearer tokens (HS256) that the
   password sign-in issues work for every account.
   See `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`). Roles are
@@ -255,13 +263,14 @@ about it. Closing that would take IDs scoped per project.
 cookies would add CSRF surface and rework the Microsoft sign-in and telemetry paths, so the
 damage an XSS could do is bounded instead by the app's CSP, which allows no inline or
 outside scripts (§4a), and by the token lifetime: about an hour for Microsoft's access
-token, which MSAL renews silently before each API request with its refresh token (kept in
-the tab's `sessionStorage`, gone when the tab closes), and 2 hours for a local token
-(`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks `is_active`, so deactivating a user
-ends their access at once. A leaked token of a still-active user stays valid until it
-expires; there is no revocation list, and CoGA's sign-out does not end the Microsoft session
-in the browser (the sign-in page offers *Sign out of Microsoft*). For a single-lab internal
-deployment this is an **accepted residual**.
+token, which MSAL renews silently with its refresh token (kept in the tab's
+`sessionStorage`, gone when the tab closes) before each request, the API client's and the
+IGV viewer's alike (IGV asks for the session's token at each of its requests, SEC-32), and
+2 hours for a local token (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks
+`is_active`, so deactivating a user ends their access at once. A leaked token of a
+still-active user stays valid until it expires; there is no revocation list, and CoGA's
+sign-out does not end the Microsoft session in the browser (the sign-in page offers *Sign out
+of Microsoft*). For a single-lab internal deployment this is an **accepted residual**.
 
 **Emergency (break-glass) administrator.** With Microsoft sign-in there is one local
 account, the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on

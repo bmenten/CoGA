@@ -123,6 +123,7 @@ class _Store:
             "dry_run": False,
             "worker_id": WORKER,
             "requested_by": "admin@example.com",
+            "requested_by_id": _admin().id,
             "metadata": {"requested_family_id": None, "conflict_mode": "update"},
             "logs": [],
             "dataset_summaries": [],
@@ -339,7 +340,7 @@ def job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Store:
     monkeypatch.setattr(settings, "family_import_roots", [str(tmp_path)])
     store = _Store(root)
 
-    async def user(_session: Any, _email: str) -> CurrentUser:
+    async def user(_session: Any, _user_id: str) -> CurrentUser:
         return _admin()
 
     async def register(session: Any, *, import_mark: Any = None, **_kwargs: Any) -> Any:
@@ -364,7 +365,7 @@ def job(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> _Store:
 
     for name, value in {
         "get_postgres_sessionmaker": lambda: lambda: _Session(store),
-        "get_current_user_by_email": user,
+        "get_current_user_by_id": user,
         "_ensure_family_from_ped": register,
         "hold_family_variant_writes": hold,
         "_existing_package_entity_warnings": no_warnings,
