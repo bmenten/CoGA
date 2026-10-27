@@ -24,6 +24,11 @@ A chrM SV file with its header and no call is a result, not an empty file: most 
 no mtDNA deletion. It replaces the sample's earlier chrM SV calls with none, as before; one
 without its header is refused before anything is written.
 
+A dataset of one file per sample checks every sample's file before it writes any (SAFE-3): a
+later sample's refused file used to fail the dataset with the earlier samples' data replaced.
+A TRGT value that is no number is refused with 400 (it answered 500), and a dry run warns of a
+data file without a record, which the import will refuse.
+
 The stores are faked at their edge: the interval table answers the statements
 ``clickhouse_interval_tracks`` sends ClickHouse, and the session the Postgres statements the
 loaders send (the track records, the TRGT calls, Paraphase's results, the family row).
@@ -61,7 +66,10 @@ from backend.app.services.family_package_common import (
     PackageManifest,
     ParsedPed,
 )
+from backend.app.services.family_package_common import VcfSampleColumnError
 from backend.app.services.family_package_tracks import EmptyTrackFileError
+from backend.app.services.family_package_validation import _validate_dataset
+from backend.app.services.nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 
 FAMILY = "FAM029"
 SAMPLES = ("S1", "S2")
@@ -453,10 +461,12 @@ async def test_a_trgt_file_without_a_record_fails_the_dataset_with_the_samples_c
     with pytest.raises(HTTPException, match="No valid TRGT records found"):
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
-    # S1's file was read and stored first; S2's calls are as they were. Before: S2's calls
-    # were deleted and the dataset ended imported.
-    assert stores.repeats == {_uuid("S1"): 1, _uuid("S2"): 6}
-    assert [params["sample_id"] for store, params in stores.deletes if store == "repeats"] == [_uuid("S1")]
+    # Every sample's file is read before any sample's calls are replaced: S1's as much as
+    # S2's are as they were. Before: S2's calls were deleted and the dataset ended imported
+    # (SAFE-29); then S1's file was stored before S2's was read, so the dataset failed with
+    # S1's calls replaced (SAFE-3).
+    assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
+    assert stores.deletes == []
 
 
 @pytest.mark.asyncio
@@ -929,8 +939,6 @@ def test_a_chrm_sv_file_with_its_header_and_no_call_replaces_the_samples_calls_w
 async def test_a_chrm_sv_file_without_its_header_fails_the_mito_dataset_before_anything_is_written(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, content: str
 ) -> None:
-    from backend.app.services.family_package_common import VcfSampleColumnError
-
     writes: list[str] = []
 
     async def must_not_write(*_args: Any, **_kwargs: Any) -> None:
@@ -958,3 +966,323 @@ async def test_a_chrm_sv_file_without_its_header_fails_the_mito_dataset_before_a
         await _run(job)
 
     assert writes == []
+
+
+# --- SAFE-3: every sample's file is checked before anything of its dataset is written -----------
+
+
+def _trgt_line(*, pos: str = "3074876", end: str = "3074933", fmt: str = "GT:MC", call: str = "0/1:18_40") -> str:
+    return f"chr4\t{pos}\t.\tA\t<STR>\t.\tPASS\tEND={end};TRID=HD_HTT;MOTIFS=CAG\t{fmt}\t{call}\n"
+
+
+# A record with a value that is no number where one is read: on line 4, after the two
+# meta-information lines and the #CHROM line.
+_MALFORMED_TRGT = [
+    pytest.param(_trgt_line(pos="x"), id="position-no-number"),
+    pytest.param(_trgt_line(pos="3074876.5"), id="position-a-fraction"),
+    pytest.param(_trgt_line(end="9" * 25), id="end-beyond-any-chromosome"),
+    pytest.param(_trgt_line(call="0/1:18_x"), id="motif-count-no-number"),
+    pytest.param(_trgt_line(fmt="GT:MC:AP", call="0/1:18_40:nan,0.9"), id="purity-nan"),
+]
+_TRGT_REFUSAL = "TRGT VCF line 4 holds a value that cannot be read where a number is expected; nothing was stored"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("record", _MALFORMED_TRGT)
+async def test_a_trgt_upload_with_a_value_that_is_no_number_is_refused_with_the_calls_as_they_were(
+    stores: _Stores, upload_trgt, record: str
+) -> None:
+    stores.repeats[_uuid("S1")] = 5
+
+    with pytest.raises(HTTPException) as refused:
+        await upload_trgt(_TRGT_HEADER + _TRGT_COLUMNS.format(samples="S1") + record)
+
+    # Before: 500, from the int() or float() that read the value, or from the insert, as
+    # Postgres holds no 25-digit position and no NaN in JSON (DATA-7).
+    assert (refused.value.status_code, refused.value.detail) == (400, _TRGT_REFUSAL)
+    assert stores.repeats == {_uuid("S1"): 5}
+    assert stores.deletes == []
+    assert stores.commits == 0
+
+
+@pytest.mark.asyncio
+async def test_a_later_samples_trgt_file_with_a_value_that_is_no_number_fails_the_dataset_with_every_samples_calls(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.repeats = {_uuid("S1"): 4, _uuid("S2"): 6}
+    s2 = _TRGT_HEADER + _TRGT_COLUMNS.format(samples="S2") + _trgt_line(pos="x")
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"file": _file(tmp_path, "trgt/S1.vcf", _trgt_vcf(["S1"], ["0/1:18_40"]))},
+            "S2": {"file": _file(tmp_path, "trgt/S2.vcf", s2)},
+        }
+    )
+
+    with pytest.raises(HTTPException, match="TRGT VCF line 4 holds a value"):
+        await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
+
+    # Before: S1's calls were replaced, then S2's file failed the dataset with a ValueError.
+    assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
+    assert stores.deletes == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("s2_entry", "refused"),
+    [
+        # S2's entry holds S1's VCF: its column names S1.
+        pytest.param(
+            {"vcf": ("cnv/S2.vcf", _CNV_VCF.replace("Sample0", "S1"))},
+            (VcfSampleColumnError, "CNV VCF of S2"),
+            id="vcf-of-another-sample",
+        ),
+        pytest.param(
+            {"vcf": ("cnv/S2.vcf", _CNV_VCF), "copy_number_bedgraph": ("cnv/S2.bedgraph", "track type=bedGraph\n")},
+            (EmptyTrackFileError, "S2.bedgraph holds no record of the segments track"),
+            id="signal-file-without-a-value",
+        ),
+    ],
+)
+async def test_a_later_samples_refused_hificnv_file_fails_the_dataset_before_any_track_is_written(
+    cnv_stores: _Stores, tmp_path: Path, s2_entry: dict[str, tuple[str, str]], refused: tuple[type, str]
+) -> None:
+    stores = cnv_stores
+    stores.track("S1", "segments", CNV_SOURCE, "S1.bedgraph", rows=7)
+    before = stores.tracks()
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {
+                "vcf": _file(tmp_path, "cnv/S1.vcf", _CNV_VCF),
+                "copy_number_bedgraph": _file(tmp_path, "cnv/S1.bedgraph", "chr1\t0\t1000\t2\nchr1\t1000\t2000\t1\n"),
+            },
+            "S2": {role: _file(tmp_path, name, content) for role, (name, content) in s2_entry.items()},
+        }
+    )
+    error, message = refused
+
+    with pytest.raises(error, match=message):
+        await _run(_job(stores, tmp_path, "cnv", dataset))
+
+    # Before: S1's copy-number track was replaced, then S2's file failed the dataset.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_a_later_samples_wisecondorx_file_without_a_bin_fails_the_dataset_before_any_track_is_cleared(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", "coverage", "wisecondorx", "S1_bins.bed", rows=5)
+    before = stores.tracks()
+    bins = "chr\tstart\tend\tratio\tzscore\n1\t0\t1000\t0.1\t0.5\n"
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"bins": _file(tmp_path, "wcx/S1_bins.bed", bins)},
+            "S2": {"bins": _file(tmp_path, "wcx/S2_bins.bed", "chr\tstart\tend\tratio\tzscore\n")},
+        }
+    )
+
+    with pytest.raises(EmptyTrackFileError, match="S2_bins.bed holds no record of the coverage track"):
+        await _run(_job(stores, tmp_path, "wisecondorx", dataset))
+
+    # Before: S1's bins replaced its track, then S2's file failed the dataset.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_a_later_samples_pcf_table_without_a_segment_fails_the_dataset_before_any_track_is_deleted(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", APCAD_PCF_TRACK_TYPE, APCAD_PCF_SOURCE, "S1_maternal.pcf", rows=3)
+    before = stores.tracks()
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"maternal": _file(tmp_path, "pcf/S1_maternal.pcf", _PCF_HEADER + "S1,1,p,1,1000,10,0.5\n")},
+            "S2": {"maternal": _file(tmp_path, "pcf/S2_maternal.pcf", _PCF_HEADER)},
+        }
+    )
+
+    with pytest.raises(EmptyTrackFileError, match="S2_maternal.pcf holds no segment"):
+        await _run(_job(stores, tmp_path, "pcf", dataset))
+
+    # Before: S1's track was deleted and its table stored, then S2's failed the dataset.
+    _assert_untouched(stores, before)
+
+
+def _mito_job_writing_nothing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, sv_content: str | bytes
+) -> tuple[family_package_datasets.DatasetImportJob, list[str]]:
+    """A mito job for S1, its chrM VCF with a record and its chrM SV VCF ``sv_content``,
+    whose every write fails the test; and the list of writes."""
+    writes: list[str] = []
+
+    async def must_not_write(*_args: Any, **_kwargs: Any) -> None:
+        writes.append("write")
+        raise AssertionError("nothing may be written for a refused mito dataset")
+
+    async def known(*_args: Any, **_kwargs: Any) -> set[str]:
+        return set(SAMPLES)
+
+    monkeypatch.setattr(family_package_datasets, "known_vcf_sample_ids", known)
+    for name in ("upload_family_small_variant_file", "lock_family_variant_writes", "rewrite_family_structural_variants"):
+        monkeypatch.setattr(family_package_datasets, name, must_not_write)
+    chrm = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS1\n"
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {
+                "vcf": _file(tmp_path, "mito/S1.vcf", chrm + "chrM\t3243\t.\tA\tG\t30\tPASS\t.\tGT\t0/1\n"),
+                "sv_vcf": _file(tmp_path, "mito/S1_sv.vcf", sv_content),
+            }
+        }
+    )
+    return _job(_Stores(), tmp_path, "mito", dataset), writes
+
+
+@pytest.mark.asyncio
+async def test_a_chrm_sv_file_whose_records_all_lie_off_chrm_fails_the_mito_dataset_before_anything_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sv_content = _MITO_SV_HEADER + _MITO_DELETION.replace("chrM", "chr1")
+    job, writes = _mito_job_writing_nothing(tmp_path, monkeypatch, sv_content)
+
+    with pytest.raises(RuntimeError, match=r"the chrM SV VCF of S1 \(S1_sv.vcf\) holds 1 record\(s\), none on chrM"):
+        await _run(job)
+
+    # Before: the chrM calls were written, and the file read as one without a call removed
+    # the sample's chrM SVs.
+    assert writes == []
+
+
+@pytest.mark.asyncio
+async def test_a_chrm_sv_file_that_cannot_be_read_fails_the_mito_dataset_before_its_chrm_calls_are_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Its header reads, a byte of a record is no UTF-8.
+    sv_content = (_MITO_SV_HEADER + _MITO_DELETION).encode().replace(b"PRECISE", b"PRECISE\xff")
+    job, writes = _mito_job_writing_nothing(tmp_path, monkeypatch, sv_content)
+
+    with pytest.raises(HTTPException, match="must be UTF-8 text"):
+        await _run(job)
+
+    # Before: the chrM calls were written, then the SV file failed the dataset.
+    assert writes == []
+
+
+@pytest.mark.asyncio
+async def test_a_nipt_fathers_snv_file_without_a_record_fails_the_dataset_before_the_plasma_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writes: list[str] = []
+
+    async def must_not_write(*_args: Any, **_kwargs: Any) -> None:
+        writes.append("write")
+        raise AssertionError("nothing may be written for a refused NIPT dataset")
+
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", must_not_write)
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"vcf": _file(tmp_path, "S1.vcf", _SNV_HEADER.format(sample="S1") + "chr1\t100\t.\tA\tG\t30\tPASS\t.\tGT\t0/1\n")},
+            "S2": {"vcf": _file(tmp_path, "S2.vcf", _SNV_HEADER.format(sample="S2"))},
+        }
+    )
+    job = _job(_Stores(), tmp_path, "snv", dataset)
+    # S1 is the maternal plasma, read first; S2 the father.
+    job.bundle.manifest = PackageManifest(
+        ped="family.ped",
+        analysis_type=MONOGENIC_NIPT_ANALYSIS_TYPE,
+        samples={"S1": {"assay": "nipt_cfdna"}},
+        datasets={"snv": dataset},
+    )
+
+    with pytest.raises(RuntimeError, match=r"The NIPT SNV file of S2 \(S2.vcf\) holds no record"):
+        await _run(job)
+
+    # Before: the plasma's calls were written, then the father's file failed the dataset.
+    assert writes == []
+
+
+# --- SAFE-3: a dry run reports a data file without a record ---------------------------------------
+
+
+def _validated(tmp_path: Path, dataset_type: str, dataset: ManifestDataset) -> list[tuple[str, str | None]]:
+    """The warnings of a dataset's validation, as (code, sample)."""
+    errors: list[Any] = []
+    warnings: list[Any] = []
+    _validate_dataset(
+        root=tmp_path,
+        dataset_type=dataset_type,
+        dataset=dataset,
+        ped_sample_ids=set(SAMPLES),
+        errors=errors,
+        warnings=warnings,
+    )
+    assert errors == []
+    return [(warning.code, warning.sample_id) for warning in warnings]
+
+
+_HEADER_ALONE = "##fileformat=VCFv4.2\n#CHROM\tPOS\tID\tREF\tALT\tQUAL\tFILTER\tINFO\tFORMAT\tS2\n"
+_A_RECORD = "chr1\t100\t.\tA\tG\t30\tPASS\t.\tGT\t0/1\n"
+
+
+@pytest.mark.parametrize(
+    ("dataset_type", "entry", "extra"),
+    [
+        pytest.param("repeats_trgt", "file", {}, id="trgt"),
+        pytest.param("sv_needlr", "vcf", {}, id="needlr"),
+        pytest.param("mito", "vcf", {}, id="chrm-vcf"),
+        pytest.param("snv", "vcf", {"source_format": "clair3"}, id="long-read-snv"),
+    ],
+)
+def test_a_dry_run_warns_of_a_samples_data_file_without_a_record(
+    tmp_path: Path, dataset_type: str, entry: str, extra: dict[str, str]
+) -> None:
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {entry: _file(tmp_path, f"{dataset_type}/S1.vcf", _HEADER_ALONE.replace("S2", "S1") + _A_RECORD)},
+            "S2": {entry: _file(tmp_path, f"{dataset_type}/S2.vcf", _HEADER_ALONE)},
+        },
+        **extra,
+    )
+
+    # Before: no warning; the import then failed the dataset.
+    assert _validated(tmp_path, dataset_type, dataset) == [("dataset_file_without_record", "S2")]
+
+
+@pytest.mark.parametrize("dataset_type", ["snv", "sv_needlr", "repeats_trgt"])
+def test_a_dry_run_warns_of_a_family_vcf_without_a_record(tmp_path: Path, dataset_type: str) -> None:
+    dataset = ManifestDataset(family_vcf=_file(tmp_path, "family.vcf", _HEADER_ALONE))
+
+    assert _validated(tmp_path, dataset_type, dataset) == [("dataset_file_without_record", None)]
+
+
+def test_a_dry_run_reads_a_compressed_file_up_to_its_first_record(tmp_path: Path) -> None:
+    import gzip
+
+    header = gzip.compress(_HEADER_ALONE.encode())
+    with_record = gzip.compress((_HEADER_ALONE + _A_RECORD).encode())
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"file": _file(tmp_path, "trgt/S1.vcf.gz", with_record)},
+            "S2": {"file": _file(tmp_path, "trgt/S2.vcf.gz", header)},
+        }
+    )
+
+    assert _validated(tmp_path, "repeats_trgt", dataset) == [("dataset_file_without_record", "S2")]
+
+
+def test_a_dry_run_does_not_warn_of_a_result_without_a_call(tmp_path: Path) -> None:
+    """A HiFiCNV VCF or a chrM SV VCF without a call is the caller's answer, and imports;
+    a file the dry run cannot read is left to the import, which says what is wrong."""
+    cnv = ManifestDataset(per_sample={"S2": {"vcf": _file(tmp_path, "cnv/S2.vcf", _HEADER_ALONE)}})
+    mito = ManifestDataset(
+        per_sample={
+            "S2": {
+                "vcf": _file(tmp_path, "mito/S2.vcf", _HEADER_ALONE + _A_RECORD),
+                "sv_vcf": _file(tmp_path, "mito/S2_sv.vcf", _HEADER_ALONE),
+            }
+        }
+    )
+    not_gzip = ManifestDataset(per_sample={"S2": {"file": _file(tmp_path, "trgt/S2.vcf.gz", "not gzip")}})
+
+    assert _validated(tmp_path, "cnv", cnv) == []
+    assert _validated(tmp_path, "mito", mito) == []
+    assert _validated(tmp_path, "repeats_trgt", not_gzip) == []

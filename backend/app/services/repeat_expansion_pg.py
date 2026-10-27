@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import logging
+import math
 from pathlib import Path
 import re
 from typing import Any, Iterable, Mapping
@@ -425,8 +426,13 @@ def parse_float_list(value: str | None) -> list[float | None]:
     for item in value.split(","):
         if item in ("", "."):
             items.append(None)
-        else:
-            items.append(float(item))
+            continue
+        number = float(item)
+        # ``nan`` and ``inf`` read as floats, which the stored JSON cannot hold: Postgres
+        # refused the insert with a 500 (DATA-7, SAFE-3).
+        if not math.isfinite(number):
+            raise ValueError(f"{item!r} is no finite number")
+        items.append(number)
     return items
 
 
@@ -1112,6 +1118,38 @@ async def _insert_repeat_expansion_batch(
             await session.execute(_INSERT_REPEAT_EXPANSION_SQL, chunk)
 
 
+# The largest position a TRGT record may name: a chromosome's, which 32 bits count.
+_TRGT_POSITION_MAX = 2**32 - 1
+
+
+def _trgt_position(value: Any) -> int:
+    """A TRGT record's position (``POS``, ``END``) as the whole number it writes; ValueError
+    for any other value, a fraction or one no chromosome reaches among them. ``int()`` read
+    a fraction as an error and a 25-digit position as one the table could not hold: both
+    answered 500 (DATA-7, SAFE-3)."""
+    text_value = str(value).strip()
+    if not re.fullmatch(r"[0-9]+", text_value) or int(text_value) > _TRGT_POSITION_MAX:
+        raise ValueError(f"{text_value!r} is no chromosome position")
+    return int(text_value)
+
+
+def _trgt_record(line_number: int, *, chrom: str, pos: str, **fields: Any) -> dict[str, Any]:
+    """``_build_trgt_insert_params`` for the record on ``line_number``, refused (400) when a
+    value it reads as a number is none: a malformed TRGT value answered 500 (DATA-7, SAFE-3).
+    The file is refused before any stored call is deleted."""
+    try:
+        return _build_trgt_insert_params(chrom=chrom, pos=pos, **fields)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            # The line, not its value: a malformed value can be of any length.
+            detail=(
+                f"TRGT VCF line {line_number} holds a value that cannot be read where a number "
+                "is expected; nothing was stored"
+            ),
+        ) from exc
+
+
 def _build_trgt_insert_params(
     *,
     sample_context: SampleMetadataContext,
@@ -1129,13 +1167,14 @@ def _build_trgt_insert_params(
     sample_values = parse_format(format_field, sample_field)
 
     trid = info.get("TRID") or header_sample
-    end = int(info.get("END", int(pos) + len(ref) - 1))
+    start_position = _trgt_position(pos)
+    end = _trgt_position(info.get("END", start_position + len(ref) - 1))
     motifs = [item for item in info.get("MOTIFS", "").split(",") if item]
     locus_document, locus_not_resolved = _resolve_repeat_locus(
         locus_lookup,
         trid,
         chrom=chrom,
-        start=int(pos),
+        start=start_position,
         end=end,
         assembly_name=sample_context.assembly_name,
     )
@@ -1233,7 +1272,7 @@ def _build_trgt_insert_params(
         alleles,
         sex=sample_context.sex,
         chrom=chrom,
-        position=int(pos),
+        position=start_position,
         assembly_name=sample_context.assembly_name,
     )
     if not alleles:
@@ -1245,7 +1284,7 @@ def _build_trgt_insert_params(
             alleles,
             sex=sample_context.sex,
             chrom=chrom,
-            position=int(pos),
+            position=start_position,
             assembly_name=sample_context.assembly_name,
         ),
     )
@@ -1261,7 +1300,7 @@ def _build_trgt_insert_params(
         "disease": locus_document.get("disease") or trid,
         "inheritance": locus_document.get("inheritance"),
         "chr": normalize_chromosome(chrom),
-        "start": int(pos),
+        "start": start_position,
         "end": end,
         "motif": locus_document.get("motif") or (motifs[0] if motifs else None),
         "motifs_json": _json_payload(motifs),
@@ -1357,7 +1396,7 @@ async def read_trgt_sample_calls(
     locus_lookup = await _build_repeat_locus_lookup(session)
     insert_records: list[dict[str, Any]] = []
 
-    for line in lines:
+    for line_number, line in enumerate(lines, 1):
         if line.startswith("#CHROM"):
             in_header = False
             header_samples = line.strip().split("\t")[9:]
@@ -1398,7 +1437,8 @@ async def read_trgt_sample_calls(
         processed += 1
         chrom, pos, _vid, ref, _alt, _qual, _filter, info_field, format_field = fields[:9]
         insert_records.append(
-            _build_trgt_insert_params(
+            _trgt_record(
+                line_number,
                 sample_context=sample_context,
                 locus_lookup=locus_lookup,
                 chrom=chrom,
@@ -1500,7 +1540,7 @@ async def ingest_family_trgt_text(
     locus_lookup = await _build_repeat_locus_lookup(session)
     insert_records: list[dict[str, Any]] = []
 
-    for line in lines:
+    for line_number, line in enumerate(lines, 1):
         if line.startswith("#CHROM"):
             header_samples = line.strip().split("\t")[9:]
             matched_samples = {}
@@ -1538,7 +1578,8 @@ async def ingest_family_trgt_text(
             if sample_context is None:
                 continue
             insert_records.append(
-                _build_trgt_insert_params(
+                _trgt_record(
+                    line_number,
                     sample_context=sample_context,
                     locus_lookup=locus_lookup,
                     chrom=chrom,

@@ -421,7 +421,11 @@ async def test_an_update_reads_pcf_overlays_from_the_store(
 async def test_an_update_of_wisecondorx_reads_each_track_from_the_store(
     stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    async def import_track(_session: Any, *, sample_context: Any, track_type: str, **_kwargs: Any) -> dict[str, int]:
+    async def import_track(
+        _session: Any, *, sample_context: Any, track_type: str, check_only: bool = False, **_kwargs: Any
+    ) -> dict[str, int]:
+        if check_only:  # the reader's check of its file, up to the first row: nothing written
+            return {}
         stores.track(sample_context.sample_id, track_type, "wisecondorx", rows=4)
         return {"processed": 4, "inserted": 4, "skipped": 0}
 

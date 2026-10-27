@@ -285,6 +285,15 @@ records still fails its dataset when the import reaches the cut, and the family 
 for any failed dataset. A mitochondrial structural-variant file without a call is a result, not an empty
 file (most samples carry no mtDNA deletion): it removes that sample's earlier chrM deletions.
 
+**Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
+sample reads or checks the file of every sample first: the TRGT files, HiFiCNV's VCFs and signal files,
+the WisecondorX and QDNAseq bins and segments, the PCF tables, a monogenic NIPT's SNV files and the
+mitochondrial structural-variant files. A later sample's refused file then fails the dataset with every
+sample's data as it was; it used to fail it after the earlier samples' data had been replaced. A
+mitochondrial structural-variant file whose records all lie on other chromosomes is refused as no chrM
+callset (it used to remove the sample's chrM deletions). An APCAD file per embryo and a coverage BED are
+still checked as each is written.
+
 ### What validation checks
 
 - The folder and the manifest exist, and the manifest is a file in the folder, not a link out of it.
@@ -302,6 +311,10 @@ file (most samples carry no mtDNA deletion): it removes that sample's earlier ch
   files are checked only when the manifest names one.
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset
   is a warning; other missing datasets are simply absent.
+- A data file the import would refuse for holding no record (a family VCF of small variants, structural
+  variants or repeats; a sample's SNV, NeedlR, TRGT or mitochondrial VCF) with nothing after its header
+  is a warning: the import will fail that dataset and keep its stored data. A HiFiCNV or mitochondrial
+  structural-variant VCF without a call is a result, and gives none.
 - A phenotype row that names an unknown sample or HPO term is skipped with a warning; it never blocks the
   import.
 
@@ -429,7 +442,9 @@ verified its tubes), the entry's `vcf_sample` says so.
 A repeat-expansion (TRGT) upload reads the whole file before it replaces anything. TRGT writes a record
 for every locus of its catalogue, so a file without a record for the sample (a header alone, or a file
 cut short in a copy) is refused (*No valid TRGT records found*), and the sample's stored calls stay as
-they were. Before, it replaced them with none.
+they were. Before, it replaced them with none. So is a file with a value that cannot be read as a number
+where TRGT writes one (a position, a motif count, an allele length, a purity): the answer names the line,
+and nothing is replaced. Such a file used to fail with a server error.
 
 A Sniffles or Spectre record without an END ends where the VCF standard (4.4) puts it: a deletion,
 duplication, inversion or copy-number change SVLEN bases after its start, any other call on its start.
