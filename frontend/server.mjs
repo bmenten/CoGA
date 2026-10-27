@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 import { rewriteProxyLocation } from './proxyLocation.mjs';
 import { PROXY_OWNED_HEADERS, forwardedHeaders, proxyTimeoutMs } from './proxyRequest.mjs';
-import { securityHeaders } from './securityHeaders.mjs';
+import { applySecurityHeaders, securityHeaders } from './securityHeaders.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -122,6 +122,9 @@ app.use('/api', async (req, res) => {
       return;
     }
     console.error('API proxy failed for %s %s', forLog(req.method), forLog(req.originalUrl), error);
+    // This server's own answer, not the backend's: it carries this server's security headers,
+    // as the app shell does. The middleware below sets them only after this route.
+    applySecurityHeaders(res);
     // The backend address stays in the server log; the browser needs only the outcome.
     res.status(timedOut ? 504 : 502).json({
       detail: timedOut
@@ -133,7 +136,8 @@ app.use('/api', async (req, res) => {
 
 // SPA security headers — applied to the app shell + static assets below. The /api
 // proxy above already returned/ended its responses, so it keeps forwarding the
-// backend's own headers rather than these page-level ones.
+// backend's own headers rather than these page-level ones; its own 502 and 504 set
+// these itself (applySecurityHeaders).
 app.use(securityHeaders);
 
 // Serve static assets from the Vite build output

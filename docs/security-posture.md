@@ -509,7 +509,10 @@ What the application relies on there:
 - ✅ **Proxy robustness** (`frontend/server.mjs`, `proxyRequest.mjs`). A reset mid-stream ends
   that response instead of crashing; the backend must start answering within
   `API_PROXY_TIMEOUT_MS` (else 504); a client that goes away aborts the upstream request; the
-  502/504 body does not name the internal backend.
+  502/504 body does not name the internal backend. That 502 or 504 is the server's own answer
+  and carries the server's security headers (below), HSTS as `ENABLE_HSTS` says; it was sent
+  before the middleware that sets them, and carried none. An answer the proxy relays carries
+  the backend's own.
 - ✅ **Forwarded headers.** The proxy sends the backend one clean `X-Forwarded-For` (its peer,
   or what the trusted proxy in front of it added) plus `X-Forwarded-Proto` and `-Host`, so a
   browser cannot choose the address the backend throttles and audits. On Cloud Run the load

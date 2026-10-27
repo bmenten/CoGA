@@ -1,5 +1,6 @@
-// Security response headers for the SPA shell (served by server.mjs). Applied to the
-// HTML/static responses only — the /api proxy forwards the backend's own headers.
+// Security response headers for the SPA shell (served by server.mjs). Applied to every
+// answer the server gives itself: the HTML/static responses, and the /api proxy's own 502
+// and 504. An answer the proxy relays carries the backend's own headers instead.
 //
 // The CSP is enforcing, widened only where the app genuinely needs it:
 //   - 'wasm-unsafe-eval'      IGV compiles WebAssembly (e.g. CRAM decoding)
@@ -69,10 +70,10 @@ export function hstsEnabled(value = process.env.ENABLE_HSTS) {
 }
 
 /**
- * Express middleware that sets the SPA security headers. HSTS is read at call time
- * (opt-in via ENABLE_HSTS) so it is only emitted behind a TLS-terminating proxy.
+ * Sets the SPA security headers on a response. HSTS is read at call time (opt-in via
+ * ENABLE_HSTS) so it is only emitted behind a TLS-terminating proxy.
  */
-export function securityHeaders(_req, res, next) {
+export function applySecurityHeaders(res) {
   res.setHeader('Content-Security-Policy', CSP);
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -82,5 +83,10 @@ export function securityHeaders(_req, res, next) {
   if (hstsEnabled()) {
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains');
   }
+}
+
+/** Express middleware that sets the SPA security headers (applySecurityHeaders). */
+export function securityHeaders(_req, res, next) {
+  applySecurityHeaders(res);
   next();
 }
