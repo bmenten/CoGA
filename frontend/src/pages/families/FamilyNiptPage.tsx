@@ -65,6 +65,7 @@ import {
   LIVE_REPORT_SIGN_OFF_STATEMENT,
   liveReportSignedState,
   NIPT_NOT_CLASSIFIED_REASONS,
+  notComparedSentence,
 } from './signedReportRecord';
 import { raw, routePath } from '../../lib/routePath';
 
@@ -546,6 +547,8 @@ const FamilyNiptPage: React.FC = () => {
     checkFailed: signoutCheckFailed,
     check: signoutCheck,
   });
+  // What the check could not compare, the signed version not holding it (TRACE-19).
+  const notCompared = notComparedSentence(signoutCheck?.not_compared, `signed version ${latestSignout?.version}`);
 
   return (
     <div className="page-shell analysis-shell">
@@ -710,12 +713,16 @@ const FamilyNiptPage: React.FC = () => {
             {latestSignout.report_code ? ` (report code ${latestSignout.report_code})` : ''} was signed out by{' '}
             <strong>{latestSignout.signed_out_by}</strong> on {formatReportTime(latestSignout.signed_out_at)}.{' '}
             {signoutCheckState === 'checking' ? 'Checking the family’s current data against it… ' : null}
-            {signoutCheckState === 'matches' ? 'The family’s current data still matches it. ' : null}
+            {signoutCheckState === 'matches'
+              ? notCompared
+                ? `The family’s current data still matches it in everything it holds. ${notCompared} `
+                : 'The family’s current data still matches it. '
+              : null}
             {signoutCheckState === 'changed' ? (
               <>
                 <strong>Changed since sign-out:</strong>{' '}
-                {describeReportSections(signoutCheck?.changed_sections ?? [])}. Sign out again to issue a new
-                version.{' '}
+                {describeReportSections(signoutCheck?.changed_sections ?? [])}.{' '}
+                {notCompared ? `${notCompared} ` : null}Sign out again to issue a new version.{' '}
               </>
             ) : null}
             {signoutCheckState === 'unverified'

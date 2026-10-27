@@ -29,7 +29,9 @@ of its own:
   rested on;
 * ``pgt_analysis`` — in a PGT family (one with an embryo) only: the PGT analysis at the ROI,
   each embryo's call with what it rests on, as the family page shows it (``pgt_analysis``,
-  REQ-PGT-005). A family without an embryo has no such key, so its record is as before.
+  REQ-PGT-005). A family without an embryo has no such key, so its record is as before, and
+  nor has a monogenic NIPT family none of whose embryos has haplotype blocks of its own: its
+  fetus is an embryo member without data of its own (TRACE-19).
 * ``nipt`` — in a monogenic NIPT family only: its NIPT analysis as the NIPT page shows it, the
   reported variants' classification among it, and the inputs it ran with
   (``signed_record_nipt``). Another family has no such key, so its record is as before.
@@ -83,7 +85,7 @@ from .family_metadata_context import FamilyMetadataContext
 from .family_variant_filters import StructuralVariantQueryFilters
 from .nipt_service import SharedNiptAnalysis
 from .panel_use_audit import applied_gene_panels
-from .pgt_analysis import family_pgt_analysis, is_pgt_family
+from .pgt_analysis import embryo_has_haplotype_blocks, family_pgt_analysis, is_pgt_family
 from .paraphase_pg import (
     _paraphase_region_for_gene,
     get_family_paraphase_table_response,
@@ -138,7 +140,8 @@ PARAPHASE = RecordSection(
 COVERAGE_TRACKS = RecordSection(
     "coverage_tracks", "Coverage tracks", "The coverage tracks could not be read."
 )
-# In a PGT family only (``is_pgt_family``).
+# In a PGT family only (``is_pgt_family``; a monogenic NIPT family's fetus is no PGT embryo
+# unless it has haplotype blocks, ``embryo_has_haplotype_blocks``).
 PGT_ANALYSIS = RecordSection(
     "pgt_analysis",
     "PGT embryo results",
@@ -881,9 +884,11 @@ async def build_record_sections(
     shared_nipt: SharedNiptAnalysis | None = None,
 ) -> dict[str, Any]:
     """Every section of ``RECORD_SECTIONS`` the family's record holds, keyed by its snapshot
-    key: each one without an application, the PGT section of a PGT family and the NIPT
-    section of a monogenic NIPT family (from ``shared_nipt``'s analysis, when the sign-out's
-    Sample QC has read it)."""
+    key: each one without an application, the PGT section of a PGT family (of a monogenic
+    NIPT family, only where an embryo has haplotype blocks of its own) and the NIPT section of
+    a monogenic NIPT family (from ``shared_nipt``'s analysis, when the sign-out's Sample QC has
+    read it). ``reported`` holds every small variant the report tag selects, by the variant's
+    own review or its compound-het pair's (``report_signout_service._reported_reviews``)."""
     descriptions = await _guarded(
         session,
         VARIANT_DESCRIPTIONS.unavailable,
@@ -914,13 +919,17 @@ async def build_record_sections(
             session, COVERAGE_TRACKS.unavailable, lambda: coverage_tracks(session, context)
         ),
     }
-    if is_pgt_family(context):
+    # Read outside a savepoint of its own: whether the record holds the key at all cannot be
+    # frozen as unavailable.
+    nipt = await is_nipt_family(session, context)
+    # A monogenic NIPT family's fetus is an embryo member too, with no data of its own: its
+    # record holds the PGT section only where an embryo has haplotype blocks of its own, which
+    # every embryo call reads (TRACE-19). Another family with an embryo holds it as before.
+    if is_pgt_family(context) and (not nipt or await embryo_has_haplotype_blocks(session, context)):
         sections[PGT_ANALYSIS.key] = await _guarded(
             session, PGT_ANALYSIS.unavailable, lambda: pgt_embryo_results(session, context)
         )
-    # Read outside a savepoint of its own: whether the record holds the key at all cannot be
-    # frozen as unavailable.
-    if await is_nipt_family(session, context):
+    if nipt:
         sections[NIPT_RESULTS.key] = await _guarded(
             session,
             NIPT_RESULTS.unavailable,

@@ -35,7 +35,7 @@ import type { HaplotypePhaseCorrection } from '../../lib/haplotypePhaseCorrectio
 import { COUNT_UNIT_MARK } from '../../lib/repeatStatus';
 import { FATHER_STATE_LABELS, depth, niptEvidenceSummary, pct, readsText } from './niptClassification';
 import { formatAlleleFrequency } from './reportNarrative';
-import { formatLocus } from './smallVariantResultUtils';
+import { formatCompoundHetPhaseStatus, formatLocus } from './smallVariantResultUtils';
 import {
   getClassificationLabelFromTagKey,
   getClassificationTagKeyFromTags,
@@ -116,6 +116,20 @@ export interface SignedEvidence {
   geneConstraint: SignedEvidenceValue[] | null;
 }
 
+/**
+ * The compound-het pair review that put a small variant in the report, as frozen with it: the
+ * pair's report tag reports both its variants, whatever their own reviews hold (TRACE-19,
+ * `report_signout_service._reported_reviews`).
+ */
+export interface SignedCompoundHetPair {
+  partnerVariantIds: string[];
+  gene: string | null;
+  classification: string | null;
+  tags: string[];
+  note: string | null;
+  phaseStatus: string | null;
+}
+
 export interface SignedSmallVariant {
   /** Null when the entry cannot be read here (the downloaded record holds it). */
   variantId: string | null;
@@ -129,6 +143,8 @@ export interface SignedSmallVariant {
   note: string | null;
   /** Null when no evidence was frozen (the variant was not saved through ACMG classify). */
   evidence: SignedEvidence | null;
+  /** Null when no pair review reports it: its own review's report tag does. */
+  compoundHet: SignedCompoundHetPair | null;
 }
 
 export interface SignedCnvCriterion {
@@ -806,10 +822,12 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
       tags: [],
       note: null,
       evidence: null,
+      compoundHet: null,
     };
   }
   const acmg = isObject(entry.acmg) ? entry.acmg : null;
   const tags = strings(entry.tags);
+  const pair = isObject(entry.compound_het) ? entry.compound_het : null;
   const { criteria, unreadable } = parseAcmgCriteria(acmg);
   const evidence = isObject(entry.evidence_snapshot) ? entry.evidence_snapshot : null;
   return {
@@ -836,6 +854,16 @@ const parseSmallVariant = (entry: unknown): SignedSmallVariant => {
           frequencies: parseEvidenceValues(evidence.frequencies, FREQUENCY_FIELDS),
           inSilico: parseEvidenceValues(evidence.in_silico, IN_SILICO_FIELDS),
           geneConstraint: parseEvidenceValues(evidence.gene_constraint, GENE_CONSTRAINT_FIELDS),
+        }
+      : null,
+    compoundHet: pair
+      ? {
+          partnerVariantIds: strings(pair.partner_variant_ids),
+          gene: text(pair.gene),
+          classification: text(pair.classification),
+          tags: strings(pair.tags),
+          note: text(pair.note),
+          phaseStatus: text(pair.phase_status),
         }
       : null,
   };
@@ -2094,6 +2122,68 @@ export const NIPT_NOT_CLASSIFIED_REASONS: Record<string, string> = {
 /** The sections the sign-out check names as changed: "reported small variants and …". */
 export const describeReportSections = (sections: string[]): string =>
   joinWithAnd(sections.map((section) => REPORT_SECTION_LABELS[section] ?? section));
+
+// The parts of a section CoGA records since a record was signed: the sign-out check compares
+// such a record's section on what it holds and names these as not compared
+// (pgt_analysis.comparable_with_record, signed_record_sections.repeat_expansions_comparable_with_record).
+const NOT_COMPARED_PART_LABELS: Record<string, string> = {
+  'pgt_analysis.qc_verdict': 'the embryos’ QC verdicts',
+  'pgt_analysis.inputs.blocks_outdated': 'whether the haplotype blocks were built for the family’s pedigree',
+  'repeat_expansions.count_units': 'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
+};
+
+// The reference-layer modules a record can predate (annotation_manifest_service.REFERENCE_MODULE_KEYS),
+// as `modules.<key>`: what each one's version says.
+const NOT_COMPARED_MODULE_LABELS: Record<string, string> = {
+  assembly: 'the reference assembly’s version',
+  gene_loci: 'the gene loci’s source',
+  monarch: 'the Monarch version',
+  hpo: 'the HPO version',
+};
+
+const notComparedLabel = (key: string): string => {
+  if (NOT_COMPARED_PART_LABELS[key]) return NOT_COMPARED_PART_LABELS[key];
+  if (key.startsWith('modules.')) {
+    const module = key.slice('modules.'.length);
+    return NOT_COMPARED_MODULE_LABELS[module] ?? `the ${module} version`;
+  }
+  if (REPORT_SECTION_LABELS[key]) return REPORT_SECTION_LABELS[key];
+  // A part the page has no words for yet: under its section's name.
+  const [section, ...part] = key.split('.');
+  return REPORT_SECTION_LABELS[section] && part.length
+    ? `${REPORT_SECTION_LABELS[section]} (${part.join(' ').replace(/_/g, ' ')})`
+    : key;
+};
+
+/**
+ * What the sign-out check could not compare (`not_compared`): a section, a reference module or
+ * a part of a section that the signed version does not hold, CoGA having recorded it since.
+ */
+export const describeNotCompared = (keys: string[]): string => joinWithAnd(keys.map(notComparedLabel));
+
+/**
+ * The sentence that names what the check could not compare with `version` ("signed version 2",
+ * "this version"), said beside "still matches" and beside what changed, so that neither reads as
+ * covering it; null when it compared everything (TRACE-19).
+ */
+export const notComparedSentence = (keys: string[] | null | undefined, version: string): string | null =>
+  keys?.length ? `Not in ${version}, so not compared: ${describeNotCompared(keys)}.` : null;
+
+/**
+ * The compound-het pair review that put a small variant in the report, as the record froze it:
+ * "Reported through its compound-het pair review: paired with 1-3001-A-G in GENE_RECESS (phase
+ * unknown); the pair is tagged report." Its note is shown apart.
+ */
+export const describeCompoundHetPair = (pair: SignedCompoundHetPair): string => {
+  const partners = pair.partnerVariantIds.length ? joinWithAnd(pair.partnerVariantIds) : 'no recorded partner';
+  const phase = formatCompoundHetPhaseStatus(pair.phaseStatus);
+  const tags = pair.tags.length ? `tagged ${joinWithAnd(pair.tags)}` : 'not tagged';
+  return `Reported through its compound-het pair review: paired with ${partners}${
+    pair.gene ? ` in ${pair.gene}` : ''
+  } (${phase.charAt(0).toLowerCase()}${phase.slice(1)}); the pair is ${tags}${
+    pair.classification ? ` and classified ${pair.classification}` : ''
+  }.`;
+};
 
 /** A QC verdict in the words the Sample QC page uses. */
 export const qcStatusLabel = (status: string | null): string =>

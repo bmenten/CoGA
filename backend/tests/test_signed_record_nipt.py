@@ -174,6 +174,9 @@ class _Session:
     async def execute(self, statement: Any, params: Any = None) -> _Result:
         sql = str(statement)
         self.executed.append((sql, params))
+        if "track_type = 'haplotype'" in sql:
+            # No member has haplotype blocks: the fetus, read as an embryo, has no data at all.
+            return _Result([])
         if "sample_interval_track_sources" in sql:
             return _Result([{"sample_id": PLASMA, "filename": "cfdna.targets.tsv", "row_count": 5, "uploaded_at": _LOADED}])
         if "FROM families" in sql:
@@ -748,8 +751,14 @@ def _wire_sign_out(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(rss, "_import_incomplete_state", complete)
     monkeypatch.setattr(rss, "_import_unfinished_state", unfinished)
     for name in ("variant_descriptions", "_gene_panels", "reference_data", "repeat_expansion_calls",
-                 "paraphase_results", "coverage_tracks", "pgt_embryo_results"):
+                 "paraphase_results", "coverage_tracks"):
         monkeypatch.setattr(srs, name, section)
+
+    async def no_pgt_section(*_args, **_kwargs):  # pragma: no cover - must not be read
+        raise AssertionError("the fetus, read as an embryo, is no PGT embryo")
+
+    # The fetus is an embryo member (_sample_rows): its record held a PGT section once (#922).
+    monkeypatch.setattr(srs, "pgt_embryo_results", no_pgt_section)
 
 
 @pytest.mark.asyncio
@@ -784,6 +793,8 @@ async def test_a_sign_out_reads_one_nipt_analysis_for_its_sample_qc_and_its_reco
     assert (list_reads, analyses) == (["panel-v2"], [FATHER])
     qc, section = snapshot["sample_qc"], snapshot["nipt"]
     assert qc["application"] == "nipt" and "NIPT cfDNA analysis could not run." not in qc["notes"]
+    # The fetus is an embryo member without haplotype blocks: no PGT section (TRACE-19).
+    assert "pgt_analysis" not in snapshot
     paternity = section["checks"]["paternity"]
     counts = ("hom_alt_transmitted", "hom_alt_not_transmitted", "het_transmitted", "het_not_transmitted")
     assert qc["paternity_check"] == {
