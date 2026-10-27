@@ -70,11 +70,13 @@ listed per TF-06 (e.g. possibility of a missed variant if a filter is too aggres
 uninformative/ambiguous calls, drift if reference data changed). The provenance footer and
 drift indicators support correct interpretation. A signed case opens on its signed version,
 rendered and printed from the frozen record: that version is the signed-out analysis, the one
-the clinical report in the EPD refers to (§3 item 2). It names
-each variant by its ID and does not hold the variant description (gene, HGVS, consequence,
-genotypes, frequencies, predictions) or the gene and phenotype context; the page says so. The
-live report shows those from current data. It is labelled as not the signed version, on screen
-and in print, and says when it no longer matches the signed version.
+the clinical report in the EPD refers to (§3 item 2). It holds each reported variant's
+description as the analyst reviewed it (gene, HGVS, consequence, genotypes), and in a PGT
+family the embryo calls, in a monogenic NIPT family the NIPT results (of its candidates, those
+tagged for the report). It does not hold the population frequencies and in silico predictions
+the live report shows, the segregation, or the gene and phenotype context; the page says so.
+The live report shows those from current data. It is labelled as not the signed version, on
+screen and in print, and says when it no longer matches the signed version.
 
 ## 6. Minimum IT & security requirements (IVDR Annex I §16.4)
 Operate CoGA only in the UZ Gent/CMGG Google Cloud project built from `terraform/`
