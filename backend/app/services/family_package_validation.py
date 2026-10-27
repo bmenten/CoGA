@@ -512,7 +512,7 @@ def _validate_coverage_dataset(
                         )
                     )
             continue
-        _require_file(
+        bed_path = _require_file(
             root=root,
             dataset_type="coverage",
             value=entry.get("bed") or entry.get("file"),
@@ -520,6 +520,11 @@ def _validate_coverage_dataset(
             errors=errors,
             files=files,
             sample_id=sample_id,
+        )
+        # The import refuses a BED without a record. A per-target table is not checked so:
+        # its first line is its header, which this check would take for a record.
+        _warn_file_without_a_record(
+            root=root, dataset_type="coverage", path=bed_path, warnings=warnings, sample_id=sample_id
         )
         content = entry.get(COVERAGE_CONTENT_KEY)
         if content is None:
@@ -636,6 +641,7 @@ def _validate_apcad_dataset(
     files: list[str] = []
     samples: list[str] = []
     before = len(errors)
+    # The import refuses an APCAD file without a record, the family VCF and each embryo's file.
     if dataset.family_vcf:
         family_vcf_path = _require_file(
             root=root,
@@ -645,6 +651,7 @@ def _validate_apcad_dataset(
             errors=errors,
             files=files,
         )
+        _warn_file_without_a_record(root=root, dataset_type="apcad", path=family_vcf_path, warnings=warnings)
         _note_family_vcf_index(
             root=root,
             dataset_type="apcad",
@@ -668,7 +675,7 @@ def _validate_apcad_dataset(
                 entry=raw_entry,
                 errors=errors,
             )
-            _require_file(
+            sample_path = _require_file(
                 root=root,
                 dataset_type="apcad",
                 value=entry.get("bed") or entry.get("file") or entry.get("vcf"),
@@ -676,6 +683,9 @@ def _validate_apcad_dataset(
                 errors=errors,
                 files=files,
                 sample_id=sample_id,
+            )
+            _warn_file_without_a_record(
+                root=root, dataset_type="apcad", path=sample_path, warnings=warnings, sample_id=sample_id
             )
             if entry.get("index"):
                 _require_file(
