@@ -15,7 +15,8 @@ type DestroyableIgvBrowser = IgvBrowser & {
 interface IgvViewerProps {
   familyId: string;
   sampleIds: string[];
-  genome?: string;
+  /** The IGV genome of the family's assembly (`mapAssemblyToIgvGenome`); never a default. */
+  genome: string;
   locus?: string;
 }
 
@@ -196,13 +197,13 @@ const IgvViewer: React.FC<IgvViewerProps> = ({ familyId, sampleIds, genome, locu
           return (await igv.createBrowser(mountNode, opts)) as IgvBrowser;
         };
 
-        // Remap CHM13v2.0 to hs1 temporarily; default to hg38 if missing.
-        const preferredGenome = (genome === 'chm13v2.0' ? 'hs1' : genome) ?? 'hg38';
+        // The genome the page resolved, and no other: a default would draw the reads on
+        // another assembly's genome.
         let created: DestroyableIgvBrowser;
         try {
-          created = (await createWithGenome(preferredGenome)) as DestroyableIgvBrowser;
+          created = (await createWithGenome(genome)) as DestroyableIgvBrowser;
         } catch (error) {
-          logCleanupError(`Failed to create IGV browser for genome ${preferredGenome}`, error);
+          logCleanupError(`Failed to create IGV browser for genome ${genome}`, error);
           throw error;
         }
 

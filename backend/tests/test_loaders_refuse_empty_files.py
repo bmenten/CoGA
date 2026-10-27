@@ -31,7 +31,9 @@ checked as each was written. A TRGT value that is no number is refused with 400 
 500), and a dry run warns of a data file without a record, which the import will refuse. A
 Paraphase copy number that its Postgres ``integer`` column cannot hold fails the dataset as such
 a TRGT value does (DATA-7: it failed the insert with a database error, after the sample's
-results were deleted).
+results were deleted). A sample's coverage BED, APCAD file read as a BED or TRGT VCF that its
+loader refuses fails the dataset naming the sample and the file, by its path in the package:
+the loaders' refusals, which the single-file uploads answer with, name neither.
 
 The stores are faked at their edge: the interval table answers the statements
 ``clickhouse_interval_tracks`` sends ClickHouse, and the session the Postgres statements the
@@ -488,9 +490,12 @@ async def test_a_trgt_file_without_a_record_fails_the_dataset_with_the_samples_c
         }
     )
 
-    with pytest.raises(HTTPException, match="No valid TRGT records found"):
+    with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
+    # The failure names the sample and its file, by its path in the package. Before: "400: No
+    # valid TRGT records found", whichever sample's file it was.
+    assert str(refused.value) == "The TRGT VCF of S2 (trgt/S2.vcf): No valid TRGT records found"
     # Every sample's file is read before any sample's calls are replaced: S1's as much as
     # S2's are as they were. Before: S2's calls were deleted and the dataset ended imported
     # (SAFE-29); then S1's file was stored before S2's was read, so the dataset failed with
@@ -746,10 +751,11 @@ def _apcad_vcf(samples: list[str], *calls: list[str]) -> str:
             "S1.vcf holds no APCAD value for S1",
             id="vcf-without-the-samples-column",
         ),
-        # No record at all: read as a BED, which holds none either.
+        # No record at all: read as a BED, which holds none either. The failure names the
+        # sample and the file (before: "400: No valid BED records found").
         pytest.param(
             {"vcf": ("apcad/S1.vcf", _apcad_vcf(["S1"]))},
-            "No valid BED records found",
+            "The APCAD file of S1 (apcad/S1.vcf), read as a BED: No valid BED records found",
             id="vcf-header-alone",
         ),
         pytest.param(
@@ -768,10 +774,11 @@ async def test_an_apcad_file_without_a_value_for_its_sample_fails_the_dataset_be
         per_sample={"S1": {role: _file(tmp_path, name, content) for role, (name, content) in entry.items()}}
     )
 
-    with pytest.raises((EmptyTrackFileError, HTTPException)) as refused:
+    # EmptyTrackFileError is a RuntimeError.
+    with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "apcad", dataset))
 
-    assert error in str(getattr(refused.value, "detail", refused.value))
+    assert error in str(refused.value)
     # Before: the sample's APCAD was deleted and none stored, and the dataset ended imported
     # (a VCF without a record was refused as a BED only after its delete).
     _assert_untouched(stores, before)
@@ -1048,7 +1055,8 @@ async def test_a_later_samples_trgt_file_with_a_value_that_is_no_number_fails_th
         }
     )
 
-    with pytest.raises(HTTPException, match="TRGT VCF line 4 holds a value"):
+    # The failure names the sample and its file (before: the line alone, "400: TRGT VCF line 4 …").
+    with pytest.raises(RuntimeError, match=r"^The TRGT VCF of S2 \(trgt/S2\.vcf\): TRGT VCF line 4 holds a value"):
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
     # Before: S1's calls were replaced, then S2's file failed the dataset with a ValueError.
@@ -1247,8 +1255,13 @@ _TARGET_TABLE = "chromosome\tstart\tend\tattribute\tmean\n"
             "S2.vcf holds no APCAD value for S2",
             id="vcf-without-the-embryos-column",
         ),
-        # No record at all: read as a BED, which holds none either.
-        pytest.param({"vcf": ("apcad/S2.vcf", _apcad_vcf(["S2"]))}, "No valid BED records found", id="vcf-header-alone"),
+        # No record at all: read as a BED, which holds none either. The failure names the
+        # embryo and its file (before: "400: No valid BED records found", for either embryo).
+        pytest.param(
+            {"vcf": ("apcad/S2.vcf", _apcad_vcf(["S2"]))},
+            "The APCAD file of S2 (apcad/S2.vcf), read as a BED: No valid BED records found",
+            id="vcf-header-alone",
+        ),
         pytest.param(
             {"bed": ("apcad/S2.apcad.bed", "# chrom start end id value origin\n")},
             "S2.apcad.bed holds no APCAD value for S2",
@@ -1269,10 +1282,11 @@ async def test_a_later_embryos_apcad_file_without_a_value_fails_the_dataset_befo
         }
     )
 
-    with pytest.raises((EmptyTrackFileError, HTTPException)) as refused:
+    # EmptyTrackFileError is a RuntimeError.
+    with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "apcad", dataset))
 
-    assert error in str(getattr(refused.value, "detail", refused.value))
+    assert error in str(refused.value)
     # Before: S1's track was replaced by its file's two sites, then S2's file failed the
     # dataset.
     _assert_untouched(stores, before)
@@ -1329,10 +1343,12 @@ async def test_a_later_samples_refused_coverage_bed_fails_the_dataset_before_any
         }
     )
 
-    with pytest.raises(HTTPException) as refused:
+    with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "coverage", dataset))
 
-    assert (refused.value.status_code, refused.value.detail) == (400, detail)
+    # The BED loader's words, after the sample and its file, by its path in the package.
+    # Before: "400: " and the loader's words alone, whichever sample's BED it was.
+    assert str(refused.value) == f"The coverage BED of S2 (coverage/S2.bed): {detail}"
     # Before: S1's coverage was replaced by its BED's two bins, then S2's BED failed the
     # dataset.
     _assert_untouched(stores, before)

@@ -16,10 +16,11 @@ ClickHouse:
   APCAD VCF and coverage BED, which hold nothing after their header (before: no warning);
 * package 2 (overwrite; the family's backup fails, so nothing puts the family back): the
   first embryo's new APCAD VCF (3 sites) and coverage BED (3 bins), the second embryo's
-  holding nothing after their header. Both datasets fail and the job ends failed; every
-  embryo's tracks are as package 1 left them, rows and records (before: the first embryo's
-  replaced by its new files), and the family is flagged import-incomplete for both datasets,
-  naming the job.
+  holding nothing after their header. Both datasets fail, each naming the second embryo and
+  its file (before: "400: No valid BED records found", naming neither), and the job ends
+  failed; every embryo's tracks are as package 1 left them, rows and records (before: the
+  first embryo's replaced by its new files), and the family is flagged import-incomplete for
+  both datasets, naming the job.
 
 The backup's failure is injected by failing the import's Postgres snapshot, taken first, so
 no ClickHouse backup is made either (as test_e2e_import_auto_snv_callsets.py does).
@@ -303,10 +304,12 @@ def test_a_later_embryos_empty_files_fail_the_datasets_with_every_track_as_it_wa
     assert step["job"]["status"] == "failed"
     assert step["job"]["error"] == "Family package import failed for dataset(s): apcad, coverage"
     # The second embryo's VCF holds no record, and is read as a BED, which holds none either;
-    # its coverage BED holds nothing.
+    # its coverage BED holds nothing. Each failure names the embryo and its file, by its path
+    # in the package. Before: "400: No valid BED records found" for both, naming neither.
+    second = snap["embryos"][1]
     assert step["job"]["datasets"] == {
-        "apcad": ("failed", "400: No valid BED records found"),
-        "coverage": ("failed", "400: No valid BED records found"),
+        "apcad": ("failed", f"The APCAD file of {second} (apcad/{second}.vcf), read as a BED: No valid BED records found"),
+        "coverage": ("failed", f"The coverage BED of {second} (coverage/{second}.bed): No valid BED records found"),
     }
     # No backup put the family back: every track is as package 1 left it, rows and records.
     # Before: the first embryo's APCAD and coverage were replaced by its new files (3 each),

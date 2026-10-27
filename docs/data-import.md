@@ -117,6 +117,19 @@ Its annotation is poorer than GRCh38's: GENCODE publishes none, so the genes com
 RefSeq GTF (labelled `ucsc ncbiRefSeq`). These rows have coordinates but no biotypes, Ensembl
 identifiers or MANE tags, and the cytobands are one band per chromosome.
 
+The import names the assembly as UCSC's description of it does, `T2T CHM13v2.0` with a space
+(UCSC's `hs1` where the description gives no name). Its ClickHouse tables are keyed
+`T2T_CHM13v2.0`, and NCBI writes `T2T-CHM13v2.0`. CoGA reads T2T-CHM13v2.0 under any of these
+names, in any case: `T2T-CHM13`, `T2T CHM13` or `T2T_CHM13`, with or without `v2.0`,
+`CHM13v2.0` and `hs1` (`is_t2t_chm13` in `services/sex_chromosomes.py`, beside `grc_build`;
+`isT2tChm13` in the frontend's `lib/reference.ts`). Another CHM13 release (v1.0, v1.1) or
+another telomere-to-telomere genome is not read as it: `hs1` is v2.0. By that rule IGV opens
+the `hs1` genome for a T2T family, the gene page links to UCSC's `hs1`, a gene's loci and a
+panel's regions list T2T after GRCh38, and a repeat call is placed by STRchive's T2T
+coordinates. Before, most of these places read only `T2T-CHM13…` with a hyphen, not the name
+the import itself gives, and IGV opened `hg38` for it. IGV now opens no genome for an assembly
+it has none for, and says so. T2T is outside the validated scope (GRCh38 only).
+
 ### Loading or replacing reference data
 
 Admins manage reference data on **Admin → Species & assemblies**
@@ -366,6 +379,12 @@ what they read are the small variants (the SNV VCF, the NIPT pair's files, the i
 genotypes) and APCAD, which take most of an import's time; another dataset shows how long it
 has run. The time left is the running dataset's: the datasets after it are not estimated, and
 the page says how many follow. It is first given after half a minute of reading.
+
+A job runs as the account that queued it, found by the account's id whatever its e-mail
+address is by then (SEC-32), and only while that account is active: a job whose account has
+been deactivated, or no longer exists, when a worker takes it up is not run. It ends `failed`,
+saying why, with nothing of the family written; an active administrator queues the import
+again. An import already running when its account is deactivated runs to its end.
 
 Jobs run on background workers: one job at a time per backend process, or more with
 `FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. The
@@ -959,7 +978,11 @@ and the `pcf` dataset every sample's tables, up to the first row, before they cl
 finds no record is read as a BED, whole) before it clears an embryo's track, and the `coverage`
 dataset every sample's file before it replaces a sample's track: a BED decoded whole, as the BED
 loader decodes it, and read up to its first record, and a per-target table parsed whole. Both used
-to be checked sample by sample, as each was written (SAFE-3). A monogenic NIPT's per-sample SNV
+to be checked sample by sample, as each was written (SAFE-3). When the BED or TRGT loader refuses a
+sample's file (a coverage BED, an APCAD file read as a BED, a TRGT VCF), the dataset's failure names
+the sample and the file, by its path in the package, before the loader's words: *The coverage BED of
+S2 (coverage/S2.bed): No valid BED records found*. The loaders' own words, which a single-file upload
+answers with, name neither, and the dataset used to fail with them alone. A monogenic NIPT's per-sample SNV
 files are checked for their one sample column and a record before the plasma's calls are written.
 The `paraphase` dataset reads every sample's JSON before it replaces any
 sample's results; it read each as it wrote it until DATA-7. The `mito` dataset reads every chrM SV file before it replaces a chrM call: one whose records all lie
@@ -1719,6 +1742,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone who is neither in the PED nor in `family.add_members`. |
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
+| "Not run: the account that requested this import has been deactivated …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, or deleted, before a worker ran it, and a job runs as the account that queued it. Nothing was written: queue the import again as an active administrator. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
 | "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
@@ -1738,13 +1762,13 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | *Import incomplete* for `snv` or `haplotypes`, with no import job | A small-variant upload with `overwrite` failed after it had deleted the callset it replaced ([section 6](#6-single-file-uploads)). Upload the callset again, or import it. |
 | *Import incomplete*: "A single-file upload … began rewriting this family's data and has not finished" | An upload is still running, or one stopped (a restart, a crash, running out of memory) or failed after its first write to ClickHouse, and could not put back what it deleted ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once no upload of the family runs, upload again with `overwrite` each dataset and sample the banner names (or import it again with overwrite); each goes from the mark as it is brought again. |
 | *Import incomplete*: "A deletion of this family's data … began and has not finished" | A deletion of the family's data (an admin's deletion of a sample, of its structural variants or of the family, a PED upload or manual family that replaced it, a structure change that cleared its data) is still running, or stopped or failed after its first write to ClickHouse ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once it no longer runs, upload or import again, with `overwrite`, each dataset and sample the banner names; or, for a sample's deletion, delete the sample again: once it is gone its own items go. |
-| "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
+| "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset: "The TRGT VCF of … (…): No valid TRGT records found" for a sample's file, "No valid TRGT records found for …" for a family VCF) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
 | "… holds no record of the … track", "… holds no interval on a primary chromosome …", "… holds no segment", "… holds no APCAD value for …" | A package's track file holds nothing its reader can store: an empty or truncated pipeline output, or another file than the manifest means. Its dataset failed before the track was deleted ([Where each dataset lands](#where-each-dataset-lands)). Correct the file and import again. |
 | "Paraphase JSON for … holds no gene result", "The NeedlR file of … holds no structural variant", "The SNV file of … holds no record" | That sample's file holds no result; its dataset failed before the sample's data was replaced. |
 | "No mitochondrial call was replaced: the chrM VCF of … holds no variant record" (the `mito` dataset) | A sample's chrM VCF holds no variant record: a failed analysis or a file cut short. Every sample's mitochondrial calls are as they were; rerun the analysis and import its VCF. |
 | "No mitochondrial call was replaced: the chrM SV VCF of … holds … record(s), none on chrM" (the `mito` dataset) | The entry's `sv_vcf` is another SV callset than Sniffles2's chrM calls, such as the sample's genome-wide SV VCF. Point it at the chrM SV VCF. |
 | `dataset_file_without_record` (warning) | A data file holds nothing after its header. The import will fail its dataset and keep the stored data as it was: use the complete file. |
-| "No valid BED records found" (the `coverage` dataset, or the `apcad` dataset for an embryo's VCF without a record, read as a BED) | A sample's coverage BED, or such an APCAD VCF, holds no record: an empty or truncated pipeline output. The dataset checks every sample's file before it replaces a track, so every sample's track is as it was. The message does not name the file: the dry run's `dataset_file_without_record` does, for a file with nothing after its header. Correct the file and import again. |
+| "No valid BED records found" (BED upload, 400; the `coverage` dataset, "The coverage BED of … (…): No valid BED records found"; the `apcad` dataset for an embryo's VCF without a record, read as a BED, "The APCAD file of … (…), read as a BED: No valid BED records found") | The BED holds no record: an empty or truncated pipeline output. A dataset's message names the sample and the file, by its path in the package (it used to name neither: "400: No valid BED records found"). The dataset checks every sample's file before it replaces a track, so every sample's track is as it was; an upload replaced nothing. Correct the file and import or upload it again. |
 | "TRGT VCF line … holds a value that cannot be read where a number is expected; nothing was stored" (TRGT upload, 400, or the `repeats_trgt` dataset) | A record of the TRGT VCF holds a position, motif count, allele length or purity that is no number, or a position beyond any chromosome: a damaged file or another format. Nothing was replaced. |
 | "Paraphase JSON for … holds a value that cannot be read where a number is expected (total_cn of …); nothing was stored" (the `paraphase` dataset) | That gene's copy number in the sample's Paraphase JSON is beyond what Postgres's `integer` holds: a damaged file or another format. No sample's Paraphase results were replaced. |
 | "The NIPT SNV file of … holds no record; no NIPT call was replaced" | A monogenic NIPT's per-sample SNV file holds nothing after its header. Neither file's calls were replaced. |

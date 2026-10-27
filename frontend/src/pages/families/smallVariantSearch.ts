@@ -625,14 +625,31 @@ export const NIPT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new
 ]);
 
 /**
+ * The inheritance views of the NIPT variant list: the only inheritance it takes. The server
+ * refuses any other, and with it the whole search (`_INHERITANCE_VIEWS`, which
+ * `nipt_service.get_family_nipt_variants` checks: 400 "Unsupported NIPT inheritance preset");
+ * `test_nipt_service.py` fails when the two lists differ. A saved search made on the
+ * small-variant list, or a link, can carry another mode (dominant, for one): the NIPT page does
+ * not send it and names it as a filter the list does not apply.
+ */
+export const NIPT_INHERITANCE_VIEWS = ['de_novo', 'paternal_dominant', 'maternal_dominant', 'recessive_at_risk'] as const;
+export type NiptInheritanceView = (typeof NIPT_INHERITANCE_VIEWS)[number];
+
+export const isNiptInheritanceView = (value: string): value is NiptInheritanceView =>
+  (NIPT_INHERITANCE_VIEWS as readonly string[]).includes(value);
+
+/**
  * Whether the NIPT variant list applies the filter a chip names: one it sends, and no
- * per-sample genotype or quality filter, none of which it sends (ENG-19).
+ * per-sample genotype or quality filter, none of which it sends (ENG-19), nor an inheritance
+ * mode that is not one of its views.
  */
 export const niptAppliesFilterChip = (chip: ActiveSmallFilterChip): boolean =>
-  chip.kind === 'top' && !NIPT_UNSUPPORTED_FILTERS.has(chip.key);
+  chip.kind === 'top' &&
+  !NIPT_UNSUPPORTED_FILTERS.has(chip.key) &&
+  (chip.key !== 'inheritance' || isNiptInheritanceView(chip.value ?? ''));
 
-// The inheritance views of the NIPT variant list, as chips name them.
-export const NIPT_INHERITANCE_LABELS: Record<string, string> = {
+// The inheritance views of the NIPT variant list, as its control and the chips name them.
+export const NIPT_INHERITANCE_LABELS: Record<NiptInheritanceView, string> = {
   de_novo: 'De novo in the fetus',
   paternal_dominant: 'Paternal, inherited by the fetus',
   maternal_dominant: 'Maternal, inherited by the fetus',
@@ -1372,7 +1389,7 @@ export const buildActiveFilterChips = (
       chips.push({
         id: `top:${key}`,
         label: `${SMALL_FILTER_LABELS[key]}: ${
-          SMALL_INHERITANCE_LABELS[value] || NIPT_INHERITANCE_LABELS[value] || value
+          SMALL_INHERITANCE_LABELS[value] || (isNiptInheritanceView(value) ? NIPT_INHERITANCE_LABELS[value] : value)
         }`,
         kind: 'top',
         key,

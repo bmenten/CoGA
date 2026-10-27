@@ -15,6 +15,7 @@ import { apiPath } from '../../lib/apiPath';
 import type { ApiErrorLike } from '../../lib/errorMessage';
 import QueryFailure from '../../components/QueryFailure';
 import { formatDateTime } from '../../lib/format';
+import { isT2tChm13 } from '../../lib/reference';
 import { routePath } from '../../lib/routePath';
 
 // A panel request's error detail: a message, a validation list, or a message naming genes.
@@ -90,7 +91,7 @@ const GenePanelsPage: React.FC = () => {
       byAssembly.set(key, (byAssembly.get(key) ?? 0) + (r.end - r.start));
     });
     if (byAssembly.size <= 1) return formatSpan([...byAssembly.values()][0] ?? 0);
-    const rank = (name: string) => (name === 'GRCh38' ? 0 : name.startsWith('T2T-CHM13') ? 1 : 9);
+    const rank = (name: string) => (name === 'GRCh38' ? 0 : isT2tChm13(name) ? 1 : 9);
     return [...byAssembly.entries()]
       .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
       .map(([assembly, total]) => `${formatSpan(total)} (${assembly || 'unknown'})`)

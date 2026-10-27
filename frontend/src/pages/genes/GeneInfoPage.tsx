@@ -6,7 +6,7 @@ import PageState from '../../components/PageState';
 import { getErrorMessage } from '../../lib/errorMessage';
 import api from '../../lib/api';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
-import { useFamilyReference } from '../../lib/reference';
+import { isT2tChm13, useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
 import type {
@@ -807,7 +807,7 @@ const GeneInfoPage: React.FC = () => {
     ? formatAssemblyCoordinate(
         pickAssemblyLocation(
           profile.assembly_locations,
-          (location) => /t2t|chm13/i.test(formatAssemblyLabel(location)),
+          (location) => isT2tChm13(location.assembly_name) || isT2tChm13(location.assembly_version),
         ),
       )
     : '—';
