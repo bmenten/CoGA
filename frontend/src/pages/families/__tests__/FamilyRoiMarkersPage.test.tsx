@@ -148,6 +148,24 @@ describe('FamilyRoiMarkersPage', () => {
       renderPage();
 
       expect(await screen.findByText('Family could not be loaded')).toBeInTheDocument();
+      expect(screen.getByText(/This is a failed request, not a missing family/)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Retry' })).toBeInTheDocument();
+      expect(screen.queryByText('No region of interest')).not.toBeInTheDocument();
+    });
+
+    // ENG-10: a family that does not exist, or is not in the user's projects, read "could
+    // not be loaded", as a failed request does.
+    it('says a family the API does not find is not found', async () => {
+      const working = (api.get as Mock).getMockImplementation()!;
+      (api.get as Mock).mockImplementation((url: string, config?: unknown) =>
+        url === '/families/co1'
+          ? Promise.reject(Object.assign(new Error('HTTP 404'), { response: { status: 404, data: { detail: 'Family not found' } } }))
+          : working(url, config),
+      );
+      renderPage();
+
+      expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
+      expect(screen.queryByText('Family could not be loaded')).not.toBeInTheDocument();
       expect(screen.queryByText('No region of interest')).not.toBeInTheDocument();
     });
   });

@@ -154,6 +154,7 @@ const GenePanelDetailPage: React.FC = () => {
   if (!panel) {
     return (
       <PageState
+        loading
         kicker="Panel Detail"
         title="Loading gene panel"
         message="Preparing panel regions and sorting controls."

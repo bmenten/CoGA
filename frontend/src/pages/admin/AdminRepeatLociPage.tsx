@@ -85,6 +85,7 @@ const AdminRepeatLociPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Admin"
         title="Loading the repeat catalogue"
         message="Fetching the repeat loci and their counting-unit records."

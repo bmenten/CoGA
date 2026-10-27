@@ -632,6 +632,19 @@ describe('GeneInfoPage', () => {
     expect(await screen.findByRole('heading', { name: 'BRCA1' })).toBeInTheDocument();
   });
 
+  // ENG-10: the row saying there are none spanned 7 of the table's 8 columns.
+  it('spans the whole transcript table with the row saying none are cached', async () => {
+    renderGeneFrom('CFTR', (profile) => {
+      Object.assign(profile as unknown as Record<string, unknown>, { transcripts: [], transcript_count: 0 });
+    });
+
+    await userEvent.click(await screen.findByRole('button', { name: /show 0 transcripts/i }));
+
+    const empty = screen.getByText('No transcripts are cached for this gene.');
+    const table = empty.closest('table') as HTMLTableElement;
+    expect(empty).toHaveAttribute('colspan', String(table.querySelectorAll('thead th').length));
+  });
+
   // CLIN-19: the row read a key nothing wrote, so it said "—" for every gene, BRCA1 included.
   it('says a gene the ACMG SF list leaves out is not on it, naming the list version', async () => {
     renderGeneFrom('CFTR', (profile) => {

@@ -164,7 +164,8 @@ const SettingsPage: React.FC = () => {
         <SmallVariantFilterPresetTable
           presets={presets}
           emptyMessage="No saved filters yet."
-          deletingPresetId={deletePresetMutation.variables?._id || null}
+          // Only while the delete runs: a failed one kept its preset at "Removing…" (ENG-10).
+          deletingPresetId={deletePresetMutation.isPending ? (deletePresetMutation.variables?._id ?? null) : null}
           onDeletePreset={async (preset) => {
             await deletePresetMutation.mutateAsync(preset);
           }}

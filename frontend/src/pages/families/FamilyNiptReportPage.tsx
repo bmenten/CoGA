@@ -334,6 +334,7 @@ const FamilyNiptReportPage: React.FC = () => {
   ) {
     return (
       <PageState
+        loading
         kicker="NIPT report"
         title="Preparing the NIPT report"
         message="Gathering fetal fraction, coverage QC and classified candidates."

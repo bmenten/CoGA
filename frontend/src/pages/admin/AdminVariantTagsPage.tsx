@@ -251,6 +251,7 @@ const AdminVariantTagsPage: React.FC = () => {
   if (projectsLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading variant tags"
         message="Preparing project context and tag definitions."

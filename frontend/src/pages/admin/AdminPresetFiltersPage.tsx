@@ -24,9 +24,10 @@ const AdminPresetFiltersPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading preset filters"
-        message="Preparing global and family-linked small-variant filter presets."
+        message="Reading the small-variant filters users have saved."
       />
     );
   }

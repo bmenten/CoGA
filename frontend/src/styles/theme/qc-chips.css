@@ -85,7 +85,23 @@
 }
 
 /* A toned chip keeps its verdict colour on hover — deepen it instead of replacing it,
-   so hovering a failing sample never makes it look neutral. */
+   so hovering a failing sample never makes it look neutral. The tone is restated, as for
+   the not-run chip below: the shared `button:hover` rule outranks `.table-chip--warning`
+   and `--critical`, and painted the hovered chip dark grey (ENG-10). */
+.family-qc-chip.table-chip--warning:hover:not(:disabled),
+.family-qc-chip.table-chip--warning:focus-visible {
+  border-color: rgba(180, 125, 45, 0.22);
+  background: rgba(180, 125, 45, 0.12);
+  color: #8d6020;
+}
+
+.family-qc-chip.table-chip--critical:hover:not(:disabled),
+.family-qc-chip.table-chip--critical:focus-visible {
+  border-color: rgba(173, 31, 45, 0.22);
+  background: rgba(173, 31, 45, 0.1);
+  color: var(--color-signature-red);
+}
+
 .family-qc-chip.table-chip--warning:hover:not(:disabled),
 .family-qc-chip.table-chip--critical:hover:not(:disabled),
 .family-qc-chip.table-chip--warning:focus-visible,
@@ -124,4 +140,27 @@
 
 .family-qc-cell-error {
   max-width: 12rem;
+}
+
+/* Edited, the members table's columns are fixed: a chip wider than its column wraps inside
+   it, rather than running under the Remove button beside it (#867). It wraps rather than
+   ending in an ellipsis, which in a narrow column left "…" alone: the verdict word must stay
+   readable, as colour never carries it alone. */
+.family-members-table--editing .family-qc-cell {
+  grid-template-columns: minmax(0, 100%);
+}
+
+.family-members-table--editing .family-qc-cell > span {
+  display: block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.family-members-table--editing .family-qc-chip,
+.family-members-table--editing .family-qc-chip-static {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-align: left;
 }

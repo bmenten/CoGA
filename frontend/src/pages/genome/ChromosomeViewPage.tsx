@@ -442,6 +442,7 @@ const ChromosomeViewPage: React.FC = () => {
   if (isLoading || (data?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Visualization"
         title="Loading chromosome view"
         message="Preparing the chromosome workspace, tracks and filters."

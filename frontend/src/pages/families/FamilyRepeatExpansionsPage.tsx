@@ -267,6 +267,7 @@ const FamilyRepeatExpansionsPage: React.FC = () => {
   if (familyLoading || repeatLoading || (family?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Repeats"
         title="Loading repeat expansions"
         message="Preparing the family repeat expansion table and pedigree context."

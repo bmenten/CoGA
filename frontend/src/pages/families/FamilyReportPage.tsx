@@ -482,6 +482,7 @@ const LiveFamilyReport: React.FC = () => {
   ) {
     return (
       <PageState
+        loading
         kicker="Report"
         title="Preparing the family report"
         message="Gathering reported variants, gene context and phenotype data."
@@ -1176,6 +1177,7 @@ const FamilyReportPage: React.FC = () => {
     if (!signouts.isFetched) {
       return (
         <PageState
+          loading
           kicker="Report"
           title="Preparing the family report"
           message="Looking up the signed versions."

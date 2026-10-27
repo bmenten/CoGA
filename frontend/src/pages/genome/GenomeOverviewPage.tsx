@@ -405,6 +405,7 @@ const GenomeOverviewPage: React.FC = () => {
   if (isLoading || (data?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Visualization"
         title="Loading genome overview"
         message="Preparing genome-wide tracks and family context."

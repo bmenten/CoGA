@@ -132,6 +132,7 @@ const AdminQcThresholdsPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Admin"
         title="Loading sequencing QC thresholds"
         message="Fetching the metric catalogue and threshold profiles."
