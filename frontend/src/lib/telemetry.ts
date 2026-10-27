@@ -25,9 +25,16 @@ export type UiEventInput = {
 };
 
 type QueuedUiEvent = UiEventInput & {
+  // The event's own id: the API stores an event once by it (SEC-17), so a batch sent again (one
+  // in flight as the page closed) stores nothing twice.
+  event_id: string;
   session_id: string;
   occurred_at: string;
 };
+
+// A queued event, and the account of the session it was queued under (tokenAccount; null with
+// no session). The account stays in the browser: the API takes the actor from the token.
+type PendingUiEvent = { event: QueuedUiEvent; account: string | null };
 
 const MAX_QUEUE = 200;
 const MAX_BATCH = 50;
@@ -59,7 +66,7 @@ const INTERACTIVE_SELECTOR =
   'button, a[href], [role="button"], [role="tab"], [role="menuitem"], ' +
   'input[type="submit"], input[type="button"], summary, [data-audit-id]';
 
-let queue: QueuedUiEvent[] = [];
+let queue: PendingUiEvent[] = [];
 let sessionId = '';
 let started = false;
 let flushTimer: ReturnType<typeof setInterval> | null = null;
@@ -77,6 +84,20 @@ const getSessionId = (): string => {
   return sessionId;
 };
 
+// A random UUID (version 4), made from the browser's random values where it has no
+// crypto.randomUUID (a page not served over HTTPS or from localhost).
+const newEventId = (): string => {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return [hex.slice(0, 8), hex.slice(8, 12), hex.slice(12, 16), hex.slice(16, 20), hex.slice(20)].join('-');
+  }
+};
+
 const nowIso = (): string => new Date().toISOString();
 
 const truncate = (value: string | null | undefined, max: number): string | undefined => {
@@ -89,15 +110,18 @@ export const logUiEvent = (event: UiEventInput): void => {
   if (queue.length >= MAX_QUEUE) {
     queue.shift();
   }
+  const token = getAuthToken();
   queue.push({
-    ...event,
-    label: truncate(event.label, MAX_LABEL_LEN),
-    session_id: getSessionId(),
-    occurred_at: nowIso(),
+    event: {
+      ...event,
+      label: truncate(event.label, MAX_LABEL_LEN),
+      event_id: newEventId(),
+      session_id: getSessionId(),
+      occurred_at: nowIso(),
+    },
+    account: token ? tokenAccount(token) : null,
   });
 };
-
-const takeBatch = (): QueuedUiEvent[] => queue.splice(0, Math.min(MAX_BATCH, queue.length));
 
 // A failure worth retrying on the next flush: no response (network) or a server-side
 // error. A 4xx will not succeed on retry, so that batch is dropped, but for a refused
@@ -191,6 +215,47 @@ const keepForAccount = (account: string, events: QueuedUiEvent[]): void => {
   writeKept(entries);
 };
 
+// Keep queued events each under the account of the session it was queued under, or under
+// `fallback` when it was queued with no session (it would have gone out with the session the
+// flush found). One with neither is dropped: no account can be named for it, and the API stores
+// no event without one.
+const keepUnderTheirAccounts = (pending: PendingUiEvent[], fallback: string | null = null): void => {
+  const byAccount = new Map<string, QueuedUiEvent[]>();
+  for (const { event, account } of pending) {
+    const owner = account ?? fallback;
+    if (owner) byAccount.set(owner, [...(byAccount.get(owner) ?? []), event]);
+  }
+  byAccount.forEach((events, owner) => keepForAccount(owner, events));
+};
+
+// Whether the session of `account` may send the event: one queued under that account, or with
+// no session, which goes out with the session the flush finds, as before.
+const sendableUnder =
+  (account: string | null) =>
+  (pending: PendingUiEvent): boolean =>
+    pending.account === null || pending.account === account;
+
+// The account of the session's token now; undefined with no session.
+const sessionAccount = (): string | null | undefined => {
+  const token = getAuthToken();
+  return token ? tokenAccount(token) : undefined;
+};
+
+// Set aside what a flush with the session's token (null: none) may not send, and return the
+// session's account: an event queued under another account waits under its own, never sent under
+// this session, and with no session (another request's 401 ended it) every event that names its
+// account waits under it, instead of being dropped.
+const setAside = (token: string | null): string | null => {
+  const account = token ? tokenAccount(token) : null;
+  const mayGo = (pending: PendingUiEvent): boolean => token !== null && sendableUnder(account)(pending);
+  const aside = queue.filter((pending) => !mayGo(pending));
+  if (aside.length) {
+    keepUnderTheirAccounts(aside);
+    queue = queue.filter(mayGo);
+  }
+  return account;
+};
+
 // Put the events kept for this session's account back at the front of the queue, as many as
 // it has room for: they were made before the events queued since. Another account's stay kept.
 const restoreKept = (account: string): void => {
@@ -198,8 +263,14 @@ const restoreKept = (account: string): void => {
   const entries = readKept();
   const entry = entries.find((kept) => kept.account === account);
   if (!entry || room <= 0) return;
-  queue = [...entry.events.splice(0, room), ...queue];
+  queue = [...entry.events.splice(0, room).map((event) => ({ event, account })), ...queue];
   writeKept(entries);
+};
+
+// Take a batch the API has answered out of the queue, where the flush at page hide has not
+// already taken it.
+const settle = (batch: PendingUiEvent[]): void => {
+  queue = queue.filter((pending) => !batch.includes(pending));
 };
 
 // Renew a Microsoft session's token before it expires, as the API client does before a
@@ -219,34 +290,37 @@ const keepTokenFresh = async (): Promise<void> => {
   }
 };
 
-// Best-effort flush via axios. Without a token nothing can be attributed to a user,
-// so the queue is dropped; logout flushes it first (`flushUiEventsNow`). A batch that
-// fails transiently goes back to the front of the queue for the next flush instead of
-// being lost (#521); the queue stays bounded by MAX_QUEUE. The events kept for the
+// Best-effort flush via axios. Events of another account, or of a session that ended, wait
+// under theirs (setAside); logout flushes the queue first (`flushUiEventsNow`). A batch stays in
+// the queue until the API acknowledges it, so a page closed while it is in flight sends it again
+// with the rest (flushKeepalive), and the API stores an event that did arrive once, by its
+// event_id. A batch that fails transiently stays at the front of the queue for the next flush
+// instead of being lost (#521); the queue stays bounded by MAX_QUEUE. The events kept for the
 // session's account go out first; a batch the API refuses for the session's token (401) is
 // kept for the account, with the rest of the queue, rather than dropped.
 const flush = async (): Promise<void> => {
   if (flushInFlight) return;
   const token = getAuthToken();
-  if (!token) {
-    queue = [];
-    return;
-  }
-  const account = tokenAccount(token);
+  const account = setAside(token);
+  if (!token) return;
   if (account) restoreKept(account);
   if (!queue.length) return;
   flushInFlight = true;
   try {
-    while (queue.length) {
-      const events = takeBatch();
+    // The API client sends a batch with the token the session holds then: a session that ended
+    // or changed meanwhile leaves the rest to the next flush, which sets aside what it may not send.
+    while (sessionAccount() === account) {
+      const batch = queue.filter(sendableUnder(account)).slice(0, MAX_BATCH);
+      if (!batch.length) break;
       try {
-        await api.post('/ui-events', { events });
+        await api.post('/ui-events', { events: batch.map((pending) => pending.event) });
+        settle(batch);
       } catch (error) {
         if (account && isRefusedSession(error)) {
-          keepForAccount(account, [...events, ...queue]);
+          keepUnderTheirAccounts(queue, account);
           queue = [];
-        } else if (isTransientFailure(error)) {
-          queue = [...events, ...queue].slice(-MAX_QUEUE);
+        } else if (!isTransientFailure(error)) {
+          settle(batch);
         }
         // Retry on the next interval rather than looping; telemetry must never
         // disrupt the app.
@@ -263,15 +337,14 @@ const flush = async (): Promise<void> => {
 // attach the bearer token (sendBeacon cannot set the Authorization header).
 // The token is the session's, which the flush timer keeps renewed (keepTokenFresh); one that
 // has expired anyway (the device slept, or MSAL needs the user) would be refused, and the
-// events lost: they are kept for the account's next flush instead (keepForAccount).
+// events lost: they are kept for the account's next flush instead (keepForAccount). The whole
+// queue goes, a batch the API client has in flight included: the page closing cancels that
+// request, whether or not it arrived.
 const flushKeepalive = (): void => {
   const token = getAuthToken();
-  if (!queue.length || !token) {
-    queue = [];
-    return;
-  }
-  const pending = queue.splice(0, queue.length);
-  const account = tokenAccount(token);
+  const account = setAside(token);
+  if (!token || !queue.length) return;
+  const pending = queue.splice(0, queue.length).map((queued) => queued.event);
   if (account && hasExpired(token)) {
     keepForAccount(account, pending);
     return;

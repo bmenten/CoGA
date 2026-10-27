@@ -3428,6 +3428,7 @@ export interface UiEventIn {
   session_id?: string | null;
   occurred_at?: string | null;
   detail?: Record<string, unknown> | null;
+  event_id?: string | null;
 }
 
 export interface UiEventIngestResult {

@@ -285,11 +285,17 @@ therefore renews a Microsoft session's token that expires within five minutes, a
 nothing is queued, and again when the page is hidden or shown (`lib/telemetry.ts`). Before, a
 page closed after an idle hour sent its last events with an expired token, and the API refused
 them (found while fixing SEC-32). Events that would go with an expired token anyway (the
-device slept, or MSAL needs the user), and a batch the API refuses for its session (401), are
-neither sent to be refused nor dropped: they wait in the browser's `localStorage` under their
-account (the token's Microsoft object ID, else its subject), at most 200 per account, and go
-out with that account's next flush the API takes, after a renewal or its next sign-in. They
-are never sent under another account.
+device slept, or MSAL needs the user), a batch the API refuses for its session (401), and the
+events queued when another request's 401 ended the session are neither sent to be refused nor
+dropped: they wait in the browser's `localStorage` under the account they were queued under
+(the token's Microsoft object ID, else its subject), at most 200 per account, and go out with
+that account's next flush the API takes, after a renewal or its next sign-in. They are never
+sent under another account. A batch stays queued until the API acknowledges it, so the flush
+at page close sends one still in flight with the rest. The browser gives each event its id
+(`event_id`), under which the API stores it once (SEC-17, §2), so a batch sent again stores
+nothing twice. Before, the events of a session another request's 401 ended were dropped, as
+no token was left to send them with, and a batch in flight as the page closed was lost (both
+found while fixing the page-close flush, #1018).
 
 **Emergency (break-glass) administrator.** With Microsoft sign-in there is one local
 account, the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on
@@ -366,7 +372,11 @@ see the roster, though no patient data.
   write, and the batch written again stored each of its rows twice. Each event now carries an
   id of its own, `event_id`, given when the event is made, before it is queued; the writers'
   INSERT does nothing for an id the table holds (`ON CONFLICT (event_id) DO NOTHING`, unique in
-  both tables), so every write of an event stores it once. A row naming a user whose account
+  both tables), so every write of an event stores it once. A UI event's id is the one the
+  browser gave it (a UUID; an event without one gets the server's), so a batch the browser
+  sends again, one in flight as its page closed, is stored once too. An id the table holds
+  stores nothing and changes nothing: a client can keep only its own event out with one, as it
+  could by not sending it (`routers/ui_events.py`). A row naming a user whose account
   was deleted while the row waited in the queue (operator SQL only) failed the foreign key on
   `user_id` and was lost. Written alone, it is now stored without the link: the user's id is
   kept in `request_meta._deleted_user_id` (`detail._deleted_user_id` for a UI event), and

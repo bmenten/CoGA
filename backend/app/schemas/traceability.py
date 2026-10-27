@@ -333,6 +333,9 @@ class UiEventIn(BaseModel):
     session_id: Optional[str] = None
     occurred_at: Optional[datetime] = None
     detail: Optional[Dict[str, Any]] = None
+    # The id the browser gave the event (a UUID): the event is stored under it, once, also when
+    # the browser sends its batch again (routers/ui_events.py).
+    event_id: Optional[str] = None
 
 
 # Max events accepted per /ui-events batch. Oversize batches are rejected with

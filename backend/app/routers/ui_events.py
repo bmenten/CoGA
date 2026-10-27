@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 
 from ..core.coga_logging import is_sensitive_key
+from ..core.sql import canonical_uuid
 from ..dependencies import get_current_user
 from ..schemas import (
     UI_EVENT_BATCH_MAX_EVENTS,
@@ -15,6 +16,7 @@ from ..schemas import (
     UiEventIngestResult,
 )
 from ..services.access_control import CurrentUser, changes_only_own_data
+from ..services.event_pipeline import new_event_id
 from ..services.ui_event_pg import UiEventPayload, write_ui_event
 
 router = APIRouter(prefix="/ui-events", tags=["ui-events"])
@@ -166,6 +168,11 @@ def _payload_from_event(
         user_id=str(user.id) if getattr(user, "id", None) else None,
         user_email=getattr(user, "email", None),
         user_role=getattr(user, "role", None),
+        # The id the browser gave the event (frontend lib/telemetry.ts): a batch it sends again,
+        # one in flight as its page closed, stores each event once (SEC-17: the INSERT does
+        # nothing for an id the table holds). An event without a UUID of the browser's gets one
+        # of the server's, as every event did before.
+        event_id=canonical_uuid(event.event_id) or new_event_id(),
     )
 
 
