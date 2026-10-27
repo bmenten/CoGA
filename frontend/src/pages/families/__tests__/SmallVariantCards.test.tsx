@@ -8,6 +8,7 @@ import SmallVariantCards from '../SmallVariantCards';
 import type { SmallVariant } from '../smallVariantSearch';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
+import { smallVariant, svSecondHit, transcript } from '../../../test/variants';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
@@ -38,7 +39,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -58,7 +59,7 @@ describe('SmallVariantCards', () => {
               mane_select: true,
               exon: '13/27',
               transcripts: [
-                {
+                transcript({
                   gene: 'BRCA2',
                   gene_id: 'ENSG00000139618',
                   transcript_id: 'NM_000059.4',
@@ -71,8 +72,8 @@ describe('SmallVariantCards', () => {
                   exon: '13/27',
                   mane_select: true,
                   primary: true,
-                },
-                {
+                }),
+                transcript({
                   gene: 'BRCA2',
                   gene_id: 'ENSG00000139618',
                   transcript_id: 'ENST00000380152.8',
@@ -84,10 +85,10 @@ describe('SmallVariantCards', () => {
                   hgvsp: 'ENSP00000369497.3:p.Arg2336His',
                   exon: '13/27',
                   canonical: true,
-                },
+                }),
               ],
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -128,7 +129,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -143,7 +144,7 @@ describe('SmallVariantCards', () => {
               transcript_biotype: 'protein_coding',
               canonical: true,
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -172,7 +173,7 @@ describe('SmallVariantCards', () => {
     renderCards(
       <SmallVariantCards
         variants={[
-          {
+          smallVariant({
             _id: 'brca2-var',
             chr: '13',
             start: 32316461,
@@ -187,7 +188,7 @@ describe('SmallVariantCards', () => {
             transcript_biotype: 'protein_coding',
             canonical: true,
             genotypes: [],
-          },
+          }),
         ]}
         members={[]}
         familyId="F1"
@@ -257,7 +258,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -267,7 +268,7 @@ describe('SmallVariantCards', () => {
               ref: 'G',
               alt: 'A',
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -301,7 +302,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -330,7 +331,7 @@ describe('SmallVariantCards', () => {
                 some_other_field: 'keep me',
               },
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -375,7 +376,7 @@ describe('SmallVariantCards', () => {
   // CLIN-51: the annotation filters must all hold on one transcript, and a variant kept by
   // SIFT deleterious on its second transcript read its primary transcript's "tolerated".
   // The e2e ready case (variant 20-62900601 of test_e2e_in_silico_prediction_filters.py).
-  const keptOnItsSecondTranscript: SmallVariant = {
+  const keptOnItsSecondTranscript: SmallVariant = smallVariant({
     _id: '20-62900601-C-T',
     chr: '20',
     start: 62900601,
@@ -392,7 +393,7 @@ describe('SmallVariantCards', () => {
     sift: 'tolerated(0.2)',
     polyphen: 'benign(0.1)',
     transcripts: [
-      {
+      transcript({
         gene: 'SYN45F',
         transcript_id: 'ENST_SYN45F_2',
         transcript_source: 'Ensembl',
@@ -400,7 +401,7 @@ describe('SmallVariantCards', () => {
         effect: 'missense_variant',
         hgvsc: 'ENST_SYN45F_2:c.100C>T',
         hgvsp: null,
-      },
+      }),
     ],
     filter_transcript: {
       gene: 'SYN45F',
@@ -417,7 +418,7 @@ describe('SmallVariantCards', () => {
       polyphen: 'probably_damaging(0.95)',
     },
     genotypes: [],
-  };
+  });
 
   const renderOne = (variant: SmallVariant) =>
     renderCards(
@@ -470,7 +471,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -488,7 +489,7 @@ describe('SmallVariantCards', () => {
               impact: 'MODERATE',
               effect: 'missense_variant',
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -529,7 +530,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -542,16 +543,16 @@ describe('SmallVariantCards', () => {
               effect: 'stop_gained',
               lof: 'HC',
               transcript_id: 'ENST00000380152.8',
-              sv_second_hit: {
+              sv_second_hit: svSecondHit({
                 sv_count: 1,
                 sv_types: ['DEL'],
                 has_deletion: true,
                 phase: 'trans',
                 phase_evidence: 'read',
                 deletion_unmasked: true,
-              },
+              }),
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -592,7 +593,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -605,7 +606,7 @@ describe('SmallVariantCards', () => {
               impact: 'MODERATE',
               effect: 'missense_variant',
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -634,7 +635,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -646,7 +647,7 @@ describe('SmallVariantCards', () => {
               impact: 'MODERATE',
               effect: 'missense_variant',
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -668,7 +669,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'brca2-var',
               chr: '13',
               start: 32316461,
@@ -684,7 +685,7 @@ describe('SmallVariantCards', () => {
               effect: 'missense_variant',
               annotation_extra: { some_other_field: 'keep me' },
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -722,7 +723,7 @@ describe('SmallVariantCards', () => {
     renderCards(
         <SmallVariantCards
           variants={[
-            {
+            smallVariant({
               _id: 'antxr2-var',
               chr: '4',
               start: 80097499,
@@ -748,7 +749,7 @@ describe('SmallVariantCards', () => {
                 ],
                 rank: 1,
               },
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"

@@ -8,8 +8,9 @@ import { describe, expect, it } from 'vitest';
 
 import NiptClassificationBlock from '../NiptClassificationBlock';
 import type { NiptClassification } from '../smallVariantSearch';
+import { niptClassification } from '../../../test/variants';
 
-const base: NiptClassification = {
+const base: NiptClassification = niptClassification({
   category: 7,
   category_label: 'Paternal transmitted',
   maternal_state: 'hom_ref',
@@ -18,7 +19,7 @@ const base: NiptClassification = {
   observed_vaf: 0.048,
   confidence: 0.873,
   flags: [],
-};
+});
 
 describe('NiptClassificationBlock', () => {
   it('shows the category, label and confidence to two decimals', () => {

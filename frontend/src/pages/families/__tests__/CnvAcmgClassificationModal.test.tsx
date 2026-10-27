@@ -11,8 +11,9 @@ import { CNV_GAIN_CRITERIA, CNV_LOSS_CRITERIA, type CnvCriterionDef } from '../.
 import CnvAcmgClassificationModal from '../CnvAcmgClassificationModal';
 import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type { StructuralVariant, StructuralVariantReviewSavePayload } from '../structuralVariantSearch';
+import { review, structuralVariant } from '../../../test/variants';
 
-const variant: StructuralVariant = {
+const variant: StructuralVariant = structuralVariant({
   _id: 'DEL-1-1000-2000000',
   chr: 'chr1',
   start: 1000,
@@ -22,7 +23,7 @@ const variant: StructuralVariant = {
   gene: 'GENEX',
   gene_count: 5,
   genotypes: [],
-};
+});
 
 const noop = vi.fn(async () => undefined);
 
@@ -309,15 +310,13 @@ describe('CnvAcmgClassificationModal', () => {
       <CnvAcmgClassificationModal
         variant={{
           ...variant,
-          review: {
+          review: review({
             variant_id: variant._id,
-            tags: [],
-            tag_metadata: {},
             cnv_acmg: {
               kind: 'loss',
               criteria: [{ code: '2C-1', points: 0.9, accepted: true, auto_suggested: false }],
             },
-          },
+          }),
         }}
         onClose={vi.fn()}
         onSave={noop}
@@ -338,13 +337,11 @@ describe('CnvAcmgClassificationModal', () => {
       <CnvAcmgClassificationModal
         variant={{
           ...variant,
-          review: {
+          review: review({
             variant_id: variant._id,
-            tags: [],
-            tag_metadata: {},
             cnv_acmg: null,
             acmg_unreadable: true,
-          },
+          }),
         }}
         onClose={vi.fn()}
         onSave={noop}

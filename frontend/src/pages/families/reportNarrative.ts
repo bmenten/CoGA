@@ -47,7 +47,7 @@ export const describeZygosity = (gt?: string): Zygosity => {
 
 // Human-friendly consequence: "missense_variant&splice_region_variant" →
 // "missense variant / splice region variant".
-export const humanizeEffect = (effect?: string): string => {
+export const humanizeEffect = (effect?: string | null): string => {
   if (!effect) return 'sequence variant';
   return effect
     .split(/[&,]/)

@@ -30,6 +30,12 @@ import VizTooltip from './VizTooltip';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { apiPath } from '../../lib/apiPath';
+import type {
+  HaplotypeResponse,
+  HaplotypeSegment,
+  PhasedMarker,
+  PhasedMarkerResponse,
+} from '../../lib/apiSchema.generated';
 import {
   NO_ALLELE,
   alleleBase,
@@ -39,71 +45,12 @@ import {
   rowAlleles,
 } from '../../lib/phasedMarkers';
 
-interface Segment {
-  start: number;
-  end: number;
-  hap1: string;
-  hap2: string;
-  ps?: number | null;
-  // Pedigree-aware colour class per lane (paternal/maternal -> coloured,
-  // untransmitted/unknown -> grey). Drives baseColorForLane via the shared
-  // getHaplotypeLaneSignature.
-  hap1_lineage?: string | null;
-  hap2_lineage?: string | null;
-  // A male has one copy of this block (chrX outside the PARs); see HaplotypeSegmentLike.
-  hemizygous_in_males?: boolean | null;
-}
-
-interface SampleSegments {
-  sample: string;
-  segments: Segment[];
-}
-
-interface HaplotypeResponse {
-  chr: string;
-  start: number;
-  end: number;
-  // Built for another pedigree or other sexes than the family's (CLIN-66).
-  blocks_outdated?: boolean;
-  samples: SampleSegments[];
-}
-
-interface PhasedMarker {
-  pos: number;
-  // Value drawn on each lane (0/1). Child: inherited paternal (hap1) / maternal
-  // (hap2) homolog; parent: the allele on their own hap1 / hap2.
-  hap1: number | null;
-  hap2: number | null;
-}
-
-interface PhasedSite {
-  pos: number;
-  ref: string;
-  alt: string;
-  // Raw phased a|b genotype per member, aligned to `samples` order.
-  gts: string[];
-}
-
-interface PhasedSampleQc {
-  // Sites where both parents and this child are jointly genotyped.
-  informative_sites: number;
-  // Subset of those whose child genotype is impossible given the parents (a true
-  // Mendelian inconsistency — likely sample swap / wrong pedigree).
-  mendel_errors: number;
-  mendel_rate: number;
-}
-
-interface PhasedMarkerResponse {
-  samples: { sample: string; markers: PhasedMarker[]; reference?: boolean; qc?: PhasedSampleQc | null }[];
-  sites?: PhasedSite[];
-  // The per-site fetch is capped server-side and drops the highest-coordinate tail
-  // when the region holds too many sites. When true, the overlay would be partial
-  // and misleading, so the markers/sites are empty and we show a 'zoom in' hint.
-  truncated?: boolean;
-  covered?: number[] | null;
-  // Where in the window a man has one X: chrX outside the PARs of the family's assembly.
-  hemizygous_x_ranges?: number[][];
-}
+// A block as the haplotype endpoint serves it. `hap1_lineage`/`hap2_lineage` are the
+// pedigree-aware colour class per lane (paternal/maternal -> coloured, untransmitted/unknown
+// -> grey), which drive baseColorForLane via the shared getHaplotypeLaneSignature;
+// `hemizygous_in_males` a block a male has one copy of (chrX outside the PARs, see
+// HaplotypeSegmentLike).
+type Segment = HaplotypeSegment;
 
 const regionLabel = (chrom: string, start: number, end: number): string =>
   `${formatChromosomeLabel(chrom)}:${start.toLocaleString()}–${end.toLocaleString()}`;
@@ -279,7 +226,11 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
   });
 
   // Raw per-marker phasing (computed server-side, returned per member). Only
-  // fetched when we are overlaying markers.
+  // fetched when we are overlaying markers. The per-site fetch is capped server-side and
+  // drops the highest-coordinate tail when the region holds too many sites: `truncated` then
+  // empties the markers and sites, as the overlay would be partial and misleading, and a
+  // 'zoom in' hint shows. `hemizygous_x_ranges` are where in the window a man has one X
+  // (chrX outside the PARs of the family's assembly).
   const { data: rawPhasedData, isError: markersError } = useQuery<PhasedMarkerResponse>({
     queryKey: ['phased-markers', familyId, chrom, regionStart, regionEnd],
     queryFn: async () => {
@@ -583,6 +534,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
     const dotColor = (marker: PhasedMarker, lane: HaplotypeLane, block: Segment | null): string => {
       if (isReferenceMember && block) return baseColorForLane(block, lane);
       const synthetic: Segment = {
+        chr: block?.chr ?? null,
         start: marker.pos,
         end: marker.pos + 1,
         hap1: laneValue(marker.hap1),
@@ -590,7 +542,7 @@ const HaplotypePhasedTrack: React.FC<Props> = ({
         ps: null,
         hap1_lineage: block?.hap1_lineage ?? null,
         hap2_lineage: block?.hap2_lineage ?? null,
-        hemizygous_in_males: block?.hemizygous_in_males ?? null,
+        hemizygous_in_males: block?.hemizygous_in_males ?? false,
       };
       return baseColorForLane(synthetic, lane);
     };

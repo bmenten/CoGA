@@ -5,17 +5,19 @@ import {
   buildStructuralVariantNavigation,
 } from '../structuralVariantNavigation';
 import type { StructuralVariant } from '../structuralVariantSearch';
+import { structuralVariant } from '../../../test/variants';
 
-const variant = (overrides: Partial<StructuralVariant>): StructuralVariant => ({
-  _id: 'sv1',
-  chr: 'chr5',
-  start: 1_000_000,
-  end: 1_400_000,
-  length: 400_000,
-  type: 'DEL',
-  genotypes: [],
-  ...overrides,
-});
+const variant = (overrides: Partial<StructuralVariant>): StructuralVariant =>
+  structuralVariant({
+    _id: 'sv1',
+    chr: 'chr5',
+    start: 1_000_000,
+    end: 1_400_000,
+    length: 400_000,
+    type: 'DEL',
+    genotypes: [],
+    ...overrides,
+  });
 
 const windowOf = (viewHref: string) => {
   const params = new URLSearchParams(viewHref.split('?')[1]);

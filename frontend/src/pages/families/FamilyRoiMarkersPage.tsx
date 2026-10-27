@@ -9,6 +9,12 @@ import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
 import HaplotypeLegend from '../../components/visualizations/HaplotypeLegend';
 import VizTooltip from '../../components/visualizations/VizTooltip';
+import type {
+  HaplotypeResponse,
+  HaplotypeSegment,
+  PhasedMarkerResponse,
+  PhasedSite,
+} from '../../lib/apiSchema.generated';
 import type { ApiFamilyRecord } from '../../lib/apiTypes';
 import { apiPath } from '../../lib/apiPath';
 import { normalizeSex } from '../../lib/haplotypeRisk';
@@ -33,39 +39,7 @@ const MAX_COLUMNS = 800;
 const LANES = ['hap1', 'hap2'] as const;
 type Lane = (typeof LANES)[number];
 
-interface PhasedSite {
-  pos: number;
-  ref: string;
-  alt: string;
-  gts: string[]; // phased a|b per member, aligned to `samples` order
-}
-interface PhasedSample {
-  sample: string;
-  markers: { pos: number; hap1: number | null; hap2: number | null }[];
-  reference?: boolean;
-  qc?: { informative_sites: number; mendel_errors: number; mendel_rate: number } | null;
-}
-interface PhasedMarkerResponse {
-  samples: PhasedSample[];
-  sites: PhasedSite[];
-  truncated?: boolean;
-  covered?: [number, number] | null;
-  // Where in the window a man has one X: chrX outside the PARs of the family's assembly.
-  hemizygous_x_ranges?: number[][];
-}
-interface HapSegment {
-  start: number;
-  end: number;
-  hap1: string;
-  hap2: string;
-  hap1_lineage?: string | null;
-  hap2_lineage?: string | null;
-}
-interface HaplotypeResponse {
-  samples: { sample: string; segments: HapSegment[] }[];
-}
-
-const laneColor = (seg: HapSegment | null, lane: Lane): string => {
+const laneColor = (seg: HaplotypeSegment | null, lane: Lane): string => {
   const grey = cssVar('--color-haplotype-unknown');
   if (!seg) return grey;
   const lineage = (lane === 'hap1' ? seg.hap1_lineage : seg.hap2_lineage) || '';
@@ -85,12 +59,12 @@ const laneColor = (seg: HapSegment | null, lane: Lane): string => {
 // (returns false) flags a phasing switch / artifact / unannotated recombination;
 // null = nothing to compare (no block, or the lane is uninformative here).
 const laneMatchesBlock = (
-  seg: HapSegment | null,
+  seg: HaplotypeSegment | null,
   laneValue: number | null,
   lane: Lane,
 ): boolean | null => {
   if (!seg || laneValue === null) return null;
-  const rawSeg: HapSegment =
+  const rawSeg: HaplotypeSegment =
     lane === 'hap1' ? { ...seg, hap1: String(laneValue) } : { ...seg, hap2: String(laneValue) };
   return laneColor(rawSeg, lane) === laneColor(seg, lane);
 };
@@ -99,10 +73,10 @@ const laneMatchesBlock = (
 // eye lands on the nucleotides that actually carry segregation signal.
 const UNINFORMATIVE_COLOR = '#cbd5e1';
 
-const coveringSegment = (segments: HapSegment[], pos: number): HapSegment | null => {
+const coveringSegment = (segments: HaplotypeSegment[], pos: number): HaplotypeSegment | null => {
   let lo = 0;
   let hi = segments.length - 1;
-  let found: HapSegment | null = null;
+  let found: HaplotypeSegment | null = null;
   while (lo <= hi) {
     const mid = (lo + hi) >> 1;
     if (segments[mid].start <= pos) {
@@ -241,7 +215,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
   }, [family?.members]);
 
   const segmentsBySample = useMemo(() => {
-    const map = new Map<string, HapSegment[]>();
+    const map = new Map<string, HaplotypeSegment[]>();
     (haplo?.samples ?? []).forEach((s) =>
       map.set(s.sample, [...s.segments].sort((a, b) => a.start - b.start)),
     );

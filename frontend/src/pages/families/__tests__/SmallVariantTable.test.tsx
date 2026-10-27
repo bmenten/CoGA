@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import SmallVariantTable from '../SmallVariantTable';
+import { niptClassification, review, smallVariant, svSecondHit } from '../../../test/variants';
 
 describe('SmallVariantTable', () => {
   it('keeps long allele values constrained while preserving the full value in the tooltip', () => {
@@ -12,7 +13,7 @@ describe('SmallVariantTable', () => {
       <MemoryRouter>
         <SmallVariantTable
           variants={[
-            {
+            smallVariant({
               _id: 'long-indel',
               chr: '1',
               start: 123,
@@ -24,7 +25,7 @@ describe('SmallVariantTable', () => {
               impact: 'MODERATE',
               effect: 'frameshift_variant',
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -52,7 +53,7 @@ describe('SmallVariantTable', () => {
       <MemoryRouter>
         <SmallVariantTable
           variants={[
-            {
+            smallVariant({
               _id: 'classified',
               chr: '1',
               start: 123,
@@ -64,8 +65,8 @@ describe('SmallVariantTable', () => {
               impact: 'MODERATE',
               effect: 'missense_variant',
               genotypes: [],
-              review: { variant_id: 'classified', classification: ' likely pathogenic ', tags: [], tag_metadata: {} },
-            },
+              review: review({ variant_id: 'classified', classification: ' likely pathogenic ' }),
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -86,7 +87,7 @@ describe('SmallVariantTable', () => {
   it('names under the effect the transcript the filters held on, when not the row’s own', () => {
     // CLIN-51: the row's impact and effect are its MANE transcript's, a synonymous change;
     // HIGH or MODERATE impact kept it as a missense change on a second transcript.
-    const row = {
+    const row = smallVariant({
       _id: '20-63000301-C-T',
       chr: '20',
       start: 63000301,
@@ -98,7 +99,7 @@ describe('SmallVariantTable', () => {
       impact: 'LOW',
       effect: 'synonymous_variant',
       genotypes: [],
-    };
+    });
     const matched = {
       gene: 'SYN51C',
       transcript_id: 'ENST_SYN51C_2',
@@ -143,7 +144,7 @@ describe('SmallVariantTable', () => {
   });
 
   it('shows a Score column and ranks prioritized variants highest-first', () => {
-    const mkVariant = (id: string, gene: string, combined: number) => ({
+    const mkVariant = (id: string, gene: string, combined: number) => smallVariant({
       _id: id,
       chr: '1',
       start: 100,
@@ -197,7 +198,7 @@ describe('SmallVariantTable', () => {
       <MemoryRouter>
         <SmallVariantTable
           variants={[
-            {
+            smallVariant({
               _id: 'top',
               chr: '1',
               start: 100,
@@ -221,7 +222,7 @@ describe('SmallVariantTable', () => {
                 phenotype_matches: [{ hpo_id: 'HP:0001250', label: 'Seizure' }],
                 rank: 1,
               },
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -249,7 +250,7 @@ describe('SmallVariantTable', () => {
       <MemoryRouter>
         <SmallVariantTable
           variants={[
-            {
+            smallVariant({
               _id: 'nav',
               chr: '1',
               start: 100,
@@ -261,7 +262,7 @@ describe('SmallVariantTable', () => {
               impact: 'HIGH',
               effect: 'stop_gained',
               genotypes: [],
-            },
+            }),
           ]}
           members={[]}
           familyId="F1"
@@ -289,7 +290,7 @@ describe('SmallVariantTable', () => {
   });
 
   it('writes the NIPT VAFs as the NIPT pages do: a percentage, a dash when missing', () => {
-    const niptVariant = (id: string, observedVaf: number | null) => ({
+    const niptVariant = (id: string, observedVaf: number | null) => smallVariant({
       _id: id,
       chr: '1',
       start: 100,
@@ -301,7 +302,7 @@ describe('SmallVariantTable', () => {
       impact: 'HIGH',
       effect: 'stop_gained',
       genotypes: [],
-      nipt: {
+      nipt: niptClassification({
         category: 7,
         category_label: 'Paternal, transmitted',
         maternal_state: 'hom_ref',
@@ -310,7 +311,7 @@ describe('SmallVariantTable', () => {
         observed_vaf: observedVaf,
         confidence: 0.873,
         flags: [],
-      },
+      }),
     });
 
     render(
@@ -341,7 +342,7 @@ describe('SmallVariantTable SV second hit', () => {
       <MemoryRouter>
         <SmallVariantTable
           variants={[
-            {
+            smallVariant({
               _id: 'trnt1-var',
               chr: '3',
               start: 3129108,
@@ -353,15 +354,15 @@ describe('SmallVariantTable SV second hit', () => {
               impact: 'MODERATE',
               effect: 'missense_variant',
               genotypes: [],
-              sv_second_hit: {
+              sv_second_hit: svSecondHit({
                 sv_count: 1,
                 sv_types: ['DEL'],
                 affected_zygosity: 'het',
                 has_deletion: true,
                 phase: 'trans',
                 deletion_unmasked: true,
-              },
-            },
+              }),
+            }),
           ]}
           members={[]}
           locationSearch=""

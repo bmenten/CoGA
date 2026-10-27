@@ -27,6 +27,7 @@ const VARIANT: GlobalVariantRow = {
   pos: 32316461,
   ref: 'G',
   alt: 'A',
+  rsid: null,
   type: 'SNV',
   gene: 'BRCA2',
   gene_symbols: ['BRCA2'],
@@ -42,6 +43,7 @@ const VARIANT: GlobalVariantRow = {
   het_samples: 2,
   hom_samples: 1,
   total_families: 2,
+  last_seen: null,
 };
 
 const CARRIERS: VariantCarriers = {
@@ -62,20 +64,26 @@ const CARRIERS: VariantCarriers = {
       samples: [
         {
           sample_id: 'S1',
+          individual_name: null,
           role: 'proband',
           genotype: '0/1',
           zygosity: 'heterozygous',
           family_id: 'F1',
           family_uuid: 'uuid-f1',
+          project_id: 'p1',
+          project_name: 'Rare disease',
           phenotype_summary: 'affected',
         },
         {
           sample_id: 'S2',
+          individual_name: null,
           role: 'mother',
           genotype: '1/1',
           zygosity: 'homozygous',
           family_id: 'F1',
           family_uuid: 'uuid-f1',
+          project_id: 'p1',
+          project_name: 'Rare disease',
           phenotype_summary: null,
         },
       ],
@@ -90,11 +98,15 @@ const CARRIERS: VariantCarriers = {
       samples: [
         {
           sample_id: 'S3',
+          individual_name: null,
           role: null,
           genotype: '0/1',
           zygosity: 'heterozygous',
           family_id: 'FAM 2/B',
           family_uuid: 'uuid-f2',
+          project_id: 'p2',
+          project_name: null,
+          phenotype_summary: null,
         },
       ],
     },

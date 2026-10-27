@@ -7,6 +7,7 @@ import type {
   SmallVariantReviewSavePayload,
   SmallVariantTagDefinition,
 } from '../smallVariantSearch';
+import { review as reviewOf, smallVariant } from '../../../test/variants';
 
 // The review dialog is the tag and note editor for small and structural variants. It
 // shows a classification as one of the ACMG class boxes; a stored label it cannot show
@@ -24,14 +25,14 @@ const saveWith = async (
   render(
     <SmallVariantReviewDialog
       members={[]}
-      variant={{
+      variant={smallVariant({
         _id: 'sv1',
         chr: 'chr1',
         start: 1000,
         end: 250000,
         type: 'DEL',
-        review: { variant_id: 'sv1', tags: [], tag_metadata: {}, ...review } as SmallVariantReview,
-      }}
+        review: reviewOf({ variant_id: 'sv1', ...review }),
+      })}
       tags={[]}
       onClose={vi.fn()}
       onSave={onSave}
@@ -134,14 +135,14 @@ const renderWithTags = (reviewTags: string[], tagDefinitions = TAG_DEFINITIONS) 
   render(
     <SmallVariantReviewDialog
       members={[]}
-      variant={{
+      variant={smallVariant({
         _id: '1-1000-A-G',
         chr: '1',
         start: 1000,
         end: 1000,
         type: 'SNV',
-        review: { variant_id: '1-1000-A-G', tags: reviewTags, tag_metadata: {} } as SmallVariantReview,
-      }}
+        review: reviewOf({ variant_id: '1-1000-A-G', tags: reviewTags }),
+      })}
       tags={tagDefinitions}
       onClose={vi.fn()}
       onSave={onSave}
@@ -196,14 +197,14 @@ describe('SmallVariantReviewDialog for a reader', () => {
       <FamilyReadOnlyContext.Provider value={readOnly}>
         <SmallVariantReviewDialog
           members={[]}
-          variant={{
+          variant={smallVariant({
             _id: 'v1',
             chr: 'chr1',
             start: 1000,
             end: 1000,
             type: 'SNV',
-            review: { variant_id: 'v1', tags: ['report'], tag_metadata: {}, note: 'kept' } as SmallVariantReview,
-          }}
+            review: reviewOf({ variant_id: 'v1', tags: ['report'], note: 'kept' }),
+          })}
           tags={[]}
           onClose={vi.fn()}
           onSave={onSave}

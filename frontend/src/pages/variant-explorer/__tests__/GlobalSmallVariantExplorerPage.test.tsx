@@ -25,8 +25,20 @@ vi.mock('../../../lib/api', () => ({
 }));
 
 const ASSEMBLIES: VariantExplorerAssembly[] = [
-  { assembly_id: 'asm-38', assembly_name: 'GRCh38', version: 'p14', project_count: 3 },
-  { assembly_id: 'asm-37', assembly_name: 'GRCh37', version: null, project_count: 1 },
+  {
+    assembly_id: 'asm-38',
+    assembly_name: 'GRCh38',
+    version: 'p14',
+    species_name: 'Homo sapiens',
+    project_count: 3,
+  },
+  {
+    assembly_id: 'asm-37',
+    assembly_name: 'GRCh37',
+    version: null,
+    species_name: 'Homo sapiens',
+    project_count: 1,
+  },
 ];
 
 const TAGS: SmallVariantTagDefinition[] = [
@@ -50,6 +62,7 @@ const makeVariant = (overrides: Partial<GlobalVariantRow>): GlobalVariantRow => 
   pos: 32316461,
   ref: 'G',
   alt: 'A',
+  rsid: null,
   type: 'SNV',
   gene: 'BRCA2',
   gene_symbols: ['BRCA2'],
@@ -57,6 +70,7 @@ const makeVariant = (overrides: Partial<GlobalVariantRow>): GlobalVariantRow => 
   consequence: 'missense_variant',
   effects: ['missense_variant'],
   hgvsc: 'c.7007G>A',
+  hgvsp: null,
   clinvar: 'Pathogenic',
   classification: null,
   tags: [],
@@ -64,6 +78,7 @@ const makeVariant = (overrides: Partial<GlobalVariantRow>): GlobalVariantRow => 
   het_samples: 1,
   hom_samples: 0,
   total_families: 1,
+  last_seen: null,
   ...overrides,
 });
 
@@ -114,24 +129,31 @@ const CARRIERS_URL = '/variant-explorer/small-variants/101/carriers';
 
 const CARRIERS: VariantCarriers = {
   key: '101',
+  variant_id: '13-32316461-G-A',
   total_families: 1,
   total_samples: 1,
   het_samples: 1,
   hom_samples: 0,
+  truncated: false,
   families: [
     {
       family_id: 'F1',
       family_uuid: 'uuid-f1',
+      project_id: 'p1',
       project_name: 'Rare disease',
       carrier_count: 1,
       samples: [
         {
           sample_id: 'S1',
+          individual_name: null,
           role: 'proband',
           genotype: '0/1',
           zygosity: 'heterozygous',
           family_id: 'F1',
           family_uuid: 'uuid-f1',
+          project_id: 'p1',
+          project_name: 'Rare disease',
+          phenotype_summary: null,
         },
       ],
     },

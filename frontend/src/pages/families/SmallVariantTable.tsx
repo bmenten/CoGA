@@ -51,7 +51,7 @@ const formatAlleleDisplay = (value?: string) => {
   return `${allele.slice(0, 30)}…${allele.slice(-12)}`;
 };
 
-const AlleleCell = ({ value }: { value?: string }) => {
+const AlleleCell = ({ value }: { value?: string | null }) => {
   const allele = String(value || '').trim();
   if (!allele) {
     return <span className="table-empty">—</span>;

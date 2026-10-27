@@ -50,7 +50,7 @@ function MetricTextList({
   selector,
 }: {
   genotypes: StructuralVariantGenotype[];
-  selector: (genotype: StructuralVariantGenotype) => string | number | undefined;
+  selector: (genotype: StructuralVariantGenotype) => string | number | null | undefined;
 }) {
   return (
     <div className="sv-table-metric-list">

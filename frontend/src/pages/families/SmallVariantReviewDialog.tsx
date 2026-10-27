@@ -9,8 +9,8 @@ import {
   heldTagOptions,
   normalizeTagKeys,
   sortTagDefinitions,
+  type SmallVariant,
   type SmallVariantPriority,
-  type SmallVariantReview,
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
@@ -18,24 +18,26 @@ import { formatLocus, SEGREGATION_MODE_LABELS } from './smallVariantResultUtils'
 import ReadOnlyNote from '../../components/ReadOnlyNote';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
-type ReviewableVariant = {
-  _id: string;
-  chr: string;
-  start: number;
-  end: number;
-  type: string;
-  gene?: string;
-  gene_id?: string;
-  hgvsp?: string;
-  hgvsc?: string;
-  effect?: string;
-  alpha_missense_class?: string | null;
-  alpha_missense_pathogenicity?: number;
-  gene_pli?: number;
-  gene_missense_z?: number;
-  review?: SmallVariantReview | null;
-  priority?: SmallVariantPriority | null;
-};
+// The fields of a small or structural variant the dialog reads.
+type ReviewableVariant = Pick<
+  SmallVariant,
+  | '_id'
+  | 'chr'
+  | 'start'
+  | 'end'
+  | 'type'
+  | 'gene'
+  | 'gene_id'
+  | 'hgvsp'
+  | 'hgvsc'
+  | 'effect'
+  | 'alpha_missense_class'
+  | 'alpha_missense_pathogenicity'
+  | 'gene_pli'
+  | 'gene_missense_z'
+  | 'review'
+  | 'priority'
+>;
 
 type SmallVariantReviewDialogProps = {
   familyId?: string;

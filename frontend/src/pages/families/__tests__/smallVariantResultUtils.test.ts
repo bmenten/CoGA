@@ -18,8 +18,9 @@ import {
   parseVariantIds,
   visibleReviewTagKeys,
 } from '../smallVariantResultUtils';
-import type { SmallVariantTagDefinition } from '../smallVariantSearch';
+import type { SmallVariantTagDefinition, SvSecondHit } from '../smallVariantSearch';
 import { tagDefinition } from '../../../test/tagDefinitions';
+import { svSecondHit } from '../../../test/variants';
 
 const variant = (chr: string, start: number, ref: string, alt: string) =>
   ({ chr, start, ref, alt }) as Parameters<typeof formatGenomicChange>[0];
@@ -105,10 +106,13 @@ describe('describeFilterTranscript', () => {
   const card = {
     gene: 'SYN51',
     effect: 'missense_variant',
+    lof: null,
     cadd_phred: 25.1,
     revel: 0.31,
+    spliceai_max: null,
     sift: 'tolerated(0.2)',
     polyphen: 'benign(0.1)',
+    filter_transcript: null,
   };
 
   it('names the transcript the filters held on, with the predictions that read otherwise', () => {
@@ -255,12 +259,19 @@ describe('parseVariantIds', () => {
 });
 
 describe('buildSvSecondHitHref', () => {
-  const variant = (gene?: string, geneId?: string, hit?: Record<string, unknown>) =>
-    ({
-      gene,
-      gene_id: geneId,
-      sv_second_hit: hit,
-    }) as Parameters<typeof buildSvSecondHitHref>[0];
+  const variant = (gene?: string, geneId?: string, hit?: Partial<SvSecondHit>) => ({
+    gene: gene ?? null,
+    gene_id: geneId ?? null,
+    sv_second_hit: hit
+      ? svSecondHit({
+          sv_count: 1,
+          sv_types: ['DEL'],
+          has_deletion: true,
+          phase: 'unknown',
+          ...hit,
+        })
+      : null,
+  });
   const locusHit = (chr: string, start: number, end: number, gene?: string) => ({
     chr,
     start,

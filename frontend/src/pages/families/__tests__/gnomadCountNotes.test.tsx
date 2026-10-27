@@ -5,23 +5,27 @@ import { describe, expect, it } from 'vitest';
 import SmallVariantResults from '../SmallVariantResults';
 import { gnomadCountNotes } from '../gnomadCountNotes';
 import type { SmallVariant, SmallVariantPage } from '../smallVariantSearch';
+import { smallVariant } from '../../../test/variants';
 
 // CLIN-67: a maximum gnomAD count filter keeps a variant whose annotation holds no such count,
 // as absent from gnomAD. The laboratory's VCFs carry gnomAD's frequencies but no counts, so the
 // filters kept every variant without a word; the list now says how many it kept that way.
-const variant = (id: string, fields: Partial<SmallVariant> = {}): SmallVariant => ({
-  _id: id,
-  chr: '1',
-  start: 1000,
-  end: 1000,
-  type: 'SNV',
-  genotypes: [],
-  ...fields,
-});
+const variant = (id: string, fields: Partial<SmallVariant> = {}): SmallVariant =>
+  smallVariant({
+    _id: id,
+    chr: '1',
+    start: 1000,
+    end: 1000,
+    type: 'SNV',
+    genotypes: [],
+    ...fields,
+  });
 
 const page = (variants: SmallVariant[], fields: Partial<SmallVariantPage> = {}): SmallVariantPage => ({
   variants,
   total: variants.length,
+  total_is_estimated: false,
+  count_limit: null,
   ...fields,
 });
 
@@ -61,7 +65,18 @@ describe('gnomadCountNotes', () => {
     const notes = gnomadCountNotes(
       'max_gnomad_hom_count=10',
       page([uncounted], {
-        variant_groups: [{ group_type: 'compound_het', group_key: 'GENE1', variants: [uncounted, counted] }],
+        variant_groups: [
+          {
+            group_type: 'compound_het',
+            group_key: 'GENE1',
+            gene: 'GENE1',
+            gene_id: null,
+            variants: [uncounted, counted],
+            review: null,
+            phase: 'unknown',
+            phase_evidence: null,
+          },
+        ],
       }),
     );
     expect(notes).toEqual([

@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import type { SvSecondHitSvOut } from '../../../lib/apiSchema.generated';
 import SvSecondHitBadge from '../SvSecondHitBadge';
 import type { SvSecondHit } from '../smallVariantSearch';
+import { svSecondHit } from '../../../test/variants';
 
 describe('SvSecondHitBadge', () => {
   it('renders nothing when there is no second hit', () => {
@@ -13,14 +14,14 @@ describe('SvSecondHitBadge', () => {
   it('flags a deletion in trans as biallelic and reveals the tooltip on hover', () => {
     const { container } = render(
       <SvSecondHitBadge
-        hit={{
+        hit={svSecondHit({
           sv_count: 2,
           sv_types: ['DEL', 'INS'],
           affected_zygosity: 'het',
           has_deletion: true,
           phase: 'trans',
           deletion_unmasked: true,
-        }}
+        })}
       />,
     );
     const badge = container.querySelector('.sv-second-hit-badge') as HTMLElement;
@@ -40,7 +41,7 @@ describe('SvSecondHitBadge', () => {
   it('marks read-based phasing distinctly and says so in the tooltip', () => {
     const { container } = render(
       <SvSecondHitBadge
-        hit={{
+        hit={svSecondHit({
           sv_count: 1,
           sv_types: ['DEL'],
           affected_zygosity: 'het',
@@ -48,7 +49,7 @@ describe('SvSecondHitBadge', () => {
           phase: 'trans',
           phase_evidence: 'read',
           deletion_unmasked: true,
-        }}
+        })}
       />,
     );
     const phaseChip = container.querySelector('.sv-second-hit-phase') as HTMLElement;
@@ -62,7 +63,7 @@ describe('SvSecondHitBadge', () => {
     // phase unknown: no chip, no read-phasing mark, and nothing biallelic.
     const { container } = render(
       <SvSecondHitBadge
-        hit={{
+        hit={svSecondHit({
           sv_count: 1,
           sv_types: ['DEL'],
           affected_zygosity: 'het',
@@ -70,7 +71,7 @@ describe('SvSecondHitBadge', () => {
           phase: 'unknown',
           phase_evidence: null,
           deletion_unmasked: false,
-        }}
+        })}
       />,
     );
     const badge = container.querySelector('.sv-second-hit-badge') as HTMLElement;
@@ -88,14 +89,14 @@ describe('SvSecondHitBadge', () => {
   it('shows the cis phase and tooltip for a duplication-only hit, on focus', () => {
     const { container } = render(
       <SvSecondHitBadge
-        hit={{
+        hit={svSecondHit({
           sv_count: 1,
           sv_types: ['DUP'],
           affected_zygosity: 'het',
           has_deletion: false,
           phase: 'cis',
           deletion_unmasked: false,
-        }}
+        })}
       />,
     );
     const badge = container.querySelector('.sv-second-hit-badge') as HTMLElement;
@@ -107,14 +108,14 @@ describe('SvSecondHitBadge', () => {
 });
 
 describe('SvSecondHitBadge navigation', () => {
-  const hit = {
+  const hit = svSecondHit({
     sv_count: 2,
     sv_types: ['DEL'],
     affected_zygosity: 'het',
     has_deletion: true,
     phase: 'trans' as const,
     deletion_unmasked: true,
-  };
+  });
 
   it('links to the gene-filtered SV list in a new tab when given an href', () => {
     render(<SvSecondHitBadge hit={hit} href="/families/F1/structural-variants?gene=TRNT1" />);
@@ -178,7 +179,7 @@ describe('SvSecondHitBadge with several SVs in the gene', () => {
   const DEL_AT = span(5000, 9000);
   const DUP_AT = span(2000, 3000);
 
-  const gene = (overrides: Partial<SvSecondHit>): SvSecondHit => ({
+  const gene = (overrides: Partial<SvSecondHit>): SvSecondHit => svSecondHit({
     sv_count: 2,
     sv_types: ['DEL', 'DUP'],
     affected_zygosity: 'het',

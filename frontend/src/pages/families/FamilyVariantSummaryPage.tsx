@@ -8,7 +8,7 @@ import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageHeader from './FamilyPageHeader';
 import { apiPath } from '../../lib/apiPath';
-import type { FamilyOut } from '../../lib/apiSchema.generated';
+import type { FamilyOut, VariantLengthOut } from '../../lib/apiSchema.generated';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { useFamilyReference } from '../../lib/reference';
 
@@ -38,13 +38,8 @@ const variantBinLabels = [
   '>1M',
 ];
 
-interface VariantLength {
-  length: number;
-  type: string;
-  source?: string | null;
-  chr: string;
-}
-
+// The shared counts (`/shared-structural-variant-counts`) have no generated type: the route
+// serves a plain mapping, `Dict[str, Dict[str, int]]`.
 type SharedVariantCounts = Record<string, Record<string, number>>;
 
 const FamilyVariantSummaryPage: React.FC = () => {
@@ -70,13 +65,13 @@ const FamilyVariantSummaryPage: React.FC = () => {
     isError: referenceFailed,
     retry: retryReference,
   } = useFamilyReference(family?.projects);
-  const { data, isLoading, error: lengthsError, refetch: refetchLengths } = useQuery<VariantLength[]>({
+  const { data, isLoading, error: lengthsError, refetch: refetchLengths } = useQuery<VariantLengthOut[]>({
     queryKey: ['family', familyId, 'structural-variant-lengths'],
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/structural-variant-lengths`, {
         params: { limit: VARIANT_LIMIT },
       });
-      return res.data as VariantLength[];
+      return res.data as VariantLengthOut[];
     },
   });
 

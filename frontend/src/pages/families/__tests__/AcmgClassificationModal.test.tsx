@@ -7,6 +7,7 @@ import AcmgClassificationModal from '../AcmgClassificationModal';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
 import { tagDefinition } from '../../../test/tagDefinitions';
+import { genotype, review, smallVariant } from '../../../test/variants';
 import type {
   SmallVariant,
   SmallVariantReviewSavePayload,
@@ -20,7 +21,7 @@ vi.mock('../../../lib/api', () => ({
 const mockedGet = api.get as unknown as ReturnType<typeof vi.fn>;
 
 // LOF variant, absent from gnomAD, in a haploinsufficient gene → PVS1 + PM2.
-const variant: SmallVariant = {
+const variant: SmallVariant = smallVariant({
   _id: 'chr1-100-A-T',
   chr: 'chr1',
   start: 100,
@@ -32,7 +33,7 @@ const variant: SmallVariant = {
   lof: 'HC',
   hgvsp: 'p.Arg100Ter',
   genotypes: [],
-};
+});
 
 function renderModal(
   onSave: (payload: SmallVariantReviewSavePayload) => Promise<void> = vi.fn(async () => undefined),
@@ -78,7 +79,7 @@ describe('AcmgClassificationModal', () => {
   it('warns before an unreadable stored classification is overwritten (#514)', async () => {
     renderModal(undefined, {
       ...variant,
-      review: { variant_id: variant._id, tags: [], tag_metadata: {}, acmg: null, acmg_unreadable: true },
+      review: review({ variant_id: variant._id, acmg: null, acmg_unreadable: true }),
     });
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -168,7 +169,7 @@ describe('AcmgClassificationModal', () => {
   // PM6 compares the proband with the parents the pedigree links, not with whoever has the
   // role 'father' or 'mother': a PED import gives the grandparents those roles too.
   it('compares the proband with the linked parents for PM6, not with a grandparent', async () => {
-    const trioVariant: SmallVariant = {
+    const trioVariant: SmallVariant = smallVariant({
       _id: 'chr3-300-G-A',
       chr: 'chr3',
       start: 300,
@@ -179,13 +180,13 @@ describe('AcmgClassificationModal', () => {
       effect: 'missense_variant',
       hgvsp: 'p.Gly10Asp',
       genotypes: [
-        { sample: 'GF', gt: '0/0', dp: 30 },
-        { sample: 'GM', gt: '0/0', dp: 30 },
-        { sample: 'P', gt: '0/1', dp: 30 },
-        { sample: 'F', gt: '0/1', dp: 30 },
-        { sample: 'M', gt: '0/0', dp: 30 },
+        genotype({ sample: 'GF', gt: '0/0', dp: 30 }),
+        genotype({ sample: 'GM', gt: '0/0', dp: 30 }),
+        genotype({ sample: 'P', gt: '0/1', dp: 30 }),
+        genotype({ sample: 'F', gt: '0/1', dp: 30 }),
+        genotype({ sample: 'M', gt: '0/0', dp: 30 }),
       ],
-    };
+    });
     const member = (sample_id: string, role: string, sex: string, affected = false) => ({ sample_id, role, sex, affected });
     const link = (parent: string, child: string, role: 'father' | 'mother') => ({
       id: `${parent}-${child}`,
@@ -254,7 +255,7 @@ describe('AcmgClassificationModal', () => {
 
   it('emits the VUS sub-tier tag for a variant that lands in the VUS band', async () => {
     // Missense, absent from gnomAD → only PM2 (1 pt) auto-applies → VUS cold.
-    const vusVariant: SmallVariant = {
+    const vusVariant: SmallVariant = smallVariant({
       _id: 'chr2-200-C-G',
       chr: 'chr2',
       start: 200,
@@ -265,7 +266,7 @@ describe('AcmgClassificationModal', () => {
       effect: 'missense_variant',
       hgvsp: 'p.Ala67Gly',
       genotypes: [],
-    };
+    });
     const onSave: (payload: SmallVariantReviewSavePayload) => Promise<void> = vi.fn(async () => undefined);
     const client = createTestQueryClient();
     render(
@@ -362,7 +363,7 @@ describe('AcmgClassificationModal', () => {
   it('offers a deleted tag only to a review that holds it, marked, to be removed', async () => {
     const onSave = renderModal(
       undefined,
-      { ...variant, review: { variant_id: variant._id, tags: ['probe_x'], tag_metadata: {} } },
+      { ...variant, review: review({ variant_id: variant._id, tags: ['probe_x'] }) },
       tagDefinitions,
     );
     const user = userEvent.setup();

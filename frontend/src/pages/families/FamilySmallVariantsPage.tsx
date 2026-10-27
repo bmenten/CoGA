@@ -23,6 +23,7 @@ import {
   smallVariantAppliesFilterChip,
   smallVariantLocationProblems,
   useSmallVariantSearchState,
+  type FamilySmallVariantPage,
   type GenePanel,
   type SmallVariant,
   type SmallVariantFamily,
@@ -184,7 +185,7 @@ const FamilySmallVariantsPage: React.FC = () => {
         throw new Error([...locationProblems.include, ...locationProblems.exclude].join(' '));
       }
       const res = await api.get(apiPath`/families/${familyId}/small-variants?${raw(requestQueryString)}`);
-      return res.data as SmallVariantPage;
+      return res.data as FamilySmallVariantPage;
     },
     // Keep the previous page's results on screen while the next page/filter loads
     // so pagination and filter changes don't unmount and remount the whole page.

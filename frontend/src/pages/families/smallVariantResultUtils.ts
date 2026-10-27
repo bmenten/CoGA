@@ -38,19 +38,19 @@ export const SEGREGATION_MODE_LABELS: Record<string, string> = {
   dominant: 'dominant',
 };
 
-export const formatFrequency = (value?: number) => {
+export const formatFrequency = (value?: number | null) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return '—';
   if (value === 0) return '0';
   if (value < 0.001) return value.toExponential(1);
   return value.toFixed(4);
 };
 
-export const formatScore = (value?: number, digits = 2) => {
+export const formatScore = (value?: number | null, digits = 2) => {
   if (typeof value !== 'number' || Number.isNaN(value)) return '—';
   return value.toFixed(digits);
 };
 
-export const formatTokenLabel = (value?: string) => {
+export const formatTokenLabel = (value?: string | null) => {
   if (!value) return '—';
   return value.replace(/_/g, ' ');
 };
@@ -232,7 +232,7 @@ export const parseVariantIds = (rsid?: string | null): VariantIdLink[] => {
     });
 };
 
-export const getImpactTone = (impact?: string) => {
+export const getImpactTone = (impact?: string | null) => {
   switch ((impact || '').toUpperCase()) {
     case 'HIGH':
       return 'critical';
@@ -246,7 +246,7 @@ export const getImpactTone = (impact?: string) => {
   }
 };
 
-export const getImpactRank = (impact?: string) => {
+export const getImpactRank = (impact?: string | null) => {
   switch ((impact || '').toUpperCase()) {
     case 'HIGH':
       return 0;
@@ -284,7 +284,7 @@ export const getClinvarTone = (clinvar?: string) => {
   return 'neutral';
 };
 
-export const getClinvarHighlightTone = (clinvar?: string) => {
+export const getClinvarHighlightTone = (clinvar?: string | null) => {
   const value = (clinvar || '').toLowerCase();
   if (isPathogenicClinvar(value)) return 'pathogenic';
   if (isBenignClinvar(value)) return 'benign';
@@ -570,7 +570,10 @@ export const buildSmallVariantExternalLinks = ({
   assemblyName,
   assemblyVersion,
 }: {
-  variant: SmallVariant;
+  variant: Pick<
+    SmallVariant,
+    'chr' | 'start' | 'end' | 'ref' | 'alt' | 'rsid' | 'gene' | 'gene_id' | 'hgvsc' | 'hgvsp'
+  >;
   speciesName?: string;
   assemblyName?: string;
   assemblyVersion?: string;

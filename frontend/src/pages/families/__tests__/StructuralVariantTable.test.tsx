@@ -10,6 +10,7 @@ import { FamilyReadOnlyContext } from '../../../lib/familyAccess';
 import type { StructuralVariant } from '../structuralVariantSearch';
 import type { SmallVariantTagDefinition } from '../smallVariantSearch';
 import { tagDefinition } from '../../../test/tagDefinitions';
+import { genotype, structuralVariant } from '../../../test/variants';
 
 const ALL_COLUMNS = {
   chr: true,
@@ -40,21 +41,22 @@ const TAGS: SmallVariantTagDefinition[] = [
   tagDefinition({ key: 'acmg_class_4', label: 'Likely Pathogenic - class 4', group: 'classification', color: '#dc2626', sort_order: 20, scope: 'system', is_custom: false }),
 ];
 
-const sv = (overrides: Partial<StructuralVariant> = {}): StructuralVariant => ({
-  _id: 'sv1',
-  chr: '13',
-  start: 32_315_000,
-  end: 32_400_000,
-  length: -85_000,
-  type: 'DEL',
-  source: 'sniffles',
-  gene: 'BRCA2',
-  genotypes: [
-    { sample: 'CHILD', gt: '0/1', qual: 60, read_support: 12, filter: 'PASS' },
-    { sample: 'MOTHER', gt: '0/0', qual: 55, filter: 'PASS' },
-  ],
-  ...overrides,
-});
+const sv = (overrides: Partial<StructuralVariant> = {}): StructuralVariant =>
+  structuralVariant({
+    _id: 'sv1',
+    chr: '13',
+    start: 32_315_000,
+    end: 32_400_000,
+    length: -85_000,
+    type: 'DEL',
+    source: 'sniffles',
+    gene: 'BRCA2',
+    genotypes: [
+      genotype({ sample: 'CHILD', gt: '0/1', qual: 60, read_support: 12, filter: 'PASS' }),
+      genotype({ sample: 'MOTHER', gt: '0/0', qual: 55, filter: 'PASS' }),
+    ],
+    ...overrides,
+  });
 
 const renderTable = (props: Partial<React.ComponentProps<typeof StructuralVariantTable>> = {}) => {
   const handlers = {
@@ -336,7 +338,7 @@ describe('StructuralVariantTable', () => {
     const spectre = sv({
       _id: '13-32315000-32400000-DEL---',
       source: 'spectre',
-      genotypes: [{ sample: 'CHILD', gt: '1/1', filter: 'PASS' }],
+      genotypes: [genotype({ sample: 'CHILD', gt: '1/1', filter: 'PASS' })],
     });
     const { rerender } = renderTable({ variants: [sniffles, spectre] });
     const rows = () => screen.getAllByRole('row').slice(1);
