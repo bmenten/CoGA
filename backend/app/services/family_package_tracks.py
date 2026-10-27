@@ -1174,6 +1174,7 @@ async def _import_apcad_track_file(
     selected_sample_id: str | None = None,
     selected_vcf_sample: str | None = None,
     progress: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    check_only: bool = False,
 ) -> dict[str, Any]:
     """Store an APCAD file as the samples' ``apcad`` track, source ``apcad``, in place of the
     one this source stored before. HiFiCNV's minor allele fraction, on the same track type
@@ -1187,6 +1188,11 @@ async def _import_apcad_track_file(
     it was. A VCF in which the reader finds no record at all, read for a selected sample,
     deletes and stores nothing and returns ``{}``: the ``apcad`` dataset then reads it as a
     BED (``upload_bed_data``, which refuses a file without a BED record before it deletes).
+
+    ``check_only`` stops before the delete, deleting and storing nothing, and returns an
+    empty result for each sample whose track the file would replace (``{}`` for a VCF read
+    as a BED, as above): the check a dataset of one APCAD file per embryo makes of every
+    embryo's file before it clears any embryo's track (SAFE-3).
     """
     target_contexts = (
         {selected_sample_id: sample_contexts[selected_sample_id]}
@@ -1222,6 +1228,8 @@ async def _import_apcad_track_file(
             f"The APCAD file {path.name} holds no APCAD value for "
             f"{', '.join(sorted(target_contexts))}; no track was replaced"
         )
+    if check_only:
+        return {sample_id: {} for sample_id in replaced}
     for sample_context in replaced.values():
         await _delete_sample_interval_source(
             session,
