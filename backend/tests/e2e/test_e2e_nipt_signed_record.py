@@ -26,6 +26,17 @@ API, this:
   out (the NIPT page and the report) disable the sign-out by, and the server refuses theirs
   with 403, signing nothing.
 
+A second copy gives the fetus the status a NIPT PED usually has, unknown (TRACE-19). The import
+reads it as an embryo, and the run:
+
+* tags the demo's compound heterozygote in GENE_RECESS (a paternal and a maternal allele) for
+  the report on its pair review alone, through the API (no page sets a pair's tags);
+* reads the NIPT page's "Show reported", its recessive view and its count, and the live
+  report's list, and signs out;
+* reads the record back: both variants frozen as "Show reported" classified them, among the
+  reported small variants with the pair review that reports them, and described; the recessive
+  fetal risk of GENE_RECESS the reported view computes; and no PGT section for the fetus.
+
 CI runs every e2e module in one process on one database. The artifact list and the de novo
 recurrence are shared by every cfDNA sample of an assay, and other modules import the same
 demo package (``test_e2e_demo_smoke.py``, which also lists an artifact on the default assay).
@@ -176,9 +187,10 @@ async def _signed_versions(family_id: str) -> int:
         ).scalar_one()
 
 
-def _prepare_copy(parent: Path) -> dict[str, str]:
+def _prepare_copy(parent: Path, *, fetus_status: str | None = None) -> dict[str, str]:
     """Copy the demo package under ``parent`` with every hardcoded id suffixed, and the maternal
-    plasma on an assay panel of this run's own; the new ids and the panel (``panel``)."""
+    plasma on an assay panel of this run's own; the new ids and the panel (``panel``). With
+    ``fetus_status``, the PED gives the fetus that status instead of the demo's (affected)."""
     suffix = uuid4().hex[:8]
     ids = {token: f"{token}_{suffix}" for token in _TOKENS}
     panel = f"e2e-nipt-signed-record-{suffix}"
@@ -189,6 +201,11 @@ def _prepare_copy(parent: Path) -> dict[str, str]:
         content = path.read_text(encoding="utf-8")
         for old, new in ids.items():
             content = content.replace(old, new)
+        if name == "nipt_trio.ped" and fetus_status is not None:
+            # The fetus's row: family, id, father, mother, sex (unknown) and status.
+            fetus = "\t".join((ids["FAM_NIPT_DEMO"], ids["FETUS_NIPT"], ids["FATHER_NIPT"], ids["CFDNA_NIPT"], "0"))
+            assert content.count(f"{fetus}\t2") == 1, content
+            content = content.replace(f"{fetus}\t2", f"{fetus}\t{fetus_status}")
         if name == "manifest.yaml":
             # The panel is the scope of the artifact list and of the de novo recurrence.
             plasma = f"  {ids['CFDNA_NIPT']}:\n    assay: nipt_cfdna\n"
@@ -524,3 +541,147 @@ def test_a_record_without_the_nipt_section_still_verifies_and_is_named_not_compa
     final = _ok(signed, "final_signout")
     assert final["version"] == check["version"] + 1
     assert "nipt" in final["snapshot"]
+
+
+# ------------------------- a fetus of unknown status, and a pair tagged for the report (TRACE-19)
+
+MATERNAL = "1-3001-A-G"  # GENE_RECESS, category 3: the maternal allele of the demo's compound het
+
+
+async def _collect_pair(root: Path, family_id: str) -> dict:
+    """Import the copy, tag the demo's compound heterozygote for the report on its pair review
+    alone, read what the NIPT page and the live report list, sign out and read the record."""
+    from httpx import ASGITransport, AsyncClient
+
+    from backend.app.main import app
+    from backend.tests.e2e import _harness
+
+    out: dict = {"import": await _import_demo(root), "family": family_id, "responses": {}}
+    r = out["responses"]
+    transport = ASGITransport(app=app, raise_app_exceptions=False)
+    async with AsyncClient(transport=transport, base_url="http://e2e") as ac:
+        ac.headers["Authorization"] = f"Bearer {await _harness.login_admin_token(ac)}"
+        family = f"/api/families/{family_id}"
+        r["family"] = _cap(await ac.get(family))
+        # GENE_RECESS's paternal and maternal alleles as a compound-het pair, the pair review
+        # tagged report and neither variant's own review: only the API sets a pair's tags.
+        r["pair_review"] = _cap(
+            await ac.put(
+                f"{family}/small-variants/{PATERNAL}/review",
+                json={"compound_het": {"partner_variant_id": MATERNAL, "tags": ["report"]}},
+            )
+        )
+        nipt_variants = f"{family}/nipt/variants"
+        # "Show reported", its recessive view, and the count beside the button.
+        r["reported_view"] = _cap(await ac.get(nipt_variants, params={"review_tag": "report", "page_size": 500}))
+        r["reported_recessive_view"] = _cap(
+            await ac.get(nipt_variants, params={"review_tag": "report", "inheritance": "recessive_at_risk"})
+        )
+        r["review_summary"] = _cap(await ac.get(f"{family}/small-variant-review-summary"))
+        # The live report's list of the reported small variants.
+        r["live_report"] = _cap(await ac.get(f"{family}/small-variants", params={"review_tag": "report"}))
+        r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        version = (r["signout"]["json"] or {}).get("version")
+        r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
+        r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
+    return out
+
+
+@pytest.fixture(scope="module")
+def pair_signed(tmp_path_factory, request) -> dict:
+    from backend.app.core.config import settings
+    from backend.tests.e2e import _harness
+
+    # As a NIPT PED usually has it: the fetus's sex and status unknown.
+    copy = _prepare_copy(tmp_path_factory.mktemp("nipt_pair_record"), fetus_status="0")
+    root = Path(copy["root"])
+    mp = pytest.MonkeyPatch()
+    mp.setattr(settings, "family_import_roots", [str(root.parent)])
+    request.addfinalizer(mp.undo)
+
+    out = _harness.run_async(lambda: _collect_pair(root, copy["FAM_NIPT_DEMO"]))
+    assert out["import"]["completed"] is True, out["import"]
+    out["ids"] = copy
+    return out
+
+
+def _pair_snapshot(pair_signed: dict) -> dict:
+    return _ok(pair_signed, "detail")["snapshot"]
+
+
+def test_a_nipt_fetus_of_unknown_status_is_imported_as_an_embryo(pair_signed) -> None:
+    # The import reads a child of unknown sex whose status is unknown as an embryo, and the NIPT
+    # trio takes that embryo for the fetus. No member is affected.
+    members = {member["sample_id"]: member for member in _ok(pair_signed, "family")["members"]}
+    fetus = members[pair_signed["ids"]["FETUS_NIPT"]]
+    assert (fetus["role"], fetus["affected"]) == ("embryo", False)
+    assert not any(member["affected"] for member in members.values())
+
+
+def test_a_nipt_record_holds_no_pgt_section_for_its_fetus(pair_signed) -> None:
+    # The fetus has no sequencing column, so no haplotype blocks: the record held a PGT analysis
+    # of it all the same, a section of another application (#922).
+    snapshot = _pair_snapshot(pair_signed)
+    assert snapshot["sample_qc"]["application"] == "nipt"
+    assert "nipt" in snapshot
+    assert "pgt_analysis" not in snapshot
+    check = _ok(pair_signed, "check")
+    assert (check["matches"], check["changed_sections"], check["not_compared"]) == (True, [], []), check
+
+
+def test_a_pair_tagged_for_the_report_is_frozen_as_the_nipt_page_listed_it(pair_signed) -> None:
+    _ok(pair_signed, "pair_review")
+    reported = _ok(pair_signed, "reported_view")
+    listed = {variant["_id"]: variant for variant in reported["variants"]}
+    assert set(listed) == {PATERNAL, MATERNAL}
+    # The report tag is the pair's: neither variant's own review holds one.
+    for variant in listed.values():
+        assert variant["review"]["tags"] == []
+        assert variant["review"]["compound_het"]["tags"] == ["report"]
+    snapshot = _pair_snapshot(pair_signed)
+    # The NIPT section freezes each as "Show reported" classified it.
+    frozen = {entry["variant_id"]: entry for entry in snapshot["nipt"]["variants"]}
+    assert set(frozen) == set(listed)
+    for variant_id, entry in frozen.items():
+        for field in ("category", "maternal_state", "fetal_inheritance", "confidence", "observed_vaf", "expected_vaf"):
+            assert entry[field] == listed[variant_id]["nipt"][field], (variant_id, field)
+    assert (frozen[PATERNAL]["category"], frozen[MATERNAL]["category"]) == (7, 3)
+    assert snapshot["nipt"]["not_classified"] == []
+    # And so do the reported small variants, each with the pair review that reports it, and
+    # their descriptions.
+    reported_variants = {entry["variant_id"]: entry for entry in snapshot["reported_variants"]}
+    assert set(reported_variants) == {PATERNAL, MATERNAL}
+    assert reported_variants[PATERNAL]["tags"] == []
+    assert reported_variants[PATERNAL]["compound_het"] == {
+        "partner_variant_ids": [MATERNAL],
+        "gene": "GENE_RECESS",
+        "classification": None,
+        "tags": ["report"],
+        "note": None,
+        "phase_status": "unknown",
+    }
+    assert reported_variants[MATERNAL]["compound_het"]["partner_variant_ids"] == [PATERNAL]
+    assert {entry["variant_id"] for entry in snapshot["variant_descriptions"]["small"]} == {PATERNAL, MATERNAL}
+
+
+def test_the_recessive_risk_frozen_is_the_one_the_reported_view_computes(pair_signed) -> None:
+    # Both parents carry an allele of GENE_RECESS among the reported variants: the record's
+    # recessive fetal risk (#900) is the one the NIPT page computes over "Show reported".
+    [gene] = _ok(pair_signed, "reported_recessive_view")["recessive_genes"]
+    assert (gene["gene"], gene["maternal_variant_id"], gene["paternal_variant_id"]) == ("GENE_RECESS", MATERNAL, PATERNAL)
+    [frozen] = _pair_snapshot(pair_signed)["nipt"]["recessive_genes"]
+    assert (frozen["gene"], frozen["maternal_variant_id"], frozen["paternal_variant_id"]) == (
+        "GENE_RECESS",
+        MATERNAL,
+        PATERNAL,
+    )
+    assert frozen["risk"] == pytest.approx(gene["risk"])
+    # About 86%, as the demo's README works it out.
+    assert frozen["risk"] == pytest.approx(0.86, abs=0.05)
+
+
+def test_the_live_report_and_the_reported_count_name_what_was_frozen(pair_signed) -> None:
+    live = {variant["_id"] for variant in _ok(pair_signed, "live_report")["variants"]}
+    frozen = {entry["variant_id"] for entry in _pair_snapshot(pair_signed)["reported_variants"]}
+    assert live == frozen == {PATERNAL, MATERNAL}
+    assert _ok(pair_signed, "review_summary")["tag_counts"]["report"] == 2

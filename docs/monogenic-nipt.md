@@ -25,7 +25,9 @@ A NIPT case is a trio backed by two samples (`backend/app/services/nipt.py`, `re
   capture panel and scopes the artifact list; without it every NIPT family on the assembly shares the
   `nipt_cfdna` list.
 - The father is the active `father` member; the fetus (`embryo`, else `proband`) is an optional
-  placeholder without data.
+  placeholder without data. A NIPT PED usually gives the fetus an unknown sex and status, and the
+  import reads such a child as an `embryo`. It has no haplotype blocks, so the signed record holds no
+  PGT section for it: `pgt_analysis` only where an embryo has blocks of its own (TRACE-19).
 
 ## Input
 
@@ -116,9 +118,10 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
 - **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT page or the
   report page; its record holds the section `nipt` (`signed_record_nipt.py`: the summary, the checks,
   each reported variant as the variant list classifies it, from `nipt_service.get_family_nipt_record`,
-  and the inputs), and a failed fetal-fraction, fetal-sex or plasma check gates it under the Sample QC's
-  acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out runs
-  the analysis once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The
+  the recessive fetal risk over them, and the inputs), and a failed fetal-fraction, fetal-sex or
+  plasma check gates it under the Sample QC's acknowledgement
+  ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out runs the analysis
+  once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The
   Sample QC runs its NIPT checks in a savepoint, so a database error there is noted, gated as a check
   that could not run, and leaves the rest of the sign-out running (ENG-19).
 - **De novo triage** — `nipt_triage.py`: `is_de_novo_candidate`, `de_novo_window`, `triage_de_novo`
@@ -164,7 +167,10 @@ Both take FF from `filter_sites_and_estimate_ff` over all family records.
   selected variant the analysis does not classify comes back in `not_classified`, with the reason
   the signed record gives a reported one (`not_in_data`, `artifact_list`, `no_plasma_call`), from
   the same code (`_classify_selected`, which `get_family_nipt_record` uses). `review_tag=report`
-  with no other filter is the page's **Show reported**: what a sign-out freezes (UI-4).
+  with no other filter is the page's **Show reported**: what a sign-out freezes (UI-4). The
+  sign-out selects the reported variants by the same rule, a variant's own report tag or its
+  compound-het pair's (`report_signout_service._reported_reviews`, TRACE-19), so a pair tagged
+  `report` is listed, counted, frozen and in the record's recessive fetal risk alike.
 
 Endpoints (`routers/families_nipt.py`, under `/api`): `GET /families/{id}/nipt/summary`,
 `/nipt/variants`, `/nipt/coverage` (with `targets` from the target table; `all_genes=true` lists the
