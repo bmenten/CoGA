@@ -20,6 +20,7 @@ from .admin import (
     RepeatLocusCountUnitsOut,
     RepeatLocusCountUnitsChangeOut,
     RepeatLocusCountUnitsCatalogueOut,
+    FamilyDeleteRequest,
     RepeatLocusCountUnitsUpdate,
     RepeatLocusCountUnitsSetOut,
 )
@@ -386,6 +387,7 @@ __all__ = [
     "RepeatLocusCountUnitsOut",
     "RepeatLocusCountUnitsChangeOut",
     "RepeatLocusCountUnitsCatalogueOut",
+    "FamilyDeleteRequest",
     "RepeatLocusCountUnitsUpdate",
     "RepeatLocusCountUnitsSetOut",
     "ApiId",

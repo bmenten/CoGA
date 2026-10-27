@@ -51,6 +51,7 @@ from ..schemas import (
     RawImportFileVerifyOut,
     RepeatLocusCountUnitsCatalogueOut,
     RepeatLocusCountUnitsSetOut,
+    FamilyDeleteRequest,
     RepeatLocusCountUnitsUpdate,
     SmallVariantFilterPresetOut,
     SmallVariantTagDefinitionCreate,
@@ -782,6 +783,8 @@ async def delete_sample(
 async def delete_family(
     family_id: str,
     confirm: bool = False,
+    # The reason goes in the body, not the query string: it is free text (TRACE-16).
+    payload: FamilyDeleteRequest | None = None,
     session: AsyncSession = Depends(get_postgres_session),
     user: CurrentUser = Depends(get_current_admin_user),
 ) -> Dict:
@@ -790,6 +793,7 @@ async def delete_family(
         family_id,
         confirm,
         user=user,
+        reason=payload.reason if payload is not None else None,
     )
 
 

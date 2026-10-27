@@ -183,7 +183,9 @@ async def _exercise(run: str, base: Path) -> dict[str, Any]:
             out["sample_delete"] = (sample_delete.status_code, sample_delete.json().get("deleted", {}).get("raw_import_files"))
             out["after_sample_delete"] = {name: path.exists() for name, path in files.items()}
 
-            family_delete = await admin.delete(f"/api/admin/families/{family}", params={"confirm": "true"})
+            family_delete = await admin.request(
+                "DELETE", f"/api/admin/families/{family}", params={"confirm": "true"}, json={"reason": "e2e"}
+            )
             # The family delete counts the files it unlinked as `raw_files`, the sample delete as
             # `raw_import_files`.
             out["family_delete"] = (family_delete.status_code, family_delete.json().get("deleted", {}).get("raw_files"))
