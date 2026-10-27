@@ -48,11 +48,21 @@ XY_CHROMOSOME_NAMES: dict[SexChromosome, tuple[str, ...]] = {
 _PATCH_SUFFIX = re.compile(r"\.p\d+$")
 
 
+def grc_build(assembly_name: str | None) -> str | None:
+    """The Genome Reference Consortium build an assembly's name denotes, or None.
+
+    ``GRCh38`` for GRCh38 or UCSC's hg38, ``GRCh37`` for GRCh37 or hg19, in any case and with
+    or without a patch suffix (``GRCh38.p14``); None for any other assembly (T2T-CHM13, another
+    species). The PARs are looked up by it, and the startup loads the shipped GRCh38
+    segmental-duplication file only into an assembly it reads as GRCh38 (OPS-17)."""
+    key = _PATCH_SUFFIX.sub("", str(assembly_name or "").strip().lower())
+    return _ASSEMBLY_ALIASES.get(key)
+
+
 def pseudoautosomal_regions(assembly_name: str | None) -> dict[SexChromosome, tuple[Interval, ...]] | None:
     """The PARs of an assembly, per sex chromosome, or None when they are not known."""
-    key = _PATCH_SUFFIX.sub("", str(assembly_name or "").strip().lower())
-    canonical = _ASSEMBLY_ALIASES.get(key)
-    return _PSEUDOAUTOSOMAL_REGIONS[canonical] if canonical else None
+    build = grc_build(assembly_name)
+    return _PSEUDOAUTOSOMAL_REGIONS[build] if build else None
 
 
 def sex_chromosome(chromosome: str | None) -> SexChromosome | None:

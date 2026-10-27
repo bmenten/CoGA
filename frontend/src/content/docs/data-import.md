@@ -48,12 +48,13 @@ for the assembly is missing. Load it before you load a family.
 - **At first start** CoGA creates *Homo sapiens / GRCh38* and loads its cytobands (from UCSC) and genes
   (from GENCODE, with the UCSC gene table as a fallback) when they are missing. If the download fails,
   the assembly is created empty, to be filled later.
-- **Segmental duplications** are loaded at start-up when their source file is present on the server.
-  **Clinical CNVs** never are: an administrator builds them with the clinical CNV knowledgebase rebuild
-  (*Species & assemblies*), or uploads a file. An empty *Clinical CNV explorer* means they are not
-  loaded for that assembly. The segmental-duplication file, and the HPO ontology, must be the files
-  CoGA ships, recognized by their SHA-256: another file is not loaded, and the server log says which
-  file and how to fix it.
+- **Segmental duplications** are loaded at start-up when their source file is present on the server,
+  into GRCh38 only: the file CoGA ships holds GRCh38 coordinates. Another assembly gets them from an
+  upload. **Clinical CNVs** are never loaded at start-up: an administrator builds them with the
+  clinical CNV knowledgebase rebuild (*Species & assemblies*), or uploads a file. An empty
+  *Clinical CNV explorer* means they are not loaded for that assembly. The segmental-duplication
+  file, and the HPO ontology, must be the files CoGA ships, recognized by their SHA-256: another file
+  is not loaded, and the server log says which file and how to fix it.
 - In the **Reference catalogue** an administrator can set up another assembly (cytobands and genes are
   downloaded automatically) and upload files for cytobands, genes, the blacklist, clinical CNVs,
   segmental duplications and DGV variants. Everyone else sees the catalogue read-only.
