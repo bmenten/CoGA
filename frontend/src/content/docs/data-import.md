@@ -279,9 +279,10 @@ in the signed record (*Coverage tracks*).
 **A file without a record fails its dataset, and nothing is replaced.** A file that holds nothing
 CoGA can store (a header alone, a file cut short before its first record, an empty file) used to
 replace the stored data with none, and the dataset read *imported*. Now its dataset fails before
-anything is deleted, and the job's log names the file: a TRGT file, WisecondorX or QDNAseq bins or
-segments, HiFiCNV's copy-number and signal files, an APCAD file, a PCF table, a Paraphase result, a
-sample's NeedlR file, a long-read sample's SNV file or a sample's mitochondrial SNV file. Every sample's
+anything is deleted, and the job's log names the file (for a Paraphase result, the sample): a TRGT
+file, WisecondorX or QDNAseq bins or segments, HiFiCNV's copy-number and signal files, an APCAD file,
+a PCF table, a Paraphase result, a sample's NeedlR file, a long-read sample's SNV file or a sample's
+mitochondrial SNV file. Every sample's
 mitochondrial file is read before any sample's calls are replaced, so one without a variant keeps every
 sample's earlier mitochondrial calls, and the family is put back or marked import-incomplete for the
 mitochondrial calls; it used to remove that sample's earlier calls. A file cut short after its first

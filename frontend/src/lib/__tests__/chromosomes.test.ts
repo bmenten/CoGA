@@ -3,6 +3,7 @@ import {
   NUCLEAR_CHROMOSOMES,
   compareChromosomes,
   formatChromosomeLabel,
+  formatCytobandLabel,
   normalizeChrom,
 } from '../chromosomes';
 
@@ -55,5 +56,24 @@ describe('formatChromosomeLabel', () => {
     ['chrM', 'chrM'],
   ])('%j → %j', (input, expected) => {
     expect(formatChromosomeLabel(input)).toBe(expected);
+  });
+});
+
+// Found while fixing ENG-7 (#1019): the ideograms joined the route's key to the band's stored
+// name, so the mitochondrion's band read "MT" (GRCh38, no name) or "MTchrM" (T2T, named chrM).
+describe('formatCytobandLabel', () => {
+  it.each([
+    ['1', 'p36.33', '1p36.33'],
+    ['chr1', 'q21.1', '1q21.1'],
+    ['X', 'q28', 'Xq28'],
+    // The mitochondrion has no cytobands: its band is the chromosome, however either is spelled.
+    ['MT', '', 'chrM'],
+    ['MT', 'chrM', 'chrM'],
+    ['chrM', 'M', 'chrM'],
+    // A band without a name of its own is its chromosome, as the header names it.
+    ['1', '', 'chr1'],
+    ['1', 'chr1', 'chr1'],
+  ])('%j, band %j → %j', (chrom, band, expected) => {
+    expect(formatCytobandLabel(chrom, band)).toBe(expected);
   });
 });

@@ -515,7 +515,50 @@ export const COMPOUND_HET_PHASE_STATUS_LABELS: Record<string, string> = {
   unknown: 'Phase unknown',
 };
 
-export const SMALL_INHERITANCE_LABELS: Record<string, string> = {
+/**
+ * The inheritance modes of the family small-variant list: the only inheritance it reads
+ * (`_SUPPORTED_SMALL_INHERITANCE` in clickhouse_variant_queries.py), with the other spellings it
+ * reads as one of them (`_SMALL_INHERITANCE_ALIASES`). The server refuses any other value, and
+ * with it the whole search (400 "Unsupported small-variant inheritance filter");
+ * `test_small_variant_page_sends_what_the_list_reads.py` fails when the lists differ. A search
+ * saved on the NIPT page, or a link, can carry one of the NIPT list's views
+ * (`NIPT_INHERITANCE_VIEWS`): the small-variant page does not send it and names it as a filter the
+ * list does not apply. Its fetal de novo view (`de_novo`) is not the family's de novo / dominant
+ * mode, which the server read it as (found while fixing #1012); it now refuses it.
+ */
+export const SMALL_VARIANT_INHERITANCE_MODES = [
+  'de_novo_dominant',
+  'recessive_homozygous',
+  'compound_het',
+  'x_linked',
+  'recessive',
+] as const;
+export type SmallVariantInheritanceMode = (typeof SMALL_VARIANT_INHERITANCE_MODES)[number];
+
+export const SMALL_VARIANT_INHERITANCE_ALIASES: Readonly<Record<string, SmallVariantInheritanceMode>> = {
+  compound_heterozygous: 'compound_het',
+  recessive_hom: 'recessive_homozygous',
+  homozygous_recessive: 'recessive_homozygous',
+  dominant: 'de_novo_dominant',
+  xlinked: 'x_linked',
+  x_linked_recessive: 'x_linked',
+};
+
+/**
+ * The mode the small-variant list reads an inheritance as: a mode as it is, another spelling of
+ * one as that mode; null for any other value, which the list refuses. Exact names only: a
+ * spelling the server would read only after folding its case or separators is not sent either.
+ */
+export const smallVariantInheritanceMode = (value: string): SmallVariantInheritanceMode | null => {
+  if ((SMALL_VARIANT_INHERITANCE_MODES as readonly string[]).includes(value)) {
+    return value as SmallVariantInheritanceMode;
+  }
+  return Object.prototype.hasOwnProperty.call(SMALL_VARIANT_INHERITANCE_ALIASES, value)
+    ? SMALL_VARIANT_INHERITANCE_ALIASES[value]
+    : null;
+};
+
+export const SMALL_INHERITANCE_LABELS: Record<SmallVariantInheritanceMode, string> = {
   de_novo_dominant: 'De novo / dominant',
   recessive_homozygous: 'Recessive (homozygous)',
   compound_het: 'Compound heterozygous',
@@ -654,6 +697,91 @@ export const NIPT_INHERITANCE_LABELS: Record<NiptInheritanceView, string> = {
   paternal_dominant: 'Paternal, inherited by the fetus',
   maternal_dominant: 'Maternal, inherited by the fetus',
   recessive_at_risk: 'Recessive: both parents carriers',
+};
+
+/**
+ * An inheritance as the chips and the notes name it: a small-variant mode, or another spelling of
+ * one, by that mode's label; a NIPT view by its own; anything else as written.
+ */
+export const inheritanceLabel = (value: string): string => {
+  const mode = smallVariantInheritanceMode(value);
+  if (mode) return SMALL_INHERITANCE_LABELS[mode];
+  return isNiptInheritanceView(value) ? NIPT_INHERITANCE_LABELS[value] : value;
+};
+
+/**
+ * Filters of the shared search that the family small-variant list does not apply: the NIPT
+ * list's own (the maternal/fetal categories, the minimum classification confidence, the alleles
+ * the fetus did not inherit and the lowest de novo priority), none of which its route declares.
+ * The form offers them no control. A search saved on the NIPT page, or a link, can still carry
+ * them (found while fixing #1012): the small-variant page does not send them, shows no chip for
+ * them and names them (`smallVariantAppliesFilterChip`, `smallVariantListFilters`). Each is sent
+ * under its own name; `test_small_variant_page_sends_what_the_list_reads.py` fails when the page
+ * sends a parameter the route does not declare that is not here (the locus apart, which the page
+ * also sends as the region or gene it reads as).
+ */
+export const SMALL_VARIANT_UNSUPPORTED_FILTERS: ReadonlySet<keyof SmallFilterState> = new Set<
+  keyof SmallFilterState
+>(['category', 'min_confidence', 'include_not_inherited', 'de_novo_priority']);
+
+/**
+ * Whether the family small-variant list applies the filter a chip names: every per-sample filter
+ * and every filter it sends, but none of the NIPT list's own, nor an inheritance it does not read.
+ */
+export const smallVariantAppliesFilterChip = (chip: ActiveSmallFilterChip): boolean =>
+  chip.kind !== 'top' ||
+  (!SMALL_VARIANT_UNSUPPORTED_FILTERS.has(chip.key) &&
+    (chip.key !== 'inheritance' || smallVariantInheritanceMode(chip.value ?? '') !== null));
+
+/**
+ * The search as the family small-variant list reads it, which its request and its count are built
+ * from: without the filters it does not apply, and with an inheritance only when it reads one, as
+ * the mode it reads. The URL and a saved search keep the search as it is.
+ */
+export const smallVariantListFilters = (filters: SmallFilterState): SmallFilterState => {
+  const listFilters = { ...filters, inheritance: smallVariantInheritanceMode(filters.inheritance) ?? '' };
+  SMALL_VARIANT_UNSUPPORTED_FILTERS.forEach((key) => {
+    listFilters[key] = '';
+  });
+  return listFilters;
+};
+
+// How the note names the filters of a search a list does not apply (ENG-19).
+const UNAPPLIED_FILTER_NAMES: Partial<Record<keyof SmallFilterState, string>> = {
+  classification: 'classification',
+  has_notes: 'saved-notes',
+  prioritize: 'phenotype-prioritization',
+  expanded_carrier_screening: 'carrier-screening',
+  require_sv_second_hit: 'SV second-hit',
+  locus: 'location',
+  category: 'maternal/fetal category',
+  min_confidence: 'minimum-confidence',
+  include_not_inherited: 'not-inherited-alleles',
+  de_novo_priority: 'de novo priority',
+};
+
+const unappliedFilterName = (chip: ActiveSmallFilterChip): string => {
+  if (chip.kind !== 'top') return 'per-sample';
+  // An inheritance the list does not read, by the label the page that offers it gives it:
+  // “De novo / dominant” inheritance, “De novo in the fetus” inheritance.
+  if (chip.key === 'inheritance') return `“${inheritanceLabel(chip.value ?? '')}” inheritance`;
+  return UNAPPLIED_FILTER_NAMES[chip.key] ?? chip.key;
+};
+
+/**
+ * The note under a list's active filters that names, once, the filters of the search (from a
+ * saved search or a link) the list does not apply: they get no chip, which would claim them.
+ * Null when the search carries none. `list` names the list: "NIPT list", "small-variant list".
+ */
+export const describeUnappliedFilters = (list: string, chips: ActiveSmallFilterChip[]): string | null => {
+  const names: string[] = [];
+  chips.forEach((chip) => {
+    const name = unappliedFilterName(chip);
+    if (!names.includes(name)) names.push(name);
+  });
+  if (!names.length) return null;
+  const listed = names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
+  return `The ${list} does not apply this search’s ${listed} filter${names.length === 1 ? '' : 's'}.`;
 };
 
 const SMALL_FILTER_LABELS: Record<keyof SmallFilterState, string> = {
@@ -1225,7 +1353,8 @@ export const buildSmallVariantQueryParams = (
   setLocationParams(params, currentFilters);
   if (currentFilters.intervals) params.set('intervals', currentFilters.intervals);
   if (currentFilters.inheritance) params.set('inheritance', currentFilters.inheritance);
-  // Monogenic NIPT filters; round-trip through the URL so they survive Apply.
+  // Monogenic NIPT filters; round-trip through the URL so they survive Apply. The family
+  // small-variant list's request is built without them (smallVariantListFilters).
   if (currentFilters.min_confidence) params.set('min_confidence', currentFilters.min_confidence);
   if (currentFilters.include_not_inherited === 'true') params.set('include_not_inherited', 'true');
   if (currentFilters.de_novo_priority) params.set('de_novo_priority', currentFilters.de_novo_priority);
@@ -1388,9 +1517,7 @@ export const buildActiveFilterChips = (
     if (key === 'inheritance') {
       chips.push({
         id: `top:${key}`,
-        label: `${SMALL_FILTER_LABELS[key]}: ${
-          SMALL_INHERITANCE_LABELS[value] || (isNiptInheritanceView(value) ? NIPT_INHERITANCE_LABELS[value] : value)
-        }`,
+        label: `${SMALL_FILTER_LABELS[key]}: ${inheritanceLabel(value)}`,
         kind: 'top',
         key,
         value,
@@ -1884,9 +2011,14 @@ export const useSmallVariantSearchState = ({
     });
   };
 
+  // The family small-variant list's count and request: what it applies, never a NIPT list's own
+  // filter a saved search or a link carries (found while fixing #1012). The URL keeps them. The
+  // NIPT page, which shares this state, counts and requests its own way.
+  const listFilters = useMemo(() => smallVariantListFilters(filters), [filters]);
+
   const activeFilterCount = useMemo(
-    () => countActiveFilters(filters, sampleFilters),
-    [filters, sampleFilters],
+    () => countActiveFilters(listFilters, sampleFilters),
+    [listFilters, sampleFilters],
   );
 
   const activeFilterChips = useMemo(
@@ -1928,8 +2060,8 @@ export const useSmallVariantSearchState = ({
   };
 
   const requestQueryString = useMemo(
-    () => buildSmallVariantQueryParams(filters, sampleFilters, page, queryProjectId).toString(),
-    [filters, sampleFilters, page, queryProjectId],
+    () => buildSmallVariantQueryParams(listFilters, sampleFilters, page, queryProjectId).toString(),
+    [listFilters, sampleFilters, page, queryProjectId],
   );
 
   const goToPage = (nextPage: number) => {

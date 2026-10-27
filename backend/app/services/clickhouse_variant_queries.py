@@ -211,11 +211,17 @@ _SMALL_INHERITANCE_PAGE_CANDIDATE_MULTIPLIER = 25
 _SMALL_COUNT_LIMIT = 10001
 
 
+# Other spellings of a mode, read as that mode. "de_novo" is none: it is the NIPT list's fetal de
+# novo view (nipt_service.DE_NOVO), another filter than the family's de novo / dominant mode, and
+# was read as it when a search saved on the NIPT page reached this list (found while fixing
+# #1012). It is refused, as the NIPT list's other views are. The family small-variant page sends
+# a mode only by these names (SMALL_VARIANT_INHERITANCE_MODES and SMALL_VARIANT_INHERITANCE_ALIASES
+# in smallVariantSearch.ts); test_small_variant_page_sends_what_the_list_reads.py keeps the lists
+# equal.
 _SMALL_INHERITANCE_ALIASES = {
     "compound_heterozygous": _COMPOUND_HET_INHERITANCE,
     "recessive_hom": _RECESSIVE_HOMOZYGOUS_INHERITANCE,
     "homozygous_recessive": _RECESSIVE_HOMOZYGOUS_INHERITANCE,
-    "de_novo": _DE_NOVO_DOMINANT_INHERITANCE,
     "dominant": _DE_NOVO_DOMINANT_INHERITANCE,
     "xlinked": _X_LINKED_INHERITANCE,
     "x_linked_recessive": _X_LINKED_INHERITANCE,

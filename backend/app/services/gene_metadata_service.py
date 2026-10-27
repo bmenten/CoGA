@@ -30,7 +30,7 @@ from .monarch_ingest import (
     list_monarch_gene_disease,
     summarize_disease_phenotypes,
 )
-from .sex_chromosomes import is_t2t_chm13
+from .sex_chromosomes import grc_build, is_t2t_chm13
 
 
 def _gene_symbol_candidates(symbol: str) -> list[str]:
@@ -117,9 +117,12 @@ def _gene_locus(doc: dict[str, Any]) -> str:
 
 
 def _ucsc_db_name(assembly_name: str) -> str | None:
-    if assembly_name == "GRCh38":
+    # GRCh38 and GRCh37 under any name grc_build reads (hg38, GRCh38.p14, hg19, ...), the rule
+    # the PARs are looked up by; T2T-CHM13 under any of its names.
+    build = grc_build(assembly_name)
+    if build == "GRCh38":
         return "hg38"
-    if assembly_name in {"GRCh37", "hg19"}:
+    if build == "GRCh37":
         return "hg19"
     if assembly_name == "GRCm39":
         return "mm39"
@@ -133,9 +136,10 @@ def _ucsc_db_name(assembly_name: str) -> str | None:
 
 
 def _gnomad_dataset_name(assembly_name: str) -> str | None:
-    if assembly_name == "GRCh38":
+    build = grc_build(assembly_name)
+    if build == "GRCh38":
         return "gnomad_r4"
-    if assembly_name in {"GRCh37", "hg19"}:
+    if build == "GRCh37":
         return "gnomad_r2_1"
     return None
 

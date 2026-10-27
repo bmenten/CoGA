@@ -1,5 +1,6 @@
 import React, { useId, useMemo, useRef, useState } from "react";
 import type { ApiChromosomeBand } from "../../lib/apiTypes";
+import { formatChromosomeLabel, formatCytobandLabel } from "../../lib/chromosomes";
 import { cssVar } from "../../lib/colors";
 import {
   collapseBandsForResolution,
@@ -218,8 +219,10 @@ const Ideogram: React.FC<Props> = ({
   );
 
   // The ideogram's name for a screen reader (#529): the chromosome and the region
-  // highlighted on it, as drawn (clamped to the chromosome).
-  const ideogramName = `Chromosome ${chrom.replace(/^chr/i, "")} ideogram`;
+  // highlighted on it, as drawn (clamped to the chromosome). The chromosome is written
+  // without its chr, as the genome strip writes it: 1, X, and M for the mitochondrion
+  // (chrM), never the route's key MT.
+  const ideogramName = `Chromosome ${formatChromosomeLabel(chrom).replace(/^chr/, "")} ideogram`;
 
   if (isError) {
     return (
@@ -241,9 +244,7 @@ const Ideogram: React.FC<Props> = ({
     );
   }
 
-  const cytobandLabel = bandTooltip
-    ? `${chrom.replace(/^chr/i, "")}${bandTooltip.name}`
-    : "";
+  const cytobandLabel = bandTooltip ? formatCytobandLabel(chrom, bandTooltip.name) : "";
   const ariaLabel = showHighlight
     ? `${ideogramName}, ${start.toLocaleString()}–${end.toLocaleString()} highlighted`
     : `${ideogramName}, whole chromosome in view`;

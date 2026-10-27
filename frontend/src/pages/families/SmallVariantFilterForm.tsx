@@ -75,12 +75,14 @@ type SmallVariantFilterFormProps = Pick<
   /**
    * Filters the search behind this form does not apply. They get no control, so the
    * form never offers a filter the results would not reflect (the Global Small Variant
-   * Explorer, #526). Defaults to none.
+   * Explorer, #526; the NIPT page; the family small-variant page, whose list applies none of
+   * the NIPT list's own filters). Defaults to none.
    */
   unsupportedFilters?: ReadonlySet<keyof SmallFilterState>;
   /**
    * Said once under the active filters: which filters of the search (from a saved search or
-   * a link) the list does not apply, and so has no chip for (the NIPT page, ENG-19).
+   * a link) the list does not apply, and so has no chip for (the NIPT page, ENG-19; the family
+   * small-variant page, for a search saved on the NIPT page, found while fixing #1012).
    */
   unappliedFiltersNote?: string | null;
   /**
