@@ -290,12 +290,13 @@ file (most samples carry no mtDNA deletion): it removes that sample's earlier ch
 
 **Every sample's file is checked before any sample's data is replaced.** A dataset of one file per
 sample reads or checks the file of every sample first: the TRGT files, HiFiCNV's VCFs and signal files,
-the WisecondorX and QDNAseq bins and segments, the PCF tables, a monogenic NIPT's SNV files and the
-mitochondrial structural-variant files. A later sample's refused file then fails the dataset with every
-sample's data as it was; it used to fail it after the earlier samples' data had been replaced. A
-mitochondrial structural-variant file whose records all lie on other chromosomes is refused as no chrM
-callset (it used to remove the sample's chrM deletions). An APCAD file per embryo and a coverage BED are
-still checked as each is written.
+the WisecondorX and QDNAseq bins and segments, the PCF tables, the APCAD file of each embryo, the
+coverage BEDs and per-target coverage tables, a monogenic NIPT's SNV files and the mitochondrial
+structural-variant files. A later sample's refused file then fails the dataset with every sample's data
+as it was; it used to fail it after the earlier samples' data had been replaced. A mitochondrial
+structural-variant file whose records all lie on other chromosomes is refused as no chrM callset (it
+used to remove the sample's chrM deletions). A long-read sample's SNV file is checked up to its first
+record: a record out of position order is still found only as the callset is written.
 
 ### What validation checks
 
@@ -315,9 +316,10 @@ still checked as each is written.
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset
   is a warning; other missing datasets are simply absent.
 - A data file the import would refuse for holding no record (a family VCF of small variants, structural
-  variants or repeats; a sample's SNV, NeedlR, TRGT or mitochondrial VCF) with nothing after its header
-  is a warning: the import will fail that dataset and keep its stored data. A HiFiCNV or mitochondrial
-  structural-variant VCF without a call is a result, and gives none.
+  variants, repeats or APCAD; a sample's SNV, NeedlR, TRGT or mitochondrial VCF, an embryo's APCAD file,
+  a sample's coverage BED) with nothing after its header is a warning: the import will fail that dataset
+  and keep its stored data. A HiFiCNV or mitochondrial structural-variant VCF without a call is a result,
+  and gives none.
 - A phenotype row that names an unknown sample or HPO term is skipped with a warning; it never blocks the
   import.
 

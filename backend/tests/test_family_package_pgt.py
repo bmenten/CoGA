@@ -1428,7 +1428,7 @@ async def test_an_apcad_vcf_reports_the_bytes_of_it_read(
 async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    calls: list[tuple[str | None, str]] = []
+    calls: list[tuple[str | None, str, bool]] = []
     reports: list[FamilyImportDatasetSummary] = []
 
     async def fake_track_file(
@@ -1437,9 +1437,13 @@ async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress
         path: Path,
         selected_sample_id: str | None = None,
         progress: Any = None,
+        check_only: bool = False,
         **_kwargs: Any,
     ) -> dict[str, Any]:
-        calls.append((selected_sample_id, path.name))
+        calls.append((selected_sample_id, path.name, check_only))
+        if check_only:
+            # Read up to the embryo's first value, reporting nothing.
+            return {selected_sample_id: {}}
         # Halfway through the embryo's file.
         await progress({"bytes_read": path.stat().st_size // 2})
         return {selected_sample_id: {"processed": 4, "inserted": 3, "skipped": 1}}
@@ -1457,7 +1461,13 @@ async def test_the_apcad_import_reads_each_embryos_trio_vcf_and_reports_progress
     result = await family_package_datasets._import_apcad_dataset(_job(root, "apcad", progress=progress))
 
     assert result.status == "imported"
-    assert calls == [("EMB1", "EMB1.trio_filtered.vcf.gz"), ("EMB2", "EMB2.trio_filtered.vcf.gz")]
+    # Every embryo's file is checked before any embryo's track is cleared (SAFE-3).
+    assert calls == [
+        ("EMB1", "EMB1.trio_filtered.vcf.gz", True),
+        ("EMB2", "EMB2.trio_filtered.vcf.gz", True),
+        ("EMB1", "EMB1.trio_filtered.vcf.gz", False),
+        ("EMB2", "EMB2.trio_filtered.vcf.gz", False),
+    ]
     assert result.summary == {
         "EMB1": {"processed": 4, "inserted": 3, "skipped": 1},
         "EMB2": {"processed": 4, "inserted": 3, "skipped": 1},
