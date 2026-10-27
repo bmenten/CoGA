@@ -813,7 +813,7 @@ async def _import_bins_and_segments(
             path = _resolve_package_path(bundle.root, paths[role])
             if path is None:
                 continue
-            importer = partial(
+            importer: Callable[..., Awaitable[dict[str, int]]] = partial(
                 track_importer,
                 session,
                 sample_context=sample_context,

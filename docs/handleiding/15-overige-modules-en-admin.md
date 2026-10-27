@@ -88,7 +88,7 @@ Op de pagina *Sequencing QC thresholds* stelt een beheerder per QC-metriek een *
 
 ### Presets en tags
 
-Een overzicht van de bewaarde filterpresets voor small variants van alle gebruikers, met hun eigenaar, en het beheer van de eigen varianttags (hoofdstuk 10).
+Een overzicht van de bewaarde filterpresets voor small variants van alle gebruikers, elk met de gebruikersnaam waaronder hij laatst bewaard werd (de eigenaar is het account, hoofdstuk 10), en het beheer van de eigen varianttags (hoofdstuk 10).
 
 ### Auditlogs en integriteit
 

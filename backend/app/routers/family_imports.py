@@ -87,7 +87,7 @@ async def start_family_package_import(
         dry_run=payload.dry_run,
         requested_family_id=payload.family_id,
         conflict_mode=payload.conflict_mode,
-        requested_by=user.email,
+        requested_by=user,
     )
 
 

@@ -511,7 +511,7 @@ async def test_an_import_job_for_a_family_id_no_family_can_have_is_refused_befor
             project_id=None,
             dry_run=True,
             requested_family_id=family_id,
-            requested_by="admin@example.com",
+            requested_by=_admin(),
         )
 
     assert refused.value.status_code == 400
@@ -538,7 +538,7 @@ async def test_an_import_job_records_the_requested_family_without_the_whitespace
             project_id=None,
             dry_run=True,
             requested_family_id=f" {FAMILY} ",
-            requested_by="admin@example.com",
+            requested_by=_admin(),
         )
 
     assert json.loads(session.params["metadata"])["requested_family_id"] == FAMILY

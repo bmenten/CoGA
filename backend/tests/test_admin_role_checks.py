@@ -75,9 +75,11 @@ class _Session:
     def __init__(self, *results: _Result) -> None:
         self._results = list(results)
         self.statements: list[str] = []
+        self.params: list[Any] = []
 
     async def execute(self, statement: Any, params: Any = None) -> _Result:
         self.statements.append(str(statement))
+        self.params.append(params)
         return self._results.pop(0)
 
     async def rollback(self) -> None:
@@ -219,7 +221,10 @@ async def test_a_viewer_needs_a_project_of_their_own_and_may_not_overwrite() -> 
 # --- family package import jobs ------------------------------------------------------------
 
 
-def _job(requested_by: str) -> dict[str, Any]:
+OTHER_ACCOUNT = "33333333-3333-3333-3333-333333333333"
+
+
+def _job(requested_by: str, requested_by_id: str | None = OTHER_ACCOUNT) -> dict[str, Any]:
     return {
         "id": JOB_ID,
         "submitted_path": "/imports/FAM1",
@@ -228,6 +233,7 @@ def _job(requested_by: str) -> dict[str, Any]:
         "status": "queued",
         "dry_run": False,
         "requested_by": requested_by,
+        "requested_by_id": requested_by_id,
         "requested_at": datetime(2026, 9, 29, tzinfo=timezone.utc),
     }
 
@@ -242,7 +248,7 @@ async def test_every_admin_role_sees_every_import_job(role: str) -> None:
     assert job.requested_by == "other@example.org"
     listing = _Session(_Result([]))
     await family_package_jobs.list_family_import_jobs(listing, user=user)
-    assert "requested_by = :requested_by" not in listing.statements[0]
+    assert "requested_by_id =" not in listing.statements[0]
 
 
 @pytest.mark.asyncio
@@ -264,7 +270,24 @@ async def test_a_viewer_sees_only_their_own_import_jobs() -> None:
     assert (unknown.value.status_code, unknown.value.detail) == (404, "Family import job not found")
     listing = _Session(_Result([]))
     await family_package_jobs.list_family_import_jobs(listing, user=viewer)
-    assert "requested_by = :requested_by" in listing.statements[0]
+    assert "requested_by_id = CAST(:requested_by_id AS uuid)" in listing.statements[0]
+    assert listing.params[0]["requested_by_id"] == viewer.id
+
+
+@pytest.mark.asyncio
+async def test_a_viewers_own_import_job_is_theirs_by_their_account_not_their_address() -> None:
+    # SEC-32: a Microsoft sign-in may change an account's address. The job was the viewer's by
+    # the address it was asked under, so it went once the address changed, and a job of another
+    # account asked under the address the viewer has now became theirs.
+    viewer = _user("viewer")
+    asked_under_an_old_address = _job("someone.before@example.org", requested_by_id=viewer.id)
+    session: Any = _Session(_Result([asked_under_an_old_address]))
+    job = await family_package_jobs.get_family_import_job(session, job_id=JOB_ID, user=viewer)
+    assert (job.id, job.requested_by) == (JOB_ID, "someone.before@example.org")
+    for not_theirs in (_job(viewer.email), _job(viewer.email, requested_by_id=None)):
+        session = _Session(_Result([not_theirs]))
+        with pytest.raises(RecordNotVisible):
+            await family_package_jobs.get_family_import_job(session, job_id=JOB_ID, user=viewer)
 
 
 # --- variant tags --------------------------------------------------------------------------

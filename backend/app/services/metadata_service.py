@@ -357,8 +357,17 @@ async def _fetch_all_user_mappings(session: AsyncSession) -> list[dict[str, Any]
 
 async def get_current_user_by_email(session: AsyncSession, email: str) -> CurrentUser | None:
     mapping = await _fetch_user_mapping_by_email(session, email)
-    if mapping is None:
-        return None
+    return _current_user_from_mapping(mapping) if mapping is not None else None
+
+
+async def get_current_user_by_id(session: AsyncSession, user_id: str) -> CurrentUser | None:
+    """The account with this id and its projects, or None: how a record keeps its user (an
+    import job's requester), as an e-mail address or a user name may change (SEC-32)."""
+    mapping = await _fetch_user_mapping_by_id(session, user_id)
+    return _current_user_from_mapping(mapping) if mapping is not None else None
+
+
+def _current_user_from_mapping(mapping: dict[str, Any]) -> CurrentUser:
     metadata_project_ids = _string_list(mapping.get("metadata_project_ids"))
     return CurrentUser(
         id=str(mapping["id"]),

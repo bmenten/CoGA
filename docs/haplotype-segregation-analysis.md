@@ -193,7 +193,11 @@ serves the thresholds in `rules.qc_thresholds`, and a sign-out freezes both.
   block lies in one stretch of chrX (`sex_chromosomes.x_stretches`, which the lineage reads chrX by
   too: before PAR1, PAR1, between the PARs, PAR2, after PAR2): at a PAR edge a member's open block ends with its stretch (`end_limit`, also at the
   chromosome's end) and a child's segregation states start afresh, so no homolog read in a PAR runs
-  over the X and `hemizygous_in_males` marks exactly the blocks between the PARs. No stretch is cut
+  over the X and `hemizygous_in_males` marks exactly the blocks between the PARs. A block reaches past
+  its first site, to the next block's first site or to the end of its chromosome or stretch; one opened
+  at a stretch's last position could not without leaving its stretch, and would end where it began, so
+  none is kept there (`_append_haplotype_state_row`, ENG-19): the member's block before it in the
+  stretch, where there is one, already reaches that site. No stretch is cut
   on an assembly without PAR bounds (T2T-CHM13). Before this (CLIN-60's follow-up), with men's calls
   written as one allele no child had a transmission outside the PARs, and with PAR1 in the callset
   the PAR1 blocks ran over the X, so an embryo at an X-linked ROI read *Uninformative* or was called

@@ -641,8 +641,6 @@ async def update_small_variant_tag_definition(
 
     if next_scope == "project" and not next_project_id and default_project_id:
         next_project_id = default_project_id
-    if next_scope == "project" and not next_project_id:
-        raise HTTPException(status_code=400, detail="Project-scoped tags require a project id")
     if next_scope == "global":
         next_project_id = None
 
@@ -651,6 +649,8 @@ async def update_small_variant_tag_definition(
     else:
         requested_shared_project_ids = _string_list(existing.get("shared_project_ids"))
     if next_scope == "project":
+        if not next_project_id:
+            raise HTTPException(status_code=400, detail="Project-scoped tags require a project id")
         project_scope_ids = await _ensure_projects_visible(
             session,
             project_ids=[next_project_id, *requested_shared_project_ids],

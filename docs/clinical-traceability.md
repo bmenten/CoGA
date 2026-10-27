@@ -117,6 +117,13 @@ changed, the couples and the links of unknown degree, as they were and as they a
 metadata names the structure version the change stored, with its hash and the change's reason;
 an edit that leaves the pedigree as it was writes none
 ([family-member-management.md](family-member-management.md#what-is-recorded-of-a-change)).
+Structure versions are numbered per family row, so a family made again under the ID of a deleted
+family numbers its own from 1 again. Its events then also name how many structure versions the
+families deleted under the ID stored before it (`metadata.deleted_family_versions`), its first
+says so in its summary (*Pedigree recorded with 3 members: …. Made again under this family ID,
+after 2 structure versions of a deleted family: its own start again at 1.*), and its deletion
+names its latest version the same way (`before.deleted_family_versions`): the ID's trail names
+each version once (ENG-19). A family never made again is recorded as before.
 `family_deleted` (SEC-7) is the last event of a deleted family: an admin's deletion with its
 data (Admin → Data), a PED upload or a family made by hand that replaces it with overwrite, or a
 package import that created it and imported nothing. It holds who deleted it and when, its
@@ -381,7 +388,12 @@ and `variant_descriptions` like any reported small variant, with its classificat
 section read one run of the NIPT analysis (`nipt_service.SharedNiptAnalysis`, OPS-9): the same
 artifact list, which the lab curates apart from the family's data, and the same values. One that
 fails fails for both: the Sample QC notes that the NIPT cfDNA analysis could not run, and the
-section is frozen as unavailable.
+section is frozen as unavailable. The Sample QC runs its NIPT checks in a savepoint, as each
+section is read: the analysis reads the family and the artifact list from Postgres, and a database
+error there is rolled back to the savepoint and reads like any other failure of the analysis. The
+gate then lists the NIPT checks among those that could not run, and the sign-out goes on in a clean
+transaction. Before ENG-19 such an error aborted the sign-out's transaction, and the sign-out
+failed (it signed nothing).
 
 The snapshot is hashed with SHA-256 over a canonical encoding and stored as the next version.
 Versions are numbered per family ID: a family made again under the ID of a deleted family

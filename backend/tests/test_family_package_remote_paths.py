@@ -7,12 +7,14 @@ ran a queued package import on a local path that does not exist.
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 
 from backend.app.core.object_storage import is_remote_uri
 from backend.app.services import family_package_jobs
+from backend.app.services.access_control import CurrentUser
 from backend.app.services.family_package_source import package_folder_path
 
 
@@ -61,7 +63,13 @@ def test_a_queued_bucket_import_stores_a_uri_the_worker_can_run(monkeypatch: pyt
             folder_path="gs://coga-phi/imports/F1",
             project_id=None,
             dry_run=True,
-            requested_by="admin@example.org",
+            requested_by=CurrentUser(
+                id="00000000-0000-4000-8000-0000000000a1",
+                username="admin",
+                email="admin@example.org",
+                role="admin",
+                created_at=datetime(2026, 10, 27, tzinfo=timezone.utc),
+            ),
         )
     )
 

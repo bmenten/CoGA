@@ -21,6 +21,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from sqlalchemy.exc import DBAPIError, ProgrammingError
 
 from backend.app.schemas import FamilyMemberOut, FamilyOut
 from backend.app.services import nipt_service
@@ -829,4 +830,75 @@ async def test_a_nipt_analysis_that_failed_in_a_sign_out_is_read_as_failed_by_it
     assert loads == ["records"]
     assert "NIPT cfDNA analysis could not run." in snapshot["sample_qc"]["notes"]
     assert snapshot["sample_qc"]["paternity_check"] is None
+    assert snapshot["nipt"] == {"unavailable": "The NIPT results could not be read."}
+
+
+class _PostgresSignOutSession(_SignOutSession):
+    """The sign-out's session as Postgres runs its transaction: a statement that fails aborts
+    it, and every later statement fails until it is rolled back, whole or to a savepoint. The
+    NIPT artifact list cannot be read (its table refuses the read)."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.aborted = False
+
+    async def execute(self, statement: Any, params: Any = None) -> _Result:
+        sql = str(statement)
+        if self.aborted:
+            raise DBAPIError(sql, params, Exception("current transaction is aborted"))
+        if "nipt_artifact_variants" in sql:
+            self.aborted = True
+            raise ProgrammingError(sql, params, Exception("permission denied for table"))
+        return await super().execute(statement, params)
+
+    @asynccontextmanager
+    async def _savepoint(self):
+        aborted = self.aborted
+        try:
+            yield
+        except BaseException:
+            self.aborted = aborted  # ROLLBACK TO SAVEPOINT
+            raise
+        if self.aborted:  # RELEASE SAVEPOINT fails in an aborted transaction
+            raise DBAPIError("RELEASE SAVEPOINT", None, Exception("current transaction is aborted"))
+
+
+@pytest.mark.asyncio
+async def test_a_database_error_in_the_sample_qc_nipt_step_leaves_the_sign_out_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The Sample QC's NIPT analysis reads the artifact list from Postgres, outside a savepoint:
+    # a database error there aborted the sign-out's transaction, and its next statement failed
+    # the sign-out (ENG-19). In a savepoint of its own, the error reads like the analysis's
+    # other failures: the Sample QC's fixed note, a NIPT check the gate lists as one that could
+    # not run, and the record's NIPT section frozen as unavailable.
+    from backend.app.services import nipt_artifact_pg
+
+    _wire(monkeypatch)
+    _wire_sign_out(monkeypatch)
+    # The list read as the analysis reads it: by its own query.
+    monkeypatch.setattr(nipt_service, "load_nipt_artifact_ids", nipt_artifact_pg.load_nipt_artifact_ids)
+    reads_after_the_qc: list[str] = []
+
+    async def reported(session, _family_uuid):
+        # The sign-out's next statement, in the same transaction.
+        await session.execute("SELECT variant_id FROM small_variant_reviews")
+        reads_after_the_qc.append("reviews")
+        return []
+
+    monkeypatch.setattr(rss, "_reported_reviews", reported)
+    session = _PostgresSignOutSession()
+
+    snapshot = await rss.build_report_snapshot(session, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+
+    assert reads_after_the_qc == ["reviews"] and session.aborted is False
+    qc = snapshot["sample_qc"]
+    assert qc["notes"] == ["NIPT cfDNA analysis could not run."]
+    assert (qc["paternity_check"], qc["fetal_sex_check"], qc["category_qc_check"]) == (None, None, None)
+    assert "permission denied" not in json.dumps(snapshot)
+    assert rss._unverifiable_swap_checks(qc) == [
+        "NIPT sample integrity could not be assessed — the trio could not be resolved or the cfDNA "
+        "analysis did not run (no paternity or maternal-lineage check)."
+    ]
+    # The record's section reads the analysis that failed, and is frozen as unavailable.
     assert snapshot["nipt"] == {"unavailable": "The NIPT results could not be read."}
