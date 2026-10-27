@@ -367,6 +367,12 @@ genotypes) and APCAD, which take most of an import's time; another dataset shows
 has run. The time left is the running dataset's: the datasets after it are not estimated, and
 the page says how many follow. It is first given after half a minute of reading.
 
+A job runs as the account that queued it, found by the account's id whatever its e-mail
+address is by then (SEC-32), and only while that account is active: a job whose account has
+been deactivated, or no longer exists, when a worker takes it up is not run. It ends `failed`,
+saying why, with nothing of the family written; an active administrator queues the import
+again. An import already running when its account is deactivated runs to its end.
+
 Jobs run on background workers: one job at a time per backend process, or more with
 `FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. The
 database's clock stamps it and judges its age, so workers on hosts whose clocks differ agree
@@ -1719,6 +1725,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone who is neither in the PED nor in `family.add_members`. |
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
+| "Not run: the account that requested this import has been deactivated …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, or deleted, before a worker ran it, and a job runs as the account that queued it. Nothing was written: queue the import again as an active administrator. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
 | "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
