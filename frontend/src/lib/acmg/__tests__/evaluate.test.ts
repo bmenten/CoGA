@@ -38,11 +38,26 @@ describe('evaluateAcmg', () => {
   });
 
   it('rules out BA1/BS1 for a rare variant and BS2 when no homozygotes', () => {
-    const suggestions = evaluateAcmg({ effect: 'missense_variant', gnomad_af: 1e-5 });
+    const suggestions = evaluateAcmg({ effect: 'missense_variant', gnomad_af: 1e-5, gnomad_hom_count: 0 });
     expect(find(suggestions, 'PM2')?.disposition).toBe('applies');
     expect(find(suggestions, 'BA1')?.disposition).toBe('not_applicable');
     expect(find(suggestions, 'BS1')?.disposition).toBe('not_applicable');
     expect(find(suggestions, 'BS2')?.disposition).toBe('not_applicable');
+    expect(find(suggestions, 'BS2')?.evidence).toBe('No homozygotes observed in gnomAD.');
+  });
+
+  it('leaves BS2 unmarked when the annotation has no gnomAD homozygote count (CLIN-67)', () => {
+    // A pipeline that writes gnomAD's frequency but no counts: nothing says how many
+    // homozygotes gnomAD has. Before, BS2 was ruled out as "No homozygotes observed in gnomAD."
+    for (const gnomad_hom_count of [undefined, null]) {
+      const suggestions = evaluateAcmg({
+        effect: 'missense_variant',
+        gnomad_af: 1e-5,
+        gnomad_hom_count: gnomad_hom_count as number | undefined,
+      });
+      expect(find(suggestions, 'BS2')).toBeUndefined();
+      expect(find(suggestions, 'PM2')?.disposition).toBe('applies');
+    }
   });
 
   it('contraindicates the opposing in-silico criterion', () => {

@@ -1339,14 +1339,21 @@ A family small-variant upload is one family VCF from one callset:
 - A record's annotation is read from its VEP `CSQ` (or snpEff `ANN`) entries, and from its
   INFO where an entry has no value (`variant_annotation_parser.py`). A population frequency
   or count is read only from a field that names its source: gnomAD's (`gnomAD_AF`,
-  `gnomADe_AF`, `gnomADg_AF`, `gnomAD_AF_POPMAX`, `gnomAD_AC`, `gnomADe_AC`, `gnomADg_AC`,
-  `gnomAD_nhomalt`, `gnomAD_Hom`, `gnomAD_Hemi`, in the spellings the parser lists),
-  TOPMed's (`TOPMed_AF`), and VEP's `MAX_AF` and `POPMAX_AF`. The INFO's `AC`, the
-  callset's own allele count, is never read as gnomAD's, nor are `AC_Adj`, `nhomalt` and
-  `hemi` without a prefix: before (CLIN-59), a record whose CSQ had no gnomAD count took
-  them, so a maximum gnomAD AC filter filtered on the family's own count. A variant without
-  a population value has none, and a maximum frequency or count filter keeps it, as absent
-  from gnomAD. A package's `snv` dataset, its VEP table and the per-sample callsets are read
+  `gnomADe_AF`, `gnomADg_AF`, `gnomAD_AF_POPMAX`, `gnomAD_AC`, `gnomAD_nhomalt`, `gnomAD_Hom`,
+  `gnomAD_Hemi`, and the exome and genome counts `gnomADe_…` and `gnomADg_…` of `AC`,
+  `nhomalt`, `Hom` and `Hemi`, in the spellings the parser lists), TOPMed's (`TOPMed_AF`),
+  and VEP's `MAX_AF` and `POPMAX_AF`. A gnomAD count is gnomAD's total, as its browser shows
+  it: the combined count, else the exome and genome counts added, either alone when the other
+  is missing (CLIN-67; the owner's choice of 2026-10-27). Before, `gnomADe_nhomalt` and
+  `gnomADg_nhomalt` were not read, and the allele count took the exome count alone. The
+  INFO's `AC`, the callset's own allele count, is never read as gnomAD's, nor are `AC_Adj`,
+  `nhomalt` and `hemi` without a prefix: before (CLIN-59), a record whose CSQ had no gnomAD
+  count took them, so a maximum gnomAD AC filter filtered on the family's own count. A
+  variant without a population value has none, and a maximum frequency or count filter keeps
+  it, as absent from gnomAD; with a count filter applied, the variant list says how many of
+  the variants it shows have no such count (`gnomadCountNotes.ts`): a VCF annotated with
+  gnomAD's frequencies alone (VEP's `--af_gnomad…`) carries no counts, so a count filter
+  excludes nothing. A package's `snv` dataset, its VEP table and the per-sample callsets are read
   the same way; a callset stored before keeps the counts it was stored with until it is
   uploaded or imported again.
 - ClickHouse has no transactions, so a write that still fails after that delete (ClickHouse

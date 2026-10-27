@@ -1929,7 +1929,7 @@ python docs/handleiding/build_site.py
 </tr>
 <tr>
 <td>Frequentie</td>
-<td>maximale frequentie in gnomAD (exomen, genomen, popmax), TOPMed, aantallen homo- en hemizygoten</td>
+<td>maximale frequentie in gnomAD (exomen, genomen, popmax), TOPMed, aantallen homo- en hemizygoten (gnomADs totaal: het gecombineerde aantal, anders exomen en genomen opgeteld). Een variant zonder aantal blijft staan, als afwezig in gnomAD, en de lijst zegt hoeveel getoonde varianten zo bleven staan</td>
 </tr>
 <tr>
 <td>Effect</td>
@@ -2368,7 +2368,7 @@ python docs/handleiding/build_site.py
 <tr>
 <td><strong>PM2</strong>, <strong>BA1</strong>, <strong>BS1</strong>, <strong>BS2</strong></td>
 <td>gnomAD</td>
-<td>Afwezig of zeer zeldzaam → PM2 (<em>supporting</em>); zeer frequent → BA1, dat op zichzelf de variant benigne maakt; frequent → BS1; homozygoten aanwezig → BS2 (<em>strong</em> als het gen een recessieve overervingswijze heeft, anders <em>consider</em> op <em>supporting</em>)</td>
+<td>Afwezig of zeer zeldzaam → PM2 (<em>supporting</em>); zeer frequent → BA1, dat op zichzelf de variant benigne maakt; frequent → BS1; homozygoten aanwezig → BS2 (<em>strong</em> als het gen een recessieve overervingswijze heeft, anders <em>consider</em> op <em>supporting</em>); zonder homozygotenaantal in de annotatie blijft BS2 ongemarkeerd: kijk gnomAD zelf na</td>
 </tr>
 <tr>
 <td><strong>PP2</strong></td>

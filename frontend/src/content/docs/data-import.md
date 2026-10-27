@@ -104,9 +104,11 @@ mtDNA*.
 
 A small variant's population frequencies and gnomAD counts come only from annotation fields that name
 their source (gnomAD's, TOPMed's, and VEP's `MAX_AF`), never from the callset's own allele count, the
-VCF's `AC`. A variant whose annotation gives no gnomAD count has none, and a maximum gnomAD count keeps
-it, as absent from gnomAD. A family loaded before keeps the counts it was loaded with until it is
-uploaded or imported again.
+VCF's `AC`. A gnomAD count is gnomAD's total: its combined count, or else its exome and genome counts
+(`gnomADe_…`, `gnomADg_…`) added. A variant whose annotation gives no gnomAD count has none, and a
+maximum gnomAD count keeps it, as absent from gnomAD: the variant list then says how many of the
+variants it shows the filter kept that way. A family loaded before keeps the counts it was loaded with
+until it is uploaded or imported again.
 
 Several of these also feed the [Sample-integrity QC](/docs/reference/sample-qc) and the versions
 recorded for the [report](/docs/reference/clinical-traceability).

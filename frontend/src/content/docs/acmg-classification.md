@@ -110,7 +110,7 @@ member.
 | **PM2** | Applied (Supporting) | gnomAD allele frequency below 0.01%, or no gnomAD frequency at all (see *Frequency* below). |
 | **BA1** | Applied (Stand-alone) | gnomAD allele frequency 5% or more. |
 | **BS1** | Applied (Strong) | gnomAD allele frequency from 1% up to 5%. |
-| **BS2** | Applied (Strong) or Consider | Homozygotes in gnomAD. Applied when GenCC lists a recessive inheritance mode for the gene, otherwise Consider (Supporting). |
+| **BS2** | Applied (Strong) or Consider | Homozygotes in gnomAD. Applied when GenCC lists a recessive inheritance mode for the gene, otherwise Consider (Supporting). Not marked when the annotation holds no gnomAD homozygote count: check gnomAD. |
 | **PM4** | Consider (Moderate) | In-frame insertion or deletion, stop lost, or another protein-length change. Check that it lies outside a repeat region. |
 | **PP2** | Applied (Supporting) | Missense in a missense-constrained gene (gnomAD missense Z of 3.09 or more). |
 | **PP3 / BP4** | Applied, strength scaled | See *In-silico evidence* below. |
@@ -212,7 +212,7 @@ clickable.
 | In-frame or other length change | PVS1, PP2, PM5, BP1, BP7 |
 | Splice region or intronic | PVS1, PM4, PP2, PM5, BP1 |
 | Frequency outside a criterion's band | the frequency criteria that do not fit (table above) |
-| No homozygotes in gnomAD | BS2 |
+| gnomAD counts no homozygotes (a count of 0) | BS2 |
 | No REVEL, SpliceAI or AlphaMissense value | PP3, BP4 |
 | A parent's genotype is missing | PS2, PM6 |
 | The pedigree does not link the proband to both parents | PS2, PM6 |
