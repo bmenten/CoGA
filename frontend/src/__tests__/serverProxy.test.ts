@@ -1,13 +1,29 @@
 // @vitest-environment node
 // The /api proxy in server.mjs — #521: an upstream reset mid-stream could crash the
 // server, there was no upstream timeout, the 502 named the internal backend URL, and
-// client-supplied X-Forwarded-For went to the backend unchecked.
+// client-supplied X-Forwarded-For went to the backend unchecked. Its own 502 and 504 were
+// sent without the server's security headers, which only its later middleware set.
 
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
 import { clientAddress, forwardedHeaders } from '../../proxyRequest.mjs';
+import { CSP, PERMISSIONS_POLICY } from '../../securityHeaders.mjs';
+
+// The API's own policy, as backend/app/middleware/security_headers.py sends it.
+const BACKEND_CSP = "default-src 'none'; frame-ancestors 'none'";
+const HSTS = 'max-age=63072000; includeSubDomains';
+
+/** The server's security headers on an answer (securityHeaders.mjs), HSTS aside. */
+const expectSecurityHeaders = (res: Response) => {
+  expect(res.headers.get('content-security-policy')).toBe(CSP);
+  expect(res.headers.get('x-content-type-options')).toBe('nosniff');
+  expect(res.headers.get('x-frame-options')).toBe('DENY');
+  expect(res.headers.get('referrer-policy')).toBe('no-referrer');
+  expect(res.headers.get('cross-origin-opener-policy')).toBe('same-origin');
+  expect(res.headers.get('permissions-policy')).toBe(PERMISSIONS_POLICY);
+};
 
 let backend: http.Server;
 let frontend: http.Server;
@@ -30,6 +46,16 @@ beforeAll(async () => {
       return;
     }
     if (req.url?.startsWith('/api/hang')) return; // never answers
+    if (req.url?.startsWith('/api/own-headers')) {
+      // The headers the API sets on its own answers.
+      res.writeHead(200, {
+        'content-type': 'application/json',
+        'content-security-policy': BACKEND_CSP,
+        'x-frame-options': 'DENY',
+      });
+      res.end(JSON.stringify({ ok: true }));
+      return;
+    }
     res.writeHead(200, { 'content-type': 'application/json' });
     res.end(JSON.stringify({ ok: true }));
   });
@@ -62,6 +88,34 @@ describe('API proxy', () => {
     expect(res.status).toBe(504);
   });
 
+  it("gives its own 504 the server's security headers, HSTS only as ENABLE_HSTS says", async () => {
+    vi.stubEnv('ENABLE_HSTS', '');
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      const res = await fetch(`${base}/api/hang`);
+      expect(res.status).toBe(504);
+      // Before: none of them; the security-headers middleware runs after the proxy.
+      expectSecurityHeaders(res);
+      expect(res.headers.get('strict-transport-security')).toBeNull();
+
+      vi.stubEnv('ENABLE_HSTS', '1');
+      const behindTls = await fetch(`${base}/api/hang`);
+      expect(behindTls.status).toBe(504);
+      expect(behindTls.headers.get('strict-transport-security')).toBe(HSTS);
+    } finally {
+      vi.unstubAllEnvs();
+      logged.mockRestore();
+    }
+  });
+
+  it("relays the backend's answer with the backend's own headers, not the app page's", async () => {
+    const res = await fetch(`${base}/api/own-headers`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-security-policy')).toBe(BACKEND_CSP);
+    expect(res.headers.get('x-frame-options')).toBe('DENY');
+    expect(res.headers.get('permissions-policy')).toBeNull();
+  });
+
   it('sends the backend one clean client address, not what the client claimed', async () => {
     seen.length = 0;
     await fetch(`${base}/api/ok`, { headers: { 'x-forwarded-for': '6.6.6.6' } });
@@ -75,6 +129,8 @@ describe('API proxy', () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     const res = await fetch(`${base}/api/ok%25s`);
     expect(res.status).toBe(502);
+    // The server's own answer: its security headers (before: none).
+    expectSecurityHeaders(res);
     const body = await res.text();
     expect(body).not.toContain(backendUrl);
     expect(body).toContain('Unable to reach the backend API');
