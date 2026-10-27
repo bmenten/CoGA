@@ -25,6 +25,7 @@ from .clickhouse_family_variants import (
     fetch_family_variant_sources,
     fetch_genotype_site_sample,
 )
+from .data_scope import normalize_chromosome
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
 from .genotypes import NO_CALL, classify_genotype
 from .haplotype_lineage_service import build_pedigree
@@ -63,6 +64,10 @@ logger = logging.getLogger(__name__)
 # such blocks, and sibling embryos looked like duplicates.
 QC_AUTOSOMAL_SITES = 90_000
 QC_X_SITES = 20_000
+# A callset whose sampled sites lie on fewer autosomes than this covers part of the genome
+# (one chromosome, a region): the checks still run on it, and the report warns that they
+# read only that part (CLIN-11, the owner's decision of 2026-10-27).
+QC_MIN_AUTOSOMES = 20
 
 # Genotype callsets preferred for QC, best first: real SNV calls before imputed.
 _SOURCE_PREFERENCE = ("clair3", "glimpse2")
@@ -111,15 +116,19 @@ async def _load_genotype_sample(
     source: str,
     *,
     read_as_reference: dict[str, int] | None = None,
+    chromosomes: set[str] | None = None,
 ) -> dict[str, list[Genotype | None]]:
     """Each sample's genotypes at the sampled sites. ``read_as_reference``, when given,
     is told for each sample how many sites it was read as reference at without a call of
-    its own (see ``_genotype_arrays``).
+    its own (see ``_genotype_arrays``); ``chromosomes``, when given, the chromosomes the
+    sampled sites lie on.
 
     The query runs on the event loop; the parse, a genotype per sample and site (over a
     million for ten samples), runs in a worker thread, so the loop serves other requests
     meanwhile (OPS-9)."""
     rows = await fetch_genotype_site_sample(context, scope=scope, limit=limit, source=source)
+    if chromosomes is not None:
+        chromosomes.update(normalize_chromosome(str(row[0])) for row in rows)
     return await asyncio.to_thread(_genotype_arrays, rows, samples, read_as_reference)
 
 
@@ -162,6 +171,15 @@ def _per_sample_callset_note(read_as_reference: dict[str, int], sites: int) -> s
         f"has no record ({described} of the sites read), the checks read it as reference, as a "
         "joint VCF calls a covered site. A site without reads is read that way too, which "
         "lowers the kinship: on low-coverage data, unrelated does not exclude a relationship."
+    )
+
+
+def _partial_genome_note(autosomes: int) -> str:
+    """The warning a sample spanning fewer than ``QC_MIN_AUTOSOMES`` autosomes needs: a
+    fixed sentence, frozen into the signed report with the rest of it."""
+    return (
+        f"The callset covers part of the genome: its sites lie on {autosomes} of the 22 "
+        "autosomes, so the checks read only that part."
     )
 
 
@@ -341,6 +359,7 @@ async def get_family_sample_integrity_qc(
             genotype_source = _choose_genotype_source(await fetch_family_variant_sources(context))
             if genotype_source:
                 read_as_reference: dict[str, int] = {}
+                autosomes: set[str] = set()
                 autosomal = await _load_genotype_sample(
                     context,
                     "autosomes",
@@ -348,7 +367,12 @@ async def get_family_sample_integrity_qc(
                     samples,
                     genotype_source,
                     read_as_reference=read_as_reference,
+                    chromosomes=autosomes,
                 )
+                if autosomes and len(autosomes) < QC_MIN_AUTOSOMES and (
+                    profile.run_relatedness or profile.run_mendelian
+                ):
+                    service_notes.append(_partial_genome_note(len(autosomes)))
                 x_genotypes = await _load_genotype_sample(
                     context, "chrX", QC_X_SITES, samples, genotype_source
                 )
