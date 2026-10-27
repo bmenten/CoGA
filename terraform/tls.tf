@@ -94,6 +94,14 @@ resource "tls_locally_signed_cert" "clickhouse" {
 }
 
 # --- Server key + cert in Secret Manager (fetched by the VM at boot) --------
+#
+# The VM reads the latest version of each secret (scripts/), so a new version is created
+# before the old one is destroyed: the other way round, a VM that booted in between found no
+# version and did not start ClickHouse (SEC-19). During such an apply it may still read a new
+# key with the old certificate, or the reverse; the restart after it loads the new pair
+# (docs/deployment-gcp.md §12.4). Terraform extends create_before_destroy to everything the
+# versions depend on: a later change that replaces the secrets, the VM's address, its subnet
+# or its network under the same name then fails on that name, rather than destroying first.
 
 resource "google_secret_manager_secret" "clickhouse_tls" {
   for_each  = toset(["key", "cert"])
@@ -116,6 +124,7 @@ resource "google_secret_manager_secret_version" "clickhouse_tls_key" {
   secret_data_wo_version = tostring(local.clickhouse_tls_key_version)
 
   lifecycle {
+    create_before_destroy = true
     # A new certificate request was made with this run's server key: store that key.
     replace_triggered_by = [tls_cert_request.clickhouse]
   }
@@ -124,6 +133,10 @@ resource "google_secret_manager_secret_version" "clickhouse_tls_key" {
 resource "google_secret_manager_secret_version" "clickhouse_tls_cert" {
   secret      = google_secret_manager_secret.clickhouse_tls["cert"].id
   secret_data = tls_locally_signed_cert.clickhouse.cert_pem
+
+  lifecycle {
+    create_before_destroy = true
+  }
 }
 
 resource "google_secret_manager_secret_iam_member" "clickhouse_vm_tls" {

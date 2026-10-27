@@ -21,7 +21,10 @@ configuration addresses are tracked in [TF-13 §3](../docs/regulatory/TF-13-cybe
   instance metadata, and serves HTTPS on 8443 with a private CA (`tls.tf`) that the backend
   verifies. Terraform keeps the CA's key nowhere, so it issues the CA and the server
   certificate together; the backend gets the new CA in that apply, and the VM must then be
-  restarted (a daily timer re-fetches the certificate otherwise).
+  restarted (a daily timer re-fetches the certificate otherwise). Its startup script also
+  writes the query memory guards Docker Compose mounts, from the same file
+  (`clickhouse/users.d/memory-guards.xml`): each query capped at 4 GB, GROUP BY and ORDER BY
+  state spilled to disk past 2 GB.
 - **Secrets.** This configuration creates the Secret Manager containers; the values are
   added by hand ([deployment-gcp.md §5.5](../docs/deployment-gcp.md)), so application
   secrets never pass through Terraform variables. Cloud Run reads them by reference.
@@ -111,7 +114,9 @@ deployment-gcp.md §12.7 and §12.9.
   the apply that creates the CA, so every re-issue (key rotation, a new VM address,
   renewal) brings a new CA, which the backend trusts from that apply on. The app cannot
   reach ClickHouse until the VM restarts or its daily timer runs
-  ([deployment-gcp.md §12.4](../docs/deployment-gcp.md)).
+  ([deployment-gcp.md §12.4](../docs/deployment-gcp.md)). Terraform stores the new key and
+  certificate before it destroys the old ones, so a VM that boots during that apply still
+  finds both, though not always a matching pair until that restart.
 - **Older state versions.** An environment applied before OPS-10 still has the owner's
   password and the old TLS keys in its older state versions: rotate and tidy up once
   ([deployment-gcp.md §12.11](../docs/deployment-gcp.md)).
