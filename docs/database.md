@@ -257,7 +257,10 @@ writes a batch again after a failed attempt, and after its last attempt writes t
 events one at a time (`services/event_pipeline.py`). A commit whose answer never reached the
 worker (the connection dropped as Postgres committed) looked like a failure, so each row of
 the batch was stored twice. Each event now carries an id of its own, `event_id` (a UUID,
-unique), which the backend gives it when it makes the event, before the event is queued. Every
+unique), which the backend gives it when it makes the event, before the event is queued. A UI
+event's is the one the browser gave it (`lib/telemetry.ts`), which `routers/ui_events.py` keeps
+when it spells a UUID (an event without one gets the backend's), so a batch the browser sends
+again, one in flight as its page closed, stores each event once too. Every
 write of the event carries it, and the writers' INSERT does nothing for an id the table holds
 (`ON CONFLICT (event_id) DO NOTHING`; the INSERT and SELECT that `coga_app` holds on the table
 are all it needs, and the triggers that refuse UPDATE never fire). A row written before the

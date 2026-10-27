@@ -46,8 +46,9 @@ pytestmark = pytest.mark.integration
 
 # The *_id fields of a request body that name a record by its UUID, and those that hold an
 # identifier of text: a family, a sample, a variant, an HPO term, a PanelApp panel, a taxon,
-# a UI session or element, an OAuth client. A body field the API gains fails
-# test_every_id_a_body_carries_is_known until it is listed in one of the two.
+# a UI session or element, an OAuth client, and a UI event's own id, which names no record (the
+# endpoint keeps a UUID and gives the event one of its own for anything else). A body field the
+# API gains fails test_every_id_a_body_carries_is_known until it is listed in one of the two.
 UUID_BODY_FIELDS = {
     "assembly_id",
     "project_id",
@@ -59,6 +60,7 @@ UUID_BODY_FIELDS = {
 }
 TEXT_BODY_FIELDS = {
     "client_id",
+    "event_id",
     "family_id",
     "father_id",
     "hpo_id",
