@@ -1585,6 +1585,8 @@ async def fetch_genotype_site_sample(
     as the signed report's content hash needs. With fewer sites than ``limit``, every site is
     returned. A variant stored more than once (the family linked to two projects, or
     ``source`` matching two callsets) counts once, so a sample can hold fewer sites.
+    Only SNVs are sampled: an indel's genotype is called with more error, and every check
+    reads the sample as genotypes (CLIN-11, the owner's decision of 2026-10-27).
     Each row is ``(chrom, pos, ref, alt, sample_ids, gts)``."""
     if not context.assembly_name:
         return []
@@ -1592,6 +1594,8 @@ async def fetch_genotype_site_sample(
     where_clauses, params, _ = _small_query_filter_parts(context, filters)
     first, last = _GENOTYPE_SAMPLE_RANKS[scope]
     where_clauses.append("e.xpos BETWEEN %(sample_xpos_start)s AND %(sample_xpos_end)s")
+    # A single base for a single base: no indel, no MNV and no spanning deletion (``*``).
+    where_clauses.append("length(e.ref) = 1 AND length(e.alt) = 1 AND e.alt != '*'")
     params["sample_xpos_start"] = _xpos(first, 0)
     params["sample_xpos_end"] = _xpos(last, _XPOS_LAST_POSITION)
     if scope == "chrX":
