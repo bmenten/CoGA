@@ -482,6 +482,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
   if (familyLoading || mtDNALoading || (family?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="mtDNA"
         title="Loading mtDNA analysis"
         message="Preparing mitochondrial variant calls, haplogroups, coverage and QC."

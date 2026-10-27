@@ -207,6 +207,23 @@ describe('DataManagementPage', () => {
     expect(screen.getByText('S1_bins.bed')).toBeInTheDocument();
   });
 
+  // ENG-10: "Sample type" headed the sex and "Metadata" the affected status.
+  it('heads each sample column with what it holds', async () => {
+    mockResponses();
+    renderPage();
+    await selectFamily();
+
+    const table = (await screen.findAllByText('Delete sample'))[0].closest('table') as HTMLTableElement;
+    const headings = [...table.querySelectorAll('thead th')].map((cell) => cell.textContent);
+    const row = [...table.querySelectorAll('tbody tr')].find((tr) => tr.textContent?.includes('S1'));
+    const cells = [...(row?.querySelectorAll('td') ?? [])].map((cell) => cell.textContent);
+    const under = (heading: string) => cells[headings.indexOf(heading)];
+
+    expect([under('Sample'), under('Role'), under('Sex'), under('Status')]).toEqual(['S1', 'Proband', 'male', 'Affected']);
+    expect(headings).not.toContain('Sample type');
+    expect(headings).not.toContain('Metadata');
+  });
+
   it('requires the family name and a reason before the entire family can be deleted', async () => {
     mockResponses();
     (api.delete as unknown as Mock).mockResolvedValue({ data: { ok: true } });

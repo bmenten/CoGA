@@ -264,9 +264,9 @@ const DataInventoryDetail: React.FC<DataInventoryDetailProps> = ({
               <thead>
                 <tr>
                   <th>Sample</th>
-                  <th>Individual</th>
-                  <th>Sample type</th>
-                  <th>Metadata</th>
+                  <th>Role</th>
+                  <th>Sex</th>
+                  <th>Status</th>
                   {SAMPLE_TRACK_ORDER.map((trackType) => (
                     <th key={trackType}>{TRACK_LABELS[trackType]}</th>
                   ))}

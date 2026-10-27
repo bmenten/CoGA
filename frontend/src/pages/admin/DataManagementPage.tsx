@@ -182,6 +182,7 @@ const DataManagementPage: React.FC = () => {
   if (projectsLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading data management"
         message="Preparing the family catalog and project inventory."

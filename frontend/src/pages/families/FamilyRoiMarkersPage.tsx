@@ -3,6 +3,7 @@ import { useParams, useSearchParams, Link } from 'react-router';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { cssVar } from '../../lib/colors';
+import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
 import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
@@ -163,6 +164,7 @@ const FamilyRoiMarkersPage: React.FC = () => {
     data: family,
     isLoading: familyLoading,
     isError: familyFailed,
+    error: familyError,
     refetch: refetchFamily,
   } = useQuery<ApiFamilyRecord>({
     queryKey: ['family', familyId],
@@ -351,19 +353,19 @@ const FamilyRoiMarkersPage: React.FC = () => {
   // The project's reference too: the assembly-scope warning shows nothing while it loads
   // (#515), so the markers showed without "Not validated for clinical use" (ENG-12).
   if (familyLoading || phasedLoading || referenceLoading) {
-    return <PageState title="Loading ROI markers…" />;
+    return <PageState loading title="Loading ROI markers…" />;
   }
-  // Without the family its ROI is unknown, not absent (#607).
+  // Without the family its ROI is unknown, not absent (#607). A family that does not exist,
+  // or is not in the user's projects, is not found: the page said "could not be loaded" for
+  // a 404 too (ENG-10).
   if (familyFailed) {
     return (
-      <PageState
-        title="Family could not be loaded"
-        message="The family, and with it its region of interest, could not be loaded. This is not a family without a region of interest."
-        action={
-          <button type="button" className="button-secondary" onClick={() => void refetchFamily()}>
-            Retry
-          </button>
-        }
+      <FamilyLoadFailure
+        kicker="ROI markers"
+        what="Family"
+        error={familyError}
+        notFoundMessage="This family could not be found."
+        onRetry={() => void refetchFamily()}
       />
     );
   }

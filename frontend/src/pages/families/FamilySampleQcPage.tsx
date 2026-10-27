@@ -375,6 +375,8 @@ const FamilySampleQcPage: React.FC = () => {
     data: qc,
     isLoading: qcLoading,
     isError: qcError,
+    isFetching: qcFetching,
+    refetch: refetchQc,
   } = useQuery<ApiSampleIntegrityQc>({
     queryKey: ['family', familyId, 'sample-integrity-qc'],
     enabled: Boolean(familyId),
@@ -445,9 +447,15 @@ const FamilySampleQcPage: React.FC = () => {
         title="QC could not be computed"
         message="The genotypes for this family could not be analysed."
         action={
-          <Link to={routePath`/families/${familyId}`} className="button-secondary">
-            Back to family
-          </Link>
+          <>
+            {/* The checks run again on a retry, as the family's own failure offers one (ENG-10). */}
+            <button type="button" className="button-secondary" disabled={qcFetching} onClick={() => void refetchQc()}>
+              {qcFetching ? 'Retrying…' : 'Retry'}
+            </button>
+            <Link to={routePath`/families/${familyId}`} className="button-secondary">
+              Back to family
+            </Link>
+          </>
         }
       />
     );

@@ -230,6 +230,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
 
     return (
       <PageState
+        loading
         kicker="Collections"
         title="Loading projects and families"
         message="Preparing the family catalog and project structure."

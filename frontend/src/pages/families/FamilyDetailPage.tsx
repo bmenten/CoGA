@@ -504,6 +504,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Family"
         title="Loading family workspace"
         message="Preparing family metadata, pedigree and navigation links."
@@ -539,6 +540,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
   if (referenceLoading) {
     return (
       <PageState
+        loading
         kicker="Family"
         title="Loading family workspace"
         message="Preparing family metadata, pedigree and navigation links."

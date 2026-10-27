@@ -513,6 +513,7 @@ const FamilyParaphasePage: React.FC = () => {
   if (familyLoading || paraphaseLoading || (family?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Paraphase"
         title="Loading Paraphase results"
         message="Preparing duplicated-region results and pedigree context."

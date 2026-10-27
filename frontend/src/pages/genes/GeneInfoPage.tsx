@@ -1211,6 +1211,7 @@ const GeneInfoPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Reference"
         title="Loading gene explorer"
         message="Resolving cached gene annotations, curated evidence, and assembly-aware context."
@@ -1937,7 +1938,7 @@ const GeneInfoPage: React.FC = () => {
                       })
                     ) : (
                       <tr>
-                        <td colSpan={7} className="table-empty">
+                        <td colSpan={8} className="table-empty">
                           No transcripts are cached for this gene.
                         </td>
                       </tr>

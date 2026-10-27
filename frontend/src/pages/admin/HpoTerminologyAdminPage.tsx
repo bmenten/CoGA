@@ -186,6 +186,7 @@ const HpoTerminologyAdminPage: React.FC = () => {
   if (summaryQuery.isLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading HPO terminology"
         message="Preparing ontology summary and term browser."

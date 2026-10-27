@@ -61,6 +61,7 @@ const FamilyIgvPage: React.FC = () => {
   if (isLoading || (data?.projects?.length && referenceLoading)) {
     return (
       <PageState
+        loading
         kicker="Viewer"
         title="Loading IGV workspace"
         message="Resolving family context and genome reference before opening the viewer."

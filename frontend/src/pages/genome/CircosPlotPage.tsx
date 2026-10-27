@@ -157,6 +157,7 @@ const CircosPlotPage: FC = () => {
 
   const loadingState = (
     <PageState
+      loading
       kicker="Visualization"
       title="Loading circos plot"
       message="Preparing chromosome scaffolds and structural variant links."

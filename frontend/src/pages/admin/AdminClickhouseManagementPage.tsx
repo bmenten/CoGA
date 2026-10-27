@@ -78,6 +78,7 @@ const AdminClickhouseManagementPage: React.FC = () => {
   if (isLoading) {
     return (
       <PageState
+        loading
         kicker="Administration"
         title="Loading ClickHouse management"
         message="Preparing ClickHouse variant table status by assembly."
