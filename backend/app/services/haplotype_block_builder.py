@@ -287,6 +287,13 @@ def _append_haplotype_state_row(
 ) -> None:
     if state["start"] is None:
         return
+    end_limit = state.get("end_limit")
+    if end_limit is not None and int(state["start"]) >= int(end_limit):
+        # Opened at its stretch's last position, a block cannot reach past its one site
+        # without leaving its stretch, as every other block does (``_haplotype_state_end``):
+        # it would end where it begins, so it is not kept. The member's block before it in
+        # the stretch, where there is one, already reaches that site (ENG-19).
+        return
     rows.append(
         _haplotype_row(
             sample_context,

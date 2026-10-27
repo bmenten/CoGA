@@ -157,11 +157,19 @@ def structure_chain_payload(row: Mapping[str, Any]) -> dict[str, Any]:
 
 @dataclass(frozen=True, slots=True)
 class StructureVersion:
-    """A structure version as it was stored."""
+    """A structure version as it was stored.
+
+    ``deleted_family_versions`` is how many structure versions the families deleted under the
+    family ID stored on its chain before this family, of ``deleted_families`` families: 0 for a
+    family never made again under its ID. Versions are numbered per family row, so a family
+    made again numbers its own from 1 again, and the two numbers name a version apart on the
+    ID's chain (ENG-19)."""
 
     version: int
     structure_hash: str
     row_hash: str
+    deleted_family_versions: int = 0
+    deleted_families: int = 0
 
 
 _NEXT_VERSION = text(
@@ -171,6 +179,36 @@ _NEXT_VERSION = text(
     WHERE family_id = CAST(:family_uuid AS uuid)
     """
 )
+
+# The versions on a family ID's chain that the families deleted under it stored (their rows
+# unlinked from the family row, which the deletion nulls), and how many such families: each
+# numbered its own from 1.
+_DELETED_FAMILY_VERSIONS = text(
+    """
+    SELECT COUNT(*) AS versions, COUNT(*) FILTER (WHERE version = 1) AS families
+    FROM family_structure_versions
+    WHERE family_identifier = :family_identifier
+      AND row_hash IS NOT NULL
+      AND family_id IS DISTINCT FROM CAST(:family_uuid AS uuid)
+    """
+)
+
+
+async def _deleted_family_versions(
+    session: AsyncSession, *, family_uuid: str, family_identifier: str
+) -> tuple[int, int]:
+    """How many structure versions the families deleted under ``family_identifier`` stored on
+    its chain before the family ``family_uuid``, and how many families they were."""
+    row = (
+        await session.execute(
+            _DELETED_FAMILY_VERSIONS,
+            {"family_uuid": family_uuid, "family_identifier": family_identifier},
+        )
+    ).mappings().first()
+    if row is None or not int(row["versions"] or 0):
+        return 0, 0
+    # At least one family: one whose first version predates the chain has no version 1 on it.
+    return int(row["versions"]), max(int(row["families"] or 0), 1)
 
 _CHAIN_HEAD = text(
     """
@@ -247,6 +285,12 @@ async def append_structure_version(
     head = (
         await session.execute(_CHAIN_HEAD, {"family_identifier": family_identifier})
     ).mappings().first()
+    # An empty chain holds no deleted family's versions.
+    deleted_versions, deleted_families = (
+        await _deleted_family_versions(session, family_uuid=family_uuid, family_identifier=family_identifier)
+        if head is not None
+        else (0, 0)
+    )
     now = datetime.now(timezone.utc)
     # Strictly increasing per family, so the chain's order is the same on every read.
     if head is not None and head["created_at"] is not None and now <= head["created_at"]:
@@ -290,7 +334,13 @@ async def append_structure_version(
             "prev_hash": prev_hash,
         },
     )
-    return StructureVersion(version=version, structure_hash=digest, row_hash=row_hash)
+    return StructureVersion(
+        version=version,
+        structure_hash=digest,
+        row_hash=row_hash,
+        deleted_family_versions=deleted_versions,
+        deleted_families=deleted_families,
+    )
 
 
 async def verify_family_structure_chain(
@@ -644,6 +694,17 @@ def pedigree_changed_summary(source: str, phrases: list[str]) -> str:
     return f"{_SUMMARY_PREFIX.get(source, 'Pedigree changed')}: {_bounded(phrases)}"
 
 
+def made_again_note(versions: int, families: int) -> str:
+    """What the pedigree of a family made again under the ID of a deleted family adds to its
+    summary: its structure versions start again at 1, after the deleted families' on the ID's
+    chain (ENG-19)."""
+    deleted = "a deleted family" if families <= 1 else f"{families} deleted families"
+    return (
+        f"Made again under this family ID, after {versions} structure version"
+        f"{'' if versions == 1 else 's'} of {deleted}: its own start again at 1."
+    )
+
+
 # ---------------------------------------------------------------------------- the audit event
 
 
@@ -703,6 +764,8 @@ async def record_pedigree_change(
     always is; a change that left the audited pedigree as it was writes nothing."""
     if change.before is None:
         summary = pedigree_recorded_summary(after)
+        if version.deleted_family_versions:
+            summary = f"{summary}. {made_again_note(version.deleted_family_versions, version.deleted_families)}"
         before_value: dict[str, Any] | None = None
         after_value: dict[str, Any] = dict(after)
     else:
@@ -715,6 +778,10 @@ async def record_pedigree_change(
         "structure_version": version.version,
         "structure_hash": version.structure_hash,
     }
+    if version.deleted_family_versions:
+        # The version number repeats one of a deleted family's on the ID's trail: this names
+        # it apart (ENG-19).
+        metadata["deleted_family_versions"] = version.deleted_family_versions
     if change.reason:
         metadata["reason"] = change.reason
     await record_clinical_event(
@@ -889,6 +956,11 @@ async def record_family_deleted(
     sample_rows = (await session.execute(_FAMILY_SAMPLES, {"family_uuid": family_uuid})).all()
     samples = [str(row[0]) for row in sample_rows]
     latest = (await session.execute(_LATEST_STRUCTURE_VERSION, {"family_uuid": family_uuid})).scalar_one_or_none()
+    deleted_versions, _families = (
+        await _deleted_family_versions(session, family_uuid=family_uuid, family_identifier=family_identifier)
+        if latest is not None
+        else (0, 0)
+    )
     held_rows = (await session.execute(_FAMILY_POSTGRES_DATA, {"family_uuid": family_uuid})).all()
     held = {str(row[0]): int(row[1] or 0) for row in held_rows}
     data: dict[str, int] = {key: int(value) for key, value in (variant_counts or {}).items()}
@@ -898,6 +970,14 @@ async def record_family_deleted(
     stated_reason = _optional_text(reason)
     if stated_reason:
         metadata["reason"] = stated_reason
+    before: dict[str, Any] = {
+        "samples": samples,
+        "structure_version": int(latest) if latest is not None else None,
+        "data": data,
+    }
+    if deleted_versions:
+        # A family made again under the ID: its latest version named apart (ENG-19).
+        before["deleted_family_versions"] = deleted_versions
     actor_id = getattr(user, "id", None)
     await record_clinical_event(
         session,
@@ -909,11 +989,7 @@ async def record_family_deleted(
         action=FAMILY_DELETED_ACTION,
         summary=family_deleted_summary(source, samples, data)
         + (f". Reason: {stated_reason}" if stated_reason else ""),
-        before={
-            "samples": samples,
-            "structure_version": int(latest) if latest is not None else None,
-            "data": data,
-        },
+        before=before,
         after=None,
         metadata=metadata,
     )

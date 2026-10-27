@@ -283,8 +283,11 @@ audit event (`family_deleted`) before the family row goes, so the chains it leav
 **A family made again under its ID (TRACE-13).** The three chains are a family identifier's, not
 a family row's: a family deleted and made again under its ID writes on them after the deletion.
 The structure versions and the clinical audit events are ordered by time, which runs on across
-the two. The sign-outs are ordered by version, so their versions are numbered per family
-identifier: the new family's first sign-out is the version after the deleted family's last, and
+the two. The structure versions are numbered per family row, so the new family's start again at
+1; its `pedigree` events, and its `family_deleted` event, name how many versions the deleted
+families stored on the chain before it (`deleted_family_versions`), so the clinical audit trail
+names each version once (ENG-19). The sign-outs are ordered by version, so their versions are
+numbered per family identifier: the new family's first sign-out is the version after the deleted family's last, and
 `uq_report_signouts_family_identifier_version` makes a version unique per identifier, where
 `UNIQUE (family_id, version)` cannot, as the deletion nulls `family_id`. A database where an
 identifier already holds a version twice (a family made again and signed out in both, before

@@ -118,7 +118,9 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
   each reported variant as the variant list classifies it, from `nipt_service.get_family_nipt_record`,
   and the inputs), and a failed fetal-fraction, fetal-sex or plasma check gates it under the Sample QC's
   acknowledgement ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out runs
-  the analysis once: its Sample QC and the section read the same run (`SharedNiptAnalysis`).
+  the analysis once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The
+  Sample QC runs its NIPT checks in a savepoint, so a database error there is noted, gated as a check
+  that could not run, and leaves the rest of the sign-out running (ENG-19).
 - **De novo triage** — `nipt_triage.py`: `is_de_novo_candidate`, `de_novo_window`, `triage_de_novo`
   (the R pipeline's score and priorities; other cfDNA carriers of the assay from
   `count_cfdna_carriers`, `clickhouse_family_variants.py`, over `assay_cfdna_carrier_samples`: a
