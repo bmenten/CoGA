@@ -356,9 +356,10 @@ const ChromosomeViewWorkspace: React.FC<ChromosomeViewWorkspaceProps> = ({
           <label className="field-label">
             Chromosome
             <select value={chrom} onChange={(event) => onChromChange(event.target.value)}>
+              {/* Named as the header names them (chr1, chrM); the value stays the route's key. */}
               {CHROMS.map((value) => (
                 <option key={value} value={value}>
-                  {value}
+                  {formatChromosomeLabel(value)}
                 </option>
               ))}
             </select>

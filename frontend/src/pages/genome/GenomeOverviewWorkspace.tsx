@@ -21,6 +21,7 @@ import QueryFailure from '../../components/QueryFailure';
 import FamilyPageBanners from '../../components/FamilyPageBanners';
 import { resolveHaplotypeInheritanceModel } from '../../lib/haplotypeRisk';
 import { formatResolvedReferenceLabel } from '../../lib/reference';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 import type { GenomeTrackVisibility } from './GenomeOverviewSidebar';
 import CoverageScaleNote from './CoverageScaleNote';
 import ViewerMemberSection from './ViewerMemberSection';
@@ -580,6 +581,9 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                 {layout.chroms.map((chrom) => {
                   const width = (layout.lengths[chrom] / layout.total) * trackWidth;
                   const left = (layout.offsets[chrom] / layout.total) * trackWidth;
+                  // The chromosome's name without its chr, which the narrow slots have no
+                  // room for: 1, X, and M for the mitochondrion (chrM).
+                  const name = formatChromosomeLabel(chrom).replace(/^chr/, '');
                   return (
                     // A button to the keyboard as well as the pointer (#529).
                     <div
@@ -588,7 +592,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                       style={{ width, left }}
                       role="button"
                       tabIndex={0}
-                      aria-label={`Open chromosome ${chrom}`}
+                      aria-label={`Open chromosome ${name}`}
                       onClick={() => handleChromosomeClick(chrom)}
                       onKeyDown={(event) => {
                         if (event.key !== 'Enter' && event.key !== ' ') return;
@@ -609,7 +613,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                         cornerRoundness={0.22}
                         bandFinish="glossy"
                       />
-                      <div className="text-xs text-center">{chrom}</div>
+                      <div className="text-xs text-center">{name}</div>
                     </div>
                   );
                 })}
