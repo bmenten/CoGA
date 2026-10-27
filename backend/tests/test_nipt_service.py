@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import dataclasses
+import re
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -556,6 +558,24 @@ async def test_get_family_nipt_variants_rejects_unsupported_preset() -> None:
             inheritance="not_a_preset",
         )
     assert "inheritance preset" in str(excinfo.value)
+
+
+_SMALL_VARIANT_SEARCH_TS = (
+    Path(__file__).resolve().parents[2] / "frontend" / "src" / "pages" / "families" / "smallVariantSearch.ts"
+)
+
+
+def test_the_nipt_page_sends_exactly_the_inheritance_views_the_list_takes() -> None:
+    # The NIPT page sends an inheritance only when it is one of these views, and names any other
+    # a saved search or a link carries as a filter the list does not apply (found while fixing
+    # ENG-19, #1009). A view added here and not there would never be sent; one added there and
+    # not here would fail the whole search, as an unsupported preset.
+    source = _SMALL_VARIANT_SEARCH_TS.read_text(encoding="utf-8")
+    declaration = re.search(r"export const NIPT_INHERITANCE_VIEWS\b[^=]*=\s*\[([^\]]*)\]", source)
+    assert declaration, "NIPT_INHERITANCE_VIEWS not found in smallVariantSearch.ts"
+    page_views = re.findall(r"'(\w+)'", declaration.group(1))
+    assert len(page_views) == len(set(page_views))
+    assert set(page_views) == set(nipt_service._INHERITANCE_VIEWS)
 
 
 def _recessive_filtered_records() -> list[SmallVariantRecord]:
