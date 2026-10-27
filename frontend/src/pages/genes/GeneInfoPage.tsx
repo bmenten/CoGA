@@ -10,6 +10,7 @@ import { useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
 import type { GeneSearchResultOut } from '../../lib/apiSchema.generated';
+import { raw, routePath } from '../../lib/routePath';
 
 interface GeneTranscript {
   transcript_id: string;
@@ -874,9 +875,9 @@ const GeneInfoPage: React.FC = () => {
       ? `&project_id=${encodeURIComponent(resolvedProjectId)}`
       : '';
     return {
-      smallVariants: `/families/${familyId}/small-variants?gene=${encodeURIComponent(profile.symbol)}${projectQuery}`,
-      structuralVariants: `/families/${familyId}/structural-variants?gene=${encodeURIComponent(profile.symbol)}${projectQuery}`,
-      chromosomeView: `/families/${familyId}/chromosome/${familyAssemblyLocation.chr}?start=${familyAssemblyLocation.start}&end=${familyAssemblyLocation.end}${projectQuery}`,
+      smallVariants: routePath`/families/${familyId}/small-variants?gene=${profile.symbol}${raw(projectQuery)}`,
+      structuralVariants: routePath`/families/${familyId}/structural-variants?gene=${profile.symbol}${raw(projectQuery)}`,
+      chromosomeView: routePath`/families/${familyId}/chromosome/${familyAssemblyLocation.chr}?start=${familyAssemblyLocation.start}&end=${familyAssemblyLocation.end}${raw(projectQuery)}`,
     };
   }, [familyId, profile, resolvedProjectId]);
 
@@ -1076,7 +1077,7 @@ const GeneInfoPage: React.FC = () => {
                   {profile.panels.map((panel) => (
                     <Link
                       key={panel.panel_id}
-                      to={`/panels/${panel.panel_id}`}
+                      to={routePath`/panels/${panel.panel_id}`}
                       className="gene-compact-link"
                     >
                       {panel.name}

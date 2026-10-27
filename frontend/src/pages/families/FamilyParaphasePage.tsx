@@ -15,6 +15,7 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { apiPath } from '../../lib/apiPath';
+import { raw, routePath } from '../../lib/routePath';
 
 
 
@@ -137,7 +138,7 @@ const buildParaphaseChromosomeHref = (
 ): string => {
   const params = new URLSearchParams({ start: String(region.start), end: String(region.end) });
   if (projectId) params.set('project_id', projectId);
-  return `/families/${familyId}/chromosome/${region.chrom}?${params.toString()}`;
+  return routePath`/families/${familyId}/chromosome/${region.chrom}${raw(`?${params.toString()}`)}`;
 };
 
 // IGV opens on the analysed region plus a little flank, so the edges of the segmental
@@ -160,8 +161,8 @@ const buildParaphaseIgvHref = (
 ): string => {
   const params = new URLSearchParams({ locus: getParaphaseIgvLocus(region) });
   if (projectId) params.set('project_id', projectId);
-  params.set('back_path', `/families/${familyId}/paraphase`);
-  return `/families/${familyId}/igv?${params.toString()}`;
+  params.set('back_path', routePath`/families/${familyId}/paraphase`);
+  return routePath`/families/${familyId}/igv${raw(`?${params.toString()}`)}`;
 };
 
 const CLINICAL_STATUS_META: Record<string, { label: string; className: string }> = {

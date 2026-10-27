@@ -14,6 +14,7 @@ import { apiPath } from '../../lib/apiPath';
 import { normalizeSex } from '../../lib/haplotypeRisk';
 import { alleleBase, nucleotideColor } from '../../lib/phasedMarkers';
 import { useFamilyReference } from '../../lib/reference';
+import { raw, routePath } from '../../lib/routePath';
 
 // Floor on the zoomed-in window so the view can't collapse to nothing.
 const MIN_SPAN = 2_000;
@@ -374,13 +375,13 @@ const FamilyRoiMarkersPage: React.FC = () => {
         title="No region of interest"
         message="Set a region of interest for this family to review its markers."
         action={
-          <Link to={`/families/${familyId}${projectId ? `?project_id=${projectId}` : ''}`}>← Back to family</Link>
+          <Link to={routePath`/families/${familyId}${raw(projectId ? `?project_id=${encodeURIComponent(projectId)}` : '')}`}>← Back to family</Link>
         }
       />
     );
   }
 
-  const backLink = `/families/${familyId}${projectId ? `?project_id=${projectId}` : ''}`;
+  const backLink = routePath`/families/${familyId}${raw(projectId ? `?project_id=${encodeURIComponent(projectId)}` : '')}`;
   const inheritanceModel = (family?.metadata?.pgt as { inheritance_model?: string } | undefined)
     ?.inheritance_model;
   const inRoi = (pos: number) => pos >= roi.start && pos <= roi.end;

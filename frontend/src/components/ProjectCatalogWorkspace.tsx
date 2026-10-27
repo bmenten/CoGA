@@ -9,6 +9,7 @@ import { formatUserRef } from '../lib/users';
 import FamilyStatusBadge from './FamilyStatusBadge';
 import PageState from './PageState';
 import VizTooltip from './visualizations/VizTooltip';
+import { routePath } from '../lib/routePath';
 
 interface ProjectCatalogWorkspaceProps {
   embedded?: boolean;
@@ -80,7 +81,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
       );
     }
     return (
-      <Link to={`/families/${familyId}`} className="table-link">
+      <Link to={routePath`/families/${familyId}`} className="table-link">
         {familyId}
       </Link>
     );

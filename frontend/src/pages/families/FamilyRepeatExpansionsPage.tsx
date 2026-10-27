@@ -20,6 +20,7 @@ import GenomeWorkspaceLink from './GenomeWorkspaceLink';
 import { apiPath } from '../../lib/apiPath';
 import InfoTip from '../../components/InfoTip';
 import { COUNT_UNIT_MARK, countUnitWarningText, repeatStatusLabel } from '../../lib/repeatStatus';
+import { raw, routePath } from '../../lib/routePath';
 
 
 
@@ -126,7 +127,7 @@ const buildRepeatChromosomeHref = (
   if (projectId) {
     params.set('project_id', projectId);
   }
-  return `/families/${familyId}/chromosome/${chrom}?${params.toString()}`;
+  return routePath`/families/${familyId}/chromosome/${chrom}${raw(`?${params.toString()}`)}`;
 };
 
 // A repeat locus is small, and what matters in IGV is the reads spanning it, so the
@@ -150,8 +151,8 @@ const buildRepeatIgvHref = (
   if (projectId) {
     params.set('project_id', projectId);
   }
-  params.set('back_path', `/families/${familyId}/repeat-expansions`);
-  return `/families/${familyId}/igv?${params.toString()}`;
+  params.set('back_path', routePath`/families/${familyId}/repeat-expansions`);
+  return routePath`/families/${familyId}/igv${raw(`?${params.toString()}`)}`;
 };
 
 const FamilyRepeatExpansionsPage: React.FC = () => {

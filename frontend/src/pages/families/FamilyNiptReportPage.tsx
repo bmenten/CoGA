@@ -36,6 +36,7 @@ import {
   liveReportSignedNotice,
   liveReportSignedState,
 } from './signedReportRecord';
+import { routePath } from '../../lib/routePath';
 
 // A report lists one page of candidates, the first ones in genomic order.
 const REPORT_PAGE_SIZE = 500;
@@ -366,7 +367,7 @@ const FamilyNiptReportPage: React.FC = () => {
         title="Not a monogenic NIPT family"
         message="This report is only available for families configured for monogenic NIPT analysis."
         action={
-          <Link to={`/families/${familyId}`} className="button-secondary">
+          <Link to={routePath`/families/${familyId}`} className="button-secondary">
             Back to family
           </Link>
         }
@@ -385,7 +386,7 @@ const FamilyNiptReportPage: React.FC = () => {
             <button type="button" className="button-secondary" onClick={() => void refetchVariants()}>
               Retry
             </button>
-            <Link to={`/families/${familyId}/nipt`} className="button-secondary">
+            <Link to={routePath`/families/${familyId}/nipt`} className="button-secondary">
               Back to NIPT
             </Link>
           </div>
@@ -463,7 +464,7 @@ const FamilyNiptReportPage: React.FC = () => {
           />
         </div>
         <div className="report-header-actions no-print">
-          <Link to={`/families/${familyId}/nipt`} className="button-secondary hover:no-underline">
+          <Link to={routePath`/families/${familyId}/nipt`} className="button-secondary hover:no-underline">
             Back to NIPT
           </Link>
           <button type="button" className="form-button" onClick={() => window.print()}>
@@ -504,7 +505,7 @@ const FamilyNiptReportPage: React.FC = () => {
               ? 'Whether the family’s current data still matches it could not be checked. '
               : null}
             <Link
-              to={{ pathname: `/families/${familyId}/report`, search: signedVersionSearch(latestSignout.version) }}
+              to={{ pathname: routePath`/families/${familyId}/report`, search: signedVersionSearch(latestSignout.version) }}
               className="no-print"
             >
               View signed version {latestSignout.version}

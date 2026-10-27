@@ -28,6 +28,7 @@ import type {
 import { buildSmallVariantReviewPath } from './smallVariantReview';
 import { apiPath } from '../../lib/apiPath';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
+import { raw, routePath } from '../../lib/routePath';
 
 // gnomAD allele-frequency cut-offs offered in the "common variant" filter.
 const GNOMAD_AF_OPTIONS: Array<{ value: string; label: string }> = [
@@ -741,9 +742,9 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                         {variant.review?.acmg ? 'Edit ACMG' : 'Classify (ACMG)'}
                       </button>
                       <Link
-                        to={`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, variant.position - 100)}&end=${variant.position + 100}${
-                          resolvedProjectId ? `&project_id=${resolvedProjectId}` : ''
-                        }`}
+                        to={routePath`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, variant.position - 100)}&end=${variant.position + 100}${raw(
+                          resolvedProjectId ? `&project_id=${encodeURIComponent(resolvedProjectId)}` : '',
+                        )}`}
                         className="variant-card-resource variant-card-resource--clinical"
                       >
                         Chromosome view
@@ -855,9 +856,9 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                         {sv.filters.length > 0 && ` · ${sv.filters.join(', ')}`}
                       </div>
                       <Link
-                        to={`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, sv.start - 100)}&end=${sv.end + 100}${
-                          resolvedProjectId ? `&project_id=${resolvedProjectId}` : ''
-                        }`}
+                        to={routePath`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, sv.start - 100)}&end=${sv.end + 100}${raw(
+                          resolvedProjectId ? `&project_id=${encodeURIComponent(resolvedProjectId)}` : '',
+                        )}`}
                         className="variant-card-resource variant-card-resource--clinical"
                       >
                         Chromosome view
