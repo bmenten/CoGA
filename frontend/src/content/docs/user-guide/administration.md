@@ -47,8 +47,9 @@ the [admin dashboard](/admin), grouped in six areas.
   Deleting a sample takes out only
   its own calls: the other members' small variants stay as they were, in every callset. A file kept in a
   storage bucket is not downloaded here; **Verify** checks it against the bucket's record of it instead of
-  its SHA-256. A file recorded outside the import folders (`FAMILY_IMPORT_ROOTS`) and CoGA's upload folder
-  is shown as unavailable, and is neither downloaded nor verified. Deleting a sample or a family deletes
+  its SHA-256. A file recorded outside the import folders (`FAMILY_IMPORT_ROOTS`, a bucket's among them) and
+  CoGA's upload folder is marked as not read, and is neither downloaded nor verified; a refused **Verify**
+  says why. Deleting a sample or a family deletes
   CoGA's own copies of its uploaded files, never a package's files.
 - **Family Statuses** — the workflow statuses analysts give a case.
 - **Sequencing QC Thresholds** — the warning and error cut-offs per assay behind the **Seq. QC** chip.

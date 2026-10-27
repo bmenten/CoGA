@@ -215,11 +215,13 @@ temporary folder a bucket package is staged in, or the upload folder `data/raw_i
 (`services/raw_import_files_pg.py`), and the file is read by that real path. A row naming any
 other path is listed as unavailable without being looked up, and its download and **Verify**
 answer 403; Verify asks the store only about an object below a remote `FAMILY_IMPORT_ROOTS`
-entry. With `FAMILY_IMPORT_ROOTS` empty, where the import takes a package folder anywhere, only
-the upload and staging folders are read. Deleting a family or a sample unlinks its `managed`
-copies only inside the upload folder: a managed row naming any other path is skipped with a
-log line, and nothing is deleted for it. A package folder need not be named after its family,
-nor an upload folder after the family's present ID (SEC-29).
+entry. The list marks a row of either kind `outside_read_folders`, and the admin page says it
+is not read and why a Verify was refused (SEC-27). With `FAMILY_IMPORT_ROOTS` empty, where the
+import takes a package folder anywhere, only the upload and staging folders are read. Deleting
+a family or a sample unlinks its `managed` copies only inside the upload folder: a managed row
+naming any other path is skipped with a log line, and nothing is deleted for it. A package
+folder need not be named after its family, nor an upload folder after the family's present ID
+(SEC-29).
 
 **Values Postgres cannot store.** A request can carry what Postgres refuses: a NUL character
 (a `%00` in the path or query string reaches the app decoded; `\u0000` in a JSON body), half

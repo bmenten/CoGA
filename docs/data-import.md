@@ -279,6 +279,13 @@ record and the raw-file provenance ([database.md](database.md), `raw_import_file
 without `family_id` takes the bucket folder's name, the last part of its URI, as a local
 package takes its folder's name.
 
+Only the import or validation that downloaded a package reads its temporary folder: a typed
+folder path into it, or an import root linked there, is refused (`package_folder_not_allowed`);
+it read another import's staged copy (#850). The temporary folders lie in
+`coga-family-imports` in the server's temp folder, which the backend makes private to itself.
+When it finds there a symlink, a file or another user's folder, it refuses to stage a bucket
+package rather than follow it (SEC-27).
+
 The **Discover** and **Write manifest** steps only work on local folders, so a package in a
 bucket must already contain its manifest.
 
@@ -640,6 +647,8 @@ Discover looks for, Discover warns about it (`family_id_leaves_package`,
 such a family ID. A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
 package, or one that loops, counts as absent, as validation refuses it; so does a long-read
 per-sample entry that loops (looked up, it failed Discover and the package list with a 500).
+A folder named like a PED (`FAM1.ped/`) is no PED to Discover or the package list (Discover
+read it as the PED and failed with a 500).
 
 ### The manifest
 

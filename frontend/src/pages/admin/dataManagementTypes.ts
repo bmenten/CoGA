@@ -114,6 +114,9 @@ export interface RawImportFile {
   exists: boolean | null;
   download_available: boolean;
   in_object_store: boolean;
+  // The recorded location lies outside what CoGA reads source files from: not downloaded
+  // or verified.
+  outside_read_folders?: boolean;
 }
 
 export interface FamilyRawFiles {
