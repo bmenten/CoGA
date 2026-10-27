@@ -362,7 +362,8 @@ been deleted.
   ([Report traceability & sign-out](/docs/reference/clinical-traceability)). A dataset imported with
   warnings counts, as does one the package carries nothing for that CoGA imports (phenotypes without
   an HPO term, say), which the import only registers. An import that completes without them leaves
-  the warning, and says so in its log.
+  the warning, and says so in its log. Deleting a sample with its data takes that sample out of the
+  warning: what it named of that sample alone goes, as nothing can bring the sample's data again.
 - **A failed overwrite** puts the family back as it was before the import. If putting it back fails
   too, part of the family's data may be gone, whichever import or upload it came from: the warning
   then names every dataset of that import as failed, the ones that imported too, and every dataset

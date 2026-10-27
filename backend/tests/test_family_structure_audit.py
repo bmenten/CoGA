@@ -826,6 +826,9 @@ async def test_deleting_a_sample_with_its_data_records_the_pedigree_change(monke
     async def nothing(*_args: Any, **_kwargs: Any) -> int:
         return 0
 
+    async def no_files(*_args: Any, **_kwargs: Any) -> list[Any]:
+        return []
+
     async def pairs(contexts: list[Any], _sample_row: Any) -> list[Any]:
         return []
 
@@ -859,7 +862,7 @@ async def test_deleting_a_sample_with_its_data_records_the_pedigree_change(monke
         "delete_interval_track_sources": nothing,
         "_small_variant_entries_without_sample": pairs,
         "_structural_variant_rows_without_sample": pairs,
-        "purge_sample_managed_files": nothing,
+        "sample_managed_files": no_files,
         "record_phenotypes_deleted_with_sample": phenotypes_deleted,
         "read_structure_snapshot": snapshot,
         "record_structure_change": structure_change,
@@ -1095,7 +1098,9 @@ def _admin_family_delete(monkeypatch, steps: list[str], *, failing: str | None =
         "delete_family_structural_variants": step("ClickHouse: delete structural variants"),
         "delete_interval_tracks": step("ClickHouse: delete interval tracks"),
         "delete_interval_track_sources": step("delete interval track sources", 0),
-        "purge_family_managed_files": step("purge raw files", 0),
+        # The family's kept copies of uploads, read before its rows go (unlinked after the
+        # commit, SAFE-35).
+        "family_managed_files": step("list raw files", []),
         # Its mark is test_deletions_mark_the_family.py's (SAFE-31).
         "FamilyDeletion": UnmarkedDeletion,
     }.items():
@@ -1135,9 +1140,9 @@ async def test_a_family_delete_that_fails_commits_nothing(monkeypatch) -> None:
     # The event is the transaction's: the failure leaves it uncommitted, so it is rolled back
     # with the rest of the deletion.
     steps: list[str] = []
-    _admin_family_delete(monkeypatch, steps, failing="purge raw files")
+    _admin_family_delete(monkeypatch, steps, failing="list raw files")
 
-    with pytest.raises(RuntimeError, match="purge raw files failed"):
+    with pytest.raises(RuntimeError, match="list raw files failed"):
         await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason="duplicate")  # type: ignore[arg-type]
 
     assert any(step.startswith("audit: family deleted") for step in steps)

@@ -426,7 +426,9 @@ that looks complete:
   file it could read does not count. A later failure keeps an earlier one's failed datasets in
   the flag, and a dataset that fails again for another callset or other samples keeps each:
   the flag lists every scope a dataset failed for, each with the job that holds its error
-  (`failed_scopes`), and a dataset leaves it only once each has been brought again.
+  (`failed_scopes`), and a dataset leaves it only once each has been brought again. An admin's
+  deletion of a sample removes the sample from each scope
+  ([below](#the-mark-of-an-upload-that-did-not-finish)), as no import can bring its data again.
   `failed_jobs` names the job of each dataset's latest failure, which the family pages and a
   sign-out show. A dataset it names with no job failed outside one, in a single-file upload or
   an import run outside a job: the family pages and a sign-out say no import job records its
@@ -1621,13 +1623,20 @@ phenotypes are held in Postgres alone, where the deletion's transaction rolls th
   sample's calls: its mark lists each SV dataset of the family but the sample's own, whose calls
   were to go.
 - An admin's deletion of a family, a PED upload or a manual family that replaces it (with
-  `overwrite`), and a structure change that clears its data delete its variants (and, but for
-  the replacement, its tracks) before their commit: their mark lists each dataset held in
-  those stores.
+  `overwrite`), and a structure change that clears its data delete its variants and its tracks
+  before their commit: their mark lists each dataset held in those stores. The replacement
+  runs the structure change's deletes; it used to leave the replaced family's tracks in
+  ClickHouse, under a family that was gone (SAFE-35). Postgres's records of the tracks go with
+  the family.
 
 The deletion's commit removes the mark; a deletion of the family, or a replacement, removes the
 family and the mark with it. A deletion of a sample also removes the sample's items from every
-mark and every entry a restore left: nothing of a sample that is gone can be missing. A
+mark and every entry a restore left: nothing of a sample that is gone can be missing. It
+removes the sample from the import-incomplete flag and from the entry of an import that stopped
+too: a failure, or a dataset of the entry, whose scope named that sample alone goes; one that
+named other samples too keeps them; one of a family-level file stays, as the others' part of it
+may still be missing. The flag, or the entry, goes with its last. No import or upload can bring
+a deleted sample's data again, so these used to stay for good (SAFE-35). A
 deletion that fails rolls its transaction back and leaves the mark listing exactly what its
 writes may have left partly written or missing, given how far it got: what a delete that began
 may have removed, what a rewrite that could not put its rows back may have removed (every

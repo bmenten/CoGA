@@ -224,11 +224,11 @@ def test_pedigree_changes_are_chained_versions_and_clinical_audit_events(monkeyp
             assert not [entry for entry in verdict.diverged if entry["family_identifier"] == label], verdict
 
             # A delete that fails part-way commits nothing: no event, the family as it was.
-            async def fails(*_args: Any, **_kwargs: Any) -> int:
-                raise RuntimeError("purge failed")
+            async def fails(*_args: Any, **_kwargs: Any) -> list[Any]:
+                raise RuntimeError("the read of the family's uploaded files failed")
 
-            monkeypatch.setattr(admin_service, "purge_family_managed_files", fails)
-            with pytest.raises(RuntimeError, match="purge failed"):
+            monkeypatch.setattr(admin_service, "family_managed_files", fails)
+            with pytest.raises(RuntimeError, match="the read of the family's uploaded files failed"):
                 async with sm() as s:
                     await delete_family_with_data(s, label, True, user=user, reason="integration test")
             monkeypatch.undo()

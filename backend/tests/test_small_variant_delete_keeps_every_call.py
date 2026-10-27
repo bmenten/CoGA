@@ -249,6 +249,9 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
     async def nothing(*_args, **_kwargs):
         return 0
 
+    async def no_files(*_args, **_kwargs):
+        return []
+
     async def no_pedigree(*_args, **_kwargs):
         return {"members": [], "relationships": []}
 
@@ -264,7 +267,7 @@ async def test_whole_sample_delete_rewrites_from_the_stored_rows(monkeypatch) ->
         "delete_interval_track_sources": nothing,
         "count_family_small_variants": nothing,
         "count_family_structural_variants": nothing,
-        "purge_sample_managed_files": nothing,
+        "sample_managed_files": no_files,
         "record_phenotypes_deleted_with_sample": nothing,
         # The pedigree change of the delete is not what this test reads, nor its mark
         # (test_deletions_mark_the_family.py, SAFE-31).

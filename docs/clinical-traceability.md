@@ -544,7 +544,8 @@ Five gates run first, in this order:
    family's data" that "did not finish" and what may be partly written or missing, and is
    frozen with its key, from which the signed record names what wrote it. Each upload or
    import with overwrite removes from it what it brought again; the deletion of a sample
-   removes that sample's items.
+   removes that sample's items, and the sample from the import-incomplete flag's failures and
+   from the entry of an import that stopped, each going once it named nothing else (SAFE-35).
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 

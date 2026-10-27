@@ -864,6 +864,31 @@ def scope_with_samples(scope: Any, samples: Iterable[str]) -> Any:
     return {**scope, "samples": sorted(named | {str(sample) for sample in samples if sample})}
 
 
+def _names_sample(scope: Any, sample: str) -> bool:
+    """Whether ``scope`` (as ``dataset_scopes`` gives it) names ``sample`` among its samples:
+    never a family-level file's, which names none."""
+    samples = scope.get("samples") if isinstance(scope, Mapping) else None
+    return isinstance(samples, list) and sample in {str(named) for named in samples if named}
+
+
+def _scope_without_sample(scope: Mapping[str, Any], sample: str) -> dict[str, Any] | None:
+    """A scope that names ``sample`` (``_names_sample``) without it, and without what its
+    coverage BED was declared to hold (``content``); None when it named that sample alone.
+    The reverse of ``scope_with_samples``, for a sample that is deleted (SAFE-35)."""
+    samples = [named for named in scope["samples"] if named and str(named) != sample]
+    if not samples:
+        return None
+    narrowed: dict[str, Any] = {**scope, "samples": samples}
+    content = scope.get(COVERAGE_CONTENT_KEY)
+    if isinstance(content, Mapping):
+        declared = {key: value for key, value in content.items() if str(key) != sample}
+        if declared:
+            narrowed[COVERAGE_CONTENT_KEY] = declared
+        else:
+            del narrowed[COVERAGE_CONTENT_KEY]
+    return narrowed
+
+
 def _failure_imported_again(imported: Mapping[str, Any], name: str, scope: Any) -> bool:
     """Whether a failure of a dataset was imported again: an import that imported the
     dataset (in any mode -- the failing loader's rows were rolled back or cleaned up, so an
@@ -1041,23 +1066,62 @@ def failures_left_after(stored: Any, imported_scopes: Mapping[str, Any]) -> Fail
     if not left:
         return FailuresLeft(flag=None, failed={}, changed=True)
     changed = sum(map(len, left.values())) != sum(map(len, failures.values()))
-    jobs_left = {item["job_id"] for items in left.values() for item in items}
-    flag = (
-        _flag_payload(
-            left,
-            at=stored.get("at"),
-            job_id=next(iter(jobs_left)) if len(jobs_left) == 1 else stored.get("job_id"),
-            imported=_dataset_names(stored.get("imported_datasets")) or (),
-        )
-        if changed
-        else stored
-    )
     return FailuresLeft(
-        flag=flag,
+        flag=_flag_with_failures(stored, left) if changed else stored,
         failed={name: left[name][-1]["job_id"] for name in sorted(left)},
         jobs={name: [item["job_id"] for item in left[name]] for name in sorted(left)},
         changed=changed,
     )
+
+
+def _flag_with_failures(
+    stored: Mapping[str, Any], left: Mapping[str, list[dict[str, Any]]]
+) -> dict[str, Any]:
+    """``stored`` (a flag in the shape an import writes) naming only the failures ``left``,
+    none of them empty: its time (``at``) and the datasets it says imported kept, and its
+    ``job_id`` the job of the failures left when they are all one job's (or all of no job:
+    uploads), else as it was (``failures_left_after``)."""
+    jobs_left = {item["job_id"] for items in left.values() for item in items}
+    return _flag_payload(
+        left,
+        at=stored.get("at"),
+        job_id=next(iter(jobs_left)) if len(jobs_left) == 1 else stored.get("job_id"),
+        imported=_dataset_names(stored.get("imported_datasets")) or (),
+    )
+
+
+def flag_without_sample(stored: Any, sample: str) -> Any:
+    """The ``import_incomplete`` flag once ``sample`` is deleted
+    (``FamilyDeletion.finished``): each failure's scope without the sample
+    (``_scope_without_sample``). A failure that named it alone goes, as nothing of a sample
+    that is gone can be missing; one that named other samples too keeps them, as their data
+    may still be; one of a family-level file names no sample and stays, as the others' part
+    of it may still be missing. A dataset goes with its last failure, and the flag (None)
+    with its last dataset. ``stored`` itself when no failure names the sample, or when it is
+    not in the shape an import writes: nothing shows what would complete such a flag.
+
+    No import or upload can bring a deleted sample's data again, so a failure naming it could
+    never leave the flag, which gated sign-out for good (SAFE-35)."""
+    failures = _flag_failures(stored)
+    if failures is None or not isinstance(stored, Mapping):
+        return stored
+    left: dict[str, list[dict[str, Any]]] = {}
+    struck = False
+    for name, items in failures.items():
+        kept: list[dict[str, Any]] = []
+        for item in items:
+            if not _names_sample(item["scope"], sample):
+                kept.append(item)
+                continue
+            struck = True
+            scope = _scope_without_sample(item["scope"], sample)
+            if scope is not None:
+                kept.append({**item, "scope": scope})
+        if kept:
+            left[name] = kept
+    if not struck:
+        return stored
+    return _flag_with_failures(stored, left) if left else None
 
 
 @dataclass(frozen=True)
@@ -2404,12 +2468,58 @@ def reached_items(
     return _listed_items(reached)
 
 
+def _import_entry_without_sample(entry: Any, sample: str) -> Any:
+    """An import's own ``import_unfinished`` entry (``ImportMark.entry``) once ``sample`` is
+    deleted: each dataset's scope without the sample (``_scope_without_sample``). A dataset
+    whose scope named it alone goes from the entry, finished or not: nothing of it can be
+    partly written or missing, and none of it is the family's to record. The entry goes
+    (None) with its last dataset; one left with finished datasets only stays, for the import
+    that completes it to record them (``_clear_family_import_incomplete``). The entry itself
+    when no scope names the sample, or when it is not in the shape an import writes.
+
+    Only an import of a dataset for every sample its scope names removes the entry, and none
+    can name a deleted sample, so an entry naming one stayed for good (SAFE-35)."""
+    if not isinstance(entry, Mapping):
+        return entry
+    scopes = entry.get("scopes")
+    datasets = _dataset_names(entry.get("datasets"))
+    finished = _dataset_names(entry.get("finished_datasets"))
+    if not isinstance(scopes, Mapping) or datasets is None or finished is None:
+        return entry
+    if not any(_names_sample(scope, sample) for scope in scopes.values()):
+        return entry
+    left_scopes: dict[str, Any] = {}
+    gone: set[str] = set()
+    for name, scope in scopes.items():
+        if not _names_sample(scope, sample):
+            left_scopes[str(name)] = scope
+            continue
+        narrowed = _scope_without_sample(scope, sample)
+        if narrowed is None:
+            gone.add(str(name))
+        else:
+            left_scopes[str(name)] = narrowed
+    left = datasets - gone
+    if not left:
+        return None
+    return {
+        **entry,
+        "datasets": sorted(left),
+        "finished_datasets": sorted(finished - gone),
+        "scopes": {name: left_scopes[name] for name in sorted(left_scopes)},
+    }
+
+
 def _without_sample(entry: Any, sample: str) -> Any:
-    """A whole-family entry without the items of ``sample``, a sample that is deleted: its
-    own items and its part of a family-level dataset (``ITEM_SAMPLE_KEY``). None when nothing
-    is left of a list that had items; the entry itself when none is struck, or when it is
-    not a whole-family entry (an import's own entry lists datasets, not samples)."""
-    listed = entry.get(WHOLE_FAMILY_KEY) if isinstance(entry, Mapping) else None
+    """An ``import_unfinished`` entry without what it names of ``sample``, a sample that is
+    deleted. A whole-family entry loses the sample's items: its own items and its part of a
+    family-level dataset (``ITEM_SAMPLE_KEY``); None when nothing is left of a list that had
+    items. An import's own entry, which lists datasets with their scopes, loses the sample
+    from each scope (``_import_entry_without_sample``, SAFE-35). The entry itself when none
+    is struck."""
+    if not is_whole_family_entry(entry):
+        return _import_entry_without_sample(entry, sample)
+    listed = entry.get(WHOLE_FAMILY_KEY)
     if not isinstance(listed, list):
         return entry
     left = [
@@ -2435,7 +2545,8 @@ def _without_sample(entry: Any, sample: str) -> Any:
 
 
 _UNFINISHED_ROW = """
-SELECT metadata -> 'import_unfinished' AS unfinished
+SELECT metadata -> 'import_unfinished' AS unfinished,
+       metadata -> 'import_incomplete' AS flag
 FROM families
 WHERE id = CAST(:family_uuid AS uuid)
 FOR NO KEY UPDATE
@@ -2543,9 +2654,10 @@ class FamilyDeletion:
     async def finished(self, session: AsyncSession, *, deleted_sample: str | None = None) -> None:
         """Remove the mark, in the deletion's own transaction (no commit), which commits it
         with everything the deletion changed. With ``deleted_sample`` (a sample the deletion
-        removed), its items go from every whole-family entry too (``_without_sample``):
-        nothing of a sample that is gone can be missing. Raises: a deletion whose mark
-        cannot be removed fails."""
+        removed), what every other entry and the ``import_incomplete`` flag name of it goes
+        too (``_without_sample``, ``flag_without_sample``): nothing of a sample that is gone
+        can be missing, and no import or upload can bring its data again to clear them
+        (SAFE-35). Raises: a deletion whose mark cannot be removed fails."""
         row = (
             await session.execute(text(_UNFINISHED_ROW), {"family_uuid": self.family_uuid})
         ).mappings().first()
@@ -2553,6 +2665,13 @@ class FamilyDeletion:
             return
         entries = _unfinished_entries(row["unfinished"])
         changed = entries.pop(self.mark.key, None) is not None
+        flag = row["flag"]
+        if isinstance(flag, str):
+            try:
+                flag = json.loads(flag)
+            except ValueError:
+                pass  # set, but not JSON an import wrote: kept as it is
+        flag_left = flag
         if deleted_sample is not None:
             for key, entry in list(entries.items()):
                 left = _without_sample(entry, deleted_sample)
@@ -2563,11 +2682,17 @@ class FamilyDeletion:
                     del entries[key]
                 else:
                     entries[key] = left
-        if not changed:
+            flag_left = flag_without_sample(flag, deleted_sample)
+        if not changed and flag_left is flag:
             return
+        metadata = _WITH_UNFINISHED
+        params = {"family_uuid": self.family_uuid, "unfinished": json.dumps(entries or None)}
+        if flag_left is not flag:
+            metadata = _with_import_flag(_WITH_UNFINISHED)
+            params["flag"] = json.dumps(flag_left)
         await session.execute(
-            text(f"UPDATE families SET metadata = {_WITH_UNFINISHED} WHERE id = CAST(:family_uuid AS uuid)"),
-            {"family_uuid": self.family_uuid, "unfinished": json.dumps(entries or None)},
+            text(f"UPDATE families SET metadata = {metadata} WHERE id = CAST(:family_uuid AS uuid)"),
+            params,
         )
 
     async def failed(self, session: AsyncSession) -> None:
