@@ -591,8 +591,8 @@ python docs/handleiding/build_site.py
 <p>Mislukte logins worden per e-mailadres én per bron-IP geteld; na een drempel volgt een oplopende wachttijd (<code>HTTP 429</code>). Registreren wordt apart per bron-IP afgeremd. Achter een proxy haalt CoGA het client-IP uit de <code>X-Forwarded-For</code>-header, zoveel stappen van rechts als <code>TRUSTED_PROXY_HOPS</code> aangeeft; zo kan een client zijn eigen IP niet kiezen. Dat IP gebruiken ook de auditregels. De werking staat in <a href="#hs-5">hoofdstuk 5</a>.</p>
 <p class="waar"><strong>Waar in de code:</strong> <code>backend/app/services/auth_rate_limit_pg.py</code> en <code>backend/app/middleware/client_ip.py</code>.</p>
 <h3>Security-headers en CORS</h3>
-<p>Elk API-antwoord krijgt strikte headers (behalve de kale <code>500</code> die Starlette zelf stuurt bij een onafgehandelde fout): een Content-Security-Policy die niets toelaat (<code>default-src 'none'; frame-ancestors 'none'</code>), <code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: no-referrer</code> en cross-origin-isolatie. HSTS staat alleen aan waar TLS vóór de app eindigt (<code>ENABLE_HSTS</code>). CORS laat alleen de ingestelde origins toe, en een origin-patroon moet volledig verankerd zijn (hoofdstuk 1).</p>
-<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/middleware/security_headers.py</code>; CORS in <code>backend/app/core/config.py</code>.</p>
+<p>Elk API-antwoord krijgt strikte headers, ook de <code>500</code> bij een fout die niets anders afhandelt (SEC-23): een Content-Security-Policy die niets toelaat (<code>default-src 'none'; frame-ancestors 'none'</code>), <code>X-Frame-Options: DENY</code>, <code>X-Content-Type-Options: nosniff</code>, <code>Referrer-Policy: no-referrer</code> en cross-origin-isolatie. HSTS staat alleen aan waar TLS vóór de app eindigt (<code>ENABLE_HSTS</code>). Op Google Cloud zet ook de load balancer die HSTS-header op elk antwoord dat hij over HTTPS doorgeeft, ook op de foutpagina's van Cloud Run zelf. CORS laat alleen de ingestelde origins toe, en een origin-patroon moet volledig verankerd zijn (hoofdstuk 1).</p>
+<p class="waar"><strong>Waar in de code:</strong> <code>backend/app/middleware/security_headers.py</code> en de 500-handler in <code>backend/app/main.py</code>; CORS in <code>backend/app/core/config.py</code>; de header van de load balancer in <code>terraform/loadbalancer.tf</code>.</p>
 <h3>Weigering te starten met zwakke geheimen</h3>
 <p>Buiten ontwikkeling en test (dus als <code>APP_ENV</code> niet <code>dev</code>, <code>development</code>, <code>local</code> of <code>test</code> is) weigert de backend te starten als:</p>
 <ul>
@@ -1840,9 +1840,10 @@ python docs/handleiding/build_site.py
 <li><code>CORSMiddleware</code> — alleen toegelaten origins mogen de API met credentials aanroepen.</li>
 <li><code>log_request_response</code> — de request-logging hierboven.</li>
 <li><code>normalize_api_collection_root_paths</code> — aanvaardt collectiepaden met én zonder slash op het einde.</li>
-<li><code>security_headers_middleware</code> — zet de security-headers op elk antwoord, behalve op de kale <code>500</code> die Starlette zelf stuurt bij een onafgehandelde fout (hoofdstuk 2).</li>
+<li><code>security_headers_middleware</code> — zet de security-headers op elk antwoord (hoofdstuk 2).</li>
 <li><code>TrustedProxyClientMiddleware</code> — als laatste geregistreerd, dus de buitenste: bepaalt het echte client-IP (<code>TRUSTED_PROXY_HOPS</code>) voordat logging, rate limiting en audit het lezen.</li>
 </ol>
+<p>Buiten die keten staat nog Starlettes <code>ServerErrorMiddleware</code>. Die beantwoordt een fout die niets anders afhandelt met een <code>500</code>, met de handler <code>_answer_server_error</code> uit <code>main.py</code>: dezelfde tekst als Starlettes eigen antwoord, maar met dezelfde security-headers, HSTS inbegrepen (SEC-23). Daarna gooit hij de fout opnieuw op, zodat uvicorn ze nog logt; de request-logging heeft het verzoek dan al gelogd en in de audit gezet.</p>
 <p class="waar"><strong>Waar in de code:</strong> het einde van <code>backend/app/main.py</code>; <code>backend/app/middleware/</code>.</p>
 <h2>Belangrijkste bestanden</h2>
 <div class="scroll"><table>
