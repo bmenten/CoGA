@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
+import { normalizeChrom } from '../../lib/chromosomes';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import type { GenomeLayout } from './genomeBinLayout';
@@ -65,8 +66,10 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
 
   const items = useMemo(() => {
     if (!layout) return [];
+    // The layout names a chromosome as normalizeChrom does (`1`, `X`, `MT`); a locus comes under
+    // its VCF's name, with or without `chr`: `M` or `chrM` for the mitochondrion.
     return (data?.items || [])
-      .filter((item) => layout.offsets[item.chr.replace(/^chr/i, '')] !== undefined)
+      .filter((item) => layout.offsets[normalizeChrom(item.chr)] !== undefined)
       .sort((a, b) => (STATUS_DRAW_RANK[a.status] ?? 0) - (STATUS_DRAW_RANK[b.status] ?? 0));
   }, [data?.items, layout]);
 
@@ -103,8 +106,7 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
         />
         {items.map((item) => {
           if (!layout) return null;
-          const chrom = item.chr.replace(/^chr/i, '');
-          const offset = layout.offsets[chrom];
+          const offset = layout.offsets[normalizeChrom(item.chr)];
           const centerBp = offset + (item.start + item.end) / 2;
           const x = Math.min(Math.max((centerBp / Math.max(layout.total, 1)) * width, 3), width - 3);
           const color = statusColors[item.status] || statusColors.unknown;

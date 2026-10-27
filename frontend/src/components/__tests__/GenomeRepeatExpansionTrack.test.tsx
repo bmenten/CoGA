@@ -227,6 +227,23 @@ describe('GenomeRepeatExpansionTrack', () => {
     expect(markers(container).map((marker) => marker.x)).toEqual([148]);
   });
 
+  // Found while fixing the viewer's chrM names (#1023), as in the SV track: a locus was looked up
+  // in the layout without its `chr`, so one stored as `chrM` or `M` never found the layout's `MT`
+  // and was not drawn.
+  it.each(['chrM', 'M', 'MT', 'chrMT'])('places a locus stored on %s on the mitochondrion', (chr) => {
+    serve({ data: { items: [locus({ locus_id: 'MITO', chr, start: 7_990, end: 8_010 })] } });
+    // The genome overview's layout, which names the mitochondrion MT: chr1, then MT at 1 Mb.
+    const layout = {
+      offsets: { '1': 0, MT: 1_000_000 },
+      lengths: { '1': 1_000_000, MT: 16_569 },
+      total: 3_000_000,
+    };
+    const { container } = render(track({ chroms: ['1', 'MT'], layout }));
+
+    // 3 Mb on 300 px: the locus's midpoint, MT:8,000, is at x 100.8; its 4-px marker starts 2 px before.
+    expect(markers(container).map((marker) => marker.x)).toEqual([98.8]);
+  });
+
   it('colours each locus by its repeat status; an unrecognised status reads as unknown', () => {
     const statuses = [
       'normal',
