@@ -21,10 +21,10 @@ import {
   useStructuralVariantSearchState,
   withProjectId,
   type StructuralGenePanel,
-  type StructuralSummary,
   type StructuralVariant,
   type StructuralVariantFamily,
   type StructuralVariantFilterPreset,
+  type StructuralVariantPage,
   type StructuralVariantReview,
   type StructuralVariantReviewSavePayload,
   type StructuralVariantTagDefinition,
@@ -32,15 +32,7 @@ import {
 import { addableTagDefinitions } from './smallVariantSearch';
 import { fetchFamilyReviewTags, quickTagTogglePayload } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
-import type { CandidateCapFlags } from './CandidateCapNotice';
 import { routePath } from '../../lib/routePath';
-
-type StructuralVariantPage = CandidateCapFlags & {
-  variants: StructuralVariant[];
-  total: number;
-  total_is_estimated?: boolean;
-  summary?: StructuralSummary;
-};
 
 const buildStructuralVariantReviewPath = (familyId: string, variantId: string): string =>
   apiPath`/families/${familyId}/structural-variants/${variantId}/review`;
@@ -62,6 +54,11 @@ const buildOptimisticReview = (
     // The loaded version, not a client clock: it is sent back with the next save (#513).
     updated_at: variant.review?.updated_at ?? null,
     compound_het: null,
+    // The CNV classification comes back with the saved review: the server keeps or
+    // replaces it, and recomputes its points and class.
+    acmg: null,
+    cnv_acmg: null,
+    acmg_unreadable: false,
   };
   return hasReviewContent(nextReview) ? nextReview : null;
 };

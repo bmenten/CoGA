@@ -18,13 +18,9 @@ import FamilyLoadFailure from '../../components/FamilyLoadFailure';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { formatResolvedReferenceLabel, useFamilyReference } from '../../lib/reference';
 import { getErrorMessage } from '../../lib/errorMessage';
-import AcmgClassificationModal from './AcmgClassificationModal';
+import AcmgClassificationModal, { type AcmgModalVariant } from './AcmgClassificationModal';
 import type { AcmgMitoContext } from '../../lib/acmg';
-import type {
-  SmallVariant,
-  SmallVariantReview,
-  SmallVariantReviewSavePayload,
-} from './smallVariantSearch';
+import type { SmallVariantReview, SmallVariantReviewSavePayload } from './smallVariantSearch';
 import { buildSmallVariantReviewPath } from './smallVariantReview';
 import { apiPath } from '../../lib/apiPath';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
@@ -42,7 +38,7 @@ const GNOMAD_AF_OPTIONS: Array<{ value: string; label: string }> = [
 const isSynonymousVariant = (variant: ApiMitoDNAVariant): boolean =>
   (variant.annotation.consequence_terms ?? []).some((term) => term.includes('synonymous'));
 
-// Adapt an MT variant to the SmallVariant shape the ACMG modal consumes. MT
+// Adapt an MT variant to the SmallVariant fields the ACMG modal reads. MT
 // variants live in the small-variant store, so the modal, its auto-evaluation
 // and the shared review endpoint all operate on the same identity. The `mito`
 // context carries the mtDNA-specific fields the mt evaluator (McCormick 2020)
@@ -50,7 +46,7 @@ const isSynonymousVariant = (variant: ApiMitoDNAVariant): boolean =>
 const toSmallVariantForAcmg = (
   variant: ApiMitoDNAVariant,
   samples: ApiMitoDNASample[],
-): SmallVariant => {
+): AcmgModalVariant => {
   const proband =
     samples.find((s) => (s.role ?? '').toLowerCase() === 'proband') ??
     samples.find((s) => s.affected);
@@ -62,17 +58,19 @@ const toSmallVariantForAcmg = (
     type: variant.type,
     ref: variant.ref,
     alt: variant.alt,
-    rsid: variant.rsid ?? undefined,
-    gene: variant.annotation.gene ?? undefined,
-    effect: variant.annotation.consequence ?? undefined,
-    gnomad_af: variant.annotation.gnomad_af ?? undefined,
+    rsid: variant.rsid ?? null,
+    gene: variant.annotation.gene ?? null,
+    gene_id: null,
+    hgvsc: null,
+    hgvsp: null,
+    effect: variant.annotation.consequence ?? null,
+    gnomad_af: variant.annotation.gnomad_af ?? null,
     review: variant.review ?? null,
+    priority: null,
     genotypes: Object.values(variant.calls).map((call) => ({
       sample: call.sample,
       gt: call.genotype,
-      dp: call.depth ?? undefined,
-      af: call.allele_fraction != null ? [call.allele_fraction] : undefined,
-      ad: call.alt_depth != null ? [call.alt_depth] : undefined,
+      dp: call.depth ?? null,
     })),
     mito: {
       category: (variant.annotation.category ?? null) as AcmgMitoContext['category'],

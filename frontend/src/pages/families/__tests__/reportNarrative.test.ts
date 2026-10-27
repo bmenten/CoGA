@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type { FamilyMember, SmallVariant } from '../smallVariantSearch';
 import type { StructuralVariant } from '../structuralVariantSearch';
+import { genotype, review, smallVariant, structuralVariant } from '../../../test/variants';
 import {
   buildSegregationSentence,
   buildStructuralVariantSentence,
@@ -13,21 +14,22 @@ import {
   humanizeEffect,
 } from '../reportNarrative';
 
-const makeVariant = (overrides: Partial<SmallVariant> = {}): SmallVariant => ({
-  _id: 'v1',
-  chr: 'chr17',
-  start: 43000000,
-  end: 43000000,
-  type: 'snv',
-  ref: 'A',
-  alt: 'G',
-  gene: 'BRCA1',
-  effect: 'missense_variant',
-  hgvsc: 'c.123A>G',
-  hgvsp: 'p.Lys41Arg',
-  genotypes: [{ sample: 'S1', gt: '0/1' }],
-  ...overrides,
-});
+const makeVariant = (overrides: Partial<SmallVariant> = {}): SmallVariant =>
+  smallVariant({
+    _id: 'v1',
+    chr: 'chr17',
+    start: 43000000,
+    end: 43000000,
+    type: 'snv',
+    ref: 'A',
+    alt: 'G',
+    gene: 'BRCA1',
+    effect: 'missense_variant',
+    hgvsc: 'c.123A>G',
+    hgvsp: 'p.Lys41Arg',
+    genotypes: [genotype({ sample: 'S1', gt: '0/1' })],
+    ...overrides,
+  });
 
 const member = (overrides: Partial<FamilyMember> = {}): FamilyMember => ({
   sample_id: 'S1',
@@ -74,7 +76,7 @@ describe('describeInSilico', () => {
 describe('describeGnomadFrequency', () => {
   it('handles absent, missing and present frequencies', () => {
     expect(describeGnomadFrequency(makeVariant({ gnomad_af: 0 }))).toContain('absent from gnomAD');
-    expect(describeGnomadFrequency(makeVariant({ gnomad_af: undefined }))).toContain(
+    expect(describeGnomadFrequency(makeVariant({ gnomad_af: null }))).toContain(
       'no reported gnomAD',
     );
     expect(describeGnomadFrequency(makeVariant({ gnomad_af: 0.2 }))).toContain('allele frequency');
@@ -100,10 +102,7 @@ describe('buildVariantSentence', () => {
 describe('buildSegregationSentence', () => {
   it('enumerates each member with affected status and call', () => {
     const variant = makeVariant({
-      genotypes: [
-        { sample: 'S1', gt: '0/1' },
-        { sample: 'S2', gt: '0/0' },
-      ],
+      genotypes: [genotype({ sample: 'S1', gt: '0/1' }), genotype({ sample: 'S2', gt: '0/0' })],
     });
     const sentence = buildSegregationSentence(variant, [
       member({ sample_id: 'S1', role: 'proband', affected: true }),
@@ -117,10 +116,9 @@ describe('buildSegregationSentence', () => {
 describe('collectReportCriteria', () => {
   it('keeps only accepted criteria and resolves their definition', () => {
     const variant = makeVariant({
-      review: {
+      review: review({
         variant_id: 'v1',
         tags: ['report', 'acmg_class_4'],
-        tag_metadata: {},
         acmg: {
           criteria: [
             { code: 'PM2', strength: 'moderate', accepted: true, auto_suggested: true },
@@ -129,7 +127,7 @@ describe('collectReportCriteria', () => {
           point_total: 2,
           classification: 'Likely Pathogenic - class 4',
         },
-      },
+      }),
     });
     const criteria = collectReportCriteria(variant);
     expect(criteria).toHaveLength(1);
@@ -140,23 +138,24 @@ describe('collectReportCriteria', () => {
 });
 
 describe('buildStructuralVariantSentence', () => {
-  const sv = (overrides: Partial<StructuralVariant> = {}): StructuralVariant => ({
-    _id: 'sv1',
-    chr: '1',
-    start: 20000,
-    end: 25000,
-    length: -5000,
-    type: 'DEL',
-    gene: 'GENE1',
-    genotypes: [],
-    ...overrides,
-  });
+  const sv = (overrides: Partial<StructuralVariant> = {}): StructuralVariant =>
+    structuralVariant({
+      _id: 'sv1',
+      chr: '1',
+      start: 20000,
+      end: 25000,
+      length: -5000,
+      type: 'DEL',
+      gene: 'GENE1',
+      genotypes: [],
+      ...overrides,
+    });
 
   it('gives a translocation no size, and names its mate', () => {
     // Before: "A 0 bp breakend / translocation" (CLIN-39).
     expect(
       buildStructuralVariantSentence(
-        sv({ type: 'BND', end: 20000, length: null, remote_chr: '5', remote_start: 3000000, gene: undefined }),
+        sv({ type: 'BND', end: 20000, length: null, remote_chr: '5', remote_start: 3000000, gene: null }),
       ),
     ).toBe(
       'A breakend / translocation at 1:20,000-20,000 in an intergenic region with a remote breakpoint at 5:3,000,000.',

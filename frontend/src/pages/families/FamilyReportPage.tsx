@@ -40,11 +40,16 @@ import {
   normalizeReviewClassification,
   REPORT_TAG_KEY,
   type FamilyMember,
+  type FamilySmallVariantPage,
   type SmallVariant,
   type SmallVariantFamily,
   type SmallVariantPage,
 } from './smallVariantSearch';
-import { structuralVariantRowKey, type StructuralVariant } from './structuralVariantSearch';
+import {
+  structuralVariantRowKey,
+  type StructuralVariant,
+  type StructuralVariantPage,
+} from './structuralVariantSearch';
 import PipelineSettingsPanel, { pipelineSettingsFromMetadata } from './PipelineSettingsPanel';
 import ReportSoftwareIdentity from './ReportSoftwareIdentity';
 import { useReportBuild } from '../../lib/appVersion';
@@ -64,12 +69,9 @@ import {
 import { apiPath, raw } from '../../lib/apiPath';
 import { memberLabel } from '../../lib/familyMembers';
 import { joinWithAnd } from '../../lib/format';
-import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
+import { REPORT_LIST_PAGE_SIZE, reportedListNotice } from './reportedListCompleteness';
 import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
 import { routePath } from '../../lib/routePath';
-
-// The report's SV list: its variants, and what the page says about its completeness.
-type StructuralReportPage = Omit<ReportedListPage, 'variants'> & { variants: StructuralVariant[] };
 
 interface GeneHpoTerm {
   hpo_id?: string | null;
@@ -245,7 +247,7 @@ const LiveFamilyReport: React.FC = () => {
     enabled: variantQueryReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/small-variants?${raw(reportQueryString)}`);
-      return res.data as SmallVariantPage;
+      return res.data as FamilySmallVariantPage;
     },
   });
 
@@ -256,12 +258,12 @@ const LiveFamilyReport: React.FC = () => {
     isLoading: structuralLoading,
     isError: structuralFailed,
     refetch: refetchStructural,
-  } = useQuery<StructuralReportPage>({
+  } = useQuery<StructuralVariantPage>({
     queryKey: ['family', familyId, 'report-structural-variants', reportQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/structural-variants?${raw(reportQueryString)}`);
-      return res.data as StructuralReportPage;
+      return res.data as StructuralVariantPage;
     },
   });
   const structuralVariants = useMemo(

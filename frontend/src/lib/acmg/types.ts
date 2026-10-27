@@ -148,7 +148,7 @@ export interface AcmgFamilyMemberCall {
   role: string;
   affected: boolean;
   gt?: string; // VCF genotype string, e.g. '0/1', '1/1', '0/0', './.'
-  dp?: number; // read depth of the call, when the caller reports it
+  dp?: number | null; // read depth of the call, when the caller reports it
   sex?: string; // 'male' | 'female' | …, from the pedigree
 }
 

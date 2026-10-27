@@ -18,6 +18,7 @@ import {
   type AcmgGeneContext,
   type AcmgSelection,
   type AcmgStrength,
+  type AcmgVariantInput,
 } from '../../lib/acmg';
 import AcmgScaleBar from './AcmgScaleBar';
 import {
@@ -36,6 +37,7 @@ import {
   type AcmgReviewPayload,
   type FamilyMember,
   type SmallVariant,
+  type SmallVariantGenotype,
   type SmallVariantReviewSavePayload,
   type SmallVariantTagDefinition,
 } from './smallVariantSearch';
@@ -47,10 +49,35 @@ import QueryFailure from '../../components/QueryFailure';
 import ReadOnlyNote from '../../components/ReadOnlyNote';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
 
+// The variant the modal classifies: the fields it reads, a SmallVariant's. The small-variant
+// lists hand it their variants; the mtDNA page an MT variant adapted to them.
+export type AcmgModalVariant = AcmgVariantInput &
+  Pick<
+    SmallVariant,
+    | '_id'
+    | 'chr'
+    | 'start'
+    | 'end'
+    | 'type'
+    | 'ref'
+    | 'alt'
+    | 'rsid'
+    | 'gene'
+    | 'gene_id'
+    | 'hgvsc'
+    | 'hgvsp'
+    | 'effect'
+    | 'review'
+    | 'priority'
+    | 'mito'
+  > & {
+    genotypes: Pick<SmallVariantGenotype, 'sample' | 'gt' | 'dp'>[];
+  };
+
 type AcmgClassificationModalProps = {
   familyId?: string;
   projectId?: string;
-  variant: SmallVariant;
+  variant: AcmgModalVariant;
   members?: FamilyMember[];
   // The family's pedigree links: PS2/PM6 compare the proband with the parents linked here.
   relationships?: ApiFamilyRelationship[];

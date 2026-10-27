@@ -2,8 +2,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type {
+  GenotypeOut,
   StructuralVariantFilterPresetOut,
   StructuralVariantReviewUpdate,
+  VariantOut,
+  VariantPage,
 } from '../../lib/apiSchema.generated';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import { compareChromosomes } from '../../lib/chromosomes';
@@ -17,45 +20,27 @@ import {
   parseSerializedGenotypeSelection,
 } from '../../lib/sampleFilterState';
 import type {
-  SmallVariantPriority,
+  GenePanel,
   SmallVariantReview,
   SmallVariantReviewSavePayload,
   SmallVariantTagDefinition,
 } from './smallVariantSearch';
 import { setLocationParams } from './variantFilterFormUtils';
 
-export interface StructuralVariantGenotype {
-  sample?: string;
-  gt: string;
-  read_support?: number;
-  qual?: number;
-  filter?: string;
-}
+export type StructuralVariantGenotype = GenotypeOut;
 
-export interface StructuralVariant {
-  _id: string;
-  chr: string;
-  start: number;
-  end: number;
-  // None for a translocation (BND, TRA), which has no length.
-  length: number | null;
-  type: string;
-  source?: string;
-  qual?: number;
-  read_support?: number;
-  filter?: string;
-  remote_chr?: string;
-  remote_start?: number;
-  gene?: string;
-  gene_symbols?: string[];
-  gene_count?: number;
-  gene_pli?: number;
-  population_frequencies?: Record<string, number>;
-  annotation_extra?: StructuralVariantAnnotationExtra;
-  genotypes: StructuralVariantGenotype[];
-  review?: SmallVariantReview | null;
-  priority?: SmallVariantPriority | null;
-}
+// An SV as the family's SV list serves it (VariantOut), its review read as SmallVariantReview
+// and its annotation_extra as StructuralVariantAnnotationExtra. `length` is null for a
+// translocation (BND, TRA), which has no length.
+export type StructuralVariant = Omit<VariantOut, 'review' | 'annotation_extra'> & {
+  review: SmallVariantReview | null;
+  annotation_extra: StructuralVariantAnnotationExtra;
+};
+
+// A page of the family's SV list (VariantPage), its variants read as StructuralVariant.
+export type StructuralVariantPage = Omit<VariantPage, 'variants'> & {
+  variants: StructuralVariant[];
+};
 
 /**
  * The list key of one SV row. The variant id need not name the caller (a per-sample
@@ -65,6 +50,8 @@ export interface StructuralVariant {
 export const structuralVariantRowKey = (variant: Pick<StructuralVariant, '_id' | 'source'>): string =>
   `${variant._id}|${variant.source ?? ''}`;
 
+// The backend serves annotation_extra as an open object; this names the fields the SV callers
+// and annotation write in it.
 export interface StructuralVariantAnnotationExtra {
   inheritance?: string;
   query_id?: string;
@@ -106,13 +93,9 @@ export type StructuralVariantReview = SmallVariantReview;
 export type StructuralVariantReviewSavePayload = SmallVariantReviewSavePayload &
   Pick<StructuralVariantReviewUpdate, 'source'>;
 
-export interface StructuralGenePanel {
-  _id: string;
-  name: string;
-  source?: string;
-}
+export type StructuralGenePanel = GenePanel;
 
-export type StructuralSummary = Record<string, Record<string, number>>;
+export type StructuralSummary = NonNullable<VariantPage['summary']>;
 
 export type StructuralSortableKeys =
   | 'chr'

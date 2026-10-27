@@ -5,31 +5,7 @@ import { useQuery } from '@tanstack/react-query';
 import QueryFailure from '../../components/QueryFailure';
 import api from '../../lib/api';
 import { apiPath } from '../../lib/apiPath';
-
-interface PhenotypeTermRef {
-  hpo_id: string;
-  label?: string | null;
-}
-
-interface PhenotypeMatchResult {
-  rank: number;
-  score?: number | null;
-  id: string;
-  name: string;
-  category?: string | null;
-  symbol?: string | null;
-  gene_in_platform?: boolean;
-  matching_phenotypes?: PhenotypeTermRef[];
-  extra_phenotypes?: PhenotypeTermRef[];
-}
-
-interface FamilyPhenotypeMatch {
-  group: string;
-  sample_id?: string | null;
-  query_hpo_ids: string[];
-  results: PhenotypeMatchResult[];
-  source: string;
-}
+import type { FamilyPhenotypeMatchOut, PhenotypeTermRefOut } from '../../lib/apiSchema.generated';
 
 type Props = {
   familyId?: string;
@@ -53,7 +29,7 @@ function TermChips({
   tone,
   truncateTo,
 }: {
-  terms: PhenotypeTermRef[];
+  terms: PhenotypeTermRefOut[];
   tone: 'success' | 'neutral';
   truncateTo?: number;
 }) {
@@ -95,7 +71,7 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
   const [requestedFor, setRequestedFor] = useState<string | null>(null);
 
   const { data, error, isError, isFetching, isFetchedAfterMount, refetch } =
-    useQuery<FamilyPhenotypeMatch>({
+    useQuery<FamilyPhenotypeMatchOut>({
       queryKey: ['family', familyId, 'phenotype-match'],
       // Never by itself (on mount, focus or reconnect): the family's phenotypes go to the
       // Monarch service only when someone presses the button, and every press runs the
@@ -107,7 +83,7 @@ export default function MonarchPhenotypeMatchPanel({ familyId, projectId }: Prop
         const res = await api.get(apiPath`/families/${familyId}/phenotype-match`, {
           params: { group: 'Human Genes', limit: GENE_LIMIT },
         });
-        return res.data as FamilyPhenotypeMatch;
+        return res.data as FamilyPhenotypeMatchOut;
       },
     });
 

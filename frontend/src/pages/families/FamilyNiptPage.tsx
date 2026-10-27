@@ -31,6 +31,7 @@ import {
   REPORT_TAG_KEY,
   useSmallVariantSearchState,
   type GenePanel,
+  type NiptSmallVariantPage,
   type SmallFilterState,
   type SmallVariant,
   type SmallVariantFamily,
@@ -376,7 +377,7 @@ const FamilyNiptPage: React.FC = () => {
         params: buildVariantParams(filters, page),
         paramsSerializer: niptParamsSerializer,
       });
-      return res.data as SmallVariantPage;
+      return res.data as NiptSmallVariantPage;
     },
     placeholderData: keepPreviousData,
   });

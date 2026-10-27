@@ -3,13 +3,19 @@ import type { FormEvent } from 'react';
 import type { NavigateFunction } from 'react-router';
 import type { ApiFamilyMember, ApiFamilyRecord } from '../../lib/apiTypes';
 import type {
-  NiptDeNovoTriageOut,
-  NiptNotClassifiedOut,
-  NiptRecessiveGeneOut,
+  GenePanelOut,
+  GenotypeOut,
+  NiptClassificationOut,
+  NiptVariantPage,
   SmallVariantFilterPresetOut,
-  SmallVariantFilterTranscriptOut,
+  SmallVariantGroupOut,
+  SmallVariantReviewOut,
   SmallVariantTagDefinitionOut,
-  SvSecondHitSvOut,
+  SmallVariantTranscriptOut,
+  SvSecondHitOut,
+  VariantOut,
+  VariantPage,
+  VariantPriorityOut,
 } from '../../lib/apiSchema.generated';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
 import { logUiEvent } from '../../lib/telemetry';
@@ -25,16 +31,12 @@ import { reviewTagLabel } from '../../lib/reviewTags';
 import type { AcmgMitoContext } from '../../lib/acmg';
 import { setLocationParams } from './variantFilterFormUtils';
 
-export interface SmallVariantGenotype {
-  sample?: string;
-  gt: string;
-  ps?: number;
-  dp?: number;
-  ad?: number[];
-  af?: number[];
-}
+export type SmallVariantGenotype = GenotypeOut;
 
-// Persisted ACMG classification (snake_case to match the backend payload).
+// Persisted ACMG classification (snake_case to match the backend payload). A review's ACMG
+// blocks are read through these, not through AcmgClassificationPayload and
+// CnvAcmgClassificationPayload: those are request bodies too, so their generated types keep
+// the request's optional fields, which a review always carries (see apiContract.ts).
 export interface AcmgReviewCriterion {
   code: string;
   strength: string;
@@ -66,253 +68,89 @@ export interface CnvAcmgReviewPayload {
   classification?: string | null;
 }
 
-export interface SmallVariantReview {
-  variant_id: string;
-  classification?: string | null;
-  tags: string[];
-  tag_metadata: Record<string, SmallVariantReviewTagMetadata>;
-  note?: string | null;
-  updated_by?: string | null;
-  updated_at?: string | null;
-  compound_het?: SmallVariantCompoundHetReview | null;
-  acmg?: AcmgReviewPayload | null;
-  // ClinGen CNV classification — only populated for structural-variant reviews.
-  cnv_acmg?: CnvAcmgReviewPayload | null;
-  // A classification is stored but could not be read, so acmg / cnv_acmg is empty
-  // although one exists; saving replaces it (#514).
-  acmg_unreadable?: boolean;
-}
+// A variant's review (SmallVariantReviewOut), its ACMG blocks read as above. `cnv_acmg`, the
+// ClinGen CNV classification, is only populated for structural-variant reviews.
+// `acmg_unreadable`: a classification is stored but could not be read, so acmg / cnv_acmg is
+// empty although one exists; saving replaces it (#514).
+export type SmallVariantReview = Omit<SmallVariantReviewOut, 'acmg' | 'cnv_acmg'> & {
+  acmg: AcmgReviewPayload | null;
+  cnv_acmg: CnvAcmgReviewPayload | null;
+};
 
-export interface SmallVariantReviewTagMetadata {
-  updated_by?: string | null;
-  updated_at?: string | null;
-}
+// Who set a review tag and when (`updated_by`, `updated_at`): the review serves it as an open
+// mapping.
+export type SmallVariantReviewTagMetadata = SmallVariantReviewOut['tag_metadata'][string];
 
-export interface SmallVariantCompoundHetReview {
-  group_id: string;
-  partner_variant_ids: string[];
-  gene?: string | null;
-  gene_id?: string | null;
-  classification?: string | null;
-  tags: string[];
-  tag_metadata: Record<string, SmallVariantReviewTagMetadata>;
-  note?: string | null;
-  phase_status?: string | null;
-  updated_by?: string | null;
-  updated_at?: string | null;
-}
+export type SmallVariantTranscript = SmallVariantTranscriptOut;
 
-export interface SmallVariantTranscript {
-  gene?: string | null;
-  gene_id?: string | null;
-  transcript_id?: string | null;
-  transcript_source?: string | null;
-  feature_type?: string | null;
-  transcript_biotype?: string | null;
-  impact?: string | null;
-  effect?: string | null;
-  hgvsc?: string | null;
-  hgvsp?: string | null;
-  exon?: string | null;
-  intron?: string | null;
-  canonical?: boolean;
-  mane_select?: boolean;
-  mane_plus_clinical?: boolean;
-  primary?: boolean;
-}
-
-export interface SmallVariant {
-  _id: string;
-  chr: string;
-  start: number;
-  end: number;
-  type: string;
-  source?: string;
-  ref?: string;
-  alt?: string;
-  ps?: number;
-  gene?: string;
-  gene_id?: string;
-  transcript_id?: string;
-  feature_type?: string;
-  transcript_biotype?: string;
-  impact?: string;
-  effect?: string;
-  clinvar?: string;
-  rsid?: string;
-  hgvsc?: string;
-  hgvsp?: string;
-  canonical?: boolean;
-  mane_select?: boolean;
-  mane_plus_clinical?: boolean;
-  exon?: string;
-  intron?: string;
-  lof?: string;
-  lof_filter?: string;
-  lof_flags?: string;
-  gnomad_af?: number;
-  gnomad_hom_count?: number;
-  gene_pli?: number;
-  gene_missense_z?: number;
-  population_frequencies?: Record<string, number>;
-  cadd_raw?: number;
-  cadd_phred?: number;
-  revel?: number;
-  sift?: string;
-  polyphen?: string;
-  spliceai_ds_ag?: number;
-  spliceai_ds_al?: number;
-  spliceai_ds_dg?: number;
-  spliceai_ds_dl?: number;
-  spliceai_max?: number;
-  alpha_missense_pathogenicity?: number;
-  alpha_missense_class?: string | null;
-  cytoband?: string | null;
-  annotation_extra?: Record<string, string | number | boolean | null>;
-  transcripts?: SmallVariantTranscript[];
-  // The transcript the search's annotation filters held on, when the primary transcript
-  // the fields above describe does not meet them (CLIN-51); null otherwise.
-  filter_transcript?: SmallVariantFilterTranscriptOut | null;
-  genotypes: SmallVariantGenotype[];
-  // On chrX/chrY outside the pseudo-autosomal regions, where a male carries one copy
-  // (#621). Set by the backend, which holds the PAR bounds.
-  hemizygous_in_males?: boolean;
-  review?: SmallVariantReview | null;
-  internal_cohort?: SmallVariantInternalCohort | null;
-  priority?: SmallVariantPriority | null;
-  sv_second_hit?: SvSecondHit | null;
+// A variant as the family's variant lists serve it (VariantOut), its review read as
+// SmallVariantReview. `filter_transcript` is the transcript the search's annotation filters
+// held on, when the primary transcript the variant's fields describe does not meet them
+// (CLIN-51). `hemizygous_in_males`: on chrX/chrY outside the pseudo-autosomal regions, where a
+// male carries one copy (#621), set by the backend, which holds the PAR bounds.
+export type SmallVariant = Omit<VariantOut, 'review'> & {
+  review: SmallVariantReview | null;
   // mtDNA-specific ACMG context, attached by the mitochondrial page adapter for
   // MT variants so the modal can run the mt-specific evaluator.
   mito?: AcmgMitoContext | null;
-  // Monogenic NIPT classification, attached only by the NIPT variants endpoint.
+  // Monogenic NIPT classification, attached only by the NIPT variants endpoint
+  // (NiptVariantOut).
   nipt?: NiptClassification | null;
-}
+};
 
-export interface NiptClassification {
-  category?: number | null;
-  category_label: string;
-  maternal_state: string;
-  fetal_inheritance: string;
-  expected_vaf: number;
-  observed_vaf?: number | null;
-  confidence: number;
-  flags: string[];
-  runner_up_category?: number | null;
-  runner_up_confidence?: number | null;
-  // Whether the fetus inherited the father's allele, the mother's, or both (where the
-  // site tells), and the fetal genotype at a maternal het site.
-  paternal_transmission_probability?: number | null;
-  maternal_allele_probability?: number | null;
-  fetal_hom_alt_probability?: number | null;
-  fetal_genotype_posterior?: Record<string, number> | null;
-  quality_failures?: string[];
-  // The reads behind the call: the plasma's (estimated from its coverage when it has no
-  // call there) and the father's genotype class, allele fraction and depth.
-  cf_alt_reads?: number | null;
-  cf_depth?: number | null;
-  cf_depth_estimated?: boolean;
-  father_state?: string | null;
-  father_vaf?: number | null;
-  father_depth?: number | null;
-  de_novo?: NiptDeNovoTriageOut | null;
-}
+// A NIPT variant's classification: whether the fetus inherited the father's allele, the
+// mother's, or both (where the site tells), the fetal genotype at a maternal het site, and the
+// reads behind the call: the plasma's (estimated from its coverage when it has no call there)
+// and the father's genotype class, allele fraction and depth.
+export type NiptClassification = NiptClassificationOut;
 
-export interface SvSecondHit {
-  sv_count: number;
-  sv_types: string[];
-  // Which of the variant's genes the SV hits — not always the primary symbol.
-  gene?: string | null;
-  // Span covering the overlapping SVs, used to link straight to them.
-  chr?: string | null;
-  start?: number | null;
-  end?: number | null;
-  affected_zygosity?: string | null;
-  has_deletion: boolean;
-  // Drawn from each SV's own phase (svs): trans when one the affected members carry is in
-  // trans, cis when every one is in cis.
-  phase?: string;
-  phase_evidence?: string | null;
-  // A copy loss in trans with this heterozygous SNV, whatever the other SVs' phase.
-  deletion_unmasked?: boolean;
-  // Each SV that hits the gene, with its own phase against this variant, by position.
-  svs?: SvSecondHitSvOut[];
-}
+// The SVs hitting a small variant's gene. `gene` is which of the variant's genes they hit (not
+// always the primary symbol), `chr`/`start`/`end` the span covering them, to link straight to
+// them. `phase` is drawn from each SV's own (`svs`): trans when one the affected members carry
+// is in trans, cis when every one is in cis. `deletion_unmasked`: a copy loss in trans with this
+// heterozygous SNV, whatever the other SVs' phase.
+export type SvSecondHit = SvSecondHitOut;
 
-export interface SmallVariantPriorityMatch {
-  hpo_id: string;
-  label?: string | null;
-}
+export type SmallVariantPriority = VariantPriorityOut;
 
-export interface SmallVariantPriority {
-  combined_score: number;
-  variant_score: number;
-  pathogenicity_score: number;
-  frequency_score: number;
-  segregation_weight: number;
-  phenotype_score?: number | null;
-  segregation_modes: string[];
-  phenotype_gene?: string | null;
-  phenotype_matches: SmallVariantPriorityMatch[];
-  rank?: number | null;
-}
+// A page of variants as the variant list shows it: the family list's (VariantPage) or the
+// monogenic NIPT list's (NiptVariantPage), which has no pairs, no ranking and no candidate
+// window. NIPT only: `recessive_genes`, the genes of the recessive view where both parents
+// carry an allele, and `not_classified`, the variants the review-tag filter selects that the
+// analysis does not classify, so that no list shows them, with why.
+export type SmallVariantPage = Pick<VariantPage, 'total' | 'total_is_estimated' | 'count_limit'> &
+  Partial<
+    Pick<
+      VariantPage,
+      | 'unfiltered_total'
+      | 'unfiltered_total_is_estimated'
+      | 'ranking_truncated'
+      | 'candidates_capped'
+      | 'candidate_limit'
+      | 'ranking_cached'
+      | 'ranking_computed_at'
+      | 'small_variant_summary'
+    >
+  > &
+  Partial<Pick<NiptVariantPage, 'recessive_genes' | 'not_classified'>> & {
+    variants: SmallVariant[];
+    variant_groups?: SmallVariantGroup[];
+  };
 
-export interface SmallVariantInternalCohort {
-  samples: number;
-  het: number;
-  hom: number;
-  families: number;
-}
-
-export interface SmallVariantPage {
+// A page of the family's small-variant list (VariantPage) and of the monogenic NIPT list
+// (NiptVariantPage), their variants read as SmallVariant.
+export type FamilySmallVariantPage = Omit<VariantPage, 'variants' | 'variant_groups'> & {
   variants: SmallVariant[];
-  variant_groups?: SmallVariantGroup[];
-  total: number;
-  total_is_estimated?: boolean;
-  unfiltered_total?: number | null;
-  unfiltered_total_is_estimated?: boolean;
-  count_limit?: number | null;
-  ranking_truncated?: boolean;
-  /** The search read a capped candidate window: matches beyond it are missing. */
-  candidates_capped?: boolean;
-  /** How many candidates that window held, when either flag is set. */
-  candidate_limit?: number | null;
-  ranking_cached?: boolean;
-  ranking_computed_at?: string | null;
-  small_variant_summary?: SmallVariantSummary | null;
-  // Monogenic NIPT, recessive view: the genes where both parents carry an allele.
-  recessive_genes?: NiptRecessiveGeneOut[];
-  // Monogenic NIPT: the variants the review-tag filter selects that the analysis does not
-  // classify, so that no list shows them, with why.
-  not_classified?: NiptNotClassifiedOut[];
-}
+  variant_groups: SmallVariantGroup[];
+};
+export type NiptSmallVariantPage = Omit<NiptVariantPage, 'variants'> & { variants: SmallVariant[] };
 
-export interface SmallVariantSampleSummary {
-  sample_id: string;
-  non_ref_count: number;
-  het_count: number;
-  hom_alt_count: number;
-}
-
-export interface SmallVariantSummary {
-  total_variants: number;
-  snv_count: number;
-  indel_count: number;
-  sample_counts: SmallVariantSampleSummary[];
-}
-
-export interface SmallVariantGroup {
-  group_type: 'compound_het';
-  group_key: string;
-  gene?: string;
-  gene_id?: string;
+// A compound-het pair. `phase` is derived from the calls, unlike review.phase_status which is
+// the curator's own call: the reads (one phase set) or the parents' genotypes, as
+// phase_evidence says. Cis pairs are excluded server-side and never arrive here.
+export type SmallVariantGroup = Omit<SmallVariantGroupOut, 'variants'> & {
   variants: SmallVariant[];
-  review?: SmallVariantCompoundHetReview | null;
-  // Derived from the calls, unlike review.phase_status which is the curator's own
-  // call: the reads (one phase set) or the parents' genotypes, as phase_evidence says.
-  // Cis pairs are excluded server-side and never arrive here.
-  phase?: 'trans' | 'unknown';
-  phase_evidence?: 'read' | 'segregation' | null;
-}
+};
 
 export type SmallVariantReviewSavePayload = {
   // null clears the stored classification; left out, the save clears it too, so a client
@@ -343,11 +181,8 @@ export type SmallVariantFamily = Pick<
   'members' | 'relationships' | 'pedigree' | 'projects' | 'metadata' | 'read_only'
 >;
 
-export interface GenePanel {
-  _id: string;
-  name: string;
-  source?: string;
-}
+// A panel of the panel list (GenePanelOut), as the filters offer it.
+export type GenePanel = Pick<GenePanelOut, '_id' | 'name' | 'source'>;
 
 export type SmallVariantSampleFilter = {
   gt: string[];

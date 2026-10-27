@@ -25,6 +25,7 @@ import {
 import { formatLocus } from './smallVariantResultUtils';
 import {
   type FamilyMember,
+  type NiptSmallVariantPage,
   type SmallVariant,
   type SmallVariantFamily,
   type SmallVariantPage,
@@ -266,7 +267,7 @@ const FamilyNiptReportPage: React.FC = () => {
       if (panelId) params.panel_id = panelId;
       if (gene) params.gene = gene;
       const res = await api.get(apiPath`/families/${familyId}/nipt/variants`, { params });
-      return res.data as SmallVariantPage;
+      return res.data as NiptSmallVariantPage;
     },
   });
 

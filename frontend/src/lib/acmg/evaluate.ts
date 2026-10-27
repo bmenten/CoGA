@@ -6,6 +6,7 @@
 // before it contributes points. Criteria needing human judgement that we cannot
 // derive from data (PS1, PS3, PM5, segregation, de novo, …) are never emitted.
 
+import type { VariantOut } from '../apiSchema.generated';
 import { clinvarClass } from '../clinvar';
 import { classifyGenotype } from '../genotypes';
 import { ACMG_CRITERIA_BY_CODE } from './criteria';
@@ -21,27 +22,31 @@ import type {
   AcmgSuggestion,
 } from './types';
 
-// Subset of SmallVariant fields the evaluator reads. SmallVariant satisfies this
-// structurally, so callers pass the variant directly.
-export interface AcmgVariantInput {
-  effect?: string;
-  // Gene/locus symbol (used by the mt evaluator for evidence strings).
-  gene?: string;
-  impact?: string;
-  clinvar?: string;
-  lof?: string;
-  gnomad_af?: number;
-  gnomad_hom_count?: number;
-  gene_missense_z?: number;
-  revel?: number;
-  spliceai_max?: number;
-  // The AlphaMissense class as the variant is served with it (likely_benign, ambiguous,
-  // likely_pathogenic): the value an ACMG classification's evidence snapshot freezes.
-  alpha_missense_class?: string | null;
-  // The locus, for the sex-aware de novo rule (#621).
-  chr?: string;
-  hemizygous_in_males?: boolean;
-}
+// Subset of SmallVariant fields the evaluator reads, as the variant lists serve them
+// (VariantOut): a field without a value is null. SmallVariant satisfies this structurally, so
+// callers pass the variant directly. `gene` is the gene/locus symbol (used by the mt evaluator
+// for evidence strings); `alpha_missense_class` the AlphaMissense class as the variant is served
+// with it (likely_benign, ambiguous, likely_pathogenic): the value an ACMG classification's
+// evidence snapshot freezes; `chr` and `hemizygous_in_males` the locus, for the sex-aware de
+// novo rule (#621).
+export type AcmgVariantInput = Partial<
+  Pick<
+    VariantOut,
+    | 'effect'
+    | 'gene'
+    | 'impact'
+    | 'clinvar'
+    | 'lof'
+    | 'gnomad_af'
+    | 'gnomad_hom_count'
+    | 'gene_missense_z'
+    | 'revel'
+    | 'spliceai_max'
+    | 'alpha_missense_class'
+    | 'chr'
+    | 'hemizygous_in_males'
+  >
+>;
 
 // ---- Thresholds (named so they are easy to audit/tune) ----
 
@@ -95,17 +100,17 @@ const PROTEIN_LENGTH_EFFECTS = [
   'protein_altering_variant',
 ];
 
-export function effectIncludes(effect: string | undefined, needles: string[]): boolean {
+export function effectIncludes(effect: string | null | undefined, needles: string[]): boolean {
   if (!effect) return false;
   const lower = effect.toLowerCase();
   return needles.some((needle) => lower.includes(needle));
 }
 
-function isMissense(effect: string | undefined): boolean {
+function isMissense(effect: string | null | undefined): boolean {
   return effectIncludes(effect, ['missense_variant']);
 }
 
-function isSynonymous(effect: string | undefined): boolean {
+function isSynonymous(effect: string | null | undefined): boolean {
   return effectIncludes(effect, ['synonymous_variant']);
 }
 
@@ -123,7 +128,7 @@ export function fmtAf(af: number): string {
 
 type MolecularClass = 'lof' | 'missense' | 'synonymous' | 'inframe' | 'splice_region' | 'other';
 
-function molecularClass(effect: string | undefined): MolecularClass {
+function molecularClass(effect: string | null | undefined): MolecularClass {
   if (effectIncludes(effect, LOF_EFFECTS)) return 'lof';
   if (isMissense(effect)) return 'missense';
   if (isSynonymous(effect)) return 'synonymous';

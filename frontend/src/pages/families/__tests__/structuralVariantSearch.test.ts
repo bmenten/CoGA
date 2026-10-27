@@ -160,7 +160,7 @@ describe('structuralVariantRowKey', () => {
     expect(structuralVariantRowKey({ _id: id, source: 'sniffles' })).toBe(
       structuralVariantRowKey({ _id: id, source: 'sniffles' }),
     );
-    expect(structuralVariantRowKey({ _id: id })).toBe(`${id}|`);
+    expect(structuralVariantRowKey({ _id: id, source: null })).toBe(`${id}|`);
   });
 });
 

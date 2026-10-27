@@ -20,6 +20,7 @@ const makeVariant = (overrides: Partial<GlobalVariantRow> = {}): GlobalVariantRo
   pos: 32316461,
   ref: 'G',
   alt: 'A',
+  rsid: null,
   type: 'SNV',
   gene: 'BRCA2',
   gene_symbols: ['BRCA2'],
@@ -35,6 +36,7 @@ const makeVariant = (overrides: Partial<GlobalVariantRow> = {}): GlobalVariantRo
   het_samples: 3,
   hom_samples: 2,
   total_families: 4,
+  last_seen: null,
   ...overrides,
 });
 

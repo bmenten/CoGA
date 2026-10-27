@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from './api';
+import type { ProjectDashboardOut } from './apiSchema.generated';
 import type { ApiProjectRecord } from './apiTypes';
 import { withEntityId } from './entity';
 
@@ -32,7 +33,7 @@ export function useProjectCatalog(enabled = true) {
     staleTime: 5 * 60 * 1000,
     queryFn: async () => {
       const response = await api.get('/projects');
-      return (response.data as ProjectReference[]).map((entry) => withEntityId(entry));
+      return (response.data as ProjectDashboardOut[]).map((entry) => withEntityId(entry));
     },
   });
 }

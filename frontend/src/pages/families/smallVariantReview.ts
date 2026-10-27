@@ -68,6 +68,11 @@ export const buildOptimisticReview = (
     // it back, and a made-up timestamp would read as someone else's edit (#513).
     updated_at: variant.review?.updated_at ?? null,
     compound_het: variant.review?.compound_het ?? null,
+    // The ACMG classification comes back with the saved review: the server keeps or
+    // replaces it, and recomputes its points and class.
+    acmg: null,
+    cnv_acmg: null,
+    acmg_unreadable: false,
   };
 
   return hasReviewContent(nextReview) ? nextReview : null;
