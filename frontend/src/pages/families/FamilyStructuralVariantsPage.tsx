@@ -326,7 +326,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
   if (familyFailed) {
     return (
       <FamilyLoadFailure
-        kicker="Structural Variants"
+        kicker="Structural variants"
         what="Family"
         error={familyError}
         notFoundMessage="This family could not be found."
@@ -340,7 +340,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
     return (
       <PageState
         loading
-        kicker="Structural Variants"
+        kicker="Structural variants"
         title="Loading structural variants"
         message="Preparing the structural variant table, summaries, and filters."
       />
@@ -356,7 +356,7 @@ const FamilyStructuralVariantsPage: React.FC = () => {
           unavailable: referenceFailed,
           onRetry: retryReference,
         }}
-        kicker="Structural Variants"
+        kicker="Structural variants"
         familyId={familyId}
         family={familyData}
         projectId={projectId}

@@ -147,7 +147,7 @@ const CnvTrack: React.FC<Props> = ({
       })}
       </svg>
       {data.length === 0 && (
-        <div className="viz-empty-overlay">No Clin CNVs in this region</div>
+        <div className="viz-empty-overlay">No clinical CNVs in this region</div>
       )}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>

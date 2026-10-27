@@ -1084,7 +1084,7 @@ describe('FamilySmallVariantsPage', () => {
       </QueryClientProvider>
     );
 
-    await screen.findByText('Compound-Het Pairs');
+    await screen.findByText('Compound-het pairs');
     expect(screen.getAllByText('GENE1').length).toBeGreaterThan(0);
     expect(screen.getByText('Strong pair-level fit.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /Review pair/i })).toBeInTheDocument();

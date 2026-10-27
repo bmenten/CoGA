@@ -1224,7 +1224,7 @@ const GeneInfoPage: React.FC = () => {
         <div className="page-header">
           <div className="space-y-2">
             <p className="page-kicker">Genes</p>
-            <h1 className="catalog-card-title">Gene Explorer</h1>
+            <h1 className="catalog-card-title">Gene explorer</h1>
             <p className="page-copy">
               Search a human gene and open a compact reference summary with local panels, disease
               evidence, transcripts, and direct resource links.

@@ -138,7 +138,7 @@ Applying the same version again writes nothing; a new version of the panel is wr
 applied in the variant explorer is not written for any family.
 
 Each entry is written together with the change itself, and entries can never be changed or deleted.
-This is the record of clinical actions; the record of who opened what (**Admin → Audit Logs**) is
+This is the record of clinical actions; the record of who opened what (**Admin → Audit logs**) is
 separate. The trail is for analysts and administrators: a reader of the family's project does not
 see it.
 

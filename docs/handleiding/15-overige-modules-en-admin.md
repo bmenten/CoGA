@@ -83,7 +83,7 @@ Op de pagina *Sequencing QC thresholds* stelt een beheerder per QC-metriek een *
 
 ### De repeatcatalogus: telwijze van TRGT
 
-- **Per locus een register** (`AdminRepeatLociPage.tsx`, *Repeat Catalogue* onder Reference Data): voor elke rij van de repeatcatalogus of QA gevalideerd heeft dat de telling van TRGT er de klinische repeattelling is, met de reden, wie en wanneer, en hoeveel opgeslagen calls de rij noemen (de rijen waar de TRGT-catalogus van het labo naar verwijst, komen eerst). Wat er over de telling van TRGT bij een gen bekend is (*FMR1*, *HTT*, *POLG*), staat erbij.
+- **Per locus een register** (`AdminRepeatLociPage.tsx`, *Repeat catalogue* onder Reference Data): voor elke rij van de repeatcatalogus of QA gevalideerd heeft dat de telling van TRGT er de klinische repeattelling is, met de reden, wie en wanneer, en hoeveel opgeslagen calls de rij noemen (de rijen waar de TRGT-catalogus van het labo naar verwijst, komen eerst). Wat er over de telling van TRGT bij een gen bekend is (*FMR1*, *HTT*, *POLG*), staat erbij.
 - **Altijd met een reden.** Een wijziging vraagt een bevestiging en een reden (bv. het validatierapport, de TRGT-catalogus en -versie die nagekeken werden) en is een gebeurtenis in de klinische audittrail, op de keten `system:repeat-loci`; de geschiedenis staat onderaan de pagina. Een niet gevalideerd locus laat de repeatpagina en de genoomtracks zijn tellingen dicht bij een grens markeren (hoofdstuk 8). Leg een locus alleen als gevalideerd vast als de telling van TRGT er de klinische repeattelling is: correcties past CoGA nog niet toe.
 
 ### Presets en tags

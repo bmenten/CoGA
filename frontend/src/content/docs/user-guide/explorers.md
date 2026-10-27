@@ -1,7 +1,7 @@
 Three explorers answer questions beyond a single case. Open them from the menu under the arrow at the
 right of the top bar, or from the dashboard.
 
-### Gene Explorer
+### Gene explorer
 
 A profile per gene: the transcripts, badged **MANE Select**, **MANE Plus Clinical**, **RefSeq Select**
 and **Ensembl Canonical**; constraint metrics (pLI, LOEUF, missense constraint); disease associations
@@ -18,7 +18,7 @@ resources.
   gene, the date of the curation and a link to ClinGen's report. The item with an *HI score* is
   ClinGen's haploinsufficiency score as dbNSFP carries it.
 
-### Variant Explorer
+### Variant explorer
 
 Every small variant across the projects you can access, one row per variant: gene, variant,
 classification, consequence and tags, with the number of carriers (het and hom) and of families.
@@ -51,5 +51,5 @@ chromosome or type; each row shows the CNV, cytoband, location, size and **ClinV
 - Click a CNV for its detail page, with its description, the supporting ClinVar records and links to
   OMIM and DECIPHER. The same page opens when you click a clinical CNV in the viewers.
 
-> **Counts follow your access.** The Variant Explorer counts only the projects you can see, so its
+> **Counts follow your access.** The variant explorer counts only the projects you can see, so its
 > cohort counts reflect your accessible cohort.

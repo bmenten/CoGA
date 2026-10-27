@@ -383,7 +383,7 @@ const StructuralVariantFilterForm = ({
           >
             <summary className="variant-filter-dropdown-summary">
               <span className="variant-filter-dropdown-summary-copy">
-                <span className="variant-filter-dropdown-title">Inheritance and Support</span>
+                <span className="variant-filter-dropdown-title">Inheritance and support</span>
                 <span className="variant-filter-dropdown-meta">
                   {summarizeSection(supportFilterCount)}
                 </span>
@@ -571,7 +571,7 @@ const StructuralVariantFilterForm = ({
           >
             <summary className="variant-filter-dropdown-summary">
               <span className="variant-filter-dropdown-summary-copy">
-                <span className="variant-filter-dropdown-title">Class and Breakpoints</span>
+                <span className="variant-filter-dropdown-title">Class and breakpoints</span>
                 <span className="variant-filter-dropdown-meta">
                   {summarizeSection(classFilterCount)}
                 </span>
@@ -636,7 +636,7 @@ const StructuralVariantFilterForm = ({
           >
             <summary className="variant-filter-dropdown-summary">
               <span className="variant-filter-dropdown-summary-copy">
-                <span className="variant-filter-dropdown-title">Needlr Annotations</span>
+                <span className="variant-filter-dropdown-title">Needlr annotations</span>
                 <span className="variant-filter-dropdown-meta">
                   {summarizeSection(needlrFilterCount)}
                 </span>

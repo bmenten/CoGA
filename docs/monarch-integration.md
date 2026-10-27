@@ -42,7 +42,7 @@ Both live in Postgres (baseline `backend/db/schema/postgres/02_reference.sql`); 
 
 - **Ingest** — `backend/app/services/monarch_ingest.py`. `refresh_monarch()` downloads the release once
   and replaces both tables in one transaction, so a failed refresh never leaves them on different
-  releases. Triggered by an administrator (**Admin → Monarch Data**, `POST /api/admin/monarch/refresh`);
+  releases. Triggered by an administrator (**Admin → Monarch data**, `POST /api/admin/monarch/refresh`);
   nothing runs at start-up. A refresh also re-versions the Mendeliome panel
   (`panel_metadata_service.regenerate_mendeliome`: genes with a `causes` or
   `gene_associated_with_condition` link) and invalidates the information-content cache.
