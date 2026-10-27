@@ -117,7 +117,8 @@ def _serialize_review(document: dict[str, Any]) -> SmallVariantReviewOut:
 
 # A structural-variant preset is its owner's, for the family it is saved in (scope 'family')
 # or, reusable, for every family they can open (scope 'global', no family): one per family,
-# scope, owner and name.
+# scope, owner and name. The owner is the account (owner_id), whatever its user name is now;
+# owner, the user name it was last saved under, is what the preset shows (SEC-32).
 _PRESET_COLUMNS = """
     id::text AS id,
     family_id::text AS family_id,
@@ -551,12 +552,12 @@ async def list_structural_variant_filter_presets(
             f"""
             SELECT {_PRESET_COLUMNS}
             FROM structural_variant_filter_presets
-            WHERE (scope = 'family' AND family_id = CAST(:family_id AS uuid) AND owner = :owner)
-               OR (scope = 'global' AND owner = :owner)
+            WHERE owner_id = CAST(:owner_id AS uuid)
+              AND ((scope = 'family' AND family_id = CAST(:family_id AS uuid)) OR scope = 'global')
             ORDER BY CASE WHEN scope = 'family' THEN 0 ELSE 1 END, lower(name)
             """
         ),
-        {"family_id": family_uuid, "owner": user.username},
+        {"family_id": family_uuid, "owner_id": user.id},
     )
     return [_serialize_preset(dict(row)) for row in result.mappings().all()]
 
@@ -578,6 +579,7 @@ async def save_structural_variant_filter_preset(
         "family_id": family_uuid if payload.scope == "family" else None,
         "scope": payload.scope,
         "owner": user.username,
+        "owner_id": user.id,
         "name": normalized_name,
         "description": (payload.description or "").strip() or None,
         "filters_json": _json_payload(payload.filters),
@@ -593,6 +595,7 @@ async def save_structural_variant_filter_preset(
                 family_id,
                 scope,
                 owner,
+                owner_id,
                 name,
                 description,
                 filters,
@@ -605,6 +608,7 @@ async def save_structural_variant_filter_preset(
                 CAST(:family_id AS uuid),
                 :scope,
                 :owner,
+                CAST(:owner_id AS uuid),
                 :name,
                 :description,
                 CAST(:filters_json AS jsonb),
@@ -616,10 +620,11 @@ async def save_structural_variant_filter_preset(
             ON CONFLICT (
                 COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid),
                 scope,
-                owner,
+                owner_id,
                 name
             )
             DO UPDATE SET
+                owner = EXCLUDED.owner,
                 description = EXCLUDED.description,
                 filters = EXCLUDED.filters,
                 sample_filters = EXCLUDED.sample_filters,
@@ -648,7 +653,7 @@ async def delete_structural_variant_filter_preset(
     result = await session.execute(
         text(
             """
-            SELECT owner, scope, family_id::text AS family_id
+            SELECT owner_id::text AS owner_id, scope, family_id::text AS family_id
             FROM structural_variant_filter_presets
             WHERE id = CAST(:preset_id AS uuid)
             """
@@ -658,7 +663,7 @@ async def delete_structural_variant_filter_preset(
     row = result.mappings().first()
     if row is None:
         raise HTTPException(status_code=404, detail="Preset not found")
-    if row["owner"] != user.username:
+    if row["owner_id"] != user.id:
         # Another user's preset answers as an unknown one does (SEC-9, REQ-SEC-001).
         raise RecordNotVisible("filter_preset", "Preset not found")
     if row["scope"] == "family" and row["family_id"] != family_uuid:

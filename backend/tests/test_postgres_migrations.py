@@ -204,6 +204,79 @@ def test_revision_0007_runs_the_traceability_baselines_own_statements_for_the_si
         module.selected_statements(lambda _name: [])
 
 
+def test_revision_0008_runs_the_assay_baselines_own_upgrade_of_the_requesters_and_the_preset_owners() -> None:
+    # SEC-32: an import job's requester and a filter preset's owner kept by the account's id,
+    # brought to a database made before it by the statements 03_assay.sql makes them with.
+    from backend.app.core.postgres_migrations import baseline_statements
+
+    module = migration_script().get_revision("0008").module
+    selected = module.selected_statements(baseline_statements)
+
+    statements = _statements("03_assay.sql")
+    assert len(selected) == 5 and all(statement in statements for statement in selected)
+    assert [statements.index(statement) for statement in selected] == sorted(
+        statements.index(statement) for statement in selected
+    )
+    jobs, small, small_index, sv, sv_index = (" ".join(statement.split()) for statement in selected)
+    # Each upgrade runs once, when its column is missing, so that a later start never links a
+    # job or a preset again, by an address or a user name another account may have by then.
+    for upgrade, table, column in (
+        (jobs, "family_import_jobs", "requested_by_id"),
+        (small, "small_variant_filter_presets", "owner_id"),
+        (sv, "structural_variant_filter_presets", "owner_id"),
+    ):
+        assert upgrade.startswith("DO $$ BEGIN IF NOT EXISTS ( SELECT 1 FROM pg_attribute")
+        assert f"WHERE attrelid = '{table}'::regclass AND attname = '{column}' AND NOT attisdropped" in upgrade
+        assert f"ALTER TABLE {table} ADD COLUMN {column} uuid;" in upgrade
+    # A job is linked to the account its address finds, or to none; the account's deletion
+    # keeps the job.
+    assert "SET requested_by_id = account.id FROM users AS account WHERE account.email = job.requested_by;" in jobs
+    assert (
+        "ADD CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
+        "REFERENCES users(id) ON DELETE SET NULL;" in jobs
+    )
+    assert "DELETE FROM" not in jobs and "SET NOT NULL" not in jobs
+    # A preset is the account's its user name finds, else removed; the account's deletion
+    # deletes it, and the unique index on the user name gives way to one on the account.
+    for upgrade, table in ((small, "small_variant_filter_presets"), (sv, "structural_variant_filter_presets")):
+        assert "SET owner_id = account.id FROM users AS account WHERE account.username = preset.owner;" in upgrade
+        assert f"DELETE FROM {table} WHERE owner_id IS NULL;" in upgrade
+        assert f"ALTER TABLE {table} ALTER COLUMN owner_id SET NOT NULL;" in upgrade
+        assert (
+            f"ADD CONSTRAINT {table}_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE;"
+            in upgrade
+        )
+        assert f"DROP INDEX IF EXISTS idx_{table}_unique;" in upgrade
+    assert small_index == (
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_small_variant_filter_presets_unique "
+        "ON small_variant_filter_presets USING btree (owner_id, name)"
+    )
+    assert sv_index == (
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_filter_presets_unique "
+        "ON structural_variant_filter_presets USING btree "
+        "(COALESCE(family_id, '00000000-0000-0000-0000-000000000000'::uuid), scope, owner_id, name)"
+    )
+    # The tables a new database's CREATE TABLE gives: the same columns and foreign keys.
+    creates = {
+        table: " ".join(next(s for s in statements if s.startswith(f"CREATE TABLE IF NOT EXISTS {table} ")).split())
+        for table in ("family_import_jobs", "small_variant_filter_presets", "structural_variant_filter_presets")
+    }
+    assert "requested_by text NOT NULL, requested_by_id uuid," in creates["family_import_jobs"]
+    assert (
+        "CONSTRAINT family_import_jobs_requested_by_id_fkey FOREIGN KEY (requested_by_id) "
+        "REFERENCES users(id) ON DELETE SET NULL" in creates["family_import_jobs"]
+    )
+    for table in ("small_variant_filter_presets", "structural_variant_filter_presets"):
+        assert "owner text NOT NULL, owner_id uuid NOT NULL," in creates[table]
+        assert (
+            f"CONSTRAINT {table}_owner_id_fkey FOREIGN KEY (owner_id) REFERENCES users(id) ON DELETE CASCADE"
+            in creates[table]
+        )
+    # A baseline that no longer holds them stops the revision.
+    with pytest.raises(RuntimeError, match="the baseline changed under it"):
+        module.selected_statements(lambda _name: [])
+
+
 def test_the_ledger_table_is_alembics_own_and_its_revoke_follows_the_broad_grant() -> None:
     # Alembic finds the table the baseline created and uses it as its own.
     context = MigrationContext.configure(dialect_name="postgresql")

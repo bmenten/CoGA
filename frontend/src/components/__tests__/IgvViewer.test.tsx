@@ -1,13 +1,20 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { clearSession, getAuthToken, persistSession, updateSessionToken } from '../../lib/auth';
 import IgvViewer from '../IgvViewer';
 
-const { apiGetMock, createBrowserMock, searchMock, loadIgvMock } = vi.hoisted(() => ({
+const { apiGetMock, createBrowserMock, searchMock, loadIgvMock, freshMicrosoftAccessTokenMock } = vi.hoisted(() => ({
   apiGetMock: vi.fn(),
   createBrowserMock: vi.fn(),
   searchMock: vi.fn(),
   loadIgvMock: vi.fn(),
+  freshMicrosoftAccessTokenMock: vi.fn(),
+}));
+
+// MSAL, as the API client asks it for a Microsoft session's token (SEC-4).
+vi.mock('../../lib/microsoftSignIn', () => ({
+  freshMicrosoftAccessToken: freshMicrosoftAccessTokenMock,
 }));
 
 vi.mock('../../lib/api', async () => {
@@ -36,6 +43,7 @@ describe('IgvViewer', () => {
     createBrowserMock.mockReset();
     searchMock.mockReset();
     loadIgvMock.mockReset();
+    freshMicrosoftAccessTokenMock.mockReset();
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
@@ -93,7 +101,7 @@ describe('IgvViewer', () => {
         format: 'cram',
         url: 'http://api.test/cram/F1/S1.cram',
         indexURL: 'http://api.test/cram/F1/S1.cram.crai',
-        headers: { Authorization: 'Bearer token-123' },
+        oauthToken: expect.any(Function),
       },
       {
         name: 'S2',
@@ -101,7 +109,7 @@ describe('IgvViewer', () => {
         format: 'bam',
         url: 'http://api.test/cram/F1/S2.bam',
         indexURL: 'http://api.test/cram/F1/S2.bam.bai',
-        headers: { Authorization: 'Bearer token-123' },
+        oauthToken: expect.any(Function),
       },
     ]);
   });
@@ -281,7 +289,7 @@ describe('IgvViewer', () => {
         url: 'http://api.test/signal-tracks/F1/S1/hificnv/depth_bigwig',
         // Depth is unbounded and sample-specific.
         autoscale: true,
-        headers: { Authorization: 'Bearer token-123' },
+        oauthToken: expect.any(Function),
       },
       {
         name: 'S1 Minor allele fraction',
@@ -292,7 +300,7 @@ describe('IgvViewer', () => {
         autoscale: false,
         min: 0,
         max: 0.5,
-        headers: { Authorization: 'Bearer token-123' },
+        oauthToken: expect.any(Function),
       },
       {
         name: 'S1',
@@ -300,7 +308,7 @@ describe('IgvViewer', () => {
         format: 'cram',
         url: 'http://api.test/cram/F1/S1.cram',
         indexURL: 'http://api.test/cram/F1/S1.cram.crai',
-        headers: { Authorization: 'Bearer token-123' },
+        oauthToken: expect.any(Function),
       },
     ]);
   });
@@ -374,5 +382,102 @@ describe('IgvViewer', () => {
     await waitFor(() => expect(createBrowserMock).toHaveBeenCalledTimes(2));
     expect(createBrowserMock.mock.calls[1][1].tracks).toHaveLength(2);
     expect(screen.queryByText(/Could not load the depth and MAF tracks/)).not.toBeInTheDocument();
+  });
+
+  // SEC-32 — the viewer read the stored token once, when it built the browser, and IGV sent
+  // that token with every request it made: a session longer than the token's life (about an
+  // hour for Microsoft's) lost its tracks, though the API client renews the token before each
+  // of its own requests. IGV now asks for the session's token at each request (its
+  // `oauthToken` function), as the API client does.
+  describe('the token IGV sends with its requests', () => {
+    const held = ['held', 'session'].join('-');
+    const renewed = ['renewed', 'session'].join('-');
+
+    type BuiltTrack = { url: string; oauthToken?: () => Promise<string>; headers?: unknown };
+
+    const builtTracks = async (): Promise<BuiltTrack[]> => {
+      apiGetMock.mockImplementation((url: string) =>
+        Promise.resolve({
+          data: url.startsWith('/signal-tracks/')
+            ? [
+                {
+                  sample_id: 'S1',
+                  source: 'hificnv',
+                  kind: 'depth_bigwig',
+                  name: 'S1 Read depth',
+                  format: 'bigwig',
+                  url: '/signal-tracks/F1/S1/hificnv/depth_bigwig',
+                  min: null,
+                  max: null,
+                },
+              ]
+            : [
+                { sample_id: 'S1', format: 'cram', url: '/cram/F1/S1.cram', index_url: '/cram/F1/S1.cram.crai' },
+                {
+                  sample_id: 'S2',
+                  format: 'cram',
+                  url: 'https://bucket.s3.amazonaws.com/families/F1/S2.cram?sig=abc',
+                  index_url: 'https://bucket.s3.amazonaws.com/families/F1/S2.cram.crai?sig=def',
+                },
+              ],
+        }),
+      );
+      createBrowserMock.mockResolvedValue({ destroy: vi.fn(), search: searchMock });
+      loadIgvMock.mockResolvedValue({ createBrowser: createBrowserMock });
+
+      render(<IgvViewer familyId="F1" sampleIds={['S1', 'S2']} genome="hg38" locus="chr1:10-20" />);
+
+      await waitFor(() => expect(createBrowserMock).toHaveBeenCalled());
+      return createBrowserMock.mock.calls[0][1].tracks as BuiltTrack[];
+    };
+
+    // Each backend track's token, asked for one request after another: in the test runner, two
+    // imports at once of the mocked MSAL module from the real API client can reach the real
+    // module (a browser shares one module between them).
+    const backendTokens = async (tracks: BuiltTrack[]): Promise<string[]> => {
+      const tokens: string[] = [];
+      for (const track of tracks.filter((candidate) => candidate.url.startsWith('http://api.test/'))) {
+        tokens.push(await track.oauthToken!());
+      }
+      return tokens;
+    };
+
+    it('is the session’s token at each request, so a token renewed after the browser was built reaches IGV', async () => {
+      persistSession(held, 'analyst@example.org', 'viewer');
+      const tracks = await builtTracks();
+
+      // The depth track and the alignments the backend serves ask for the session's token; no
+      // track carries a token fixed when the browser was built.
+      expect(tracks.map((track) => [track.url, typeof track.oauthToken, track.headers])).toEqual([
+        ['http://api.test/signal-tracks/F1/S1/hificnv/depth_bigwig', 'function', undefined],
+        ['http://api.test/cram/F1/S1.cram', 'function', undefined],
+        // A presigned URL carries its own authorisation, and gets no session token.
+        ['https://bucket.s3.amazonaws.com/families/F1/S2.cram?sig=abc', 'undefined', undefined],
+      ]);
+      expect(await backendTokens(tracks)).toEqual([held, held]);
+
+      // The session's token is renewed (as the API client does before a request): IGV's next
+      // requests send the new one.
+      updateSessionToken(renewed);
+      expect(await backendTokens(tracks)).toEqual([renewed, renewed]);
+
+      // Signed out: IGV's requests carry no token, and the API refuses them.
+      clearSession();
+      expect(await backendTokens(tracks)).toEqual(['', '']);
+      expect(freshMicrosoftAccessTokenMock).not.toHaveBeenCalled();
+    });
+
+    it('asks MSAL for a Microsoft session’s token at each request, and the session keeps a renewed one', async () => {
+      persistSession(held, 'a.colleague@example.org', 'viewer', 'microsoft');
+      const tracks = await builtTracks();
+
+      freshMicrosoftAccessTokenMock.mockResolvedValue(renewed);
+      expect(await backendTokens(tracks)).toEqual([renewed, renewed]);
+      expect(getAuthToken()).toBe(renewed);
+
+      // MSAL cannot renew without the user: the token the session holds, then the API's 401.
+      freshMicrosoftAccessTokenMock.mockResolvedValue(null);
+      expect(await backendTokens(tracks)).toEqual([renewed, renewed]);
+    });
   });
 });
