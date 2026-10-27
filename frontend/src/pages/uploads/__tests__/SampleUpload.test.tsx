@@ -180,6 +180,32 @@ describe('SampleUpload', () => {
     ).toBeInTheDocument();
   });
 
+  // CLIN-39: a deletion, duplication, inversion or CNV that states neither END nor SVLEN is
+  // left out of an SV upload and counted (the owner's decision); the form says how many.
+  it('says how many records an SV upload left out as their extent is not stated', async () => {
+    (api.post as unknown as Mock).mockResolvedValue({
+      data: { processed: 3, created: 3, merged: 0, skipped_without_extent: 2, source_format: 'sniffles' },
+    });
+
+    render(
+      <MemoryRouter>
+        <SampleUpload />
+      </MemoryRouter>,
+    );
+
+    fireEvent.change(screen.getAllByLabelText(/sample id/i)[0], { target: { value: 'S1' } });
+    fireEvent.change(screen.getAllByLabelText(/variant file/i)[1], {
+      target: { files: [new File(['##fileformat=VCFv4.2\n'], 'sample.vcf', { type: 'text/plain' })] },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /upload structural variants/i }));
+
+    expect(
+      await screen.findByText(
+        'Processed 3 variants via sniffles (3 created, 0 merged). 2 records left out: a deletion, duplication, inversion or CNV that states neither END nor SVLEN.',
+      ),
+    ).toBeInTheDocument();
+  });
+
   it('uploads TRGT repeat expansions for one sample', async () => {
     (api.post as unknown as Mock).mockResolvedValue({
       data: {

@@ -1388,7 +1388,14 @@ calls are checked and replaced:
 - A Sniffles or Spectre record without END, or with END `.`, ends where VCF 4.4 puts it: at
   POS + SVLEN (its sign dropped) for a `<DEL>`, `<DUP>`, `<INV>` or `<CNV>` allele, subtypes
   included, and at POS + the length of REF − 1 for any other allele (an `<INS>`, a
-  breakend, a sequence allele); one of the four without an SVLEN stays on its POS. An SV is
+  breakend, a sequence allele). One of the four without an SVLEN (and without END) does not
+  say how far it reaches: it is left out, and the upload's result counts it
+  (`skipped_without_extent`), as does the import's dataset summary of a package's NeedlR,
+  HiFiCNV or chrM Sniffles2 file. It was stored on its POS, as 0 bp, so a gene or panel search
+  missed the genes it spans (CLIN-39, the owner's decision, 2026-10-27). A file whose every
+  record is so is refused: an upload answers 400 saying why, and a HiFiCNV or chrM SV file,
+  where a file without a call is an answer, fails its dataset with the earlier calls as they
+  were (a NeedlR file without a call fails it anyway). An SV is
   listed with the genes its POS–END span overlaps, so a deletion written with SVLEN alone is
   found by a search for a gene it deletes. A written END is kept as written, except a
   translocation's whose INFO/CHR2 names another chromosome: that END is its mate's position

@@ -98,6 +98,7 @@ from .family_package_qc import (
 from .family_package_registration import UNRESOLVED_SNV_SOURCE, _interval_track_count, _paraphase_count, _register_only, _repeat_expansion_count
 from .family_package_tracks import _delete_sample_interval_source, _import_apcad_track_file, _import_bigwig_interval_track, _import_copy_number_track, _import_pcf_segment_file, _import_wisecondorx_track
 from .family_package_validation import _manifest_hpo_rows, _manifest_individuals, _pcf_role_path
+from .structural_variant_ingest import SkippedRecords
 from .family_package_variants import _iter_cnv_structural_records, _iter_mito_sv_records, _iter_needlr_per_sample_records, _iter_needlr_structural_records, _merge_sv_records_by_id, _mito_sv_rows_after_import, _paraphase_rows_for_sample, _replace_sample_paraphase_rows, _update_sv_file_metadata, needlr_query_ids
 from .import_progress import FilesReadInTurn
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
@@ -911,6 +912,7 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
     # The files read: the family VCF, or one VCF per sample (the long-read pipeline's).
     texts: dict[str, str] = {}
     filenames: str | dict[str, str]
+    skipped = SkippedRecords()
     if per_sample:
         sample_files = await _needlr_sample_files(job)
         if not sample_files:
@@ -921,6 +923,7 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
             [(sample_id, text_value) for sample_id, _path, text_value in sample_files],
             ped=bundle.ped,
             sample_contexts=sample_contexts,
+            skipped=skipped,
         )
     else:
         assert vcf_path is not None
@@ -931,9 +934,12 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
             text_value,
             ped=bundle.ped,
             sample_contexts=sample_contexts,
+            skipped=skipped,
         )
     if not records:
-        raise RuntimeError("No Needlr structural variants with PED sample calls were found")
+        raise RuntimeError(
+            "No Needlr structural variants with PED sample calls were found" + _without_extent_clause(skipped)
+        )
     # Held until the commit that records the SV file (the import holds it for its whole run).
     await lock_family_variant_writes(
         session,
@@ -989,13 +995,42 @@ async def _import_sv_needlr_dataset(job: DatasetImportJob) -> FamilyImportDatase
                 "Imported the per-sample Needlr SV VCFs into structural variant storage"
                 if per_sample
                 else "Imported Needlr family SV VCF into structural variant storage"
-            ),
+            )
+            + _without_extent_note(skipped),
             "summary": {
                 "processed": len(records),
                 "source": "needlr",
                 **({"per_sample": sorted(texts)} if per_sample else {}),
+                **_without_extent_count(skipped),
             },
         }
+    )
+
+
+def _without_extent_count(skipped: SkippedRecords) -> dict[str, int]:
+    """A dataset's or a sample's count of the records left out as their extent is not stated
+    (``SkippedRecords``), when there are any."""
+    return {"skipped_without_extent": skipped.without_extent} if skipped.without_extent else {}
+
+
+def _without_extent_clause(skipped: SkippedRecords) -> str:
+    """What a refusal says of the records left out as their extent is not stated."""
+    if not skipped.without_extent:
+        return ""
+    return (
+        f": {skipped.without_extent} record(s) of a deletion, duplication, inversion or CNV state "
+        "neither END nor SVLEN, so how far they reach is not known, and were left out"
+    )
+
+
+def _without_extent_note(skipped: SkippedRecords) -> str:
+    """What a dataset's message says of the records left out as their extent is not stated
+    (CLIN-39, the owner's decision, 2026-10-27: left out and counted)."""
+    if not skipped.without_extent:
+        return ""
+    return (
+        f"; left out {skipped.without_extent} record(s) of a deletion, duplication, inversion or "
+        "CNV that state neither END nor SVLEN"
     )
 
 
@@ -1021,12 +1056,14 @@ async def _needlr_sample_files(job: DatasetImportJob) -> list[tuple[str, Path, s
         if path is None:
             continue
         text_value = _read_package_text(path)
+        skipped = SkippedRecords()
         if not _iter_needlr_per_sample_records(
-            [(sample_id, text_value)], ped=bundle.ped, sample_contexts=job.sample_contexts
+            [(sample_id, text_value)], ped=bundle.ped, sample_contexts=job.sample_contexts, skipped=skipped
         ):
             raise RuntimeError(
-                f"The NeedlR file of {sample_id} ({path.name}) holds no structural variant; "
-                "no NeedlR call was replaced"
+                f"The NeedlR file of {sample_id} ({path.name}) holds no structural variant"
+                + _without_extent_clause(skipped)
+                + "; no NeedlR call was replaced"
             )
         queries = sorted(needlr_query_ids(text_value))
         known = await known_vcf_sample_ids(
@@ -2031,16 +2068,26 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
             label=f"CNV VCF of {sample_id}",
             remedy=_PER_SAMPLE_COLUMN_REMEDY,
         )
+        skipped = SkippedRecords()
         sample_records = _iter_cnv_structural_records(
             text_value,
             sample_id=sample_id,
             source=CNV_SOURCE,
             sample_column=sample_column,
+            skipped=skipped,
         )
+        if not sample_records and skipped.without_extent:
+            # Records were called, none of them readable: no answer that no CNV was called,
+            # which would remove the sample's earlier calls.
+            raise RuntimeError(
+                f"No HiFiCNV call was replaced: the CNV VCF of {sample_id} ({vcf_path.name}) "
+                f"holds no call it can read{_without_extent_clause(skipped)}"
+            )
         records.extend(sample_records)
         sample_results[sample_id] = {
             "calls": len(sample_records),
             "filename": vcf_path.name,
+            **_without_extent_count(skipped),
         }
         for role, track_type, reader in (
             ("copy_number_bedgraph", "segments", _import_copy_number_track),
@@ -2250,6 +2297,13 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
                 f"; skipped existing tracks in update mode: {', '.join(skipped_tracks)}"
                 if skipped_tracks
                 else ""
+            )
+            + _without_extent_note(
+                SkippedRecords(
+                    without_extent=sum(
+                        int(result.get("skipped_without_extent") or 0) for result in sample_results.values()
+                    )
+                )
             ),
             "summary": {"processed": len(records), "source": CNV_SOURCE, "samples": sample_results},
         }
@@ -2394,6 +2448,16 @@ async def _import_mito_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumm
     )
     if sv_count:
         message += f"; {sv_count} chrM structural variant(s) into structural-variant storage"
+    if sv_summary:
+        message += _without_extent_note(
+            SkippedRecords(
+                without_extent=sum(
+                    int(result.get("skipped_without_extent") or 0)
+                    for result in (sv_summary.get("samples") or {}).values()
+                    if isinstance(result, dict)
+                )
+            )
+        )
     return summary.model_copy(
         update={"status": "imported", "message": message, "summary": sample_results}
     )
@@ -2537,11 +2601,23 @@ def _read_mito_structural_variants(
                 f"No mitochondrial call was replaced: the chrM SV VCF of {sample_id} ({sv_path.name}) "
                 f"holds {elsewhere} record(s), none on chrM, so it is no chrM SV callset"
             )
+        skipped = SkippedRecords()
         sample_records = _iter_mito_sv_records(
-            text_value, sample_id=sample_id, sample_column=(sv_columns or {}).get(sample_id, 0)
+            text_value, sample_id=sample_id, sample_column=(sv_columns or {}).get(sample_id, 0), skipped=skipped
         )
+        if not sample_records and skipped.without_extent:
+            # Records were called, none of them readable: no answer that the sample carries no
+            # chrM SV, which would remove its earlier ones.
+            raise RuntimeError(
+                f"No mitochondrial call was replaced: the chrM SV VCF of {sample_id} ({sv_path.name}) "
+                f"holds no call it can read{_without_extent_clause(skipped)}"
+            )
         records.extend(sample_records)
-        per_sample[sample_id] = {"calls": len(sample_records), "filename": sv_path.name}
+        per_sample[sample_id] = {
+            "calls": len(sample_records),
+            "filename": sv_path.name,
+            **_without_extent_count(skipped),
+        }
         if not sv_lines:
             sv_lines = [line for line in text_value.splitlines() if line.startswith("#")]
     if not per_sample:

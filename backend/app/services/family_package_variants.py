@@ -27,7 +27,7 @@ from .variant_annotation_parser import (
     update_annotation_header_state,
 )
 
-from .structural_variant_ingest import breakend_mate, record_end, record_sv_len, sv_event, sv_type_from_alt
+from .structural_variant_ingest import SkippedRecords, breakend_mate, extent_not_stated, record_end, record_sv_len, sv_event, sv_type_from_alt
 from .family_package_common import MITO_SV_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _first_info_value, _jsonb_safe, _metadata_dict, _missing_scalar, _parse_format, _parse_vcf_info, _split_gene_symbols, resolve_vcf_sample_id
 
 
@@ -152,10 +152,11 @@ def _iter_needlr_structural_records(
     *,
     ped: ParsedPed,
     sample_contexts: dict[str, SampleMetadataContext],
+    skipped: SkippedRecords | None = None,
 ) -> list[StructuralVariantRecord]:
     """A family NeedlR VCF's records, each query call under the sample its ``Query_ID``
     names."""
-    return _needlr_records([(text_value, None)], ped=ped, sample_contexts=sample_contexts)
+    return _needlr_records([(text_value, None)], ped=ped, sample_contexts=sample_contexts, skipped=skipped)
 
 
 def _iter_needlr_per_sample_records(
@@ -163,6 +164,7 @@ def _iter_needlr_per_sample_records(
     *,
     ped: ParsedPed,
     sample_contexts: dict[str, SampleMetadataContext],
+    skipped: SkippedRecords | None = None,
 ) -> list[StructuralVariantRecord]:
     """The records of one NeedlR VCF per sample, ``(sample id, text)``, as one callset: each
     file's query calls belong to its sample (the importer checked that its ``Query_ID``
@@ -173,6 +175,7 @@ def _iter_needlr_per_sample_records(
         [(text_value, sample_id) for sample_id, text_value in files],
         ped=ped,
         sample_contexts=sample_contexts,
+        skipped=skipped,
     )
 
 
@@ -204,6 +207,7 @@ def _needlr_records(
     *,
     ped: ParsedPed,
     sample_contexts: dict[str, SampleMetadataContext],
+    skipped: SkippedRecords | None = None,
 ) -> list[StructuralVariantRecord]:
     """The records of the NeedlR ``texts``, each with the sample its query calls are bound
     to, or None to read it from the record's ``Query_ID``.
@@ -213,7 +217,8 @@ def _needlr_records(
     (``event_discriminators``): a line repeated in the family VCF, or one event called in
     two samples' files, is one record with every call; two events are two records, whatever
     their IDs. A sample's calls from two lines of one event are ranked by
-    ``_needlr_call_rank``."""
+    ``_needlr_call_rank``. A record whose extent is not stated is left out and counted in
+    ``skipped`` (``SkippedRecords``)."""
     sample_ids = set(sample_contexts)
     read: list[_NeedlrLine] = []
     lines = (
@@ -237,17 +242,16 @@ def _needlr_records(
         # none before CLIN-40, so a NeedlR translocation named no partner in the SV list.
         remote_chr, remote_start = breakend_mate(sv_type=sv_type, alt=alt, info=info, chrom=chrom)
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        end_written = _first_info_value(info, "END", "End_Pos", "END_POS", "End")
+        if extent_not_stated(alt=alt, sv_len=sv_len, end=end_written):
+            if skipped is not None:
+                skipped.without_extent += 1
+            continue
         # Without END, where VCF 4.4 puts it, as the uploads do: it was POS + SVLEN for any
         # type, so an insertion or a breakend spanned bases after its POS, and the same call
         # had another id than an upload's (CLIN-39).
         end = record_end(
-            pos=start,
-            ref=ref,
-            alt=alt,
-            sv_len=sv_len,
-            info=info,
-            chrom=chrom,
-            end=_first_info_value(info, "END", "End_Pos", "END_POS", "End"),
+            pos=start, ref=ref, alt=alt, sv_len=sv_len, info=info, chrom=chrom, end=end_written
         )
         if end is None or _unpositionable(start, end):
             continue
@@ -412,8 +416,10 @@ def _iter_cnv_structural_records(
     sample_id: str,
     source: str = "hificnv",
     sample_column: int = 0,
+    skipped: SkippedRecords | None = None,
 ) -> list[StructuralVariantRecord]:
-    """Parse a depth-based CNV caller's VCF (HiFiCNV) into structural-variant records.
+    """Parse a depth-based CNV caller's VCF (HiFiCNV) into structural-variant records. A
+    record whose extent is not stated is left out and counted in ``skipped``.
 
     The calls land in the structural-variant store rather than an interval track so
     they are filterable, reviewable and reachable by the ClinGen CNV dosage scoring,
@@ -447,16 +453,15 @@ def _iter_cnv_structural_records(
         info = _parse_vcf_info(info_raw)
         sv_type = _first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "CNV"
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        end_written = _first_info_value(info, "END", "End_Pos")
+        if extent_not_stated(alt=alt, sv_len=sv_len, end=end_written):
+            if skipped is not None:
+                skipped.without_extent += 1
+            continue
         # Without END where VCF 4.4 puts it, and a breakend with its mate, as every SV reader
         # reads them (CLIN-39).
         end = record_end(
-            pos=start,
-            ref=ref,
-            alt=alt,
-            sv_len=sv_len,
-            info=info,
-            chrom=chrom,
-            end=_first_info_value(info, "END", "End_Pos"),
+            pos=start, ref=ref, alt=alt, sv_len=sv_len, info=info, chrom=chrom, end=end_written
         )
         if end is None or _unpositionable(start, end):
             continue
@@ -684,7 +689,7 @@ def _mt_genes_overlapping(start: int, end: int) -> list[str]:
 
 
 def _iter_mito_sv_records(
-    text_value: str, *, sample_id: str, sample_column: int = 0
+    text_value: str, *, sample_id: str, sample_column: int = 0, skipped: SkippedRecords | None = None
 ) -> list[StructuralVariantRecord]:
     """Parse one sample's chrM SV VCF (Sniffles2 ``--mosaic -c chrM``) into SV records.
 
@@ -697,7 +702,8 @@ def _iter_mito_sv_records(
     The id is built from the coordinates, not Sniffles' own (``Sniffles2.DEL.3M0`` repeats
     across samples and runs), so the same event called in a mother and her child is one
     SV with both calls once the importer merges the samples' records. ``sample_column`` is
-    the column the importer checked holds that sample (``per_sample_vcf_column``).
+    the column the importer checked holds that sample (``per_sample_vcf_column``). A record
+    whose extent is not stated is left out and counted in ``skipped``.
     """
     records: list[StructuralVariantRecord] = []
     for line in text_value.splitlines():
@@ -715,6 +721,10 @@ def _iter_mito_sv_records(
         info = _parse_vcf_info(info_raw)
         sv_type = (_first_info_value(info, "SVTYPE") or sv_type_from_alt(ref, alt) or "SV").upper()
         sv_len = _coerce_int(_first_info_value(info, "SVLEN"))
+        if extent_not_stated(alt=alt, sv_len=sv_len, end=_first_info_value(info, "END")):
+            if skipped is not None:
+                skipped.without_extent += 1
+            continue
         # Without END where VCF 4.4 puts it, and a breakend with its mate, as every SV reader
         # reads them (CLIN-39).
         end = record_end(pos=start, ref=ref, alt=alt, sv_len=sv_len, info=info, chrom=chrom)

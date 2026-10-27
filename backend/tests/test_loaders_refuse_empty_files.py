@@ -1286,3 +1286,81 @@ def test_a_dry_run_does_not_warn_of_a_result_without_a_call(tmp_path: Path) -> N
     assert _validated(tmp_path, "cnv", cnv) == []
     assert _validated(tmp_path, "mito", mito) == []
     assert _validated(tmp_path, "repeats_trgt", not_gzip) == []
+
+
+# --- CLIN-39: a file whose every call states no extent is no answer that none was called ---------
+#
+# A deletion, duplication, inversion or CNV that states neither END nor SVLEN is left out and
+# counted (the owner's decision, 2026-10-27). A HiFiCNV or chrM SV file whose every call is so is
+# then no file without a call (which replaces the sample's earlier calls with none): it fails the
+# dataset before anything is written, saying why, and so does such a NeedlR file.
+
+_EXTENT_REFUSAL = (
+    "1 record(s) of a deletion, duplication, inversion or CNV state neither END nor SVLEN, so how far "
+    "they reach is not known, and were left out"
+)
+
+
+@pytest.mark.asyncio
+async def test_a_chrm_sv_file_whose_calls_state_no_extent_fails_the_mito_dataset_before_anything_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sv_content = _MITO_SV_HEADER + "chrM\t8470\tS.1\tN\t<DEL>\t60\tPASS\tSVTYPE=DEL;VAF=0.05\tGT:GQ:DR:DV\t0/1:60:380:20\n"
+    job, writes = _mito_job_writing_nothing(tmp_path, monkeypatch, sv_content)
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(job)
+
+    # Before: stored on its POS (it was not left out yet); left out, the file read as "no call".
+    assert str(refused.value) == (
+        "No mitochondrial call was replaced: the chrM SV VCF of S1 (S1_sv.vcf) holds no call it can read: "
+        + _EXTENT_REFUSAL
+    )
+    assert writes == []
+
+
+@pytest.mark.asyncio
+async def test_a_hificnv_vcf_whose_calls_state_no_extent_fails_the_dataset_before_any_track_is_written(
+    cnv_stores: _Stores, tmp_path: Path
+) -> None:
+    stores = cnv_stores
+    stores.track("S1", "segments", CNV_SOURCE, "S1.bedgraph", rows=7)
+    before = stores.tracks()
+    vcf = _CNV_VCF.replace("SVTYPE=DEL;END=2000", "SVTYPE=DEL")
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {
+                "vcf": _file(tmp_path, "cnv/S1.vcf", vcf),
+                "copy_number_bedgraph": _file(tmp_path, "cnv/S1.bedgraph", "chr1\t0\t1000\t2\n"),
+            }
+        }
+    )
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "cnv", dataset))
+
+    assert str(refused.value) == (
+        "No HiFiCNV call was replaced: the CNV VCF of S1 (S1.vcf) holds no call it can read: " + _EXTENT_REFUSAL
+    )
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_a_needlr_file_whose_calls_state_no_extent_says_why_it_holds_none(
+    stores: _Stores, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def nothing(*_args: Any, **_kwargs: Any) -> None:
+        return None
+
+    monkeypatch.setattr(family_package_datasets, "lock_family_variant_writes", nothing)
+    record = "1\t1000\tsv1\tN\t<DEL>\t60\tPASS\tSVTYPE=DEL;Query_ID=S1_sv_phased;Genotype=0/1\n"
+    dataset = ManifestDataset(per_sample={"S1": {"vcf": _file(tmp_path, "sv/S1.needlr.vcf", _NEEDLR_HEADER + record)}})
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "sv_needlr", dataset))
+
+    assert str(refused.value) == (
+        "The NeedlR file of S1 (S1.needlr.vcf) holds no structural variant: "
+        + _EXTENT_REFUSAL
+        + "; no NeedlR call was replaced"
+    )
