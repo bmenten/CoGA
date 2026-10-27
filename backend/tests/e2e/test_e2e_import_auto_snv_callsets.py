@@ -224,7 +224,7 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 step: dict[str, Any] = {"job_id": job_id, "job": await job(job_id), "family": await family()}
                 if sign_out:
                     step["signout"] = _cap(
-                        await ac.post(f"/api/families/{family_id}/report/sign-out", json=_OTHER_GATES)
+                        await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", _OTHER_GATES)
                     )
                 out["steps"][name] = step
 

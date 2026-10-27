@@ -24,7 +24,10 @@ variant's / CNV's ClinGen classification — the caller must explicitly acknowle
 drift. It is also
 gated on the Sample-integrity QC and on an incomplete import (a family-package import
 that partly failed, or that stopped part-way); each gate is acknowledged separately, with
-a reason that is frozen into the snapshot and recorded in the audit event.
+a reason that is frozen into the snapshot and recorded in the audit event. An
+acknowledgement covers the concerns its dialog showed, no more: it carries the fingerprint
+of the concerns the gate's refusal listed (:func:`concerns_fingerprint`), and a sign-out
+whose concerns are no longer those is refused with them as they are now (TRACE-19).
 
 A family whose data is being written is not signed out at all: not while a package import
 of it is queued or runs, nor while another write of its variants holds their lock, and no
@@ -58,7 +61,7 @@ from .family_metadata_context import FamilyMetadataContext, build_family_metadat
 from .family_package_registration import is_whole_family_entry, unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
 from .pgt_analysis import comparable_with_record as pgt_analysis_comparable_with_record
-from .hash_chain import ChainVerification, canonical_hash, chain_row_hash, verify_chain
+from .hash_chain import ChainVerification, canonical_hash, canonical_json, chain_row_hash, verify_chain
 from .access_control import CurrentUser, RecordNotVisible
 from .nipt_service import SharedNiptAnalysis
 from .report_code import (
@@ -709,6 +712,122 @@ def _import_gate_message(
     )
 
 
+# The gates an analyst acknowledges, each in its own dialog (reportSignOut.tsx), and the
+# request field that carries the fingerprint of the concerns that dialog showed.
+DRIFT_GATE = "evidence_drift"
+QC_GATE = "sample_qc"
+IMPORT_GATE = "import_incomplete"
+_FINGERPRINT_FIELDS = {
+    DRIFT_GATE: "drift_concerns_fingerprint",
+    QC_GATE: "qc_concerns_fingerprint",
+    IMPORT_GATE: "import_incomplete_concerns_fingerprint",
+}
+
+# What a drift entry holds of the review rather than of its drift: who saved it last, and
+# when. A note or a tag saved on a drifted classification changes them; its drift stays.
+_REVIEW_SAVED = ("classified_by", "classified_at")
+
+
+def _as_json(value: Any) -> Any:
+    """``value`` as JSON reads it back: as the refusal carries it, and as the record holds it."""
+    return json.loads(json.dumps(value, default=str))
+
+
+def concerns_fingerprint(gate: str, concerns: Mapping[str, Any]) -> str:
+    """The fingerprint of the concerns a gate's refusal lists for its dialog (TRACE-19).
+
+    SHA-256 over the canonical JSON of the gate and its concerns, each list of concerns in a
+    stable order (sorted by its items' canonical JSON), so the same concerns read in another
+    order give the same fingerprint. The concerns hold no time, and nothing that changes
+    while they do not (:func:`_drift_concerns`, :func:`_import_concerns`). The dialog sends
+    it back with the acknowledgement, and a sign-out whose concerns no longer have it is
+    refused with them as they are now: an acknowledgement covers the concerns it was shown.
+    """
+    canonical = {
+        key: sorted(value, key=canonical_json) if isinstance(value, list) else value
+        for key, value in _as_json(concerns).items()
+    }
+    return canonical_hash({"gate": gate, "concerns": canonical})
+
+
+def _drift_concerns(snapshot_body: Mapping[str, Any]) -> dict[str, Any]:
+    """The classifications the drift gate lists, the small variants' and the SVs'/CNVs' apart,
+    each as the snapshot freezes it but for who saved its review last and when."""
+    return _as_json(
+        {
+            "drifted": [
+                {key: value for key, value in entry.items() if key not in _REVIEW_SAVED}
+                for entry in snapshot_body["drift"]["drifted"]
+            ],
+            "structural_drifted": [
+                {key: value for key, value in entry.items() if key not in _REVIEW_SAVED}
+                for entry in snapshot_body[STRUCTURAL_DRIFT_SECTION]["drifted"]
+            ],
+        }
+    )
+
+
+def _import_concerns(
+    import_incomplete: Mapping[str, Any] | None, import_unfinished: Mapping[str, Any]
+) -> dict[str, Any]:
+    """What the import gate lists: the flag of an import that partly failed and the entries of
+    those that did not finish, each without the time it was written. The gate's message names
+    the time; the jobs and the datasets say which failure it is."""
+    return {
+        "import_incomplete": (
+            None
+            if import_incomplete is None
+            else {key: value for key, value in import_incomplete.items() if key != "at"}
+        ),
+        "import_unfinished": {
+            str(key): {field: value for field, value in dict(entry).items() if field != "at"}
+            for key, entry in import_unfinished.items()
+        },
+    }
+
+
+def _gate_refusal(
+    gate: str, detail: Mapping[str, Any], concerns: Mapping[str, Any], *, changed: bool = False
+) -> HTTPException:
+    """The 409 of a gate: what its dialog shows, with the fingerprint of its concerns, which
+    the dialog sends back with the acknowledgement. ``changed``: the request acknowledged
+    other concerns than the gate's now, which the refusal gives for a fresh acknowledgement."""
+    return HTTPException(
+        status_code=409,
+        detail={
+            "gate": gate,
+            **detail,
+            "concerns_fingerprint": concerns_fingerprint(gate, concerns),
+            "concerns_changed": changed,
+        },
+    )
+
+
+def _refuse_unless_shown(
+    gate: str,
+    acknowledged: str | None,
+    detail: Mapping[str, Any],
+    concerns: Mapping[str, Any],
+) -> None:
+    """Refuse an acknowledgement of ``gate`` that does not cover its concerns as they are now.
+
+    Without a fingerprint it says nothing of what it covers (422; the SPA, the only client,
+    always sends the one its dialog was given). One that is not the fingerprint of the
+    concerns now (one arose, went, or changed after the dialog listed them) gets the gate's
+    refusal again (409) with the concerns as they are now. Neither writes anything.
+    """
+    if not acknowledged:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"An acknowledgement must carry the fingerprint of the concerns its dialog "
+                f"showed ({_FINGERPRINT_FIELDS[gate]}, from the refusal that listed them)."
+            ),
+        )
+    if acknowledged != concerns_fingerprint(gate, concerns):
+        raise _gate_refusal(gate, detail, concerns, changed=True)
+
+
 # The family's package import that is queued, or is validating or writing its data. A job
 # names its family (``family_id``, committed with ``running``) before its import writes
 # anything of it, and an import whose job cannot record that stops without writing
@@ -1234,12 +1353,23 @@ async def sign_out_report(
     user: CurrentUser,
     acknowledge_drift: bool = False,
     drift_acknowledgement_reason: str | None = None,
+    drift_concerns_fingerprint: str | None = None,
     acknowledge_qc: bool = False,
     qc_acknowledgement_reason: str | None = None,
+    qc_concerns_fingerprint: str | None = None,
     acknowledge_import_incomplete: bool = False,
     import_incomplete_acknowledgement_reason: str | None = None,
+    import_incomplete_concerns_fingerprint: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
+    """Sign the family out: freeze, hash and append its report snapshot, past its gates.
+
+    Each gate an analyst may acknowledge (evidence drift, Sample QC, an incomplete import)
+    is acknowledged with a reason and the fingerprint of the concerns its refusal listed
+    (``*_concerns_fingerprint``, :func:`concerns_fingerprint`): the acknowledgement covers
+    those concerns, and a sign-out whose concerns are no longer those is refused with them as
+    they are now (TRACE-19). A gate without concerns needs no acknowledgement.
+    """
     context = await build_family_metadata_context(
         session, family_identifier=family_id, user=user, project_id=project_id
     )
@@ -1271,20 +1401,25 @@ async def sign_out_report(
     # One gate, one acknowledgement: the small-variant and the SV/CNV drift together.
     structural_drifted_count = snapshot_body[STRUCTURAL_DRIFT_SECTION]["drifted_count"]
     drifted_count = snapshot_body["drift"]["drifted_count"] + structural_drifted_count
+    structural_part = (
+        f" ({structural_drifted_count} of them structural-variant or CNV classifications)"
+        if structural_drifted_count
+        else ""
+    )
+    # The refusal lists the classifications it counts, as the other gates' refusals list
+    # their concerns, and as the acknowledgement covers them (TRACE-19): before, it was a
+    # sentence with their number, and its dialog named none of them.
+    drift_concerns = _drift_concerns(snapshot_body)
+    drift_refusal = {
+        "message": (
+            f"{drifted_count} classification(s){structural_part} have evidence that "
+            "changed, or that cannot be verified (no frozen snapshot), since they were "
+            "made. Re-review, or acknowledge the drift to sign out anyway."
+        ),
+        **drift_concerns,
+    }
     if drifted_count and not acknowledge_drift:
-        structural_part = (
-            f" ({structural_drifted_count} of them structural-variant or CNV classifications)"
-            if structural_drifted_count
-            else ""
-        )
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"{drifted_count} classification(s){structural_part} have evidence that "
-                "changed, or that cannot be verified (no frozen snapshot), since they were "
-                "made. Re-review, or acknowledge the drift to sign out anyway."
-            ),
-        )
+        raise _gate_refusal(DRIFT_GATE, drift_refusal, drift_concerns)
     # Overriding the drift gate is attested like the QC override: with a reason that is
     # frozen into the content hash and the audit event (#508). Before, it was a bare
     # confirm with nothing recorded about why stale evidence was signed.
@@ -1294,6 +1429,8 @@ async def sign_out_report(
             status_code=422,
             detail="A reason is required to acknowledge evidence drift.",
         )
+    if drifted_count:
+        _refuse_unless_shown(DRIFT_GATE, drift_concerns_fingerprint, drift_refusal, drift_concerns)
 
     # Sample-QC gate (after the drift gate; each gate guards an independent concern and
     # is acknowledged independently). Only a hard "fail" blocks (TF-06 H4 sample/pedigree
@@ -1317,25 +1454,27 @@ async def sign_out_report(
     # checks that failed, and the warnings beside them, which do not gate on their own.
     qc_failed = _failed_qc_checks(sample_qc)
     qc_warnings = _warning_qc_checks(sample_qc, qc_unverifiable)
+    qc_concerns = {
+        "failed_checks": qc_failed,
+        "unverifiable_checks": qc_unverifiable,
+        "nipt_failed_checks": nipt_failed,
+        "warning_checks": qc_warnings,
+    }
+    qc_refusal = {
+        "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable, nipt_failed),
+        "qc_summary": _qc_failure_summary(sample_qc, nipt_failed),
+        **qc_concerns,
+    }
     if qc_blocks and not acknowledge_qc:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "gate": "sample_qc",
-                "message": _qc_gate_message(qc_status, qc_hard_fail, qc_unverifiable, nipt_failed),
-                "qc_summary": _qc_failure_summary(sample_qc, nipt_failed),
-                "failed_checks": qc_failed,
-                "unverifiable_checks": qc_unverifiable,
-                "nipt_failed_checks": nipt_failed,
-                "warning_checks": qc_warnings,
-            },
-        )
+        raise _gate_refusal(QC_GATE, qc_refusal, qc_concerns)
     qc_reason = (qc_acknowledgement_reason or "").strip()
     if qc_blocks and acknowledge_qc and not qc_reason:
         raise HTTPException(
             status_code=422,
             detail="A reason is required to acknowledge a sample-integrity QC concern.",
         )
+    if qc_blocks:
+        _refuse_unless_shown(QC_GATE, qc_concerns_fingerprint, qc_refusal, qc_concerns)
 
     # Incomplete-import gate (after the QC gate, and like it acknowledged independently
     # with a reason frozen into the content hash). A family-package import that partly
@@ -1346,22 +1485,24 @@ async def sign_out_report(
     import_incomplete: Mapping[str, Any] | None = snapshot_body.get("import_incomplete")
     import_unfinished: Mapping[str, Any] = snapshot_body.get("import_unfinished") or {}
     import_gated = import_incomplete is not None or bool(import_unfinished)
+    import_concerns = _import_concerns(import_incomplete, import_unfinished)
+    import_refusal = {
+        "message": _import_gate_message(import_incomplete, import_unfinished),
+        "import_incomplete": import_incomplete,
+        "import_unfinished": import_unfinished,
+    }
     if import_gated and not acknowledge_import_incomplete:
-        raise HTTPException(
-            status_code=409,
-            detail={
-                "gate": "import_incomplete",
-                "message": _import_gate_message(import_incomplete, import_unfinished),
-                "import_incomplete": import_incomplete,
-                "import_unfinished": import_unfinished,
-            },
-        )
+        raise _gate_refusal(IMPORT_GATE, import_refusal, import_concerns)
     import_acknowledged = import_gated and acknowledge_import_incomplete
     import_reason = (import_incomplete_acknowledgement_reason or "").strip()
     if import_acknowledged and not import_reason:
         raise HTTPException(
             status_code=422,
             detail="A reason is required to acknowledge an incomplete import.",
+        )
+    if import_gated:
+        _refuse_unless_shown(
+            IMPORT_GATE, import_incomplete_concerns_fingerprint, import_refusal, import_concerns
         )
 
     # Per-family advisory lock: makes version selection + chain-head read + insert
@@ -1516,6 +1657,18 @@ async def sign_out_report(
             "import_incomplete_acknowledgement_reason": snapshot[
                 "import_incomplete_acknowledgement_reason"
             ],
+            # The fingerprint of the concerns each acknowledgement covered, which its dialog
+            # showed (TRACE-19): the concerns the record froze, which the sign-out checked
+            # against it (None: that gate held nothing to acknowledge).
+            "drift_concerns_fingerprint": (
+                concerns_fingerprint(DRIFT_GATE, drift_concerns) if snapshot["acknowledged_drift"] else None
+            ),
+            "qc_concerns_fingerprint": (
+                concerns_fingerprint(QC_GATE, qc_concerns) if snapshot["acknowledged_qc"] else None
+            ),
+            "import_incomplete_concerns_fingerprint": (
+                concerns_fingerprint(IMPORT_GATE, import_concerns) if import_acknowledged else None
+            ),
             # What the signed record could not capture (a failed lookup), so the trail
             # says the record is incomplete rather than leaving it to be noticed (#514).
             "not_captured": gaps,

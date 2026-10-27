@@ -301,7 +301,8 @@ async def _collect(base: Path, mp: pytest.MonkeyPatch) -> dict:
                 return jobs[-1]
 
             async def sign_out(family_id: str, body: dict) -> dict:
-                return _cap(await ac.post(f"/api/families/{family_id}/report/sign-out", json=body))
+                # As the sign-out dialogs do: each acknowledgement with its refusal's fingerprint.
+                return _cap(await _harness.sign_out(ac, f"/api/families/{family_id}/report/sign-out", body))
 
             async def held_run(job_id: str, where: str) -> asyncio.Task:
                 """Claim the job and run it, held at ``where``."""

@@ -754,6 +754,8 @@ describe('FamilyReportPage', () => {
   // Each concern names the samples its check read, as the backend words it (CLIN-8).
   const QC_FAILED_PAIR =
     'Samples CHILD and FATHER: recorded parent-child but genotypes look unrelated (kinship 0.010, IBS0 4.00%, 5000 sites) — possible sample swap or wrong parent.';
+  // The fingerprint of the concerns a refusal lists, which the dialog sends back (TRACE-19).
+  const QC_FINGERPRINT = 'a'.repeat(64);
   const QC_409 = {
     response: {
       status: 409,
@@ -769,6 +771,8 @@ describe('FamilyReportPage', () => {
           unverifiable_checks: [],
           nipt_failed_checks: [],
           warning_checks: [],
+          concerns_fingerprint: QC_FINGERPRINT,
+          concerns_changed: false,
         },
       },
     },
@@ -807,11 +811,79 @@ describe('FamilyReportPage', () => {
     expect(overrideBtn).toBeEnabled();
     fireEvent.click(overrideBtn);
 
-    // The override re-posts with acknowledge_qc + the reason.
+    // The override re-posts with acknowledge_qc + the reason, and the fingerprint of the
+    // concerns the dialog showed, which the acknowledgement covers (TRACE-19).
     await waitFor(() => expect(posts).toHaveLength(2));
+    expect(posts[0]).toMatchObject({ acknowledge_qc: false, qc_concerns_fingerprint: undefined });
     expect(posts[1]).toMatchObject({
       acknowledge_qc: true,
       qc_acknowledgement_reason: 'Repeat genotyping confirms identity',
+      qc_concerns_fingerprint: QC_FINGERPRINT,
+    });
+  });
+
+  // TRACE-19: a concern that arose after the dialog listed them is not acknowledged unseen. The
+  // server refuses the acknowledgement with the concerns as they are now; the dialog shows them,
+  // says why, and takes a fresh reason, which it sends with their fingerprint.
+  it('shows the concerns again for a fresh acknowledgement when they changed after the dialog listed them', async () => {
+    mockUnsignedFamily();
+    const motherFailed =
+      'Sample MOTHER: recorded female but genotypes indicate male (1.0% chrX het over 500 sites) — possible sample swap or mislabel.';
+    const changedFingerprint = 'b'.repeat(64);
+    const changed409 = {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            ...QC_409.response.data.detail,
+            failed_checks: [QC_FAILED_PAIR, motherFailed],
+            concerns_fingerprint: changedFingerprint,
+            concerns_changed: true,
+          },
+        },
+      },
+    };
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      if (posts.length === 1) return Promise.reject(QC_409);
+      if (posts.length === 2) return Promise.reject(changed409);
+      return Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Sample-integrity QC acknowledgement required/ });
+    expect(within(dialog).queryByRole('alert')).not.toBeInTheDocument();
+    fireEvent.change(within(dialog).getByLabelText(/Reason for signing out/), {
+      target: { value: 'The pair was re-genotyped.' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+
+    // Refused: the dialog lists the concerns as they are now and says why it is open again.
+    const notice = await within(dialog).findByRole('alert');
+    expect(notice).toHaveTextContent(
+      'Nothing was signed out: the concerns changed after this dialog listed them. They are listed again as they are now. Read them, and give your reason again.',
+    );
+    expect(posts[1]).toMatchObject({ acknowledge_qc: true, qc_concerns_fingerprint: QC_FINGERPRINT });
+    expect(
+      within(within(dialog).getByRole('list', { name: 'Sample QC checks that failed' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([QC_FAILED_PAIR, motherFailed]);
+    // The reason written for the concerns shown before is not carried over to these.
+    const reason = within(dialog).getByLabelText(/Reason for signing out/);
+    expect(reason).toHaveValue('');
+    expect(within(dialog).getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
+    expect(screen.queryByText(/Signed out as version/)).not.toBeInTheDocument();
+
+    fireEvent.change(reason, { target: { value: 'Both samples were re-genotyped; identities confirmed.' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+    await waitFor(() => expect(posts).toHaveLength(3));
+    expect(posts[2]).toMatchObject({
+      acknowledge_qc: true,
+      qc_acknowledgement_reason: 'Both samples were re-genotyped; identities confirmed.',
+      qc_concerns_fingerprint: changedFingerprint,
     });
   });
 
@@ -2655,10 +2727,45 @@ describe('FamilyReportPage', () => {
     );
   });
 
+  // The drift refusal lists the classifications it counts, as the signed record freezes them,
+  // with the fingerprint the dialog sends back (TRACE-19).
+  const DRIFT_FINGERPRINT = 'c'.repeat(64);
   const DRIFT_409 = {
     response: {
       status: 409,
-      data: { detail: '1 classification(s) have evidence that changed since they were made.' },
+      data: {
+        detail: {
+          gate: 'evidence_drift',
+          message:
+            '3 classification(s) (1 of them structural-variant or CNV classifications) have evidence that changed, or that cannot be verified (no frozen snapshot), since they were made. Re-review, or acknowledge the drift to sign out anyway.',
+          drifted: [
+            {
+              variant_id: '17-43000000-A-G',
+              acmg_class: 'acmg_class_4',
+              status: 'drifted',
+              clinvar_from: 'uncertain_significance',
+              clinvar_to: 'pathogenic',
+              changed: ['clinvar', 'annotations'],
+              evidence_from: null,
+              evidence_to: null,
+            },
+            { variant_id: '2-200-C-T', acmg_class: 'acmg_class_3', status: 'no_snapshot' },
+          ],
+          structural_drifted: [
+            {
+              variant_id: '1-7000-12000-DEL',
+              classification: 'likely_pathogenic',
+              cnv_class: 'likely_pathogenic',
+              status: 'drifted',
+              changed: ['gene_symbols'],
+              evidence_from: { source: 'needlr', gene_symbols: ['BRCA2'] },
+              evidence_to: { source: 'needlr', gene_symbols: ['BRCA2', 'N4BP2L1'] },
+            },
+          ],
+          concerns_fingerprint: DRIFT_FINGERPRINT,
+          concerns_changed: false,
+        },
+      },
     },
   };
 
@@ -2675,10 +2782,18 @@ describe('FamilyReportPage', () => {
     renderPage();
 
     fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    const dialog = await screen.findByRole('dialog', { name: /Evidence drift acknowledgement required/i });
+    expect(within(dialog).getByText(/have evidence that changed/)).toBeInTheDocument();
+    // Each classification the acknowledgement covers, as the signed version will list it.
     expect(
-      await screen.findByRole('dialog', { name: /Evidence drift acknowledgement required/i }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/evidence that changed since they were made/)).toBeInTheDocument();
+      within(within(dialog).getByRole('list', { name: 'Classifications whose evidence changed or cannot be verified' }))
+        .getAllByRole('listitem')
+        .map((item) => item.textContent),
+    ).toEqual([
+      '17-43000000-A-G — ClinVar uncertain_significance → pathogenic',
+      '2-200-C-T — no frozen evidence (not saved through ACMG classify)',
+      '1-7000-12000-DEL (structural variant) — genes BRCA2 → BRCA2, N4BP2L1',
+    ]);
     expect(screen.getByRole('button', { name: /Sign out anyway/ })).toBeDisabled();
 
     fireEvent.change(screen.getByLabelText(/despite the evidence drift/), {
@@ -2690,10 +2805,26 @@ describe('FamilyReportPage', () => {
     expect(posts[1]).toMatchObject({
       acknowledge_drift: true,
       drift_acknowledgement_reason: 'ClinVar update reviewed; classification unchanged',
+      drift_concerns_fingerprint: DRIFT_FINGERPRINT,
       acknowledge_qc: false,
     });
     expect(confirmSpy).not.toHaveBeenCalled();
     confirmSpy.mockRestore();
+  });
+
+  it('shows a 409 that names no gate as a refusal, never as the drift override', async () => {
+    // Before TRACE-19 the drift refusal was a plain sentence, and any 409 without a gate opened
+    // its dialog: an acknowledgement with nothing listed to cover.
+    mockUnsignedFamily();
+    apiMock.post.mockRejectedValue({
+      response: { status: 409, data: { detail: 'Refused for a reason this page does not know.' } },
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    expect(await screen.findByText(/Not signed out\./)).toBeInTheDocument();
+    expect(screen.getByText(/Refused for a reason this page does not know\./)).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 
   it('carries the drift reason through a following Sample-QC override', async () => {
@@ -2719,11 +2850,76 @@ describe('FamilyReportPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
 
     await waitFor(() => expect(posts).toHaveLength(3));
+    // Each acknowledgement travels on with the fingerprint of what its own dialog showed.
     expect(posts[2]).toMatchObject({
       acknowledge_drift: true,
       drift_acknowledgement_reason: 'drift reviewed',
+      drift_concerns_fingerprint: DRIFT_FINGERPRINT,
       acknowledge_qc: true,
       qc_acknowledgement_reason: 'identity confirmed',
+      qc_concerns_fingerprint: QC_FINGERPRINT,
+    });
+  });
+
+  it('opens the drift dialog again when the drift changed while the QC dialog was open', async () => {
+    // The drift was acknowledged, the QC dialog is open, and another classification drifts:
+    // confirming the QC is refused at the drift gate, whose dialog lists the drift as it is now.
+    // The QC acknowledgement already given travels on, and its concerns are checked again.
+    mockUnsignedFamily();
+    const changedDriftFingerprint = 'd'.repeat(64);
+    const driftChanged409 = {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            ...DRIFT_409.response.data.detail,
+            drifted: [
+              ...DRIFT_409.response.data.detail.drifted,
+              { variant_id: '3-300-G-A', acmg_class: 'acmg_class_5', status: 'no_snapshot' },
+            ],
+            concerns_fingerprint: changedDriftFingerprint,
+            concerns_changed: true,
+          },
+        },
+      },
+    };
+    const posts: Array<Record<string, unknown>> = [];
+    apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+      posts.push(body);
+      if (posts.length === 1) return Promise.reject(DRIFT_409);
+      if (posts.length === 2) return Promise.reject(QC_409);
+      if (posts.length === 3) return Promise.reject(driftChanged409);
+      return Promise.resolve({ data: { version: 1 } });
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+    fireEvent.change(await screen.findByLabelText(/despite the evidence drift/), {
+      target: { value: 'drift reviewed' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+    fireEvent.change(await screen.findByLabelText(/despite the QC concern/), {
+      target: { value: 'identity confirmed' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Sign out anyway/ }));
+
+    const dialog = await screen.findByRole('dialog', { name: /Evidence drift acknowledgement required/i });
+    expect(within(dialog).getByRole('alert')).toHaveTextContent(/the concerns changed after this dialog listed them/);
+    expect(within(dialog).getByText('3-300-G-A')).toBeInTheDocument();
+    expect(within(dialog).getByLabelText(/despite the evidence drift/)).toHaveValue('');
+    fireEvent.change(within(dialog).getByLabelText(/despite the evidence drift/), {
+      target: { value: 'all three drifts reviewed' },
+    });
+    fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+
+    await waitFor(() => expect(posts).toHaveLength(4));
+    expect(posts[3]).toMatchObject({
+      acknowledge_drift: true,
+      drift_acknowledgement_reason: 'all three drifts reviewed',
+      drift_concerns_fingerprint: changedDriftFingerprint,
+      acknowledge_qc: true,
+      qc_acknowledgement_reason: 'identity confirmed',
+      qc_concerns_fingerprint: QC_FINGERPRINT,
     });
   });
 
@@ -2750,6 +2946,7 @@ describe('FamilyReportPage', () => {
       imported_datasets: ['coverage'],
       job_id: IMPORT_JOB_ID,
     };
+    const IMPORT_FINGERPRINT = 'e'.repeat(64);
     const IMPORT_409 = {
       response: {
         status: 409,
@@ -2759,6 +2956,8 @@ describe('FamilyReportPage', () => {
             message:
               "This family's data is incomplete: the package import (2026-09-12T10:14:00+00:00) failed for snv, sv (coverage did import). Re-run the import to complete it, or acknowledge with a reason to sign out anyway.",
             import_incomplete: IMPORT_FLAG,
+            concerns_fingerprint: IMPORT_FINGERPRINT,
+            concerns_changed: false,
           },
         },
       },
@@ -2828,6 +3027,7 @@ describe('FamilyReportPage', () => {
       expect(posts[1]).toMatchObject({
         acknowledge_import_incomplete: true,
         import_incomplete_acknowledgement_reason: REASON,
+        import_incomplete_concerns_fingerprint: IMPORT_FINGERPRINT,
       });
       await waitFor(() =>
         expect(
@@ -2866,10 +3066,58 @@ describe('FamilyReportPage', () => {
       expect(posts[3]).toMatchObject({
         acknowledge_drift: true,
         drift_acknowledgement_reason: 'drift reviewed',
+        drift_concerns_fingerprint: DRIFT_FINGERPRINT,
         acknowledge_qc: true,
         qc_acknowledgement_reason: 'identity confirmed',
+        qc_concerns_fingerprint: QC_FINGERPRINT,
         acknowledge_import_incomplete: true,
         import_incomplete_acknowledgement_reason: REASON,
+        import_incomplete_concerns_fingerprint: IMPORT_FINGERPRINT,
+      });
+    });
+
+    it('lists the failed datasets as they are now when another failed after the dialog listed them', async () => {
+      mockIncompleteFamily();
+      const changedFingerprint = 'f'.repeat(64);
+      const changed409 = {
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              ...IMPORT_409.response.data.detail,
+              message:
+                "This family's data is incomplete: the package import (2026-09-12T11:02:00+00:00) failed for coverage, snv, sv. Re-run the import to complete it, or acknowledge with a reason to sign out anyway.",
+              import_incomplete: { ...IMPORT_FLAG, failed_datasets: ['coverage', 'snv', 'sv'], imported_datasets: [] },
+              concerns_fingerprint: changedFingerprint,
+              concerns_changed: true,
+            },
+          },
+        },
+      };
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        if (posts.length === 1) return Promise.reject(IMPORT_409);
+        if (posts.length === 2) return Promise.reject(changed409);
+        return Promise.resolve({ data: { version: 1 } });
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', { name: /Incomplete import acknowledgement required/i });
+      fireEvent.change(within(dialog).getByLabelText(/despite the incomplete import/), { target: { value: REASON } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(/Nothing was signed out/);
+      expect(within(dialog).getByText('Failed to import: coverage, snv, sv')).toBeInTheDocument();
+      expect(within(dialog).getByLabelText(/despite the incomplete import/)).toHaveValue('');
+      fireEvent.change(within(dialog).getByLabelText(/despite the incomplete import/), { target: { value: REASON } });
+      fireEvent.click(within(dialog).getByRole('button', { name: /Sign out anyway/ }));
+      await waitFor(() => expect(posts).toHaveLength(3));
+      expect(posts[1]).toMatchObject({ import_incomplete_concerns_fingerprint: IMPORT_FINGERPRINT });
+      expect(posts[2]).toMatchObject({
+        acknowledge_import_incomplete: true,
+        import_incomplete_concerns_fingerprint: changedFingerprint,
       });
     });
 

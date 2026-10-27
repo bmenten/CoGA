@@ -79,6 +79,12 @@ def _cap(resp) -> dict:
     return out
 
 
+def _shown_fingerprint(refusal: dict) -> str | None:
+    """The fingerprint of the concerns a captured refusal listed: what its dialog sends back."""
+    detail = (refusal.get("json") or {}).get("detail")
+    return detail.get("concerns_fingerprint") if isinstance(detail, dict) else None
+
+
 async def _import_demo(root: Path) -> dict:
     from backend.app.core.clickhouse import init_clickhouse_schema
     from backend.app.core.postgres import get_postgres_sessionmaker, init_postgres_schema
@@ -229,7 +235,9 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
             reader_id, bearer = await _add_reader(out["import"]["project_id"], f"{panel}-reader@example.org")
             as_reader = {"Authorization": f"Bearer {bearer}"}
             r["reader_family"] = _cap(await ac.get(family, headers=as_reader))
-            r["reader_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY, headers=as_reader))
+            r["reader_signout"] = _cap(
+                await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY, headers=as_reader)
+            )
             out["versions_after_reader"] = await _signed_versions(family_id)
         finally:
             # Nothing left in a scope another module could read, and no account.
@@ -244,6 +252,8 @@ async def _collect(root: Path, family_id: str, panel: str) -> dict:
 async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> None:
     """Read the NIPT page, tag two variants for the report, sign out through the gates, and
     read the record, the check and the chain back; then a record of an older build."""
+    from backend.tests.e2e import _harness
+
     # What the NIPT page shows.
     r["summary"] = _cap(await ac.get(f"{family}/nipt/summary"))
     r["variants"] = _cap(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
@@ -267,15 +277,24 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     r["unheld_tag_view"] = _cap(await ac.get(nipt_variants, params={"review_tag": "e2e-no-such-tag"}))
 
     # The gates, one by one: the drift of the unclassified reported variants, then the
-    # Sample QC (the demo's paternity cannot be verified).
+    # Sample QC (the demo's paternity cannot be verified). Each acknowledgement carries the
+    # fingerprint of the concerns its refusal listed, as its dialog sends it (TRACE-19).
     r["refused_drift"] = _cap(await ac.post(f"{family}/report/sign-out", json={}))
-    r["refused_qc"] = _cap(
+    drift_acknowledged = {
+        **{key: SIGN_OUT_BODY[key] for key in ("acknowledge_drift", "drift_acknowledgement_reason")},
+        "drift_concerns_fingerprint": _shown_fingerprint(r["refused_drift"]),
+    }
+    r["refused_qc"] = _cap(await ac.post(f"{family}/report/sign-out", json=drift_acknowledged))
+    r["signout"] = _cap(
         await ac.post(
             f"{family}/report/sign-out",
-            json={key: SIGN_OUT_BODY[key] for key in ("acknowledge_drift", "drift_acknowledgement_reason")},
+            json={
+                **SIGN_OUT_BODY,
+                **drift_acknowledged,
+                "qc_concerns_fingerprint": _shown_fingerprint(r["refused_qc"]),
+            },
         )
     )
-    r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
     version = (r["signout"]["json"] or {}).get("version")
     r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
     r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
@@ -295,7 +314,7 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     mp = pytest.MonkeyPatch()
     mp.setattr(rss, "build_report_snapshot", _old_build)
     try:
-        r["old_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
     finally:
         mp.undo()
     old_version = (r["old_signout"]["json"] or {}).get("version")
@@ -305,7 +324,7 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
         await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
     )
     # The family ends on a record of today's build.
-    r["final_signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+    r["final_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
 
 
 @pytest.fixture(scope="module")
@@ -358,7 +377,16 @@ def test_the_nipt_page_serves_the_verdicts_the_record_freezes(signed) -> None:
 def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     for variant_id in (DE_NOVO, PATERNAL, ARTIFACT):
         _ok(signed, f"review_{variant_id}")
-    assert signed["responses"]["refused_drift"]["status"] == 409
+    refused_drift = signed["responses"]["refused_drift"]
+    assert refused_drift["status"] == 409, refused_drift["text"]
+    drift = refused_drift["json"]["detail"]
+    # The drift refusal lists the classifications it counts, as its dialog shows them: the
+    # reported variants, which hold no classification and so no frozen evidence (TRACE-19).
+    assert drift["gate"] == "evidence_drift"
+    assert {(entry["variant_id"], entry["status"]) for entry in drift["drifted"]} >= {
+        (DE_NOVO, "no_snapshot"),
+        (PATERNAL, "no_snapshot"),
+    }
     refused = signed["responses"]["refused_qc"]
     assert refused["status"] == 409, refused["text"]
     detail = refused["json"]["detail"]
@@ -375,6 +403,10 @@ def test_the_sample_qc_gate_holds_and_no_nipt_check_failed(signed) -> None:
     assert event["after"]["qc_unverifiable"] == detail["unverifiable_checks"]
     assert event["after"]["nipt_failed_checks"] == detail["nipt_failed_checks"]
     assert event["after"]["qc_warnings"] == detail["warning_checks"]
+    # And the fingerprint of the concerns each dialog showed, which its acknowledgement
+    # carried and covered (TRACE-19).
+    assert event["after"]["qc_concerns_fingerprint"] == detail["concerns_fingerprint"]
+    assert event["after"]["drift_concerns_fingerprint"] == drift["concerns_fingerprint"]
 
 
 # ------------------------------------------------------------------ the signed record

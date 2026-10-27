@@ -621,9 +621,10 @@ def test_report_signout_real_writer_chain_and_read_verification(monkeypatch) -> 
     async def _stub_snapshot(session, *, family_id, user, project_id=None):
         # Minimal snapshot_body with the keys sign_out_report reads — incl. a large
         # integral float to exercise the JSONB-normalisation fix through the real writer.
+        # The drift lists too: the drift gate's refusal lists them (TRACE-19).
         return {
-            "drift": {"drifted_count": 0},
-            "structural_drift": {"drifted_count": 0},
+            "drift": {"drifted_count": 0, "drifted": []},
+            "structural_drift": {"drifted_count": 0, "drifted": []},
             "sample_qc": {"overall_status": "pass"},
             "software": {"version": "0.0.0-test", "git_sha": "deadbeef"},
             "reported_variants": [],

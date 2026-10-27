@@ -30,6 +30,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from types import SimpleNamespace
+from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -210,7 +211,10 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                 await s.rollback()
             assert no_reason.value.status_code == 422
 
-            # (c) Acknowledged with a reason: signed out as version 2, on the same chain.
+            # (c) Acknowledged with a reason and the fingerprint of the flag the refusal listed,
+            # as its dialog sends it (TRACE-19): signed out as version 2, on the same chain.
+            # Read back through JSONB, the flag still has the fingerprint the refusal gave.
+            shown: Any = refused.value.detail
             async with sm() as s:
                 signed = await rss.sign_out_report(
                     s,
@@ -218,6 +222,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                     user=user,
                     acknowledge_import_incomplete=True,
                     import_incomplete_acknowledgement_reason=_REASON,
+                    import_incomplete_concerns_fingerprint=shown["concerns_fingerprint"],
                 )
             assert signed["version"] == 2
 
@@ -272,6 +277,7 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
                 assert after["import_incomplete"] == flag
                 assert after["acknowledged_import_incomplete"] is True
                 assert after["import_incomplete_acknowledgement_reason"] == _REASON
+                assert after["import_incomplete_concerns_fingerprint"] == shown["concerns_fingerprint"]
 
             # (d) A re-import that imports the failed datasets again clears the flag (the
             # real helper); one that completes without them leaves it. The page check sees

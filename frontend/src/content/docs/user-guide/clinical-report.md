@@ -57,7 +57,7 @@ its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
    deletion of its variants, is changing its data. Sign out once it has finished; there is no override.
 3. **Evidence drift**, of a small variant, a structural variant or a CNV, including a reported variant
    that was never saved through **ACMG classify** or **ACMG (CNV)** (its evidence cannot be checked):
-   re-review, or acknowledge with a reason.
+   re-review, or acknowledge with a reason. The dialog lists each classification and what moved.
 4. **Sample QC** that failed, or could not confirm the pedigree or a sample's identity, and for a NIPT
    family a NIPT quality check that failed: acknowledge with a reason. The dialog lists every concern
    before you write it, under its own heading: the checks that failed, the checks that could not run,
@@ -71,6 +71,10 @@ its **report code** (for example `7KQM2X-2-4PHT`). It stops for five things:
    what an upload brought. After a single upload or a deletion that did not finish, upload or import
    again with **overwrite** what the warning names; after an administrator's deletion of a sample
    that did not finish, deleting the sample again also removes what the warning names of it.
+
+Your acknowledgement covers exactly what its dialog lists. If the concerns change before you click
+**Sign out anyway**, nothing is signed out: the dialog lists them as they are now, says the concerns
+changed, and asks for your reason again.
 
 A PGT embryo call whose phasing QC does not meet its thresholds (*⚠ phasing QC* on the family page)
 does not stop the sign-out: the call stands, you decide on it, and the signed version records the

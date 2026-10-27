@@ -174,8 +174,9 @@ async def _collect(root: Path) -> dict:
             "acknowledge_qc": True,
             "qc_acknowledgement_reason": "e2e validation",
         }
-        r["signout1"] = _cap(await ac.post(f"/api/families/{FAMILY}/report/sign-out", json=signout_body))
-        r["signout2"] = _cap(await ac.post(f"/api/families/{FAMILY}/report/sign-out", json=signout_body))
+        signout_url = f"/api/families/{FAMILY}/report/sign-out"
+        r["signout1"] = _cap(await _harness.sign_out(ac, signout_url, signout_body))
+        r["signout2"] = _cap(await _harness.sign_out(ac, signout_url, signout_body))
         r["integrity_signouts"] = _cap(
             await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": FAMILY})
         )

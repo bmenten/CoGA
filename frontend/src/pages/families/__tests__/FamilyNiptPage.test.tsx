@@ -563,6 +563,8 @@ describe('FamilyNiptPage', () => {
                 unverifiable_checks: [],
                 nipt_failed_checks: [concern],
                 warning_checks: [],
+                concerns_fingerprint: '9'.repeat(64),
+                concerns_changed: false,
               },
             },
           },
@@ -580,10 +582,79 @@ describe('FamilyNiptPage', () => {
       fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
 
       expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      // With the fingerprint of the concerns the dialog showed, which it covers (TRACE-19).
       expect(apiMock.post).toHaveBeenLastCalledWith(
         '/families/NIPT001/report/sign-out',
-        expect.objectContaining({ acknowledge_qc: true, qc_acknowledgement_reason: 'Plasma re-drawn; identity confirmed.' }),
+        expect.objectContaining({
+          acknowledge_qc: true,
+          qc_acknowledgement_reason: 'Plasma re-drawn; identity confirmed.',
+          qc_concerns_fingerprint: '9'.repeat(64),
+        }),
       );
+    });
+
+    it('lists the NIPT checks as they are now when another failed after the dialog listed them (TRACE-19)', async () => {
+      // The reason was written for the plasma's check; the fetal-sex check failed before it was
+      // sent. The sign-out is refused with the checks as they are now, which the dialog lists
+      // for a fresh reason: the first one does not cover a check it was not written for.
+      serve();
+      const plasma =
+        'Sample CFDNA1 (maternal plasma): male DNA (chrY at the autosomal level, chrX low): this sample cannot be maternal plasma.';
+      const fetalSex = 'NIPT fetal sex: the two signals disagree.';
+      const refusal = (checks: string[], fingerprint: string, changed: boolean) => ({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              gate: 'sample_qc',
+              message:
+                'A NIPT quality check failed. Resolve each concern listed, or acknowledge them with a reason to sign out anyway.',
+              qc_summary: { overall_status: 'pass', messages: checks },
+              failed_checks: [],
+              unverifiable_checks: [],
+              nipt_failed_checks: checks,
+              warning_checks: [],
+              concerns_fingerprint: fingerprint,
+              concerns_changed: changed,
+            },
+          },
+        },
+      });
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        if (posts.length === 1) return Promise.reject(refusal([plasma], '9'.repeat(64), false));
+        if (posts.length === 2) return Promise.reject(refusal([fetalSex, plasma], '8'.repeat(64), true));
+        return Promise.resolve({ data: { version: 1 } });
+      });
+      renderWithReport();
+
+      fireEvent.click(await screen.findByRole('button', { name: 'Sign out NIPT analysis' }));
+      const dialog = await screen.findByRole('dialog', { name: 'Sample-integrity QC acknowledgement required' });
+      const reason = () => within(dialog).getByLabelText(/Reason for signing out despite the QC concern/);
+      fireEvent.change(reason(), { target: { value: 'Plasma re-drawn; identity confirmed.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+
+      expect(await within(dialog).findByRole('alert')).toHaveTextContent(
+        'Nothing was signed out: the concerns changed after this dialog listed them.',
+      );
+      expect(
+        within(within(dialog).getByRole('list', { name: 'NIPT quality checks that failed' }))
+          .getAllByRole('listitem')
+          .map((item) => item.textContent),
+      ).toEqual([fetalSex, plasma]);
+      expect(reason()).toHaveValue('');
+      expect(screen.queryByText(/Report page \/families\/NIPT001/)).not.toBeInTheDocument();
+
+      fireEvent.change(reason(), { target: { value: 'Plasma re-drawn; fetal sex read from the scan.' } });
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out anyway' }));
+      expect(await screen.findByText(/Report page \/families\/NIPT001\/report\?version=1/)).toBeInTheDocument();
+      // No fingerprint before a dialog showed concerns, then the one each dialog showed.
+      expect(posts.map((body) => body.qc_concerns_fingerprint)).toEqual([undefined, '9'.repeat(64), '8'.repeat(64)]);
+      expect(posts[2]).toMatchObject({
+        acknowledge_qc: true,
+        qc_acknowledgement_reason: 'Plasma re-drawn; fetal sex read from the scan.',
+      });
     });
 
     it('lists the checks that could not run beside the failures, each group under its heading (CLIN-58)', async () => {

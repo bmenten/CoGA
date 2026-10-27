@@ -88,7 +88,7 @@ async def _collect(root: Path, family_id: str, names: dict[str, str]) -> dict:
         r["after_sex"] = _cap(await ac.get(f"{family}/pgt-analysis"))
         r["tracks_after_sex"] = _cap(await ac.get(f"{family}/haplotypes", params=haplotypes))
         r["genome_after_sex"] = _cap(await ac.get(f"{family}/haplotypes/batch", params={"chr": ["1"]}))
-        r["signout"] = _cap(await ac.post(f"{family}/report/sign-out", json=SIGN_OUT_BODY))
+        r["signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
         version = (r["signout"]["json"] or {}).get("version")
         r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
         r["check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))

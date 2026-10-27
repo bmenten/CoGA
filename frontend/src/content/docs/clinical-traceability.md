@@ -247,6 +247,15 @@ sample, the pair, the child with its parents or the NIPT father its check is abo
 the audit trail records each group as the dialog showed it. Fetal sex and the NIPT maternal lineage are
 read from the cfDNA as a whole and name no sample.
 
+The evidence drift dialog lists each classification it stops for, as the signed version lists it: the
+variant and what moved, or that its evidence was never frozen.
+
+Your acknowledgement covers exactly the concerns its dialog lists. If they change before you click
+**Sign out anyway** (another check fails, another classification drifts, another dataset fails to
+import), nothing is signed out: the dialog lists the concerns as they are now, says *Nothing was signed
+out: the concerns changed after this dialog listed them*, and asks for your reason again. The audit
+trail records a fingerprint of the concerns each acknowledgement covered.
+
 An import or upload that starts while a sign-out records the family either waits for the sign-out to
 finish or refuses the sign-out, so a signed version never mixes the family's data from before and after
 a write.

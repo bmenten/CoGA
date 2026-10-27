@@ -111,9 +111,11 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
         return SimpleNamespace(family_uuid=family_uuid, family_id=family_identifier, assembly_name="GRCh38")
 
     async def _snapshot_body(session: Any, *, family_id: str, user: Any, project_id: Any = None) -> dict[str, Any]:
+        # The keys sign_out_report reads, the drift lists its drift gate's refusal lists
+        # among them (TRACE-19).
         return {
-            "drift": {"drifted_count": 0},
-            "structural_drift": {"drifted_count": 0},
+            "drift": {"drifted_count": 0, "drifted": []},
+            "structural_drift": {"drifted_count": 0, "drifted": []},
             "sample_qc": {"overall_status": "pass"},
             "software": {"version": "0.0.0-test", "git_sha": "trace13"},
             "reported_variants": [],

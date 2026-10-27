@@ -2881,15 +2881,20 @@ export interface ReportSignoutListOut {
  *
  * Evidence drift, a failing sample-integrity QC and an incomplete import (a family
  * package import that partly failed) must each be explicitly acknowledged, and each
- * acknowledgement requires a reason.
+ * acknowledgement requires a reason and the fingerprint of the concerns it covers: the
+ * ``concerns_fingerprint`` of the 409 that listed them (TRACE-19). A sign-out whose
+ * concerns are no longer those is refused with them as they are now.
  */
 export interface ReportSignoutRequest {
   acknowledge_drift?: boolean;
   drift_acknowledgement_reason?: string | null;
+  drift_concerns_fingerprint?: string | null;
   acknowledge_qc?: boolean;
   qc_acknowledgement_reason?: string | null;
+  qc_concerns_fingerprint?: string | null;
   acknowledge_import_incomplete?: boolean;
   import_incomplete_acknowledgement_reason?: string | null;
+  import_incomplete_concerns_fingerprint?: string | null;
 }
 
 export interface ReportSignoutSummary {
