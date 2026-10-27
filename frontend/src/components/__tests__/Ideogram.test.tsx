@@ -170,6 +170,31 @@ test('names the cytoband under the pointer, without the chr prefix', () => {
   expect(screen.queryByText('1p1')).not.toBeInTheDocument();
 });
 
+// Found while fixing ENG-7 (#1019): the ideogram named the mitochondrion by the route's key
+// ("Chromosome MT ideogram"), and its tooltip joined that key to the band's stored name: "MT"
+// on GRCh38, whose chrM band has no name, and "MTchrM" on T2T, whose band is named chrM. It
+// is M without its chr, as the genome strip writes it, and its band is chrM, as the header
+// names the chromosome.
+test.each([
+  ['a band without a name (GRCh38)', ''],
+  ['a band named after the chromosome (T2T)', 'chrM'],
+])('names the mitochondrion M and its band chrM, never MT: %s', (_label, bandName) => {
+  answer({ chr: 'M', size: 16_569, bands: [{ name: bandName, start: 0, end: 16_569, stain: 'gneg' }] });
+  const { container } = renderIdeogram({ chrom: 'MT', regionStart: 0, regionEnd: 16_569 });
+
+  expect(
+    screen.getByRole('img', { name: 'Chromosome M ideogram, whole chromosome in view' }),
+  ).toBeInTheDocument();
+  fireEvent.mouseMove(container.querySelector('g[clip-path] rect') as Element, { clientX: 10, clientY: 10 });
+  expect(document.body.querySelector('.viz-tooltip')?.textContent).toBe('chrM');
+});
+
+test('names a loading mitochondrion M, not MT', () => {
+  answer(undefined);
+  renderIdeogram({ chrom: 'MT', regionStart: 0, regionEnd: 16_569 });
+  expect(screen.getByRole('img', { name: 'Chromosome M ideogram: loading' })).toBeInTheDocument();
+});
+
 test('names the chromosome and the region highlighted on it for a screen reader (#529)', () => {
   answer(CHROMOSOME);
   const region = (regionStart: number, regionEnd: number) => (

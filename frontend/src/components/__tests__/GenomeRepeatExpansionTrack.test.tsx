@@ -192,6 +192,27 @@ describe('GenomeRepeatExpansionTrack', () => {
     expect(baseline).toHaveAttribute('stroke', '#e5e7eb');
   });
 
+  // Found while fixing ENG-7 (#1019): a locus was placed on the layout's chromosome named as
+  // its own without `chr`, so a locus on the mitochondrion stored as chrM or M found no `MT`
+  // and was not drawn. MT, M, chrM and chrMT are one chromosome, as the API reads them.
+  it.each(['chrM', 'M', 'MT', 'chrMT'])('places a locus on the mitochondrion stored as %s', (chr) => {
+    serve({
+      data: { items: [locus({ locus_id: 'MT_LOCUS', display_name: 'MT_LOCUS', chr, start: 3_000, end: 3_010 })] },
+    });
+    const { container } = render(
+      track({
+        chroms: ['1', 'MT'],
+        layout: { offsets: { '1': 0, MT: 100_000 }, lengths: { '1': 100_000, MT: 20_000 }, total: 120_000 },
+      }),
+    );
+
+    // 120 kb on 300 px: the locus's midpoint, 103,005 bp along, is 257.5 px; the marker is 4 px wide.
+    expect(markers(container).map((marker) => marker.x)).toEqual([255.5125]);
+    expect(
+      screen.getByRole('img', { name: 'Repeat loci of S1 in view: 1, 1 pathogenic (MT_LOCUS)' }),
+    ).toBeInTheDocument();
+  });
+
   it('keeps markers at the very ends of the genome fully inside the track', () => {
     serve({
       data: {

@@ -14,7 +14,9 @@ vi.mock('../../../lib/api', () => ({
   default: apiMock,
 }));
 
-vi.mock('../../../lib/reference', () => ({
+// The hook is stubbed; the assembly-name rules the ACMG modal's links read stay the real ones.
+vi.mock('../../../lib/reference', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../lib/reference')>()),
   useFamilyReference: () => ({
     assemblyName: 'GRCh38',
     assemblyVersion: 'p14',

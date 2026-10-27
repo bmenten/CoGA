@@ -1634,4 +1634,201 @@ describe('FamilySmallVariantsPage', () => {
       expect(screen.queryByText(/Loading variants/i)).not.toBeInTheDocument();
     });
   });
+
+  // Found while fixing #1012: saved searches are each user's own, and this page and the NIPT page
+  // share them. A search saved on the NIPT page carries the NIPT list's own filters, and this page
+  // sent them: a NIPT inheritance view failed the whole search, the fetal de novo view was read as
+  // de novo / dominant, and the NIPT-only filters were chipped and counted though the list never
+  // applied them.
+  describe('a search saved on the NIPT page, or a link with its filters', () => {
+    // What the server reads as an inheritance (clickhouse_variant_queries: its modes, and the
+    // spellings it reads as one of them). It refuses any other, and with it the whole search.
+    const LIST_INHERITANCE = new Set([
+      'de_novo_dominant',
+      'recessive_homozygous',
+      'compound_het',
+      'x_linked',
+      'recessive',
+      'compound_heterozygous',
+      'recessive_hom',
+      'homozygous_recessive',
+      'dominant',
+      'xlinked',
+      'x_linked_recessive',
+    ]);
+    const NIPT_ONLY = ['inheritance', 'category', 'min_confidence', 'include_not_inherited', 'de_novo_priority'];
+    const NIPT_DE_NOVO = {
+      _id: 'preset-nipt',
+      owner: 'reviewer',
+      name: 'NIPT de novo, confident',
+      description: null,
+      filters: {
+        inheritance: 'de_novo',
+        impact: ['HIGH', 'MODERATE'],
+        max_gnomad_af: '0.01',
+        clinvar_overrides_frequency: 'true',
+        category: ['1'],
+        min_confidence: '0.9',
+        de_novo_priority: 'medium',
+      },
+      sample_filters: {},
+      sample_templates: {},
+      created_at: '2026-10-27T10:00:00Z',
+      updated_at: '2026-10-27T10:00:00Z',
+    };
+
+    const serve = () => {
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return Promise.resolve({
+            data: {
+              members: [
+                { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' },
+                { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
+                { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
+              ],
+              projects: [],
+            },
+          });
+        }
+        if (url === '/panels') return Promise.resolve({ data: [] });
+        if (url === '/families/F1/small-variant-filter-presets') return Promise.resolve({ data: [NIPT_DE_NOVO] });
+        if (url === '/families/F1/small-variant-tags') return Promise.resolve({ data: [] });
+        if (url.startsWith('/families/F1/small-variants')) {
+          const inheritance = new URLSearchParams(url.split('?')[1] ?? '').get('inheritance');
+          if (inheritance && !LIST_INHERITANCE.has(inheritance)) {
+            return Promise.reject(
+              Object.assign(new Error('HTTP 400'), {
+                response: { status: 400, data: { detail: 'Unsupported small-variant inheritance filter' } },
+              }),
+            );
+          }
+          return Promise.resolve({
+            data: {
+              variants: [
+                { _id: 'v1', chr: '1', start: 10, end: 10, type: 'SNV', gene: 'ALPHA', ref: 'C', alt: 'T', genotypes: [] },
+              ],
+              total: 1,
+            },
+          });
+        }
+        return Promise.resolve({ data: {} });
+      });
+    };
+
+    const renderAt = (path: string) =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    const requests = (prefix: string) =>
+      apiMock.get.mock.calls
+        .map(([url]) => url as string)
+        .filter((url) => url.startsWith(prefix))
+        .map((url) => new URLSearchParams(url.split('?')[1]));
+    const listRequests = () => requests('/families/F1/small-variants?');
+
+    it('sends none of a NIPT saved search’s own filters, shows no chip or count for them, and names them once', async () => {
+      serve();
+      renderAt('/families/F1/small-variants');
+
+      await screen.findByRole('option', { name: 'NIPT de novo, confident' });
+      fireEvent.change(screen.getByLabelText('Preset or saved search'), { target: { value: 'saved:preset-nipt' } });
+      fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+
+      await waitFor(() => expect(listRequests().at(-1)?.get('max_gnomad_af')).toBe('0.01'));
+      const params = listRequests().at(-1) ?? new URLSearchParams();
+      NIPT_ONLY.forEach((name) => expect(params.has(name), name).toBe(false));
+      expect(params.getAll('impact')).toEqual(['HIGH', 'MODERATE']);
+      // The search runs, with every filter the list applies.
+      expect(await screen.findByText('Showing 1')).toBeInTheDocument();
+      expect(screen.queryByText('Unable to load small variants')).not.toBeInTheDocument();
+      // Only what the list applies is chipped and counted: the impacts and the gnomAD AF.
+      expect(screen.getByRole('button', { name: 'Impact: HIGH' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Inheritance/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Category/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^Min confidence/ })).not.toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: /^De novo priority/ })).not.toBeInTheDocument();
+      expect(screen.getByText('Active filters 3')).toBeInTheDocument();
+      // Said once, beside the chips.
+      expect(
+        screen.getAllByText(
+          'The small-variant list does not apply this search’s “De novo in the fetus” inheritance, maternal/fetal category, minimum-confidence and de novo priority filters.',
+        ),
+      ).toHaveLength(1);
+
+      // The CSV export reads the same search as the list.
+      fireEvent.click(screen.getByRole('button', { name: 'Download CSV' }));
+      await waitFor(() => expect(requests('/families/F1/small-variants/export?')).toHaveLength(1));
+      const [exported] = requests('/families/F1/small-variants/export?');
+      NIPT_ONLY.forEach((name) => expect(exported.has(name), name).toBe(false));
+      expect(exported.getAll('impact')).toEqual(['HIGH', 'MODERATE']);
+
+      // Save current saves the search as it is, the NIPT list's filters too.
+      fireEvent.click(screen.getByRole('button', { name: /save current/i }));
+      fireEvent.change(screen.getByPlaceholderText('Preset name'), { target: { value: 'Copy' } });
+      fireEvent.click(screen.getByRole('button', { name: /^save$/i }));
+      await waitFor(() =>
+        expect(apiMock.post).toHaveBeenCalledWith(
+          '/families/F1/small-variant-filter-presets',
+          expect.objectContaining({
+            filters: expect.objectContaining({
+              inheritance: 'de_novo',
+              category: ['1'],
+              min_confidence: '0.9',
+              de_novo_priority: 'medium',
+            }),
+          }),
+        ),
+      );
+    });
+
+    it('never sends the fetal de novo view a link carries, as itself or as de novo / dominant', async () => {
+      serve();
+      renderAt('/families/F1/small-variants?inheritance=de_novo&prioritize=false');
+
+      expect(await screen.findByText('Showing 1')).toBeInTheDocument();
+      expect(listRequests().length).toBeGreaterThan(0);
+      listRequests().forEach((params) => expect(params.has('inheritance')).toBe(false));
+      expect(screen.queryByRole('button', { name: /^Inheritance/ })).not.toBeInTheDocument();
+      expect(screen.getByText('Active filters 0')).toBeInTheDocument();
+      expect(
+        screen.getByText('The small-variant list does not apply this search’s “De novo in the fetus” inheritance filter.'),
+      ).toBeInTheDocument();
+    });
+
+    it('fails no search for another NIPT view a link carries, and names it with the not-inherited alleles', async () => {
+      serve();
+      renderAt('/families/F1/small-variants?inheritance=paternal_dominant&include_not_inherited=true&prioritize=false');
+
+      expect(await screen.findByText('Showing 1')).toBeInTheDocument();
+      expect(screen.queryByText(/Unsupported small-variant inheritance filter/)).not.toBeInTheDocument();
+      listRequests().forEach((params) => {
+        expect(params.has('inheritance')).toBe(false);
+        expect(params.has('include_not_inherited')).toBe(false);
+      });
+      expect(screen.queryByRole('button', { name: 'Also not inherited' })).not.toBeInTheDocument();
+      expect(
+        screen.getByText(
+          'The small-variant list does not apply this search’s “Paternal, inherited by the fetus” inheritance and not-inherited-alleles filters.',
+        ),
+      ).toBeInTheDocument();
+    });
+
+    it('still sends and chips a mode the list reads, and another spelling of one as that mode', async () => {
+      serve();
+      renderAt('/families/F1/small-variants?inheritance=dominant&prioritize=false');
+
+      await waitFor(() => expect(listRequests().at(-1)?.get('inheritance')).toBe('de_novo_dominant'));
+      expect(await screen.findByRole('button', { name: 'Inheritance: De novo / dominant' })).toBeInTheDocument();
+      expect(screen.getByText('Active filters 1')).toBeInTheDocument();
+      expect(screen.queryByText(/The small-variant list does not apply/)).not.toBeInTheDocument();
+    });
+  });
 });

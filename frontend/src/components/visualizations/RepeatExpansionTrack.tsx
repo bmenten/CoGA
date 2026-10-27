@@ -5,7 +5,7 @@ import VizErrorOverlay from './VizErrorOverlay';
 import api from '../../lib/api';
 import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } from '../../lib/apiTypes';
 import VizLoadingOverlay from './VizLoadingOverlay';
-import { formatChromosomeLabel } from '../../lib/chromosomes';
+import { formatChromosomeLabel, normalizeChrom } from '../../lib/chromosomes';
 import { NO_REGION_IN_VIEW, describeTrackRegion, hasRegionInView } from './trackRegion';
 import { RepeatLocusTooltip, describeRepeatLoci, repeatTrackColors } from './repeatExpansionHelpers';
 import { apiPath } from '../../lib/apiPath';
@@ -80,15 +80,17 @@ const RepeatExpansionTrack: React.FC<Props> = ({
   );
 
   const regionLength = Math.max(regionEnd - regionStart, 1);
-  const visibleItems = useMemo(
-    () =>
-      (data?.items || []).filter(
-        (item) =>
-          item.chr.replace(/^chr/i, '') === chrom.replace(/^chr/i, '') &&
-          (overviewMode || (item.end >= regionStart && item.start <= regionEnd)),
-      ),
-    [chrom, data?.items, overviewMode, regionEnd, regionStart],
-  );
+  const visibleItems = useMemo(() => {
+    // One chromosome however it is spelled (chr1 and 1; MT, M, chrM and chrMT), as the API
+    // reads it (data_scope.chromosome_aliases): a locus on the mitochondrion stored as chrM
+    // or M was not drawn on the view's MT.
+    const viewChrom = normalizeChrom(chrom);
+    return (data?.items || []).filter(
+      (item) =>
+        normalizeChrom(item.chr) === viewChrom &&
+        (overviewMode || (item.end >= regionStart && item.start <= regionEnd)),
+    );
+  }, [chrom, data?.items, overviewMode, regionEnd, regionStart]);
 
   // The chart's accessible name (#529): what it shows now — the whole chromosome in
   // overview mode, else the region. A failure or a load is said as such, never as zero

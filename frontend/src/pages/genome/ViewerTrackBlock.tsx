@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef } from 'react';
 import RoiMarkerOverlay from '../../components/visualizations/RoiMarkerOverlay';
 import { useViewerInteractionSurface } from './ViewerInteractionSurface';
 import { buildTrackFilterSummary } from './viewerShared';
@@ -95,6 +95,7 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
   const dragRef = useRef<DragSession | null>(null);
   const moveHandlerRef = useRef<((event: MouseEvent) => void) | null>(null);
   const upHandlerRef = useRef<((event: MouseEvent) => void) | null>(null);
+  const cancelHandlerRef = useRef<(() => void) | null>(null);
   // Cached frame left-edge; refreshed on scroll/resize so hover/drag math avoids
   // a getBoundingClientRect (a forced layout read) on every mouse event.
   const frameLeftRef = useRef<number | null>(null);
@@ -126,8 +127,25 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
       window.removeEventListener('mouseup', upHandlerRef.current);
       upHandlerRef.current = null;
     }
+    if (cancelHandlerRef.current) {
+      window.removeEventListener('pointercancel', cancelHandlerRef.current);
+      window.removeEventListener('blur', cancelHandlerRef.current);
+      cancelHandlerRef.current = null;
+    }
     dragRef.current = null;
   };
+
+  // Ends this block's gesture without committing it, and takes its pan preview or selection
+  // band off the shared surface. A gesture that cannot end with a mouseup (its track removed
+  // mid-drag, a cancelled pointer, a window that lost focus and with it the mouseup) left
+  // every track shifted, with the grabbing cursor, until the next drag. Another block's live
+  // gesture is left alone.
+  const cancelDrag = useCallback(() => {
+    if (!dragRef.current) return;
+    endDrag();
+    surface?.setSelection(null);
+    surface?.setShift(null);
+  }, [surface]);
 
   const handleMouseDown = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!viewportInteraction || event.button !== 0) return;
@@ -200,8 +218,11 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
 
     moveHandlerRef.current = onMove;
     upHandlerRef.current = onUp;
+    cancelHandlerRef.current = cancelDrag;
     window.addEventListener('mousemove', onMove);
     window.addEventListener('mouseup', onUp);
+    window.addEventListener('pointercancel', cancelDrag);
+    window.addEventListener('blur', cancelDrag);
   };
 
   const handleMouseMove = (event: React.MouseEvent<HTMLDivElement>) => {
@@ -233,8 +254,8 @@ const ViewerTrackBlock: React.FC<ViewerTrackBlockProps> = ({
     };
   }, [interactive]);
 
-  // Tidy up any in-flight drag listeners on unmount.
-  useEffect(() => () => endDrag(), []);
+  // Tidy up an in-flight drag on unmount: its listeners, and what it showed on the surface.
+  useEffect(() => () => cancelDrag(), [cancelDrag]);
 
   const interactiveClassName = interactive
     ? `viewer-track-interactive viewer-track-interactive--${mode}`

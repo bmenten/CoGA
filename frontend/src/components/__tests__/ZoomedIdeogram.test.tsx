@@ -398,6 +398,25 @@ describe('ZoomedIdeogram', () => {
     expect(tooltip()).toBeNull();
   });
 
+  // Found while fixing ENG-7 (#1019): the band's name joined the route's key to the band's
+  // stored name, "MT" on GRCh38 (whose chrM band has no name) and "MTchrM" on T2T (whose band
+  // is named chrM). The mitochondrion has no cytobands: its band is chrM, as the header names it.
+  it.each([
+    ['a band without a name (GRCh38)', ''],
+    ['a band named after the chromosome (T2T)', 'chrM'],
+  ])('names the mitochondrion’s band chrM, never MT: %s', (_label, bandName) => {
+    serve({
+      data: { chr: 'M', size: 16_569, bands: [{ name: bandName, start: 0, end: 16_569, stain: 'gneg' }] },
+    });
+    const { container } = render(ideogram({ chrom: 'MT', regionStart: 0, regionEnd: 16_569 }));
+
+    expect(
+      screen.getByRole('img', { name: 'Cytobands on chrM:0–16,569: 1 (chrM)' })
+    ).toBeInTheDocument();
+    fireEvent.mouseMove(bandShapes(container)[0], { clientX: 10, clientY: 20 });
+    expect(tooltip()?.textContent).toBe('chrM');
+  });
+
   it('names the cytobands in the region for a screen reader, the first three in ISCN form (#529)', () => {
     serve({ data: CHROMOSOME });
     const { rerender } = render(

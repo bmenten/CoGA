@@ -11,6 +11,7 @@ import {
   formatVariantTotal,
   getClinvarHighlightTone,
   getClinvarTone,
+  getGnomadDataset,
   getReviewTagStyle,
   getUcscDb,
   isDeletedReviewTag,
@@ -407,6 +408,63 @@ describe('getUcscDb', () => {
     expect(getUcscDb('Homo sapiens', 'GRCh37', 'p13')).toBe('hg19');
     // hs1 is T2T-CHM13v2.0: another release's genes lie elsewhere on the acrocentric arms.
     expect(getUcscDb('Homo sapiens', 'T2T-CHM13v1.0', 'v1.0')).toBeNull();
+  });
+});
+
+// The UCSC and gnomAD links read GRCh38 and GRCh37 by a part of "name version": `hg38` anywhere
+// in it gave GRCh38's links, ahead of the name. They now read the assembly as the backend does
+// (`grc_build`, `is_t2t_chm13`): by its name, else by its version, each as a whole.
+describe('getUcscDb and getGnomadDataset on GRCh38 and GRCh37', () => {
+  const GRC_NAMES: [string, string, string, string][] = [
+    ['GRCh38', 'p14', 'hg38', 'gnomad_r4'],
+    ['hg38', 'hg38', 'hg38', 'gnomad_r4'],
+    ['GRCh38.p14', '', 'hg38', 'gnomad_r4'],
+    ['grch38', '', 'hg38', 'gnomad_r4'],
+    ['GRCh37', 'p13', 'hg19', 'gnomad_r2_1'],
+    ['hg19', 'hg19', 'hg19', 'gnomad_r2_1'],
+    ['GRCh37.p13', '', 'hg19', 'gnomad_r2_1'],
+    // A name no rule reads: the version decides.
+    ['Homo_sapiens_assembly38', 'hg38', 'hg38', 'gnomad_r4'],
+  ];
+
+  it('links each name of GRCh38 and GRCh37 to its UCSC genome and gnomAD release', () => {
+    for (const [name, version, ucscDb, gnomadDataset] of GRC_NAMES) {
+      expect([getUcscDb('Homo sapiens', name, version), getGnomadDataset('Homo sapiens', name, version)]).toEqual([
+        ucscDb,
+        gnomadDataset,
+      ]);
+    }
+  });
+
+  it('lets the name decide over a version that holds another build', () => {
+    // Before: hg38 and gnomAD v4 for each, from the version.
+    expect(getUcscDb('Homo sapiens', 'GRCh37', 'hg38')).toBe('hg19');
+    expect(getGnomadDataset('Homo sapiens', 'GRCh37', 'hg38')).toBe('gnomad_r2_1');
+    expect(getUcscDb('Homo sapiens', 'T2T CHM13v2.0', 'GRCh38')).toBe('hs1');
+    // gnomAD publishes no T2T release.
+    expect(getGnomadDataset('Homo sapiens', 'T2T CHM13v2.0', 'GRCh38')).toBeNull();
+    expect(
+      buildGnomadSvRegionHref({
+        variant: { chr: '1', start: 100, end: 200 } as Parameters<typeof buildGnomadSvRegionHref>[0]['variant'],
+        speciesName: 'Homo sapiens',
+        assemblyName: 'GRCh37',
+        assemblyVersion: 'hg38',
+      }),
+    ).toContain('dataset=gnomad_sv_r2_1');
+  });
+
+  it('gives no GRCh38 or GRCh37 link for a name or version that merely holds one', () => {
+    // As IGV opens no genome for them, and the backend reads no PARs: no guessed build.
+    for (const [name, version] of [
+      ['CHM13v1.1', 'hg38-liftover'],
+      ['GRCh38_no_alt', ''],
+      ['GRCh37-lite', ''],
+    ]) {
+      expect([getUcscDb('Homo sapiens', name, version), getGnomadDataset('Homo sapiens', name, version)]).toEqual([
+        null,
+        null,
+      ]);
+    }
   });
 });
 

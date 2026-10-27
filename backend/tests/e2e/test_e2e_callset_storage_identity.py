@@ -284,7 +284,9 @@ async def _exercise(root: Path) -> dict:
             )
 
         out["list"] = await page()
-        out["de_novo"] = await page(inheritance="de_novo")
+        # The family's de novo / dominant mode, by its name: "de_novo" is the NIPT list's fetal
+        # view, which this list refuses (found while fixing #1012).
+        out["de_novo"] = await page(inheritance="de_novo_dominant")
         out["compound_het"] = await page(inheritance="compound_het")
         out["imputed_list"] = await page(source="glimpse2")
         out["sv_page"] = _cap(

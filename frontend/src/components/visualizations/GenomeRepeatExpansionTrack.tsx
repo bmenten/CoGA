@@ -66,8 +66,9 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
 
   const items = useMemo(() => {
     if (!layout) return [];
-    // The layout names a chromosome as normalizeChrom does (`1`, `X`, `MT`); a locus comes under
-    // its VCF's name, with or without `chr`: `M` or `chrM` for the mitochondrion.
+    // A locus is placed on the layout's chromosome however either spells it (chr1 and 1; MT,
+    // M, chrM and chrMT), as the API reads it (data_scope.chromosome_aliases): a locus on the
+    // mitochondrion stored as chrM or M found no `MT` and was not drawn.
     return (data?.items || [])
       .filter((item) => layout.offsets[normalizeChrom(item.chr)] !== undefined)
       .sort((a, b) => (STATUS_DRAW_RANK[a.status] ?? 0) - (STATUS_DRAW_RANK[b.status] ?? 0));

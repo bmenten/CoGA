@@ -1,5 +1,6 @@
 import React from "react";
 import type { ApiChromosomeBand } from "../../lib/apiTypes";
+import { formatCytobandLabel } from "../../lib/chromosomes";
 import { cssVar } from "../../lib/colors";
 import { getStainColor } from "../../lib/stainColors";
 import { getAcenDirection, getBandGradientStops, niceTickInterval } from "../../lib/ideogram";
@@ -50,7 +51,6 @@ const ZoomedIdeogram: React.FC<Props> = ({
 
   // The surface's name for a screen reader (#529): the cytobands in the region, in ISCN
   // form (13q13.1) like the band tooltip. A failure is never "none" (#510).
-  const chromName = chrom.replace(/^chr/i, "");
   const bandsOn = `Cytobands on ${describeTrackRegion(chrom, regionStart, regionEnd)}`;
 
   if (isError) {
@@ -85,7 +85,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
   const bands = data.bands.filter(
     (b) => b.end > regionStart && b.start < regionEnd
   );
-  const bandNames = bands.slice(0, 3).map((band) => `${chromName}${band.name}`).join(", ");
+  const bandNames = bands.slice(0, 3).map((band) => formatCytobandLabel(chrom, band.name)).join(", ");
   const ariaLabel = bands.length
     ? `${bandsOn}: ${bands.length.toLocaleString()} (${bandNames}${bands.length > 3 ? ", …" : ""})`
     : `${bandsOn}: none`;
@@ -234,7 +234,7 @@ const ZoomedIdeogram: React.FC<Props> = ({
     </svg>
     {bandTooltip && (
       <VizTooltip x={bandTooltip.x} y={bandTooltip.y}>
-        <div>{`${chrom.replace(/^chr/i, "")}${bandTooltip.name}`}</div>
+        <div>{formatCytobandLabel(chrom, bandTooltip.name)}</div>
       </VizTooltip>
     )}
     </>

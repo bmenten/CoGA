@@ -15,7 +15,7 @@ import { apiPath } from '../../lib/apiPath';
 import type { ApiErrorLike } from '../../lib/errorMessage';
 import QueryFailure from '../../components/QueryFailure';
 import { formatDateTime } from '../../lib/format';
-import { isT2tChm13 } from '../../lib/reference';
+import { compareAssemblyNames } from '../../lib/reference';
 import { routePath } from '../../lib/routePath';
 
 // A panel request's error detail: a message, a validation list, or a message naming genes.
@@ -83,7 +83,8 @@ const GenePanelsPage: React.FC = () => {
   const formatSpan = (total: number) =>
     total >= 1_000_000 ? `${(total / 1_000_000).toFixed(2)} Mb` : `${(total / 1000).toFixed(2)} kb`;
   // Regions are stored per assembly (#515): one total over all of them would count each
-  // gene once per loaded assembly, so the size is given per assembly, GRCh38 first.
+  // gene once per loaded assembly, so the size is given per assembly, in the backend's order:
+  // GRCh38, T2T-CHM13, GRCh37, then the rest.
   const formatSize = (regions: GeneLocation[]) => {
     const byAssembly = new Map<string, number>();
     regions.forEach((r) => {
@@ -91,9 +92,8 @@ const GenePanelsPage: React.FC = () => {
       byAssembly.set(key, (byAssembly.get(key) ?? 0) + (r.end - r.start));
     });
     if (byAssembly.size <= 1) return formatSpan([...byAssembly.values()][0] ?? 0);
-    const rank = (name: string) => (name === 'GRCh38' ? 0 : isT2tChm13(name) ? 1 : 9);
     return [...byAssembly.entries()]
-      .sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b))
+      .sort(([a], [b]) => compareAssemblyNames(a, b))
       .map(([assembly, total]) => `${formatSpan(total)} (${assembly || 'unknown'})`)
       .join(' · ');
   };

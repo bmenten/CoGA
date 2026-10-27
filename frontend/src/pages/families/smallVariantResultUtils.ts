@@ -1,5 +1,5 @@
 import { compareChromosomes } from '../../lib/chromosomes';
-import { isT2tChm13 } from '../../lib/reference';
+import { humanAssemblyOf } from '../../lib/reference';
 import type { StructuralVariant } from './structuralVariantSearch';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -430,9 +430,12 @@ export const getUcscDb = (
   }
 
   if (species.includes('human') || species.includes('homo sapiens') || !species) {
-    if (assembly.includes('grch38') || assembly.includes('hg38')) return 'hg38';
-    if (assembly.includes('grch37') || assembly.includes('hg19')) return 'hg19';
-    if (isT2tChm13(assemblyName) || isT2tChm13(assemblyVersion)) return 'hs1';
+    // By the name, else the version, each read whole as the backend reads it: a part of either
+    // ("hg38" in a version) gave GRCh38's links.
+    const human = humanAssemblyOf(assemblyName, assemblyVersion);
+    if (human === 'GRCh38') return 'hg38';
+    if (human === 'GRCh37') return 'hg19';
+    if (human === 'T2T-CHM13') return 'hs1';
   }
 
   return null;
@@ -444,10 +447,10 @@ export const getGnomadDataset = (
   assemblyVersion?: string,
 ) => {
   const species = `${speciesName || ''}`.toLowerCase();
-  const assembly = `${assemblyName || ''} ${assemblyVersion || ''}`.toLowerCase();
   if (!(species.includes('human') || species.includes('homo sapiens') || !species)) return null;
-  if (assembly.includes('grch38') || assembly.includes('hg38')) return 'gnomad_r4';
-  if (assembly.includes('grch37') || assembly.includes('hg19')) return 'gnomad_r2_1';
+  const human = humanAssemblyOf(assemblyName, assemblyVersion);
+  if (human === 'GRCh38') return 'gnomad_r4';
+  if (human === 'GRCh37') return 'gnomad_r2_1';
   return null;
 };
 

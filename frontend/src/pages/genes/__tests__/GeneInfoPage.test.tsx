@@ -652,6 +652,25 @@ describe('GeneInfoPage', () => {
     expect(await screen.findByText(/T2T Not imported/)).toBeInTheDocument();
   });
 
+  // The hg38 locus was the first whose label held "grch38" or "hg38": an assembly whose version
+  // merely held it was taken for GRCh38. It is now read as the backend reads GRCh38 (`grc_build`).
+  const renameGrch38 = (name: string, version: string) => (profile: ProfileFixture) => {
+    const [grch38] = (profile as unknown as { assembly_locations: Record<string, unknown>[] }).assembly_locations;
+    Object.assign(grch38, { assembly_name: name, assembly_version: version });
+  };
+
+  it('finds the GRCh38 locus under UCSC’s name for the assembly', async () => {
+    renderGeneFrom('BRCA2', renameGrch38('hg38', 'hg38'));
+
+    expect(await screen.findByText(/hg38 chr17:43,044,295-43,125,482 \(hg38 hg38\)/)).toBeInTheDocument();
+  });
+
+  it('takes no assembly whose label merely holds hg38 for GRCh38', async () => {
+    renderGeneFrom('PALB2', renameGrch38('CHM13v1.1', 'hg38-liftover'));
+
+    expect(await screen.findByText(/hg38 Not imported/)).toBeInTheDocument();
+  });
+
   // ENG-10: the row saying there are none spanned 7 of the table's 8 columns.
   it('spans the whole transcript table with the row saying none are cached', async () => {
     renderGeneFrom('CFTR', (profile) => {

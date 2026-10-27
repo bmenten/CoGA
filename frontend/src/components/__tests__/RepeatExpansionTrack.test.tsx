@@ -160,6 +160,33 @@ describe('RepeatExpansionTrack', () => {
     ).toBeInTheDocument();
   });
 
+  // Found while fixing ENG-7 (#1019): the track kept a locus whose chromosome without `chr`
+  // equalled the view's, so a locus on the mitochondrion stored as chrM or M never matched the
+  // view's MT and was not drawn. MT, M, chrM and chrMT are one chromosome, as the API reads them.
+  it.each(['chrM', 'M', 'MT', 'chrMT'])('draws a locus on the mitochondrion stored as %s', (chr) => {
+    useQueryMock.mockReturnValue({
+      data: { items: [locus('MT_LOCUS', 3_000, 'pathogenic', chr)] },
+      isLoading: false,
+    });
+    const { container } = render(
+      <RepeatExpansionTrack
+        familyId="F1"
+        sampleId="S1"
+        chrom="MT"
+        regionStart={0}
+        regionEnd={16_569}
+        width={100}
+        height={20}
+        chromosomeSize={16_569}
+      />,
+    );
+
+    expect(container.querySelector('[data-repeat-locus-id="MT_LOCUS"]')).not.toBeNull();
+    expect(
+      screen.getByRole('img', { name: 'Repeat loci of S1 on chrM: 1, 1 pathogenic (MT_LOCUS)' }),
+    ).toBeInTheDocument();
+  });
+
   it('counts a premutation as one, not as unknown', () => {
     useQueryMock.mockReturnValue({
       data: {
