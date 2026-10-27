@@ -366,7 +366,18 @@ of the clean-up below runs and it writes nothing more, so the family keeps the i
 `import_unfinished` entry, as the job's *Interrupted* record says, and the family's
 variant-write locks are released with their connection. Until then the import may have gone
 on: an update of the job that matches no row (its progress, or how it ended) changes nothing,
-and the backend log says so, naming the job.
+and the backend log says so, naming the job. It does not go on for long: an import whose
+heartbeat has not reached the database for five minutes, half that window, stops itself
+where it is, the same way, before any worker can take its job for stopped; its job is ended
+as interrupted once a worker finds its heartbeat stale (SAFE-15).
+
+The family's variant-write locks are held on a database connection of their own, and
+Postgres releases them with it. A running import checks that connection every ten seconds
+(`SELECT 1` in the locks' transaction; one that does not answer within thirty seconds counts
+as lost). When it is gone, another write of the family may already have started, so the
+import is stopped where it is and nothing is restored: its job ends `failed`, saying why, the
+backups it made of the family are dropped, and the family keeps the import's
+`import_unfinished` entry until it is imported again with overwrite (SAFE-15).
 
 If a dataset fails, the job ends as `failed` and CoGA does not leave a half-loaded family
 that looks complete:

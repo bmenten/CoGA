@@ -68,9 +68,11 @@ from backend.app.services.family_variant_write_lock import (
     SMALL_VARIANTS,
     STRUCTURAL_VARIANTS,
     VARIANT_TYPES,
+    VariantWriteHoldLost,
     family_variant_lock_key,
     hold_family_variant_writes,
     lock_family_variant_writes,
+    watch_family_variant_holds,
 )
 from backend.tests._deletion_mark_fakes import UnmarkedDeletion
 
@@ -1246,6 +1248,116 @@ async def test_a_hold_whose_connection_is_lost_keeps_the_blocks_outcome(
     # took its locks with it (here: the session's close).
     assert "Could not end the variant-write lock transaction" in caplog.text
     assert lost.held == []
+
+
+# --- A hold whose connection is checked (SAFE-15) --------------------------------------
+# A package import's hold lives on a connection of its own, and Postgres releases its locks
+# with the connection: the import went on writing beside the next writer. The worker's
+# heartbeat checks the hold from another task: SELECT 1 in the hold's transaction.
+
+
+def _checked_session(postgres: _Postgres, statements: list[str], *, fail: Exception | None = None,
+                     answer: asyncio.Event | None = None) -> _Session:
+    """The hold's session, recording each SELECT 1 it runs; it raises ``fail`` for one,
+    and answers one only once ``answer`` is set."""
+    session = postgres.session("import lock")
+    execute = session.execute
+
+    async def checked(statement: Any, params: Any = None) -> _Result:
+        if " ".join(str(statement).split()) == "SELECT 1":
+            statements.append("check")
+            if answer is not None:
+                await answer.wait()
+            if fail is not None:
+                raise fail
+            return _Result([(1,)])
+        return await execute(statement, params)
+
+    session.execute = checked  # type: ignore[method-assign]
+    rollback = session.rollback
+
+    async def recorded_rollback() -> None:
+        statements.append("rollback")
+        await rollback()
+
+    session.rollback = recorded_rollback  # type: ignore[method-assign]
+    return session
+
+
+@pytest.mark.asyncio
+async def test_a_watched_hold_answers_its_check_while_it_lasts(monkeypatch: pytest.MonkeyPatch) -> None:
+    postgres = _Postgres()
+    statements: list[str] = []
+    session = _checked_session(postgres, statements)
+    monkeypatch.setattr(family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: session)
+    inside, done = asyncio.Event(), asyncio.Event()
+
+    async def import_run() -> None:
+        async with hold_family_variant_writes(_FAMILY):
+            inside.set()
+            await done.wait()
+
+    with watch_family_variant_holds() as check:
+        run = asyncio.create_task(import_run())
+    await check()  # no hold yet: nothing to check
+    await asyncio.wait_for(inside.wait(), 1)
+    await check()
+    assert statements == ["check"]
+
+    done.set()
+    await asyncio.wait_for(run, 1)
+    await check()  # the hold has ended: nothing more is checked
+    assert statements == ["check", "rollback"]
+
+
+@pytest.mark.asyncio
+async def test_a_watched_hold_whose_connection_is_lost_fails_its_check(monkeypatch: pytest.MonkeyPatch) -> None:
+    postgres = _Postgres()
+    statements: list[str] = []
+    session = _checked_session(postgres, statements, fail=ConnectionError("server closed the connection"))
+    monkeypatch.setattr(family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: session)
+    inside, done = asyncio.Event(), asyncio.Event()
+
+    async def import_run() -> None:
+        async with hold_family_variant_writes(_FAMILY):
+            inside.set()
+            await done.wait()
+
+    with watch_family_variant_holds() as check:
+        run = asyncio.create_task(import_run())
+    await asyncio.wait_for(inside.wait(), 1)
+    with pytest.raises(VariantWriteHoldLost, match="variant-write locks was lost"):
+        await check()
+    done.set()
+    await asyncio.wait_for(run, 1)
+
+
+@pytest.mark.asyncio
+async def test_a_hold_ends_after_a_check_in_flight(monkeypatch: pytest.MonkeyPatch) -> None:
+    # One use of the hold's session at a time: the block's rollback waits for the check.
+    postgres = _Postgres()
+    statements: list[str] = []
+    answer = asyncio.Event()
+    session = _checked_session(postgres, statements, answer=answer)
+    monkeypatch.setattr(family_variant_write_lock, "get_postgres_sessionmaker", lambda: lambda: session)
+    inside, done = asyncio.Event(), asyncio.Event()
+
+    async def import_run() -> None:
+        async with hold_family_variant_writes(_FAMILY):
+            inside.set()
+            await done.wait()
+
+    with watch_family_variant_holds() as check:
+        run = asyncio.create_task(import_run())
+    await asyncio.wait_for(inside.wait(), 1)
+    checking = asyncio.create_task(check())
+    await asyncio.sleep(0.01)
+    done.set()
+    await asyncio.sleep(0.01)
+    assert statements == ["check"], "the rollback must wait for the check in flight"
+    answer.set()
+    await asyncio.wait_for(asyncio.gather(checking, run), 1)
+    assert statements == ["check", "rollback"]
 
 
 # --- The sign-out, the one reader that shares the locks -------------------------------
