@@ -467,7 +467,17 @@ What the application relies on there:
   still cannot be reached through a path segment: one that is exactly `.` or `..` (a browser
   resolves it whatever its encoding) and one holding `/` (the backend matches its routes on
   the decoded path); such a request answers 404. Whether the ID rule should refuse them is
-  open.
+  open. In-app routes are built the same way, with `routePath` (`lib/routePath.ts`), so a
+  link or a navigation to a family, panel, CNV or report code keeps an ID holding `?`, `#`,
+  `%` or `/` whole; raw, `?` and `#` cut the path short and `/` added a segment no route
+  matched (SEC-15). A guard test finds any route template left raw. The IGV page's Back link
+  takes its `back_path` only when it is one of the family pages, as the HPO page's (#526)
+  does: a link could send it to another site. A file named after an ID, the PED download, a
+  variant export or a signed URL's file, carries its name in `Content-Disposition` encoded
+  as RFC 6266 has it (`backend/app/core/content_disposition.py`): a name with a quote, a
+  backslash, a percent sign or a character outside ASCII goes in `filename*`, with an ASCII
+  stand-in in `filename`. Raw, a quote ended the name early, and an ID beyond Latin-1 failed
+  the PED download with a 500.
 - ✅ **Escaped tooltips.** The d3 tooltips built as HTML escape their values
   (`lib/escapeHtml.ts`).
 - ✅ **Proxy robustness** (`frontend/server.mjs`, `proxyRequest.mjs`). A reset mid-stream ends

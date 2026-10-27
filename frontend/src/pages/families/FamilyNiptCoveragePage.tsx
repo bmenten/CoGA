@@ -12,6 +12,7 @@ import PageState from '../../components/PageState';
 import QueryFailure from '../../components/QueryFailure';
 import { depth, lowCoverageChipClass, lowCoverageDetail, niptGeneTerms, targetExon } from './niptClassification';
 import NiptCoverageNotes from './NiptCoverageNotes';
+import { routePath } from '../../lib/routePath';
 
 // A whole panel holds thousands of genes: the first are drawn, the rest on request.
 const GENE_ROWS_SHOWN = 300;
@@ -250,7 +251,7 @@ const FamilyNiptCoveragePage: React.FC = () => {
   const gene = searchParams.get('gene') || undefined;
   const geneTerms = useMemo(() => niptGeneTerms(gene), [gene]);
   // Back to the NIPT page as it was left: its filters live in its URL.
-  const backTo = (location.state as { from?: string } | null)?.from || `/families/${familyId}/nipt`;
+  const backTo = (location.state as { from?: string } | null)?.from || routePath`/families/${familyId}/nipt`;
   const [filter, setFilter] = useState('');
 
   // The family record, for what every family page warns of: an import of the family that

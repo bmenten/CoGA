@@ -48,7 +48,7 @@ export const quickTagTogglePayload = (
 };
 
 export const buildSmallVariantReviewPath = (familyId: string, variantId: string): string =>
-  `/families/${encodeURIComponent(familyId)}/small-variants/${encodeURIComponent(variantId)}/review`;
+  apiPath`/families/${familyId}/small-variants/${variantId}/review`;
 
 export const hasReviewContent = (review: SmallVariantReview | null | undefined): boolean =>
   Boolean(review?.classification || review?.tags?.length || review?.note || review?.compound_het);

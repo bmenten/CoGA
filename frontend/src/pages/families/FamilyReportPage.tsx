@@ -64,6 +64,7 @@ import { memberLabel } from '../../lib/familyMembers';
 import { joinWithAnd } from '../../lib/format';
 import { REPORT_LIST_PAGE_SIZE, reportedListNotice, type ReportedListPage } from './reportedListCompleteness';
 import { auditTrailPrintNotice, auditTrailShownNotice, clinicalAuditTrail } from './clinicalAuditTrail';
+import { routePath } from '../../lib/routePath';
 
 // The report's SV list: its variants, and what the page says about its completeness.
 type StructuralReportPage = Omit<ReportedListPage, 'variants'> & { variants: StructuralVariant[] };
@@ -543,7 +544,7 @@ const LiveFamilyReport: React.FC = () => {
             >
               Retry
             </button>
-            <Link to={`/families/${familyId}`} className="button-secondary">
+            <Link to={routePath`/families/${familyId}`} className="button-secondary">
               Back to family
             </Link>
           </div>

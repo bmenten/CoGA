@@ -4,6 +4,7 @@ import FamilyPageBanners, { type FamilyAssemblyScope } from '../../components/Fa
 import Pedigree from '../../components/visualizations/Pedigree';
 import { parsePedigree } from '../../lib/pedigree';
 import { READ_ONLY_HINT } from '../../lib/familyAccess';
+import { raw, routePath } from '../../lib/routePath';
 
 /**
  * The top card every family-scoped page opens with.
@@ -68,9 +69,7 @@ const FamilyPageHeader: React.FC<{
   const label = familyId || family?.family_id || '';
   const pedRows = parsePedigree(family?.pedigree);
   const hasPedigree = pedRows.length > 0;
-  const workspaceHref = projectId
-    ? `/families/${label}?project_id=${encodeURIComponent(projectId)}`
-    : `/families/${label}`;
+  const workspaceHref = routePath`/families/${label}${raw(projectId ? `?project_id=${encodeURIComponent(projectId)}` : '')}`;
   const title = `Family ${label}`;
 
   return (
