@@ -402,6 +402,14 @@ export interface DgvVariantOut {
 }
 
 /**
+ * Why an administrator deletes a family with its data (required, TRACE-16): recorded on
+ * the family's last clinical audit event.
+ */
+export interface FamilyDeleteRequest {
+  reason: string;
+}
+
+/**
  * When a dataset's import ran and how far it got. ``fraction_read`` is the share of
  * its input files' bytes read (of a gzip file, the compressed bytes), measured at
  * ``measured_at``, by an importer that reports it; ``seconds_left`` is the time it should

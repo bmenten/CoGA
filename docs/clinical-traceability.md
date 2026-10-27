@@ -122,8 +122,11 @@ samples by ID, its latest structure version, and what went with it: the variant 
 calls, Paraphase results, interval tracks and raw files Postgres held, and for an admin's
 deletion the small and structural variants counted in ClickHouse (*Family deleted with its
 data: 3 samples (F1, M1, P1), 1204 small variants, 3 structural variants, 5 variant reviews*);
-`metadata.source` says which deletion it was. The deletion asks no reason, so the event holds
-none. It is written in the deletion's transaction, before anything of the family is deleted (an
+`metadata.source` says which deletion it was. An admin's deletion requires a reason (the dialog
+asks it, and `DELETE /api/admin/families/{family_id}` refuses one without `{"reason": …}` in its
+body with 400; TRACE-16, the owner's decision of 2026-10-27): the event holds it as
+`metadata.reason` and ends its summary with it (*… 5 variant reviews. Reason: duplicate of F2*).
+The other deletions, which their `source` explains, ask none. It is written in the deletion's transaction, before anything of the family is deleted (an
 admin's deletion) or before the family row goes, so a deletion that fails records nothing; the
 family's chains (its clinical audit events, sign-outs and structure versions) stay after it,
 unlinked from the family row and verifiable by the family's ID. A family made again under that
@@ -770,8 +773,6 @@ anchors can be deleted without trace unless a copy is kept outside the database.
   sign-out, from the catalogue loaded then; the genome tracks still show the status stored at
   import until the calls are imported again (*TRGT repeat catalogue*,
   [data-import.md](data-import.md)).
-- An administrator's deletion of a family asks no reason, so its `family_deleted` event
-  holds none (an API and screen change, the owner's; TRACE-16).
 - Anchors are made by hand: nothing in the code, CI or Terraform calls
   `POST /admin/integrity/anchor` on a schedule.
 - The export of each anchor to a store outside the database is not implemented (the

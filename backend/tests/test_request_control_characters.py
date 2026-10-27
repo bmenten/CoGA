@@ -87,7 +87,7 @@ def api(monkeypatch: pytest.MonkeyPatch):
         lookups.append(family_identifier)
         raise HTTPException(status_code=404, detail="Family not found")
 
-    async def fake_delete_family_with_data(session: Any, family_id: str, confirm: bool) -> Any:
+    async def fake_delete_family_with_data(session: Any, family_id: str, confirm: bool, **_kwargs: Any) -> Any:
         lookups.append(family_id)
         raise HTTPException(status_code=404, detail="Family not found")
 

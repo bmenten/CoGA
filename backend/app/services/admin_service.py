@@ -1188,6 +1188,7 @@ async def delete_family_with_data(
     family_id: str,
     confirm: bool,
     user: CurrentUser | None = None,
+    reason: str | None = None,
 ) -> dict[str, Any]:
     """Delete a family with every dataset of it. Its deletion is the last event of its
     clinical audit trail, written in this transaction before anything of the family is
@@ -1200,7 +1201,9 @@ async def delete_family_with_data(
     family, and the mark with it."""
     deletions: list[FamilyDeletion] = []
     try:
-        return await _delete_family_with_data(session, family_id, confirm, user=user, deletions=deletions)
+        return await _delete_family_with_data(
+            session, family_id, confirm, user=user, reason=reason, deletions=deletions
+        )
     except Exception:
         await end_failed_deletions(session, deletions)
         raise
@@ -1212,10 +1215,16 @@ async def _delete_family_with_data(
     confirm: bool,
     *,
     user: CurrentUser | None,
+    reason: str | None,
     deletions: list[FamilyDeletion],
 ) -> dict[str, Any]:
     if not confirm:
         raise HTTPException(status_code=400, detail="Confirmation required")
+    # Why the family goes is on its last clinical audit event (TRACE-16, the owner's
+    # decision of 2026-10-27): no reason, no deletion.
+    stated_reason = (reason or "").strip()
+    if not stated_reason:
+        raise HTTPException(status_code=400, detail="A reason is required to delete a family.")
     family_uuid = await _resolve_family_uuid(session, family_id)
     sample_rows = (await _sample_rows_by_family(session, [family_uuid]))[family_uuid]
     contexts = await _family_assembly_contexts(
@@ -1265,6 +1274,7 @@ async def _delete_family_with_data(
         user=user,
         source=ADMIN_DELETE,
         variant_counts={"small_variants": small_deleted, "structural_variants": structural_deleted},
+        reason=stated_reason,
     )
     for context in contexts:
         if not context.assembly_name:

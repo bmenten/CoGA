@@ -1026,7 +1026,7 @@ async def test_the_admins_family_delete_records_its_event_before_it_deletes_anyt
     steps: list[str] = []
     _admin_family_delete(monkeypatch, steps)
 
-    await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin())  # type: ignore[arg-type]
+    await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason="duplicate")  # type: ignore[arg-type]
 
     event = f"audit: family deleted {FAMILY} {{'small_variants': 7, 'structural_variants': 7}}"
     # The phenotypes that go with the family are recorded as removed just before (TRACE-16).
@@ -1045,7 +1045,46 @@ async def test_a_family_delete_that_fails_commits_nothing(monkeypatch) -> None:
     _admin_family_delete(monkeypatch, steps, failing="purge raw files")
 
     with pytest.raises(RuntimeError, match="purge raw files failed"):
-        await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin())  # type: ignore[arg-type]
+        await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason="duplicate")  # type: ignore[arg-type]
 
     assert any(step.startswith("audit: family deleted") for step in steps)
     assert "commit" not in steps and "DELETE FROM families" not in steps
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [None, "", "   "])
+async def test_a_family_delete_without_a_reason_does_nothing(monkeypatch, reason) -> None:
+    # The reason is on the family's last clinical audit event: without one, the deletion is
+    # refused before it locks, counts or deletes anything (TRACE-16, the owner's decision of
+    # 2026-10-27).
+    from fastapi import HTTPException
+
+    steps: list[str] = []
+    _admin_family_delete(monkeypatch, steps)
+
+    with pytest.raises(HTTPException) as refused:
+        await admin_service.delete_family_with_data(_DeleteSession(steps), FAMILY, True, user=_admin(), reason=reason)  # type: ignore[arg-type]
+
+    assert (refused.value.status_code, refused.value.detail) == (400, "A reason is required to delete a family.")
+    assert steps == []
+
+
+@pytest.mark.asyncio
+async def test_the_delete_route_takes_the_reason_from_its_body(monkeypatch) -> None:
+    # The reason is free text: it travels in the body, not the URL (TRACE-16).
+    from app.routers import admin as admin_router
+    from app.schemas import FamilyDeleteRequest
+
+    seen: list[dict[str, Any]] = []
+
+    async def deleted(_session: Any, family_id: str, confirm: bool, **kwargs: Any) -> dict[str, Any]:
+        seen.append({"family_id": family_id, "confirm": confirm, **kwargs})
+        return {}
+
+    monkeypatch.setattr(admin_router, "delete_family_with_data", deleted)
+    admin = _admin()
+
+    await admin_router.delete_family(FAMILY, True, FamilyDeleteRequest(reason="Duplicate of F2"), session=None, user=admin)  # type: ignore[arg-type]
+    await admin_router.delete_family(FAMILY, True, None, session=None, user=admin)  # type: ignore[arg-type]
+
+    assert [(call["reason"], call["user"]) for call in seen] == [("Duplicate of F2", admin), (None, admin)]

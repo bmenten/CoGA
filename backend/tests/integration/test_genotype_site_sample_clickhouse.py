@@ -50,19 +50,21 @@ def _run_with_ch_cleanup(run) -> None:
     _asyncio.run(_wrapped())
 
 
-def _record(chrom: str, pos: int, samples: list[str], gts: list[str], *, source: str) -> SmallVariantRecord:
+def _record(
+    chrom: str, pos: int, samples: list[str], gts: list[str], *, source: str, ref: str = "A", alt: str = "G"
+) -> SmallVariantRecord:
     calls = [
         SmallVariantCall(sample=sample, gt=gt, gq=99.0, dp=30, af=[0.5], ad=[15, 15], ps=None)
         for sample, gt in zip(samples, gts)
     ]
     return SmallVariantRecord(
         variant_key=None,
-        variant_id=f"{chrom}-{pos}-A-G",
+        variant_id=f"{chrom}-{pos}-{ref}-{alt}",
         chr=chrom,
         start=pos,
         end=pos,
-        ref="A",
-        alt="G",
+        ref=ref,
+        alt=alt,
         source=source,
         rsid=None,
         filters=["PASS"],
@@ -213,9 +215,24 @@ def test_genotype_site_sample_against_clickhouse(monkeypatch: pytest.MonkeyPatch
             (r.chr.removeprefix("chr"), r.start) for r in sorted(autosomal[:50], key=_key)[:10]
         ]
 
+        # Only SNVs are sampled (CLIN-11): an insertion, a deletion, an MNV and a spanning
+        # deletion of the callset are never read, whatever their keys.
+        het = ["0|1"] * len(_SAMPLES)
+        not_snvs = [
+            _record("chr5", 7_000_001, _SAMPLES, het, source="glimpse2", ref="A", alt="AT"),
+            _record("chr5", 7_000_011, _SAMPLES, het, source="glimpse2", ref="AT", alt="A"),
+            _record("chr5", 7_000_021, _SAMPLES, het, source="glimpse2", ref="AC", alt="GT"),
+            _record("chr5", 7_000_031, _SAMPLES, het, source="glimpse2", ref="A", alt="*"),
+        ]
+        await insert_small_variant_records(_ASSEMBLY, family, [project], not_snvs)
+        snvs_only = await fetch_genotype_site_sample(ctx, scope="autosomes", limit=90_000, source="glimpse2")
+        assert sorted((row[0], row[1]) for row in snvs_only) == sorted(by_site)
+
         # The QC service on these rows (the Postgres side stubbed): the embryos read as siblings.
+        current = {"context": ctx}
+
         async def _fake_context(session, *, family_identifier, user, project_id=None):
-            return ctx
+            return current["context"]
 
         async def _fake_get_family(session, family_id, user):
             return types.SimpleNamespace(metadata={})
@@ -232,5 +249,24 @@ def test_genotype_site_sample_against_clickhouse(monkeypatch: pytest.MonkeyPatch
         assert (siblings.inferred_relationship, siblings.status) == ("sibling", "pass"), siblings.message
         assert report.overall_status == "pass", report
         assert {c.sample_id: c.x_sites for c in report.sex_checks} == dict.fromkeys(_SAMPLES, 240)
+        assert not any("covers part of the genome" in note for note in report.notes)
+
+        # A callset on three autosomes covers part of the genome: the checks still run, and
+        # the report warns that they read only that part (CLIN-11).
+        part = str(uuid4())
+        await insert_small_variant_records(
+            _ASSEMBLY, part, [project], [r for r in autosomal if r.chr in {"chr1", "chr2", "chr3"}] + x_records
+        )
+        current["context"] = _context(part, [project], _SAMPLES)
+        partial = await sample_integrity_service.get_family_sample_integrity_qc(
+            session=None, family_id=current["context"].family_id, user=None
+        )
+        assert partial.autosomal_sites == 3 * _SITES_PER_AUTOSOME
+        assert (
+            "The callset covers part of the genome: its sites lie on 3 of the 22 autosomes, "
+            "so the checks read only that part."
+        ) in partial.notes
+        assert partial.overall_status in {"warn", "fail"}
+        assert partial.relatedness_checks, "the checks still run"
 
     _run_with_ch_cleanup(_run)

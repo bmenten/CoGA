@@ -5,14 +5,17 @@ interface DeleteFamilyDialogProps {
   familyId: string;
   busy: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  /** Called with the reason the administrator gave, which the deletion requires. */
+  onConfirm: (reason: string) => void;
 }
 
 /**
  * Two-step destructive confirmation for permanently deleting an entire family.
  * Step 1 spells out exactly what will be erased and requires the operator to type
- * the family name verbatim. Step 2 is a final confirmation immediately before
- * execution. The delete button is only ever enabled once the typed name matches.
+ * the family name verbatim and to say why it goes: the reason is recorded on the
+ * family's last clinical audit event, and the API refuses a deletion without one
+ * (TRACE-16). Step 2 is a final confirmation immediately before execution. The
+ * delete button is only ever enabled once the typed name matches and a reason is given.
  */
 const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
   familyId,
@@ -21,14 +24,18 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
   onConfirm,
 }) => {
   const [typedName, setTypedName] = useState('');
+  const [reason, setReason] = useState('');
   const [step, setStep] = useState<'warn' | 'final'>('warn');
 
   useEffect(() => {
     setTypedName('');
+    setReason('');
     setStep('warn');
   }, [familyId]);
 
   const nameMatches = typedName.trim() === familyId;
+  const statedReason = reason.trim();
+  const ready = nameMatches && statedReason !== '';
 
   return (
     // ModalDialog: Escape cancels, except while the deletion runs, with a focus trap and
@@ -76,6 +83,16 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
             />
           </label>
 
+          <label className="field-label">
+            Reason for the deletion (required; it is recorded on the family&apos;s audit trail)
+            <textarea
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              rows={2}
+              maxLength={1000}
+            />
+          </label>
+
           <div className="inline-actions modal-actions">
             <button type="button" className="button-secondary" onClick={onCancel}>
               Cancel
@@ -83,7 +100,7 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
             <button
               type="button"
               className="button-danger"
-              disabled={!nameMatches}
+              disabled={!ready}
               onClick={() => setStep('final')}
             >
               Continue
@@ -98,6 +115,7 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
               record and file?
             </p>
             <p>There is no recovery after this step.</p>
+            <p>Reason: {statedReason}</p>
           </div>
 
           <div className="inline-actions modal-actions">
@@ -112,8 +130,8 @@ const DeleteFamilyDialog: React.FC<DeleteFamilyDialogProps> = ({
             <button
               type="button"
               className="button-danger"
-              disabled={!nameMatches || busy}
-              onClick={onConfirm}
+              disabled={!ready || busy}
+              onClick={() => onConfirm(statedReason)}
             >
               {busy ? 'Deleting…' : `Permanently delete ${familyId}`}
             </button>
