@@ -1031,9 +1031,10 @@ role or deactivate it, and its password is the `coga-admin-password` secret (12.
 **Leavers and changes**: disabling the account in Entra ID stops new sign-ins; an access token
 already issued stays valid until it expires (about an hour). For an immediate stop, deactivate
 the account on the *Users* page. A changed name or e-mail address follows at the next sign-in:
-the account is bound to the user's object ID in Entra ID, never to an e-mail address. A first
-sign-in whose e-mail address belongs to another CoGA account is refused rather than linked;
-an administrator resolves it in the database.
+the account is bound to the user's object ID in Entra ID, never to an e-mail address, and the
+user's import jobs and filter presets are kept by the account, so they stay theirs (SEC-32).
+A first sign-in whose e-mail address belongs to another CoGA account is refused rather than
+linked; an administrator resolves it in the database.
 
 ---
 

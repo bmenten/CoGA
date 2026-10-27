@@ -38,11 +38,11 @@ import tempfile
 from contextlib import suppress
 from datetime import timedelta
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any, TypeGuard
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import text
+from sqlalchemy import RowMapping, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -131,8 +131,7 @@ def checked_files_release(sources_json: str) -> str:
         if not isinstance(entry, dict):
             raise ValueError("a checked source file is not described")
         source, release, url, digest = (entry.get(name) for name in ("source", "release", "url", "sha256"))
-        texts = (source, release, url)
-        if not all(isinstance(value, str) and value.strip() for value in texts):
+        if not (_is_text(source) and _is_text(release) and _is_text(url)):
             raise ValueError("a checked source file lacks its source, release or URL")
         if not isinstance(digest, str) or not _SHA256_HEX.fullmatch(digest):
             raise ValueError("a checked source file lacks its SHA-256")
@@ -145,7 +144,7 @@ def checked_files_release(sources_json: str) -> str:
         if not isinstance(entry, dict):
             raise ValueError("a source file the build read is not described")
         source, url, digest = (entry.get(name) for name in ("source", "url", "sha256"))
-        if not all(isinstance(value, str) and value.strip() for value in (source, url)):
+        if not (_is_text(source) and _is_text(url)):
             raise ValueError("a source file the build read lacks its source or URL")
         if not isinstance(digest, str) or not _SHA256_HEX.fullmatch(digest):
             raise ValueError("a source file the build read lacks its SHA-256")
@@ -157,6 +156,11 @@ def checked_files_release(sources_json: str) -> str:
 def _file_name(url: str) -> str:
     """The file name a source URL (or a local file's recorded name) ends in."""
     return str(url).rstrip("/").rsplit("/", 1)[-1]
+
+
+def _is_text(value: object) -> TypeGuard[str]:
+    """Whether a recorded value is a string that is not blank."""
+    return isinstance(value, str) and bool(value.strip())
 
 
 def _read_checked_files_release(path: str) -> str:
@@ -171,7 +175,7 @@ def _script_path() -> Path | None:
     return path if path.is_file() else None
 
 
-def _job_out(row: Mapping[str, Any]) -> ClinicalCnvKbJobOut:
+def _job_out(row: RowMapping) -> ClinicalCnvKbJobOut:
     return ClinicalCnvKbJobOut(
         _id=row["id"],
         assembly_id=row["assembly_id"],
@@ -301,6 +305,8 @@ async def queue_clinical_cnv_kb_rebuild(
             detail="A clinical CNV knowledgebase rebuild is already queued or running.",
         ) from exc
 
+    if row is None:  # an INSERT ... RETURNING gives back the row it inserted
+        raise RuntimeError("The clinical CNV knowledgebase rebuild was not recorded")
     job = _job_out(row)
     # Run the build in the background; it manages its own DB session.
     asyncio.create_task(_run_job(str(job.id)))

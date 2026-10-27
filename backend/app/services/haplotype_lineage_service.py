@@ -236,11 +236,12 @@ def identify_core(pedigree: Pedigree) -> NuclearCore:
         mothers_of = {pedigree.parents_of.get(e, {}).get("mother") for e in embryos} - {None}
         father = next(iter(fathers_of)) if len(fathers_of) == 1 else None
         mother = next(iter(mothers_of)) if len(mothers_of) == 1 else None
-        if father or mother:
+        known_parent = father or mother
+        if known_parent:
             if father and mother:
                 children = pedigree.children_of.get(father, set()) & pedigree.children_of.get(mother, set())
             else:
-                children = set(pedigree.children_of.get(father or mother, set()))
+                children = set(pedigree.children_of.get(known_parent, set()))
             members = {p for p in (father, mother) if p} | children
             return NuclearCore(father=father, mother=mother, children=children, members=members)
 
@@ -470,8 +471,8 @@ def match_shared_homolog(
     anchor_idx = 0 if anc_cons[0] >= anc_cons[1] else 1
 
     # Span over which informative sites are spread, for the per-Mb density floor.
-    span_mb = max(shared_pos) - min(shared_pos)
-    span_mb = max(span_mb, 1) / 1_000_000
+    span_bp = max(shared_pos) - min(shared_pos)
+    span_mb = max(span_bp, 1) / 1_000_000
 
     # Each side is a candidate; pick the better-supported one, but only if it clears
     # all gates. A side qualifies only with a clear winner→loser margin (rejects the

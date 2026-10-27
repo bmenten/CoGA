@@ -1,6 +1,6 @@
 {
  "quartet_segregation": {
-  "inserted": 1200, "haplotypes_inserted": 27, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
+  "inserted": 1200, "haplotypes_inserted": 26, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
   "blocks": [
    ["father-uuid", "1", 10000, 1207001, "0", "1", null],
    ["mother-uuid", "1", 10000, 1207001, "1", "0", null],
@@ -18,7 +18,6 @@
    ["embryo2-uuid", "2", 10000, 28000, "0", "?", null],
    ["embryo2-uuid", "2", 28000, 319000, "0", "0", null],
    ["father-uuid", "2", 10000, 1207001, "0", "1", null],
-   ["mother-uuid", "X", 10000, 10000, "1", "0", null],
    ["embryo2-uuid", "2", 319000, 1204001, "1", "0", null],
    ["affected-uuid", "2", 28000, 1204001, "1", "1", null],
    ["affected-uuid", "X", 16000, 37000, "?", "1", null],
@@ -32,7 +31,7 @@
   ]
  },
  "quartet_segregation_unit_thresholds": {
-  "inserted": 1200, "haplotypes_inserted": 33, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
+  "inserted": 1200, "haplotypes_inserted": 31, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
   "blocks": [
    ["father-uuid", "1", 10000, 1207001, "1", "0", null],
    ["mother-uuid", "1", 10000, 1207001, "0", "1", null],
@@ -51,8 +50,6 @@
    ["embryo2-uuid", "1", 331000, 1198001, "0", "1", null],
    ["embryo2-uuid", "2", 16000, 25000, "1", "?", null],
    ["embryo2-uuid", "2", 25000, 412000, "1", "1", null],
-   ["father-uuid", "X", 10000, 10000, "1", "0", null],
-   ["mother-uuid", "X", 10000, 10000, "0", "1", null],
    ["affected-uuid", "2", 319000, 1207001, "1", "1", null],
    ["affected-uuid", "X", 13000, 16000, "?", "1", null],
    ["affected-uuid", "X", 16000, 580000, "0", "1", null],
@@ -150,7 +147,7 @@
   ]
  },
  "sparse_quartet_switch_errors": {
-  "inserted": 1200, "haplotypes_inserted": 57, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
+  "inserted": 1200, "haplotypes_inserted": 56, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
   "blocks": [
    ["father-uuid", "1", 10000, 1450000, "1", "0", 1],
    ["mother-uuid", "1", 10000, 1450000, "0", "1", 1],
@@ -185,7 +182,6 @@
    ["embryo2-uuid", "2", 22000, 58000, "0", "?", 1],
    ["embryo2-uuid", "2", 58000, 2734000, "0", "0", 1],
    ["father-uuid", "2", 4330000, 4798001, "1", "0", 4],
-   ["mother-uuid", "X", 10000, 10000, "0", "1", 1],
    ["father-uuid", "X", 22000, 1450000, "1", "0", 1],
    ["mother-uuid", "X", 22000, 1450000, "0", "1", 1],
    ["father-uuid", "X", 1450000, 2781479, "1", "0", 2],
@@ -212,7 +208,7 @@
   ]
  },
  "quartet_with_chromosome_sizes": {
-  "inserted": 1200, "haplotypes_inserted": 28, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
+  "inserted": 1200, "haplotypes_inserted": 27, "metadata": ["{\"source\": \"glimpse2\", \"filename\": \"family.vcf\", \"uploaded_from\": \"web\"}"],
   "blocks": [
    ["father-uuid", "1", 10000, 248956422, "1", "0", null],
    ["mother-uuid", "1", 10000, 248956422, "1", "0", null],
@@ -229,7 +225,6 @@
    ["embryo2-uuid", "1", 16000, 248956422, "1", "1", null],
    ["embryo2-uuid", "2", 10000, 22000, "0", "?", null],
    ["father-uuid", "2", 10000, 242193529, "1", "0", null],
-   ["mother-uuid", "X", 10000, 10000, "1", "0", null],
    ["embryo2-uuid", "2", 22000, 242193529, "0", "1", null],
    ["embryo2-uuid", "X", 13000, 499000, "0", "0", null],
    ["affected-uuid", "2", 676000, 242193529, "0", "1", null],

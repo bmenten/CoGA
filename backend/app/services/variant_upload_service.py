@@ -10,7 +10,7 @@ import itertools
 import json
 import logging
 import math
-from typing import Any, Awaitable, Callable, Collection, Generator, Iterable, Literal, Sequence, TypeVar
+from typing import Any, Awaitable, Callable, Collection, Final, Generator, Iterable, Literal, Sequence, TypeVar
 import zlib
 
 from fastapi import HTTPException, UploadFile
@@ -121,7 +121,7 @@ SmallVariantFormat = Literal["auto", "clair3", "glimpse2", "mito"]
 # "nipt" is the callset of a monogenic NIPT stored one file per sample (the cfDNA and the
 # paternal VCF): only the package import writes it, per sample (``overwrite_scope="samples"``),
 # so the REST upload, which replaces a whole callset with one file, does not offer it.
-NIPT_SMALL_VARIANT_SOURCE = _NIPT_SOURCE
+NIPT_SMALL_VARIANT_SOURCE: Final = _NIPT_SOURCE
 SmallVariantUploadFormat = Literal["auto", "clair3", "glimpse2", "mito", "nipt"]
 ResolvedSmallVariantFormat = Literal["clair3", "glimpse2", "mito", "nipt"]
 # Decides whether a parsed record is stored: (chromosome, start, end of REF, the record's

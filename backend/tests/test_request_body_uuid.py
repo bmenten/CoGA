@@ -346,7 +346,7 @@ def _queue(session: _Session, project_id: str | None) -> Any:
             folder_path="/data/families/FAM1",
             project_id=project_id,
             dry_run=True,
-            requested_by="admin@example.org",
+            requested_by=_user("admin"),
         )
     )
 

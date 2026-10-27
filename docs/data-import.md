@@ -952,7 +952,8 @@ dataset every sample's file before it replaces a sample's track: a BED decoded w
 loader decodes it, and read up to its first record, and a per-target table parsed whole. Both used
 to be checked sample by sample, as each was written (SAFE-3). A monogenic NIPT's per-sample SNV
 files are checked for their one sample column and a record before the plasma's calls are written.
-The `mito` dataset reads every chrM SV file before it replaces a chrM call: one whose records all lie
+The `paraphase` dataset reads every sample's JSON before it replaces any
+sample's results; it read each as it wrote it until DATA-7. The `mito` dataset reads every chrM SV file before it replaces a chrM call: one whose records all lie
 on other chromosomes is no chrM callset and fails the dataset (it read as a file without a call,
 which removed the sample's chrM SVs), and one that cannot be read fails it before the chrM VCFs are
 written. An update checks no file of a track it leaves as stored. A file the check passes is read
@@ -967,6 +968,12 @@ A TRGT value that cannot be read as a number (a position that is no whole number
 methylation of `nan` or `inf`) is refused before anything is replaced: a TRGT upload answers 400
 naming the line, and a package fails the dataset. It answered 500: from the read, or from the insert,
 as Postgres holds no NaN in JSON (DATA-7).
+
+A Paraphase copy number (`total_cn`, `gene_cn`, `highest_total_cn`) that Postgres's `integer`
+cannot hold (below −2,147,483,648 or above 2,147,483,647, however the JSON writes it) is refused
+the same way: the `paraphase` dataset fails, naming the sample, the field and the gene, with every
+sample's results as they were. It failed the insert with the database's error, after the sample's
+results were deleted (DATA-7). A copy number that is no number is stored as missing, as before.
 
 The track viewers draw one track per caller (`GET /families/{family_id}/track-availability`
 lists them, with the transform each coverage track's record names, `coverage_normalizations`,
@@ -1723,6 +1730,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `dataset_file_without_record` (warning) | A data file holds nothing after its header. The import will fail its dataset and keep the stored data as it was: use the complete file. |
 | "No valid BED records found" (the `coverage` dataset, or the `apcad` dataset for an embryo's VCF without a record, read as a BED) | A sample's coverage BED, or such an APCAD VCF, holds no record: an empty or truncated pipeline output. The dataset checks every sample's file before it replaces a track, so every sample's track is as it was. The message does not name the file: the dry run's `dataset_file_without_record` does, for a file with nothing after its header. Correct the file and import again. |
 | "TRGT VCF line … holds a value that cannot be read where a number is expected; nothing was stored" (TRGT upload, 400, or the `repeats_trgt` dataset) | A record of the TRGT VCF holds a position, motif count, allele length or purity that is no number, or a position beyond any chromosome: a damaged file or another format. Nothing was replaced. |
+| "Paraphase JSON for … holds a value that cannot be read where a number is expected (total_cn of …); nothing was stored" (the `paraphase` dataset) | That gene's copy number in the sample's Paraphase JSON is beyond what Postgres's `integer` holds: a damaged file or another format. No sample's Paraphase results were replaced. |
 | "The NIPT SNV file of … holds no record; no NIPT call was replaced" | A monogenic NIPT's per-sample SNV file holds nothing after its header. Neither file's calls were replaced. |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |
 | dbNSFP `missing` on every gene | The dbNSFP gene file is not at `GENE_REFERENCE_DBNSFP_GENE_PATH`. |

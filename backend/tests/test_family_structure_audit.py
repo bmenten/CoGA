@@ -337,6 +337,14 @@ class _ChainDatabase:
         if "COALESCE(MAX(version), 0) + 1" in sql:
             numbers = [row["version"] for row in self.versions if row["family_id"] == params["family_uuid"]]
             return _Result(scalar=max(numbers, default=0) + 1)
+        if "COUNT(*) FILTER (WHERE version = 1)" in sql:
+            # The versions the families deleted under the ID stored on its chain.
+            rows = [
+                row
+                for row in self._chain(self.versions, params["family_identifier"])
+                if row["family_id"] != params["family_uuid"]
+            ]
+            return _Result([{"versions": len(rows), "families": sum(row["version"] == 1 for row in rows)}])
         if sql.startswith("INSERT INTO family_structure_versions"):
             row = dict(params)
             row["family_id"] = row.pop("family_uuid")
@@ -954,6 +962,91 @@ def test_the_deletion_summary_names_five_samples_at_most_and_says_why() -> None:
         "0 variant reviews"
     )
     assert audit.family_deleted_summary(audit.ADMIN_DELETE, [], {}) == "Family deleted with its data: 0 samples"
+
+
+# ------------------------------------------------------ a family made again under its ID (ENG-19)
+
+_TRIO_RECORDED = (
+    "Pedigree recorded with 3 members: F1 (father, male, unaffected); M1 (mother, female, unaffected); "
+    "P1 (proband, sex unknown, affected status unknown)"
+)
+
+
+def _unlinked(database: _ChainDatabase, family_uuid: str) -> None:
+    """The family row deleted: ON DELETE SET NULL unlinks its structure versions."""
+    for row in database.versions:
+        if row["family_id"] == family_uuid:
+            row["family_id"] = None
+
+
+async def _family_life(database: _ChainDatabase, family_uuid: str, *, deleted: bool) -> None:
+    """A family made under the ID with the trio's pedigree, the proband's status then changed,
+    and the family deleted (``deleted``)."""
+    database.snapshot = _snapshot(*_trio())
+    await audit.record_structure_version(
+        database,  # type: ignore[arg-type]
+        family_uuid=family_uuid,
+        family_identifier=FAMILY,
+        change=audit.PedigreeChange(source=audit.FAMILY_CREATED, actor="analyst-b"),
+    )
+    database.snapshot = _snapshot(*_trio("affected"))
+    await audit.record_structure_version(
+        database,  # type: ignore[arg-type]
+        family_uuid=family_uuid,
+        family_identifier=FAMILY,
+        change=audit.pedigree_change_by(_admin(), source=audit.STRUCTURE_EDIT, before=audit.pedigree_state(*_trio())),
+    )
+    if deleted:
+        database.samples = ["F1", "M1", "P1"]
+        await audit.record_family_deleted(
+            database,  # type: ignore[arg-type]
+            family_uuid=family_uuid,
+            family_identifier=FAMILY,
+            user=_admin(),
+            source=audit.ADMIN_DELETE,
+        )
+        _unlinked(database, family_uuid)
+
+
+@pytest.mark.asyncio
+async def test_a_family_made_again_under_its_id_names_its_structure_versions_apart() -> None:
+    # Structure versions are numbered per family row: a family made again under the ID of a
+    # deleted family numbers its own from 1 again, on the ID's chains, and its pedigree events
+    # named "structure version 1" and 2 as the deleted family's had, told apart only by their
+    # order and their hash. Each now names how many versions the families deleted under the ID
+    # stored before it, its first says so in its summary, and so does its deletion; a family
+    # never made again is recorded as before.
+    database = _ChainDatabase()
+    await _family_life(database, "fam-a", deleted=True)
+    await _family_life(database, "fam-b", deleted=True)
+    await _family_life(database, "fam-c", deleted=False)
+
+    pedigree = [event for event in database.events if event["action"] == "pedigree"]
+    named = [
+        (event["metadata"].get("deleted_family_versions", 0), event["metadata"]["structure_version"])
+        for event in pedigree
+    ]
+    assert named == [(0, 1), (0, 2), (2, 1), (2, 2), (4, 1), (4, 2)]
+    assert len(set(named)) == len(named)
+    # The first family's events are as before; each made again says so when it is created.
+    assert set(pedigree[0]["metadata"]) == {"source", "structure_version", "structure_hash"}
+    assert [event["summary"] for event in pedigree[0::2]] == [
+        _TRIO_RECORDED,
+        f"{_TRIO_RECORDED}. Made again under this family ID, after 2 structure versions of a deleted "
+        "family: its own start again at 1.",
+        f"{_TRIO_RECORDED}. Made again under this family ID, after 4 structure versions of 2 deleted "
+        "families: its own start again at 1.",
+    ]
+    assert pedigree[3]["summary"] == pedigree[1]["summary"]
+    # Each deletion names its family's latest version the same way.
+    deletions = [event["before"] for event in database.events if event["action"] == "family_deleted"]
+    assert [(entry.get("deleted_family_versions", 0), entry["structure_version"]) for entry in deletions] == [
+        (0, 2),
+        (2, 2),
+    ]
+    # Nothing of the chains changes: the six versions are one chain that verifies.
+    verified = await audit.verify_family_structure_chain(database, FAMILY)  # type: ignore[arg-type]
+    assert (verified.verified, verified.rows_checked) == (True, 6)
 
 
 def _admin_family_delete(monkeypatch, steps: list[str], *, failing: str | None = None) -> None:
