@@ -5,6 +5,7 @@ import type { ApiRepeatExpansionTrackResponse, ApiRepeatExpansionTrackItem } fro
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import type { GenomeLayout } from './genomeBinLayout';
+import { normalizeChrom } from '../../lib/chromosomes';
 import { RepeatLocusTooltip, describeRepeatLoci, repeatTrackColors } from './repeatExpansionHelpers';
 import { apiPath, raw } from '../../lib/apiPath';
 
@@ -65,8 +66,11 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
 
   const items = useMemo(() => {
     if (!layout) return [];
+    // A locus is placed on the layout's chromosome however either spells it (chr1 and 1; MT,
+    // M, chrM and chrMT), as the API reads it (data_scope.chromosome_aliases): a locus on the
+    // mitochondrion stored as chrM or M found no `MT` and was not drawn.
     return (data?.items || [])
-      .filter((item) => layout.offsets[item.chr.replace(/^chr/i, '')] !== undefined)
+      .filter((item) => layout.offsets[normalizeChrom(item.chr)] !== undefined)
       .sort((a, b) => (STATUS_DRAW_RANK[a.status] ?? 0) - (STATUS_DRAW_RANK[b.status] ?? 0));
   }, [data?.items, layout]);
 
@@ -103,8 +107,7 @@ const GenomeRepeatExpansionTrack: React.FC<Props> = ({
         />
         {items.map((item) => {
           if (!layout) return null;
-          const chrom = item.chr.replace(/^chr/i, '');
-          const offset = layout.offsets[chrom];
+          const offset = layout.offsets[normalizeChrom(item.chr)];
           const centerBp = offset + (item.start + item.end) / 2;
           const x = Math.min(Math.max((centerBp / Math.max(layout.total, 1)) * width, 3), width - 3);
           const color = statusColors[item.status] || statusColors.unknown;

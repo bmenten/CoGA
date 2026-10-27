@@ -247,6 +247,126 @@ describe('ViewerTrackBlock', () => {
     expect(onChange).toHaveBeenCalledWith(70, 270);
   });
 
+  // Found while fixing ENG-7 (#1019): a track block removed mid-drag took its window listeners
+  // with it, so no mouseup cleared the shared surface. Every track stayed shifted, with the
+  // grabbing cursor (or the selection band stayed up), until the next drag. A cancelled
+  // pointer, or a window that loses focus and with it the mouseup, did the same.
+  describe('a gesture that cannot end with a mouseup', () => {
+    const viewport = (onChange: (start: number, end: number) => void, mode: 'pan' | 'zoom') => ({
+      chromSize: 1000,
+      regionStart: 100,
+      regionEnd: 300,
+      mode,
+      onChange,
+    });
+    const surfaceOf = (container: HTMLElement) =>
+      container.querySelector('.viewer-interaction-surface') as HTMLElement;
+
+    it('clears the pan when its track is removed mid-drag, and moves nothing', () => {
+      const onChange = vi.fn();
+      const tracks = (withCoverage: boolean) => (
+        <ViewerInteractionSurface>
+          {withCoverage && (
+            <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(onChange, 'pan')}>
+              <div style={{ height: 20 }} />
+            </ViewerTrackBlock>
+          )}
+        </ViewerInteractionSurface>
+      );
+      const { container, rerender } = render(tracks(true));
+      const surface = surfaceOf(container);
+      const track = screen.getByRole('application', { name: /coverage viewport/i });
+
+      dispatchMouseEvent(track, 'mouseDown', 100);
+      dispatchMouseEvent(track, 'mouseMove', 130);
+      expect(surface.hasAttribute('data-panning')).toBe(true);
+
+      rerender(tracks(false));
+      expect(surface.hasAttribute('data-panning')).toBe(false);
+      expect(surface.style.getPropertyValue('--viewer-shift-tx')).toBe('0px');
+      dispatchMouseEvent(surface, 'mouseUp', 130);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+
+    it('clears the selection band when its track is removed mid-drag', () => {
+      const tracks = (withCoverage: boolean) => (
+        <ViewerInteractionSurface>
+          {withCoverage && (
+            <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(vi.fn(), 'zoom')}>
+              <div style={{ height: 20 }} />
+            </ViewerTrackBlock>
+          )}
+        </ViewerInteractionSurface>
+      );
+      const { container, rerender } = render(tracks(true));
+      const track = screen.getByRole('application', { name: /coverage viewport/i });
+
+      dispatchMouseEvent(track, 'mouseDown', 40);
+      dispatchMouseEvent(track, 'mouseMove', 140);
+      expect(surfaceOf(container).hasAttribute('data-selecting')).toBe(true);
+
+      rerender(tracks(false));
+      expect(surfaceOf(container).hasAttribute('data-selecting')).toBe(false);
+    });
+
+    it('leaves another track’s live pan alone when a track is removed', () => {
+      const onChange = vi.fn();
+      const tracks = (withSvs: boolean) => (
+        <ViewerInteractionSurface>
+          <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(onChange, 'pan')}>
+            <div style={{ height: 20 }} />
+          </ViewerTrackBlock>
+          {withSvs && (
+            <ViewerTrackBlock label="SVs" width={200} viewportInteraction={viewport(vi.fn(), 'pan')}>
+              <div style={{ height: 20 }} />
+            </ViewerTrackBlock>
+          )}
+        </ViewerInteractionSurface>
+      );
+      const { container, rerender } = render(tracks(true));
+      const surface = surfaceOf(container);
+      const coverage = screen.getByRole('application', { name: /coverage viewport/i });
+
+      dispatchMouseEvent(coverage, 'mouseDown', 100);
+      dispatchMouseEvent(coverage, 'mouseMove', 130);
+      rerender(tracks(false));
+      expect(surface.hasAttribute('data-panning')).toBe(true);
+      expect(surface.style.getPropertyValue('--viewer-shift-tx')).toBe('30px');
+
+      dispatchMouseEvent(coverage, 'mouseUp', 130);
+      expect(surface.hasAttribute('data-panning')).toBe(false);
+      expect(onChange).toHaveBeenCalledWith(70, 270);
+    });
+
+    it.each([
+      ['a cancelled pointer', 'pointercancel'],
+      ['a window that loses focus', 'blur'],
+    ])('ends the pan on %s, and moves nothing', (_label, cancel) => {
+      const onChange = vi.fn();
+      const { container } = render(
+        <ViewerInteractionSurface>
+          <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport(onChange, 'pan')}>
+            <div style={{ height: 20 }} />
+          </ViewerTrackBlock>
+        </ViewerInteractionSurface>,
+      );
+      const surface = surfaceOf(container);
+      const track = screen.getByRole('application', { name: /coverage viewport/i });
+
+      dispatchMouseEvent(track, 'mouseDown', 100);
+      dispatchMouseEvent(track, 'mouseMove', 130);
+      fireEvent(window, new Event(cancel));
+      expect(surface.hasAttribute('data-panning')).toBe(false);
+      expect(surface.style.getPropertyValue('--viewer-shift-tx')).toBe('0px');
+
+      // The gesture is over: a later move or release neither shifts nor pans.
+      dispatchMouseEvent(track, 'mouseMove', 160);
+      dispatchMouseEvent(track, 'mouseUp', 160);
+      expect(surface.hasAttribute('data-panning')).toBe(false);
+      expect(onChange).not.toHaveBeenCalled();
+    });
+  });
+
   // ENG-7: the stylesheet gives every track a grabbing cursor while a pan is live, on
   // `[data-panning]`, but nothing set that attribute (the surface marked a pan
   // `data-shifting`), so a pan kept the open hand of `cursor: grab`.
