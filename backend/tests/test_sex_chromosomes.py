@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from backend.app.services.sex_chromosomes import (
+    grc_build,
     hemizygous_chromosome,
     hemizygous_interval,
     pseudoautosomal_regions,
@@ -61,6 +62,14 @@ def test_assembly_aliases_resolve_and_unknown_assemblies_have_no_bounds() -> Non
     assert pseudoautosomal_regions("T2T-CHM13v2.0") is None
     assert hemizygous_chromosome("T2T-CHM13v2.0", "chrX", 31_500_000) is None
     assert hemizygous_chromosome(None, "chrX", 31_500_000) is None
+
+
+def test_the_build_of_an_assembly_is_read_from_any_of_its_names() -> None:
+    # The rule the PARs are looked up by; the startup also reads it to load the shipped GRCh38
+    # segmental-duplication file into a GRCh38 assembly only (OPS-17).
+    assert {grc_build(name) for name in ("GRCh38", "grch38", "hg38", "GRCh38.p14", " GRCh38 ")} == {"GRCh38"}
+    assert {grc_build(name) for name in ("GRCh37", "hg19", "GRCh37.p13")} == {"GRCh37"}
+    assert [grc_build(name) for name in ("T2T CHM13v2.0", "T2T-CHM13v2.0", "hs1", "GRCm39", "", None)] == [None] * 6
 
 
 @pytest.mark.parametrize(
