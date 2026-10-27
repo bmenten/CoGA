@@ -40,6 +40,8 @@ interface CoverageTrackData {
   segments: Segment[];
 }
 
+// The BED endpoints' JSON (`format=json`) has no generated type: the schema describes them as
+// text/plain, their default format.
 interface BedRecordPayload<T> {
   items?: T[];
 }

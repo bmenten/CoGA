@@ -76,7 +76,9 @@ The rules these gates enforce, and the ones they cannot:
   `python docs/handleiding/build_site.py` and commit the regenerated `coga-handleiding.html`.
 - **The frontend's API types follow the backend.** After changing a Pydantic model the API
   serves, run `python scripts/generate-api-types.py` in an environment installed from
-  `backend/requirements-dev.txt`, and commit the regenerated types.
+  `backend/requirements-dev.txt`, and commit the regenerated types. Read a response through
+  its generated type (`frontend/src/lib/apiSchema.generated.ts`) where it has one; a
+  hand-written type in `frontend/src/lib/apiTypes.ts` is checked against it in `apiContract.ts`.
 - **API paths are encoded.** Build every frontend API path with ``apiPath`…` ``
   (`frontend/src/lib/apiPath.ts`), so an identifier from imported data cannot change which
   endpoint is called. An in-app route that carries an identifier is built with

@@ -16,13 +16,19 @@ import FamilyMemberDetailDialog from './FamilyMemberDetailDialog';
 import type {
   ApiFamilyRecord,
   ApiFamilyMemberBatchUpdateItem,
-  ApiFamilyMemberBatchUpdateResponse,
-  ApiFamilyStatusDefinition,
   ApiHpoAnnotation,
-  ApiPaginatedTotalResponse,
   ApiSmallVariantReviewSummary,
   ApiUserRef,
 } from '../../lib/apiTypes';
+import type {
+  FamilyMemberBatchUpdateOut,
+  FamilyMitoDNAAnalysisOut,
+  FamilyParaphaseTableOut,
+  FamilyRepeatExpansionTableOut,
+  FamilyStatusOut,
+  FamilyStructureUpdateOut,
+  VariantPage,
+} from '../../lib/apiSchema.generated';
 import FamilyPageHeader from './FamilyPageHeader';
 import PageState from '../../components/PageState';
 import FamilyLoadFailure from '../../components/FamilyLoadFailure';
@@ -172,11 +178,11 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     data: familyStatusOptions = [],
     isError: statusesFailed,
     refetch: refetchStatuses,
-  } = useQuery<ApiFamilyStatusDefinition[]>({
+  } = useQuery<FamilyStatusOut[]>({
     queryKey: ['family-statuses'],
     queryFn: async () => {
       const res = await api.get('/family-statuses');
-      return res.data as ApiFamilyStatusDefinition[];
+      return res.data as FamilyStatusOut[];
     },
   });
 
@@ -230,12 +236,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     data: variantPage,
     isError: structuralPresenceFailed,
     refetch: refetchStructuralPresence,
-  } = useQuery<ApiPaginatedTotalResponse>({
+  } = useQuery<Pick<VariantPage, 'total'>>({
     queryKey: ['family', familyId, 'structural-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/structural-variants${raw(buildPresenceParams())}`);
-      return res.data as ApiPaginatedTotalResponse;
+      return res.data as VariantPage;
     },
   });
 
@@ -243,12 +249,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     data: familyVariantPage,
     isError: smallPresenceFailed,
     refetch: refetchSmallPresence,
-  } = useQuery<ApiPaginatedTotalResponse>({
+  } = useQuery<Pick<VariantPage, 'total'>>({
     queryKey: ['family', familyId, 'small-variants', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/small-variants${raw(buildPresenceParams())}`);
-      return res.data as ApiPaginatedTotalResponse;
+      return res.data as VariantPage;
     },
   });
 
@@ -256,12 +262,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     data: repeatTable,
     isError: repeatPresenceFailed,
     refetch: refetchRepeatPresence,
-  } = useQuery<{ loci_count?: number }>({
+  } = useQuery<Pick<FamilyRepeatExpansionTableOut, 'loci_count'>>({
     queryKey: ['family', familyId, 'repeat-expansions', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/repeat-expansions${raw(buildPresenceParams())}`);
-      return res.data as { loci_count?: number };
+      return res.data as FamilyRepeatExpansionTableOut;
     },
   });
 
@@ -269,12 +275,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     data: paraphaseTable,
     isError: paraphasePresenceFailed,
     refetch: refetchParaphasePresence,
-  } = useQuery<{ genes_count?: number }>({
+  } = useQuery<Pick<FamilyParaphaseTableOut, 'genes_count'>>({
     queryKey: ['family', familyId, 'paraphase', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/paraphase${raw(buildPresenceParams())}`);
-      return res.data as { genes_count?: number };
+      return res.data as FamilyParaphaseTableOut;
     },
   });
 
@@ -282,12 +288,12 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
     data: mitoTable,
     isError: mitoPresenceFailed,
     refetch: refetchMitoPresence,
-  } = useQuery<{ variant_count?: number; has_coverage?: boolean }>({
+  } = useQuery<Pick<FamilyMitoDNAAnalysisOut, 'variant_count' | 'has_coverage'>>({
     queryKey: ['family', familyId, 'mitochondrial-dna', 'has-data', projectId || null],
     enabled: variantCountsReady,
     queryFn: async () => {
       const res = await api.get(apiPath`/families/${familyId}/mitochondrial-dna${raw(buildPresenceParams())}`);
-      return res.data as { variant_count?: number; has_coverage?: boolean };
+      return res.data as FamilyMitoDNAAnalysisOut;
     },
   });
 
@@ -871,11 +877,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           relatives,
         },
       });
-      const payload = response.data as {
-        family: ApiFamilyRecord;
-        warnings?: string[];
-        cleared_data_counts?: Record<string, number>;
-      };
+      const payload = response.data as FamilyStructureUpdateOut;
       queryClient.setQueryData(['family', familyId], payload.family);
       await queryClient.invalidateQueries({ queryKey: ['families'] });
       await invalidatePedigreeDependentQueries();
@@ -966,7 +968,7 @@ const FamilyDetailPage: React.FC<FamilyDetailPageProps> = ({
           updates,
         },
       );
-      const payload = response.data as ApiFamilyMemberBatchUpdateResponse;
+      const payload = response.data as FamilyMemberBatchUpdateOut;
       queryClient.setQueryData(['family', familyId], payload.family);
       setPendingMemberUpdates({});
       await queryClient.invalidateQueries({ queryKey: ['family', familyId, 'hpo'] });

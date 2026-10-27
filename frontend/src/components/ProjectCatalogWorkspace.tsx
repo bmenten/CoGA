@@ -2,7 +2,7 @@ import React, { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import api from '../lib/api';
-import type { ApiFamilySummary } from '../lib/apiTypes';
+import type { FamilyOut } from '../lib/apiSchema.generated';
 import { formatShortDate } from '../lib/format';
 import { useProjectCatalog } from '../lib/reference';
 import { formatUserRef } from '../lib/users';
@@ -42,11 +42,11 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
     data: allFamilies = [],
     isLoading: familiesLoading,
     error: familiesError,
-  } = useQuery<ApiFamilySummary[]>({
+  } = useQuery<FamilyOut[]>({
     queryKey: ['families'],
     queryFn: async () => {
       const res = await api.get('/families');
-      return res.data as ApiFamilySummary[];
+      return res.data as FamilyOut[];
     },
     retry: false,
   });
@@ -112,7 +112,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
     </>
   );
 
-  const renderFamilyRow = (family: ApiFamilySummary) => {
+  const renderFamilyRow = (family: FamilyOut) => {
     const sampleIds = family.members.map((member) => member.sample_id);
     return (
       <tr key={family.family_id}>
@@ -146,7 +146,7 @@ const ProjectCatalogWorkspace: React.FC<ProjectCatalogWorkspaceProps> = ({
   };
 
   const familyMatchesSearch = useCallback(
-    (family: ApiFamilySummary) =>
+    (family: FamilyOut) =>
       family.family_id.toLowerCase().includes(normalizedSearch) ||
       family.members.some((member) => member.sample_id.toLowerCase().includes(normalizedSearch)),
     [normalizedSearch],

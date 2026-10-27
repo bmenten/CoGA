@@ -9,122 +9,28 @@ import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
 import QueryFailure from '../../components/QueryFailure';
 import { formatDate, formatDateTime } from '../../lib/format';
+import type {
+  AssemblyOut,
+  AssemblyReferenceStatusOut,
+  ClinicalCnvKbJobOut,
+  ClinicalCnvKbStatusOut,
+  GeneReferenceAdminStatusOut,
+  ReferenceAutoImportResult,
+  ReferenceDatasetImportOut,
+  ReferenceImportActivityOut,
+  ReferenceImportSourceAssemblyOut,
+  ReferenceImportSourceOrganismOut,
+  SpeciesOut,
+} from '../../lib/apiSchema.generated';
 
-interface Species {
-  id: string;
-  name: string;
-  common_name: string;
-  tax_id: number;
-}
-
-interface Assembly {
-  id: string;
-  species_id: string;
-  assembly_name: string;
-  version: string;
-  release_date: string;
-}
-
-interface ReferenceDatasetImport {
-  dataset_type: string;
-  inserted: number;
-  replaced: boolean;
-  source?: string | null;
-  performed_by?: string | null;
-  performed_at: string;
-}
-
-interface AssemblyReferenceStatus {
-  assembly_id: string;
-  assembly_name: string;
-  chromosomes: number;
-  genes: number;
-  blacklist_regions: number;
-  clinical_cnvs: number;
-  segmental_duplications: number;
-  dgv?: number;
-  last_imports?: ReferenceDatasetImport[];
-}
-
-interface ReferenceImportSourceOrganism {
-  scientific_name: string;
-  common_name: string;
-  tax_id: number;
-  assembly_count: number;
-}
-
-interface ClinicalCnvKbJob {
-  _id: string;
-  assembly_name: string;
-  status: 'queued' | 'running' | 'completed' | 'failed';
-  skip_clinvar: boolean;
-  requested_by?: string | null;
-  requested_at: string;
-  started_at?: string | null;
-  completed_at?: string | null;
-  inserted: number;
-  error?: string | null;
-}
-
-interface ClinicalCnvKbStatus {
-  active_job: ClinicalCnvKbJob | null;
-  recent_jobs: ClinicalCnvKbJob[];
-  available: boolean;
-  detail?: string | null;
-}
-
-interface GeneMetadataStatus {
-  active_job?: { status: string } | null;
-  human_gene_symbols: number;
-  total_cached_records: number;
-  last_completed_at?: string | null;
-}
-
-interface ReferenceImportActivity {
-  assembly_id: string;
-  assembly_name: string;
-  species_name: string;
-  dataset_type: string;
-  inserted: number;
-  replaced: boolean;
-  source?: string | null;
-  performed_by?: string | null;
-  performed_at: string;
-}
-
-interface ReferenceImportSourceAssembly {
-  scientific_name: string;
-  common_name: string;
-  tax_id: number;
-  ucsc_genome: string;
-  assembly_name: string;
-  assembly_version: string;
-  release_date: string | null;
-  description: string;
-  source_name: string;
-  cytobands_available: boolean;
-  genes_available: boolean;
-  gene_source: string;
-}
-
-interface ReferenceAutoImportResult {
-  species_id: string;
-  species_name: string;
-  assembly_id: string;
-  assembly_name: string;
-  assembly_version: string;
-  ucsc_genome: string;
-  created_species: boolean;
-  created_assembly: boolean;
-  cytobands_inserted: number;
-  genes_inserted: number;
-  cytobands_replaced: boolean;
-  genes_replaced: boolean;
-  cytoband_source_url: string;
-  gene_source_url: string;
-  gene_source: string;
-  gene_warning?: string | null;
-}
+// Each served under its `_id`, which withEntityId copies to `id`.
+type Species = SpeciesOut & { id: string };
+type Assembly = AssemblyOut & { id: string };
+// What the reference page reads of the gene reference's status.
+type GeneMetadataStatus = Pick<
+  GeneReferenceAdminStatusOut,
+  'active_job' | 'human_gene_symbols' | 'total_cached_records' | 'last_completed_at'
+>;
 
 const formatCatalogCount = (value: number | undefined) => (value ?? 0).toLocaleString();
 
@@ -225,7 +131,7 @@ const ReferenceCatalogPage: React.FC = () => {
     queryKey: ['species'],
     queryFn: async () => {
       const res = await api.get('/species');
-      return (res.data as Species[]).map((entry) => withEntityId(entry));
+      return (res.data as SpeciesOut[]).map((entry) => withEntityId(entry));
     },
   });
 
@@ -233,7 +139,7 @@ const ReferenceCatalogPage: React.FC = () => {
     queryKey: ['assemblies', 'all'],
     queryFn: async () => {
       const res = await api.get('/assemblies');
-      return (res.data as Assembly[]).map((entry) => withEntityId(entry));
+      return (res.data as AssemblyOut[]).map((entry) => withEntityId(entry));
     },
   });
 
@@ -241,18 +147,18 @@ const ReferenceCatalogPage: React.FC = () => {
     data: referenceStatuses = [],
     isError: statusesFailed,
     refetch: refetchStatuses,
-  } = useQuery<AssemblyReferenceStatus[]>({
+  } = useQuery<AssemblyReferenceStatusOut[]>({
     queryKey: ['assemblies', 'reference-status'],
     queryFn: async () => {
       const res = await api.get('/assemblies/reference-status');
-      return res.data as AssemblyReferenceStatus[];
+      return res.data as AssemblyReferenceStatusOut[];
     },
   });
 
-  const { data: cnvKbStatus } = useQuery<ClinicalCnvKbStatus>({
+  const { data: cnvKbStatus } = useQuery<ClinicalCnvKbStatusOut>({
     queryKey: ['admin', 'clinical-cnv-kb', 'status'],
     enabled: userIsAdmin,
-    queryFn: async () => (await api.get('/admin/clinical-cnv-kb/status')).data as ClinicalCnvKbStatus,
+    queryFn: async () => (await api.get('/admin/clinical-cnv-kb/status')).data as ClinicalCnvKbStatusOut,
     refetchInterval: (query) => (query.state.data?.active_job ? 3000 : false),
     retry: false,
   });
@@ -260,7 +166,7 @@ const ReferenceCatalogPage: React.FC = () => {
   const { data: geneMetaStatus } = useQuery<GeneMetadataStatus>({
     queryKey: ['admin', 'gene-reference-status'],
     enabled: userIsAdmin,
-    queryFn: async () => (await api.get('/admin/gene-reference/status')).data as GeneMetadataStatus,
+    queryFn: async () => (await api.get('/admin/gene-reference/status')).data as GeneReferenceAdminStatusOut,
     refetchInterval: (query) => {
       const active = query.state.data?.active_job;
       return active && (active.status === 'queued' || active.status === 'running') ? 3000 : false;
@@ -268,35 +174,35 @@ const ReferenceCatalogPage: React.FC = () => {
     retry: false,
   });
 
-  const { data: referenceActivity } = useQuery<ReferenceImportActivity[]>({
+  const { data: referenceActivity } = useQuery<ReferenceImportActivityOut[]>({
     queryKey: ['assemblies', 'reference-import', 'recent'],
     enabled: userIsAdmin,
     queryFn: async () => {
       const res = await api.get('/assemblies/reference-import/recent', {
         params: { limit: 12 },
       });
-      return res.data as ReferenceImportActivity[];
+      return res.data as ReferenceImportActivityOut[];
     },
   });
 
-  const { data: sourceOrganisms = [] } = useQuery<ReferenceImportSourceOrganism[]>({
+  const { data: sourceOrganisms = [] } = useQuery<ReferenceImportSourceOrganismOut[]>({
     queryKey: ['assemblies', 'reference-import', 'organisms'],
     enabled: userIsAdmin,
     queryFn: async () => {
       const res = await api.get('/assemblies/reference-import/organisms');
-      return res.data as ReferenceImportSourceOrganism[];
+      return res.data as ReferenceImportSourceOrganismOut[];
     },
   });
 
   const selectedSourceTaxId = autoImportForm.tax_id ? Number(autoImportForm.tax_id) : null;
-  const { data: sourceAssemblies = [] } = useQuery<ReferenceImportSourceAssembly[]>({
+  const { data: sourceAssemblies = [] } = useQuery<ReferenceImportSourceAssemblyOut[]>({
     queryKey: ['assemblies', 'reference-import', 'assemblies', selectedSourceTaxId],
     enabled: userIsAdmin && selectedSourceTaxId !== null,
     queryFn: async () => {
       const res = await api.get('/assemblies/reference-import/assemblies', {
         params: { tax_id: selectedSourceTaxId },
       });
-      return res.data as ReferenceImportSourceAssembly[];
+      return res.data as ReferenceImportSourceAssemblyOut[];
     },
   });
 
@@ -330,7 +236,7 @@ const ReferenceCatalogPage: React.FC = () => {
   // Per assembly the newest job counts (the list is newest first): a failed one is shown with
   // its reason until a later rebuild of that assembly succeeds.
   const failedCnvRebuilds = useMemo(() => {
-    const newest = new Map<string, ClinicalCnvKbJob>();
+    const newest = new Map<string, ClinicalCnvKbJobOut>();
     for (const job of cnvKbStatus?.recent_jobs ?? []) {
       if (!newest.has(job.assembly_name)) newest.set(job.assembly_name, job);
     }
@@ -862,7 +768,7 @@ const ReferenceCatalogPage: React.FC = () => {
                                         const status = statusByAssembly.get(assembly.id);
                                         const lastImports = status?.last_imports ?? [];
                                         const latestImport = lastImports.reduce<
-                                          ReferenceDatasetImport | null
+                                          ReferenceDatasetImportOut | null
                                         >(
                                           (latest, entry) =>
                                             !latest || entry.performed_at > latest.performed_at

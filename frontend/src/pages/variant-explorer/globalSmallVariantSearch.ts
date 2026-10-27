@@ -8,7 +8,6 @@ import {
   createEmptySmallFilters,
   MULTI_VALUE_FILTER_KEYS,
   type ActiveSmallFilterChip,
-  type FamilyMember,
   type SmallFilterState,
   type SmallPreset,
   type SmallVariantFamily,
@@ -34,7 +33,7 @@ export interface SampleGenotypeFilter {
 
 const PAGE_SIZE = 50;
 
-const EMPTY_MEMBERS: FamilyMember[] = [];
+const EMPTY_MEMBERS: SmallVariantFamily['members'] = [];
 const EMPTY_RELATIONSHIPS: SmallVariantFamily['relationships'] = [];
 const EMPTY_SAMPLE_FILTERS: Record<string, SmallVariantSampleFilter> = {};
 

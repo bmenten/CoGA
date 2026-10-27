@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import ModalDialog from '../../components/ModalDialog';
 import api from '../../lib/api';
+import type { GeneProfileOut, GeneTranscriptOut } from '../../lib/apiSchema.generated';
 import { genotypeZygosity } from '../../lib/genotypes';
 import {
   COLLABORATION_QUICK_TAGS,
@@ -219,31 +220,19 @@ const transcriptBadges = (
  * the modal opens rather than joined into every variant page: the variant list is the
  * hot path behind the filter, and this is wanted for one gene at a time.
  */
-interface GeneTranscriptDetail {
-  transcript_id: string;
-  ccds_id?: string | null;
-  refseq_accessions?: string[];
-}
+type GeneTranscriptDetail = GeneTranscriptOut;
 
-interface GeneMonarchAssociation {
-  mondo_id?: string | null;
-  disease_label?: string | null;
-  causal?: boolean;
-  sources?: string[];
-  monarch_url?: string | null;
-}
-
+// An OMIM disease as the gene reference sync writes it into the profile's `extra`, which the
+// backend serves as an open object.
 interface GeneOmimDisease {
   label?: string | null;
   omim_id?: string | null;
   href?: string | null;
 }
 
-interface GeneProfileSlice {
-  transcripts?: GeneTranscriptDetail[];
-  monarch_associations?: GeneMonarchAssociation[];
-  extra?: { omim_diseases?: Array<string | GeneOmimDisease> };
-}
+type GeneProfileSlice = Pick<GeneProfileOut, 'transcripts' | 'monarch_associations'> & {
+  extra: { omim_diseases?: Array<string | GeneOmimDisease> };
+};
 
 /**
  * The gene profile for a variant's gene, fetched once and shared.

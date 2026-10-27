@@ -6,7 +6,9 @@ import type {
   NiptDeNovoTriageOut,
   NiptNotClassifiedOut,
   NiptRecessiveGeneOut,
+  SmallVariantFilterPresetOut,
   SmallVariantFilterTranscriptOut,
+  SmallVariantTagDefinitionOut,
   SvSecondHitSvOut,
 } from '../../lib/apiSchema.generated';
 import { sortFamilyMembersProbandFirst } from '../../lib/familyMembers';
@@ -329,33 +331,11 @@ export type SmallVariantReviewSavePayload = {
 };
 
 // A small-variant preset is its owner's, reusable in every family they can open.
-export interface SmallVariantFilterPreset {
-  _id: string;
-  owner: string;
-  name: string;
-  description?: string | null;
-  filters: Record<string, unknown>;
-  sample_filters: Record<string, unknown>;
-  sample_templates: Record<string, unknown>;
-  created_at: string;
-  updated_at: string;
-}
+export type SmallVariantFilterPreset = SmallVariantFilterPresetOut;
 
-export interface SmallVariantTagDefinition {
-  key: string;
-  label: string;
-  description?: string | null;
-  group: 'collaboration' | 'classification' | 'custom';
-  color: string;
-  sort_order: number;
-  scope: 'system' | 'global' | 'project';
-  project_id?: string | null;
-  shared_project_ids?: string[];
-  is_custom: boolean;
-  // False for a deleted custom tag. The tag lists serve one only on request
-  // (`include_inactive`), so a review that still holds it can show it; it is never offered.
-  is_active?: boolean;
-}
+// `is_active` is false for a deleted custom tag. The tag lists serve one only on request
+// (`include_inactive`), so a review that still holds it can show it; it is never offered.
+export type SmallVariantTagDefinition = SmallVariantTagDefinitionOut;
 
 export type FamilyMember = ApiFamilyMember;
 export type SmallVariantFamily = Pick<

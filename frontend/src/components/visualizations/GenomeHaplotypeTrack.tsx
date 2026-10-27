@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
+import type { HaplotypeResponse, HaplotypeSegment } from '../../lib/apiSchema.generated';
 import {
   drawHaplotypeRiskOverlay,
   haplotypeLaneColor,
@@ -31,30 +32,11 @@ import { isDeletedHaplotype } from '../../lib/phasedMarkers';
 // is a fresh array every render, which would defeat the memos that depend on it.
 const EMPTY_MEMBERS: HaplotypeMemberLike[] = [];
 
-interface Segment {
-  chr: string;
-  start: number;
-  end: number;
-  hap1: string;
-  hap2: string;
-  ps?: number | null;
-  // Pedigree-aware colour class per lane; see getHaplotypeLaneSignature.
-  hap1_lineage?: string | null;
-  hap2_lineage?: string | null;
-  // A male has one copy of this block (chrX outside the PARs); see HaplotypeSegmentLike.
-  hemizygous_in_males?: boolean | null;
-}
-
-interface HaplotypeSourceSample {
-  sample: string;
-  segments: Array<Segment | Omit<Segment, 'chr'>>;
-}
-
-interface HaplotypeSourceResponse {
-  samples?: HaplotypeSourceSample[];
-  // Built for another pedigree or other sexes than the family's (CLIN-66).
-  blocks_outdated?: boolean;
-}
+// A block with its chromosome: a segment the batch serves without one is on its URL's
+// chromosome. `hap1_lineage`/`hap2_lineage` are the pedigree-aware colour class per lane (see
+// getHaplotypeLaneSignature), `hemizygous_in_males` a block a male has one copy of (chrX outside
+// the PARs, see HaplotypeSegmentLike).
+type Segment = HaplotypeSegment & { chr: string };
 
 interface GenomeHaplotypes {
   segments: Record<string, Segment[]>;
@@ -116,21 +98,22 @@ const GenomeHaplotypeTrack: React.FC<Props> = ({
       // and cached for the session (#510). Now any failure fails the query, which is
       // never cached as data.
       const responses = await Promise.all(
-        urls.map((u) => fetchTrackJson<HaplotypeSourceResponse>(u)),
+        urls.map((u) => fetchTrackJson<HaplotypeResponse>(u)),
       );
       const map: Record<string, Segment[]> = {};
       responses.forEach((j, idx) => {
         if (!j) return;
-        (j.samples || []).forEach((s: HaplotypeSourceSample) => {
+        (j.samples || []).forEach((s) => {
           const arr = map[s.sample] || [];
           (s.segments || []).forEach((seg) => {
-            const chrom = ('chr' in seg && seg.chr ? seg.chr : undefined) || chroms[idx];
+            const chrom = seg.chr || chroms[idx];
             if (!chrom) return;
             arr.push({ ...seg, chr: chrom });
           });
           map[s.sample] = arr;
         });
       });
+      // Blocks built for another pedigree or other sexes than the family's (CLIN-66).
       return { segments: map, outdated: responses.some((j) => j?.blocks_outdated === true) };
     },
     enabled: !!layout && urls.length > 0,

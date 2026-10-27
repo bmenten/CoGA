@@ -3,7 +3,11 @@ import { useQuery } from '@tanstack/react-query';
 import { useSameSpanFallbackData } from '../../lib/useSameSpanFallbackData';
 import * as d3 from 'd3';
 import api from '../../lib/api';
-import type { ApiVariantPage } from '../../lib/apiTypes';
+import type {
+  SmallVariantTagDefinitionOut,
+  VariantOut,
+  VariantPage,
+} from '../../lib/apiSchema.generated';
 import { hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import {
@@ -26,39 +30,9 @@ import {
   type SmallVariantMarkKind,
 } from '../../lib/smallVariantMarks';
 
-interface Genotype {
-  sample: string;
-  gt: string;
-}
-
-interface SmallVariantReview {
-  tags?: string[];
-}
-
-interface Variant {
-  chr: string;
-  start: number;
-  end: number;
-  type: string;
-  ref?: string;
-  alt?: string;
-  gene?: string | null;
-  gene_id?: string | null;
-  hgvsc?: string | null;
-  hgvsp?: string | null;
-  impact?: string | null;
-  clinvar?: string | null;
-  genotypes?: Genotype[];
-  review?: SmallVariantReview | null;
-}
-
-interface TagDefinition {
-  key: string;
-  label?: string | null;
-  color?: string | null;
-  // False for a deleted tag, listed so the reviews that still hold it can show it.
-  is_active?: boolean | null;
-}
+type Variant = VariantOut;
+// `is_active` is false for a deleted tag, listed so the reviews that still hold it can show it.
+type TagDefinition = SmallVariantTagDefinitionOut;
 
 interface Props {
   familyId: string;
@@ -208,7 +182,7 @@ const SmallVariantTrack: React.FC<Props> = ({
     }
     return nextFilters;
   }, [filters, sampleId]);
-  const { data: rawData, isLoading, isError, refetch } = useQuery<ApiVariantPage<Variant>>({
+  const { data: rawData, isLoading, isError, refetch } = useQuery<VariantPage>({
     queryKey: [
       'small-variants-track',
       familyId,
@@ -233,7 +207,7 @@ const SmallVariantTrack: React.FC<Props> = ({
       const res = await api.get(apiPath`/families/${familyId}/small-variants`, {
         params,
       });
-      return res.data as ApiVariantPage<Variant>;
+      return res.data as VariantPage;
     },
     enabled: canRequestSmallVariants,
   });

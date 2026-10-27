@@ -5,93 +5,23 @@ import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatCount, formatTimestamp } from '../../lib/format';
-
-interface MonarchStatus {
-  release_version?: string | null;
-  gene_disease_pairs: number;
-  genes: number;
-  diseases: number;
-  causal_pairs: number;
-  disease_phenotype_pairs: number;
-  phenotype_diseases: number;
-  phenotypes: number;
-  last_updated_at?: string | null;
-}
-
-interface MonarchRefreshSummary {
-  release_version?: string | null;
-  files_loaded: number;
-  gene_disease_pairs: number;
-  genes: number;
-  diseases: number;
-  causal_pairs: number;
-  disease_phenotype_pairs: number;
-  phenotype_diseases: number;
-  phenotypes: number;
-  excluded_phenotype_pairs: number;
-  completed_at: string;
-  duration_seconds: number;
-  // The generated Mendeliome panel is re-versioned after each refresh; it can fail
-  // without failing the refresh, and is then reported instead of hidden (#514).
-  mendeliome_regenerated?: boolean;
-  mendeliome_error?: string | null;
-}
-
-interface MonarchSearchGene {
-  gene_symbol: string;
-  hgnc_id: string;
-  predicate?: string | null;
-  causal: boolean;
-}
-
-interface MonarchSearchPhenotype {
-  hpo_id: string;
-  phenotype_label?: string | null;
-  matched: boolean;
-}
-
-type MonarchMatchType = 'disease' | 'phenotype' | 'both';
-
-interface MonarchSearchDisease {
-  mondo_id: string;
-  disease_label?: string | null;
-  match_type: MonarchMatchType;
-  gene_count: number;
-  genes: MonarchSearchGene[];
-  phenotype_count: number;
-  matched_phenotype_count: number;
-  phenotypes: MonarchSearchPhenotype[];
-}
-
-interface MonarchGeneOverviewItem {
-  gene_symbol: string;
-  hgnc_id: string;
-  causal: boolean;
-  disease_count: number;
-}
-
-interface MonarchGeneOverview {
-  total: number;
-  genes: MonarchGeneOverviewItem[];
-}
-
-interface MonarchSearchResult {
-  query: string;
-  total: number;
-  diseases: MonarchSearchDisease[];
-  gene_overview: MonarchGeneOverview;
-}
+import type {
+  MonarchRefreshSummaryOut,
+  MonarchSearchDiseaseOut,
+  MonarchSearchOut,
+  MonarchStatusOut,
+} from '../../lib/apiSchema.generated';
 
 const SEARCH_LIMIT = 25;
 
-const matchTypeLabels: Record<MonarchMatchType, string> = {
+const matchTypeLabels: Record<MonarchSearchDiseaseOut['match_type'], string> = {
   disease: 'Disease name',
   phenotype: 'Phenotype',
   both: 'Disease & phenotype',
 };
 
 // One empty list, so the memo and effect below see a stable value before data arrive.
-const NO_DISEASES: MonarchSearchDisease[] = [];
+const NO_DISEASES: MonarchSearchDiseaseOut[] = [];
 
 const MonarchDataAdminPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -103,11 +33,11 @@ const MonarchDataAdminPage: React.FC = () => {
   const [appliedSearch, setAppliedSearch] = useState('');
   const [selectedMondoId, setSelectedMondoId] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useQuery<MonarchStatus>({
+  const { data, isLoading, error } = useQuery<MonarchStatusOut>({
     queryKey: ['admin', 'monarch-status'],
     queryFn: async () => {
       const response = await api.get('/admin/monarch/status');
-      return response.data as MonarchStatus;
+      return response.data as MonarchStatusOut;
     },
     retry: false,
   });
@@ -120,14 +50,14 @@ const MonarchDataAdminPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [search]);
 
-  const searchQuery = useQuery<MonarchSearchResult>({
+  const searchQuery = useQuery<MonarchSearchOut>({
     queryKey: ['admin', 'monarch', 'search', appliedSearch],
     queryFn: async ({ signal }: { signal?: AbortSignal }) => {
       const response = await api.get('/admin/monarch/search', {
         params: { q: appliedSearch, limit: SEARCH_LIMIT },
         signal,
       });
-      return response.data as MonarchSearchResult;
+      return response.data as MonarchSearchOut;
     },
     enabled: appliedSearch.length > 0,
     retry: false,
@@ -166,13 +96,15 @@ const MonarchDataAdminPage: React.FC = () => {
   const refreshMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post('/admin/monarch/refresh');
-      return response.data as MonarchRefreshSummary;
+      return response.data as MonarchRefreshSummaryOut;
     },
     onSuccess: async (summary) => {
       const updated = `Updated to Monarch release ${summary.release_version ?? 'latest'} — `
         + `${formatCount(summary.gene_disease_pairs)} gene–disease and `
         + `${formatCount(summary.disease_phenotype_pairs)} disease–phenotype pairs `
         + `in ${summary.duration_seconds.toFixed(1)}s.`;
+      // The Mendeliome is re-versioned after each refresh; it can fail without failing the
+      // refresh, and is then said instead of hidden (#514).
       setStatus(
         summary.mendeliome_regenerated === false
           ? {

@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { fetchTrackJson } from '../../lib/trackFetch';
+import type { WithoutNulls } from '../../lib/apiTypes';
+import type { VariantOut, VariantPage } from '../../lib/apiSchema.generated';
 import VizLoadingOverlay from './VizLoadingOverlay';
 import VizErrorOverlay from './VizErrorOverlay';
 import VizTooltip from './VizTooltip';
@@ -14,26 +16,12 @@ import {
   svTypeColors,
   svTypeKey,
   svTypeLabel,
-  type SvCopyChange,
   type SvTypeKey,
 } from './svTypes';
 
-interface Genotype {
-  sample: string;
-  gt: string;
-  cn?: number | null;
-}
-
-interface Variant {
-  chr: string;
-  start: number;
-  end: number;
-  type: string;
-  source?: string;
-  // Left out of the track payload when the SV changes no copy number.
-  copy_change?: SvCopyChange;
-  genotypes?: Genotype[];
-}
+// The SV list in track mode leaves out every null field (WithoutNulls): an SV that changes no
+// copy number comes without `copy_change`.
+type Variant = WithoutNulls<VariantOut>;
 
 interface Props {
   url: string;
@@ -45,14 +33,14 @@ interface Props {
 
 type VariantType = SvTypeKey;
 
-interface PositionedVariant extends Variant {
+type PositionedVariant = Variant & {
   x1: number;
   x2: number;
   row: number;
   y1: number;
   y2: number;
   typeKey: VariantType;
-}
+};
 
 // The width an SV is drawn at, and hovered over: its span, at least a pixel, and a breakend's
 // marker at least three. Most SVs span less than a pixel of the genome-wide track.
@@ -83,12 +71,9 @@ const SvTrack: React.FC<Props> = ({
     queryFn: async ({ signal }) => {
       // Through the shared client (token + session handling); a failure fails the track
       // instead of reading as "no SVs" (#510).
-      const payload = await fetchTrackJson<{ variants?: Variant[]; total_is_estimated?: boolean }>(
-        url,
-        { signal },
-      );
+      const payload = await fetchTrackJson<WithoutNulls<VariantPage>>(url, { signal });
       return {
-        variants: (payload?.variants || []) as Variant[],
+        variants: payload?.variants || [],
         // Past the backend's candidate cap the list stops part-way through the genome;
         // drawn, the last chromosomes would look free of SVs (#585).
         capped: Boolean(payload?.total_is_estimated),

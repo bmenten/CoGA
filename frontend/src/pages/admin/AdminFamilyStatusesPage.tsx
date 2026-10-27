@@ -5,7 +5,7 @@ import api from '../../lib/api';
 import PageState from '../../components/PageState';
 import FamilyStatusBadge from '../../components/FamilyStatusBadge';
 import { getErrorMessage } from '../../lib/errorMessage';
-import type { ApiFamilyStatusDefinition } from '../../lib/apiTypes';
+import type { FamilyStatusOut } from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import type { StatusTone } from './dataManagementTypes';
 
@@ -30,11 +30,11 @@ const AdminFamilyStatusesPage: React.FC = () => {
     data: statuses = [],
     isLoading,
     error,
-  } = useQuery<ApiFamilyStatusDefinition[]>({
+  } = useQuery<FamilyStatusOut[]>({
     queryKey: QUERY_KEY,
     queryFn: async () => {
       const response = await api.get('/admin/family-statuses');
-      return response.data as ApiFamilyStatusDefinition[];
+      return response.data as FamilyStatusOut[];
     },
     retry: false,
   });
@@ -50,7 +50,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
         color: newStatus.color || undefined,
         sort_order: sortOrderValue(newStatus.sort_order),
       });
-      return response.data as ApiFamilyStatusDefinition;
+      return response.data as FamilyStatusOut;
     },
     onSuccess: async (created) => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
@@ -69,7 +69,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
         color: editingDraft.color || undefined,
         sort_order: sortOrderValue(editingDraft.sort_order),
       });
-      return response.data as ApiFamilyStatusDefinition;
+      return response.data as FamilyStatusOut;
     },
     onSuccess: async (updated) => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
@@ -81,11 +81,11 @@ const AdminFamilyStatusesPage: React.FC = () => {
   });
 
   const toggleActiveMutation = useMutation({
-    mutationFn: async (target: ApiFamilyStatusDefinition) => {
+    mutationFn: async (target: FamilyStatusOut) => {
       const response = await api.put(apiPath`/admin/family-statuses/${target.key}`, {
         is_active: !target.is_active,
       });
-      return response.data as ApiFamilyStatusDefinition;
+      return response.data as FamilyStatusOut;
     },
     onSuccess: async (updated) => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
@@ -112,7 +112,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
       setStatus({ tone: 'error', message: getErrorMessage(err, 'Could not delete the family status.') }),
   });
 
-  const beginEdit = (target: ApiFamilyStatusDefinition) => {
+  const beginEdit = (target: FamilyStatusOut) => {
     setEditingKey(target.key);
     setEditingDraft({
       label: target.label,

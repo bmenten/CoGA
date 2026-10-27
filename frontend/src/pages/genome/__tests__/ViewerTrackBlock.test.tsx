@@ -1,7 +1,12 @@
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { createEvent, fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import ViewerTrackBlock from '../ViewerTrackBlock';
 import ViewerInteractionSurface from '../ViewerInteractionSurface';
+
+/** The viewer's own stylesheet module, as the browser receives it. */
+const GENOME_CSS = path.resolve(process.cwd(), 'src/styles/theme/genome.css');
 
 const dispatchMouseEvent = (
   element: HTMLElement,
@@ -233,12 +238,50 @@ describe('ViewerTrackBlock', () => {
 
     dispatchMouseEvent(track, 'mouseDown', 100);
     dispatchMouseEvent(track, 'mouseMove', 130);
-    expect(surface.hasAttribute('data-shifting')).toBe(true);
+    expect(surface.hasAttribute('data-panning')).toBe(true);
     expect(surface.style.getPropertyValue('--viewer-shift-tx')).toBe('30px');
 
     dispatchMouseEvent(track, 'mouseUp', 130);
-    expect(surface.hasAttribute('data-shifting')).toBe(false);
+    expect(surface.hasAttribute('data-panning')).toBe(false);
     expect(surface.style.getPropertyValue('--viewer-shift-tx')).toBe('0px');
     expect(onChange).toHaveBeenCalledWith(70, 270);
+  });
+
+  // ENG-7: the stylesheet gives every track a grabbing cursor while a pan is live, on
+  // `[data-panning]`, but nothing set that attribute (the surface marked a pan
+  // `data-shifting`), so a pan kept the open hand of `cursor: grab`.
+  it('shows the grabbing cursor on every track while a pan drag is live', () => {
+    const style = document.createElement('style');
+    style.textContent = readFileSync(GENOME_CSS, 'utf8');
+    document.head.appendChild(style);
+    const viewport = { chromSize: 1000, regionStart: 100, regionEnd: 300, mode: 'pan' as const, onChange: vi.fn() };
+
+    try {
+      render(
+        <ViewerInteractionSurface>
+          <ViewerTrackBlock label="Coverage" width={200} viewportInteraction={viewport}>
+            <div style={{ height: 20 }} />
+          </ViewerTrackBlock>
+          <ViewerTrackBlock label="SVs" width={200} viewportInteraction={viewport}>
+            <div style={{ height: 20 }} />
+          </ViewerTrackBlock>
+        </ViewerInteractionSurface>,
+      );
+      const coverage = screen.getByRole('application', { name: /coverage viewport/i });
+      const svs = screen.getByRole('application', { name: /svs viewport/i });
+      expect(getComputedStyle(coverage).cursor).toBe('grab');
+
+      dispatchMouseEvent(coverage, 'mouseDown', 100);
+      dispatchMouseEvent(coverage, 'mouseMove', 130);
+      // The whole surface takes the gesture's cursor, not only the track it began on.
+      expect(getComputedStyle(coverage).cursor).toBe('grabbing');
+      expect(getComputedStyle(svs).cursor).toBe('grabbing');
+
+      dispatchMouseEvent(coverage, 'mouseUp', 130);
+      expect(getComputedStyle(coverage).cursor).toBe('grab');
+      expect(getComputedStyle(svs).cursor).toBe('grab');
+    } finally {
+      style.remove();
+    }
   });
 });

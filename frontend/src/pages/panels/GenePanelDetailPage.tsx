@@ -11,6 +11,7 @@ import type {
   GenePanel,
   GenePanelVersionList,
 } from '../../lib/apiTypes';
+import type { GenePanelCreateResponse } from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import { formatDateTime } from '../../lib/format';
 
@@ -76,13 +77,13 @@ const GenePanelDetailPage: React.FC = () => {
     setSaving(true);
     setEditStatus('');
     try {
-      const res = await api.put(apiPath`/panels/${panelId}`, {
+      const res = await api.put<GenePanelCreateResponse>(apiPath`/panels/${panelId}`, {
         genes: editGenes
           .split(/[\s,]+/)
           .map((g) => g.trim())
           .filter(Boolean),
       });
-      setEditStatus(res.data?.message || 'Panel updated');
+      setEditStatus(res.data.message || 'Panel updated');
       setEditing(false);
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['panel', panelId] }),

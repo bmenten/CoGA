@@ -6,50 +6,9 @@ import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { formatCount, formatTimestamp } from '../../lib/format';
+import type { GeneInfoRefreshJobOut, GeneReferenceAdminStatusOut } from '../../lib/apiSchema.generated';
 
-interface GeneInfoRefreshJob {
-  _id: string;
-  scope: 'symbol' | 'all_human';
-  symbol?: string | null;
-  status: 'queued' | 'running' | 'completed' | 'failed';
-  requested_by: string;
-  requested_at: string;
-  started_at?: string | null;
-  heartbeat_at?: string | null;
-  completed_at?: string | null;
-  total_symbols: number;
-  completed_symbols: number;
-  updated_records: number;
-  human_assemblies: number;
-  current_symbol?: string | null;
-  error?: string | null;
-  metadata: Record<string, unknown>;
-}
-
-interface GeneInfoSourceSummary {
-  source: string;
-  latest_fetched_at?: string | null;
-  success_count: number;
-  missing_count: number;
-  not_consulted_count: number;
-  error_count: number;
-  record_count: number;
-  release?: string | null;
-  release_count: number;
-}
-
-interface GeneReferenceAdminStatus {
-  active_job?: GeneInfoRefreshJob | null;
-  recent_jobs: GeneInfoRefreshJob[];
-  source_summaries: GeneInfoSourceSummary[];
-  total_cached_records: number;
-  human_gene_symbols: number;
-  human_assemblies: number;
-  last_completed_at?: string | null;
-}
-
-
-const progressPercent = (job: GeneInfoRefreshJob) => {
+const progressPercent = (job: GeneInfoRefreshJobOut) => {
   if (!job.total_symbols) return 0;
   return Math.max(0, Math.min(100, Math.round((job.completed_symbols / job.total_symbols) * 100)));
 };
@@ -64,14 +23,14 @@ const GeneReferenceAdminPage: React.FC = () => {
     data,
     isLoading,
     error,
-  } = useQuery<GeneReferenceAdminStatus>({
+  } = useQuery<GeneReferenceAdminStatusOut>({
     queryKey: ['admin', 'gene-reference-status'],
     queryFn: async () => {
       const response = await api.get('/admin/gene-reference/status');
-      return response.data as GeneReferenceAdminStatus;
+      return response.data as GeneReferenceAdminStatusOut;
     },
     refetchInterval: (query) => {
-      const payload = query.state.data as GeneReferenceAdminStatus | undefined;
+      const payload = query.state.data as GeneReferenceAdminStatusOut | undefined;
       const active = payload?.active_job;
       return active && (active.status === 'queued' || active.status === 'running') ? 3000 : 15000;
     },
@@ -86,7 +45,7 @@ const GeneReferenceAdminPage: React.FC = () => {
   const refreshAllMutation = useMutation({
     mutationFn: async () => {
       const response = await api.post('/admin/gene-reference/refresh-all');
-      return response.data as GeneInfoRefreshJob;
+      return response.data as GeneInfoRefreshJobOut;
     },
     onSuccess: async (job) => {
       setStatus({ tone: 'success', message: `Started bulk refresh job ${job._id}.` });
@@ -105,7 +64,7 @@ const GeneReferenceAdminPage: React.FC = () => {
       const response = await api.post('/admin/gene-reference/refresh-gene', null, {
         params: { symbol: symbol.trim() },
       });
-      return response.data as GeneInfoRefreshJob;
+      return response.data as GeneInfoRefreshJobOut;
     },
     onSuccess: async (job) => {
       setStatus({ tone: 'success', message: `Started gene refresh job for ${job.symbol}.` });

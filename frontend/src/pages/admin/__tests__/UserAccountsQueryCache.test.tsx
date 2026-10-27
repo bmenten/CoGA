@@ -49,9 +49,10 @@ const ACCOUNTS = [
   },
 ];
 
+// As /projects serves them: a project's id is `_id` (ProjectDashboardOut).
 const PROJECTS = [
   {
-    id: 'p1',
+    _id: 'p1',
     name: 'Rare disease',
     description: 'Synthetic trios',
     user_ids: ['u1'],
