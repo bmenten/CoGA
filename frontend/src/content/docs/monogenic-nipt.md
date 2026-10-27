@@ -244,6 +244,11 @@ Flags appear as chips on the variant card.
 The **Inheritance** control in the NIPT filters picks one of four views. Each works on the variants that
 match the other filters, so set the gene panel, consequence and frequency filters first.
 
+A saved search made on the small-variant list, or a link, can carry an inheritance mode that is none of
+these views (*De novo / dominant*, for one). The NIPT list does not apply it: the page does not send it,
+shows no chip for it, and names it under the active filters, as it names the search's other filters
+the list does not apply.
+
 ### De novo in the fetus
 
 A candidate is a cfDNA call of the site's own that passes the quality filter, on an autosome, where the

@@ -1,5 +1,5 @@
 import { fireEvent, render } from '@testing-library/react';
-import { beforeEach, expect, test, vi } from 'vitest';
+import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
 
@@ -432,4 +432,121 @@ test('reads no risk state from outdated blocks, and says why', () => {
   ).toBeInTheDocument();
   expect(container.querySelector('[data-risk-state]')?.getAttribute('data-risk-state')).toBe('uninformative');
   expect(getByRole('note')).toHaveTextContent('Outdated blocks: no risk state');
+});
+
+// Found while fixing ENG-19 (#1009): a call written as one allele, a man's one X outside the
+// PARs, read '—' (no genotype) in the marker tooltip, as it read '·' in the ROI marker review
+// before #1009. The tooltip now writes a call by the review's rule, its two homologs side by side.
+describe('the marker tooltip at an X-linked locus', () => {
+  const xMembers = [
+    { sample_id: 'FATHER', role: 'father', sex: 'male' },
+    { sample_id: 'MOTHER', role: 'mother', sex: 'female' },
+    { sample_id: 'SON', role: 'embryo', sex: 'male' },
+    { sample_id: 'DAUGHTER', role: 'embryo', sex: 'female' },
+    { sample_id: 'UNRECORDED', role: 'embryo', sex: null },
+  ];
+  // Genotypes per site, in member order, over ref A / alt G. The men's calls are written as one
+  // allele or twice.
+  const xSites = [
+    { pos: 100, ref: 'A', alt: 'G', gts: ['0', '0|1', '1', '0|1', '1|1'] },
+    { pos: 300, ref: 'A', alt: 'G', gts: ['0|0', '0|1', '1|1', '0|0', '0|1'] },
+    // The son's call of two different alleles: a genotype he cannot have on his one X.
+    { pos: 500, ref: 'A', alt: 'G', gts: ['1', '0|0', '0|1', '0|0', '0|0'] },
+  ];
+  const mockX = (ranges: number[][]) =>
+    useQueryMock.mockImplementation(({ queryKey }: { queryKey: unknown[] }) => {
+      if (queryKey[0] === 'phased-markers') {
+        return {
+          data: {
+            samples: xMembers.map((member) => ({
+              sample: member.sample_id,
+              markers: xSites.map((site) => ({ pos: site.pos, hap1: null, hap2: 1 })),
+              reference: ['FATHER', 'MOTHER'].includes(member.sample_id),
+            })),
+            sites: xSites,
+            hemizygous_x_ranges: ranges,
+          },
+        };
+      }
+      if (queryKey[0] === 'haplotypes') {
+        return { data: { chr: 'X', start: 0, end: 1000, samples: [] }, isLoading: false };
+      }
+      return { data: undefined, isLoading: false };
+    });
+  const renderSonTrack = () =>
+    render(
+      <HaplotypePhasedTrack
+        familyId="F1"
+        sampleId="SON"
+        chrom="X"
+        regionStart={0}
+        regionEnd={1000}
+        width={500}
+        height={36}
+        role="embryo"
+        affected={false}
+        sex="male"
+        highlightRiskHaplotype={false}
+        familyMembers={xMembers}
+        inheritanceModel="XLR"
+        riskRegion={null}
+        showMarkers
+      />,
+    );
+  const tooltipSpans = () => [...(document.body.querySelector('.viz-tooltip')?.querySelectorAll<HTMLElement>('span') ?? [])];
+  // Each member's genotype in the tooltip at a site: the cell after its name and its swatches.
+  // x = pos / 2 over width 500 across region 0–1000.
+  const genotypesAt = (container: HTMLElement, pos: number): Record<string, string | null | undefined> => {
+    fireEvent.mouseMove(container.querySelector('canvas') as Element, { clientX: pos / 2, clientY: 10 });
+    const spans = tooltipSpans();
+    return Object.fromEntries(
+      xMembers.map(({ sample_id }) => [
+        sample_id,
+        spans.find((span) => span.firstChild?.textContent === sample_id)?.nextElementSibling?.nextElementSibling
+          ?.textContent,
+      ]),
+    );
+  };
+
+  test('writes a man’s one X as its one allele, on the side of his X, and no allele on the other', () => {
+    mockX([[0, 1000]]);
+    const { container } = renderSonTrack();
+
+    // Written once: the father's one X on his first homolog, a son's, his mother's X, on his
+    // second, as the track and the ROI marker review draw them.
+    expect(genotypesAt(container, 100)).toEqual({
+      FATHER: 'A | –',
+      MOTHER: 'A | G',
+      SON: '– | G',
+      DAUGHTER: 'A | G',
+      UNRECORDED: 'G | G',
+    });
+    // Written twice, a man's call is the same one allele, as the QC reads it; a woman, and a
+    // member whose sex is not recorded, have two copies.
+    expect(genotypesAt(container, 300)).toEqual({
+      FATHER: 'A | –',
+      MOTHER: 'A | G',
+      SON: '– | G',
+      DAUGHTER: 'A | A',
+      UNRECORDED: 'A | G',
+    });
+    // A son's call of two different alleles is written as called.
+    expect(genotypesAt(container, 500)).toMatchObject({ FATHER: 'G | –', SON: 'A | G' });
+
+    // The side without an allele is muted, as the tooltip's "no genotype" is.
+    const probe = document.createElement('span');
+    probe.style.color = NUCLEOTIDE_FALLBACK_COLOR;
+    const noAllele = tooltipSpans().filter((span) => span.textContent === '–' && span.children.length === 0);
+    expect(noAllele.length).toBeGreaterThan(0);
+    expect(new Set(noAllele.map((span) => span.style.color))).toEqual(new Set([probe.style.color]));
+  });
+
+  test('writes a call of one allele as that allele where a man is not known to have one X', () => {
+    mockX([]);
+    const { container } = renderSonTrack();
+
+    // The call is what it is; written twice, it is two copies there.
+    expect(genotypesAt(container, 100)).toMatchObject({ FATHER: 'A | –', SON: '– | G' });
+    expect(genotypesAt(container, 300)).toMatchObject({ FATHER: 'A | A', SON: 'G | G' });
+  });
 });
