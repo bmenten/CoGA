@@ -33,9 +33,12 @@ that lacks them (SourceUnavailable). The optional enrichments are skipped with a
 
 ClinGen's recurrent CNV file is pinned per assembly by its SHA-256 (CLINGEN_RECURRENT_CNV_SHA256,
 TRACE-14): the build reads the file only if its SHA-256 is the pinned one, and stops otherwise,
-as it does for an assembly with no pinned file (GRCh37), before downloading it. With
---sources-out it writes the files it checked (source, release, URL, SHA-256) as JSON, which the
-admin rebuild records with the load.
+as it does for an assembly with no pinned file, before downloading it. The other sources are
+read as published on the day, and each file is recorded by its SHA-256 and size as it is read
+(TRACE-18); the OMIM enrichment asks OMIM's API, whose answers are not recorded. With
+--sources-out the build writes the files it checked (source, release, URL, SHA-256) and the
+files it read (source, URL, SHA-256, size) as JSON, which the admin rebuild records with the
+load.
 """
 
 from __future__ import annotations
@@ -79,10 +82,13 @@ CLINGEN_RECURRENT_CNV = {
 # byte-identical with the bundled
 # data/ref-data/clinical_cnv_syndromes_hg38_bundle/ClinGen_recurrent_CNV_V2.1-hg38.bed, which was
 # checked against ClinGen's download on 2026-10-14 (the backend pins the same file as
-# SEGMENTAL_DUPLICATIONS_PINNED_SHA256). GRCh37: no checked copy of ClinGen's V2.1 GRCh37 file
-# exists yet, so none is pinned, and a GRCh37 build stops before downloading it.
+# SEGMENTAL_DUPLICATIONS_PINNED_SHA256). GRCh37: ClinGen's V2.1 GRCh37 file, downloaded from
+# ftp.clinicalgenome.org on 2026-10-27 with the owner's permission (16,772 bytes, last modified
+# 2026-03-18, the date ClinGen moved to V2.1; TRACE-18). Only the build reads it, so the
+# repository holds no copy.
 CLINGEN_RECURRENT_CNV_SHA256 = {
     "GRCh38": "e6a7428f58b055e51a956941da85cdc984d9519ea7839c365c9b557ccc76a763",
+    "GRCh37": "92f331fe6dd2ba2932db747fdf29e6284efe53e033a8775c2c1ad5e22ce2e0b1",
 }
 _PIN_REMEDY = (
     "Check the file against ClinGen's release by SHA-256 and move CLINGEN_RECURRENT_CNV_SHA256 "
@@ -124,6 +130,23 @@ class CheckedFile:
     sha256: str
 
 
+@dataclass(frozen=True)
+class RecordedFile:
+    """A source file the build read as published on the day, unpinned: the ClinGen dosage
+    curation, the UCSC cytobands, ClinVar's variant summary, Orphanet's nomenclature and a
+    DECIPHER map. Its SHA-256 and size name the exact file the knowledgebase was built from
+    (TRACE-18), where only the rebuild's date did before."""
+
+    source: str
+    url: str
+    sha256: str
+    size: int
+
+
+# The unpinned files the current build read, in the order it read them (``recorded_files``).
+_RECORDED_FILES: List[RecordedFile] = []
+
+
 def log(msg: str) -> None:
     print(f"[build-cnv-kb] {msg}", file=sys.stderr)
 
@@ -132,6 +155,25 @@ def safe_get(url: str, timeout: int = 60) -> bytes:
     r = requests.get(url, timeout=timeout)
     r.raise_for_status()
     return r.content
+
+
+def record_file(source: str, url: str, payload: bytes) -> None:
+    """Record a source file the build read, by its SHA-256 (TRACE-18)."""
+    _RECORDED_FILES.append(
+        RecordedFile(source=source, url=url, sha256=hashlib.sha256(payload).hexdigest(), size=len(payload))
+    )
+
+
+def fetch_recorded(url: str, source: str, timeout: int = 60) -> bytes:
+    """``url``'s bytes, recorded as a source file the build read (``record_file``)."""
+    payload = safe_get(url, timeout=timeout)
+    record_file(source, url, payload)
+    return payload
+
+
+def recorded_files() -> List[RecordedFile]:
+    """The unpinned source files the last build read, which ``--sources-out`` writes."""
+    return list(_RECORDED_FILES)
 
 
 def clean_chr(chrom: str) -> str:
@@ -258,7 +300,7 @@ def discover_clingen_tsv_urls(assembly: str) -> List[str]:
 
 
 def load_table_from_url(url: str) -> pd.DataFrame:
-    content = safe_get(url)
+    content = fetch_recorded(url, "ClinGen dosage curation")
     if url.endswith(".gz"):
         content = gzip.decompress(content)
 
@@ -413,7 +455,7 @@ def make_clingen_url(source_id: str) -> str:
 
 
 def load_ucsc_cytobands(assembly: str) -> pd.DataFrame:
-    content = gzip.decompress(safe_get(UCSC_CYTO[assembly]))
+    content = gzip.decompress(fetch_recorded(UCSC_CYTO[assembly], "UCSC cytobands"))
     cyto = pd.read_csv(
         io.BytesIO(content),
         sep="\t",
@@ -528,11 +570,16 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
     tmp = tempfile.NamedTemporaryFile(prefix="clinvar-", suffix=".txt.gz", delete=False)
     frames = []
     try:
+        # The archive's SHA-256 and size, taken as it streams (TRACE-18).
+        digest = hashlib.sha256()
+        size = 0
         with requests.get(CLINVAR_VARIANT_SUMMARY, stream=True, timeout=600) as r:
             r.raise_for_status()
             for piece in r.iter_content(chunk_size=1 << 20):
                 if piece:
                     tmp.write(piece)
+                    digest.update(piece)
+                    size += len(piece)
         tmp.close()
         reader = pd.read_csv(
             tmp.name,
@@ -573,6 +620,10 @@ def load_clinvar_cnv_support(assembly: str) -> pd.DataFrame:
         except OSError:
             pass
 
+    # Recorded once it was read, as every unpinned source is.
+    _RECORDED_FILES.append(
+        RecordedFile(source="ClinVar variant summary", url=CLINVAR_VARIANT_SUMMARY, sha256=digest.hexdigest(), size=size)
+    )
     df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
     return clinvar_support_rows(df)
 
@@ -776,6 +827,9 @@ def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str] = None) -
         if not Path(xml_path).exists():
             log(f"Orphanet XML not found: {xml_path}")
             return out
+        # A local file is recorded by its name, not by where it lies on this machine.
+        content = Path(xml_path).read_bytes()
+        recorded_as = Path(xml_path).name
     else:
         log("Downloading Orphanet nomenclature (en_product1.xml).")
         try:
@@ -783,6 +837,7 @@ def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str] = None) -
         except Exception as e:  # noqa: BLE001 - logged; the build continues without Orphanet
             log(f"Orphanet download failed: {e}")
             return out
+        recorded_as = ORPHANET_NOMENCLATURE_URL
         tmp = tempfile.NamedTemporaryFile(prefix="orphanet-", suffix=".xml", delete=False)
         tmp.write(content)
         tmp.close()
@@ -800,6 +855,8 @@ def add_orphanet_matches(kb: pd.DataFrame, orphanet_xml: Optional[str] = None) -
                 os.unlink(tmp_path)
             except OSError:
                 pass
+    # Recorded once it was read: a file the build could not parse added nothing.
+    record_file("Orphanet nomenclature", recorded_as, content)
 
     if orpha.empty:
         return out
@@ -870,11 +927,14 @@ def add_decipher_mapping(kb: pd.DataFrame, decipher_map: Optional[str]) -> pd.Da
         log(f"DECIPHER map not found: {decipher_map}")
         return out
 
-    dm = pd.read_csv(p, sep="\t", dtype=str).fillna("")
+    payload = p.read_bytes()
+    dm = pd.read_csv(io.BytesIO(payload), sep="\t", dtype=str).fillna("")
     required = {"syndrome_name", "decipher_id", "decipher_url"}
     if not required.issubset(set(dm.columns)):
         log("DECIPHER map must contain syndrome_name, decipher_id, decipher_url")
         return out
+    # Recorded by its name once it was read, as a local Orphanet file is.
+    record_file("DECIPHER map", p.name, payload)
 
     dm["key"] = dm["syndrome_name"].map(normalize_name)
     map_by_key = {
@@ -1074,8 +1134,10 @@ def build_kb(
     """Build the clinical CNV knowledgebase DataFrame, with the pinned source files it read.
 
     Importable so the backend can invoke the build programmatically (see the
-    admin "rebuild clinical CNV knowledgebase" action) in addition to the CLI.
+    admin "rebuild clinical CNV knowledgebase" action) in addition to the CLI. The unpinned
+    files it reads are recorded as it reads them (``recorded_files``).
     """
+    _RECORDED_FILES.clear()
     log("Discovering ClinGen download files.")
     urls = discover_clingen_tsv_urls(assembly)
 
@@ -1221,7 +1283,8 @@ def main():
         "--sources-out",
         default=None,
         help="Optional JSON file: the pinned source files the build checked and read "
-        "(source, release, URL, SHA-256).",
+        "(source, release, URL, SHA-256), and the unpinned ones it read (source, URL, "
+        "SHA-256, size).",
     )
 
     args = parser.parse_args()
@@ -1239,11 +1302,12 @@ def main():
         sys.exit(1)
     kb.to_csv(args.out, sep="\t", index=False)
     if args.sources_out:
-        # What the admin rebuild records with the load (TRACE-14).
-        Path(args.sources_out).write_text(
-            json.dumps({"checked_files": [asdict(checked) for checked in checked_files]}, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        # What the admin rebuild records with the load (TRACE-14, TRACE-18).
+        sources = {
+            "checked_files": [asdict(checked) for checked in checked_files],
+            "recorded_files": [asdict(recorded) for recorded in recorded_files()],
+        }
+        Path(args.sources_out).write_text(json.dumps(sources, indent=2) + "\n", encoding="utf-8")
 
     log(f"Wrote {len(kb):,} CNV records to {args.out}")
 

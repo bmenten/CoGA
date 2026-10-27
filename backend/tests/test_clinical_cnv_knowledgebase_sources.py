@@ -12,8 +12,8 @@ never showed. Chromosome names are now read case-insensitively.
 
 The recurrent-CNV file was read unchecked, and only its URL was recorded (TRACE-14). It is
 pinned per assembly by its SHA-256 now: the build reads it only if its SHA-256 is the pinned
-one (GRCh38: the bundled copy of ClinGen's V2.1 file), stops on any other file, does not
-download it for an assembly with no pin (GRCh37), and writes the file it checked to
+one (GRCh38: the bundled copy of ClinGen's V2.1 file; GRCh37 since TRACE-18), stops on any other
+file, does not download it for an assembly with no pin, and writes the file it checked to
 ``--sources-out``, which the admin rebuild records with the load. Nothing here goes to the
 network: ``safe_get`` is replaced, and serves the bundled file where ClinGen's is asked for.
 """
@@ -134,9 +134,11 @@ def _bundled_digest() -> str:
     return hashlib.sha256(BUNDLED_HG38.read_bytes()).hexdigest()
 
 
-def test_the_grch38_pin_is_clingens_v2_1_file_as_bundled_and_grch37_has_none() -> None:
+def test_the_grch38_pin_is_clingens_v2_1_file_as_bundled() -> None:
+    # GRCh37's pin, ClinGen's V2.1 GRCh37 file, is in test_clinical_cnv_kb_recorded_files.py.
     assert kb_script.CLINGEN_RECURRENT_CNV_RELEASE == "V2.1"
-    assert kb_script.CLINGEN_RECURRENT_CNV_SHA256 == {"GRCh38": _bundled_digest()}
+    assert kb_script.CLINGEN_RECURRENT_CNV_SHA256["GRCh38"] == _bundled_digest()
+    assert set(kb_script.CLINGEN_RECURRENT_CNV_SHA256) == {"GRCh38", "GRCh37"}
     assert kb_script.CLINGEN_RECURRENT_CNV["GRCh38"].endswith("/" + BUNDLED_HG38.name)
 
 
@@ -174,6 +176,8 @@ def test_a_recurrent_file_that_is_not_the_pinned_one_stops_the_build(monkeypatch
 
 
 def test_an_assembly_without_a_pinned_file_is_not_downloaded(monkeypatch: pytest.MonkeyPatch) -> None:
+    # GRCh37 had no pin until TRACE-18: an assembly without one is still not downloaded.
+    monkeypatch.delitem(kb_script.CLINGEN_RECURRENT_CNV_SHA256, "GRCh37")
     fetched = _serve(monkeypatch, HG37_BED.encode())
 
     with pytest.raises(kb_script.SourceUnavailable) as excinfo:
@@ -331,7 +335,10 @@ def test_the_build_writes_the_file_it_checked_for_the_load_to_record(
     assert json.loads(sources.read_text(encoding="utf-8")) == {
         "checked_files": [
             {"source": "ClinGen recurrent CNV", "release": "V2.1", "url": HG38_URL, "sha256": _bundled_digest()}
-        ]
+        ],
+        # The curation and cytobands are stubbed here, and Orphanet is unreachable: the build
+        # read no other file (test_clinical_cnv_kb_recorded_files.py records them).
+        "recorded_files": [],
     }
     written = pd.read_csv(out, sep="\t", dtype=str)
     recurrent = written[written["source"] == "ClinGen recurrent CNV"]

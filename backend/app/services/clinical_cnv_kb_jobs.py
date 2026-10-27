@@ -113,12 +113,15 @@ def _failure_reason(stderr_tail: str) -> str:
 
 def checked_files_release(sources_json: str) -> str:
     """What the load records as the knowledgebase's release: each pinned file the build read,
-    by source, release, file name and SHA-256 (TRACE-14), e.g. ``ClinGen recurrent CNV V2.1:
-    ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 …``.
+    by source, release, file name and SHA-256 (TRACE-14), then each file it read as
+    published on the day, by source, file name and SHA-256 (TRACE-18), e.g. ``ClinGen
+    recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 …; read as published:
+    UCSC cytobands: cytoBand.txt.gz, SHA-256 …``.
 
-    The build checked each file against its pin before reading it (``--sources-out``). A
-    record that names no file, or a file without its full SHA-256, raises ``ValueError``: the
-    knowledgebase is then not loaded, as the digests could not be recorded with it."""
+    The build checked each pinned file against its pin before reading it, and recorded the
+    others as it read them (``--sources-out``). A record that names no pinned file, or a file
+    without its source, URL or full SHA-256, raises ``ValueError``: the knowledgebase is then
+    not loaded, as the files it was built from could not be recorded with it."""
     payload = json.loads(sources_json)
     entries = payload.get("checked_files") if isinstance(payload, dict) else None
     if not isinstance(entries, list) or not entries:
@@ -133,9 +136,27 @@ def checked_files_release(sources_json: str) -> str:
             raise ValueError("a checked source file lacks its source, release or URL")
         if not isinstance(digest, str) or not _SHA256_HEX.fullmatch(digest):
             raise ValueError("a checked source file lacks its SHA-256")
-        file_name = str(url).rstrip("/").rsplit("/", 1)[-1]
-        described.append(f"{str(source).strip()} {str(release).strip()}: {file_name}, SHA-256 {digest}")
-    return "; ".join(described)
+        described.append(f"{str(source).strip()} {str(release).strip()}: {_file_name(url)}, SHA-256 {digest}")
+    recorded = payload.get("recorded_files", [])
+    if not isinstance(recorded, list):
+        raise ValueError("the build's record of the files it read is not a list")
+    read: list[str] = []
+    for entry in recorded:
+        if not isinstance(entry, dict):
+            raise ValueError("a source file the build read is not described")
+        source, url, digest = (entry.get(name) for name in ("source", "url", "sha256"))
+        if not all(isinstance(value, str) and value.strip() for value in (source, url)):
+            raise ValueError("a source file the build read lacks its source or URL")
+        if not isinstance(digest, str) or not _SHA256_HEX.fullmatch(digest):
+            raise ValueError("a source file the build read lacks its SHA-256")
+        read.append(f"{str(source).strip()}: {_file_name(url)}, SHA-256 {digest}")
+    release = "; ".join(described)
+    return f"{release}; read as published: {'; '.join(read)}" if read else release
+
+
+def _file_name(url: str) -> str:
+    """The file name a source URL (or a local file's recorded name) ends in."""
+    return str(url).rstrip("/").rsplit("/", 1)[-1]
 
 
 def _read_checked_files_release(path: str) -> str:
@@ -478,8 +499,9 @@ async def _run_job(job_id: str) -> None:
         async with sessionmaker() as session:
             # The knowledgebase states no release of its own: it is built from the ClinGen
             # curation, ClinVar and UCSC data current on the day, dated by when it was loaded.
-            # Its one pinned source, ClinGen's recurrent CNV file, is recorded as its release:
-            # the release, file name and SHA-256 of the file the build checked and read.
+            # Its release records the files it was built from: its one pinned source,
+            # ClinGen's recurrent CNV file, by release, file name and SHA-256, and each file
+            # read as published on the day by file name and SHA-256 (TRACE-18).
             result = await apply_reference_dataset_text(
                 session,
                 assembly_id=row["assembly_id"],

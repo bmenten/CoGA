@@ -87,8 +87,10 @@ is classified, and until then a locus whose count needs a correction stays not v
 `reference_dataset_imports.source_version` and `source_release_date` hold the release the
 source states about itself. A GENCODE gene import takes both from its GTF header. A
 clinical-CNV knowledgebase rebuild, built from the sources as they are on the day, records in
-`source_version` the one pinned file it read: ClinGen's recurrent CNV file, by release, file
-name and SHA-256 (`ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 …`;
+`source_version` the files it read: the one pinned file, ClinGen's recurrent CNV file, by
+release, file name and SHA-256 (`ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed,
+SHA-256 …`), then each file read as published that day by file name and SHA-256 (`read as
+published: UCSC cytobands: cytoBand.txt.gz, SHA-256 …`; TRACE-18;
 [data-import.md](data-import.md)). No other source states one: UCSC tables, a GTF without that
 header, uploads, the built-in reference files and the DGV script. Their `source_version` is
 `not stated`, as is a knowledgebase rebuild's from before the pin, and `source_release_date`

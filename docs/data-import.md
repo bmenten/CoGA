@@ -78,13 +78,20 @@ ClinGen's recurrent CNV file is pinned per assembly by its SHA-256
 (`CLINGEN_RECURRENT_CNV_SHA256` in `scripts/clinical_cnv_knowledgebase.py`): the rebuild reads
 the file only if its SHA-256 is the pinned one, and fails on any other file, naming it, both
 digests and the fix. GRCh38's pin is ClinGen's V2.1 file, the one the repository ships as the
-segmental-duplication file (`e6a7428f58b0…`). GRCh37 has no pin yet, so a GRCh37 rebuild fails
-before it downloads the file, until a checked copy's SHA-256 is pinned in a reviewed change.
-The import record of a rebuild names the file it read as its release, e.g.
-`ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 e6a7428f…` with the
-digest in full, and the signed analysis record freezes it. A build that does not record the
-file it read is not loaded. The ClinGen dosage curation, ClinVar and the UCSC cytobands are read
-as they are on the day of the rebuild and are not pinned.
+segmental-duplication file (`e6a7428f58b0…`). GRCh37's is ClinGen's V2.1 GRCh37 file,
+downloaded from ftp.clinicalgenome.org on 2026-10-27 with the owner's permission
+(`92f331fe6dd2…`, 16,772 bytes; TRACE-18); until then a GRCh37 rebuild failed before it
+downloaded the file. The ClinGen dosage curation, the UCSC cytobands, ClinVar's variant summary,
+Orphanet's nomenclature and a DECIPHER map are read as they are on the day of the rebuild and
+are not pinned: the build records each file it read into the knowledgebase by its SHA-256 and
+size (`recorded_files`; a local file by its name only), where only the rebuild's date did before
+(TRACE-18). A file it could not read, such as an Orphanet download that does not parse, is not
+recorded; OMIM's API answers (only with `OMIM_API_KEY`) are not recorded either. The import
+record of a rebuild names those files as its release: the pinned file, e.g.
+`ClinGen recurrent CNV V2.1: ClinGen_recurrent_CNV_V2.1-hg38.bed, SHA-256 e6a7428f…`, then
+`read as published: ClinGen dosage curation: …, SHA-256 …; UCSC cytobands: cytoBand.txt.gz,
+SHA-256 …`, every digest in full, and the signed analysis record freezes it. A build that does
+not record the files it read, each with its source, URL and full SHA-256, is not loaded.
 
 **Gene loci.** GRCh38 gene loci come from the GENCODE basic annotation, pinned by the release
 in `REFERENCE_GENCODE_GTF_URL`. That is the annotation the variant pipeline uses, so the
@@ -116,8 +123,8 @@ Admins manage reference data on **Admin → Species & assemblies**
   holds that dataset, the upload is refused unless `overwrite=true`, which replaces it.
 
 Every import and upload is recorded with who ran it, the source, and the release the source
-states: a GENCODE import its version and date, a clinical CNV knowledgebase rebuild the ClinGen
-recurrent CNV file it read (above), every other import `not stated` (see
+states: a GENCODE import its version and date, a clinical CNV knowledgebase rebuild the files
+it read (above), every other import `not stated` (see
 [database.md](database.md)). The imports show under "Recent reference activity".
 
 | `dataset_type` | File format |
