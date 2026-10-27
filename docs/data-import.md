@@ -945,15 +945,22 @@ flagged as for any failed dataset. The `repeats_trgt` dataset reads each sample'
 again to store it, so that one sample's calls are held at a time. The `cnv` dataset checks each
 sample's HiFiCNV VCF (its sample column, its records) and reads each signal file up to its first value
 before it writes a track; the `wisecondorx` and `qdnaseq` datasets read every sample's bins and segments,
-and the `pcf` dataset every sample's tables, up to the first row, before they clear a track. A
-monogenic NIPT's per-sample SNV files are checked for their one sample column and a record before the
-plasma's calls are written. The `mito` dataset reads every chrM SV file before it replaces a chrM call:
-one whose records all lie on other chromosomes is no chrM callset and fails the dataset (it read as a
-file without a call, which removed the sample's chrM SVs), and one that cannot be read fails it before
-the chrM VCFs are written. An update checks no file of a track it leaves as stored. Still checked
-sample by sample, as each is written: an APCAD file per embryo (read whole to find its embryo's values)
-and a coverage BED (read whole by the BED loader); the family is put back or flagged when a later one
-fails.
+and the `pcf` dataset every sample's tables, up to the first row, before they clear a track. The
+`apcad` dataset reads every embryo's file up to the embryo's first value (a VCF in which its reader
+finds no record is read as a BED, whole) before it clears an embryo's track, and the `coverage`
+dataset every sample's file before it replaces a sample's track: a BED decoded whole, as the BED
+loader decodes it, and read up to its first record, and a per-target table parsed whole. Both used
+to be checked sample by sample, as each was written (SAFE-3). A monogenic NIPT's per-sample SNV
+files are checked for their one sample column and a record before the plasma's calls are written.
+The `mito` dataset reads every chrM SV file before it replaces a chrM call: one whose records all lie
+on other chromosomes is no chrM callset and fails the dataset (it read as a file without a call,
+which removed the sample's chrM SVs), and one that cannot be read fails it before the chrM VCFs are
+written. An update checks no file of a track it leaves as stored. A file the check passes is read
+again to be stored, and one cut short after the record the check stops at still fails the dataset
+where the read stops, as above. A long-read sample's SNV file is checked up to its first record only:
+a record out of position order is found as the callset is written
+([below](#per-sample-callsets-of-a-long-read-couple)), since checking it first would read the
+longest import's files twice.
 
 A TRGT value that cannot be read as a number (a position that is no whole number or exceeds
 2³² − 1, a motif count, an allele length or a purity that is no number, a purity or
@@ -1162,13 +1169,15 @@ Discover, dry run and import check that:
   `mean` (`coverage_target_table_columns`);
 - a coverage BED's `content` is `read_depth` or `log2_ratio` (`coverage_content_invalid`); a BED
   without one is a warning (`coverage_content_undeclared`): it imports as `unknown`;
-- a data file the import refuses when it holds no record (a family VCF of `snv`, `sv_needlr` or
-  `repeats_trgt`; a sample's SNV, NeedlR, TRGT or chrM VCF) holds a line after its header. One
-  with nothing after it is a warning (`dataset_file_without_record`): the import fails that
-  dataset with the stored data as it was ([A file without a record](#where-each-dataset-lands)).
-  The check reads each file up to its first line after the header, so a line the loader cannot
-  read as a record passes it; a HiFiCNV VCF or a chrM SV VCF without a call is a result, and is not
-  warned of. A dry run used to report none of these files (SAFE-3);
+- a data file the import refuses when it holds no record (a family VCF of `snv`, `sv_needlr`,
+  `repeats_trgt` or `apcad`; a sample's SNV, NeedlR, TRGT or chrM VCF, an embryo's APCAD file, a
+  sample's coverage BED) holds a line after its header. One with nothing after it is a warning
+  (`dataset_file_without_record`): the import fails that dataset with the stored data as it was
+  ([A file without a record](#where-each-dataset-lands)). The check reads each file up to its
+  first line after the header, so a line the loader cannot read as a record passes it (a BED's
+  `track` line, a column header); a HiFiCNV VCF or a chrM SV VCF without a call is a result, and is
+  not warned of, and a per-target coverage table is checked for its columns instead. A dry run used
+  to report none of these files (SAFE-3; the APCAD files and coverage BEDs since its last part);
 - every dataset key is a known one.
 
 A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional without a
@@ -1712,6 +1721,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | "No mitochondrial call was replaced: the chrM VCF of … holds no variant record" (the `mito` dataset) | A sample's chrM VCF holds no variant record: a failed analysis or a file cut short. Every sample's mitochondrial calls are as they were; rerun the analysis and import its VCF. |
 | "No mitochondrial call was replaced: the chrM SV VCF of … holds … record(s), none on chrM" (the `mito` dataset) | The entry's `sv_vcf` is another SV callset than Sniffles2's chrM calls, such as the sample's genome-wide SV VCF. Point it at the chrM SV VCF. |
 | `dataset_file_without_record` (warning) | A data file holds nothing after its header. The import will fail its dataset and keep the stored data as it was: use the complete file. |
+| "No valid BED records found" (the `coverage` dataset, or the `apcad` dataset for an embryo's VCF without a record, read as a BED) | A sample's coverage BED, or such an APCAD VCF, holds no record: an empty or truncated pipeline output. The dataset checks every sample's file before it replaces a track, so every sample's track is as it was. The message does not name the file: the dry run's `dataset_file_without_record` does, for a file with nothing after its header. Correct the file and import again. |
 | "TRGT VCF line … holds a value that cannot be read where a number is expected; nothing was stored" (TRGT upload, 400, or the `repeats_trgt` dataset) | A record of the TRGT VCF holds a position, motif count, allele length or purity that is no number, or a position beyond any chromosome: a damaged file or another format. Nothing was replaced. |
 | "The NIPT SNV file of … holds no record; no NIPT call was replaced" | A monogenic NIPT's per-sample SNV file holds nothing after its header. Neither file's calls were replaced. |
 | Empty viewers or gene search | The assembly's reference data is missing (section 1). |
