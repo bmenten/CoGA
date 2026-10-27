@@ -833,7 +833,7 @@ is migrated; import or upload such a BED again with what it holds.
 | `pcf` | the `apcad_pcf` track (maternal and paternal segment files) |
 | `haplotypes` | a phased family VCF (GLIMPSE2, or SHAPEIT5 from the PGT pipeline) becomes small variants plus haplotype blocks, with a switch in a parent's phasing undone where the couple's children all switch together (kept in `families.metadata.haplotype_phase_corrections`); a per-sample BCF is only registered, not imported. The PGT pipeline's haplotype-origin files (`haplotype_origin`, `haplotype_conclusion`) are kept on the family as its reading of the affected haplotype; CoGA's own risk call does not use them |
 | `paraphase` | Paraphase results (Postgres), shown on the family's Paraphase page |
-| `cnv` (HiFiCNV) | structural variants, source `hificnv`; the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md); a depth file without autosomal depth gives no median to normalise by, and its depths are stored as read, recorded as `none`), and the MAF bigWig as `apcad` |
+| `cnv` (HiFiCNV) | structural variants, source `hificnv`, each named by its coordinates, type and source, never by the record's ID, which its annotation keeps, and one event in two samples' VCFs one SV with both calls (CLIN-39); the depth bigWig as `coverage` and the copy-number bedGraph as `segments` (both stored as log2 ratios, like the other callers, each with its transform recorded in its `sample_interval_track_sources` row: [database.md](database.md); a depth file without autosomal depth gives no median to normalise by, and its depths are stored as read, recorded as `none`), and the MAF bigWig as `apcad` |
 | `mito` | chrM small variants, source `mito`, annotated from the mutserve table, and each sample's mtDNA haplogroup, the one most of its annotated variants name; the chrM SV file (`sv_vcf`, Sniffles2 `--mosaic`) as structural variants, source `mito_sv`, with each sample's heteroplasmy (`INFO/VAF`) and the mtDNA genes it overlaps, shown on the mtDNA page |
 | `qc` | the sample's sequencing QC, shown as a chip in the family members table: NanoPlot and mosdepth, or the PGT pipeline's mean coverage, Qualimap summary and report, and ngs-bits sex. The PGT pipeline's family tables (`ado_adi`, `concordance`, `imputed_concordance`) go onto each embryo, its KING table (`kinship`) onto the family |
 | `alignments` | the CRAM/BAM location, used by IGV: the package-relative path and, for a package in a bucket, the object's URI |
@@ -870,8 +870,10 @@ attached to it and its own deletion lost. The record's ID is kept in the SV's an
   parent), then its own call (its line's query call) over the genotype another sample's line
   gives it as a parent, whichever file comes first.
 - Two calls on one position, type and mate with other alleles, or a symbolic allele (`<INS>`)
-  of another length, are two SVs: the first keeps the id, the other gets its length as a
-  suffix (`1-20000-20007-INS----7`).
+  of another length, are two SVs: the shortest keeps the id, then by REF and ALT, and each
+  other one gets its length as a suffix (`1-20000-20000-INS----7`), then `.2`. The events'
+  order decides, not the lines': the first line's call kept the id, so reading a file, or the
+  samples' files, in another order moved a review to the other event (CLIN-39).
 - The same event uploaded from Sniffles or Spectre has the same id, and so one review, as
   two uploads' calls of one event have; each caller's call stays a row of its own
   ([database.md](database.md#row-identity)). A NeedlR record without END ends where VCF 4.4
@@ -1430,6 +1432,13 @@ calls are checked and replaced:
   a TRA's END was stored as the end of the SV on its own chromosome, where the tracks and
   Circos drew it (CLIN-39). A breakend's id holds its mate, an uploaded's and a NeedlR
   breakend's alike ([above](#where-each-dataset-lands)).
+- A call keeps its copy number (`FORMAT/CN`), which gives a CNV its gain or loss: without it an
+  uploaded CNV counted as a possible deletion in the second-hit badge and ranked as a loss,
+  whatever it called (CLIN-39). Two calls of one position, type and mate with other alleles or
+  another length are two SVs, as a NeedlR import's are ([above](#where-each-dataset-lands)):
+  the SV this source already stores under the id keeps it, matched by its length (an upload
+  stores no alleles), and the same event twice in the file is one call of the sample. They were
+  one SV with the first one's length and two calls of the sample.
 - The upload is refused (409) only when the sample already has calls from the same source.
 - `overwrite=true` replaces that sample's calls from that source. The other samples' calls
   from it, and the SVs of every other source (a package's `needlr` or `hificnv` calls, another

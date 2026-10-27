@@ -449,7 +449,7 @@ out:
 | `…/SNV_INDEL/entries` | `calls.filters` | The call's own FILTER values (`PASS` kept as is). Filled only when the VCF holds one sample, as each file of a monogenic NIPT pair, and of a primary callset read one file per sample, does: its record's FILTER then describes that one call (a DeepVariant `RefCall` kept as a partner's call says the caller read that partner as reference there). A call from a multi-sample VCF has none, since its record's FILTER describes the site. |
 | `…/SNV_INDEL/entries` | `calls.metrics` | The caller's metrics of the call, a map from the INFO key to a number, filled the same way ([vcf_call_metrics.py](../backend/app/services/vcf_call_metrics.py)): Mutect2's `TLOD`, `FS`, `SOR`, `MQ`, `ECNT` and others, and VarDict's `SBF`, `NM`, `MSI` and others; for a key with one value per allele (`MMQ`, `MBQ`, `MFRL`, `RPA`) the first ALT's value under the key and the reference's under `<key>_REF`; `QUAL` when the record has one; `STR` = 1 for Mutect2's short-tandem-repeat flag, and `RU_LEN`, the length of the repeat unit. A Mutect2 tumour-only call has no QUAL: its quality is `TLOD`. The NIPT quality filter, the father's genotype class and the de novo triage read them. |
 | `…/SV/entries` | `calls.ps` | Phase set for a structural call |
-| `…/SV/entries` | `calls.cn` | Copy number from a depth-based CNV caller (HiFiCNV `FORMAT/CN`). `GT=1/1` on a duplication cannot distinguish CN=3 from CN=6, and the ClinGen CNV dosage scoring needs the actual number. Null for callers that report none. |
+| `…/SV/entries` | `calls.cn` | Copy number from a call's `FORMAT/CN`: a depth-based CNV caller's (HiFiCNV), and an uploaded Sniffles or Spectre call's (since CLIN-39; it was dropped, so an uploaded CNV named no direction). `GT=1/1` on a duplication cannot distinguish CN=3 from CN=6, the ClinGen CNV dosage scoring needs the actual number, and a CNV's gain or loss is read from it (`sv_copy_change`). Null for callers that report none. |
 | `…/INTERVAL/entries` | `value`, `record_id`, `metadata_json` | On a `target_coverage` row (source `coverage_table`), one capture target of a per-target coverage table, at the table's BED coordinates: its mean depth, its gene (the first field of the table's `attribute`), and the table's `attribute`, `median`, `min`, `max`, `proportion_covered` (the percentage of its bases with any coverage) and `zero_coverage_bases`. The NIPT coverage check, the plasma's sex profile and the plasma's depth where it has no call read them ([nipt_target_coverage.py](../backend/app/services/nipt_target_coverage.py)); the track viewers do not draw this track. |
 
 Every value a loader writes is bound to its column first
@@ -605,10 +605,17 @@ these tables ends with the callset (`source`):
   a NeedlR call at the same breakpoints have one id but three keys. Each has its own `entries`,
   `variants/details` and `key_lookup` row.
 - The variant id does not depend on the callset, with two exceptions whose id names their
-  source: a HiFiCNV call without an id of its own, and every mtDNA SV
-  (`build_structural_variant_id(..., source=...)` in `family_package_variants.py`). Reviews,
-  classification evidence snapshots, the ranking cache and the SV→gene index attach by the id,
-  so they cover every callset's row of a variant.
+  source: every HiFiCNV call, named by its coordinates like the others and never by its record
+  ID since CLIN-39, and every mtDNA SV (`build_structural_variant_id(..., source=...)` in
+  `family_package_variants.py`). Reviews, classification evidence snapshots, the ranking cache
+  and the SV→gene index attach by the id, so they cover every callset's row of a variant.
+- Two calls of one position, type and mate with other alleles or another length (insertions in
+  particular) are two SVs: one keeps the id, each other one gets a suffix, its length
+  (`…-INS----7`), then `.2`, `.3` (`clickhouse_variant_ids.event_discriminators`). Which one keeps
+  the id follows the events, not the lines: the one this source already stores under it, else
+  the shortest (then by REF and ALT), so a file read in another order gives each event the id it
+  had. A NeedlR import reads its files together; an upload, which stores no alleles, matches a
+  call to the SV of its length (CLIN-39).
 
 When several callsets hold one small variant, the diagnostic lists show the direct call; an
 imputed callset shows only when it is asked for. Reviews and the drift check read the direct

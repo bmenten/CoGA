@@ -2207,12 +2207,14 @@ async def _import_cnv_dataset(job: DatasetImportJob) -> FamilyImportDatasetSumma
         [STRUCTURAL_VARIANTS],
         samples=[sample.sample_uuid for sample in sample_contexts.values()],
     )
-    # Replace only this source: a family can carry NeedlR SVs and HiFiCNV calls at once.
+    # Replace only this source: a family can carry NeedlR SVs and HiFiCNV calls at once. One
+    # event in two samples' VCFs is one SV with both calls: stored as two records under one
+    # id, a part merge kept one of them (CLIN-39).
     await replace_family_structural_variants(
         family_context.assembly_name,
         family_context.family_uuid,
         family_context.project_ids,
-        records,
+        _merge_sv_records_by_id(records),
         source=CNV_SOURCE,
     )
     await _update_sv_file_metadata(
