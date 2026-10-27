@@ -5,7 +5,7 @@ from typing import cast
 from fastapi import APIRouter, FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from .core.clickhouse import (
     close_clickhouse_client,
@@ -30,7 +30,7 @@ from .core.csv_export import EXPORT_HEADERS
 from .db_migrate import init_postgres_admin_user
 from .middleware.client_ip import TrustedProxyClientMiddleware
 from .middleware.request_logging import log_request_response
-from .middleware.security_headers import security_headers_middleware
+from .middleware.security_headers import apply_security_headers, security_headers_middleware
 from .routers import all_routers
 from .routers.metrics import router as metrics_router
 from .services.gene_info_jobs_pg import (
@@ -200,6 +200,18 @@ async def _answer_record_not_visible(request: Request, exc: Exception) -> Respon
 
 
 app.add_exception_handler(RecordNotVisible, _answer_record_not_visible)
+
+
+async def _answer_server_error(request: Request, exc: Exception) -> Response:
+    # An exception nothing else answered. Starlette's ServerErrorMiddleware, outside every
+    # middleware above, sends this 500 in place of its own, which has the same text but none
+    # of the security headers, HSTS included (SEC-23). It then raises the exception again, so
+    # uvicorn still logs it (by its frames, #769) after the request middleware has logged and
+    # audited the request.
+    return apply_security_headers(PlainTextResponse("Internal Server Error", status_code=500))
+
+
+app.add_exception_handler(Exception, _answer_server_error)
 
 # The trailing-slash normaliser needs the set of `/api/...` collection-root paths
 # (e.g. `/api/families/`). We read them from the OpenAPI schema rather than

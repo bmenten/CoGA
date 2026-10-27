@@ -1,9 +1,10 @@
 # Runbook — flip the application to the restricted DB role (`coga_app`)
 
 Schema `05_grants.sql` creates a **restricted runtime role
-`coga_app`** and revokes `UPDATE`/`DELETE`/`TRUNCATE` on the append-only tables
+`coga_app`** and revokes `UPDATE`/`DELETE`/`TRUNCATE` on the seven append-only tables
 (`audit_log_events`, `clinical_audit_events`, `report_signouts`, `integrity_anchors`,
-`qc_threshold_changes`). It ships in **fallback mode**: the role exists (`NOLOGIN`) but the
+`qc_threshold_changes`, `family_structure_versions` and `ui_events`, the last two since
+SEC-7). It ships in **fallback mode**: the role exists (`NOLOGIN`) but the
 application still connects as the table **owner**, so nothing changes at runtime yet.
 
 This runbook performs the **coordinated DSN flip** that makes the application connect as

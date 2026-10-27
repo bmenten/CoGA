@@ -72,7 +72,9 @@ Zonder soort en assembly is er geen coördinatenstelsel voor varianten. Bij het 
 
 **T2T-CHM13v2.0** komt er optioneel bij als tweede assembly (`REFERENCE_BOOTSTRAP_T2T=true`; standaard uit). Die annotatie is armer: UCSC's RefSeq-afgeleide GTF levert coördinaten, maar geen biotypes, Ensembl-id's of MANE-labels, en er is geen cytobandtabel. Mislukt die import, dan is dat nooit fataal.
 
-**Waar in de code:** `backend/app/services/reference_source_service.py` (`ensure_human_grch38_reference_on_startup`, `ensure_human_t2t_reference_on_startup`).
+De import noemt de assembly zoals UCSC's beschrijving dat doet: `T2T CHM13v2.0`, met een spatie (`hs1` als die beschrijving geen naam geeft); haar ClickHouse-tabellen heten `T2T_CHM13v2.0`, en NCBI schrijft `T2T-CHM13v2.0`. CoGA herkent T2T-CHM13v2.0 onder elk van die namen met één regel per kant, in hoofd- of kleine letters: `T2T-CHM13`, `T2T CHM13` of `T2T_CHM13`, met of zonder `v2.0`, `CHM13v2.0` en `hs1` (`is_t2t_chm13` in `backend/app/services/sex_chromosomes.py`, naast `grc_build`; `isT2tChm13` in `frontend/src/lib/reference.ts`). Een andere CHM13-release (v1.0, v1.1) of een ander telomeer-tot-telomeergenoom telt niet: hs1 is v2.0. Die regel kiest de UCSC-link (`hs1`) en het IGV-genoom, zet T2T na GRCh38 bij de loci van een gen en de regio's van een panel, en geeft de STRchive-coördinaten waarop een repeatcall wordt geplaatst. Vroeger herkenden de meeste plaatsen alleen `T2T-CHM13…` met een koppelteken, dus niet de naam die de import zelf geeft. T2T valt buiten de gevalideerde scope (alleen GRCh38).
+
+**Waar in de code:** `backend/app/services/reference_source_service.py` (`ensure_human_grch38_reference_on_startup`, `ensure_human_t2t_reference_on_startup`); de naamregel in `backend/app/services/sex_chromosomes.py` (`is_t2t_chm13`).
 
 ### Ingebouwde tracks en de repeatcatalogus
 
@@ -130,7 +132,7 @@ Enkele IVDR-verplichtingen blijven procesmatig en vallen buiten de code, zoals c
 
 - **Geheimen.** Buiten ontwikkeling start de backend niet met placeholder- of zwakke geheimen (hoofdstuk 2). Op Google Cloud komen ze uit Secret Manager en worden ze pas bij het starten in de container gezet, niet in images. De Terraform-state bevat er alleen een verwijzing naar; ook het Postgres-wachtwoord van de eigenaar en de TLS-sleutels van ClickHouse staan er niet in (hierboven).
 - **Versleuteling onderweg.** Postgres via de Cloud SQL-connector; ClickHouse over HTTPS, met een certificaat dat de backend controleert (`CLICKHOUSE_SECURE`, `CLICKHOUSE_VERIFY`, `CLICKHOUSE_CA_CERT`). In rust versleutelt CMEK Cloud SQL, de schijven en de buckets.
-- **Beperkte databankrol.** `05_grants.sql` maakt `coga_app` aan zonder DDL-rechten en zonder `UPDATE`/`DELETE` op de vijf append-only tabellen. Standaard draait de app nog als eigenaar tot de omschakeling uit hoofdstuk 2.
+- **Beperkte databankrol.** `05_grants.sql` maakt `coga_app` aan zonder DDL-rechten en zonder `UPDATE`/`DELETE` op de zeven append-only tabellen. Standaard draait de app nog als eigenaar tot de omschakeling uit hoofdstuk 2.
 - **Reproduceerbaarheid.** De basis-, databank- en collector-images zijn op digest vastgezet; de eigen images van CoGA krijgen een tag met de release of de commit en worden uitgerold op de digest die hun build pushte, zodat de draaiende revisie precies de gebouwde image is; een release wordt alleen gebouwd van een commit op `main`, en haar SBOM's worden met hun SHA-256 aan de release gehecht; `APP_VERSION` en `GIT_SHA` worden bij het bouwen ingebakken en in elk ondertekend rapport bevroren; de HPO-release, het dbNSFP-bestand, de ACMG SF-lijst en de GENCODE-uitgave zijn vastgezette referentieversies, en elk gecachet genrecord noteert per bron welke uitgave het leverde (hoofdstuk 13).
 - **Audit vanaf de start.** De auditschrijver start vóór het seeden en de ClickHouse-bewaking draait vanaf het opstarten.
 

@@ -253,7 +253,8 @@ async def test_a_gene_name_trid_takes_the_thresholds_of_the_tract_its_region_ove
 
 
 @pytest.mark.parametrize(("locus_id", "count", "status"), [("PRTS_ARX", 17, I), ("HFG_HOXA13-II", 18, P)])
-@pytest.mark.parametrize("assembly_name", ["T2T-CHM13v2.0", "T2T CHM13v2.0"])
+# NCBI's name, the UCSC import's (UCSC's description), the ClickHouse dataset key and UCSC's own.
+@pytest.mark.parametrize("assembly_name", ["T2T-CHM13v2.0", "T2T CHM13v2.0", "T2T_CHM13v2.0", "hs1"])
 @pytest.mark.asyncio
 async def test_the_tract_is_found_on_t2t_by_its_t2t_coordinates(
     monkeypatch, locus_id: str, count: int, status: str, assembly_name: str

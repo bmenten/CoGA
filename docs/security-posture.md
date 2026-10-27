@@ -34,11 +34,11 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 - ✅ **A user's own records stay with the account (SEC-32).** A later Microsoft sign-in follows
   the token's e-mail address and user name, so nothing a user keeps as their own is found by
   either. An import job keeps its requester by the account's id
-  (`family_import_jobs.requested_by_id`), and the worker runs the import as that account; a
-  user's filter presets are the account's (`owner_id`). Their address or user name changing
-  keeps both theirs, and an account that later signs in with an address or user name another
-  left behind gets neither. The address and the user name stay with the record as it was made,
-  shown with it.
+  (`family_import_jobs.requested_by_id`), and the worker runs the import as that account while
+  it is active (*Session tokens*, below); a user's filter presets are the account's
+  (`owner_id`). Their address or user name changing keeps both theirs, and an account that
+  later signs in with an address or user name another left behind gets neither. The address
+  and the user name stay with the record as it was made, shown with it.
 - ✅ **Without Microsoft sign-in** (development), JWT bearer tokens (HS256) that the
   password sign-in issues work for every account.
   See `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`). Roles are
@@ -267,7 +267,14 @@ token, which MSAL renews silently with its refresh token (kept in the tab's
 `sessionStorage`, gone when the tab closes) before each request, the API client's and the
 IGV viewer's alike (IGV asks for the session's token at each of its requests, SEC-32), and
 2 hours for a local token (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks
-`is_active`, so deactivating a user ends their access at once. A leaked token of a
+`is_active`, so deactivating a user ends their access at once. So does the import worker,
+which runs a queued import job as the account that requested it: a job whose account has
+been deactivated, or no longer exists, when a worker takes it up is not run. It ends failed,
+saying why, before anything of the family is written, and the log names neither the account
+nor its address (`family_package_import.run_family_import_job`; before, the import ran as the
+deactivated account). An import already running when its account is deactivated runs to its
+end: the account is checked as the import starts, and stopping the import part-way would
+leave its family to the import's fail-clean restore. A leaked token of a
 still-active user stays valid until it expires; there is no revocation list, and CoGA's
 sign-out does not end the Microsoft session in the browser (the sign-in page offers *Sign out
 of Microsoft*). For a single-lab internal deployment this is an **accepted residual**.
@@ -429,7 +436,12 @@ their own; see
   `MODERN` profile. Behind it the app page and the API both send
   `Strict-Transport-Security: max-age=63072000; includeSubDomains`: Terraform sets
   `ENABLE_HSTS=true` on both Cloud Run services, so a browser that has opened the app keeps
-  to HTTPS for that host for two years. Docker Compose serves plain HTTP and leaves it off.
+  to HTTPS for that host for two years. The API's 500 for an exception that nothing else
+  answers carries it too (SEC-23). The load balancer's HTTPS URL map sets the same header on
+  every answer it relays, in place of the services' own, so Cloud Run's own error pages carry
+  it as well. Whether it reaches the answers the load balancer and Cloud Armor give
+  themselves (a refusal, a rate limit) is to be checked on the deployed load balancer.
+  Docker Compose serves plain HTTP and leaves it off.
 
 ## 4. Object storage / deployment path & PHI scoping
 
@@ -504,18 +516,26 @@ What the application relies on there:
 - ✅ **Proxy robustness** (`frontend/server.mjs`, `proxyRequest.mjs`). A reset mid-stream ends
   that response instead of crashing; the backend must start answering within
   `API_PROXY_TIMEOUT_MS` (else 504); a client that goes away aborts the upstream request; the
-  502/504 body does not name the internal backend.
+  502/504 body does not name the internal backend. That 502 or 504 is the server's own answer
+  and carries the server's security headers (below), HSTS as `ENABLE_HSTS` says; it was sent
+  before the middleware that sets them, and carried none. An answer the proxy relays carries
+  the backend's own.
 - ✅ **Forwarded headers.** The proxy sends the backend one clean `X-Forwarded-For` (its peer,
   or what the trusted proxy in front of it added) plus `X-Forwarded-Proto` and `-Host`, so a
   browser cannot choose the address the backend throttles and audits. On Cloud Run the load
   balancer sends `/api` straight to the backend; this proxy is the path for Docker Compose.
+  Terraform still gives the frontend service the backend service's address as `BACKEND_URL`
+  (SEC-23), where the proxy used to aim at Compose's `http://backend:8000`. The backend's
+  ingress admits only the load balancer and internal traffic, and the frontend's traffic does
+  not go through the VPC, so on Cloud Run the proxy would be refused there all the same.
 - ✅ **Headers** (`frontend/securityHeaders.mjs`): a CSP that allows scripts only from the app
   itself (`script-src 'self'`), no framing and no plugins, and a `Permissions-Policy` that
   denies the camera, microphone, geolocation, payment, USB and the other device APIs. API
-  responses carry `default-src 'none'` (`backend/app/middleware/security_headers.py`).
+  responses carry `default-src 'none'` (`backend/app/middleware/security_headers.py`), the
+  500 for an exception that nothing else answers included (SEC-23).
   Where TLS ends in front of the app, `ENABLE_HSTS=true` adds the HSTS header the API sends
-  (§3). The frontend server takes only the exact string `true`; the backend reads the
-  setting as a boolean, so `1` or `True` would turn on the API's header alone.
+  (§3). The frontend server reads the setting as the backend does, so `1`, `True` or `yes`
+  turn on both headers (SEC-23).
 - 🟡 **CSP `connect-src`** is `'self' https:` by default, because IGV loads genomes from a
   changing set of hosts and a signed CRAM URL points at the object store. A deployment that
   knows its hosts narrows it with `CSP_CONNECT_SRC`, keeping

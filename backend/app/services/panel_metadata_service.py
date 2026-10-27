@@ -29,6 +29,7 @@ from .panelapp_service import (
     panelapp_default_panel_name,
     panelapp_panel_url,
 )
+from .sex_chromosomes import is_t2t_chm13
 
 
 def _ensure_admin(user: CurrentUser) -> None:
@@ -41,7 +42,7 @@ def _assembly_display_rank(assembly_name: str | None) -> int:
     name = assembly_name or ""
     if name == "GRCh38":
         return 0
-    if name.startswith("T2T-CHM13"):
+    if is_t2t_chm13(name):
         return 1
     if name in ("GRCh37", "hg19"):
         return 2

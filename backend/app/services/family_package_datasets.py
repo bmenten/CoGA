@@ -1,15 +1,15 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager, suppress
+from contextlib import asynccontextmanager, contextmanager, suppress
 from dataclasses import dataclass, field, replace
 from functools import partial
 import json
 from math import log2
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Mapping, Sequence
+from typing import Any, Awaitable, Callable, Iterator, Mapping, Sequence
 
-from fastapi import UploadFile
+from fastapi import HTTPException, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.object_storage import join_remote_uri, remote_object_exists
@@ -171,6 +171,22 @@ async def _local_upload(path: Path):
         yield upload
     finally:
         await upload.close()
+
+
+@contextmanager
+def _refusal_naming(file_of: str) -> Iterator[None]:
+    """A loader's refusal of a sample's file (a 4xx) as the dataset's failure, ``file_of``
+    before the loader's words: "The coverage BED of S2 (coverage/S2.bed): No valid BED records
+    found". The BED and TRGT loaders answer the single-file uploads too, whose user chose the
+    sample and the file, so their refusals name neither: a dataset of one file per sample
+    failed with "400: No valid BED records found" whichever sample's file it was. Any other
+    error passes as it is."""
+    try:
+        yield
+    except HTTPException as exc:
+        if not 400 <= exc.status_code < 500:
+            raise
+        raise RuntimeError(f"{file_of}: {exc.detail}") from exc
 
 
 async def _stored_track_rows(
@@ -1216,18 +1232,22 @@ async def _import_apcad_dataset(job: DatasetImportJob) -> FamilyImportDatasetSum
                 else import_result
             )
         # Read as a BED, into this dataset's own track: a BED upload's APCAD stays. Its
-        # record says a package loaded it, as every package loader's does (TRACE-17).
-        async with _local_upload(bed_path) as upload:
-            return await upload_bed_data(
-                session,
-                sample_context=sample_contexts[sample_id],
-                bed_type="apcad",
-                file=upload,
-                overwrite=True,
-                source=APCAD_SOURCE,
-                uploaded_from="family_package",
-                check_only=check_only,
-            )
+        # record says a package loaded it, as every package loader's does (TRACE-17). A
+        # refusal names the embryo and its file.
+        with _refusal_naming(
+            f"The APCAD file of {sample_id} ({_display_path(bundle.root, bed_path)}), read as a BED"
+        ):
+            async with _local_upload(bed_path) as upload:
+                return await upload_bed_data(
+                    session,
+                    sample_context=sample_contexts[sample_id],
+                    bed_type="apcad",
+                    file=upload,
+                    overwrite=True,
+                    source=APCAD_SOURCE,
+                    uploaded_from="family_package",
+                    check_only=check_only,
+                )
 
     # Every embryo's file is checked, as it is checked before its embryo's track is cleared,
     # before any embryo's track is: a later embryo's file without a value for it failed the
@@ -1606,19 +1626,23 @@ async def _import_coverage_dataset(job: DatasetImportJob) -> FamilyImportDataset
             if not check_only:
                 await session.commit()
             return stored
-        async with _local_upload(path) as upload:
-            stored = await upload_bed_data(
-                session,
-                sample_context=sample_context,
-                bed_type="coverage",
-                file=upload,
-                overwrite=True,
-                content=content,
-                # Its record says a package loaded it, as the other package tracks' records do:
-                # the single-file upload shares its source (`web`).
-                uploaded_from="family_package",
-                check_only=check_only,
-            )
+        # A refusal names the sample and its file.
+        with _refusal_naming(
+            f"The coverage BED of {sample_context.sample_id} ({_display_path(bundle.root, path)})"
+        ):
+            async with _local_upload(path) as upload:
+                stored = await upload_bed_data(
+                    session,
+                    sample_context=sample_context,
+                    bed_type="coverage",
+                    file=upload,
+                    overwrite=True,
+                    content=content,
+                    # Its record says a package loaded it, as the other package tracks' records
+                    # do: the single-file upload shares its source (`web`).
+                    uploaded_from="family_package",
+                    check_only=check_only,
+                )
         return {**stored, COVERAGE_CONTENT_KEY: content}
 
     # Each file is read twice: the check decodes a BED whole, as its loader does, and stops at
@@ -1764,34 +1788,42 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
     def metadata_of(vcf_path: Path) -> dict[str, Any]:
         return {"source": "trgt", "filename": vcf_path.name, "uploaded_from": "family_package"}
 
+    def file_of(sample_id: str, vcf_path: Path) -> str:
+        """What a refusal of the sample's file names: the sample, and the file by its path in
+        the package."""
+        return f"The TRGT VCF of {sample_id} ({_display_path(bundle.root, vcf_path)})"
+
     # Every sample's file is read whole, and refused or accepted, before any sample's calls
     # are replaced: a later sample's refused file failed the dataset with the earlier
     # samples' calls already replaced (SAFE-3). Each file is read again to be stored, so only
     # one sample's calls are held at a time: a genome-wide TRGT catalogue is large.
-    for _sample_id, sample_context, vcf_path, declared in entries:
-        async with _local_upload(vcf_path) as upload:
-            text_value = await decode_repeat_upload_text(upload)
-        await read_trgt_sample_calls(
-            session,
-            sample_context=sample_context,
-            text_value=text_value,
-            metadata=metadata_of(vcf_path),
-            declared=declared,
-        )
-    sample_results: dict[str, Any] = {}
     for sample_id, sample_context, vcf_path, declared in entries:
-        async with _local_upload(vcf_path) as upload:
-            text_value = await decode_repeat_upload_text(upload)
-            # The sample's stored calls are deleted once its file has been read whole: a
-            # file with no record for it fails the dataset with them as they were (SAFE-29).
-            sample_results[sample_id] = await ingest_trgt_text(
+        with _refusal_naming(file_of(sample_id, vcf_path)):
+            async with _local_upload(vcf_path) as upload:
+                text_value = await decode_repeat_upload_text(upload)
+            await read_trgt_sample_calls(
                 session,
                 sample_context=sample_context,
                 text_value=text_value,
                 metadata=metadata_of(vcf_path),
                 declared=declared,
-                replace=True,
             )
+    sample_results: dict[str, Any] = {}
+    for sample_id, sample_context, vcf_path, declared in entries:
+        with _refusal_naming(file_of(sample_id, vcf_path)):
+            async with _local_upload(vcf_path) as upload:
+                text_value = await decode_repeat_upload_text(upload)
+                # The sample's stored calls are deleted once its file has been read whole: a
+                # file with no record for it fails the dataset with them as they were
+                # (SAFE-29).
+                sample_results[sample_id] = await ingest_trgt_text(
+                    session,
+                    sample_context=sample_context,
+                    text_value=text_value,
+                    metadata=metadata_of(vcf_path),
+                    declared=declared,
+                    replace=True,
+                )
     return summary.model_copy(
         update={
             "status": "imported",

@@ -646,6 +646,7 @@ _COMPUTED: dict[str, object] = {
     "google_sql_database_instance.postgres.connection_name": "coga-project:europe-west1:coga-postgres",
     "google_compute_address.clickhouse.address": "10.10.0.4",
     "tls_self_signed_cert.ca.cert_pem": "the private CA's certificate",
+    "google_cloud_run_v2_service.backend.uri": "https://coga-backend-abc123-ew.a.run.app",
 }
 
 
@@ -982,6 +983,44 @@ def test_the_app_page_and_the_api_both_send_hsts_on_google_cloud(monkeypatch) ->
     assert settings.enable_hsts is True, "the API sends no HSTS"
     # One host, so one policy: a browser keeps the one the host's latest answer sent.
     assert _hsts_policy("frontend/securityHeaders.mjs") == _hsts_policy("backend/app/middleware/security_headers.py")
+
+
+def test_the_load_balancer_sends_the_one_hsts_policy_on_the_https_path_only() -> None:
+    # SEC-23. An answer Cloud Run gives itself, such as its error page when no instance can
+    # serve, carried no HSTS. The HTTPS URL map now sets the policy both servers send on every
+    # answer it relays, in place of theirs, so an answer carries one HSTS header, never two.
+    # The plain-HTTP listener only redirects to HTTPS, and sends none (a browser ignores HSTS
+    # over HTTP).
+    resources = _top_level_blocks("resource")
+    assert _attributes(resources["google_compute_target_https_proxy.https"])["url_map"] == "google_compute_url_map.https.id"
+    assert (
+        _attributes(resources["google_compute_target_http_proxy.http"])["url_map"]
+        == "google_compute_url_map.http_redirect.id"
+    )
+    https = resources["google_compute_url_map.https"]
+    actions = _blocks(https, "header_action")
+    assert len(actions) == 1, "the HTTPS URL map sets no single header action"
+    # At the top of the URL map, so it covers every host and path, not one path matcher's.
+    assert not any(_blocks(body, "header_action") for _, body in _blocks(https, "path_matcher"))
+    added = [_attributes(body) for _, body in _blocks(actions[0][1], "response_headers_to_add")]
+    assert added == [
+        {
+            "header_name": '"Strict-Transport-Security"',
+            "header_value": json.dumps(_hsts_policy("backend/app/middleware/security_headers.py")),
+            "replace": "true",
+        }
+    ]
+    assert "Strict-Transport-Security" not in resources["google_compute_url_map.http_redirect"]
+
+
+def test_the_frontend_proxies_api_to_the_backend_service() -> None:
+    # SEC-23. The frontend's server proxies /api to BACKEND_URL (server.mjs), which defaulted
+    # to Compose's http://backend:8000, a host Cloud Run does not have. The load balancer sends
+    # /api to the backend itself; the frontend now names the backend service all the same.
+    assert "process.env.BACKEND_URL" in (REPO / "frontend" / "server.mjs").read_text()
+    frontend = _containers("var.frontend_image")["google_cloud_run_v2_service.frontend"]
+    values = {_attributes(entry)["name"]: _attributes(entry).get("value") for _, entry in _blocks(frontend, "env")}
+    assert values.get('"BACKEND_URL"') == "google_cloud_run_v2_service.backend.uri"
 
 
 def _rendered_collector_config() -> dict:
