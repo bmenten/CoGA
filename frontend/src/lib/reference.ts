@@ -51,14 +51,63 @@ export function isT2tChm13(assemblyName?: string | null): boolean {
   return T2T_CHM13_NAME.test((assemblyName ?? '').trim());
 }
 
+export type GrcBuild = 'GRCh38' | 'GRCh37';
+
 // GRCh38 and GRCh37 under their GRC and UCSC names, in any case and with or without a patch
 // suffix (GRCh38.p14), as the backend reads them (`sex_chromosomes.grc_build`).
-const GRC_IGV_GENOMES = new Map([
-  ['grch38', 'hg38'],
-  ['hg38', 'hg38'],
-  ['grch37', 'hg19'],
-  ['hg19', 'hg19'],
+const GRC_BUILDS = new Map<string, GrcBuild>([
+  ['grch38', 'GRCh38'],
+  ['hg38', 'GRCh38'],
+  ['grch37', 'GRCh37'],
+  ['hg19', 'GRCh37'],
 ]);
+
+/**
+ * The Genome Reference Consortium build an assembly's name denotes, or null: GRCh38 for GRCh38
+ * or UCSC's hg38, GRCh37 for GRCh37 or hg19, in any case and with or without a patch suffix
+ * (`GRCh38.p14`). The whole name, never a part of it: the rule the backend reads it by
+ * (`sex_chromosomes.grc_build`), and by which it looks up the PARs.
+ */
+export function grcBuild(assemblyName?: string | null): GrcBuild | null {
+  return GRC_BUILDS.get((assemblyName ?? '').trim().toLowerCase().replace(/\.p\d+$/, '')) ?? null;
+}
+
+/**
+ * GRCh38, GRCh37 or T2T-CHM13: the assembly an assembly's name denotes, else its version, each
+ * read whole by the rules the backend reads them by (`grcBuild`, `isT2tChm13`). Null for any
+ * other assembly.
+ */
+export function humanAssemblyOf(
+  assemblyName?: string | null,
+  assemblyVersion?: string | null,
+): GrcBuild | 'T2T-CHM13' | null {
+  for (const name of [assemblyName, assemblyVersion]) {
+    const build = grcBuild(name);
+    if (build) return build;
+    if (isT2tChm13(name)) return 'T2T-CHM13';
+  }
+  return null;
+}
+
+/**
+ * Where an assembly comes in a list of assemblies: GRCh38 (0), T2T-CHM13 (1), GRCh37 (2), each
+ * under any of its names, then any other (9). The backend's order
+ * (`sex_chromosomes.assembly_display_rank`), in which it lists a gene's loci and a panel's regions.
+ */
+export function assemblyDisplayRank(assemblyName?: string | null): number {
+  const build = grcBuild(assemblyName);
+  if (build === 'GRCh38') return 0;
+  if (isT2tChm13(assemblyName)) return 1;
+  if (build === 'GRCh37') return 2;
+  return 9;
+}
+
+/** Sorts assembly names in that order, and those of one rank by name, as the backend does. */
+export function compareAssemblyNames(a: string, b: string): number {
+  return assemblyDisplayRank(a) - assemblyDisplayRank(b) || (a < b ? -1 : a > b ? 1 : 0);
+}
+
+const IGV_GENOMES_OF_GRC_BUILDS: Record<GrcBuild, string> = { GRCh38: 'hg38', GRCh37: 'hg19' };
 
 const OTHER_IGV_GENOMES = new Map([
   ['GRCm39', 'mm39'],
@@ -75,8 +124,8 @@ const OTHER_IGV_GENOMES = new Map([
  */
 export function mapAssemblyToIgvGenome(assemblyName?: string | null): string | null {
   const name = (assemblyName ?? '').trim();
-  const grcGenome = GRC_IGV_GENOMES.get(name.toLowerCase().replace(/\.p\d+$/, ''));
-  if (grcGenome) return grcGenome;
+  const build = grcBuild(name);
+  if (build) return IGV_GENOMES_OF_GRC_BUILDS[build];
   if (isT2tChm13(name)) return 'hs1';
   return OTHER_IGV_GENOMES.get(name) ?? null;
 }

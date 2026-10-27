@@ -31,7 +31,7 @@ from .gene_info_bulk_sources import (
     load_human_gene_bulk_context,
 )
 from .gene_info_external import fetch_external_gene_bundle
-from .sex_chromosomes import is_t2t_chm13
+from .sex_chromosomes import assembly_display_rank
 
 logger = logging.getLogger(__name__)
 
@@ -53,13 +53,8 @@ class HumanGeneContext:
 
 
 def _assembly_priority(assembly_name: str) -> tuple[int, str]:
-    if assembly_name == "GRCh38":
-        return (0, assembly_name)
-    if is_t2t_chm13(assembly_name):
-        return (1, assembly_name)
-    if assembly_name in {"GRCh37", "hg19"}:
-        return (2, assembly_name)
-    return (9, assembly_name)
+    # GRCh38, T2T-CHM13, GRCh37 under any of their names (hg38, GRCh38.p14, ...), then the rest.
+    return (assembly_display_rank(assembly_name), assembly_name)
 
 
 def _gene_locus(doc: dict[str, Any]) -> str | None:

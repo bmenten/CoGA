@@ -130,6 +130,21 @@ coordinates. Before, most of these places read only `T2T-CHM13…` with a hyphen
 the import itself gives, and IGV opened `hg38` for it. IGV now opens no genome for an assembly
 it has none for, and says so. T2T is outside the validated scope (GRCh38 only).
 
+GRCh38 and GRCh37 are read by one rule too, `grc_build` (`grcBuild` in the frontend): GRCh38
+or hg38, GRCh37 or hg19, in any case and with or without a patch suffix such as `.p14`. The
+UCSC import names an assembly `hg38` where UCSC's description gives no name. By that rule the
+gene page links GRCh38 to UCSC's `hg38` and gnomAD v4, and GRCh37 to `hg19` and gnomAD v2.1.
+The variant list's UCSC and gnomAD links and the gene page's hg38 locus read the assembly by
+its name, else by its version, each as a whole. A name the rules do not read, such as
+`GRCh38_no_alt`, gets no UCSC link and no gnomAD release, as IGV opens no genome for it. A
+gene's loci, a panel's regions and the panel list's sizes come in one order: GRCh38,
+T2T-CHM13, GRCh37, then any other assembly by name (`assembly_display_rank` in
+`services/sex_chromosomes.py`; `compareAssemblyNames` in the frontend). The gene page opens on
+the first that has the gene. Before, the gene page's links and that order read only the exact
+name GRCh38 (GRCh37 or hg19 for GRCh37): a GRCh38 assembly named `hg38` or `GRCh38.p14` had
+no UCSC or gnomAD link on the gene page and came last. The variant list took any name or
+version that held `hg38` for GRCh38, and the panel list put GRCh37 among the other assemblies.
+
 ### Loading or replacing reference data
 
 Admins manage reference data on **Admin → Species & assemblies**

@@ -29,24 +29,12 @@ from .panelapp_service import (
     panelapp_default_panel_name,
     panelapp_panel_url,
 )
-from .sex_chromosomes import is_t2t_chm13
+from .sex_chromosomes import assembly_display_rank
 
 
 def _ensure_admin(user: CurrentUser) -> None:
     if not is_admin_user(user):
         raise HTTPException(status_code=403, detail="Not authorized")
-
-
-def _assembly_display_rank(assembly_name: str | None) -> int:
-    """Display order of a gene's per-assembly regions: GRCh38, then T2T, then the rest."""
-    name = assembly_name or ""
-    if name == "GRCh38":
-        return 0
-    if is_t2t_chm13(name):
-        return 1
-    if name in ("GRCh37", "hg19"):
-        return 2
-    return 9
 
 
 def _resolved_gene_count(regions: list[GeneLocation]) -> int:
@@ -276,9 +264,10 @@ async def _resolve_gene_regions(
         if not matches:
             missing_genes.append(symbol)
             continue
+        # GRCh38, T2T-CHM13, GRCh37 under any of their names, then the rest by name.
         for match in sorted(
             matches,
-            key=lambda row: (_assembly_display_rank(row["assembly_name"]), str(row["assembly_name"])),
+            key=lambda row: (assembly_display_rank(row["assembly_name"]), str(row["assembly_name"])),
         ):
             regions.append(
                 GeneLocation(
