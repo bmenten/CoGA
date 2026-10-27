@@ -38,8 +38,10 @@ and later imports leave a manual manifest alone. An import and a replacement of 
 family take turns on one lock, so neither overwrites the other halfway.
 `GET /families/{family_id}/annotation-manifest` merges it with what CoGA itself
 loaded: the reference assembly, the source of the gene loci (`gene_loci`: GENCODE, or the
-UCSC table used when GENCODE could not be fetched), the Monarch release and the HPO release
-(how each is read: [annotation-provenance.md](annotation-provenance.md#the-reference-modules)).
+UCSC table used when GENCODE could not be fetched), the Monarch release and the HPO release,
+with the SHA-256 of the ontology file its terms came from where the import recorded it
+(TRACE-18; how each is read:
+[annotation-provenance.md](annotation-provenance.md#the-reference-modules)).
 The report footer shows the merged list, and sign-out freezes it.
 
 **The evidence snapshot** is taken on every ACMG save. It holds the variant's annotation

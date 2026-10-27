@@ -298,6 +298,8 @@ async def test_the_pinned_ontology_in_place_is_imported_from_the_bytes_that_were
     assert call["release_version"] == config.HPO_PINNED_RELEASE
     # The import parses the checked bytes; it does not read the file again.
     assert call["ontology_text"] == _VENDORED_HPO.read_bytes().decode("utf-8")
+    # And the terms keep the SHA-256 those bytes were checked against (TRACE-18).
+    assert call["release_sha256"] == config.HPO_PINNED_ONTOLOGY_SHA256
     assert result is not None and result["release_version"] == config.HPO_PINNED_RELEASE
 
 

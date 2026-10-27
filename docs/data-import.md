@@ -145,7 +145,14 @@ backend container with `scripts/import_dgv.py`, which inserts in batches (see
 To move to a newer HPO release, put the new `hp.obo` in `/data/ref-data/hpo/` and run the sync
 on **Admin → HPO terminology** (`POST /admin/hpo/sync`). The page starts from the file the
 backend is configured to load (`HPO_ONTOLOGY_PATH`). The sync previews the changes first.
-It only reads files inside the configured ontology folders. The startup import, of a file in
+It only reads files inside the configured ontology folders. The release is the one the file
+states about itself (its `data-version`), and the terms keep the SHA-256 of the bytes imported
+(`metadata.release_sha256`), which the admin page, the loaded release and every signed
+record's HPO entry name (TRACE-18; the owner's choice of 2026-10-27). The page's *Expected
+release* and *Expected release date* are what the admin expects the file to be: the whole
+release (`hp/releases/2026-02-16`) or its last part (`2026-02-16`). A file that states another,
+or no release at all, is refused (400) and nothing is imported. Before, a typed release
+replaced the file's own, unchecked, and no checksum was kept. The startup import, of a file in
 place or downloaded, stays pinned to the vendored release: on a database without HPO terms, a
 start refuses any other file. Moving the pin and the vendored file is a code change
 ([data/ref-data/hpo/README.md](../data/ref-data/hpo/README.md#updating-controlled-change)).

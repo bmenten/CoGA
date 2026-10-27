@@ -118,7 +118,7 @@ the versions in use at that moment.
 | `assembly` | the family's assembly, with its release date |
 | `gene_loci` | the source of the latest gene import for the assembly (GENCODE, or the UCSC table used when GENCODE could not be fetched), with its date |
 | `monarch` | the loaded Monarch release |
-| `hpo` | the release of the latest HPO ontology import, with its release date |
+| `hpo` | the release of the latest HPO ontology import, with its release date and, for an import that recorded it, the SHA-256 of the ontology file (`2026-02-16; SHA-256 8d6c…`, TRACE-18) |
 
 Each lookup runs in its own savepoint, so a failure cannot break the sign-out around it. A
 failed lookup is listed as version `unavailable` with the detail `lookup failed`, never left
@@ -128,9 +128,11 @@ No table holds the HPO release. An import writes its release onto every term in 
 a term that a newer release no longer lists keeps the release it came with. So the loaded
 release is the one on the most recently written term (`get_loaded_hpo_release` in
 `hpo_service.py`). It is not the highest release string, since an older release can be
-imported again, nor the latest one recorded. An ontology imported from a file without a
-`data-version` header has no release; the module then reads `unavailable` with the detail
-`release not recorded`. The HPO admin page and the cached phenotype ranking
+imported again, nor the latest one recorded. Each term also keeps the SHA-256 of the file
+it was imported from (`metadata.release_sha256`), which the startup import of the pinned file
+and the admin sync record (TRACE-18). The admin sync no longer imports a file without a
+`data-version` header; a term imported from one before has no release, and the module then
+reads `unavailable` with the detail `release not recorded`. The HPO admin page and the cached phenotype ranking
 ([variant-ranking-cache.md](variant-ranking-cache.md)) read the release the same way.
 
 When the family's pipeline declares a module under the same key (for example `assembly` from a

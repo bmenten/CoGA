@@ -35,6 +35,8 @@ const SUMMARY = {
   obsolete_terms: 1052,
   release_version: 'hp/releases/2026-06-06',
   release_date: '2026-06-06',
+  // The SHA-256 of the file the terms came from (TRACE-18).
+  release_sha256: '8d6c23798667d4506767ce643fc3c028f0d1c85e7e1d8810e491181a345d53cd',
   last_sync_date: '2026-07-01T09:30:00Z',
   automatic_update_supported: false,
   ontology_loaded: true,
@@ -145,6 +147,7 @@ describe('HpoTerminologyAdminPage', () => {
       expect(statValue('Obsolete')).toBe('1,052');
       expect(statValue('Release')).toBe('hp/releases/2026-06-06');
       expect(statValue('Release date')).toMatch(/2026/);
+      expect(statValue('File SHA-256')).toBe('8d6c23798667…');
       expect(statValue('Last sync')).toBe(new Date('2026-07-01T09:30:00Z').toLocaleString());
       expect(screen.getByText('Automatic updates not configured')).toBeInTheDocument();
       expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
@@ -189,19 +192,22 @@ describe('HpoTerminologyAdminPage', () => {
       expect(statValue('Total terms')).toBe('0');
       expect(statValue('Release')).toBe('Unknown');
       expect(statValue('Release date')).toBe('Not installed');
+      expect(statValue('File SHA-256')).toBe('Not installed');
       expect(statValue('Last sync')).toBe('Not synced');
       expect(screen.getByText('Automatic updates available')).toBeInTheDocument();
     });
 
     it('says a loaded ontology without a recorded release is unknown, not "Not installed"', async () => {
       // The summary describes the latest import; one from a file without a release has none.
-      summaryReply = () => ({ ...SUMMARY, release_version: null, release_date: null });
+      summaryReply = () => ({ ...SUMMARY, release_version: null, release_date: null, release_sha256: null });
       renderPage();
 
       await screen.findByText('Total terms');
       expect(statValue('Total terms')).toBe('18,954');
       expect(statValue('Release')).toBe('Unknown');
       expect(statValue('Release date')).toBe('Unknown');
+      // An import from before the file's SHA-256 was recorded (TRACE-18).
+      expect(statValue('File SHA-256')).toBe('Not recorded');
       expect(screen.queryByText(/No HPO terminology is installed/)).not.toBeInTheDocument();
     });
 
@@ -428,7 +434,7 @@ describe('HpoTerminologyAdminPage', () => {
       expect(screen.getByLabelText('Ontology file path')).toHaveValue('/data/ref-data/hpo/hp-2026-09-01.obo');
     });
 
-    it('previews without asking, sending the trimmed path and overrides, and labels the counts', async () => {
+    it('previews without asking, sending the trimmed path and the expected release, and labels the counts', async () => {
       const user = userEvent.setup();
       const confirm = vi.spyOn(window, 'confirm');
       mockedPost.mockResolvedValue({
@@ -436,6 +442,7 @@ describe('HpoTerminologyAdminPage', () => {
           preview_only: true,
           release_version: 'hp/releases/2026-09-01',
           release_date: '2026-09-01',
+          release_sha256: 'ab'.repeat(32),
           current: SUMMARY,
           preview: {
             terms: 19120,
@@ -455,8 +462,9 @@ describe('HpoTerminologyAdminPage', () => {
       expect(path).toHaveValue('/data/ref-data/hpo/hp.obo');
       await user.clear(path);
       await user.type(path, '  /data/ref-data/hpo/hp-2026-09-01.obo  ');
-      await user.type(screen.getByLabelText('Release version override'), '  hp/releases/2026-09-01 ');
-      fireEvent.change(screen.getByLabelText('Release date override'), { target: { value: '2026-09-01' } });
+      // What the admin expects the file to be: the release is the one the file states (TRACE-18).
+      await user.type(screen.getByLabelText('Expected release'), '  hp/releases/2026-09-01 ');
+      fireEvent.change(screen.getByLabelText('Expected release date'), { target: { value: '2026-09-01' } });
       await user.click(screen.getByRole('button', { name: 'Preview changes' }));
 
       await waitFor(() =>
@@ -472,6 +480,10 @@ describe('HpoTerminologyAdminPage', () => {
         'status-note--success',
       );
       const preview = screen.getByRole('columnheader', { name: 'Change' }).closest('table') as HTMLElement;
+      // The file's own release and the SHA-256 of its bytes (TRACE-18).
+      expect(
+        screen.getByText(/^File: release hp\/releases\/2026-09-01 \(2026-09-01\), SHA-256/),
+      ).toHaveTextContent(`SHA-256 ${'ab'.repeat(32)}.`);
       expect(readTable(preview)).toEqual([
         ['Change', 'Count'],
         ['Terms in release', '19,120'],

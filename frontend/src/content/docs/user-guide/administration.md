@@ -7,7 +7,9 @@ the [admin dashboard](/admin), grouped in six areas.
   CNVs, segmental duplications, DGV), with each dataset's status. Refresh the human gene information,
   rebuild the clinical-CNV knowledgebase, or upload a reference file.
 - **Gene panels** — the panel catalogue: create panels, import them from PanelApp, and see their genes.
-- **HPO terminology** — the HPO release in use; preview and apply a new release.
+- **HPO terminology** — the HPO release in use and the SHA-256 of the file it came from; preview and
+  apply a new release. The release is the one the file states; a file that states another than the
+  expected release you enter, or none, is refused.
 - **Monarch data** — load the Monarch release (gene–disease and disease–phenotype links) that powers
   [phenotype matching](#phenotype-matching) and the ranking. Load it once after installation and about
   monthly; loading it also rebuilds the Mendeliome panel.

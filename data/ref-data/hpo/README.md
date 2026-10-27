@@ -78,7 +78,9 @@ Replacing this ontology is a **TF-18 controlled change**:
 4. Existing databases keep their terms: the startup import only runs when none are
    loaded. Apply the new file under Administration → HPO Terminology
    (`/admin/reference/hpo`): preview, then apply, with the path
-   `/data/ref-data/hpo/hp.obo`. A deployment that reads its reference data from a
+   `/data/ref-data/hpo/hp.obo`, and enter the new release as the *Expected release*. The
+   sync records the release the file states and its SHA-256 with the terms, and refuses a
+   file that states another release, or none (TRACE-18). A deployment that reads its reference data from a
    bucket needs the new file there too, or a start on an empty database refuses the
    old file in the bucket.
 5. Record it: before the first release candidate the pull request is the record (TF-10 §8
