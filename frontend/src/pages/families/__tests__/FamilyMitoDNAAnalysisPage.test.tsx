@@ -235,6 +235,17 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     expect(screen.queryByText('warn')).not.toBeInTheDocument();
     expect(screen.getAllByText('Pass').length).toBeGreaterThanOrEqual(2);
 
+    // The family summary: one compact row per sample, the maternal line and the father as
+    // group rows.
+    const summary = document.querySelector('.family-mtdna-summary-table') as HTMLElement;
+    expect(Array.from(summary.querySelectorAll('tbody tr')).map((row) => row.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Maternal line 1 mother · 1 child sample',
+      '♀PROBANDprobandH1420.4x98%0.20%Pass',
+      '♀MOMmotherH1390.0x97%1.20%WarningContamination estimate is elevated.',
+      'Father',
+      '♂DADfatherJ1300.0x96%0.10%Pass',
+    ]);
+
     const pathogenicRow = screen.getByRole('article', { name: /m\.3243A>G/i });
     const rowScope = within(pathogenicRow as HTMLElement);
     expect(rowScope.getByText('MELAS syndrome')).toBeInTheDocument();

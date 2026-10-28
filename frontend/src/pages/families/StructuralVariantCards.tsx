@@ -21,7 +21,12 @@ import {
 } from './structuralVariantSearch';
 import { buildStructuralVariantNavigation } from './structuralVariantNavigation';
 import ReviewTagChip from './ReviewTagChip';
-import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeTone } from './FamilyGenotypeGrid';
+import { FindingLinks } from './FindingCard';
+import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
+import InfoTip from '../../components/InfoTip';
+import { geneInfoHref } from '../../lib/geneInfo';
+import { omimGeneHref, omimSearchHref } from '../../lib/omim';
 import { formatStructuralLength } from './StructuralVariantTable';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import { READ_ONLY_HINT, useFamilyReadOnly } from '../../lib/familyAccess';
@@ -54,6 +59,24 @@ const parseHpoTerms = (value?: string | number | boolean | string[]) => {
 
 // `from` is this SV page with its query (project and filters), so "Back to SVs" returns
 // to it: the link used to drop the project, which scopes review saves and tags (#526).
+const GENOTYPE_COLUMNS: GenotypeColumn[] = [
+  { key: 'qual', label: 'QUAL', numeric: true },
+  { key: 'reads', label: 'Reads', numeric: true },
+  { key: 'filter', label: 'Filter' },
+];
+
+const ZYGOSITY_TONE: Record<ReturnType<typeof genotypeZygosity>, GenotypeTone> = {
+  hom: 'alert',
+  het: 'warn',
+  ref: 'ref',
+  na: 'na',
+};
+
+// An SV can span several genes, written as one list ("GENE1,GENE2"): the heading leads with
+// the first and names the others in a tooltip.
+const svGenes = (value?: string | null): string[] =>
+  (value || '').split(/[,;|\s]+/).map((gene) => gene.trim()).filter(Boolean);
+
 const buildHpoHref = (terms: string[], familyId?: string, from?: string) => {
   const params = new URLSearchParams();
   terms.forEach((term) => params.append('term', term));
@@ -107,7 +130,8 @@ export default function StructuralVariantCards({
           projectId,
           variant,
         });
-        const phenotype = extra.omim_phenotype || extra.gencc_phenotype || 'No disease annotation';
+        const phenotype = extra.omim_phenotype || extra.gencc_phenotype || '';
+        const genes = svGenes(variant.gene);
         const regionFlags = Array.isArray(extra.region_flags) ? extra.region_flags : [];
         const populationFrequencies = Object.entries(extra.population_frequencies || {}).filter(
           ([, value]) => typeof value === 'number' && Number.isFinite(value),
@@ -145,15 +169,21 @@ export default function StructuralVariantCards({
         return (
           <article
             key={structuralVariantRowKey(variant)}
-            className={`variant-card${isExcluded ? ' variant-card--excluded' : ''}`}
+            className={`variant-card finding-card${isExcluded ? ' variant-card--excluded' : ''}`}
           >
+            {/* The heading every variant card has: the gene (to its gene page) and its disease
+                (to OMIM), what the SV is, and at the right its classification. */}
             <div className="variant-card-head">
-              <div className="variant-card-headline">
-                <span className="variant-card-gene">{variant.gene || 'Intergenic SV'}</span>
-                <span className="variant-card-locus">{locus}</span>
-                <span className="variant-card-subtitle">{phenotype}</span>
-              </div>
-              <div className="variant-card-headtags">
+              <GeneDiseaseHeading
+                gene={genes[0] || 'Intergenic SV'}
+                geneHref={geneInfoHref(genes[0], familyId, projectId)}
+                diseases={phenotype ? [{ name: phenotype, omimUrl: omimSearchHref(phenotype) }] : []}
+              >
+                {genes.length > 1 ? (
+                  <InfoTip staticChild label={genes.join(', ')} className="variant-card-chip variant-card-chip--neutral">
+                    +{genes.length - 1} gene{genes.length === 2 ? '' : 's'}
+                  </InfoTip>
+                ) : null}
                 <span className="variant-card-chip variant-card-chip--impact">{variant.type || 'SV'}</span>
                 <span className="variant-card-chip variant-card-chip--soft">
                   {formatStructuralLength(variant.length)}
@@ -161,7 +191,9 @@ export default function StructuralVariantCards({
                 {extra.inheritance ? (
                   <span className="variant-card-chip variant-card-chip--strong">{extra.inheritance}</span>
                 ) : null}
-                {normalizedClassification ? (
+              </GeneDiseaseHeading>
+              {normalizedClassification ? (
+                <div className="variant-card-headtags">
                   <span
                     className={`variant-card-chip variant-card-chip--${getReviewClassificationTone(
                       normalizedClassification,
@@ -169,8 +201,8 @@ export default function StructuralVariantCards({
                   >
                     {normalizedClassification}
                   </span>
-                ) : null}
-              </div>
+                </div>
+              ) : null}
             </div>
 
             {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
@@ -209,6 +241,10 @@ export default function StructuralVariantCards({
                 </div>
                 <dl className="variant-card-mini-dl">
                   <div>
+                    <dt>Locus</dt>
+                    <dd>{locus}</dd>
+                  </div>
+                  <div>
                     <dt>Type</dt>
                     <dd>{variant.type || '—'}</dd>
                   </div>
@@ -234,52 +270,25 @@ export default function StructuralVariantCards({
               {gtMembers.length ? (
                 <section className="variant-card-col">
                   <p className="variant-card-col-title">Genotypes</p>
-                  <div className="variant-card-gtlist">
-                    <div className="variant-card-gthead">
-                      <span>Sample</span>
-                      <span>Role</span>
-                      <span>GT</span>
-                      <span>QUAL</span>
-                      <span>Reads</span>
-                      <span>Filter</span>
-                    </div>
-                    {gtMembers.map((member) => {
+                  <FamilyGenotypeGrid
+                    callLabel="GT"
+                    columns={GENOTYPE_COLUMNS}
+                    entries={gtMembers.map((member) => {
                       const genotype = variant.genotypes.find(
                         (entry) => entry.sample === member.sample_id,
                       );
-                      const gt = genotype ? formatGt(genotype.gt) : '—';
-                      const zygosity = genotypeZygosity(genotype?.gt);
-                      const sexSymbol =
-                        member.sex === 'male' ? '♂' : member.sex === 'female' ? '♀' : '⚥';
-                      return (
-                        <div
-                          key={member.sample_id}
-                          className={`variant-card-gtline variant-card-gtline--${zygosity}${
-                            member.affected ? ' is-affected' : ''
-                          }${member.role === 'proband' ? ' is-proband' : ''}`}
-                        >
-                          <span className="variant-card-gtline-sample">
-                            <span
-                              className={`variant-card-gtline-sex variant-card-gtline-sex--${
-                                member.sex || 'und'
-                              }`}
-                              title={member.sex || 'unknown sex'}
-                            >
-                              {sexSymbol}
-                            </span>
-                            {member.sample_id}
-                          </span>
-                          <span className="variant-card-gtline-role">{member.role || '—'}</span>
-                          <span className="variant-card-gtline-gt">{gt}</span>
-                          <span className="variant-card-gtline-metric">{genotype?.qual ?? '—'}</span>
-                          <span className="variant-card-gtline-metric">
-                            {genotype?.read_support ?? '—'}
-                          </span>
-                          <span className="variant-card-gtline-metric">{genotype?.filter || '—'}</span>
-                        </div>
-                      );
+                      return {
+                        member,
+                        tone: ZYGOSITY_TONE[genotypeZygosity(genotype?.gt)],
+                        call: genotype ? formatGt(genotype.gt) : '—',
+                        values: {
+                          qual: genotype?.qual ?? '—',
+                          reads: genotype?.read_support ?? '—',
+                          filter: genotype?.filter || '—',
+                        },
+                      };
                     })}
-                  </div>
+                  />
                 </section>
               ) : null}
 
@@ -408,22 +417,15 @@ export default function StructuralVariantCards({
                   ACMG (CNV)
                 </button>
               </div>
-              <div className="variant-card-nav">
-                <GenomeWorkspaceLink
-                  to={igvHref}
-                  className="variant-card-resource variant-card-resource--clinical"
-                  label={`Open IGV at ${igvLocus}`}
-                >
-                  IGV
-                </GenomeWorkspaceLink>
-                <GenomeWorkspaceLink
-                  to={viewHref}
-                  className="variant-card-resource variant-card-resource--clinical"
-                  label={`Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`}
-                >
-                  Chromosome view
-                </GenomeWorkspaceLink>
-              </div>
+              {/* The links every variant card has, in the same order (FindingLinks). */}
+              <FindingLinks
+                igv={{ href: igvHref, label: `Open IGV at ${igvLocus}` }}
+                chromosome={{
+                  href: viewHref,
+                  label: `Open chromosome view around ${variant.chr}:${variant.start}-${variant.end}`,
+                }}
+                omim={genes[0] ? omimGeneHref(genes[0]) : null}
+              />
             </div>
           </article>
         );
