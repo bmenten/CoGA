@@ -121,7 +121,8 @@ out and why.
 Each mtDNA variant has the same review as a small variant, and its card the same controls:
 **Review**, **Exclude** and **Report**, **Tags & notes** and **ACMG classify**. It is one review:
 the same variant on the **Small variants** page shows the same tags and note, and **Report** puts it on
-the report with the other reported small variants. **Exclude** dims the card and keeps it in the list.
+the report with the other reported small variants. **Exclude** folds the card to its heading, as on
+the other variant pages.
 **ACMG classify** on a variant from the **mtDNA analysis** page uses the mitochondrial rule set.
 
 [ACMG classification reference (including the CNV classifier)](/docs/reference/acmg-classification "further-reading")

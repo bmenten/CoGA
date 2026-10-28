@@ -30,6 +30,7 @@ import {
 import { buildSmallVariantReviewPath, fetchFamilyReviewTags, quickTagTogglePayload } from './smallVariantReview';
 import { sortReviewTagKeys, visibleReviewTagKeys } from './smallVariantResultUtils';
 import ReviewTagChip from './ReviewTagChip';
+import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import SmallVariantReviewDialog from './SmallVariantReviewDialog';
 import { apiPath } from '../../lib/apiPath';
 import { FamilyReadOnlyContext, READ_ONLY_HINT } from '../../lib/familyAccess';
@@ -426,6 +427,7 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
     queryFn: () => fetchFamilyReviewTags(familyId, resolvedProjectId || undefined),
   });
   const tagMap = useMemo(() => getTagDefinitionMap(tags), [tags]);
+  const excludedCards = useUnfoldedExcludedCards();
 
   const referenceLabel = formatResolvedReferenceLabel(
     { assemblyName, assemblyVersion, isError: referenceFailed },
@@ -862,6 +864,21 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                 aria-label={`${variant.label}${gene ? ` in ${gene}` : ''}`}
                 rail={significanceRail(variant.annotation.clinical_significance)}
                 className={`family-mtdna-card${isExcluded ? ' variant-card--excluded' : ''}`}
+                folded={isExcluded && !excludedCards.isUnfolded(variant.variant_id)}
+                excludedBar={
+                  isExcluded ? (
+                    <ExcludedCardBar
+                      subject={variant.label}
+                      expanded={excludedCards.isUnfolded(variant.variant_id)}
+                      onToggleExpanded={() => excludedCards.toggle(variant.variant_id)}
+                      onUndoExclude={() => {
+                        void toggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
+                      }}
+                      readOnly={Boolean(family.read_only)}
+                      pending={reviewMutation.isPending}
+                    />
+                  ) : null
+                }
                 subhead={
                   visibleReviewTags.length ? (
                     <div className="variant-card-chip-row variant-card-tag-row">

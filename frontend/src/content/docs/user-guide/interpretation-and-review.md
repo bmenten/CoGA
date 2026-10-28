@@ -4,7 +4,9 @@ has two separate records.
 ### On each variant
 
 Each row or card has **Review**, **Exclude** and **Report** (one-click tags), **Tags & notes** and **ACMG
-classify**.
+classify**. An excluded variant stays in the list: its card folds to its heading and a bar marked
+*Excluded*, with **Show card** to unfold it and **Undo exclude** to take the tag off again; in the table
+view its row is dimmed.
 
 - **Tags.** The built-in tags are *Review*, *Send for validation*, *Validated*, *Validation did not
   confirm*, *Confident AR single hit*, *Excluded* and *Report*, the ACMG class tags, the VUS tiers and

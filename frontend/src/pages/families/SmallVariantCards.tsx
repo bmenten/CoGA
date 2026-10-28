@@ -39,6 +39,7 @@ import FilterTranscriptNote from './FilterTranscriptNote';
 import FamilyGenotypeGrid, { type GenotypeColumn, type GenotypeTone } from './FamilyGenotypeGrid';
 import { FindingLinks } from './FindingCard';
 import ReviewTagChip from './ReviewTagChip';
+import ExcludedCardBar, { useUnfoldedExcludedCards } from './ExcludedCardBar';
 import SvSecondHitBadge from './SvSecondHitBadge';
 import VariantPriorityBlock from './VariantPriorityBlock';
 import NiptClassificationBlock from './NiptClassificationBlock';
@@ -645,6 +646,7 @@ export default function SmallVariantCards({
   // Tracks which cards have the "More annotations" disclosure open, so the heavy
   // detail arrays are built only for those (collapsed is the default).
   const [openCardIds, setOpenCardIds] = useState<Set<string>>(() => new Set());
+  const excludedCards = useUnfoldedExcludedCards();
   const handleCardToggle = (variantId: string, open: boolean) => {
     setOpenCardIds((prev) => {
       if (open === prev.has(variantId)) return prev;
@@ -806,404 +808,422 @@ export default function SmallVariantCards({
               </div>
             </div>
 
-            {variant.nipt ? <NiptClassificationBlock nipt={variant.nipt} /> : null}
-
-            {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
-
-            {visibleReviewTags.length || variant.review?.compound_het ? (
-              <div className="variant-card-chip-row variant-card-tag-row">
-                {variant.review?.compound_het ? (
-                  <span className="variant-card-chip variant-card-chip--impact">Comp-het pair</span>
-                ) : null}
-                {visibleReviewTags.map((tagKey) => (
-                  <ReviewTagChip
-                    key={tagKey}
-                    className="variant-card-chip variant-card-chip--tag"
-                    tagKey={tagKey}
-                    tagMap={tagMap}
-                    tagMetadata={variant.review?.tag_metadata}
-                  />
-                ))}
-              </div>
+            {isExcluded ? (
+              <ExcludedCardBar
+                subject={variant.gene || variant.gene_id || genomicChange || variant._id}
+                expanded={excludedCards.isUnfolded(variant._id)}
+                onToggleExpanded={() => excludedCards.toggle(variant._id)}
+                onUndoExclude={() => {
+                  void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
+                }}
+                readOnly={readOnly}
+                pending={reviewIsPending}
+              />
             ) : null}
 
-            <div className="variant-card-cols">
-              <section className="variant-card-col">
-                <p className="variant-card-col-title">Variant</p>
-                {transcripts.length || variant.mane_select || variant.canonical ? (
-                  // MANE and Canonical describe this transcript, so they ride with the
-                  // accession rather than sitting up with the consequence.
-                  <div className="variant-card-transcript-row">
-                    {transcripts.length ? (
-                      <button
-                        type="button"
-                        className="variant-transcript-trigger"
-                        onClick={() => setTranscriptPopupVariant(variant)}
-                      >
-                        <span className="variant-transcript-trigger-id">{transcriptLabel}</span>
-                        <span className="variant-transcript-trigger-count">
-                          {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
-                        </span>
-                      </button>
+            {/* An excluded variant folds to its heading and the bar above. */}
+            {isExcluded && !excludedCards.isUnfolded(variant._id) ? null : (
+              <>
+                {variant.nipt ? <NiptClassificationBlock nipt={variant.nipt} /> : null}
+
+                {variant.priority ? <VariantPriorityBlock priority={variant.priority} /> : null}
+
+                {visibleReviewTags.length || variant.review?.compound_het ? (
+                  <div className="variant-card-chip-row variant-card-tag-row">
+                    {variant.review?.compound_het ? (
+                      <span className="variant-card-chip variant-card-chip--impact">Comp-het pair</span>
                     ) : null}
-                    {variant.mane_select ? (
-                      <span className="variant-card-chip variant-card-chip--success">MANE</span>
-                    ) : null}
-                    {variant.canonical ? (
-                      <span className="variant-card-chip variant-card-chip--soft">Canonical</span>
-                    ) : null}
+                    {visibleReviewTags.map((tagKey) => (
+                      <ReviewTagChip
+                        key={tagKey}
+                        className="variant-card-chip variant-card-chip--tag"
+                        tagKey={tagKey}
+                        tagMap={tagMap}
+                        tagMetadata={variant.review?.tag_metadata}
+                      />
+                    ))}
                   </div>
                 ) : null}
-                {/* The card describes the primary transcript; when the search's annotation
-                    filters held on another one, it is named here with what it reads
-                    otherwise (CLIN-51), e.g. a SIFT the filter kept that the card's
-                    transcript does not have. */}
-                <FilterTranscriptNote
-                  variant={variant}
-                  className="variant-card-filter-transcript"
-                  idClassName="variant-card-filter-transcript-id"
-                />
-                <dl className="variant-card-mini-dl">
-                  <div>
-                    <dt>
-                      <abbr title={GENOMIC_CHANGE_NOTE}>Genomic change</abbr>
-                    </dt>
-                    <dd>
-                      {genomicChange || '—'}
-                      {variant.cytoband ? (
-                        <span className="variant-card-cytoband">({variant.cytoband})</span>
-                      ) : null}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt>HGVS.c</dt>
-                    <dd>{variant.hgvsc || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>HGVS.p</dt>
-                    <dd>{variant.hgvsp || '—'}</dd>
-                  </div>
-                  <div>
-                    <dt>Alleles</dt>
-                    <dd>
-                      {variant.ref || '—'} → {variant.alt || '—'}
-                    </dd>
-                  </div>
-                  {variantIds.length ? (
-                    <div>
-                      <dt>dbSNP</dt>
-                      <dd className="variant-card-idlist">
-                        {variantIds.map((entry) =>
-                          entry.href ? (
-                            <a
-                              key={entry.id}
-                              href={entry.href}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="variant-card-id-link"
-                              title={entry.source ? `${entry.source} ${entry.id}` : entry.id}
-                            >
-                              {entry.id}
-                            </a>
-                          ) : (
-                            <span key={entry.id}>{entry.id}</span>
-                          ),
-                        )}
-                      </dd>
-                    </div>
-                  ) : null}
-                </dl>
-              </section>
 
-              {/* Genotypes take a column of their own, as in seqr: the call per member is
-                  read across the same row as the variant, not under it. */}
-              {members.length ? (
-                <section className="variant-card-col">
-                  <p className="variant-card-col-title">Genotypes</p>
-                  <FamilyGenotypeGrid
-                    callLabel="GT"
-                    columns={GENOTYPE_COLUMNS}
-                    entries={members.map((member) => {
-                      const genotype = variant.genotypes.find(
-                        (entry) => entry.sample === member.sample_id,
-                      );
-                      const gt = genotype?.gt || '—';
-                      const depth = genotype?.dp;
-                      const alleleDepths = genotype?.ad;
-                      const alleleFrequencies = genotype?.af;
-                      const refDepth =
-                        alleleDepths && alleleDepths.length > 0 ? alleleDepths[0] : undefined;
-                      const altDepths =
-                        alleleDepths && alleleDepths.length > 1 ? alleleDepths.slice(1) : undefined;
-                      const computedAfs =
-                        alleleFrequencies && alleleFrequencies.length
-                          ? alleleFrequencies
-                          : typeof depth === 'number' && depth > 0 && altDepths?.length
-                            ? altDepths
-                                .map((value) => (typeof value === 'number' ? value / depth : undefined))
-                                .filter((value): value is number => typeof value === 'number')
-                            : undefined;
-                      const adText =
-                        typeof refDepth === 'number' || altDepths?.length
-                          ? `${typeof refDepth === 'number' ? refDepth : '-'},${
-                              altDepths ? altDepths.join(',') : '-'
-                            }`
-                          : '—';
-                      const afText = computedAfs?.length
-                        ? computedAfs
-                            .map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-'))
-                            .join(',')
-                        : '—';
-                      return {
-                        member,
-                        // Haploid and multi-allelic calls are classified too (#511):
-                        // '1' reads as hom, '0' as ref, '1/2' as het.
-                        tone: ZYGOSITY_TONE[genotypeZygosity(gt === '—' ? '' : gt)],
-                        call: gt,
-                        values: {
-                          dp: typeof depth === 'number' ? depth : '—',
-                          ad: adText,
-                          af: afText,
-                        },
-                      };
-                    })}
-                  />
-                </section>
-              ) : null}
-
-              <section className="variant-card-col">
-                {/* The heading is the way to the population data behind these numbers. */}
-                {gnomadLink ? (
-                  <p className="variant-card-col-title">
-                    <a
-                      href={gnomadLink.href}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="variant-card-col-title-link"
-                      title="Open this variant in gnomAD"
-                    >
-                      Frequencies
-                    </a>
-                  </p>
-                ) : (
-                  <p className="variant-card-col-title">Frequencies</p>
-                )}
-                <dl className="variant-card-mini-dl">
-                  {freqRows.map((row) => (
-                    <div key={row.label}>
-                      <dt>{row.label}</dt>
-                      <dd>
-                        {row.href ? (
-                          <a
-                            href={row.href}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="variant-card-resource variant-card-resource--clinical"
+                <div className="variant-card-cols">
+                  <section className="variant-card-col">
+                    <p className="variant-card-col-title">Variant</p>
+                    {transcripts.length || variant.mane_select || variant.canonical ? (
+                      // MANE and Canonical describe this transcript, so they ride with the
+                      // accession rather than sitting up with the consequence.
+                      <div className="variant-card-transcript-row">
+                        {transcripts.length ? (
+                          <button
+                            type="button"
+                            className="variant-transcript-trigger"
+                            onClick={() => setTranscriptPopupVariant(variant)}
                           >
-                            {row.value}
-                          </a>
-                        ) : (
-                          row.value
-                        )}
-                      </dd>
-                    </div>
-                  ))}
-                </dl>
-                <div className="variant-card-coga">
-                  <span className="variant-card-col-key">CoGA cohort</span>
-                  {ic ? (
-                    <span className="variant-card-coga-value">
-                      {ic.samples} sample{ic.samples === 1 ? '' : 's'} · {ic.het} het / {ic.hom} hom
-                      {' · '}
-                      {ic.families} famil{ic.families === 1 ? 'y' : 'ies'}
-                    </span>
-                  ) : (
-                    <span className="variant-card-empty-note">Not seen in your cohort</span>
-                  )}
-                </div>
-              </section>
-
-              <section className="variant-card-col">
-                <p className="variant-card-col-title">In silico</p>
-                {silicoRows.length ? (
-                  <dl className="variant-card-mini-dl">
-                    {silicoRows.map((item) => (
-                      <div key={item.label}>
-                        <dt>{item.label}</dt>
-                        <dd>{item.value}</dd>
+                            <span className="variant-transcript-trigger-id">{transcriptLabel}</span>
+                            <span className="variant-transcript-trigger-count">
+                              {transcripts.length} transcript{transcripts.length === 1 ? '' : 's'}
+                            </span>
+                          </button>
+                        ) : null}
+                        {variant.mane_select ? (
+                          <span className="variant-card-chip variant-card-chip--success">MANE</span>
+                        ) : null}
+                        {variant.canonical ? (
+                          <span className="variant-card-chip variant-card-chip--soft">Canonical</span>
+                        ) : null}
                       </div>
-                    ))}
-                  </dl>
-                ) : (
-                  <p className="variant-card-empty-note">No predictions imported.</p>
-                )}
-              </section>
-            </div>
+                    ) : null}
+                    {/* The card describes the primary transcript; when the search's annotation
+                        filters held on another one, it is named here with what it reads
+                        otherwise (CLIN-51), e.g. a SIFT the filter kept that the card's
+                        transcript does not have. */}
+                    <FilterTranscriptNote
+                      variant={variant}
+                      className="variant-card-filter-transcript"
+                      idClassName="variant-card-filter-transcript-id"
+                    />
+                    <dl className="variant-card-mini-dl">
+                      <div>
+                        <dt>
+                          <abbr title={GENOMIC_CHANGE_NOTE}>Genomic change</abbr>
+                        </dt>
+                        <dd>
+                          {genomicChange || '—'}
+                          {variant.cytoband ? (
+                            <span className="variant-card-cytoband">({variant.cytoband})</span>
+                          ) : null}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt>HGVS.c</dt>
+                        <dd>{variant.hgvsc || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt>HGVS.p</dt>
+                        <dd>{variant.hgvsp || '—'}</dd>
+                      </div>
+                      <div>
+                        <dt>Alleles</dt>
+                        <dd>
+                          {variant.ref || '—'} → {variant.alt || '—'}
+                        </dd>
+                      </div>
+                      {variantIds.length ? (
+                        <div>
+                          <dt>dbSNP</dt>
+                          <dd className="variant-card-idlist">
+                            {variantIds.map((entry) =>
+                              entry.href ? (
+                                <a
+                                  key={entry.id}
+                                  href={entry.href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="variant-card-id-link"
+                                  title={entry.source ? `${entry.source} ${entry.id}` : entry.id}
+                                >
+                                  {entry.id}
+                                </a>
+                              ) : (
+                                <span key={entry.id}>{entry.id}</span>
+                              ),
+                            )}
+                          </dd>
+                        </div>
+                      ) : null}
+                    </dl>
+                  </section>
 
-            {variant.review?.note ? (
-              <p className="variant-card-review-note">{variant.review.note}</p>
-            ) : null}
+                  {/* Genotypes take a column of their own, as in seqr: the call per member is
+                      read across the same row as the variant, not under it. */}
+                  {members.length ? (
+                    <section className="variant-card-col">
+                      <p className="variant-card-col-title">Genotypes</p>
+                      <FamilyGenotypeGrid
+                        callLabel="GT"
+                        columns={GENOTYPE_COLUMNS}
+                        entries={members.map((member) => {
+                          const genotype = variant.genotypes.find(
+                            (entry) => entry.sample === member.sample_id,
+                          );
+                          const gt = genotype?.gt || '—';
+                          const depth = genotype?.dp;
+                          const alleleDepths = genotype?.ad;
+                          const alleleFrequencies = genotype?.af;
+                          const refDepth =
+                            alleleDepths && alleleDepths.length > 0 ? alleleDepths[0] : undefined;
+                          const altDepths =
+                            alleleDepths && alleleDepths.length > 1 ? alleleDepths.slice(1) : undefined;
+                          const computedAfs =
+                            alleleFrequencies && alleleFrequencies.length
+                              ? alleleFrequencies
+                              : typeof depth === 'number' && depth > 0 && altDepths?.length
+                                ? altDepths
+                                    .map((value) => (typeof value === 'number' ? value / depth : undefined))
+                                    .filter((value): value is number => typeof value === 'number')
+                                : undefined;
+                          const adText =
+                            typeof refDepth === 'number' || altDepths?.length
+                              ? `${typeof refDepth === 'number' ? refDepth : '-'},${
+                                  altDepths ? altDepths.join(',') : '-'
+                                }`
+                              : '—';
+                          const afText = computedAfs?.length
+                            ? computedAfs
+                                .map((value) => (Number.isFinite(value) ? value.toFixed(2) : '-'))
+                                .join(',')
+                            : '—';
+                          return {
+                            member,
+                            // Haploid and multi-allelic calls are classified too (#511):
+                            // '1' reads as hom, '0' as ref, '1/2' as het.
+                            tone: ZYGOSITY_TONE[genotypeZygosity(gt === '—' ? '' : gt)],
+                            call: gt,
+                            values: {
+                              dp: typeof depth === 'number' ? depth : '—',
+                              ad: adText,
+                              af: afText,
+                            },
+                          };
+                        })}
+                      />
+                    </section>
+                  ) : null}
 
-            <div className="variant-card-footer">
-              <div className="variant-card-quick">
-                <button
-                  type="button"
-                  className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
-                  aria-pressed={hasReviewTag}
-                  disabled={readOnly || reviewIsPending}
-                  title={readOnly ? READ_ONLY_HINT : undefined}
-                  onClick={() => {
-                    void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.review);
-                  }}
-                >
-                  Review
-                </button>
-                <button
-                  type="button"
-                  className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
-                  aria-pressed={isExcluded}
-                  disabled={readOnly || reviewIsPending}
-                  title={readOnly ? READ_ONLY_HINT : undefined}
-                  onClick={() => {
-                    void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
-                  }}
-                >
-                  Exclude
-                </button>
-                <button
-                  type="button"
-                  className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
-                  aria-pressed={isReported}
-                  disabled={readOnly || reviewIsPending}
-                  title={readOnly ? READ_ONLY_HINT : undefined}
-                  onClick={() => {
-                    void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.report);
-                  }}
-                >
-                  Report
-                </button>
-                <button
-                  type="button"
-                  className="variant-review-link"
-                  onClick={() => onEditReview(variant)}
-                >
-                  Tags &amp; notes
-                </button>
-                <button
-                  type="button"
-                  className="variant-review-link"
-                  onClick={() => onAcmgClassify(variant)}
-                >
-                  ACMG classify
-                </button>
-              </div>
-              {/* The links every finding card has, in the same order (FindingLinks). */}
-              <FindingLinks
-                igv={{ href: igvHref, label: `Open IGV at ${locus}` }}
-                chromosome={{ href: viewHref, label: `Open chromosome view around ${locus}` }}
-                omim={omimLink?.href}
-              >
-                {decipherLink ? (
-                  <a
-                    href={decipherLink.href}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="variant-card-resource variant-card-resource--clinical"
-                  >
-                    DECIPHER
-                  </a>
+                  <section className="variant-card-col">
+                    {/* The heading is the way to the population data behind these numbers. */}
+                    {gnomadLink ? (
+                      <p className="variant-card-col-title">
+                        <a
+                          href={gnomadLink.href}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="variant-card-col-title-link"
+                          title="Open this variant in gnomAD"
+                        >
+                          Frequencies
+                        </a>
+                      </p>
+                    ) : (
+                      <p className="variant-card-col-title">Frequencies</p>
+                    )}
+                    <dl className="variant-card-mini-dl">
+                      {freqRows.map((row) => (
+                        <div key={row.label}>
+                          <dt>{row.label}</dt>
+                          <dd>
+                            {row.href ? (
+                              <a
+                                href={row.href}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="variant-card-resource variant-card-resource--clinical"
+                              >
+                                {row.value}
+                              </a>
+                            ) : (
+                              row.value
+                            )}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                    <div className="variant-card-coga">
+                      <span className="variant-card-col-key">CoGA cohort</span>
+                      {ic ? (
+                        <span className="variant-card-coga-value">
+                          {ic.samples} sample{ic.samples === 1 ? '' : 's'} · {ic.het} het / {ic.hom} hom
+                          {' · '}
+                          {ic.families} famil{ic.families === 1 ? 'y' : 'ies'}
+                        </span>
+                      ) : (
+                        <span className="variant-card-empty-note">Not seen in your cohort</span>
+                      )}
+                    </div>
+                  </section>
+
+                  <section className="variant-card-col">
+                    <p className="variant-card-col-title">In silico</p>
+                    {silicoRows.length ? (
+                      <dl className="variant-card-mini-dl">
+                        {silicoRows.map((item) => (
+                          <div key={item.label}>
+                            <dt>{item.label}</dt>
+                            <dd>{item.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    ) : (
+                      <p className="variant-card-empty-note">No predictions imported.</p>
+                    )}
+                  </section>
+                </div>
+
+                {variant.review?.note ? (
+                  <p className="variant-card-review-note">{variant.review.note}</p>
                 ) : null}
-              </FindingLinks>
-            </div>
 
-            <details
-              className="variant-card-more"
-              onToggle={(event) => handleCardToggle(variant._id, event.currentTarget.open)}
-            >
-              <summary>More annotations &amp; detail</summary>
-              {detailsOpen && (
-              <div className="variant-card-more-grid">
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Variant &amp; transcript context</p>
-                  <dl className="variant-card-detail-list">
-                    {contextItems.map((item) => (
-                      <div key={item.label} className="variant-card-detail-row">
-                        <dt>{item.label}</dt>
-                        <dd>{item.value}</dd>
-                      </div>
-                    ))}
-                  </dl>
-                </div>
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Gene&ndash;disease associations</p>
-                  <VariantGeneDiseases symbol={variant.gene} />
-                </div>
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">Other scores &amp; annotations</p>
-                  {scoreItems.length || additionalAnnotations.length ? (
-                    <dl className="variant-card-detail-list">
-                      {scoreItems.map((item) => (
-                        <div key={item.label} className="variant-card-detail-row">
-                          <dt>{item.label}</dt>
-                          <dd>{item.value}</dd>
-                        </div>
-                      ))}
-                      {additionalAnnotations.map(([label, value]) => (
-                        <div key={label} className="variant-card-detail-row">
-                          <dt>{annotationExtraLabel(label)}</dt>
-                          <dd>{String(value)}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : (
-                    <p className="variant-card-empty-note">No further annotations imported.</p>
-                  )}
-                </div>
-                <div className="variant-card-section">
-                  <p className="variant-card-section-title">All population frequencies</p>
-                  {frequencyItems.length ? (
-                    <dl className="variant-card-stat-list">
-                      {frequencyItems.map((item) => (
-                        <div key={item.label} className="variant-card-stat-row">
-                          <dt>{item.label}</dt>
-                          <dd>{item.value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  ) : (
-                    <p className="variant-card-empty-note">No population frequencies imported.</p>
-                  )}
-                </div>
-                {variant.review?.compound_het ? (
-                  <div className="variant-card-section">
-                    <p className="variant-card-section-title">Compound-het pair</p>
-                    <div className="variant-compound-het-summary">
-                      <div className="variant-compound-het-summary-row">
-                        <span className="analysis-pill analysis-pill--muted">Gene</span>
-                        <span>
-                          {variant.review.compound_het.gene ||
-                            variant.review.compound_het.gene_id ||
-                            variant.gene ||
-                            variant.gene_id ||
-                            'Compound het group'}
-                        </span>
-                      </div>
-                      <div className="variant-compound-het-summary-row">
-                        <span className="analysis-pill analysis-pill--muted">Partner</span>
-                        <span>{variant.review.compound_het.partner_variant_ids.join(', ')}</span>
-                      </div>
-                      <div className="variant-compound-het-summary-row">
-                        <span className="analysis-pill analysis-pill--muted">Phase</span>
-                        <span>
-                          {formatCompoundHetPhaseStatus(variant.review.compound_het.phase_status)}
-                        </span>
-                      </div>
-                    </div>
+                <div className="variant-card-footer">
+                  <div className="variant-card-quick">
+                    <button
+                      type="button"
+                      className={`variant-quick-toggle${hasReviewTag ? ' variant-quick-toggle--active' : ''}`}
+                      aria-pressed={hasReviewTag}
+                      disabled={readOnly || reviewIsPending}
+                      title={readOnly ? READ_ONLY_HINT : undefined}
+                      onClick={() => {
+                        void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.review);
+                      }}
+                    >
+                      Review
+                    </button>
+                    <button
+                      type="button"
+                      className={`variant-quick-toggle${isExcluded ? ' variant-quick-toggle--active' : ''}`}
+                      aria-pressed={isExcluded}
+                      disabled={readOnly || reviewIsPending}
+                      title={readOnly ? READ_ONLY_HINT : undefined}
+                      onClick={() => {
+                        void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.excluded);
+                      }}
+                    >
+                      Exclude
+                    </button>
+                    <button
+                      type="button"
+                      className={`variant-quick-toggle${isReported ? ' variant-quick-toggle--active' : ''}`}
+                      aria-pressed={isReported}
+                      disabled={readOnly || reviewIsPending}
+                      title={readOnly ? READ_ONLY_HINT : undefined}
+                      onClick={() => {
+                        void onToggleReviewTag(variant, COLLABORATION_QUICK_TAGS.report);
+                      }}
+                    >
+                      Report
+                    </button>
+                    <button
+                      type="button"
+                      className="variant-review-link"
+                      onClick={() => onEditReview(variant)}
+                    >
+                      Tags &amp; notes
+                    </button>
+                    <button
+                      type="button"
+                      className="variant-review-link"
+                      onClick={() => onAcmgClassify(variant)}
+                    >
+                      ACMG classify
+                    </button>
                   </div>
-                ) : null}
-              </div>
-              )}
-            </details>
+                  {/* The links every finding card has, in the same order (FindingLinks). */}
+                  <FindingLinks
+                    igv={{ href: igvHref, label: `Open IGV at ${locus}` }}
+                    chromosome={{ href: viewHref, label: `Open chromosome view around ${locus}` }}
+                    omim={omimLink?.href}
+                  >
+                    {decipherLink ? (
+                      <a
+                        href={decipherLink.href}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="variant-card-resource variant-card-resource--clinical"
+                      >
+                        DECIPHER
+                      </a>
+                    ) : null}
+                  </FindingLinks>
+                </div>
+
+                <details
+                  className="variant-card-more"
+                  onToggle={(event) => handleCardToggle(variant._id, event.currentTarget.open)}
+                >
+                  <summary>More annotations &amp; detail</summary>
+                  {detailsOpen && (
+                  <div className="variant-card-more-grid">
+                    <div className="variant-card-section">
+                      <p className="variant-card-section-title">Variant &amp; transcript context</p>
+                      <dl className="variant-card-detail-list">
+                        {contextItems.map((item) => (
+                          <div key={item.label} className="variant-card-detail-row">
+                            <dt>{item.label}</dt>
+                            <dd>{item.value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    </div>
+                    <div className="variant-card-section">
+                      <p className="variant-card-section-title">Gene&ndash;disease associations</p>
+                      <VariantGeneDiseases symbol={variant.gene} />
+                    </div>
+                    <div className="variant-card-section">
+                      <p className="variant-card-section-title">Other scores &amp; annotations</p>
+                      {scoreItems.length || additionalAnnotations.length ? (
+                        <dl className="variant-card-detail-list">
+                          {scoreItems.map((item) => (
+                            <div key={item.label} className="variant-card-detail-row">
+                              <dt>{item.label}</dt>
+                              <dd>{item.value}</dd>
+                            </div>
+                          ))}
+                          {additionalAnnotations.map(([label, value]) => (
+                            <div key={label} className="variant-card-detail-row">
+                              <dt>{annotationExtraLabel(label)}</dt>
+                              <dd>{String(value)}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : (
+                        <p className="variant-card-empty-note">No further annotations imported.</p>
+                      )}
+                    </div>
+                    <div className="variant-card-section">
+                      <p className="variant-card-section-title">All population frequencies</p>
+                      {frequencyItems.length ? (
+                        <dl className="variant-card-stat-list">
+                          {frequencyItems.map((item) => (
+                            <div key={item.label} className="variant-card-stat-row">
+                              <dt>{item.label}</dt>
+                              <dd>{item.value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      ) : (
+                        <p className="variant-card-empty-note">No population frequencies imported.</p>
+                      )}
+                    </div>
+                    {variant.review?.compound_het ? (
+                      <div className="variant-card-section">
+                        <p className="variant-card-section-title">Compound-het pair</p>
+                        <div className="variant-compound-het-summary">
+                          <div className="variant-compound-het-summary-row">
+                            <span className="analysis-pill analysis-pill--muted">Gene</span>
+                            <span>
+                              {variant.review.compound_het.gene ||
+                                variant.review.compound_het.gene_id ||
+                                variant.gene ||
+                                variant.gene_id ||
+                                'Compound het group'}
+                            </span>
+                          </div>
+                          <div className="variant-compound-het-summary-row">
+                            <span className="analysis-pill analysis-pill--muted">Partner</span>
+                            <span>{variant.review.compound_het.partner_variant_ids.join(', ')}</span>
+                          </div>
+                          <div className="variant-compound-het-summary-row">
+                            <span className="analysis-pill analysis-pill--muted">Phase</span>
+                            <span>
+                              {formatCompoundHetPhaseStatus(variant.review.compound_het.phase_status)}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                  )}
+                </details>
+              </>
+            )}
           </article>
         );
       })}

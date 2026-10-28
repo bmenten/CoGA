@@ -797,11 +797,27 @@ describe('mtDNA variant review', () => {
     expect(within(dialog).getByText('Segregates')).toBeInTheDocument();
   });
 
-  it('dims an excluded variant and keeps it in the list', async () => {
+  it('folds an excluded variant to its heading, unfolds it on request and undoes the exclusion', async () => {
     renderWith([mitoVariant('m.3243A>G', { tags: ['excluded'], updated_at: '2026-10-01T10:00:00Z' })]);
     const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    // Folded: the heading and the bar, nothing else; still in the list.
     expect(card).toHaveClass('variant-card--excluded');
+    expect(card.querySelector('.gene-disease-heading')).toHaveTextContent('MT-TL1');
+    expect(within(card).getByText('Excluded')).toBeInTheDocument();
+    expect(card.querySelector('.variant-card-cols')).toBeNull();
+    expect(card.querySelector('.variant-card-footer')).toBeNull();
+
+    const show = within(card).getByRole('button', { name: /show the excluded card of m\.3243A>G/i });
+    expect(show).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(show);
+    expect(card.querySelector('.variant-card-cols')).not.toBeNull();
     expect(within(card).getByRole('button', { name: 'Exclude' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(card).getByRole('button', { name: /hide the excluded card/i })).toHaveAttribute('aria-expanded', 'true');
+
+    // Undo exclude takes the tag off the shared review.
+    fireEvent.click(within(card).getByRole('button', { name: /undo the exclusion of m\.3243A>G/i }));
+    await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
+    expect(apiMock.put.mock.calls[0][1]).toMatchObject({ tags: [] });
   });
 
   it('lets a reader see the review but not change it', async () => {

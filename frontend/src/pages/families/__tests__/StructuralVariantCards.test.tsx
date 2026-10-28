@@ -165,3 +165,26 @@ describe('StructuralVariantCards anatomy', () => {
     );
   });
 });
+
+describe('StructuralVariantCards excluded variant', () => {
+  it('folds to its heading and unfolds on request', () => {
+    const excluded = { ...variant, review: { tags: ['excluded'] } } as StructuralVariant;
+    const { container } = render(
+      <MemoryRouter>
+        <StructuralVariantCards
+          familyId="F1"
+          linkSearch=""
+          members={[]}
+          variants={[excluded]}
+          tags={[]}
+          onToggleReviewTag={vi.fn(async () => undefined)}
+        />
+      </MemoryRouter>,
+    );
+    const card = container.querySelector('article') as HTMLElement;
+    expect(within(card).getByRole('link', { name: 'ITGB6' })).toBeInTheDocument();
+    expect(card.querySelector('.variant-card-cols')).toBeNull();
+    fireEvent.click(within(card).getByRole('button', { name: /show the excluded card of ITGB6/i }));
+    expect(card.querySelector('.variant-card-cols')).not.toBeNull();
+  });
+});
