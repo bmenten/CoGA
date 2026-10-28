@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -106,5 +106,62 @@ describe('StructuralVariantCards per caller', () => {
     expect(screen.getAllByRole('article')).toHaveLength(2);
     expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
     errors.mockRestore();
+  });
+});
+
+// The anatomy every variant card shares (FindingCard): the gene to its gene page and its
+// disease to OMIM in the heading, the variant then the genotypes, the links in one order.
+describe('StructuralVariantCards anatomy', () => {
+  const annotated: StructuralVariant = {
+    ...variant,
+    gene: 'ITGB6,RBMS1',
+    genotypes: [{ sample: 'PROBAND', gt: '0/1', qual: 40, read_support: 12, filter: 'PASS' }],
+    annotation_extra: { omim_phenotype: 'Amelogenesis imperfecta' },
+  } as StructuralVariant;
+
+  it('reads as every variant card does', () => {
+    const { container } = render(
+      <MemoryRouter>
+        <StructuralVariantCards
+          familyId="F1"
+          projectId="P1"
+          linkSearch=""
+          members={[{ sample_id: 'PROBAND', role: 'proband', sex: 'female', affected: true } as never]}
+          variants={[annotated]}
+          tags={[]}
+        />
+      </MemoryRouter>,
+    );
+    const card = container.querySelector('article') as HTMLElement;
+    expect(card).toHaveClass('variant-card', 'finding-card');
+    const heading = card.querySelector('.gene-disease-heading') as HTMLElement;
+    expect(within(heading).getByRole('link', { name: 'ITGB6' })).toHaveAttribute(
+      'href',
+      '/genes?gene=ITGB6&family_id=F1&project_id=P1',
+    );
+    expect(within(heading).getByRole('link', { name: /amelogenesis imperfecta on omim/i })).toBeInTheDocument();
+    // The other genes the SV spans are named in a tooltip.
+    const more = within(heading).getByText('+1 gene');
+    fireEvent.focus(more);
+    expect(screen.getByRole('tooltip')).toHaveTextContent('ITGB6, RBMS1');
+    expect(Array.from(card.querySelectorAll('.variant-card-col-title')).map((title) => title.textContent)).toEqual([
+      'Variant',
+      'Genotypes',
+      'Frequencies',
+      'Disease & predictors',
+    ]);
+    const line = card.querySelector('.variant-card-gtline') as HTMLElement;
+    expect(line).toHaveClass('variant-card-gtline--warn', 'is-proband');
+    expect(line).toHaveTextContent('♀PROBANDprobandHet4012PASS');
+    const nav = card.querySelector('.variant-card-footer .variant-card-nav') as HTMLElement;
+    expect(within(nav).getAllByRole('link').map((link) => link.textContent)).toEqual([
+      'IGV',
+      'Chromosome view',
+      'OMIM',
+    ]);
+    expect(within(nav).getByRole('link', { name: 'OMIM' })).toHaveAttribute(
+      'href',
+      'https://www.omim.org/search?search=ITGB6',
+    );
   });
 });

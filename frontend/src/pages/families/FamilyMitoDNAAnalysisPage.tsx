@@ -26,6 +26,7 @@ import { apiPath } from '../../lib/apiPath';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 import { raw, routePath } from '../../lib/routePath';
 import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
+import InfoIcon from '../../components/InfoIcon';
 import { omimGeneHref, omimSearchHref } from '../../lib/omim';
 import { geneInfoHref } from '../../lib/geneInfo';
 import GenomeWorkspaceLink from './GenomeWorkspaceLink';
@@ -314,38 +315,40 @@ const variantMatchesSearch = (variant: ApiMitoDNAVariant, query: string): boolea
   return haystack.includes(query);
 };
 
-const SampleSummaryCard: React.FC<{ sample: ApiMitoDNASample }> = ({ sample }) => (
-  <div className={`family-mtdna-sample-card family-mtdna-sample-card--${sample.qc.status}`}>
-    <div className="family-mtdna-sample-card-head">
-      <div>
-        <strong>{sample.sample_id}</strong>
-        <div className="table-subtle">{sample.role || 'relative'}</div>
-      </div>
-      <span className={`table-chip family-mtdna-qc-chip family-mtdna-qc-chip--${sample.qc.status}`}>
-        {QC_STATUS_LABEL[sample.qc.status]}
-      </span>
-    </div>
-    <div className="family-mtdna-sample-metrics">
-      <span>
-        Haplogroup <strong>{sample.haplogroup || 'n/a'}</strong>
-      </span>
-      <span>
-        Mean depth <strong>{formatDepth(sample.coverage.mean_depth)}</strong>
-      </span>
-      <span>
-        Breadth <strong>{formatPercent(sample.coverage.breadth, 0)}</strong>
-      </span>
-      {sample.qc.contamination != null && (
-        <span>
-          Contam. <strong>{formatPercent(sample.qc.contamination, 2)}</strong>
+const SEX_SYMBOL: Record<string, string> = { male: '♂', female: '♀' };
+
+// One sample in the family's mtDNA summary: one compact row, its QC verdict and notes on it.
+const SampleSummaryRow: React.FC<{ sample: ApiMitoDNASample }> = ({ sample }) => {
+  const sex = (sample.sex || '').toLowerCase();
+  return (
+    <tr className={`family-mtdna-summary-row family-mtdna-summary-row--${sample.qc.status}`}>
+      <td>
+        <span className="variant-card-gtline-sample">
+          <span
+            className={`variant-card-gtline-sex variant-card-gtline-sex--${SEX_SYMBOL[sex] ? sex : 'und'}`}
+            title={sample.sex || 'unknown sex'}
+          >
+            {SEX_SYMBOL[sex] ?? '⚥'}
+          </span>
+          {sample.sample_id}
         </span>
-      )}
-    </div>
-    {sample.qc.notes.length > 0 && (
-      <div className="family-mtdna-qc-notes">{sample.qc.notes.slice(0, 2).join(' · ')}</div>
-    )}
-  </div>
-);
+      </td>
+      <td className="table-subtle">{sample.role || 'relative'}</td>
+      <td>{sample.haplogroup || 'n/a'}</td>
+      <td className="family-mtdna-summary-num">{formatDepth(sample.coverage.mean_depth)}</td>
+      <td className="family-mtdna-summary-num">{formatPercent(sample.coverage.breadth, 0)}</td>
+      <td className="family-mtdna-summary-num">
+        {sample.qc.contamination != null ? formatPercent(sample.qc.contamination, 2) : '—'}
+      </td>
+      <td>
+        <span className={`table-chip family-mtdna-qc-chip family-mtdna-qc-chip--${sample.qc.status}`}>
+          {QC_STATUS_LABEL[sample.qc.status]}
+        </span>
+      </td>
+      <td className="family-mtdna-qc-notes">{sample.qc.notes.slice(0, 2).join(' · ')}</td>
+    </tr>
+  );
+};
 
 const FamilyMitoDNAAnalysisPage: React.FC = () => {
   const { familyId } = useParams<{ familyId: string }>();
@@ -613,45 +616,67 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
             </div>
       </FamilyPageHeader>
 
-      <section className="surface-card space-y-4">
-        <div className="page-header">
-          <div className="space-y-1">
-            <h2 className="section-title">Family mitochondrial summary</h2>
-            <p className="catalog-card-copy">
-              Mothers and children are grouped together; fathers are shown separately from the maternal line.
-            </p>
-          </div>
+      <section className="surface-card space-y-2">
+        <div className="paraphase-section-head">
+          <h2 className="section-title">Family mitochondrial summary</h2>
+          <InfoIcon
+            name="About this summary"
+            text="Mothers and children are grouped together as the maternal line; fathers are shown apart from it."
+          />
         </div>
 
-        <div className="family-mtdna-sample-layout">
-          <div className="family-mtdna-sample-group">
-            <div className="family-mtdna-sample-group-head">
-              <span>Maternal line</span>
-              <strong>
-                {mothers.length} mother{mothers.length === 1 ? '' : 's'} · {children.length} child sample{children.length === 1 ? '' : 's'}
-              </strong>
-            </div>
-            <div className="family-mtdna-sample-grid">
+        {/* One compact row per sample, the maternal line first and the father apart. */}
+        <div className="data-table-shell data-table-shell--fit">
+          <table className="analysis-table family-mtdna-summary-table">
+            <thead>
+              <tr>
+                <th>Sample</th>
+                <th>Role</th>
+                <th>Haplogroup</th>
+                <th className="family-mtdna-summary-num">Mean depth</th>
+                <th className="family-mtdna-summary-num">Breadth</th>
+                <th className="family-mtdna-summary-num">Contam.</th>
+                <th>QC</th>
+                <th>Notes</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr className="family-mtdna-summary-group">
+                <th colSpan={8} scope="rowgroup">
+                  Maternal line{' '}
+                  <span className="table-subtle">
+                    {mothers.length} mother{mothers.length === 1 ? '' : 's'} · {children.length} child sample
+                    {children.length === 1 ? '' : 's'}
+                  </span>
+                </th>
+              </tr>
               {maternalLine.map((sample) => (
-                <SampleSummaryCard key={sample.sample_id} sample={sample} />
+                <SampleSummaryRow key={sample.sample_id} sample={sample} />
               ))}
               {maternalLine.length === 0 && (
-                <p className="table-subtle">No maternal-line samples are available.</p>
+                <tr>
+                  <td colSpan={8} className="table-subtle">
+                    No maternal-line samples are available.
+                  </td>
+                </tr>
               )}
-            </div>
-          </div>
-          <div className="family-mtdna-sample-group family-mtdna-sample-group--father">
-            <div className="family-mtdna-sample-group-head">
-              <span>Father</span>
-              <strong>{fathers.length || 'No'} sample{fathers.length === 1 ? '' : 's'}</strong>
-            </div>
-            <div className="family-mtdna-sample-grid">
+              <tr className="family-mtdna-summary-group">
+                <th colSpan={8} scope="rowgroup">
+                  Father
+                </th>
+              </tr>
               {fathers.map((sample) => (
-                <SampleSummaryCard key={sample.sample_id} sample={sample} />
+                <SampleSummaryRow key={sample.sample_id} sample={sample} />
               ))}
-              {fathers.length === 0 && <p className="table-subtle">No father sample is available.</p>}
-            </div>
-          </div>
+              {fathers.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="table-subtle">
+                    No father sample is available.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
 
         {mtDNA.qc_notes.length > 0 && (

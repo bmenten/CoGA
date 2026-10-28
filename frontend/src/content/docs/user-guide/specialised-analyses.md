@@ -109,8 +109,8 @@ only the loci with such a change.
 
 ### mtDNA
 
-Each sample's card on the **mtDNA analysis** page gives its mean chrM depth and the share of chrM
-covered, and a QC status judged against the lab's limits (**Sequencing QC thresholds**). The depth
+Each sample's row in the family summary of the **mtDNA analysis** page gives its mean chrM depth and
+the share of chrM covered, and a QC status judged against the lab's limits (**Sequencing QC thresholds**). The depth
 comes from one coverage track that holds read depth: the sample's coverage BED when it was declared as
 read depth, otherwise HiFiCNV's depth where the import stored it as read. WisecondorX's and QDNAseq's
 bins, HiFiCNV's normalised depth and a coverage BED declared as a log2 ratio hold log2 ratios, not
