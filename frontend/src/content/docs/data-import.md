@@ -321,6 +321,10 @@ been deleted.
 - Every file exists, in the family folder. A compressed family VCF for small variants, structural
   variants or repeats needs its index (`.tbi`, `.csi` or `.idx`); a plain `.vcf` does not. Other index
   files are checked only when the manifest names one.
+- A `ped/` folder or a long-read folder (`snv/`, `repeats/`, a sample's folder in one) that is a link to
+  another folder is a warning, in Discover too (`package_folder_link`): it says where the link leads,
+  within the import folders or outside them. CoGA still follows it, and Discover may take a member from
+  it, so check that what it holds belongs to this family.
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset
   is a warning; other missing datasets are simply absent.
 - A data file the import would refuse for holding no record (a family VCF of small variants, structural

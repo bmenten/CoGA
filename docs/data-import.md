@@ -347,7 +347,10 @@ one that loops, is left out (`_listed_package_folder` in
 [family_package_source.py](../backend/app/services/family_package_source.py) checks each folder
 with the import's own folder guard before it looks into it), and so is one that leads into the
 temporary folder a bucket package is downloaded to, which is no import root. A symlink that
-stays under the roots is followed, and the folder it leads to is listed. Before, the list
+stays under the roots is followed, and the folder it leads to is listed. A `ped/` folder or a
+long-read folder in a package that is a symlink is followed too, wherever it leads; Discover
+and the validation report it
+([A package folder that is a symbolic link](#4-package-layout-and-manifest)). Before, the list
 followed a folder linked out of the root: it read the manifest it found there, showed the
 package under that manifest's family and analysis type, and named its path outside the root,
 which the import then refused. Typed, such a folder is refused with the reason
@@ -717,6 +720,22 @@ package, or one that loops, counts as absent, as validation refuses it; so does 
 per-sample entry that loops (looked up, it failed Discover and the package list with a 500).
 A folder named like a PED (`FAM1.ped/`) is no PED to Discover or the package list (Discover
 read it as the PED and failed with a 500).
+
+**A package folder that is a symbolic link is reported.** The package list and Discover read
+some of a package's folders by their layout: `ped/`, a long-read dataset folder (`snv/`, `sv/`,
+`cnv/`, `repeats/`, `paraphase/`, `mito/`), a folder in one (a sample's, `snv/HG002/`) and a
+folder in that. When one of them is a symbolic link they follow it, wherever it leads: a PED or
+a per-sample folder behind it lists the package, and Discover proposes a member from a linked
+per-sample folder, though what it holds may be another family's. Discover and the validation
+(a dry run, and the import, which runs it) report each such link as a warning
+(`package_folder_link`): the folder in the package, and where it leads, as a path relative to
+the import folder that holds it (`COUPLE2/snv/HG003`) or as "a folder outside the import
+folders". A message never names an absolute path. Nothing under a link is looked into, and a
+link that leads to no folder is not reported. The owner chose a warning over a refusal
+(SEC-27, `package_folder_link_issues` in
+[family_package_source.py](../backend/app/services/family_package_source.py)). The guards
+above are unchanged: a file the manifest names, or Discover looks for, through a link that
+leads out of the package is still not read.
 
 ### The manifest
 
@@ -1749,6 +1768,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `family_id_leaves_package`, `sample_id_leaves_package` (warning) | The family or sample ID is a path out of the package folder: an absolute path, or one that climbs out with `..`. Discover looked for none of its files outside the package. Check the ID where it comes from. |
 | `manifest_missing` | The folder has no `manifest.yaml`, `.yml` or `.json`. Run Discover and Write manifest (local folders only). |
 | `manifest_outside_package` | The folder's `manifest.yaml` (`.yml`, `.json`) is a symlink that leads out of the folder, or one that loops. Put the manifest itself in the folder. Write manifest answers 400 with the same message. |
+| `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to the import folder that holds it, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest, or the PED path given to Discover, names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |
