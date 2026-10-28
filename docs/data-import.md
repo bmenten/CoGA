@@ -1413,6 +1413,20 @@ A family small-variant upload is one family VCF from one callset:
   position: it is skipped and counted with the malformed records (`skipped_malformed`), and a
   file of such records alone holds no record the upload can store (400). The rule for every
   column is in [database.md](database.md#clickhouse-tables).
+- A genotype (`GT`) is stored as the file writes it, in VCF's allele notation: allele
+  indices, `.` for a missing allele, `/` or `|` between them (`0/1`, `1|0`, `./.`, haploid
+  `1`). A record whose `GT` holds anything else, a word such as `HET`, `HETEROZYGOUS`, `HOM`
+  or `REF`, or bases such as `A/G`, is refused (400), naming the file, the line and the sample,
+  the value shown short: *The VCF family.vcf, line 1204: the genotype (GT) of S2 is 'HET',
+  which is not VCF's allele notation (such as 0/1, 1|0 or ./.)*. Only a malformed VCF holds
+  one (the owner's decision of 2026-10-28, CLIN-16). A package's `snv`, `haplotypes` and `mito`
+  datasets, a NIPT pair's files and a long-read couple's files fail their dataset the same
+  way; a dataset that reads its file once, after the delete (an `overwrite`), is put back as
+  for any failed dataset, and a long-read sample's word in a file's first record is found
+  before anything is deleted. Such a word used to be stored and read
+  three ways: as a no-call by every filter, count and inheritance check, as `0/1` on the
+  variant list, and, `HET` only, as het by the compound-het check. A record a FILTER value
+  leaves out (`exclude_filters`) is not read, and nothing of it is stored.
 - A record's annotation is read from its VEP `CSQ` (or snpEff `ANN`) entries, and from its
   INFO where an entry has no value (`variant_annotation_parser.py`). A population frequency
   or count is read only from a field that names its source: gnomAD's (`gnomAD_AF`,
@@ -1774,6 +1788,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | A coverage track drawn *without an axis*, or *"… is not read as depth"* in the mtDNA QC notes or the NIPT coverage check | The coverage BED declares nothing (`unknown`; a BED stored before BEDs declared what they hold reads so too), or holds log2 ratios. Upload or import it again with what it holds. |
 | A per-target coverage import fails on `sample_interval_track_sources_track_type_check` | The Postgres database is older than the `target_coverage` track type; reset it ([database.md](database.md)). |
 | "VCF file must be plain text or gzipped" (small-variant upload, 400) | The file is neither text nor whole gzip: a `.vcf.gz` cut short in a copy, or damaged. Copy it again; a refused upload with `overwrite` kept the stored callset. |
+| "The VCF …, line …: the genotype (GT) of … is '…', which is not VCF's allele notation (such as 0/1, 1\|0 or ./.)" (small-variant upload, 400, or the `snv`, `haplotypes` or `mito` dataset; a long-read sample's file: "The SNV file of … (…), line …: the genotype (GT) is …") | A record's `GT` is a word (`HET`, `HOM`, `REF`) or anything else VCF's allele notation does not use ([section 6](#6-single-file-uploads)): the file is malformed. A refused upload with `overwrite` kept the stored callset; a package dataset failed, and the import put the family back as for any failed dataset. Correct the file, or the tool that wrote it, and import or upload it again. |
 | *Import incomplete* for `snv` or `haplotypes`, with no import job | A small-variant upload with `overwrite` failed after it had deleted the callset it replaced ([section 6](#6-single-file-uploads)). Upload the callset again, or import it. |
 | *Import incomplete*: "A single-file upload … began rewriting this family's data and has not finished" | An upload is still running, or one stopped (a restart, a crash, running out of memory) or failed after its first write to ClickHouse, and could not put back what it deleted ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once no upload of the family runs, upload again with `overwrite` each dataset and sample the banner names (or import it again with overwrite); each goes from the mark as it is brought again. |
 | *Import incomplete*: "A deletion of this family's data … began and has not finished" | A deletion of the family's data (an admin's deletion of a sample, of its structural variants or of the family, a PED upload or manual family that replaced it, a structure change that cleared its data) is still running, or stopped or failed after its first write to ClickHouse ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once it no longer runs, upload or import again, with `overwrite`, each dataset and sample the banner names; or, for a sample's deletion, delete the sample again: once it is gone its own items go. |
