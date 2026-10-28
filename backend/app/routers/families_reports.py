@@ -158,6 +158,15 @@ async def sign_out_family_report_endpoint(
             import_incomplete_concerns_fingerprint=(
                 payload.import_incomplete_concerns_fingerprint if payload else None
             ),
+            acknowledge_unreviewed_findings=bool(
+                payload and payload.acknowledge_unreviewed_findings
+            ),
+            unreviewed_findings_acknowledgement_reason=(
+                payload.unreviewed_findings_acknowledgement_reason if payload else None
+            ),
+            unreviewed_findings_concerns_fingerprint=(
+                payload.unreviewed_findings_concerns_fingerprint if payload else None
+            ),
             project_id=project_id,
         )
     )

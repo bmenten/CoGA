@@ -43,6 +43,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
+from backend.tests._signout_dialogs import no_finding_reviews
 
 pytestmark = pytest.mark.integration
 
@@ -240,6 +241,8 @@ def test_sign_out_gates_on_the_drift_of_a_reported_cnvs_evidence(monkeypatch) ->
         monkeypatch.setattr(module, "build_family_metadata_context", _ctx)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+    # No repeat or Paraphase call, and no review of one (finding_review_pg).
+    monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
 
     user = SimpleNamespace(username="signer", email="signer@example.org", id=None)
     scoring = CnvAcmgClassificationPayload(

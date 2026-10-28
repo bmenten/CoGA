@@ -376,6 +376,8 @@ def test_a_mixed_member_is_refused_only_where_they_are_a_reader(api: dict) -> No
         ("put", "/api/families/FAM_B/metadata", {"status_key": None}),
         ("put", "/api/families/FAM_B/small-variants/1-2000-C-T/review", {"note": "x"}),
         ("put", "/api/families/FAM_B/structural-variants/sv1/review", {"note": "x"}),
+        ("put", "/api/families/FAM_B/repeat-expansions/FXS_FMR1/review", {"note": "x"}),
+        ("put", "/api/families/FAM_B/paraphase/smn1/review", {"note": "x"}),
         ("post", "/api/families/FAM_B/report/sign-out", None),
         ("post", "/api/ped/manual", {"family_id": "NEW_FAM", "project_id": PROJECT_B, "members": [{"sample_id": "NEW_S1"}]}),
     ],
@@ -436,6 +438,8 @@ CHECKPOINT_ROUTES = {
     ("DELETE", "/api/families/{family_id}/hpo/{annotation_id}"),
     ("PUT", "/api/families/{family_id}/small-variants/{variant_id}/review"),
     ("PUT", "/api/families/{family_id}/structural-variants/{variant_id}/review"),
+    ("PUT", "/api/families/{family_id}/repeat-expansions/{locus_id}/review"),
+    ("PUT", "/api/families/{family_id}/paraphase/{gene_symbol}/review"),
     ("POST", "/api/families/{family_id}/report/sign-out"),
 }
 # Sign-in and sign-up: no one is signed in yet.

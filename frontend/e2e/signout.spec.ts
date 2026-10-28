@@ -18,14 +18,17 @@ async function currentVersion(page: Page): Promise<number> {
 
 /**
  * Wait for whichever comes next after a sign-out attempt: the evidence-drift override
- * dialog, the Sample-QC override dialog, or the signed version advancing past `before`.
+ * dialog, the Sample-QC override dialog, the dialog of findings without a review, or the
+ * signed version advancing past `before`.
  */
-async function nextStep(page: Page, before: number): Promise<'drift' | 'qc' | 'done'> {
+async function nextStep(page: Page, before: number): Promise<'drift' | 'qc' | 'unreviewed' | 'done'> {
   const drift = page.locator('#drift-ack-reason');
   const qc = page.locator('#qc-ack-reason');
+  const unreviewed = page.locator('#unreviewed-ack-reason');
   for (let attempt = 0; attempt < 80; attempt += 1) {
     if (await drift.isVisible().catch(() => false)) return 'drift';
     if (await qc.isVisible().catch(() => false)) return 'qc';
+    if (await unreviewed.isVisible().catch(() => false)) return 'unreviewed';
     if ((await currentVersion(page)) > before) return 'done';
     await page.waitForTimeout(250);
   }
@@ -49,18 +52,33 @@ test('signs out the family report from the browser (with gate handling)', async 
   // Each gate is an acknowledge-with-reason dialog (#508 made the evidence-drift gate one
   // too; it used to be a native confirm). Evidence drift comes first, then the
   // sample-integrity gate (#330) — the seeded trio's sparse genotypes leave an asserted
-  // relationship unverifiable. Either may be absent on a different seed, so each is
-  // handled only when it appears.
+  // relationship unverifiable — and then the gate of abnormal repeat and Paraphase calls
+  // without a review. Each may be absent on a different seed, so each is handled only when
+  // it appears.
   let step = await nextStep(page, before);
   if (step === 'drift') {
     await page.locator('#drift-ack-reason').fill('e2e drift override — seeded review has no evidence snapshot');
     const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
     await expect(overrideButton).toBeEnabled();
     await overrideButton.click();
+    // The next step is read once this dialog has closed: read while it still shows, it would
+    // be taken for the step again, and the dialog after it would never be answered.
+    await expect(page.locator('#drift-ack-reason')).toBeHidden({ timeout: 20_000 });
     step = await nextStep(page, before);
   }
   if (step === 'qc') {
     await page.locator('#qc-ack-reason').fill('e2e QC override — relatedness not assessable on seed data');
+    const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
+    await expect(overrideButton).toBeEnabled();
+    await overrideButton.click();
+    await expect(page.locator('#qc-ack-reason')).toBeHidden({ timeout: 20_000 });
+    step = await nextStep(page, before);
+  }
+  // The seeded trio's abnormal repeat and Paraphase calls have no review (REQ-TRACE-016): the
+  // dialog lists them, and the override needs a reason like the others.
+  if (step === 'unreviewed') {
+    await expect(page.getByRole('list', { name: 'Findings without a review' })).toBeVisible();
+    await page.locator('#unreviewed-ack-reason').fill('e2e override — seeded repeat and Paraphase calls are not reviewed');
     const overrideButton = page.getByRole('button', { name: /sign out anyway/i });
     await expect(overrideButton).toBeEnabled();
     await overrideButton.click();

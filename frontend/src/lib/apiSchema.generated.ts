@@ -958,6 +958,35 @@ export interface FamilyTrackAvailabilityOut {
   samples: Record<string, TrackAvailabilityOut>;
 }
 
+/**
+ * Whether the calls a repeat or Paraphase review rests on are still those it froze.
+ *
+ * ``unchanged``: the frozen calls are the current ones. ``changed``: they differ (``changes``
+ * names each difference). ``no_snapshot``: the review holds no frozen calls (a review of
+ * tags or a note alone). ``not_found``: the family holds no call at the locus or region now.
+ * ``unverifiable``: the current calls could not be read.
+ */
+export interface FindingReviewDriftOut {
+  status: "unchanged" | "changed" | "no_snapshot" | "not_found" | "unverifiable";
+  changes: string[];
+}
+
+/**
+ * The analyst's review of a repeat locus (``key``: its locus_id) or a Paraphase region
+ * (``key``: its gene_symbol) in a family's assembly.
+ */
+export interface FindingReviewOut {
+  key: string;
+  classification: string | null;
+  tags: string[];
+  tag_metadata: Record<string, Record<string, string | null>>;
+  note: string | null;
+  updated_by: string | null;
+  updated_at: string | null;
+  evidence_captured_at: string | null;
+  drift: FindingReviewDriftOut | null;
+}
+
 export interface GeneAssemblyLocationOut {
   assembly_id: string;
   assembly_name: string;
@@ -2148,6 +2177,7 @@ export interface ParaphaseGeneResultOut {
   max_highest_total_cn: number | null;
   has_copy_number_signal: boolean;
   samples: Record<string, ParaphaseSampleResultOut>;
+  review: FindingReviewOut | null;
 }
 
 export interface ParaphaseHaplotypeGroupOut {
@@ -2177,6 +2207,13 @@ export interface ParaphaseRegionInfoOut {
   field_descriptions: Record<string, string>;
   notes: string[];
   disorders: ParaphaseDisorderOut[];
+}
+
+export interface ParaphaseReviewUpdate {
+  expected_updated_at?: string | null;
+  classification?: "affected" | "carrier" | "risk_allele" | "normal" | "uncertain" | null;
+  tags?: string[];
+  note?: string | null;
 }
 
 export interface ParaphaseSampleResultOut {
@@ -2769,6 +2806,13 @@ export interface RepeatExpansionMotifCountOut {
   count: number;
 }
 
+export interface RepeatExpansionReviewUpdate {
+  expected_updated_at?: string | null;
+  classification?: "pathogenic_expansion" | "reduced_penetrance" | "premutation" | "intermediate" | "normal" | "uncertain" | null;
+  tags?: string[];
+  note?: string | null;
+}
+
 export interface RepeatExpansionRowOut {
   locus_id: string;
   gene: string;
@@ -2790,6 +2834,7 @@ export interface RepeatExpansionRowOut {
   status: "normal" | "review" | "not_assessed" | "intermediate" | "premutation" | "pathogenic" | "unknown";
   review_reason: "outside_ranges" | "male_x_alleles" | null;
   calls: Record<string, RepeatExpansionSampleCallOut>;
+  review: FindingReviewOut | null;
 }
 
 export interface RepeatExpansionSampleCallOut {
@@ -2945,6 +2990,8 @@ export interface ReportSignoutDetail {
   import_incomplete_job_id: string | null;
   import_incomplete_acknowledged: boolean | null;
   import_incomplete_acknowledgement_reason: string | null;
+  unreviewed_findings_acknowledged: boolean | null;
+  unreviewed_findings_acknowledgement_reason: string | null;
   verified: boolean | null;
   snapshot: Record<string, unknown> | null;
   not_captured: ReportSnapshotGapOut[];
@@ -2959,8 +3006,9 @@ export interface ReportSignoutListOut {
 /**
  * Sign out the current report.
  *
- * Evidence drift, a failing sample-integrity QC and an incomplete import (a family
- * package import that partly failed) must each be explicitly acknowledged, and each
+ * Evidence drift, a failing sample-integrity QC, an incomplete import (a family
+ * package import that partly failed) and an abnormal repeat or Paraphase call without a
+ * review must each be explicitly acknowledged, and each
  * acknowledgement requires a reason and the fingerprint of the concerns it covers: the
  * ``concerns_fingerprint`` of the 409 that listed them (TRACE-19). A sign-out whose
  * concerns are no longer those is refused with them as they are now.
@@ -2975,6 +3023,9 @@ export interface ReportSignoutRequest {
   acknowledge_import_incomplete?: boolean;
   import_incomplete_acknowledgement_reason?: string | null;
   import_incomplete_concerns_fingerprint?: string | null;
+  acknowledge_unreviewed_findings?: boolean;
+  unreviewed_findings_acknowledgement_reason?: string | null;
+  unreviewed_findings_concerns_fingerprint?: string | null;
 }
 
 export interface ReportSignoutSummary {
@@ -2994,6 +3045,8 @@ export interface ReportSignoutSummary {
   import_incomplete_job_id: string | null;
   import_incomplete_acknowledged: boolean | null;
   import_incomplete_acknowledgement_reason: string | null;
+  unreviewed_findings_acknowledged: boolean | null;
+  unreviewed_findings_acknowledgement_reason: string | null;
   verified: boolean | null;
 }
 

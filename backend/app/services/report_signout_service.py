@@ -58,6 +58,14 @@ from .assembly_scope import is_validated_assembly, off_scope_message, validated_
 from .classification_drift_service import evaluate_classification_drift
 from .clinical_audit_service import compound_het_pair_state, record_clinical_event
 from .family_metadata_context import FamilyMetadataContext, build_family_metadata_context
+from .finding_review_pg import (
+    FINDING_DRIFT_SECTION,
+    PARAPHASE_REVIEWS_SECTION,
+    REPEAT_REVIEWS_SECTION,
+    UNREVIEWED_FINDINGS_SECTION,
+    finding_reviews_for_record,
+    unreviewed_finding_names,
+)
 from .family_package_registration import is_whole_family_entry, unfinished_entry_writer
 from .family_variant_write_lock import try_share_family_variant_writes
 from .pgt_analysis import comparable_with_record as pgt_analysis_comparable_with_record
@@ -717,10 +725,12 @@ def _import_gate_message(
 DRIFT_GATE = "evidence_drift"
 QC_GATE = "sample_qc"
 IMPORT_GATE = "import_incomplete"
+UNREVIEWED_GATE = "unreviewed_findings"
 _FINGERPRINT_FIELDS = {
     DRIFT_GATE: "drift_concerns_fingerprint",
     QC_GATE: "qc_concerns_fingerprint",
     IMPORT_GATE: "import_incomplete_concerns_fingerprint",
+    UNREVIEWED_GATE: "unreviewed_findings_concerns_fingerprint",
 }
 
 # What a drift entry holds of the review rather than of its drift: who saved it last, and
@@ -763,6 +773,9 @@ def _drift_concerns(snapshot_body: Mapping[str, Any]) -> dict[str, Any]:
                 {key: value for key, value in entry.items() if key not in _REVIEW_SAVED}
                 for entry in snapshot_body[STRUCTURAL_DRIFT_SECTION]["drifted"]
             ],
+            # The repeat and Paraphase reviews whose frozen calls are no longer the family's
+            # (REQ-TRACE-015). They hold no time of their review.
+            "finding_drifted": list(snapshot_body[FINDING_DRIFT_SECTION]["drifted"]),
         }
     )
 
@@ -1213,6 +1226,12 @@ async def build_report_snapshot(
         reported_structural=reported_structural,
         shared_nipt=shared_nipt,
     )
+    # The reviews of the repeat loci and Paraphase regions that carry a classification or the
+    # Report tag, with whether the calls each froze are still the family's; those whose calls
+    # changed, which the drift gate counts; and each locus or region with an abnormal call and
+    # no review, which the gate of unreviewed findings lists (finding_review_pg, from the
+    # repeat and Paraphase sections just built).
+    finding_reviews = await finding_reviews_for_record(session, context, sections)
     return {
         # What the record is: the analytical sign-off, to which the EPD's report refers.
         "record_statement": ANALYTICAL_SIGN_OFF_STATEMENT,
@@ -1266,6 +1285,7 @@ async def build_report_snapshot(
         "reported_variants": reported,
         "reported_structural_variants": reported_structural,
         **sections,
+        **finding_reviews,
     }
 
 
@@ -1363,6 +1383,10 @@ def _serialize_signout(row: dict[str, Any]) -> dict[str, Any]:
         "import_incomplete_acknowledgement_reason": row.get(
             "import_incomplete_acknowledgement_reason"
         ),
+        "unreviewed_findings_acknowledged": row.get("unreviewed_findings_acknowledged"),
+        "unreviewed_findings_acknowledgement_reason": row.get(
+            "unreviewed_findings_acknowledgement_reason"
+        ),
         "verified": row.get("verified"),
         "snapshot": row.get("snapshot"),
     }
@@ -1382,11 +1406,15 @@ async def sign_out_report(
     acknowledge_import_incomplete: bool = False,
     import_incomplete_acknowledgement_reason: str | None = None,
     import_incomplete_concerns_fingerprint: str | None = None,
+    acknowledge_unreviewed_findings: bool = False,
+    unreviewed_findings_acknowledgement_reason: str | None = None,
+    unreviewed_findings_concerns_fingerprint: str | None = None,
     project_id: str | None = None,
 ) -> dict[str, Any]:
     """Sign the family out: freeze, hash and append its report snapshot, past its gates.
 
-    Each gate an analyst may acknowledge (evidence drift, Sample QC, an incomplete import)
+    Each gate an analyst may acknowledge (evidence drift, Sample QC, an incomplete import, an
+    abnormal repeat or Paraphase call without a review)
     is acknowledged with a reason and the fingerprint of the concerns its refusal listed
     (``*_concerns_fingerprint``, :func:`concerns_fingerprint`): the acknowledgement covers
     those concerns, and a sign-out whose concerns are no longer those is refused with them as
@@ -1420,13 +1448,23 @@ async def sign_out_report(
     # An import claimed while the snapshot was read may have written part of what it read.
     await _refuse_if_import_started(session, context)
 
-    # One gate, one acknowledgement: the small-variant and the SV/CNV drift together.
+    # One gate, one acknowledgement: the small-variant, the SV/CNV and the repeat and Paraphase
+    # review drift together (REQ-TRACE-015).
     structural_drifted_count = snapshot_body[STRUCTURAL_DRIFT_SECTION]["drifted_count"]
-    drifted_count = snapshot_body["drift"]["drifted_count"] + structural_drifted_count
-    structural_part = (
-        f" ({structural_drifted_count} of them structural-variant or CNV classifications)"
+    finding_drifted_count = snapshot_body[FINDING_DRIFT_SECTION]["drifted_count"]
+    drifted_count = (
+        snapshot_body["drift"]["drifted_count"] + structural_drifted_count + finding_drifted_count
+    )
+    drift_parts = [
+        f"{structural_drifted_count} of them structural-variant or CNV classifications"
         if structural_drifted_count
-        else ""
+        else "",
+        f"{finding_drifted_count} of them repeat or Paraphase reviews, whose calls changed"
+        if finding_drifted_count
+        else "",
+    ]
+    structural_part = (
+        f" ({'; '.join(part for part in drift_parts if part)})" if any(drift_parts) else ""
     )
     # The refusal lists the classifications it counts, as the other gates' refusals list
     # their concerns, and as the acknowledgement covers them (TRACE-19): before, it was a
@@ -1526,6 +1564,36 @@ async def sign_out_report(
         _refuse_unless_shown(
             IMPORT_GATE, import_incomplete_concerns_fingerprint, import_refusal, import_concerns
         )
+    # Unreviewed-findings gate (REQ-TRACE-016, TF-06 H1): each repeat locus and Paraphase region
+    # with an abnormal call and no review, which the analyst acknowledges with a reason. Its
+    # concerns are the record's own list, which holds no time.
+    unreviewed = list(snapshot_body[UNREVIEWED_FINDINGS_SECTION])
+    unreviewed_concerns = {"unreviewed_findings": unreviewed}
+    unreviewed_refusal = {
+        "message": (
+            f"{len(unreviewed)} repeat locus/loci or Paraphase region(s) hold an abnormal call "
+            "without a review: "
+            + "; ".join(unreviewed_finding_names(unreviewed))
+            + ". Review them, or acknowledge with a reason to sign out anyway."
+        ),
+        **unreviewed_concerns,
+    }
+    if unreviewed and not acknowledge_unreviewed_findings:
+        raise _gate_refusal(UNREVIEWED_GATE, unreviewed_refusal, unreviewed_concerns)
+    unreviewed_acknowledged = bool(unreviewed) and acknowledge_unreviewed_findings
+    unreviewed_reason = (unreviewed_findings_acknowledgement_reason or "").strip()
+    if unreviewed_acknowledged and not unreviewed_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="A reason is required to acknowledge findings without a review.",
+        )
+    if unreviewed:
+        _refuse_unless_shown(
+            UNREVIEWED_GATE,
+            unreviewed_findings_concerns_fingerprint,
+            unreviewed_refusal,
+            unreviewed_concerns,
+        )
 
     # Per-family advisory lock: makes version selection + chain-head read + insert
     # atomic for this family (also closes a latent version race). Transaction-scoped;
@@ -1569,6 +1637,10 @@ async def sign_out_report(
             "acknowledged_import_incomplete": import_acknowledged,
             "import_incomplete_acknowledgement_reason": (
                 import_reason if import_acknowledged else None
+            ),
+            "acknowledged_unreviewed_findings": unreviewed_acknowledged,
+            "unreviewed_findings_acknowledgement_reason": (
+                unreviewed_reason if unreviewed_acknowledged else None
             ),
         }
 
@@ -1646,6 +1718,7 @@ async def sign_out_report(
             f"variant(s){', drift acknowledged' if snapshot['acknowledged_drift'] else ''}"
             f"{', QC override acknowledged' if snapshot['acknowledged_qc'] else ''}"
             f"{', incomplete import acknowledged' if import_acknowledged else ''}"
+            f"{', findings without a review acknowledged' if unreviewed_acknowledged else ''}"
             f"{f', {len(gaps)} part(s) not captured' if gaps else ''}"
         ),
         after={
@@ -1657,9 +1730,17 @@ async def sign_out_report(
             "git_sha": snapshot_body["software"]["git_sha"],
             "reported_count": len(snapshot_body["reported_variants"]),
             "reported_structural_count": len(snapshot_body["reported_structural_variants"]),
+            # The repeat and Paraphase reviews the record marks reported.
+            "reported_finding_count": sum(
+                1
+                for section in (REPEAT_REVIEWS_SECTION, PARAPHASE_REVIEWS_SECTION)
+                for entry in snapshot_body[section]
+                if entry.get("reported")
+            ),
             # Every classification the drift gate counted, and how many are SVs or CNVs.
             "drifted_count": drifted_count,
             "structural_drifted_count": structural_drifted_count,
+            "finding_drifted_count": finding_drifted_count,
             "drift_acknowledgement_reason": snapshot["drift_acknowledgement_reason"],
             "qc_status": qc_status,
             "acknowledged_qc": snapshot["acknowledged_qc"],
@@ -1679,6 +1760,13 @@ async def sign_out_report(
             "import_incomplete_acknowledgement_reason": snapshot[
                 "import_incomplete_acknowledgement_reason"
             ],
+            # The abnormal repeat and Paraphase calls without a review, as the gate listed them,
+            # and its override.
+            "unreviewed_findings": unreviewed,
+            "acknowledged_unreviewed_findings": unreviewed_acknowledged,
+            "unreviewed_findings_acknowledgement_reason": snapshot[
+                "unreviewed_findings_acknowledgement_reason"
+            ],
             # The fingerprint of the concerns each acknowledgement covered, which its dialog
             # showed (TRACE-19): the concerns the record froze, which the sign-out checked
             # against it (None: that gate held nothing to acknowledge).
@@ -1690,6 +1778,11 @@ async def sign_out_report(
             ),
             "import_incomplete_concerns_fingerprint": (
                 concerns_fingerprint(IMPORT_GATE, import_concerns) if import_acknowledged else None
+            ),
+            "unreviewed_findings_concerns_fingerprint": (
+                concerns_fingerprint(UNREVIEWED_GATE, unreviewed_concerns)
+                if unreviewed_acknowledged
+                else None
             ),
             # What the signed record could not capture (a failed lookup), so the trail
             # says the record is incomplete rather than leaving it to be noticed (#514).
@@ -1718,6 +1811,10 @@ async def sign_out_report(
         "import_incomplete_acknowledged": import_acknowledged,
         "import_incomplete_acknowledgement_reason": snapshot[
             "import_incomplete_acknowledgement_reason"
+        ],
+        "unreviewed_findings_acknowledged": unreviewed_acknowledged,
+        "unreviewed_findings_acknowledgement_reason": snapshot[
+            "unreviewed_findings_acknowledgement_reason"
         ],
         "snapshot": snapshot,
         # As a detail read returns it: what the new record could not capture.
@@ -1753,7 +1850,11 @@ async def list_report_signouts(
                        (snapshot->>'acknowledged_import_incomplete')::boolean
                            AS import_incomplete_acknowledged,
                        snapshot->>'import_incomplete_acknowledgement_reason'
-                           AS import_incomplete_acknowledgement_reason
+                           AS import_incomplete_acknowledgement_reason,
+                       (snapshot->>'acknowledged_unreviewed_findings')::boolean
+                           AS unreviewed_findings_acknowledged,
+                       snapshot->>'unreviewed_findings_acknowledgement_reason'
+                           AS unreviewed_findings_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid)
                 ORDER BY version DESC
@@ -1800,7 +1901,11 @@ async def get_report_signout(
                        (snapshot->>'acknowledged_import_incomplete')::boolean
                            AS import_incomplete_acknowledged,
                        snapshot->>'import_incomplete_acknowledgement_reason'
-                           AS import_incomplete_acknowledgement_reason
+                           AS import_incomplete_acknowledgement_reason,
+                       (snapshot->>'acknowledged_unreviewed_findings')::boolean
+                           AS unreviewed_findings_acknowledged,
+                       snapshot->>'unreviewed_findings_acknowledgement_reason'
+                           AS unreviewed_findings_acknowledgement_reason
                 FROM report_signouts
                 WHERE family_id = CAST(:family_uuid AS uuid) AND version = :version
                 """
@@ -1904,6 +2009,12 @@ REPORT_CONTENT_SECTIONS = (
     "sequencing_qc",
     "import_incomplete",
     "import_unfinished",
+    # The repeat and Paraphase reviews, their drift, and the abnormal calls without a review
+    # (finding_review_pg); a record signed before them names them not compared.
+    REPEAT_REVIEWS_SECTION,
+    PARAPHASE_REVIEWS_SECTION,
+    FINDING_DRIFT_SECTION,
+    UNREVIEWED_FINDINGS_SECTION,
     # What the analysis looked at (signed_record_sections): the variant descriptions, the
     # gene panels applied, the reference-data releases, the repeat expansions, the
     # Paraphase results, the coverage tracks and, in a PGT family, the embryo calls, in a

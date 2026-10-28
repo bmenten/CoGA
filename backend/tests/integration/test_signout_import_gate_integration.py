@@ -38,6 +38,7 @@ from fastapi import HTTPException
 from sqlalchemy import text
 
 from backend.app.services import hash_chain
+from backend.tests._signout_dialogs import no_finding_reviews
 
 pytestmark = pytest.mark.integration
 
@@ -88,6 +89,8 @@ def test_sign_out_refuses_an_incomplete_import_unless_acknowledged(monkeypatch) 
         return {"profile_key": None, "profile_label": None, "thresholds": {}, "samples": {}}
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _ctx)
+    # No repeat or Paraphase call, and no review of one (finding_review_pg).
+    monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
     monkeypatch.setattr(rss, "get_family_annotation_manifest", _manifest)
     monkeypatch.setattr(rss, "evaluate_classification_drift", _drift)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)

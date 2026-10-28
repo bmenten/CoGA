@@ -3736,6 +3736,113 @@ describe('FamilyReportPage', () => {
 
   });
 
+
+  // An abnormal repeat or Paraphase call without a review (REQ-TRACE-016): the dialog lists each
+  // finding, and the sign-out goes on only with a reason and the fingerprint it was shown.
+  describe('when repeat or Paraphase findings have no review', () => {
+    const UNREVIEWED_FINGERPRINT = 'f'.repeat(64);
+    const UNREVIEWED_409 = {
+      response: {
+        status: 409,
+        data: {
+          detail: {
+            gate: 'unreviewed_findings',
+            message:
+              '2 repeat locus/loci or Paraphase region(s) hold an abnormal call without a review: FMR1 (repeat locus): MOTHER intermediate (near a boundary); GBA (Paraphase region): PROBAND review. Review them, or acknowledge with a reason to sign out anyway.',
+            unreviewed_findings: [
+              { kind: 'paraphase', key: 'GBA', gene: 'GBA', samples: [{ sample: 'PROBAND', status: 'review' }] },
+              {
+                kind: 'repeat',
+                key: 'FXS_FMR1',
+                gene: 'FMR1',
+                status: 'intermediate',
+                samples: [{ sample: 'MOTHER', status: 'intermediate', near_boundary: true }],
+              },
+            ],
+            concerns_fingerprint: UNREVIEWED_FINGERPRINT,
+            concerns_changed: false,
+          },
+        },
+      },
+    };
+    const REASON = 'Repeat and Paraphase calls reviewed in the long-read pipeline report.';
+
+    it('lists the findings, requires a reason and posts the acknowledgement', async () => {
+      mockUnsignedFamily();
+      const posts: Array<Record<string, unknown>> = [];
+      apiMock.post.mockImplementation((_url: string, body: Record<string, unknown>) => {
+        posts.push(body);
+        return posts.length === 1 ? Promise.reject(UNREVIEWED_409) : Promise.resolve({ data: { version: 1 } });
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', {
+        name: /Findings without a review: acknowledgement required/i,
+      });
+      const list = within(dialog).getByRole('list', { name: 'Findings without a review' });
+      expect(within(list).getAllByRole('listitem').map((item) => item.textContent)).toEqual([
+        'GBA (Paraphase region): PROBAND review',
+        'FMR1 (repeat locus): MOTHER intermediate (near a boundary)',
+      ]);
+      const confirm = within(dialog).getByRole('button', { name: /Sign out anyway/ });
+      expect(confirm).toBeDisabled();
+      fireEvent.change(within(dialog).getByLabelText(/findings that have no review/), {
+        target: { value: `  ${REASON}  ` },
+      });
+      fireEvent.click(confirm);
+
+      await waitFor(() => expect(posts).toHaveLength(2));
+      expect(posts[0]).toMatchObject({ acknowledge_unreviewed_findings: false });
+      expect(posts[1]).toMatchObject({
+        acknowledge_unreviewed_findings: true,
+        unreviewed_findings_acknowledgement_reason: REASON,
+        unreviewed_findings_concerns_fingerprint: UNREVIEWED_FINGERPRINT,
+      });
+      await waitFor(() =>
+        expect(
+          screen.queryByRole('dialog', { name: /Findings without a review: acknowledgement required/i }),
+        ).not.toBeInTheDocument(),
+      );
+    });
+
+    it('names a repeat or Paraphase review whose calls changed in the drift dialog', async () => {
+      mockUnsignedFamily();
+      apiMock.post.mockRejectedValue({
+        response: {
+          status: 409,
+          data: {
+            detail: {
+              gate: 'evidence_drift',
+              message: '1 classification(s) (1 of them repeat or Paraphase reviews, whose calls changed) have evidence that changed.',
+              drifted: [],
+              structural_drifted: [],
+              finding_drifted: [
+                {
+                  kind: 'repeat',
+                  key: 'FXS_FMR1',
+                  classification: 'intermediate',
+                  reported: true,
+                  status: 'changed',
+                  changes: ['count_units.validated: False → True'],
+                },
+              ],
+              concerns_fingerprint: 'a'.repeat(64),
+              concerns_changed: false,
+            },
+          },
+        },
+      });
+      renderPage();
+
+      fireEvent.click(await screen.findByRole('button', { name: /Sign out report/ }));
+      const dialog = await screen.findByRole('dialog', { name: /Evidence drift acknowledgement required/i });
+      expect(
+        within(dialog).getByText(/its calls changed since the review: count_units\.validated: False → True/),
+      ).toBeInTheDocument();
+      expect(within(dialog).getByText('FXS_FMR1')).toBeInTheDocument();
+    });
+  });
   // #605 — a failed request is never printed as an empty or complete report.
   describe('when a request fails', () => {
     const serverError = () => Promise.reject(Object.assign(new Error('HTTP 500'), { response: { status: 500 } }));

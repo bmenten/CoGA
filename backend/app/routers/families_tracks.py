@@ -10,9 +10,12 @@ from ..schemas import (
     FamilyParaphaseTableOut,
     FamilyRepeatExpansionTableOut,
     FamilyTrackAvailabilityOut,
+    FindingReviewOut,
     HaplotypeResponse,
+    ParaphaseReviewUpdate,
     PgtAnalysisOut,
     PhasedMarkerResponse,
+    RepeatExpansionReviewUpdate,
     RepeatExpansionTrackResponse,
     SharedStructuralVariantCountsOut,
     VariantLengthOut,
@@ -27,6 +30,13 @@ from ..services.family_service import (
     get_shared_family_structural_variant_counts_for_user,
 )
 from ..services.access_control import CurrentUser
+from ..services.finding_review_pg import (
+    PARAPHASE_REGION,
+    REPEAT,
+    attach_paraphase_reviews,
+    attach_repeat_reviews,
+    upsert_finding_review,
+)
 from ..services.mitochondrial_analysis import get_family_mitochondrial_analysis_response
 from ..services.pgt_analysis import family_pgt_analysis
 from ..services.paraphase_pg import get_family_paraphase_table_response
@@ -125,10 +135,31 @@ async def get_family_repeat_expansions(
         user=user,
         project_id=project_id,
     )
-    return await get_family_repeat_expansion_table_response(
+    table = await get_family_repeat_expansion_table_response(
         session,
         context=context,
         count_only=count_only,
+    )
+    # Each locus with its review in the family's assembly (a presence check needs none).
+    return table if count_only else await attach_repeat_reviews(session, context, table)
+
+
+@router.put("/{family_id}/repeat-expansions/{locus_id:path}/review", response_model=FindingReviewOut)
+async def upsert_repeat_expansion_review(
+    family_id: str,
+    locus_id: str,
+    payload: RepeatExpansionReviewUpdate,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FindingReviewOut:
+    """Save the review of a repeat locus (its catalogue ``locus_id``) in the family's assembly
+    (docs/repeat-paraphase-review-design.md). A reader is refused (403) by the family context."""
+    context = await build_family_metadata_context(
+        session, family_identifier=family_id, user=user, project_id=project_id
+    )
+    return await upsert_finding_review(
+        session, kind=REPEAT, context=context, key=locus_id, payload=payload, user=user
     )
 
 
@@ -146,10 +177,31 @@ async def get_family_paraphase(
         user=user,
         project_id=project_id,
     )
-    return await get_family_paraphase_table_response(
+    table = await get_family_paraphase_table_response(
         session,
         context=context,
         count_only=count_only,
+    )
+    # Each region with its review in the family's assembly (a presence check needs none).
+    return table if count_only else await attach_paraphase_reviews(session, context, table)
+
+
+@router.put("/{family_id}/paraphase/{gene_symbol:path}/review", response_model=FindingReviewOut)
+async def upsert_paraphase_review(
+    family_id: str,
+    gene_symbol: str,
+    payload: ParaphaseReviewUpdate,
+    project_id: str | None = None,
+    session: AsyncSession = Depends(get_postgres_session),
+    user: CurrentUser = Depends(get_current_user),
+) -> FindingReviewOut:
+    """Save the review of a Paraphase region (its ``gene_symbol`` key) in the family's
+    assembly. A reader is refused (403) by the family context."""
+    context = await build_family_metadata_context(
+        session, family_identifier=family_id, user=user, project_id=project_id
+    )
+    return await upsert_finding_review(
+        session, kind=PARAPHASE_REGION, context=context, key=gene_symbol, payload=payload, user=user
     )
 
 

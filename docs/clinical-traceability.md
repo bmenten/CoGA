@@ -24,8 +24,8 @@ Code comments refer to four parts by number: Phase 0 (the annotation manifest), 
 | Record | Where | What it holds |
 | --- | --- | --- |
 | Annotation manifest | `family_annotation_manifest` | per family, the versions of the tools and databases that produced its annotated input (VEP, ClinVar, gnomAD, dbNSFP, SpliceAI, callers, pipeline) |
-| Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw |
-| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, reviewed a compound-heterozygous pair, changed the family's pedigree, members or phenotypes, replaced the annotation manifest, changed the NIPT artifact list, first applied a gene-panel version to a search of the family, deleted the family, or signed out, when, with before and after |
+| Evidence snapshot | `small_variant_reviews.acmg_evidence_snapshot`, `structural_variant_reviews.cnv_evidence_snapshot`, `repeat_expansion_reviews.evidence_snapshot`, `paraphase_reviews.evidence_snapshot` | for each ACMG classification of a small variant, and each CNV (ClinGen) classification of a structural variant or CNV, what the classifier saw; for each review of a repeat locus or Paraphase region that carries a classification or the Report tag, the calls it rests on |
+| Clinical audit trail | `clinical_audit_events` | who changed the classification, tags or note of a small variant, structural variant or CNV, or of a repeat locus or Paraphase region (`repeat:<locus_id>`, `paraphase:<gene_symbol>`), reviewed a compound-heterozygous pair, changed the family's pedigree, members or phenotypes, replaced the annotation manifest, changed the NIPT artifact list, first applied a gene-panel version to a search of the family, deleted the family, or signed out, when, with before and after |
 | Pedigree history | `family_structure_versions` | the family's pedigree after each change (members with their sex, role, affected and carrier status, and the relationships), one version per change, hash-chained per family |
 | Signed reports | `report_signouts` | each sign-out as a frozen, versioned, content-hashed snapshot, found again by its report code |
 | HTTP audit log | `audit_log_events` | every API request, with the user and a masked body |
@@ -240,6 +240,21 @@ no caller, is `unknown`, never `current`.
 At sign-out, a reported classification that has no snapshot counts as drift too
 (`no_snapshot`), whether it is a small variant's or a structural variant's.
 
+**Repeat and Paraphase reviews** (REQ-TRACE-015, [repeat-paraphase-review-design.md](repeat-paraphase-review-design.md)).
+A review of a repeat locus or Paraphase region that carries a classification or the Report tag
+freezes the calls it rests on (`services/finding_review_pg.py`): for a repeat locus its entry as
+the signed record's `repeat_expansions` section freezes it (each member's call, alleles,
+near-boundary warnings, the locus's thresholds and QA's counting-units record), for a Paraphase
+region its entry in `paraphase` without the time each result was loaded. A save that sets or
+changes the classification, or adds the Report tag, freezes them again; a save of tags or the
+note alone keeps them, so it cannot clear a change without a new judgement. The repeat and
+Paraphase tables (`GET /families/{family_id}/repeat-expansions`, `/paraphase`) give each review's
+`drift`: `unchanged`, `changed` (with `changes`, each difference as `path: before → after`, a
+member's call named by its sample: `calls[PROBAND].alleles[1].repeat_count: 34 → 38`), `not_found`
+(no call at the locus or region now), `no_snapshot` or `unverifiable`. A re-import with other
+counts or copy numbers, a new threshold in the catalogue, or a validation of TRGT's counting units
+at the locus, each changes what a review froze. A review with only tags or a note is not checked.
+
 ## Sign-out
 
 A sign-out is the analyst's analytical sign-off (*What sign-out is*, above). The clinical report
@@ -262,6 +277,15 @@ in the EPD refers to the signed version by its report code (*The report code* be
   review that reports it (`compound_het`: the partner, the gene, the pair's classification, tags
   and note, and its phase), which the signed version shows under *Compound-het pair*; a variant
   only its own tag reports is frozen as before;
+- the reviews of the repeat loci and Paraphase regions in the family's assembly that carry a
+  classification or the Report tag (`repeat_expansion_reviews`, `paraphase_reviews`;
+  REQ-TRACE-017): each with its key, its classification and its label, tags, whether it is
+  reported, note, who saved it last and when, the calls it froze, and whether they still are
+  the family's (`drift`); those whose calls are not (`finding_review_drift`); and each repeat
+  locus and Paraphase region with an abnormal call and no review (`unreviewed_findings`, gate
+  6). The `repeat_expansions` and `paraphase` sections below still freeze every call: a review
+  marks a finding, it removes none. A record signed before these keys names them as not
+  compared;
 - the drift state (`drift` for the small variants, `structural_drift` for the structural
   variants and CNVs), the sample-integrity QC result, and the sequencing QC with the cut-offs it
   was judged against;
@@ -502,7 +526,11 @@ Five gates run first, in this order:
    in `drifted` and the SVs' and CNVs' in `structural_drifted` (without `classified_by` and
    `classified_at`, which a note or a tag saved on the review changes), and the sign-out dialog
    lists them as the signed version does. Before TRACE-19 the 409's detail was the message
-   alone, and the dialog named no classification.
+   alone, and the dialog named no classification. The repeat and Paraphase reviews whose frozen
+   calls are no longer the family's (`finding_review_drift`, *Evidence drift* above) count in the
+   same gate and the same acknowledgement, listed in `finding_drifted` (kind, key, classification,
+   whether reported, status and what changed, without the time of the review), and the message
+   says how many they are.
 4. **Sample-integrity QC.** A QC fail (a detected sample or pedigree swap), or a check that
    could not run for lack of data where it is what confirms the pedigree or a sample's
    identity (a relationship or Mendelian check the pedigree asserts, NIPT paternity or maternal
@@ -579,20 +607,33 @@ Five gates run first, in this order:
    import with overwrite removes from it what it brought again; the deletion of a sample
    removes that sample's items, and the sample from the import-incomplete flag's failures and
    from the entry of an import that stopped, each going once it named nothing else (SAFE-35).
+6. **Findings without a review** (REQ-TRACE-016). A repeat locus or Paraphase region with an
+   abnormal call and no review gives 409 (`gate: "unreviewed_findings"`), unless the request sets
+   `acknowledge_unreviewed_findings` with an `unreviewed_findings_acknowledgement_reason` (422
+   without). A repeat call is abnormal when its status is `pathogenic`, `premutation`, `review` or
+   `not_assessed`, or one of its counts lies near a boundary at a locus whose counting units QA has
+   not validated (a grey zone alone is not); a Paraphase call when its status is `pathogenic`,
+   `carrier` or `review`. A review with a classification, a tag or a note counts as a review. The
+   409 lists each finding in `unreviewed_findings` (kind, key, gene, and each abnormal member's
+   sample and status, with `near_boundary` for a repeat), as the record freezes it; a repeat or
+   Paraphase section that could not be read is listed as such (`key` null, `status:
+   "unreadable"`). The sign-out dialog lists them before the reason.
 
 The acknowledgements and their reasons are part of the hashed snapshot and the audit event.
 
 **An acknowledgement covers the concerns its dialog showed (TRACE-19).** Each 409 of gates 3 to
-5 carries `concerns_fingerprint`: a SHA-256 over the canonical JSON (sorted keys) of the gate
+6 carries `concerns_fingerprint`: a SHA-256 over the canonical JSON (sorted keys) of the gate
 and its concerns as the 409 lists them, each list sorted (`concerns_fingerprint` in
-`report_signout_service.py`). The concerns are, for evidence drift, `drifted` and
-`structural_drifted`; for the Sample QC, the four groups (`failed_checks`,
+`report_signout_service.py`). The concerns are, for evidence drift, `drifted`,
+`structural_drifted` and `finding_drifted`; for the Sample QC, the four groups (`failed_checks`,
 `unverifiable_checks`, `nipt_failed_checks`, `warning_checks`); for an incomplete import,
 `import_incomplete` and `import_unfinished`, each without its `at` (the message names the
-time; the jobs and the datasets say which failure it is). No time and nothing that changes
+time; the jobs and the datasets say which failure it is); for findings without a review,
+`unreviewed_findings`. No time and nothing that changes
 while the concerns do not is in it, so the same concerns give the same fingerprint. The
 dialog sends it back with the acknowledgement (`drift_concerns_fingerprint`,
-`qc_concerns_fingerprint`, `import_incomplete_concerns_fingerprint`), and the sign-out reads
+`qc_concerns_fingerprint`, `import_incomplete_concerns_fingerprint`,
+`unreviewed_findings_concerns_fingerprint`), and the sign-out reads
 the gate again and compares:
 
 - the fingerprint of the concerns now: the acknowledgement covers them;
@@ -610,7 +651,7 @@ acknowledgement of concerns that went meanwhile acknowledges nothing (as before)
 are read in order, so a change at an earlier gate is refused there first, and the
 acknowledgements already given travel on to the next attempt. The sign-out's audit event
 records the fingerprint each acknowledgement carried (`drift_concerns_fingerprint`,
-`qc_concerns_fingerprint`, `import_incomplete_concerns_fingerprint`; None for a gate without
+`qc_concerns_fingerprint`, `import_incomplete_concerns_fingerprint`, `unreviewed_findings_concerns_fingerprint`; None for a gate without
 concerns). The snapshot freezes the concerns themselves (the drift sections, `sample_qc`, the
 import state) and the audit event the Sample-QC groups, so each fingerprint can be recomputed
 from the record. The snapshot holds no fingerprint: the concerns it freezes are the ones the

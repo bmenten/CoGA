@@ -44,6 +44,7 @@ from uuid import uuid4
 import pytest
 from fastapi import HTTPException
 from sqlalchemy import text
+from backend.tests._signout_dialogs import no_finding_reviews
 
 pytestmark = pytest.mark.integration
 
@@ -176,6 +177,8 @@ def test_a_classification_freezes_its_frequencies_and_scores_and_drifts_when_the
         monkeypatch.setattr(module, "build_family_metadata_context", _ctx)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+    # No repeat or Paraphase call, and no review of one (finding_review_pg).
+    monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
     user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)
@@ -504,6 +507,8 @@ def test_a_classification_freezes_its_consequence_lof_call_and_missense_z_and_dr
         monkeypatch.setattr(module, "build_family_metadata_context", _ctx)
     monkeypatch.setattr(rss, "get_family_sample_integrity_qc", _qc)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+    # No repeat or Paraphase call, and no review of one (finding_review_pg).
+    monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
     monkeypatch.setattr(family_variants, "_hydrate_small_variant_outs", _no_hydration)
 
     user = SimpleNamespace(username="analyst", email="analyst@example.org", id=None)

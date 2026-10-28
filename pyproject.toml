@@ -53,6 +53,7 @@ files = [
     "backend/app/services/family_structure_audit.py",
     "backend/app/services/family_variant_filters.py",
     "backend/app/services/family_variant_write_lock.py",
+    "backend/app/services/finding_review_pg.py",
     "backend/app/services/genotypes.py",
     "backend/app/services/haplotype_lineage_service.py",
     "backend/app/services/hash_chain.py",

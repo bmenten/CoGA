@@ -40,6 +40,9 @@ SIGN_OUT_BODY = {
     "drift_acknowledgement_reason": "e2e: the reported SV holds no CNV scoring",
     "acknowledge_qc": True,
     "qc_acknowledgement_reason": "e2e: synthetic genotypes",
+    # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
+    "acknowledge_unreviewed_findings": True,
+    "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
 }
 
 

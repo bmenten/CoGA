@@ -73,7 +73,13 @@ from typing import Any, Awaitable, Callable, Iterable, Mapping, Sequence
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..schemas import RepeatExpansionRowOut, RepeatExpansionSampleCallOut, VariantOut
+from ..schemas import (
+    FamilyParaphaseTableOut,
+    FamilyRepeatExpansionTableOut,
+    RepeatExpansionRowOut,
+    RepeatExpansionSampleCallOut,
+    VariantOut,
+)
 from .clickhouse_family_variants import (
     MAX_VARIANT_PAGE_SIZE,
     get_family_small_variants_page,
@@ -589,7 +595,9 @@ def _allele_count_unit_warnings(
 
 
 async def repeat_expansion_calls(
-    session: AsyncSession, context: FamilyMetadataContext
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    table: FamilyRepeatExpansionTableOut | None = None,
 ) -> dict[str, Any]:
     """Every TRGT call of the family's samples as the repeat page classifies it now.
 
@@ -598,8 +606,10 @@ async def repeat_expansion_calls(
     there is none), and per locus QA's record of TRGT's counting units there (``count_units``) as
     ``repeat_locus_count_units`` holds it, with the margin in force (``count_unit_margin``). The
     warning changes no status: the allele's own status is the one on its side of the boundary.
+    ``table``: the family's repeat table when the caller has read it already.
     """
-    table = await get_family_repeat_expansion_table_response(session, context=context)
+    if table is None:
+        table = await get_family_repeat_expansion_table_response(session, context=context)
     records = await _repeat_count_units_records(session, (locus.locus_id for locus in table.loci))
     loci: list[dict[str, Any]] = []
     for locus in table.loci:
@@ -734,10 +744,14 @@ def _expected_copy_number(region: Mapping[str, Any] | None) -> dict[str, list[fl
 
 
 async def paraphase_results(
-    session: AsyncSession, context: FamilyMetadataContext
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    table: FamilyParaphaseTableOut | None = None,
 ) -> dict[str, Any]:
-    """Every Paraphase result of the family's samples as the Paraphase page reads it now."""
-    table = await get_family_paraphase_table_response(session, context=context)
+    """Every Paraphase result of the family's samples as the Paraphase page reads it now.
+    ``table``: the family's Paraphase table when the caller has read it already."""
+    if table is None:
+        table = await get_family_paraphase_table_response(session, context=context)
     genes: list[dict[str, Any]] = []
     for gene in table.genes:
         region = _paraphase_region_for_gene(gene.gene_symbol)

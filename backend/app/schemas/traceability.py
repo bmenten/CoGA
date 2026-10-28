@@ -143,8 +143,9 @@ _CONCERNS_FINGERPRINT = r"^[0-9a-f]{64}$"
 class ReportSignoutRequest(BaseModel):
     """Sign out the current report.
 
-    Evidence drift, a failing sample-integrity QC and an incomplete import (a family
-    package import that partly failed) must each be explicitly acknowledged, and each
+    Evidence drift, a failing sample-integrity QC, an incomplete import (a family
+    package import that partly failed) and an abnormal repeat or Paraphase call without a
+    review must each be explicitly acknowledged, and each
     acknowledgement requires a reason and the fingerprint of the concerns it covers: the
     ``concerns_fingerprint`` of the 409 that listed them (TRACE-19). A sign-out whose
     concerns are no longer those is refused with them as they are now.
@@ -159,6 +160,12 @@ class ReportSignoutRequest(BaseModel):
     acknowledge_import_incomplete: bool = False
     import_incomplete_acknowledgement_reason: Optional[str] = None
     import_incomplete_concerns_fingerprint: Optional[str] = Field(
+        default=None, pattern=_CONCERNS_FINGERPRINT
+    )
+    # An abnormal repeat or Paraphase call without a review (REQ-TRACE-016).
+    acknowledge_unreviewed_findings: bool = False
+    unreviewed_findings_acknowledgement_reason: Optional[str] = None
+    unreviewed_findings_concerns_fingerprint: Optional[str] = Field(
         default=None, pattern=_CONCERNS_FINGERPRINT
     )
 
@@ -201,6 +208,10 @@ class ReportSignoutSummary(BaseModel):
     import_incomplete_job_id: Optional[str] = None
     import_incomplete_acknowledged: Optional[bool] = None
     import_incomplete_acknowledgement_reason: Optional[str] = None
+    # The override of the gate for abnormal repeat and Paraphase calls without a review, and
+    # its reason (NULL for sign-outs made before the gate).
+    unreviewed_findings_acknowledged: Optional[bool] = None
+    unreviewed_findings_acknowledgement_reason: Optional[str] = None
     # Re-verification of the stored content hash against the snapshot, done on detail
     # reads (None when not checked, e.g. in list views). False ⇒ snapshot was tampered.
     verified: Optional[bool] = None

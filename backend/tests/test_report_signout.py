@@ -1852,6 +1852,21 @@ def _patch_check(monkeypatch, *, reviews):
 
     monkeypatch.setattr(rss, "_reported_reviews", _reviews)
     monkeypatch.setattr(rss, "_canonical_sequencing_qc", _sequencing_qc)
+    _no_finding_reviews(monkeypatch)
+
+
+def _no_finding_reviews(monkeypatch) -> None:
+    # The repeat and Paraphase reviews (finding_review_pg), held constant: these checks are
+    # about the other sections, and a record of the time each predates held none.
+    async def _findings(session, context, sections):
+        return {
+            "repeat_expansion_reviews": [],
+            "paraphase_reviews": [],
+            "finding_review_drift": {"checked": 0, "drifted_count": 0, "drifted": []},
+            "unreviewed_findings": [],
+        }
+
+    monkeypatch.setattr(rss, "finding_reviews_for_record", _findings)
 
 
 _REVIEW = {"variant_id": "1-1-A-G", "acmg_class": "acmg_class_4", "evidence_snapshot": {"annotation_set_hash": "h"}}
@@ -3191,6 +3206,11 @@ def test_signout_check_compares_the_sv_evidence_a_record_does_not_hold(monkeypat
     assert out["not_compared"] == [
         "structural_drift",
         "import_unfinished",
+        # Nor the repeat and Paraphase reviews, which records hold since 2026-10-28.
+        "repeat_expansion_reviews",
+        "paraphase_reviews",
+        "finding_review_drift",
+        "unreviewed_findings",
         # Nor what the analysis looked at, which records hold since 2026-10-14.
         "variant_descriptions",
         "gene_panels",

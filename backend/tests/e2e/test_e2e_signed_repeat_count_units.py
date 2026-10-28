@@ -45,6 +45,9 @@ SIGN_OUT_BODY = {
     "drift_acknowledgement_reason": "e2e: nothing is reported",
     "acknowledge_qc": True,
     "qc_acknowledgement_reason": "e2e: the synthetic family has no genotypes to check",
+    # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
+    "acknowledge_unreviewed_findings": True,
+    "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
 }
 VALIDATION_REASON = "e2e: validation report of TRGT's counting units at FMR1"
 WITHDRAWAL_REASON = "e2e: a new TRGT catalogue"
@@ -311,10 +314,11 @@ def test_a_validation_since_sign_out_reads_as_a_change(run) -> None:
     assert [allele["count_unit_warning"] for allele in alleles] == [None, None]
     assert [allele["status"] for allele in alleles] == ["normal", "intermediate"]
     # The record held the 53 marked at a locus not validated: the check says the repeat
-    # expansions changed since sign-out.
+    # expansions changed since sign-out, and so did the findings without a review, which
+    # listed the 53 near a boundary (REQ-TRACE-016).
     check = _ok(run, "check_validated")
     assert check["matches"] is False
-    assert check["changed_sections"] == ["repeat_expansions"]
+    assert check["changed_sections"] == ["unreviewed_findings", "repeat_expansions"]
     assert check["not_compared"] == []
 
 
@@ -335,7 +339,8 @@ def test_a_withdrawal_since_sign_out_reads_as_a_change(run) -> None:
     assert (withdrawn["validated"], withdrawn["reason"]) == (False, WITHDRAWAL_REASON)
     check = _ok(run, "check_withdrawn")
     assert check["matches"] is False
-    assert check["changed_sections"] == ["repeat_expansions"]
+    # The 53 is near a boundary again, so it is again a finding without a review.
+    assert check["changed_sections"] == ["unreviewed_findings", "repeat_expansions"]
     assert check["not_compared"] == []
 
 

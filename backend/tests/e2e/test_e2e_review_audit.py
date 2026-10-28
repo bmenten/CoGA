@@ -173,6 +173,9 @@ async def _collect(root: Path) -> dict:
             "drift_acknowledgement_reason": "e2e validation",
             "acknowledge_qc": True,
             "qc_acknowledgement_reason": "e2e validation",
+            # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
+            "acknowledge_unreviewed_findings": True,
+            "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
         }
         signout_url = f"/api/families/{FAMILY}/report/sign-out"
         r["signout1"] = _cap(await _harness.sign_out(ac, signout_url, signout_body))
