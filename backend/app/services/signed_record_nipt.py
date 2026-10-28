@@ -21,7 +21,14 @@ backend (``nipt_service``, ``nipt_quality_checks``), not by the browser:
 * the inputs it ran with: the trio, the per-target coverage tables (file, targets, when
   loaded), the assay's artifact list (its entries and a digest of its alleles, what it
   removed from the family's analysis and what the family's annotation kept in), and the model
-  (its validation, constants and quality filter).
+  (its validation, constants and quality filter);
+* without a per-target coverage table, the notes of the coverage check over the plasma's
+  coverage tracks, word for word as the NIPT page shows them, each naming a track the check
+  does not read as depth (TRACE-9), with what the check ran for (``coverage_notes``, TRACE-17,
+  the owner's decision of 2026-10-28). The check depends on the gene or panel the page's search
+  gives it, which the sign-out is not told: the sign-out runs it as the page runs it without a
+  gene or panel, over the family's region of interest, the page's view on opening. Null with a
+  per-target table, whose targets the check reads instead (``target_coverage``).
 
 The Sample QC's NIPT checks (paternity, fetal sex from the paternal X, the category
 distribution, the parents' sex) and their notes are in the record's ``sample_qc``, read from
@@ -63,12 +70,15 @@ from .nipt_analysis import (
     OVERDISPERSION,
     NiptQualityThresholds,
 )
+from .nipt_coverage import TargetRegion
 from .nipt_quality_checks import NiptQualityChecks, nipt_quality_checks
 from .nipt_service import (
     NiptClassifiedVariant,
     NiptFamilyRecord,
     SharedNiptAnalysis,
     get_family_nipt_record,
+    nipt_coverage_notes,
+    roi_target_region,
 )
 from .nipt_target_coverage import TARGET_COVERAGE_TRACK_TYPE, TargetCoverageSummary
 from .nipt_triage import RecessiveAllele, RecessiveGeneRisk
@@ -80,9 +90,25 @@ TRIO_UNRESOLVED = (
     "plasma sample."
 )
 
+# The section's part a record signed before TRACE-17 does not hold: the notes of the coverage
+# check over the coverage tracks. The sign-out check names it as not compared
+# (``nipt_comparable_with_record``).
+COVERAGE_NOTES_KEY = "coverage_notes"
+COVERAGE_NOTES_NOT_COMPARED = "nipt.coverage_notes"
+
 _ANALYSIS_TYPE_SQL = text(
     """
     SELECT metadata ->> 'analysis_type' AS analysis_type
+    FROM families
+    WHERE id = CAST(:family_uuid AS uuid)
+    """
+)
+
+# The family's region of interest, as the family page reads it (metadata_service: a ROI is set
+# when it has a query).
+_FAMILY_ROI_SQL = text(
+    """
+    SELECT roi_query, roi_label, roi_chr, roi_start, roi_end
     FROM families
     WHERE id = CAST(:family_uuid AS uuid)
     """
@@ -176,6 +202,48 @@ async def _target_tables(
         }
         for row in rows
     ]
+
+
+async def _family_roi_region(session: AsyncSession, context: FamilyMetadataContext) -> TargetRegion | None:
+    """The family's region of interest as the coverage check's region when no gene or panel is
+    given (``nipt_service.roi_target_region``); None when the family has none."""
+    row = (
+        await session.execute(_FAMILY_ROI_SQL, {"family_uuid": context.family_uuid})
+    ).mappings().first()
+    if not row or not row.get("roi_query"):
+        return None
+    if row.get("roi_chr") is None or row.get("roi_start") is None or row.get("roi_end") is None:
+        return None
+    return roi_target_region(
+        query=str(row["roi_query"]),
+        label=row.get("roi_label") or None,
+        chrom=str(row["roi_chr"]),
+        start=int(row["roi_start"]),
+        end=int(row["roi_end"]),
+    )
+
+
+async def _coverage_notes(
+    session: AsyncSession, context: FamilyMetadataContext, trio: NiptTrio, analysis: NiptFamilyRecord
+) -> dict[str, Any] | None:
+    """The notes of the coverage check over the plasma's coverage tracks, as the NIPT page shows
+    them for no gene and no panel: over the family's region of interest, none without one. None
+    when the plasma has a per-target coverage table: the check reads its targets instead."""
+    if analysis.summary.target_coverage is not None:
+        return None
+    roi = await _family_roi_region(session, context)
+    regions = [roi] if roi is not None else []
+    return {
+        # What the check ran for: no gene and no panel (the sign-out is not told the NIPT page's
+        # search), so the family's region of interest.
+        "gene": None,
+        "panel": None,
+        "regions": [
+            {"label": region.label, "chrom": region.chrom, "start": region.start, "end": region.end}
+            for region in regions
+        ],
+        "notes": await nipt_coverage_notes(session, context, trio.cfdna_sample_id, regions),
+    }
 
 
 def _fetal_fraction(checks: NiptQualityChecks) -> dict[str, Any]:
@@ -365,9 +433,11 @@ def nipt_section(
     assay_key: str,
     analysis: NiptFamilyRecord,
     target_tables: list[dict[str, Any]],
+    coverage_notes: dict[str, Any] | None,
     qc: NiptQualityThresholds,
 ) -> dict[str, Any]:
-    """The ``nipt`` section from the family's NIPT analysis (``nipt_service``)."""
+    """The ``nipt`` section from the family's NIPT analysis (``nipt_service``), with the notes
+    of the coverage check over the coverage tracks (``_coverage_notes``)."""
     summary = analysis.summary
     checks = nipt_quality_checks(summary, father=trio.father_sample_id)
     result = summary.analysis
@@ -395,6 +465,7 @@ def nipt_section(
         "quality_failures": {key: checks.quality_failures[key] for key in sorted(checks.quality_failures)},
         "checks": _checks(checks),
         "target_coverage": _target_coverage(checks.target_coverage),
+        COVERAGE_NOTES_KEY: coverage_notes,
         "variants": variants,
         "not_classified": [
             {"variant_id": variant_id, "reason": reason}
@@ -445,9 +516,38 @@ async def nipt_results(
         shared_nipt=shared_nipt,
     )
     target_tables = await _target_tables(session, context, trio)
+    coverage_notes = await _coverage_notes(session, context, trio, analysis)
     return nipt_section(
-        trio=trio, assay_key=assay_key, analysis=analysis, target_tables=target_tables, qc=qc
+        trio=trio,
+        assay_key=assay_key,
+        analysis=analysis,
+        target_tables=target_tables,
+        coverage_notes=coverage_notes,
+        qc=qc,
     )
+
+
+def nipt_comparable_with_record(signed: Any, current: Any) -> tuple[Any, list[str]]:
+    """The current ``nipt`` section to compare with a signed record's, and what of it the record
+    predates.
+
+    A record signed before TRACE-17 holds no ``coverage_notes``: like a section a record
+    predates, they are left out of the comparison and named as not compared
+    (``COVERAGE_NOTES_NOT_COMPARED``), rather than every such record reading as changed; the
+    rest of the section is compared on what the record holds. A record that holds them (null
+    too, with a per-target table) is compared whole, and so is a section either side holds as
+    unavailable."""
+    if (
+        not isinstance(signed, Mapping)
+        or "unavailable" in signed
+        or COVERAGE_NOTES_KEY in signed
+        or not isinstance(current, Mapping)
+        or "unavailable" in current
+        or COVERAGE_NOTES_KEY not in current
+    ):
+        return current, []
+    comparable = {key: value for key, value in current.items() if key != COVERAGE_NOTES_KEY}
+    return comparable, [COVERAGE_NOTES_NOT_COMPARED]
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

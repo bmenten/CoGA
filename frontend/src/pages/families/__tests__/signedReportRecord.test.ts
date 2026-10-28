@@ -26,6 +26,7 @@ import {
   describeInherited,
   describeModuleVersions,
   describeNiptCoverage,
+  describeNiptCoverageNotes,
   describeNiptFetalFraction,
   describeNiptFetalSex,
   describeNiptFunnel,
@@ -1227,6 +1228,9 @@ describe('what the sign-out check could not compare', () => {
     expect(describeNotCompared(['pgt_analysis.qc_verdict', 'pgt_analysis.inputs.blocks_outdated'])).toBe(
       'the embryos’ QC verdicts and whether the haplotype blocks were built for the family’s pedigree',
     );
+    expect(describeNotCompared(['nipt.coverage_notes'])).toBe(
+      'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
+    );
     // A reference module CoGA records since: by its name, else by its key.
     expect(describeNotCompared(['modules.hpo', 'modules.gene_loci', 'modules.gencc'])).toBe(
       'the HPO version, the gene loci’s source and the gencc version',
@@ -1583,6 +1587,75 @@ describe('a NIPT family’s NIPT results', () => {
     );
     // The sign-out check names a changed section in words.
     expect(describeReportSections(['nipt', 'sample_qc'])).toBe('NIPT results and sample-integrity QC');
+  });
+
+  // Without a per-target table, the notes of the coverage check over the coverage tracks, word for
+  // word, with what the check ran for: frozen since TRACE-17 (owner, 2026-10-28).
+  const COVERAGE_NOTES = {
+    gene: null,
+    panel: null,
+    regions: [{ label: 'GENEA locus', chrom: '7', start: 1, end: 1000 }],
+    notes: [
+      'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.',
+      'CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.',
+    ],
+  };
+  const coverageNotesOf = (nipt: Record<string, unknown>) => {
+    const record = parseSignedReport({ ...SNAPSHOT, nipt })!;
+    if (record.nipt.state !== 'recorded') throw new Error('not recorded');
+    return { notes: record.nipt.value.coverageNotes, malformed: record.nipt.malformed };
+  };
+
+  it('reads the coverage check’s notes the record froze, and what it ran for', () => {
+    const { notes, malformed } = coverageNotesOf({ ...NIPT, coverage_notes: COVERAGE_NOTES });
+    expect(notes).toEqual({
+      state: 'recorded',
+      value: {
+        gene: null,
+        panel: null,
+        regions: [{ label: 'GENEA locus', chrom: '7', start: 1, end: 1000 }],
+        notes: COVERAGE_NOTES.notes,
+      },
+    });
+    // The section's one malformed list (a variant that is no entry); the notes add none.
+    expect(malformed).toBe(1);
+    if (notes.state !== 'recorded' || !notes.value) throw new Error('no notes');
+    expect(describeNiptCoverageNotes(notes.value)).toBe(
+      'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth. ' +
+        'CFDNA1: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth. ' +
+        'The coverage check ran without a gene or panel, over the family’s region of interest GENEA locus (7:1–1,000).',
+    );
+    // A check that named no track says so; without a region of interest it read none.
+    expect(describeNiptCoverageNotes({ ...notes.value, notes: [] })).toBe(
+      'none. The coverage check ran without a gene or panel, over the family’s region of interest GENEA locus (7:1–1,000).',
+    );
+    expect(describeNiptCoverageNotes({ ...notes.value, regions: [], notes: [] })).toBe(
+      'none. The coverage check ran without a gene or panel, over no region: the family had no region of interest.',
+    );
+    // A gene or panel the check ran for is named.
+    expect(describeNiptCoverageNotes({ ...notes.value, gene: 'GENEA', panel: 'Panel 1', notes: [] })).toBe(
+      'none. The coverage check ran for gene GENEA and panel Panel 1, over GENEA locus (7:1–1,000).',
+    );
+  });
+
+  it('reads a record without the coverage check’s notes as not holding them, never as none', () => {
+    // Signed before CoGA froze them: absent.
+    expect(coverageNotesOf(NIPT).notes).toEqual({ state: 'absent' });
+    // With a per-target table the check reads its targets: recorded, as none.
+    expect(coverageNotesOf({ ...NIPT, coverage_notes: null }).notes).toEqual({ state: 'recorded', value: null });
+    // A value this view cannot read: not captured, and said so.
+    expect(coverageNotesOf({ ...NIPT, coverage_notes: 'notes' }).notes).toEqual({
+      state: 'unavailable',
+      reason: 'it cannot be read here; the downloaded record holds it as stored',
+    });
+    // A list of them that cannot be read counts for the NIPT section, never read as no note.
+    const { notes, malformed } = coverageNotesOf({
+      ...NIPT,
+      coverage_notes: { ...COVERAGE_NOTES, regions: 'GENEA', notes: [COVERAGE_NOTES.notes[0], 7] },
+    });
+    expect(notes).toMatchObject({ state: 'recorded', value: { regions: [], notes: [COVERAGE_NOTES.notes[0]] }, malformed: 2 });
+    // The section's own malformed list (a variant that is no entry) counts with them.
+    expect(malformed).toBe(3);
   });
 });
 

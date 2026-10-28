@@ -186,7 +186,10 @@ the clinical report in the EPD refers to:
   are unknown, has no data of its own: its record holds no embryo calls;
 - for a monogenic NIPT family, its **NIPT results** as the NIPT page computes them at sign-out: the
   fetal fraction, the quality checks with their verdicts (paternity, the fetal sex from both signals,
-  the maternal plasma sample), the coverage of the capture targets, the category counts and the
+  the maternal plasma sample), the coverage of the capture targets or, without a per-target table, the
+  coverage check's notes on each coverage track it did not read as depth, word for word, with what the
+  check ran for (the sign-out runs it as the NIPT page does without a gene or panel: over the family's
+  region of interest), the category counts and the
   filter funnel, each variant tagged *report* as the NIPT analysis classifies it (its category, the
   reads behind it, the chance the fetus inherited it and, for a de novo candidate, its priority), the
   recessive fetal risk of the reported variants' genes, and what the analysis ran with (the coverage
@@ -374,10 +377,12 @@ It shows what the record holds:
   unknown, with the file it was loaded from, from where (a single-file upload or a package import) and
   when;
 - for a monogenic NIPT family, its **NIPT results**: the fetal fraction and the quality checks with
-  their verdicts, the coverage, the filter funnel and the categories, each reported variant as the NIPT
-  analysis classified it, the recessive fetal risk and what the analysis ran with. A NIPT family's
-  version signed before CoGA froze them says *Not in the signed record*; another family's record has
-  no NIPT results and the page says nothing of them;
+  their verdicts, the coverage, and without a per-target table the coverage tracks the coverage check
+  did not read as depth, in its words, with what it ran for (*Coverage tracks not read as depth: …*),
+  the filter funnel and the categories, each reported variant as the NIPT analysis classified it, the
+  recessive fetal risk and what the analysis ran with. A NIPT family's version signed before CoGA froze
+  them says *Not in the signed record*, and one signed before CoGA froze the coverage check's notes says
+  so on that line; another family's record has no NIPT results and the page says nothing of them;
 - the evidence drift, the Sample QC, the sequencing QC and the import state at sign-out, with any
   acknowledgement and its reason;
 - the versions it was signed with, the reference-data releases and the coverage tracks on one line

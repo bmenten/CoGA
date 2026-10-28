@@ -118,7 +118,9 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
 - **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT page or the
   report page; its record holds the section `nipt` (`signed_record_nipt.py`: the summary, the checks,
   each reported variant as the variant list classifies it, from `nipt_service.get_family_nipt_record`,
-  the recessive fetal risk over them, and the inputs), and a failed fetal-fraction, fetal-sex or
+  the recessive fetal risk over them, the inputs, and without a per-target table the coverage check's
+  notes over the coverage tracks, `coverage_notes`, from `nipt_service.nipt_coverage_notes`, TRACE-17),
+  and a failed fetal-fraction, fetal-sex or
   plasma check gates it under the Sample QC's acknowledgement
   ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out runs the analysis
   once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The
@@ -146,7 +148,9 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
   pulled the median down, and its rows covered the BED's gaps. Nor is a coverage BED that declares
   nothing (`unknown`), which was read as depth before TRACE-9. Each track left out is named with
   the reason in the check's `coverage_notes`, which the NIPT page, the coverage page and the
-  printed report show. Without a depth track every region reads `no_coverage`.
+  printed report show. Without a depth track every region reads `no_coverage`. A sign-out freezes
+  the notes word for word in `nipt.coverage_notes`, with what the check ran for: it is not told the
+  page's search, so it runs the check without a gene or panel, over the family ROI (TRACE-17).
 
 ## Two paths
 

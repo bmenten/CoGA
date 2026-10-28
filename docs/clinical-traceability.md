@@ -339,7 +339,16 @@ in the EPD refers to the signed version by its report code (*The report code* be
     sentence that says why (`checks`: paternity, the fetal sex from the father's X alleles and
     from the plasma's chrY coverage, the maternal plasma sample's sex profile); the coverage of
     every capture target and each gene with a weak target (`target_coverage`, null without a
-    per-target coverage table); each variant tagged `report` as the NIPT variant list
+    per-target coverage table); without a per-target table, the notes of the coverage check over
+    the plasma's coverage tracks, word for word as the NIPT page shows them, each naming a track
+    the check does not read as depth and why (TRACE-9), with what the check ran for
+    (`coverage_notes`: `gene` and `panel`, both null, the `regions` it read the tracks over, and
+    the `notes`; owner decision of 2026-10-28, TRACE-17). The check depends on the gene or panel
+    the NIPT page's search gives it, which the sign-out is not told: the sign-out runs it with the
+    page's own code (`nipt_service.nipt_coverage_notes`) as the page runs it without a gene or
+    panel, over the family's region of interest (no region, and so no note, without one), as
+    `target_coverage` holds the check of every capture target. Null with a per-target table,
+    whose targets the check reads instead; each variant tagged `report` as the NIPT variant list
     classifies it (`variants`: its category, maternal state and fetal inheritance, the observed
     and expected allele fraction, the confidence, the fetal-inheritance probabilities, its flags
     and quality-filter failures, the plasma's and the father's reads, and for a de novo candidate
@@ -371,7 +380,8 @@ in the EPD refers to the signed version by its report code (*The report code* be
     their inputs. Every family's record holds it, as `{"tracks": []}` for a family without a
     coverage track, so a track loaded after sign-out reads as a change. A monogenic NIPT family's
     per-target coverage tables are another track type (`target_coverage`), which `nipt` holds
-    (`inputs.target_tables`); the NIPT section freezes no coverage note, so nothing is held twice;
+    (`inputs.target_tables`); without them `nipt` also holds the notes the NIPT coverage check
+    gave over these tracks, word for word (`nipt.coverage_notes`, above; TRACE-17);
 - the signer, the time, and any acknowledgement with its reason.
 
 Each section of what the analysis looked at is read inside a savepoint. One that cannot be
@@ -663,8 +673,12 @@ the disease haplotype, and per embryo its call, the homologs it carries at the R
 names them (P1, P2, M1, M2), its warnings, its QC at the ROI and, in a record that holds them, that
 QC's verdict and the thresholds it was checked against, and the haplotype file read); in a
 monogenic NIPT family its NIPT results (*NIPT results*: the fetal fraction and the quality
-checks with their verdicts, the coverage, the funnel and the categories, each reported variant
-as the NIPT analysis classified it, the recessive fetal risk, and what the analysis ran with);
+checks with their verdicts, the coverage, and without a per-target table the coverage check's notes
+on each coverage track it did not read as depth, word for word, with what the check ran for
+(*Coverage tracks not read as depth: … The coverage check ran without a gene or panel, over the
+family’s region of interest …*), or for a record signed before CoGA froze them that it does not
+hold them, the funnel and the categories, each reported variant as the NIPT analysis classified
+it, the recessive fetal risk, and what the analysis ran with);
 no other family's record shows or mentions either; the gene panels applied, the repeat
 expansions (in a record that holds them, each count near a boundary marked beside its call,
 *⚠ Near a boundary: 53 is within 3 repeats of 55 (Premutation)*, and each locus's counting units,
@@ -748,6 +762,16 @@ compares its `repeat_expansions` on what it holds and lists `repeat_expansions.c
 reads as a change, and the signed version shows such a record as it was signed, with nothing called
 not captured. A record that holds them is compared whole, so a locus whose counting units QA
 validated or withdrew since it was signed reads as a change.
+
+A NIPT family's record signed before CoGA froze the notes of the coverage check over the coverage
+tracks holds no `coverage_notes` in its `nipt` section (TRACE-17). The check compares its `nipt` on
+what it holds and lists `nipt.coverage_notes` under `not_compared`, instead of calling the record
+changed (`signed_record_nipt.nipt_comparable_with_record`); a fetal fraction or a classification
+that changed since still reads as a change. A record that holds them (as null too, with a per-target
+table) is compared whole, so a track declared, loaded or removed since, or a region of interest
+changed since, that changes the notes or what the check ran for reads as a change. The signed view
+says such a record does not hold them when it has no per-target table (*Coverage tracks not read as
+depth: not in the signed record …*); with a table the check read its targets and noted no track.
 
 A section CoGA has since computed differently reads as changed too. The Sample QC now counts a check
 that could not run as `warn`, with a note naming each sample whose sex could not be checked, so for a

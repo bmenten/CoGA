@@ -1870,6 +1870,60 @@ describe('FamilyReportPage', () => {
       expect(nipt).toHaveTextContent('Per-target coverage: CFDNA1: cfdna.targets.tsv, 3 targets, loaded 2026-10-01 09:00 UTC');
       expect(nipt).toHaveTextContent('Artifact list: nipt_cfdna, 2 alleles, digest abcdef01abcd; 1 left out of this analysis');
       expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
+      // With a per-target table the coverage check reads its targets: it noted no coverage track.
+      expect(nipt).not.toHaveTextContent('Coverage tracks not read as depth');
+    });
+
+    // Without a per-target table, the notes of the coverage check over the plasma's coverage
+    // tracks, word for word as the NIPT page showed them, with what the check ran for (TRACE-17).
+    const WITHOUT_TARGET_TABLE = {
+      ...SIGNED_NIPT,
+      target_coverage: null,
+      inputs: { ...SIGNED_NIPT.inputs, target_tables: [] },
+    };
+
+    it('shows the coverage check’s notes a NIPT record froze, with what the check ran for, in print too', async () => {
+      const coverageNotes = {
+        gene: null,
+        panel: null,
+        regions: [{ label: 'GENEA locus', chrom: '7', start: 1, end: 1000 }],
+        notes: [
+          'CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth.',
+        ],
+      };
+      mockSignedCase({
+        snapshot: {
+          ...SIGNED_SNAPSHOT,
+          ...SIGNED_ANALYSIS,
+          sample_qc: NIPT_SAMPLE_QC,
+          nipt: { ...WITHOUT_TARGET_TABLE, coverage_notes: coverageNotes },
+        },
+      });
+      renderPage();
+
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt.closest('.no-print')).toBeNull();
+      expect(nipt).toHaveTextContent('Target coverage: no per-target coverage table');
+      expect(nipt).toHaveTextContent(
+        'Coverage tracks not read as depth: CFDNA1: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as depth. The coverage check ran without a gene or panel, over the family’s region of interest GENEA locus (7:1–1,000).',
+      );
+    });
+
+    it('says a NIPT record signed before CoGA froze the coverage check’s notes does not hold them', async () => {
+      // A record of the format signed before TRACE-17: its NIPT section without the key, and the
+      // rest of it read as before.
+      mockSignedCase({
+        snapshot: { ...SIGNED_SNAPSHOT, ...SIGNED_ANALYSIS, sample_qc: NIPT_SAMPLE_QC, nipt: WITHOUT_TARGET_TABLE },
+      });
+      renderPage();
+
+      const nipt = (await screen.findByRole('heading', { name: 'NIPT results' })).closest('section')!;
+      expect(nipt).toHaveTextContent(
+        'Coverage tracks not read as depth: not in the signed record (version 2 was signed before CoGA recorded the coverage check’s notes).',
+      );
+      expect(nipt).toHaveTextContent('Paternity: Pass — Paternity supported');
+      expect(nipt).toHaveTextContent('Model: R NIPT-M v0.5.1 validation (6 families with trio exomes).');
+      expect(nipt).not.toHaveTextContent('cannot be read here');
     });
 
     it('says a NIPT family’s record signed before CoGA froze the NIPT results does not hold them', async () => {
