@@ -1,11 +1,13 @@
 import type {
   GenotypeOut,
   NiptClassificationOut,
+  SmallVariantCompoundHetReviewOut,
   SvSecondHitOut,
   VariantOut,
 } from '../lib/apiSchema.generated';
 import type {
   SmallVariant,
+  SmallVariantGroup,
   SmallVariantReview,
   SmallVariantTranscript,
 } from '../pages/families/smallVariantSearch';
@@ -147,6 +149,40 @@ export const review = (
   acmg: null,
   cnv_acmg: null,
   acmg_unreadable: false,
+  ...fields,
+});
+
+/**
+ * A compound-het pair as the family's list serves it, the fields a test leaves out absent: no
+ * gene, no review, and a phase neither the reads nor the parents resolved.
+ */
+export const smallVariantGroup = (
+  fields: Pick<SmallVariantGroup, 'group_key'> & Partial<SmallVariantGroup>,
+): SmallVariantGroup => ({
+  group_type: 'compound_het',
+  gene: null,
+  gene_id: null,
+  variants: [],
+  review: null,
+  phase: 'unknown',
+  phase_evidence: null,
+  ...fields,
+});
+
+/** A compound-het pair's review, the fields a test leaves out absent: no tags, note or call. */
+export const compoundHetReview = (
+  fields: Pick<SmallVariantCompoundHetReviewOut, 'group_id'> & Partial<SmallVariantCompoundHetReviewOut>,
+): SmallVariantCompoundHetReviewOut => ({
+  partner_variant_ids: [],
+  gene: null,
+  gene_id: null,
+  classification: null,
+  tags: [],
+  tag_metadata: {},
+  note: null,
+  phase_status: null,
+  updated_by: null,
+  updated_at: null,
   ...fields,
 });
 

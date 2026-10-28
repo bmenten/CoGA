@@ -175,12 +175,14 @@ async def _local_upload(path: Path):
 
 @contextmanager
 def _refusal_naming(file_of: str) -> Iterator[None]:
-    """A loader's refusal of a sample's file (a 4xx) as the dataset's failure, ``file_of``
+    """A loader's refusal of a package file (a 4xx) as the dataset's failure, ``file_of``
     before the loader's words: "The coverage BED of S2 (coverage/S2.bed): No valid BED records
     found". The BED and TRGT loaders answer the single-file uploads too, whose user chose the
     sample and the file, so their refusals name neither: a dataset of one file per sample
-    failed with "400: No valid BED records found" whichever sample's file it was. Any other
-    error passes as it is."""
+    failed with "400: No valid BED records found" whichever sample's file it was. A family
+    file is named by its path alone: "The family TRGT VCF (trgt/family.vcf): No valid TRGT
+    records found for S2", the loader's words naming the samples. Any other error passes as
+    it is."""
     try:
         yield
     except HTTPException as exc:
@@ -1491,15 +1493,22 @@ async def _import_target_coverage_table(
     """Store a per-target coverage table as the sample's ``target_coverage`` track, in
     place of the one stored before (see nipt_target_coverage). The table is read and
     parsed whole first: one that cannot be, or holds no target, is refused with the track
-    as it was. ``check_only`` stops there, deleting and storing nothing."""
+    as it was, the refusal naming the sample and the table, by its path in the package (it
+    named the table alone, or, for one that is no text or whole gzip, neither). ``check_only``
+    stops there, deleting and storing nothing."""
     assembly_name = sample_context.assembly_name or ""
-    text_value = await asyncio.to_thread(read_path_text_bounded, table_path, kind="Coverage table")
+    file_of = (
+        f"The per-target coverage table of {sample_context.sample_id} "
+        f"({_display_path(bundle_root, table_path)})"
+    )
+    with _refusal_naming(file_of):
+        text_value = await asyncio.to_thread(read_path_text_bounded, table_path, kind="Coverage table")
     try:
         targets = parse_target_coverage_table(text_value.splitlines())
     except TargetCoverageFormatError as exc:
-        raise RuntimeError(f"{_display_path(bundle_root, table_path)}: {exc}") from exc
+        raise RuntimeError(f"{file_of}: {exc}") from exc
     if not targets:
-        raise RuntimeError(f"{_display_path(bundle_root, table_path)} holds no target")
+        raise RuntimeError(f"{file_of} holds no target")
     if check_only:
         return {}
     await _delete_sample_interval_source(
@@ -1749,19 +1758,22 @@ async def _import_repeats_dataset(job: DatasetImportJob) -> FamilyImportDatasetS
             )
     family_vcf_path = _resolve_package_path(bundle.root, dataset.family_vcf)
     if family_vcf_path is not None:
-        async with _local_upload(family_vcf_path) as upload:
-            text_value = await decode_repeat_upload_text(upload)
-            result = await ingest_family_trgt_text(
-                session,
-                sample_contexts=sample_contexts,
-                text_value=text_value,
-                metadata={
-                    "source": "trgt_family",
-                    "filename": family_vcf_path.name,
-                    "uploaded_from": "family_package",
-                    "family_vcf": _display_path(bundle.root, family_vcf_path),
-                },
-            )
+        # A refusal names the file, by its path in the package; the loader's words name the
+        # samples (it named no file).
+        with _refusal_naming(f"The family TRGT VCF ({_display_path(bundle.root, family_vcf_path)})"):
+            async with _local_upload(family_vcf_path) as upload:
+                text_value = await decode_repeat_upload_text(upload)
+                result = await ingest_family_trgt_text(
+                    session,
+                    sample_contexts=sample_contexts,
+                    text_value=text_value,
+                    metadata={
+                        "source": "trgt_family",
+                        "filename": family_vcf_path.name,
+                        "uploaded_from": "family_package",
+                        "family_vcf": _display_path(bundle.root, family_vcf_path),
+                    },
+                )
         return summary.model_copy(
             update={
                 "status": "imported",

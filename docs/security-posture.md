@@ -321,6 +321,20 @@ nothing twice. Before, the events of a session another request's 401 ended were 
 no token was left to send them with, and a batch in flight as the page closed was lost (both
 found while fixing the page-close flush, #1018).
 
+The page-close `keepalive` keeps its events the same way before it is sent, and they leave
+the browser only once the API has taken them (a 2xx answer): a keepalive that fails, is
+refused, or whose answer the closing page never reads goes out again with the account's next
+flush the API takes, and the API stores an event that did arrive once. Each kept event is
+stored under a key of its own (`coga.ui-events.kept.<event_id>`), so tabs keeping or sending
+events at the same moment cannot undo each other's writes; at worst two tabs both send an
+event, which the API stores once. Only the limit of 200 per account (the oldest go first)
+removes a kept event the API has not answered. An event made with no session (on the sign-in
+page, or once the session has ended) is not recorded: the API records every event of a batch as
+the act of the user whose token sends it, and no account made this one. Before, nothing read
+the keepalive's answer, so one that failed lost its events; tabs read, changed and wrote back
+one shared value, so one tab's write could undo another's; and an event made with no session
+went out with the session the next flush found, if any, as that user's (SEC-36).
+
 **Emergency (break-glass) administrator.** With Microsoft sign-in there is one local
 account, the emergency administrator: the account `ADMIN_USERNAME` names (`coga-admin` on
 Google Cloud), seeded by the deployment, bound to no Microsoft object ID, with an
@@ -523,9 +537,10 @@ What the application relies on there:
 
 - ✅ **Logout leaves nothing behind.** It flushes the pending UI telemetry, clears the query
   cache (which holds family data) and only then the session, and after a Microsoft sign-in
-  MSAL's accounts and tokens in the tab. The one exception: UI events whose token has expired
-  by the logout wait in the browser under their account for its next sign-in, rather than
-  being lost (*Session tokens*, §1). Login starts with an empty cache. The Microsoft
+  MSAL's accounts and tokens in the tab. The one exception: UI events the API has not taken
+  (their token had expired by the logout, or the logout's keepalive did not arrive) wait in the
+  browser under their account for its next sign-in, rather than being lost (*Session tokens*,
+  §1). Login starts with an empty cache. The Microsoft
   sign-in always asks which account continues, so a shared workstation never signs the next
   person in as the previous one silently, and the page CoGA asked for before it travels to
   Microsoft only as a random key (the path, with any family ID in it, stays in the tab).

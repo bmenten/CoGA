@@ -1,7 +1,7 @@
 import React from 'react';
 import type { ApiFamilyMember } from '../../lib/apiTypes';
 import { formatChromosomeLabel } from '../../lib/chromosomes';
-import { CHROMS } from './viewerShared';
+import { GENOME_OVERVIEW_CHROMS } from './viewerShared';
 
 export interface GenomeTrackVisibility {
   coverage: boolean;
@@ -94,7 +94,7 @@ const GenomeOverviewSidebar: React.FC<GenomeOverviewSidebarProps> = ({
         </button>
       </div>
       <ul className="mt-3 grid grid-cols-2 gap-y-2 gap-x-2">
-        {CHROMS.map((chrom) => (
+        {GENOME_OVERVIEW_CHROMS.map((chrom) => (
           <li key={chrom}>
             <label className="analysis-checkbox whitespace-nowrap">
               <input
