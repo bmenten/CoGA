@@ -173,6 +173,54 @@ class FamilyDeleteRequest(BaseModel):
     reason: str
 
 
+class DataDeletionOut(BaseModel):
+    """What deleting one kind of a sample's or a family's data removed: the number of tracks
+    of a track type, of repeat calls, or of variants."""
+
+    deleted: int
+
+
+class SampleDeletionCountsOut(BaseModel):
+    """What deleting a sample removed: its interval tracks (``bed``), the SVs and small
+    variants that went with its calls, its repeat calls and the kept copies of its uploads."""
+
+    samples: int
+    bed: int
+    structural_variants: int
+    small_variants: int
+    repeat_expansions: int
+    raw_import_files: int
+
+
+class SampleDeletionOut(BaseModel):
+    deleted: SampleDeletionCountsOut
+
+
+class FamilyDeletionCountsOut(BaseModel):
+    """What deleting a family removed: the family, its samples, their interval tracks
+    (``bed``), variants and repeat calls, and the kept copies of its uploads (``raw_files``)."""
+
+    families: int
+    samples: int
+    bed: int
+    structural_variants: int
+    small_variants: int
+    repeat_expansions: int
+    raw_files: int
+
+
+class FamilyDeletionOut(BaseModel):
+    deleted: FamilyDeletionCountsOut
+
+
+class FamilyProjectsUpdateOut(BaseModel):
+    """A family's projects as an administrator set them: the family as the request named it."""
+
+    family_id: str
+    project_ids: List[str]
+    message: str
+
+
 class RepeatLocusCountUnitsUpdate(BaseModel):
     """Whether TRGT's counting units at a locus are validated, and why (required)."""
 

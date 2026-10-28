@@ -88,7 +88,6 @@ CREATE TABLE IF NOT EXISTS auth_login_attempts (
     scope_value TEXT NOT NULL,
     failure_count INTEGER NOT NULL DEFAULT 0,
     last_failure_at TIMESTAMPTZ,
-    last_success_at TIMESTAMPTZ,
     locked_until TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT timezone('utc', now()),

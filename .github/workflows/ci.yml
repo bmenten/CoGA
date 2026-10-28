@@ -1,10 +1,14 @@
 name: CI
 
-# Run the same gates that were previously only run by hand. Mark "backend" and
-# "frontend" as required status checks in branch protection so they must pass
-# before a PR can merge.
+# The test, coverage and build gates of every change; security.yml holds the security gates.
+# Most of these jobs are required status checks on main: docs/testing.md lists which, and
+# TF-18 §6 says how the ruleset enforces them.
 on:
   pull_request:
+  # GitHub's merge queue: once the main ruleset requires it, every job runs on each queued
+  # group (main with the pull requests ahead of it) before the group merges (OPS-22).
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
 
@@ -44,8 +48,10 @@ jobs:
       - name: Run tests with coverage
         # The suite is self-contained (Postgres/ClickHouse access is mocked), so
         # no service containers are required. Honours the pytest testpaths in pyproject.toml
-        # (backend/tests). --cov-fail-under is the global floor (#268). The data
-        # file is kept for the combined report in the `coverage` job (#526).
+        # (backend/tests). --cov-fail-under is the global floor, GLOBAL_FLOOR in
+        # scripts/check-coverage-floor.py, which the next step checks again on the unrounded
+        # total (pytest-cov rounds it to whole percent first). The data file is kept for the
+        # combined report in the `coverage` job (#526).
         env:
           COVERAGE_FILE: coverage-unit.data
         run: >
@@ -53,7 +59,7 @@ jobs:
           --cov=backend/app
           --cov-report=term-missing:skip-covered
           --cov-report=json:coverage.json
-          --cov-fail-under=70
+          --cov-fail-under=74
       - name: Enforce clinical-critical coverage floors
         run: python scripts/check-coverage-floor.py coverage.json
       - name: Upload coverage report
@@ -97,9 +103,11 @@ jobs:
         options: >-
           --health-cmd "wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1"
           --health-interval 5s --health-timeout 5s --health-retries 20
-    env:
+    # How the app reaches those datastores, the same in every integration job (e2e and
+    # e2e-playwright reuse this block). What differs between the jobs, SECRET_KEY,
+    # RUN_INTEGRATION and GCS_ENDPOINT_URL, is set on the steps that start the app.
+    env: &datastore-env
       APP_ENV: test
-      SECRET_KEY: ci-smoke-not-a-real-secret
       POSTGRES_HOST: localhost
       POSTGRES_PORT: "5432"
       POSTGRES_DB: coga
@@ -117,9 +125,6 @@ jobs:
       REFERENCE_BOOTSTRAP_ENABLED: "false"
       HPO_BOOTSTRAP_ON_STARTUP: "false"
       GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: "false"
-      RUN_INTEGRATION: "1"
-      # GCS storage backend integration test runs against fake-gcs-server (started below).
-      GCS_ENDPOINT_URL: "http://localhost:4443"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -139,6 +144,10 @@ jobs:
         # cannot (e.g. a schema file that fails to apply).
         # Coverage is recorded (not gated here) for the combined report (#526).
         env:
+          SECRET_KEY: ci-smoke-not-a-real-secret
+          RUN_INTEGRATION: "1"
+          # GCS storage backend integration test runs against fake-gcs-server (started above).
+          GCS_ENDPOINT_URL: "http://localhost:4443"
           COVERAGE_FILE: coverage-smoke.data
         run: python -m pytest backend/tests/integration -q --cov=backend/app --cov-report=
       - name: Upload coverage data
@@ -152,27 +161,7 @@ jobs:
     name: e2e (golden-trio pipeline against Postgres + ClickHouse)
     runs-on: ubuntu-latest
     services: *datastores
-    env:
-      APP_ENV: test
-      SECRET_KEY: ci-e2e-not-a-real-secret
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: coga
-      POSTGRES_USER: coga
-      POSTGRES_PASSWORD: coga
-      CLICKHOUSE_HOST: localhost
-      CLICKHOUSE_HTTP_PORT: "8123"
-      CLICKHOUSE_DATABASE: coga
-      CLICKHOUSE_USER: coga
-      CLICKHOUSE_PASSWORD: coga
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: ci-admin-not-a-real-secret
-      # Keep startup light: no large reference / HPO / gene data files in CI.
-      REFERENCE_BOOTSTRAP_ENABLED: "false"
-      HPO_BOOTSTRAP_ON_STARTUP: "false"
-      GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: "false"
-      RUN_INTEGRATION: "1"
+    env: *datastore-env
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -189,6 +178,8 @@ jobs:
         # Runs in its own job like `smoke`; coverage is recorded for the combined
         # report (#526).
         env:
+          SECRET_KEY: ci-e2e-not-a-real-secret
+          RUN_INTEGRATION: "1"
           COVERAGE_FILE: coverage-e2e.data
         run: python -m pytest backend/tests/e2e -q --cov=backend/app --cov-report=
       - name: Upload coverage data
@@ -211,10 +202,15 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-          cache: pip
-          cache-dependency-path: backend/requirements-dev.txt
-      - name: Install dependencies
-        run: pip install -r backend/requirements-dev.txt
+      - name: Install coverage.py from the dev lock
+        # This job only combines and reports the coverage data: coverage.py's own command
+        # line, and check-coverage-floor.py, which needs the standard library alone. Its pin
+        # and hashes come from the lock, so pip still checks what it installs.
+        run: |
+          awk '/^coverage==/ { found = 1 } found { print } found && !/\\$/ { exit }' \
+            backend/requirements-dev.txt > "$RUNNER_TEMP/coverage-requirements.txt"
+          grep -q '^coverage==' "$RUNNER_TEMP/coverage-requirements.txt"
+          pip install --require-hashes --no-deps -r "$RUNNER_TEMP/coverage-requirements.txt"
       - name: Download the coverage data
         uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
@@ -268,25 +264,7 @@ jobs:
     name: e2e-playwright (browser journeys)
     runs-on: ubuntu-latest
     services: *datastores
-    env:
-      APP_ENV: test
-      SECRET_KEY: ci-playwright-not-a-real-secret
-      POSTGRES_HOST: localhost
-      POSTGRES_PORT: "5432"
-      POSTGRES_DB: coga
-      POSTGRES_USER: coga
-      POSTGRES_PASSWORD: coga
-      CLICKHOUSE_HOST: localhost
-      CLICKHOUSE_HTTP_PORT: "8123"
-      CLICKHOUSE_DATABASE: coga
-      CLICKHOUSE_USER: coga
-      CLICKHOUSE_PASSWORD: coga
-      ADMIN_EMAIL: admin@example.com
-      ADMIN_USERNAME: admin
-      ADMIN_PASSWORD: ci-admin-not-a-real-secret
-      REFERENCE_BOOTSTRAP_ENABLED: "false"
-      HPO_BOOTSTRAP_ON_STARTUP: "false"
-      GENE_REFERENCE_BOOTSTRAP_ON_STARTUP: "false"
+    env: *datastore-env
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
@@ -307,6 +285,8 @@ jobs:
       - name: Seed the golden trio + a known e2e user
         # Direct DB seed (no server needed yet); Playwright's webServer boots the
         # backend + frontend and the spec logs in as this user.
+        env:
+          SECRET_KEY: ci-playwright-not-a-real-secret
         run: python scripts/seed_playwright_e2e.py
       - name: Install Playwright Chromium
         working-directory: frontend
@@ -316,6 +296,8 @@ jobs:
         # serves it through server.mjs with its CSP (playwright.config.ts), and drives
         # Chromium through the journeys; a CSP violation fails the run (#567).
         working-directory: frontend
+        env:
+          SECRET_KEY: ci-playwright-not-a-real-secret
         run: npx playwright test
       - name: Upload Playwright report
         if: always()
@@ -346,12 +328,46 @@ jobs:
           path: sbom/*.cdx.json
           retention-days: 90
 
+  lock:
+    # TF-13 S-7: the hash-locked backend requirements are what scripts/compile-requirements.sh
+    # compiles from backend/requirements*.in: pip-tools 7.4.1 on Python 3.12, in Docker, for
+    # linux/amd64 (this runner's own platform). pip-compile keeps each pin that still meets the
+    # .in files and reuses the hashes listed for it, so a diff means a lock was edited by hand,
+    # compiled another way (another Python, platform or pip-tools), or not compiled again after
+    # an .in change. It pulls python:3.12 from Docker Hub and reads PyPI.
+    name: lock (compile-requirements.sh reproduces the backend locks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # pip-compile runs the build code of a package published only as source, to read
+          # its metadata, with the checkout mounted: keep no token in the checkout.
+          persist-credentials: false
+      - name: Compile the backend requirements
+        run: ./scripts/compile-requirements.sh
+      - name: Fail when a compiled lock differs from the committed one
+        # The header's command line lists pip-compile's options as click renders them, and the
+        # script does not pin click: two runs of the same pip-tools wrote different lists there
+        # (June and September 2026). A difference on that line alone is a warning; any other
+        # difference fails.
+        run: |
+          if ! git diff --exit-code -I '^#    pip-compile ' -- backend/requirements.txt backend/requirements-dev.txt; then
+            echo "::error::A backend lock differs from what ./scripts/compile-requirements.sh compiles (the diff above). Run the script and commit both locks."
+            exit 1
+          fi
+          if git diff --quiet -- backend/requirements.txt backend/requirements-dev.txt; then
+            echo "Both backend locks are what ./scripts/compile-requirements.sh compiles."
+          else
+            git diff -- backend/requirements.txt backend/requirements-dev.txt
+            echo "::warning::Only the pip-compile command line in a lock's header differs from what the script writes (the diff above)."
+          fi
+
   images:
     # build.yml builds the release images in Cloud Build only after a merge, and not at all
-    # until Google Cloud is configured. This job builds both on every pull request and push
-    # to main, so a Dockerfile that no longer builds shows on its pull request instead of at
-    # the release candidate. Each `docker build` below is the one its ci/cloudbuild.*.yaml
-    # runs (Dockerfile, target, repository-root context, build arguments);
+    # until Google Cloud is configured. This job builds both on every pull request, queued
+    # group and push to main, so a Dockerfile that no longer builds shows on its pull request
+    # instead of at the release candidate. Each `docker build` below is the one its
+    # ci/cloudbuild.*.yaml runs (Dockerfile, target, repository-root context, build arguments);
     # backend/tests/test_deployment_config.py fails when the two drift apart. Nothing is
     # pushed: the job has no registry credentials, and the images stay on the runner.
     name: images (production Docker builds, not pushed)
@@ -418,7 +434,7 @@ jobs:
 
   catalogue:
     # Guards the generated/derived docs that nothing else would catch drifting. Despite
-    # the job name (kept verbatim — it is a required status check in branch protection,
+    # the job name (kept verbatim — it is a required status check in the main ruleset,
     # and renaming it would leave the requirement permanently pending), this covers two
     # invariants: the test catalogue, and the handleiding page.
     name: catalogue (test overview in sync)

@@ -129,7 +129,10 @@ class PaternityCheck:
 
     His homozygous alleles must all be in the plasma (the fetus inherits one of each);
     his het ones half. A homozygous allele missing at a depth where it cannot be missed
-    (category 8) points at another father or a sample mixup.
+    points at another father or a sample mixup.
+
+    The totals below are worked out from the four counts, not stored: a signed record
+    freezes the fields (``dataclasses.asdict``), so it holds the counts and no total.
     """
 
     father: str
@@ -141,11 +144,13 @@ class PaternityCheck:
     message: str
 
     @property
-    def cat7_transmitted(self) -> int:
+    def transmitted_sites(self) -> int:
+        """The sites where his allele is seen in the plasma, homozygous and het."""
         return self.hom_alt_transmitted + self.het_transmitted
 
     @property
-    def cat8_absent(self) -> int:
+    def hom_alt_absent_sites(self) -> int:
+        """His homozygous sites where his allele is not seen."""
         return self.hom_alt_not_transmitted
 
     @property
@@ -584,8 +589,9 @@ _PROFILES: dict[ApplicationKind, QcProfile] = {
     # sample itself (extra_sex_checks), which is why the summary still names it.
     "nipt": QcProfile(
         "nipt", "Monogenic NIPT (cfDNA)",
-        "cfDNA integrity from the NIPT classification: paternity is confirmed from "
-        "paternal-transmitted sites (categories 7/8), which excludes a sample mixup; "
+        "cfDNA integrity from the NIPT analysis: paternity is confirmed from the father's "
+        "alleles in the plasma (all of his homozygous ones expected, about half of his "
+        "heterozygous ones), which excludes a sample mixup; "
         "fetal sex is read from paternal-X transmission (no chrY needed); and the "
         "category distribution is checked (de-novo excess, ~50% maternal transmission). "
         "Parent sex is checked from chrX zygosity for the father and for the cfDNA "

@@ -31,6 +31,15 @@ const TRIO_FAMILY = {
   pedigree: null,
 };
 
+// The summary the backend serves for a NIPT family (sample_integrity_qc.py).
+const NIPT_SUMMARY =
+  "cfDNA integrity from the NIPT analysis: paternity is confirmed from the father's alleles in the plasma " +
+  '(all of his homozygous ones expected, about half of his heterozygous ones), which excludes a sample ' +
+  'mixup; fetal sex is read from paternal-X transmission (no chrY needed); and the category distribution is ' +
+  'checked (de-novo excess, ~50% maternal transmission). Parent sex is checked from chrX zygosity for the ' +
+  'father and for the cfDNA sample, which reads as the mother because maternal DNA dominates the plasma. ' +
+  'Genotype relatedness and Mendelian errors do not apply to a maternal/fetal mixture.';
+
 const mockApi = (qcData: unknown, family: unknown = TRIO_FAMILY) => {
   apiMock.get.mockImplementation((url: string) => {
     if (url === '/families/FAM1/qc/sample-integrity') return Promise.resolve({ data: qcData });
@@ -454,7 +463,7 @@ describe('FamilySampleQcPage', () => {
         overall_status: 'pass',
         application: 'nipt',
         application_label: 'Monogenic NIPT (cfDNA)',
-        application_summary: 'Paternity is confirmed from paternal-transmitted sites (categories 7/8).',
+        application_summary: NIPT_SUMMARY,
         genotype_source: 'vardict',
         sex_checks: [
           {
@@ -480,8 +489,8 @@ describe('FamilySampleQcPage', () => {
         mendelian_checks: [],
         paternity_check: {
           father: 'FATHER',
-          cat7_transmitted: 90,
-          cat8_absent: 1,
+          transmitted_sites: 90,
+          hom_alt_absent_sites: 1,
           informative_sites: 151,
           hom_alt_transmitted: 40,
           hom_alt_not_transmitted: 1,
@@ -525,6 +534,8 @@ describe('FamilySampleQcPage', () => {
     renderPage();
 
     expect(await screen.findByText("Paternity (the father's alleles in the cfDNA)")).toBeInTheDocument();
+    // The application's summary, as served (ENG-4: it no longer says "categories 7/8").
+    expect(screen.getByText(NIPT_SUMMARY)).toBeInTheDocument();
     expect(
       screen.getByText(/Father FATHER — homozygous alleles seen 40 of 41 \(all expected\), het alleles seen 50 of 110/),
     ).toBeInTheDocument();

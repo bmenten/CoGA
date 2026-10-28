@@ -2,7 +2,11 @@ import { useState, type FC } from 'react';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
 import { apiPath } from '../../lib/apiPath';
-import type { SmallVariantUploadResult } from '../../lib/apiSchema.generated';
+import type {
+  BedUploadResult,
+  SmallVariantUploadResult,
+  StructuralVariantUploadResult,
+} from '../../lib/apiSchema.generated';
 
 type UploadMessages<T> = {
   /** Asked before data that already exist are overwritten. */
@@ -44,8 +48,8 @@ const uploadWithOverwrite = async <R extends { data: unknown }>(
  * What an SV upload left out: a deletion, duplication, inversion or CNV that states neither END
  * nor SVLEN, so how far it reaches is not known (CLIN-39).
  */
-const withoutExtentNote = (data: { skipped_without_extent?: number }): string => {
-  const count = data.skipped_without_extent ?? 0;
+const withoutExtentNote = (data: Pick<StructuralVariantUploadResult, 'skipped_without_extent'>): string => {
+  const count = data.skipped_without_extent;
   if (!count) return '';
   return ` ${count} record${count === 1 ? '' : 's'} left out: a deletion, duplication, inversion or CNV that states neither END nor SVLEN.`;
 };
@@ -132,7 +136,7 @@ const SampleUpload: FC = () => {
       setVariantStatus(
         await uploadWithOverwrite(
           (overwrite: boolean) =>
-            api.post(apiPath`/structural-variants/upload/${variantSample.trim()}`, formData, {
+            api.post<StructuralVariantUploadResult>(apiPath`/structural-variants/upload/${variantSample.trim()}`, formData, {
               params: {
                 overwrite,
                 source_format: variantFormat,
@@ -174,7 +178,7 @@ const SampleUpload: FC = () => {
       setBedStatus(
         await uploadWithOverwrite(
           (overwrite: boolean) =>
-            api.post(apiPath`/bed/upload/${bedSample.trim()}/${bedType}`, formData, {
+            api.post<BedUploadResult>(apiPath`/bed/upload/${bedSample.trim()}/${bedType}`, formData, {
               params: { overwrite, ...(coverage ? { content: bedContent } : {}) },
               headers: { 'Content-Type': 'multipart/form-data' },
             }),

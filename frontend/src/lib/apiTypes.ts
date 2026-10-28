@@ -12,6 +12,7 @@ import type {
   RepeatCountUnitWarningOut,
   RepeatExpansionRowOut,
   ReportSignoutSummary,
+  SampleIntegrityPaternityCheckOut,
   TrackAvailabilityOut,
 } from './apiSchema.generated';
 
@@ -306,19 +307,10 @@ export interface ApiSampleIntegrityMendelianCheck {
   message: string;
 }
 
-export interface ApiSampleIntegrityPaternityCheck {
-  father: string;
-  cat7_transmitted: number;
-  cat8_absent: number;
-  informative_sites: number;
-  // The father's homozygous alleles (all must be seen) and het ones (half are).
-  hom_alt_transmitted?: number;
-  hom_alt_not_transmitted?: number;
-  het_transmitted?: number;
-  het_not_transmitted?: number;
+// The NIPT paternity check as served (its generated type), its status read as a QC verdict.
+export type ApiSampleIntegrityPaternityCheck = Omit<SampleIntegrityPaternityCheckOut, 'status'> & {
   status: QcStatus;
-  message: string;
-}
+};
 
 export interface ApiSampleIntegrityFetalSexCheck {
   inferred_sex: string;

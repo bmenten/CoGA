@@ -6,6 +6,7 @@ import PageState from '../../components/PageState';
 import InfoTip from '../../components/InfoTip';
 import { getErrorMessage } from '../../lib/errorMessage';
 import type { ApiQcThresholdCatalogue } from '../../lib/apiTypes';
+import type { QcThresholdProfileSummaryOut } from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import ModalDialog from '../../components/ModalDialog';
 import type { StatusTone } from './dataManagementTypes';
@@ -114,7 +115,7 @@ const AdminQcThresholdsPage: React.FC = () => {
 
   const createProfileMutation = useMutation({
     mutationFn: async (label: string) =>
-      (await api.post('/admin/qc-thresholds/profiles', { label })).data as { key: string },
+      (await api.post<QcThresholdProfileSummaryOut>('/admin/qc-thresholds/profiles', { label })).data,
     onSuccess: async (profile) => {
       await queryClient.invalidateQueries({ queryKey: QUERY_KEY });
       setSelectedProfile(profile.key);

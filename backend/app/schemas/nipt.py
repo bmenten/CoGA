@@ -324,6 +324,12 @@ class NiptArtifactOut(BaseModel):
     updated_at: datetime
 
 
+class NiptArtifactDeleteOut(BaseModel):
+    """A NIPT artifact deleted (an unknown one is a 404)."""
+
+    deleted: bool
+
+
 class NiptArtifactCreate(BaseModel):
     """Create/update a NIPT artifact within an assembly + assay/panel scope."""
 

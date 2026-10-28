@@ -166,7 +166,8 @@ def test_every_build_stamps_the_version_the_build_script_computes() -> None:
     prepare = _workflow("build.yml")["jobs"]["prepare"]
     meta = _step(prepare, step_id="meta")["run"]
     assert 'APP_VERSION=$(./scripts/build-version.sh --release "$REF_NAME")' in meta
-    assert meta.count("APP_VERSION=$(./scripts/build-version.sh)") == 2
+    # A build of main; prepare builds no other branch (test_ci_workflows.py).
+    assert meta.count("APP_VERSION=$(./scripts/build-version.sh)") == 1
     assert "cat VERSION" not in meta
     images = "\n".join(step.get("run", "") for step in _workflow("ci.yml")["jobs"]["images"]["steps"])
     assert images.count('"$(./scripts/build-version.sh)"') == 2, "the image is built and checked with it"

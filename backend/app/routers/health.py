@@ -22,12 +22,12 @@ from sqlalchemy import text
 from ..core.clickhouse import execute_clickhouse
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
-from ..schemas import VersionOut
+from ..schemas import HealthOut, ReadinessOut, VersionOut
 
 router = APIRouter(tags=["health"])
 
 
-@router.get("/health")
+@router.get("/health", response_model=HealthOut)
 async def health() -> dict[str, str]:
     """Liveness: 200 once the app has started. Touches no dependencies."""
     return {"status": "ok"}
@@ -63,7 +63,7 @@ async def _clickhouse_ok() -> bool:
         return False
 
 
-@router.get("/health/ready")
+@router.get("/health/ready", response_model=ReadinessOut)
 async def ready(response: Response) -> dict[str, Any]:
     """Readiness: 200 only when both Postgres and ClickHouse are reachable."""
     postgres_ok = await _postgres_ok()

@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.postgres import get_postgres_session
 from ..dependencies import get_current_admin_user, get_current_user
+from ..schemas import BedReadOut, BedUploadResult
 from ..services.bed_service import (
     fetch_bed_batch_json,
     fetch_bed_json,
@@ -24,9 +25,12 @@ router = APIRouter(prefix="/bed", tags=["bed"])
 # default, was removed with the routes no screen called (ENG-5): a read that asks for it is
 # refused (422) before anything is read, rather than answered in another format.
 _FORMAT_DESCRIPTION = "The answer's format: json, the only one (the text format was removed)."
+# What a read answers is `BedReadOut`, by the track type read (ENG-4). The reads return the
+# JSON the service builds, as before, so FastAPI does not validate up to a million rows a
+# second time: the model describes them, and tests compare each track type's answer with it.
 
 
-@router.post("/upload/{sample_id}/{bed_type}")
+@router.post("/upload/{sample_id}/{bed_type}", response_model=BedUploadResult)
 async def upload_bed(
     sample_id: str,
     bed_type: str,
@@ -99,7 +103,7 @@ async def upload_bed(
     return result
 
 
-@router.get("/{sample_id}/{bed_type}/batch", response_model=None)
+@router.get("/{sample_id}/{bed_type}/batch", response_model=BedReadOut)
 async def fetch_bed_batch(
     sample_id: str,
     bed_type: str,
@@ -136,7 +140,7 @@ async def fetch_bed_batch(
     )
 
 
-@router.get("/{sample_id}/{bed_type}", response_model=None)
+@router.get("/{sample_id}/{bed_type}", response_model=BedReadOut)
 async def fetch_bed(
     sample_id: str,
     bed_type: str,
