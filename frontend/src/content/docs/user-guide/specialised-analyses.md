@@ -118,6 +118,10 @@ depths, and never count, nor does a coverage BED that does not say what it holds
 track of read depth shows the depth of its chrM calls, and the page's QC notes name each track left
 out and why.
 
+Each mtDNA variant has the same review as a small variant, and its card the same controls:
+**Review**, **Exclude** and **Report**, **Tags & notes** and **ACMG classify**. It is one review:
+the same variant on the **Small variants** page shows the same tags and note, and **Report** puts it on
+the report with the other reported small variants. **Exclude** dims the card and keeps it in the list.
 **ACMG classify** on a variant from the **mtDNA analysis** page uses the mitochondrial rule set.
 
 [ACMG classification reference (including the CNV classifier)](/docs/reference/acmg-classification "further-reading")

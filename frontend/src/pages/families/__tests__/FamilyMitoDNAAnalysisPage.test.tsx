@@ -8,6 +8,7 @@ import { createTestQueryClient } from '../../../test/createTestQueryClient';
 
 const apiMock = vi.hoisted(() => ({
   get: vi.fn(),
+  put: vi.fn(),
 }));
 
 vi.mock('../../../lib/api', () => ({
@@ -203,6 +204,8 @@ describe('FamilyMitoDNAAnalysisPage', () => {
         });
       }
 
+      // The review tags the cards offer.
+      if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
 
@@ -422,6 +425,8 @@ describe('FamilyMitoDNAAnalysisPage', () => {
           },
         });
       }
+      // The review tags the cards offer.
+      if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
 
@@ -548,6 +553,8 @@ describe('FamilyMitoDNAAnalysisPage', () => {
           },
         });
       }
+      // The review tags the cards offer.
+      if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
 
@@ -597,6 +604,8 @@ describe('FamilyMitoDNAAnalysisPage — failed requests (#610)', () => {
       if (url === '/families/F1') {
         return Promise.resolve({ data: { family_id: 'F1', members: [], projects: [] } });
       }
+      // The review tags the cards offer.
+      if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: [] });
       return Promise.resolve({ data: {} });
     });
     renderPage();
@@ -635,5 +644,180 @@ describe('mtDNA IGV link', () => {
       '/families/F%201/igv?locus=chrM%3A3243-3243&project_id=P1' +
         '&back_path=%2Ffamilies%2FF%25201%2Fmitochondrial-dna',
     );
+  });
+});
+
+// An mtDNA variant's review is the shared small-variant review: the cards carry the same
+// quick tags (Review, Exclude, Report), Tags & notes, and show the review's tags and note.
+describe('mtDNA variant review', () => {
+  const tagDefinitions = [
+    {
+      key: 'segregates',
+      label: 'Segregates',
+      description: null,
+      group: 'custom',
+      color: '#5b6b79',
+      sort_order: 500,
+      scope: 'global',
+      project_id: null,
+      shared_project_ids: [],
+      is_custom: true,
+      is_active: true,
+    },
+  ];
+  const mitoVariant = (variantId: string, review: Record<string, unknown> | null) => ({
+    variant_id: variantId,
+    position: 3243,
+    ref: 'A',
+    alt: 'G',
+    label: variantId,
+    type: 'SNV',
+    maternal_transmission: 'maternal_shared',
+    review,
+    annotation: {
+      region: 'MT-TL1',
+      gene: 'MT-TL1',
+      consequence: null,
+      consequence_terms: [],
+      gnomad_af: null,
+      category: 'tRNA',
+      clinical_significance: 'pathogenic',
+      disorders: [],
+      polymorphism_notes: [],
+      mitomap_query: variantId,
+      mitomap_url: 'https://www.mitomap.org/',
+      source_keys: [],
+    },
+    calls: {
+      PROBAND: {
+        sample: 'PROBAND',
+        role: 'proband',
+        affected: true,
+        sex: 'female',
+        genotype: '0/1',
+        allele_fraction: 0.46,
+        depth: 420,
+        alt_depth: 193,
+        zygosity: 'heteroplasmic',
+        display: '46.0%',
+      },
+    },
+  });
+  const renderWith = (variants: unknown[], readOnly = false) => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({
+          data: {
+            family_id: 'F1',
+            pedigree: '',
+            members: [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }],
+            projects: [],
+            metadata: {},
+            read_only: readOnly,
+          },
+        });
+      }
+      if (url === '/families/F1/mitochondrial-dna') {
+        return Promise.resolve({
+          data: {
+            heteroplasmy_threshold: 0.02,
+            homoplasmy_threshold: 0.95,
+            qc_notes: [],
+            samples: [
+              {
+                sample_id: 'PROBAND',
+                role: 'proband',
+                affected: true,
+                sex: 'female',
+                haplogroup: 'H1',
+                coverage: { mean_depth: 420, min_depth: 380, max_depth: 470, breadth: 0.98, source: 'coverage', regions: 10 },
+                qc: { status: 'pass', notes: [], contamination: 0.002, mean_depth: 420, min_mean_depth: 380 },
+              },
+            ],
+            variants,
+            structural_variants: [],
+          },
+        });
+      }
+      if (url.endsWith('/small-variant-tags')) return Promise.resolve({ data: tagDefinitions });
+      return Promise.resolve({ data: {} });
+    });
+    apiMock.put.mockReset();
+    apiMock.put.mockResolvedValue({ data: {} });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/mitochondrial-dna']}>
+          <Routes>
+            <Route path="/families/:familyId/mitochondrial-dna" element={<FamilyMitoDNAAnalysisPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+
+  it('toggles the quick tags on the shared review, keeping its tags and note', async () => {
+    renderWith([
+      mitoVariant('m.3243A>G', {
+        tags: ['review', 'segregates'],
+        note: 'Checked in IGV',
+        updated_at: '2026-10-01T10:00:00Z',
+      }),
+    ]);
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    // The review's own tags and note on the card; the quick tags as pressed toggles.
+    expect(within(card).getByText('Segregates')).toBeInTheDocument();
+    expect(within(card).getByText('Checked in IGV')).toHaveClass('variant-card-review-note');
+    const footer = card.querySelector('.variant-card-footer .variant-card-quick') as HTMLElement;
+    expect(within(footer).getAllByRole('button').map((button) => button.textContent)).toEqual([
+      'Review',
+      'Exclude',
+      'Report',
+      'Tags & notes',
+      'ACMG classify',
+    ]);
+    expect(within(footer).getByRole('button', { name: 'Review' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(footer).getByRole('button', { name: 'Report' })).toHaveAttribute('aria-pressed', 'false');
+
+    // Report puts the variant on the report: the same save as on the small-variant cards.
+    fireEvent.click(within(footer).getByRole('button', { name: 'Report' }));
+    await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
+    expect(apiMock.put).toHaveBeenCalledWith('/families/F1/small-variants/m.3243A%3EG/review', {
+      tags: ['report', 'review', 'segregates'],
+      note: 'Checked in IGV',
+      classification: undefined,
+      expected_updated_at: '2026-10-01T10:00:00Z',
+    });
+  });
+
+  it('opens Tags & notes on the variant', async () => {
+    renderWith([mitoVariant('m.3243A>G', null)]);
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    fireEvent.click(within(card).getByRole('button', { name: 'Tags & notes' }));
+    const dialog = await screen.findByRole('dialog', { name: 'MT-TL1' });
+    expect(within(dialog).getByText('Segregates')).toBeInTheDocument();
+  });
+
+  it('dims an excluded variant and keeps it in the list', async () => {
+    renderWith([mitoVariant('m.3243A>G', { tags: ['excluded'], updated_at: '2026-10-01T10:00:00Z' })]);
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    expect(card).toHaveClass('variant-card--excluded');
+    expect(within(card).getByRole('button', { name: 'Exclude' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('lets a reader see the review but not change it', async () => {
+    renderWith([mitoVariant('m.3243A>G', { tags: ['report'], updated_at: '2026-10-01T10:00:00Z' })], true);
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    for (const name of ['Review', 'Exclude', 'Report']) {
+      expect(within(card).getByRole('button', { name })).toBeDisabled();
+    }
+    expect(within(card).getByRole('button', { name: 'Report' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('says so when a quick tag cannot be saved', async () => {
+    renderWith([mitoVariant('m.3243A>G', null)]);
+    apiMock.put.mockRejectedValue(new Error('Network down'));
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    fireEvent.click(within(card).getByRole('button', { name: 'Review' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(/network down|unable to save the variant review/i);
   });
 });

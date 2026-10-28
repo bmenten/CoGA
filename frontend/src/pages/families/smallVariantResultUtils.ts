@@ -1,4 +1,4 @@
-import { compareChromosomes } from '../../lib/chromosomes';
+import { compareChromosomes, normalizeChrom } from '../../lib/chromosomes';
 import { geneInfoHref } from '../../lib/geneInfo';
 import { omimGeneHref } from '../../lib/omim';
 import { humanAssemblyOf } from '../../lib/reference';
@@ -124,8 +124,16 @@ export const describeFilterTranscript = (
   };
 };
 
+// A variant's chromosome with its `chr` prefix, the mitochondrion as `chrM`: prefixing the
+// stored `MT` gave `chrMT`, a name neither the viewers nor IGV's genomes know. Other names are
+// kept as written, so an alt contig (chrUn_…) keeps its spelling.
+const prefixedChromosome = (chr: string): string => {
+  if (normalizeChrom(chr) === 'MT') return 'chrM';
+  return chr.startsWith('chr') ? chr : `chr${chr}`;
+};
+
 export const formatLocus = (variant: Pick<SmallVariant, 'chr' | 'start' | 'end'>) => {
-  const chr = variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`;
+  const chr = prefixedChromosome(variant.chr);
   return `${chr}:${variant.start.toLocaleString()}-${Math.max(
     variant.start,
     variant.end,
@@ -499,7 +507,7 @@ export const buildSmallVariantNavigation = ({
   locationSearch: string;
   projectId?: string;
 }) => {
-  const chr = variant.chr.startsWith('chr') ? variant.chr : `chr${variant.chr}`;
+  const chr = prefixedChromosome(variant.chr);
   const locus = `${chr}:${Math.max(1, variant.start)}-${Math.max(variant.start, variant.end)}`;
   const backSearch = locationSearch.startsWith('?') ? locationSearch.slice(1) : locationSearch;
   const igvBackPath = routePath`/families/${familyId}/small-variants${raw(backSearch ? `?${backSearch}` : '')}`;
