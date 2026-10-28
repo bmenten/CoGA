@@ -691,8 +691,10 @@ It takes the mother's sample as the maternal-plasma cfDNA and drafts a NIPT mani
 under `datasets.snv.per_sample`, and the coverage tables it finds (`coverage_<sample>.txt` or
 `.tsv`, in the same places) under `datasets.coverage.per_sample` as `target_table`. Its
 warning (`nipt_pair_detected`) names the sample it took for the plasma and the one it took for
-the father: check both before the import. How the pair is imported is under
-[Monogenic NIPT pairs](#monogenic-nipt-pairs).
+the father: check both before the import. A VCF whose one column is named after neither its
+sample nor the `vcf_sample` of its entry (another tube's name, say) is warned of as well
+(`nipt_vcf_column_named_otherwise`), as the validation warns of it. How the pair is imported
+is under [Monogenic NIPT pairs](#monogenic-nipt-pairs).
 
 Discover knows several file names per dataset, and shows what it found. The exact patterns
 are the `standard_v1` entry of `NAMING_SCHEMES` in
@@ -1099,10 +1101,23 @@ The VCFs under `snv.per_sample` become one small-variant callset, source `nipt`
   FS, mapping quality, mismatches, repeat units and so on) are that one call's: they are kept
   with the call ([database.md](database.md), `calls.filters` and `calls.metrics`) for the
   NIPT quality filter and the de novo triage.
-- The `snv` settings `source_format`, `exclude_filters`, `vcf_sample` and `annotation_tsv` do
-  not apply: the callset is always `nipt`, each file's one column is bound to the sample of its
-  entry, and each file's annotation is read from its own records. With `update`, the dataset is
-  skipped when the family already holds `nipt` calls.
+- The `snv` settings `source_format`, `exclude_filters` and `annotation_tsv` do not apply: the
+  callset is always `nipt`, and each file's annotation is read from its own records. Nor does
+  `vcf_sample` choose a column: each file's one column is bound to the sample of its entry
+  (below). With `update`, the dataset is skipped when the family already holds `nipt` calls.
+- Each file's one column is read as its entry's sample whatever it is named, on purpose: the
+  laboratory maps its genetically verified tubes to the files they are in, and a file, and its
+  column, can be named after another tube. A column named neither as the member (its sample ID,
+  or that ID with a caller's suffix such as `_sorted`) nor as the entry's own `vcf_sample` (or
+  `sample_name`) is warned of, by Discover, the dry run and the import alike, never refused
+  (`nipt_vcf_column_named_otherwise`; the owner's decision of 2026-10-28, CLIN-13): *The NIPT
+  SNV file of FATHER1 (FATHER1.mutect2.vcf.gz) names its one sample column 'TUBE9', not
+  FATHER1: the import reads that column as FATHER1's calls. …* The warning names another member
+  the column is named after (a swapped file reads as the other parent's calls), and an entry's
+  `vcf_sample` the column differs from. A laboratory that verified the tube records the column
+  in the entry (`FATHER1: {vcf: FATHER1.mutect2.vcf.gz, vcf_sample: TUBE9}`), which silences the
+  warning; a `vcf_sample` of the member's own ID does not, as it names no column. The dataset's
+  summary records the column each sample's calls were read from (`vcf_column`).
 
 A per-target coverage table (`target_table`) is tab-separated with a header line, one row
 per capture target. It needs the columns `chromosome`, `start` and `end` (BED coordinates),
@@ -1218,7 +1233,9 @@ Discover, dry run and import check that:
   `analysis_type: monogenic_nipt`, or as the primary callset of germline calls made one sample at
   a time when the dataset says `source_format: clair3` (`dataset_per_sample_unsupported`
   otherwise). Each of its VCFs holds exactly one sample (`dataset_vcf_not_single_sample`) and
-  needs no index;
+  needs no index. A NIPT pair's VCF whose one column is named neither as its member nor as its
+  entry's `vcf_sample` is a warning (`nipt_vcf_column_named_otherwise`,
+  [Monogenic NIPT pairs](#monogenic-nipt-pairs));
 - a per-target coverage table's header names `chromosome`, `start`, `end`, `attribute` and
   `mean` (`coverage_target_table_columns`);
 - a coverage BED's `content` is `read_depth` or `log2_ratio` (`coverage_content_invalid`); a BED
@@ -1767,6 +1784,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `ped_proposed_from_folders` (warning) | Discover found no PED and took the members from the long-read per-sample folders (a couple when they are of opposite sex). Check them before writing the manifest. |
 | "The family's callset also holds the calls of …" | A per-sample SNV import that does not bring every sample's file would drop the others' calls: import every sample's SNV file together. |
 | `dataset_vcf_not_single_sample` | A VCF under `snv.per_sample` (a NIPT pair's, or a long-read sample's) holds no sample column or more than one. |
+| `nipt_vcf_column_named_otherwise` (warning) | A NIPT pair's VCF names its one sample column neither as the member nor as the entry's `vcf_sample`; the import reads it as the member's calls ([Monogenic NIPT pairs](#monogenic-nipt-pairs)). Check that the file holds the member's verified tube: if it does, set the entry's `vcf_sample` to the column's name; if not, correct the manifest. |
 | `coverage_target_table_columns` | A per-target coverage table's header lacks `chromosome`, `start`, `end`, `attribute` or `mean`. |
 | `coverage_content_undeclared` (warning) | A coverage BED's manifest entry has no `content`: it imports as `unknown`, drawn without an axis and never read as depth. Add `content: read_depth` or `content: log2_ratio` and import again. |
 | `coverage_content_invalid` | A coverage BED's `content` is neither `read_depth` nor `log2_ratio`. |

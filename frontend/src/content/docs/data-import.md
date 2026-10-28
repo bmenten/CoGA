@@ -321,6 +321,9 @@ been deleted.
 - Every file exists, in the family folder. A compressed family VCF for small variants, structural
   variants or repeats needs its index (`.tbi`, `.csi` or `.idx`); a plain `.vcf` does not. Other index
   files are checked only when the manifest names one.
+- A monogenic NIPT's SNV file whose one column is named after neither its sample nor the entry's
+  `vcf_sample` is a warning, in Discover too (`nipt_vcf_column_named_otherwise`): the import reads that
+  column as the sample's calls, so check that the file holds that sample's tube.
 - A dataset type CoGA does not know is an error. A missing small-variant or structural-variant dataset
   is a warning; other missing datasets are simply absent.
 - A data file the import would refuse for holding no record (a family VCF of small variants, structural
@@ -452,6 +455,13 @@ below), and otherwise by its end minus its start: an insertion written `N`, `<IN
 start is 0 bp to them. A package's per-sample TRGT,
 mitochondrial and HiFiCNV files follow the same rule; when a file is that sample's after all (a lab that
 verified its tubes), the entry's `vcf_sample` says so.
+
+A monogenic NIPT pair's two SNV files are not refused for their column: each file's one column is read as
+the sample of its entry, whatever it is named, because the laboratory maps its verified tubes to files
+that can be named after another tube. When the column is named after neither the sample nor the entry's
+`vcf_sample`, Discover, the dry run and the import warn (`nipt_vcf_column_named_otherwise`), naming the
+sample, the file and the column. Check that the file holds that sample's tube: if it does, record the
+column as the entry's `vcf_sample`, which ends the warning; if not, correct the manifest.
 
 A repeat-expansion (TRGT) upload reads the whole file before it replaces anything. TRGT writes a record
 for every locus of its catalogue, so a file without a record for the sample (a header alone, or a file

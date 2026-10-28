@@ -1282,6 +1282,11 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
     ``NIPT_PATERNAL_KEEP_MIN_VAF`` or more; the others are counted per sample
     (``skipped_by_filter``). Each file replaces its own sample's earlier calls, so a
     re-import of one file leaves the other sample's calls as they were.
+
+    Each file's one sample column is read as its entry's sample, whatever it is named: the
+    laboratory maps verified tubes to files named after other tubes. Validation warns of a
+    column named neither as the member nor as the entry's ``vcf_sample``
+    (``nipt_vcf_column_warning``, CLIN-13); the summary records each sample's column.
     """
     session, bundle, dataset, summary = job.session, job.bundle, job.dataset, job.summary
     family_context, sample_contexts = job.family_context, job.sample_contexts
@@ -1374,6 +1379,8 @@ async def _import_nipt_per_sample_snv(job: DatasetImportJob) -> FamilyImportData
             **result,
             "role": "cfdna" if is_plasma else "paired_sample",
             "vcf": _display_path(bundle.root, vcf_path),
+            # The column read as the sample's calls, whatever it is named (CLIN-13).
+            "vcf_column": sample_columns[sample_id][0],
         }
     if not sample_results:
         return await _register_only(summary, "Registered only; no per-sample SNV file is readable")

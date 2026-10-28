@@ -36,7 +36,11 @@ CoGA takes either input. The analysis is the same for both.
   tumour-only mode) and the father's. The package import finds a pair by the sample names of the PED and
   imports the plasma first. Each call keeps its own FILTER values and the caller's metrics (TLOD, FS,
   mapping quality, mismatches, repeat units and so on), which the quality filter and the de novo
-  triage read.
+  triage read. Each file's sample column is read as the sample its manifest entry names, whatever the
+  column is called: the laboratory maps its verified tubes to files that can be named after another
+  tube. When the column is named neither after the sample nor in the entry (`vcf_sample`), Discover, the
+  dry run and the import show a warning naming the sample, the file and the column. Check that the file
+  holds that sample's tube; if it does, record the column as the entry's `vcf_sample`.
 - **One combined VCF** with a father column and a cfDNA column, genotyped jointly. The quality is the
   site's QUAL.
 

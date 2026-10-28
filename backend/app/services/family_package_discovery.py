@@ -22,7 +22,7 @@ from .family_identifiers import visible
 from .family_package_common import HAPLOTYPE_ORIGIN_ROLES, IDENTIFIER_ISSUE_CODES, LONG_READ_DATASET_ROLES, PED_FOLDER, QC_FAMILY_ROLES, PackageManifest, ParsedPed, _display_path, _is_uncompressed_vcf, _issue, _package_path_or_none, _resolve_package_path, family_id_issue, nul_location, package_path_within, package_text_handle, path_leaves_package, sample_id_issues
 from .family_package_long_read import long_read_family_block, long_read_sample_ids
 from .family_package_manifest import _parse_ped_text_strict
-from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files
+from .family_package_nipt import NiptPackageFiles, discover_nipt_package_files, nipt_draft_column_issues
 from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY
 from .family_package_pgt import pgt_family_block, pgt_run_context, read_pgt_pipeline_roles
 from .family_package_source import _ensure_authorized_package_path, _existing_manifest_dict, manifest_link_out_of_package, manifest_outside_package_issue, package_folder_path
@@ -1987,6 +1987,10 @@ def discover_family_package_manifest(
             else:
                 availability_by_type[dataset_type] = len(availability)
                 availability.append(item)
+    # A NIPT file whose one column is named neither as its member nor in its entry, which the
+    # import reads as the member's calls all the same: said before the manifest is written,
+    # as the validation says it (CLIN-13).
+    warnings.extend(nipt_draft_column_issues(root, manifest_payload, family_sample_ids=sample_ids))
     manifest_yaml = yaml.safe_dump(
         _ordered_manifest(manifest_payload),
         sort_keys=False,

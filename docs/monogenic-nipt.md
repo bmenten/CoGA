@@ -41,7 +41,12 @@ Two inputs, one model:
   record whose call reaches 15% alt reads or that lies over a plasma call position (an MNV over any of
   its bases). A one-sample VCF's FILTER and caller metrics go with the call (`calls.filters`,
   `calls.metrics`; `vcf_call_metrics.py`). The coverage tables become `target_coverage` interval tracks
-  (`nipt_target_coverage.py`: value = mean, record_id = gene, the rest in `metadata_json`).
+  (`nipt_target_coverage.py`: value = mean, record_id = gene, the rest in `metadata_json`). Each
+  file's one sample column is read as its entry's sample whatever it is named: the laboratory maps
+  its verified tubes to files named after other tubes. A column named neither as the member nor
+  as the entry's `vcf_sample` gives a warning in Discover, the dry run and the import, never a
+  refusal (`nipt_vcf_column_warning`, code `nipt_vcf_column_named_otherwise`; the owner's decision
+  of 2026-10-28, CLIN-13), and the dataset's summary records each sample's column (`vcf_column`).
 - **One combined VCF** with a father and a cfDNA column, through the family small-variant upload or a
   package import. Its quality is the site's QUAL (`entries.qual`).
 
