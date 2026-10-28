@@ -22,7 +22,6 @@ from ..schemas import (
     HpoAnnotationCreate,
     HpoAnnotationOut,
     HpoAnnotationUpdate,
-    HpoFamilyQueryOut,
     PhenotypeMatchResultOut,
     UserRefOut,
 )
@@ -47,7 +46,6 @@ from ..services.hpo_service import (
     create_individual_hpo_annotation,
     delete_individual_hpo_annotation,
     list_family_hpo_annotations,
-    query_family_hpo_annotations,
     update_individual_hpo_annotation,
 )
 from ..services.monarch_ingest import gene_phenotype_breakdown, phenotype_closure
@@ -252,27 +250,6 @@ async def list_family_hpo(
         session,
         family_uuid=context.family_uuid,
         sample_id=sample_id,
-    )
-
-
-@router.get("/{family_id}/hpo/query", response_model=HpoFamilyQueryOut)
-async def query_family_hpo(
-    family_id: str,
-    hpo_id: str = Query(min_length=1),
-    include_descendants: bool = True,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> HpoFamilyQueryOut:
-    context = await build_family_metadata_context(
-        session,
-        family_identifier=family_id,
-        user=user,
-    )
-    return await query_family_hpo_annotations(
-        session,
-        family_uuid=context.family_uuid,
-        hpo_id=hpo_id,
-        include_descendants=include_descendants,
     )
 
 

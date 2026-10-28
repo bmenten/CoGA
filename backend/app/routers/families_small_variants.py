@@ -40,7 +40,6 @@ from ..services.small_variant_review_tags import (
     update_small_variant_tag_definition,
 )
 from ..services.small_variant_review_presets import (
-    delete_small_variant_filter_preset_for_owner,
     list_small_variant_filter_presets_for_owner,
     save_small_variant_filter_preset as save_small_variant_filter_preset_record,
 )
@@ -430,23 +429,6 @@ async def save_small_variant_filter_preset(
         user=user,
     )
     return await save_small_variant_filter_preset_record(session, payload=payload, user=user)
-
-
-@router.delete("/{family_id}/small-variant-filter-presets/{preset_id}", status_code=204)
-@changes_only_own_data
-async def delete_small_variant_filter_preset(
-    family_id: str,
-    preset_id: str,
-    session: AsyncSession = Depends(get_postgres_session),
-    user: CurrentUser = Depends(get_current_user),
-) -> Response:
-    await build_family_metadata_context(
-        session,
-        family_identifier=family_id,
-        user=user,
-    )
-    await delete_small_variant_filter_preset_for_owner(session, preset_id=preset_id, user=user)
-    return Response(status_code=204)
 
 
 @router.get(

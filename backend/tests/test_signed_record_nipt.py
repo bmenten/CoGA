@@ -23,13 +23,14 @@ from typing import Any
 import pytest
 from sqlalchemy.exc import DBAPIError, ProgrammingError
 
-from backend.app.schemas import FamilyMemberOut, FamilyOut
+from backend.app.schemas import FamilyMemberOut, FamilyOut, FamilyRegionOfInterestOut
 from backend.app.services import nipt_service
 from backend.app.services import report_signout_service as rss
 from backend.app.services import sample_integrity_service
 from backend.app.services import signed_record_nipt as srn
 from backend.app.services import signed_record_sections as srs
 from backend.app.services.clickhouse_variant_records import SmallVariantCall, SmallVariantRecord
+from backend.app.services.coverage_read_depth import SampleCoverageTracks
 from backend.app.services.family_metadata_context import FamilyMetadataContext
 from backend.app.services.hash_chain import canonical_hash
 from backend.app.services.nipt_analysis import NIPT_MODEL_REFERENCE, NiptQualityThresholds
@@ -128,7 +129,12 @@ def _context(rows: list[dict[str, Any]] | None = None) -> SimpleNamespace:
     )
 
 
-def _family() -> FamilyOut:
+# The family's region of interest, as the family page has it and as its row in families holds it.
+_ROI = FamilyRegionOfInterestOut(query="chr7:1-1000", label="GENEA locus", source="region", chr="chr7", start=1, end=1000)
+_ROI_ROW = {"roi_query": "chr7:1-1000", "roi_label": "GENEA locus", "roi_chr": "chr7", "roi_start": 1, "roi_end": 1000}
+
+
+def _family(roi: FamilyRegionOfInterestOut | None = None) -> FamilyOut:
     return FamilyOut(
         id=FAMILY_UUID,
         family_id="NIPTFAM1",
@@ -141,6 +147,7 @@ def _family() -> FamilyOut:
             ),
         ],
         metadata={"analysis_type": "monogenic_nipt"},
+        roi=roi,
     )
 
 
@@ -162,14 +169,19 @@ _LOADED = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
 
 
 class _Session:
-    """Answers the family's analysis type, its target-table sources and its small-variant
-    reviews (variant id -> tags)."""
+    """Answers the family's analysis type and region of interest, its target-table sources and
+    its small-variant reviews (variant id -> tags)."""
 
     def __init__(
-        self, *, analysis_type: str | None = "monogenic_nipt", reviews: dict[str, list[str]] | None = None
+        self,
+        *,
+        analysis_type: str | None = "monogenic_nipt",
+        reviews: dict[str, list[str]] | None = None,
+        roi: dict[str, Any] | None = None,
     ) -> None:
         self.analysis_type = analysis_type
         self.reviews = reviews or {}
+        self.roi = roi or {}
         self.executed: list[tuple[str, Any]] = []
 
     async def execute(self, statement: Any, params: Any = None) -> _Result:
@@ -181,7 +193,7 @@ class _Session:
         if "sample_interval_track_sources" in sql:
             return _Result([{"sample_id": PLASMA, "filename": "cfdna.targets.tsv", "row_count": 5, "uploaded_at": _LOADED}])
         if "FROM families" in sql:
-            return _Result([{"analysis_type": self.analysis_type}])
+            return _Result([{"analysis_type": self.analysis_type, **self.roi}])
         if "FROM small_variant_reviews" in sql:
             return _Result(
                 [
@@ -200,14 +212,25 @@ def _wire(
     targets: list[TargetCoverageRow] | None = None,
     artifacts: set[str] | None = None,
     other_carriers: dict[str, int] | None = None,
-) -> None:
-    """The family's data, as the NIPT page and the signed record both read it."""
+    roi: FamilyRegionOfInterestOut | None = None,
+    coverage: dict[str, str] | None = None,
+) -> list[list[str]]:
+    """The family's data, as the NIPT page and the signed record both read it: with ``roi``
+    the family page's region of interest, and with ``coverage`` what each of the plasma's
+    coverage tracks holds, by source. The chromosomes each read of the coverage tracks asked
+    for are returned (appended to as they are read)."""
     filtered = sites if sites is not None else _gene_sites()
     cohort = _ff_sites() + filtered
     rows = targets if targets is not None else _targets()
+    track_reads: list[list[str]] = []
 
     async def fake_family_record(_session, _family_id, _user):
-        return _family()
+        return _family(roi)
+
+    async def fake_coverage_tracks(_session, *, assembly_name, family_uuid, sample_uuid_to_name, chromosomes):
+        assert (family_uuid, sample_uuid_to_name) == (FAMILY_UUID, {"cfdna-uuid": PLASMA})
+        track_reads.append(sorted(chromosomes))
+        return {PLASMA: SampleCoverageTracks(contents=dict(coverage))} if coverage else {}
 
     async def fake_context(_session, *, family_identifier, user, project_id=None):
         return _context()
@@ -254,6 +277,8 @@ def _wire(
     monkeypatch.setattr(nipt_service, "_hydrate_small_variant_outs", no_hydration)
     monkeypatch.setattr(nipt_service, "assay_cfdna_carrier_samples", carriers)
     monkeypatch.setattr(nipt_service, "count_cfdna_carriers", recurrence)
+    monkeypatch.setattr(nipt_service, "coverage_tracks_by_sample", fake_coverage_tracks)
+    return track_reads
 
 
 async def _section(reported: list[str], session: _Session | None = None) -> dict[str, Any]:
@@ -525,6 +550,108 @@ async def test_a_plasma_without_a_target_table_has_no_coverage_check_and_no_sex_
     [entry] = section["variants"]
     assert entry["plasma"] == {"alt_reads": 0, "depth": None, "depth_estimated": True}
     assert "no_plasma_depth" in entry["flags"]
+
+
+# --- The notes of the coverage check over the coverage tracks (TRACE-17) ---------------------
+# Without a per-target table the NIPT page reads the plasma's coverage tracks over the genes or
+# panel of its search, else the family's region of interest, and names each track it does not
+# read as depth. The owner decided on 2026-10-28 to freeze those notes. The sign-out does not
+# know the page's search: it runs the check itself as the page runs it without a gene or panel,
+# over the family's ROI, and freezes its notes word for word with what it ran for.
+
+# A coverage BED that declares nothing, and WisecondorX's bins: neither is read as depth.
+_NOT_DEPTH = {"web": "unknown", "wisecondorx": "log2_ratio"}
+
+
+@pytest.mark.asyncio
+async def test_the_coverage_notes_are_frozen_as_the_nipt_page_shows_them_over_the_familys_roi(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    track_reads = _wire(monkeypatch, targets=[], roi=_ROI, coverage=_NOT_DEPTH)
+    section = await _section([], _Session(roi=_ROI_ROW))
+    # The page's check with no gene or panel: the request its coverage card sends on opening.
+    page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+
+    assert section["coverage_notes"] == {
+        "gene": None,
+        "panel": None,
+        "regions": [
+            {"label": region.label, "chrom": region.chrom, "start": region.start, "end": region.end}
+            for region in page.regions.per_region
+        ],
+        "notes": page.notes,
+    }
+    assert section["coverage_notes"]["regions"] == [{"label": "GENEA locus", "chrom": "7", "start": 1, "end": 1000}]
+    assert section["coverage_notes"]["notes"] == [
+        f"{PLASMA}: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not read as "
+        "depth.",
+        f"{PLASMA}: the WisecondorX coverage holds log2 ratios, not read depth; it is not read as depth.",
+    ]
+    # Both read the tracks on the ROI's chromosome.
+    assert track_reads == [["7"], ["7"]]
+    # JSON-safe, and the same when built again: the sign-out check compares it.
+    assert canonical_hash(json.loads(json.dumps(section, allow_nan=False))) == canonical_hash(section)
+    again = await _section([], _Session(roi=_ROI_ROW))
+    assert again["coverage_notes"] == section["coverage_notes"]
+
+
+@pytest.mark.asyncio
+async def test_a_coverage_check_that_reads_every_track_as_depth_freezes_no_note(monkeypatch: pytest.MonkeyPatch) -> None:
+    _wire(monkeypatch, targets=[], roi=_ROI, coverage={"web": "read_depth"})
+    monkeypatch.setattr(nipt_service, "fetch_interval_track_rows", _no_coverage_rows)
+    section = await _section([], _Session(roi=_ROI_ROW))
+    page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+    assert section["coverage_notes"]["notes"] == page.notes == []
+    assert [region["label"] for region in section["coverage_notes"]["regions"]] == ["GENEA locus"]
+
+
+async def _no_coverage_rows(_assembly, **_kwargs):
+    return []
+
+
+@pytest.mark.asyncio
+async def test_without_a_roi_the_coverage_check_runs_over_no_region_and_notes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # The page's card then says there is no target region; no track is read, so none is named.
+    track_reads = _wire(monkeypatch, targets=[], coverage=_NOT_DEPTH)
+    section = await _section([])
+    page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+    assert section["coverage_notes"] == {"gene": None, "panel": None, "regions": [], "notes": []}
+    assert (page.regions.target_region_count, page.notes, track_reads) == (0, [], [])
+
+
+@pytest.mark.asyncio
+async def test_a_plasma_with_a_target_table_freezes_no_coverage_notes(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The check then reads the capture targets (target_coverage), not the coverage tracks.
+    track_reads = _wire(monkeypatch, roi=_ROI, coverage=_NOT_DEPTH)
+    section = await _section([], _Session(roi=_ROI_ROW))
+    page = await nipt_service.get_family_nipt_coverage(session=None, family_id="NIPTFAM1", user=None)  # type: ignore[arg-type]
+    assert section["coverage_notes"] is None
+    assert section["target_coverage"] is not None and page.targets is not None
+    assert (page.notes, track_reads) == ([], [])
+
+
+def test_a_record_signed_before_the_coverage_notes_is_compared_without_them() -> None:
+    # Such a record's NIPT section holds no coverage_notes: the check leaves them out of the
+    # comparison and names them as not compared, rather than reading the section as changed.
+    notes = {"gene": None, "panel": None, "regions": [], "notes": ["a note"]}
+    current = {"fetal_fraction": {"ff": 0.12}, "coverage_notes": notes}
+    older = {"fetal_fraction": {"ff": 0.12}}
+    assert srn.nipt_comparable_with_record(older, current) == (older, [srn.COVERAGE_NOTES_NOT_COMPARED])
+    assert srn.COVERAGE_NOTES_NOT_COMPARED == "nipt.coverage_notes"
+    # What the record holds is still compared: a moved fetal fraction stays in.
+    moved = {"fetal_fraction": {"ff": 0.13}, "coverage_notes": notes}
+    assert srn.nipt_comparable_with_record(older, moved) == ({"fetal_fraction": {"ff": 0.13}}, ["nipt.coverage_notes"])
+    # A record that holds them, also as null (a target table), is compared whole.
+    for signed in (current, {**older, "coverage_notes": None}):
+        assert srn.nipt_comparable_with_record(signed, current) == (current, [])
+    # A section that could not be read, then or now, is compared as it is.
+    unavailable = {"unavailable": srn.TRIO_UNRESOLVED}
+    assert srn.nipt_comparable_with_record(unavailable, current) == (current, [])
+    assert srn.nipt_comparable_with_record(older, unavailable) == (unavailable, [])
+    assert srn.nipt_comparable_with_record("?", current) == (current, [])
+    assert srn.nipt_comparable_with_record(older, None) == (None, [])
 
 
 def test_a_load_time_is_frozen_as_written() -> None:

@@ -57,7 +57,6 @@ SEIZURE = "HP:0001250"
 OWN_DATA = {
     ("DELETE", "/api/auth/small-variant-filter-presets/{preset_id}"),
     ("POST", "/api/families/{family_id}/small-variant-filter-presets"),
-    ("DELETE", "/api/families/{family_id}/small-variant-filter-presets/{preset_id}"),
     ("POST", "/api/families/{family_id}/structural-variant-filter-presets"),
     ("DELETE", "/api/families/{family_id}/structural-variant-filter-presets/{preset_id}"),
     ("POST", "/api/ui-events"),
@@ -489,7 +488,6 @@ def test_every_route_that_changes_something_refuses_a_reader_with_the_reason(ran
     assert own == {
         ("DELETE", "/api/auth/small-variant-filter-presets/{preset_id}"): 404,
         ("POST", "/api/families/{family_id}/small-variant-filter-presets"): 200,
-        ("DELETE", "/api/families/{family_id}/small-variant-filter-presets/{preset_id}"): 404,
         ("POST", "/api/families/{family_id}/structural-variant-filter-presets"): 200,
         ("DELETE", "/api/families/{family_id}/structural-variant-filter-presets/{preset_id}"): 404,
         ("POST", "/api/ui-events"): 202,

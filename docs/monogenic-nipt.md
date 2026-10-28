@@ -41,7 +41,12 @@ Two inputs, one model:
   record whose call reaches 15% alt reads or that lies over a plasma call position (an MNV over any of
   its bases). A one-sample VCF's FILTER and caller metrics go with the call (`calls.filters`,
   `calls.metrics`; `vcf_call_metrics.py`). The coverage tables become `target_coverage` interval tracks
-  (`nipt_target_coverage.py`: value = mean, record_id = gene, the rest in `metadata_json`).
+  (`nipt_target_coverage.py`: value = mean, record_id = gene, the rest in `metadata_json`). Each
+  file's one sample column is read as its entry's sample whatever it is named: the laboratory maps
+  its verified tubes to files named after other tubes. A column named neither as the member nor
+  as the entry's `vcf_sample` gives a warning in Discover, the dry run and the import, never a
+  refusal (`nipt_vcf_column_warning`, code `nipt_vcf_column_named_otherwise`; the owner's decision
+  of 2026-10-28, CLIN-13), and the dataset's summary records each sample's column (`vcf_column`).
 - **One combined VCF** with a father and a cfDNA column, through the family small-variant upload or a
   package import. Its quality is the site's QUAL (`entries.qual`).
 
@@ -118,7 +123,9 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
 - **Sign-out** — a NIPT family is signed out through the family sign-out, from the NIPT page or the
   report page; its record holds the section `nipt` (`signed_record_nipt.py`: the summary, the checks,
   each reported variant as the variant list classifies it, from `nipt_service.get_family_nipt_record`,
-  the recessive fetal risk over them, and the inputs), and a failed fetal-fraction, fetal-sex or
+  the recessive fetal risk over them, the inputs, and without a per-target table the coverage check's
+  notes over the coverage tracks, `coverage_notes`, from `nipt_service.nipt_coverage_notes`, TRACE-17),
+  and a failed fetal-fraction, fetal-sex or
   plasma check gates it under the Sample QC's acknowledgement
   ([clinical-traceability.md](clinical-traceability.md#sign-out)). The sign-out runs the analysis
   once: its Sample QC and the section read the same run (`SharedNiptAnalysis`). The
@@ -146,7 +153,9 @@ plasma depth ≥ 20, passing the quality filter, VAF 0.005–0.25), with a Wilso
   pulled the median down, and its rows covered the BED's gaps. Nor is a coverage BED that declares
   nothing (`unknown`), which was read as depth before TRACE-9. Each track left out is named with
   the reason in the check's `coverage_notes`, which the NIPT page, the coverage page and the
-  printed report show. Without a depth track every region reads `no_coverage`.
+  printed report show. Without a depth track every region reads `no_coverage`. A sign-out freezes
+  the notes word for word in `nipt.coverage_notes`, with what the check ran for: it is not told the
+  page's search, so it runs the check without a gene or panel, over the family ROI (TRACE-17).
 
 ## Two paths
 

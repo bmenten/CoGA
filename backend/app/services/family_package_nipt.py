@@ -15,6 +15,14 @@ analysis: a genotype call (VAF 0.20 or more) and any call at a
 position where the plasma has one (a low-level paternal signal at a de novo candidate). So
 the importer keeps the paternal calls at a plasma call position or at
 ``NIPT_PATERNAL_KEEP_MIN_VAF`` or more, and counts the others (``skipped_by_filter``).
+
+Each file's one sample column is read as its entry's sample, whatever the column is named:
+the laboratory maps its genetically verified tubes to the files they are in, and a file can be
+named, and its column too, after another tube. Unlike another per-sample file's
+(``per_sample_vcf_column``), a column named after another sample is not refused. A column
+named neither as the member nor as the entry's ``vcf_sample`` is warned of, by Discover, the
+dry run and the import (``nipt_vcf_column_warning``; the owner's decision of 2026-10-28,
+CLIN-13).
 """
 
 from __future__ import annotations
@@ -23,15 +31,20 @@ from dataclasses import dataclass, field
 import glob
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING, Iterable, Sequence
+from typing import TYPE_CHECKING, Any, Iterable, Mapping, Sequence
+import zlib
+
+from pydantic import ValidationError
 
 from .clickhouse_variant_records import SmallVariantCall
 from .data_scope import normalize_chromosome
-from .family_package_common import FamilyPackageBundle, ParsedPed, _display_path, package_path_within, package_text_handle, read_vcf_sample_columns
+from .family_identifiers import visible
+from .family_package_common import FamilyPackageBundle, ManifestDataset, ParsedPed, _display_path, _issue, _package_path_or_none, package_path_within, package_text_handle, read_vcf_sample_columns, resolve_vcf_sample_id
 from .family_package_manifest import _normalize_manifest_samples
-from .nipt import NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
+from .nipt import MONOGENIC_NIPT_ANALYSIS_TYPE, NIPT_CFDNA_ASSAY, SAMPLE_ASSAY_KEY
 
 if TYPE_CHECKING:
+    from ..schemas import FamilyImportValidationIssue
     from .variant_upload_service import SmallVariantRecordFilter
 
 # A paternal call below this VAF is kept only at a plasma call position. It sits below the
@@ -94,6 +107,111 @@ def paternal_record_filter(
         )
 
     return keep
+
+
+def nipt_vcf_column_warning(
+    sample_id: str,
+    column: str,
+    *,
+    declared: object,
+    family_sample_ids: Iterable[str],
+    file: str,
+) -> str | None:
+    """The warning for a NIPT per-sample SNV file whose one sample ``column``, which the
+    import reads as ``sample_id``'s calls, is named neither as the member (the shared alias
+    rules: ``FATHER1``, ``FATHER1_sorted``) nor as its entry's ``vcf_sample`` (``declared``,
+    the operator's recorded word), or None (CLIN-13). It names the member, the ``file`` and
+    the column, and another member the column is named after: a swapped file reads as the
+    other sample's calls. A ``vcf_sample`` of the member's own ID, which confirms another
+    per-sample file's one column, names no column here."""
+    if resolve_vcf_sample_id(column, {sample_id}) == sample_id:
+        return None
+    vcf_sample = str(declared).strip() if declared is not None else ""
+    if vcf_sample and vcf_sample == column.strip():
+        return None
+    shown = f"'{visible(column)}'"
+    other = resolve_vcf_sample_id(column, set(family_sample_ids) - {sample_id})
+    if vcf_sample:
+        named = f"{shown}, neither {sample_id} nor its entry's vcf_sample '{visible(vcf_sample)}'"
+        if other is not None:
+            named += f", but after {other}, another member of the family"
+    elif other is not None:
+        named = f"{shown} after {other}, another member of the family, not after {sample_id}"
+    else:
+        named = f"{shown}, not {sample_id}"
+    return (
+        f"The NIPT SNV file of {sample_id} ({file}) names its one sample column {named}: the "
+        f"import reads that column as {sample_id}'s calls. If the laboratory verified that this "
+        f"file holds {sample_id}'s tube, set the entry's vcf_sample to {shown}; otherwise "
+        "correct the manifest"
+    )
+
+
+NIPT_VCF_COLUMN_WARNING = "nipt_vcf_column_named_otherwise"
+
+
+def nipt_vcf_column_issue(
+    root: Path,
+    sample_id: str,
+    entry: Mapping[str, Any],
+    *,
+    vcf_path: Path,
+    column: str,
+    family_sample_ids: Iterable[str],
+) -> FamilyImportValidationIssue | None:
+    """The validation's and Discover's warning (``nipt_vcf_column_named_otherwise``) for the
+    NIPT per-sample SNV file ``vcf_path`` of ``sample_id``'s manifest ``entry``, whose one sample
+    column is ``column``, or None (CLIN-13)."""
+    message = nipt_vcf_column_warning(
+        sample_id,
+        column,
+        declared=entry.get("vcf_sample") or entry.get("sample_name"),
+        family_sample_ids=family_sample_ids,
+        file=_display_path(root, vcf_path),
+    )
+    if message is None:
+        return None
+    return _issue(NIPT_VCF_COLUMN_WARNING, message, dataset="snv", sample_id=sample_id, path=vcf_path)
+
+
+def nipt_draft_column_issues(
+    root: Path,
+    payload: Mapping[str, Any],
+    *,
+    family_sample_ids: Iterable[str],
+) -> list[FamilyImportValidationIssue]:
+    """The column warnings the validation will give the NIPT per-sample SNV files of the
+    manifest Discover drafts (``payload``), so that Discover shows them before the manifest is
+    written (CLIN-13). A file that is not in the package, cannot be read or holds other than
+    one sample column is left to the validation, which reports it."""
+    if payload.get("analysis_type") != MONOGENIC_NIPT_ANALYSIS_TYPE:
+        return []
+    datasets = payload.get("datasets")
+    try:
+        dataset = ManifestDataset.model_validate(datasets.get("snv") if isinstance(datasets, Mapping) else None)
+    except ValidationError:
+        return []
+    if not dataset.enabled or dataset.family_vcf or not dataset.per_sample:
+        return []
+    sample_ids = set(family_sample_ids)
+    issues: list[FamilyImportValidationIssue] = []
+    for sample_id, entry in dataset.per_sample.items():
+        value = entry.get("vcf") or entry.get("file")
+        vcf_path = _package_path_or_none(root, value) if isinstance(value, str) else None
+        if vcf_path is None or not vcf_path.is_file():
+            continue
+        try:
+            columns = read_vcf_sample_columns(vcf_path)
+        except (OSError, EOFError, ValueError, zlib.error):
+            continue
+        if len(columns) != 1:
+            continue
+        issue = nipt_vcf_column_issue(
+            root, sample_id, entry, vcf_path=vcf_path, column=columns[0], family_sample_ids=sample_ids
+        )
+        if issue is not None:
+            issues.append(issue)
+    return issues
 
 
 def nipt_package_cfdna_sample(bundle: FamilyPackageBundle) -> str | None:

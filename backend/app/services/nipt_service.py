@@ -53,6 +53,7 @@ if TYPE_CHECKING:
 from .clickhouse_interval_tracks import fetch_interval_track_rows
 from .coverage_read_depth import (
     COVERAGE_TRACK_TYPE,
+    SampleCoverageTracks,
     coverage_tracks_by_sample,
     not_read_as_depth_note,
 )
@@ -1516,14 +1517,59 @@ async def _resolve_nipt_target_regions(
     if not regions and family.roi is not None:
         roi = family.roi
         regions.append(
-            TargetRegion(
-                label=roi.label or roi.query,
-                chrom=normalize_chromosome(roi.chr),
-                start=roi.start,
-                end=roi.end,
-            )
+            roi_target_region(query=roi.query, label=roi.label, chrom=roi.chr, start=roi.start, end=roi.end)
         )
     return regions
+
+
+def roi_target_region(*, query: str, label: str | None, chrom: str, start: int, end: int) -> TargetRegion:
+    """The family's region of interest as the coverage check's target region when no gene or
+    panel is given, labelled as the NIPT page labels it: by its label, else its query."""
+    return TargetRegion(label=label or query, chrom=normalize_chromosome(chrom), start=start, end=end)
+
+
+async def _coverage_tracks_over(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    sample_id: str,
+    target_regions: list[TargetRegion],
+) -> tuple[SampleCoverageTracks | None, list[str]]:
+    """The sample's coverage tracks on the target regions' chromosomes, and a note for each of
+    them that is not read as depth, with the reason (``not_read_as_depth_note``); (None, [])
+    without a region or a track."""
+    sample_uuid = context.sample_name_to_uuid.get(sample_id)
+    if not sample_uuid or not context.assembly_name or not target_regions:
+        return None, []
+    tracks = (
+        await coverage_tracks_by_sample(
+            session,
+            assembly_name=context.assembly_name,
+            family_uuid=context.family_uuid,
+            sample_uuid_to_name={sample_uuid: sample_id},
+            chromosomes=sorted({region.chrom for region in target_regions}),
+        )
+    ).get(sample_id)
+    if tracks is None:
+        return None, []
+    notes = [
+        not_read_as_depth_note(sample_id, track_source, content)
+        for track_source, content in tracks.not_read_as_depth()
+    ]
+    return tracks, notes
+
+
+async def nipt_coverage_notes(
+    session: AsyncSession,
+    context: FamilyMetadataContext,
+    sample_id: str,
+    target_regions: list[TargetRegion],
+) -> list[str]:
+    """The notes of the coverage check over ``sample_id``'s coverage tracks for
+    ``target_regions``, word for word as the NIPT page shows them (``get_family_nipt_coverage``,
+    from the same code): the signed record freezes them (TRACE-17). The check's coverage itself
+    is not read."""
+    _tracks, notes = await _coverage_tracks_over(session, context, sample_id, target_regions)
+    return notes
 
 
 async def _load_coverage_intervals(
@@ -1544,34 +1590,18 @@ async def _load_coverage_intervals(
     With the intervals, a note for each of the sample's coverage tracks there that is not
     read as depth, with the reason (``not_read_as_depth_note``): the check shows them, so a
     region without coverage says why."""
+    tracks, notes = await _coverage_tracks_over(session, context, sample_id, target_regions)
+    source = tracks.depth_source if tracks is not None else None
+    # Tracks are only read for a sample with a uuid, on an assembly (_coverage_tracks_over).
     sample_uuid = context.sample_name_to_uuid.get(sample_id)
-    if not sample_uuid or not context.assembly_name or not target_regions:
-        return [], []
-    chromosomes = sorted({region.chrom for region in target_regions})
-    tracks = (
-        await coverage_tracks_by_sample(
-            session,
-            assembly_name=context.assembly_name,
-            family_uuid=context.family_uuid,
-            sample_uuid_to_name={sample_uuid: sample_id},
-            chromosomes=chromosomes,
-        )
-    ).get(sample_id)
-    if tracks is None:
-        return [], []
-    notes = [
-        not_read_as_depth_note(sample_id, track_source, content)
-        for track_source, content in tracks.not_read_as_depth()
-    ]
-    source = tracks.depth_source
-    if source is None:
+    if source is None or not sample_uuid or not context.assembly_name:
         return [], notes
     rows = await fetch_interval_track_rows(
         context.assembly_name,
         sample_uuid=sample_uuid,
         family_uuid=context.family_uuid,
         track_type=COVERAGE_TRACK_TYPE,
-        chromosomes=chromosomes,
+        chromosomes=sorted({region.chrom for region in target_regions}),
         source=source,
     )
     intervals: list[CoverageInterval] = []
