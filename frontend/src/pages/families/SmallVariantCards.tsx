@@ -911,9 +911,9 @@ export default function SmallVariantCards({
                       <span>Sample</span>
                       <span>Role</span>
                       <span>GT</span>
-                      <span>DP</span>
-                      <span>AD</span>
-                      <span>AF</span>
+                      <span className="variant-card-gthead-num">DP</span>
+                      <span className="variant-card-gthead-num">AD</span>
+                      <span className="variant-card-gthead-num">AF</span>
                     </div>
                     {members.map((member) => {
                       const genotype = variant.genotypes.find(
@@ -1049,30 +1049,6 @@ export default function SmallVariantCards({
                 ) : (
                   <p className="variant-card-empty-note">No predictions imported.</p>
                 )}
-                {omimLink || decipherLink ? (
-                  <div className="variant-card-resources">
-                    {omimLink ? (
-                      <a
-                        href={omimLink.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="variant-card-resource variant-card-resource--clinical"
-                      >
-                        OMIM
-                      </a>
-                    ) : null}
-                    {decipherLink ? (
-                      <a
-                        href={decipherLink.href}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="variant-card-resource variant-card-resource--clinical"
-                      >
-                        DECIPHER
-                      </a>
-                    ) : null}
-                  </div>
-                ) : null}
               </section>
             </div>
 
@@ -1148,6 +1124,27 @@ export default function SmallVariantCards({
                 >
                   Chromosome view
                 </GenomeWorkspaceLink>
+                {/* The gene's disease resources sit with the other ways out of the card. */}
+                {omimLink ? (
+                  <a
+                    href={omimLink.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="variant-card-resource variant-card-resource--clinical"
+                  >
+                    OMIM
+                  </a>
+                ) : null}
+                {decipherLink ? (
+                  <a
+                    href={decipherLink.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="variant-card-resource variant-card-resource--clinical"
+                  >
+                    DECIPHER
+                  </a>
+                ) : null}
               </div>
             </div>
 

@@ -235,7 +235,7 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     expect(screen.queryByText('warn')).not.toBeInTheDocument();
     expect(screen.getAllByText('Pass').length).toBeGreaterThanOrEqual(2);
 
-    const pathogenicRow = screen.getByRole('row', { name: /m\.3243A>G/i });
+    const pathogenicRow = screen.getByRole('article', { name: /m\.3243A>G/i });
     const rowScope = within(pathogenicRow as HTMLElement);
     expect(rowScope.getByText('MELAS syndrome')).toBeInTheDocument();
     expect(rowScope.getByText('Maternal transmission')).toBeInTheDocument();
@@ -243,6 +243,42 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     expect(rowScope.getByText('88.0%')).toBeInTheDocument();
     expect(rowScope.getByText('0.0%')).toBeInTheDocument();
     expect(rowScope.getAllByText('Heteroplasmic').length).toBeGreaterThanOrEqual(2);
+
+    // Two parts: the variant on the left — gene first, then its disease with an OMIM link —
+    // and the family's calls on the right, the heteroplasmy as each row's figure.
+    const variantPart = pathogenicRow.querySelector('.family-mtdna-card-variant') as HTMLElement;
+    const samplePart = pathogenicRow.querySelector('.family-mtdna-card-samples') as HTMLElement;
+    expect(variantPart.querySelector('.gene-disease-heading')).toHaveTextContent(
+      'MT-TL1—MELAS syndrome (OMIM)',
+    );
+    expect(within(variantPart).getByRole('link', { name: /open melas syndrome on omim/i })).toHaveAttribute(
+      'href',
+      'https://www.omim.org/search?index=entry&search=MELAS%20syndrome',
+    );
+    expect(within(samplePart).getByText('46.0%')).toHaveClass('family-mtdna-call-af');
+    expect(within(variantPart).queryByText('46.0%')).not.toBeInTheDocument();
+    const callRows = samplePart.querySelectorAll('.family-mtdna-call');
+    // The maternal line (proband first), then the father, apart.
+    expect([...callRows].map((callRow) => callRow.querySelector('.sample-label-id')?.textContent)).toEqual([
+      'PROBAND',
+      'MOM',
+      'DAD',
+    ]);
+
+    // IGV on the variant, on chrM — the name IGV's genomes give the mitochondrion (MT is an
+    // alias of it, chrMT is not) — returning here, in a new tab like every genome link.
+    const igvLink = within(variantPart).getByRole('link', {
+      name: /open igv at chrM:3243-3243.*opens in a new tab/i,
+    });
+    expect(igvLink).toHaveAttribute(
+      'href',
+      '/families/F1/igv?locus=chrM%3A3243-3243&back_path=%2Ffamilies%2FF1%2Fmitochondrial-dna',
+    );
+    expect(igvLink).toHaveAttribute('target', '_blank');
+    expect(within(variantPart).getByRole('link', { name: /open chromosome view at MT:3,243/i })).toHaveAttribute(
+      'href',
+      '/families/F1/chromosome/MT?start=3143&end=3343',
+    );
 
     fireEvent.click(rowScope.getByRole('button', { name: /open mitomap for m\.3243A>G/i }));
 
@@ -256,11 +292,11 @@ describe('FamilyMitoDNAAnalysisPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^clinical$/i }));
     expect(screen.getByText(/1 of 2 variants/)).toBeInTheDocument();
-    expect(screen.queryByRole('row', { name: /m\.73A>G/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /m\.73A>G/i })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /maternal review/i }));
     expect(screen.getByText(/1 of 2 variants/)).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: /m\.73A>G/i })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /m\.73A>G/i })).toBeInTheDocument();
   });
 
   it('filters on gnomAD frequency and consequence, and opens the ACMG modal', async () => {
@@ -390,19 +426,19 @@ describe('FamilyMitoDNAAnalysisPage', () => {
     // (no annotated frequency is treated as not-common, so it stays).
     fireEvent.change(screen.getByLabelText('gnomAD frequency'), { target: { value: '0.05' } });
     expect(screen.getByText(/1 of 3 variants/)).toBeInTheDocument();
-    expect(screen.getByRole('row', { name: /m\.3243A>G/i })).toBeInTheDocument();
-    expect(screen.queryByRole('row', { name: /m\.73A>G/i })).not.toBeInTheDocument();
-    expect(screen.queryByRole('row', { name: /m\.8860A>G/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /m\.3243A>G/i })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /m\.73A>G/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /m\.8860A>G/i })).not.toBeInTheDocument();
 
     // Back to any frequency, then hide synonymous variants.
     fireEvent.change(screen.getByLabelText('gnomAD frequency'), { target: { value: '' } });
     expect(screen.getByText(/3 of 3 variants/)).toBeInTheDocument();
     fireEvent.click(screen.getByRole('checkbox', { name: /hide synonymous/i }));
     expect(screen.getByText(/2 of 3 variants/)).toBeInTheDocument();
-    expect(screen.queryByRole('row', { name: /m\.8860A>G/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /m\.8860A>G/i })).not.toBeInTheDocument();
 
     // ACMG: classify button opens the shared classification modal.
-    const row = screen.getByRole('row', { name: /m\.3243A>G/i });
+    const row = screen.getByRole('article', { name: /m\.3243A>G/i });
     fireEvent.click(within(row as HTMLElement).getByRole('button', { name: /classify m\.3243A>G with acmg/i }));
     await waitFor(() => {
       const dialog = screen.getByRole('dialog');
@@ -500,12 +536,12 @@ describe('FamilyMitoDNAAnalysisPage', () => {
       </QueryClientProvider>,
     );
 
-    const row = await screen.findByRole('row', { name: /m\.3460G>A/i });
+    const row = await screen.findByRole('article', { name: /m\.3460G>A/i });
     expect(within(row).getByText('Mother not assessed')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Maternal review' }));
     expect(screen.getByText(/1 of 2 variants/)).toBeInTheDocument();
-    expect(screen.queryByRole('row', { name: /m\.3460G>A/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('row', { name: /m\.4216T>C/i })).toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: /m\.3460G>A/i })).not.toBeInTheDocument();
+    expect(screen.getByRole('article', { name: /m\.4216T>C/i })).toBeInTheDocument();
   });
 });
 
@@ -562,5 +598,17 @@ describe('FamilyMitoDNAAnalysisPage — failed requests (#610)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+});
+
+describe('mtDNA IGV link', () => {
+  it('spans a deletion from its position over its reference allele, on chrM, with the project', async () => {
+    const { buildMitoIgvHref, getMitoIgvLocus } = await import('../FamilyMitoDNAAnalysisPage');
+    expect(getMitoIgvLocus({ position: 8270, ref: 'CACCCCCTCT' })).toBe('chrM:8270-8279');
+    // The IGV page opens the genome of this project's assembly, read from project_id.
+    expect(buildMitoIgvHref('F 1', { position: 3243, ref: 'A' }, 'P1')).toBe(
+      '/families/F%201/igv?locus=chrM%3A3243-3243&project_id=P1' +
+        '&back_path=%2Ffamilies%2FF%25201%2Fmitochondrial-dna',
+    );
   });
 });

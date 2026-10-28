@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import PageHeader from '../../components/PageHeader';
 import PageState from '../../components/PageState';
 import api from '../../lib/api';
 import { getErrorMessage } from '../../lib/errorMessage';
@@ -153,26 +154,35 @@ const MonarchDataAdminPage: React.FC = () => {
 
   return (
     <div className="page-shell admin-compact space-y-5">
-      <section className="surface-card page-top-card">
-        <div className="page-header">
-          <div className="space-y-1">
-            <p className="page-kicker">Administration</p>
-            <h1 className="catalog-card-title">Monarch data</h1>
-            <p className="catalog-card-copy">
-              Gene–disease and disease–phenotype associations from the Monarch Initiative
-              knowledge graph. Updating downloads the latest monthly Monarch release and
-              replaces both knowledgebase tables in a single transaction.
-            </p>
-          </div>
-          <div className="surface-card-muted gene-profile-status">
+      <PageHeader
+        kicker="Administration"
+        title="Monarch data"
+        description="Gene–disease and disease–phenotype associations from the Monarch Initiative knowledge graph. Updating downloads the latest monthly Monarch release and replaces both knowledgebase tables in a single transaction; it runs inline and usually completes in a few seconds."
+        actions={
+          <section className="surface-card-muted gene-profile-status monarch-release" aria-label="Monarch release">
             <span className="gene-profile-status-label">Loaded release</span>
             <strong>{data.release_version ?? '—'}</strong>
             <span className="dashboard-link-note">
               Last updated {formatTimestamp(data.last_updated_at)}
             </span>
-          </div>
-        </div>
-
+            <button
+              type="button"
+              className="button-secondary monarch-release-action"
+              onClick={() => {
+                setStatus(null);
+                refreshMutation.mutate();
+              }}
+              disabled={refreshMutation.isPending}
+            >
+              {refreshMutation.isPending
+                ? 'Updating…'
+                : isEmpty
+                  ? 'Import Monarch data'
+                  : 'Update Monarch data'}
+            </button>
+          </section>
+        }
+      >
         <div className="gene-sync-summary-grid">
           <div className="gene-profile-stat">
             <span className="gene-profile-stat-label">Gene–disease pairs</span>
@@ -204,33 +214,6 @@ const MonarchDataAdminPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="gene-sync-action-grid">
-          <article className="surface-card-muted gene-sync-action-panel">
-            <p className="section-title">Update Monarch knowledgebase</p>
-            <p className="dashboard-link-note">
-              Downloads the latest Monarch release and atomically replaces the gene–disease and
-              disease–phenotype tables. Runs inline and usually completes in a few seconds.
-            </p>
-            <div className="inline-actions">
-              <button
-                type="button"
-                className="button-secondary"
-                onClick={() => {
-                  setStatus(null);
-                  refreshMutation.mutate();
-                }}
-                disabled={refreshMutation.isPending}
-              >
-                {refreshMutation.isPending
-                  ? 'Updating…'
-                  : isEmpty
-                    ? 'Import Monarch data'
-                    : 'Update Monarch data'}
-              </button>
-            </div>
-          </article>
-        </div>
-
         {status ? (
           <div
             className={`status-note status-note--${status.tone}`}
@@ -239,7 +222,7 @@ const MonarchDataAdminPage: React.FC = () => {
             {status.message}
           </div>
         ) : null}
-      </section>
+      </PageHeader>
 
       <section className="surface-card space-y-4">
         <div className="catalog-card-header">

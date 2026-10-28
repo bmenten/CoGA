@@ -580,7 +580,7 @@ describe('FamilyDetailPage', () => {
     expect(screen.queryByRole('link', { name: /small variants/i })).not.toBeInTheDocument();
   });
 
-  it('groups the variant workspaces into four rows in order', async () => {
+  it('lays the analyses out as one row, curation below it and the family actions in the header', async () => {
     mockApiState.smallVariantTotal = 2;
     mockApiState.structuralVariantTotal = 2;
     localStorage.setItem('role', 'viewer');
@@ -598,27 +598,61 @@ describe('FamilyDetailPage', () => {
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
 
-    // The rows carry the grouping: an entry point each for the two variant types, then
-    // the assay-specific analyses, then what you produce from them. Only the border
-    // colour separates them, so the grouping has to live in the markup.
-    const rows = [...container.querySelectorAll('.family-variant-row')];
-    expect(rows.map((row) => [...row.classList].find((c) => c.startsWith('family-variant-row--')))).toEqual([
-      'family-variant-row--small',
-      'family-variant-row--structural',
-      'family-variant-row--reports',
+    // One row of equal entries, in order; the variant summary sits beside the structural
+    // variants it summarises.
+    const analyses = screen.getByRole('navigation', { name: 'Variant analyses' });
+    expect(within(analyses).getAllByRole('link').map((link) => link.textContent?.trim())).toEqual([
+      'Small variants',
+      'Structural variants',
+      'Variant summary',
     ]);
+    for (const link of within(analyses).getAllByRole('link')) {
+      expect(link).toHaveClass('family-module-link');
+    }
 
-    const named = (row: Element) =>
-      [...row.querySelectorAll('a, button')]
-        .map((el) => el.textContent?.trim())
-        .filter((text) => text && !/^(curation|reviewed|notes)/i.test(text));
-    expect(named(rows[0])?.[0]).toMatch(/small variants/i);
-    expect(named(rows[1])?.[0]).toMatch(/structural variants/i);
-    // Reports row, in order.
-    expect(named(rows[2])).toEqual(['Variant summary', 'Sample QC', 'Report']);
+    // The curation is its own block after the row, not interleaved with its links.
+    const curation = container.querySelector('.family-curation-summary') as HTMLElement;
+    expect(curation).not.toBeNull();
+    expect(within(curation).queryAllByRole('link')).toHaveLength(0);
+    expect(analyses.compareDocumentPosition(curation) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    // Sample QC and the report are family-level: in the header, beside the workflow fields.
+    const actions = screen.getByRole('group', { name: 'Family actions' });
+    expect(actions.closest('.page-top-card')).not.toBeNull();
+    expect(within(actions).getAllByRole('link').map((link) => link.textContent?.trim())).toEqual([
+      'Sample QC',
+      'Report',
+    ]);
+    expect(within(actions).getByRole('link', { name: 'Sample QC' })).toHaveAttribute('href', '/families/F1/qc');
+    expect(within(analyses).queryByRole('link', { name: /sample qc|report/i })).toBeNull();
   });
 
-  it('gives the visualization links the shared workspace-button look', async () => {
+  it('offers the report but not Sample QC without small variants', async () => {
+    mockApiState.smallVariantTotal = 0;
+    mockApiState.structuralVariantTotal = 2;
+    localStorage.setItem('role', 'viewer');
+
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1']}>
+          <Routes>
+            <Route path="/families/:familyId" element={<FamilyDetailPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
+    await waitForVariantWorkspaceReady();
+
+    const actions = screen.getByRole('group', { name: 'Family actions' });
+    expect(within(actions).getByRole('link', { name: 'Report' })).toBeInTheDocument();
+    expect(within(actions).queryByRole('link', { name: 'Sample QC' })).toBeNull();
+    expect(screen.queryByLabelText(/small variant curation/i)).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/structural variant curation/i)).toBeInTheDocument();
+  });
+
+  it('gives the visualization links the same row look as the analyses', async () => {
     mockApiState.smallVariantTotal = 2;
     localStorage.setItem('role', 'viewer');
 
@@ -635,11 +669,10 @@ describe('FamilyDetailPage', () => {
     await waitFor(() => expect(screen.getByText(/Family F1/i)).toBeInTheDocument());
     await waitForVariantWorkspaceReady();
 
-    // Genome, Chromosome, Circos and IGV are the same control as the Variants rows; the
-    // shared look is opted into by class, so unrelated `button-secondary` buttons on
-    // admin and project pages keep theirs.
+    // Genome, Chromosome, Circos and IGV are the same control as the analyses' row.
+    const views = screen.getByRole('navigation', { name: 'Genome views' });
     for (const name of [/genome/i, /chromosome/i, /circos/i, /igv/i]) {
-      expect(screen.getByRole('link', { name })).toHaveClass('workspace-button');
+      expect(within(views).getByRole('link', { name })).toHaveClass('family-module-link');
     }
   });
 

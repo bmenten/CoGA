@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
-import { Link, useLocation, useParams } from 'react-router';
+import { useLocation, useParams } from 'react-router';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import { isReviewConflict, withReviewVersion } from '../../lib/reviewConcurrency';
@@ -25,6 +25,10 @@ import { buildSmallVariantReviewPath } from './smallVariantReview';
 import { apiPath } from '../../lib/apiPath';
 import { FamilyReadOnlyContext } from '../../lib/familyAccess';
 import { raw, routePath } from '../../lib/routePath';
+import GenomeWorkspaceLink from './GenomeWorkspaceLink';
+import GeneDiseaseHeading from '../../components/GeneDiseaseHeading';
+import SampleLabel from '../../components/SampleLabel';
+import { omimSearchHref } from '../../lib/omim';
 
 // gnomAD allele-frequency cut-offs offered in the "common variant" filter.
 const GNOMAD_AF_OPTIONS: Array<{ value: string; label: string }> = [
@@ -117,6 +121,57 @@ const formatNumber = (value?: number | null, digits = 0): string =>
 
 const formatDepth = (value?: number | null): string =>
   value == null ? 'n/a' : `${formatNumber(value, 1)}x`;
+
+/**
+ * The mitochondrial contig as IGV names it. IGV's hg19, hg38 and hs1 genomes all call it
+ * chrM and alias MT to it, so chrM opens the variant whether the reads were aligned to
+ * "MT" (GRCh37/b37) or "chrM"; "chrMT", what prefixing the stored "MT" gives, is no name
+ * IGV knows. The assembly is not in the link: the IGV page reads the family's project
+ * (project_id) and opens that assembly's genome.
+ */
+export const MITO_IGV_CONTIG = 'chrM';
+
+/** The variant's span on chrM, as the small-variant links give IGV a variant: start-end. */
+export const getMitoIgvLocus = (variant: Pick<ApiMitoDNAVariant, 'position' | 'ref'>): string => {
+  const start = Math.max(1, variant.position);
+  const end = start + Math.max(1, variant.ref?.length || 1) - 1;
+  return `${MITO_IGV_CONTIG}:${start}-${end}`;
+};
+
+export const buildMitoIgvHref = (
+  familyId: string,
+  variant: Pick<ApiMitoDNAVariant, 'position' | 'ref'>,
+  projectId?: string | null,
+): string => {
+  const params = new URLSearchParams({ locus: getMitoIgvLocus(variant) });
+  if (projectId) params.set('project_id', projectId);
+  params.set('back_path', routePath`/families/${familyId}/mitochondrial-dna`);
+  return routePath`/families/${familyId}/igv${raw(`?${params.toString()}`)}`;
+};
+
+const buildMitoChromosomeHref = (
+  familyId: string,
+  start: number,
+  end: number,
+  projectId?: string | null,
+): string => {
+  const params = new URLSearchParams({
+    start: String(Math.max(0, start - 100)),
+    end: String(end + 100),
+  });
+  if (projectId) params.set('project_id', projectId);
+  return routePath`/families/${familyId}/chromosome/MT${raw(`?${params.toString()}`)}`;
+};
+
+// The card's rail, keyed to the significance as the small-variant cards key it to ClinVar.
+const significanceRail = (status: ApiMitoDNAVariant['annotation']['clinical_significance']) => {
+  if (status === 'pathogenic' || status === 'likely_pathogenic') return ' variant-card--clinvar-pathogenic';
+  if (status === 'benign' || status === 'likely_benign' || status === 'polymorphism') {
+    return ' variant-card--clinvar-benign';
+  }
+  if (status === 'reported' || status === 'uncertain') return ' family-mtdna-card--reported';
+  return '';
+};
 
 const significanceLabel = (status: ApiMitoDNAVariant['annotation']['clinical_significance']) => {
   switch (status) {
@@ -222,7 +277,9 @@ const variantMatchesSearch = (variant: ApiMitoDNAVariant, query: string): boolea
   return haystack.includes(query);
 };
 
-const VariantCallChip: React.FC<{
+// One member's call on the variant: who, the zygosity, the heteroplasmy (the result, so the
+// largest figure on the row), then the read depth behind it.
+const VariantCallRow: React.FC<{
   call?: ApiMitoDNAVariantSampleCall;
   sample: ApiMitoDNASample;
 }> = ({ call, sample }) => (
@@ -231,22 +288,17 @@ const VariantCallChip: React.FC<{
       hasAltCall(call) ? ' family-mtdna-call--alt' : ''
     }`}
   >
-    <div className="family-mtdna-call-head">
-      <strong>{sample.sample_id}</strong>
-      <span>{sample.role || 'relative'}</span>
-    </div>
+    <SampleLabel sampleId={sample.sample_id} role={sample.role || 'relative'} emphasis={hasAltCall(call)} />
     {call ? (
       <>
-        <div className="family-mtdna-call-state">
-          <span>{zygosityLabel(call.zygosity)}</span>
-          <strong>{call.display}</strong>
-        </div>
-        <div className="table-subtle">
+        <span className="family-mtdna-call-zygosity">{zygosityLabel(call.zygosity)}</span>
+        <strong className="family-mtdna-call-af">{call.display}</strong>
+        <span className="family-mtdna-call-depth">
           DP {formatNumber(call.depth)} · AD {formatNumber(call.alt_depth)}
-        </div>
+        </span>
       </>
     ) : (
-      <span className="table-subtle">No data</span>
+      <span className="table-subtle family-mtdna-call-zygosity">No data</span>
     )}
   </div>
 );
@@ -685,140 +737,146 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="data-table-shell overflow-x-auto">
-          <table className="analysis-table family-mtdna-table">
-            <thead>
-              <tr>
-                <th>Variant</th>
-                <th>Annotation</th>
-                <th>Transmission</th>
-                <th>Mother(s) and children</th>
-                <th>Father</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredVariants.map((variant) => (
-                <tr
-                  key={variant.variant_id}
-                  className={`family-mtdna-row family-mtdna-row--${variant.annotation.clinical_significance}`}
-                >
-                  <td>
-                    <div className="family-mtdna-variant-head">
-                      <div>
-                        <div className="font-semibold">{variant.label}</div>
-                        <div className="table-subtle">
-                          MT:{variant.position.toLocaleString()} · {variant.type}
-                        </div>
-                      </div>
-                      <span className={`table-chip family-mtdna-significance family-mtdna-significance--${variant.annotation.clinical_significance}`}>
-                        {significanceLabel(variant.annotation.clinical_significance)}
-                      </span>
-                    </div>
-                    {variant.rsid && <div className="table-subtle">{variant.rsid}</div>}
+        <div className="variant-card-list family-mtdna-variant-list">
+          {filteredVariants.map((variant) => {
+            const gene = variant.annotation.gene || variant.annotation.region;
+            const mitomapQuery = variant.annotation.mitomap_query || variant.label;
+            return (
+              <article
+                key={variant.variant_id}
+                aria-label={`${variant.label}${gene ? ` in ${gene}` : ''}`}
+                className={`variant-card family-mtdna-card${significanceRail(
+                  variant.annotation.clinical_significance,
+                )}`}
+              >
+                {/* Variant level: what the variant is, what is known of it, where to look. */}
+                <div className="family-mtdna-card-variant">
+                  <GeneDiseaseHeading
+                    gene={gene}
+                    diseases={variant.annotation.disorders.map((disorder) => ({
+                      name: disorder,
+                      omimUrl: omimSearchHref(disorder),
+                    }))}
+                  />
+                  <div className="family-mtdna-card-id">
+                    <strong className="family-mtdna-card-label">{variant.label}</strong>
+                    <span
+                      className={`table-chip family-mtdna-significance family-mtdna-significance--${variant.annotation.clinical_significance}`}
+                    >
+                      {significanceLabel(variant.annotation.clinical_significance)}
+                    </span>
                     {variant.review?.acmg?.classification && (
-                      <div className="table-subtle">
-                        <span className="table-chip family-mtdna-acmg-chip">
-                          ACMG: {variant.review.acmg.classification}
-                        </span>
-                      </div>
+                      <span className="table-chip family-mtdna-acmg-chip">
+                        ACMG: {variant.review.acmg.classification}
+                      </span>
                     )}
-                    <div className="family-mtdna-links">
-                      <button
-                        type="button"
-                        className="table-link"
-                        onClick={() => openMitomapVariant(variant)}
-                        aria-label={`Open MITOMAP for ${variant.annotation.mitomap_query || variant.label}`}
-                      >
-                        MITOMAP
-                      </button>
-                      <button
-                        type="button"
-                        className="table-link"
-                        onClick={() => openAcmgModal(variant)}
-                        aria-label={`Classify ${variant.label} with ACMG`}
-                      >
-                        {variant.review?.acmg ? 'Edit ACMG' : 'Classify (ACMG)'}
-                      </button>
-                      <Link
-                        to={routePath`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, variant.position - 100)}&end=${variant.position + 100}${raw(
-                          resolvedProjectId ? `&project_id=${encodeURIComponent(resolvedProjectId)}` : '',
-                        )}`}
-                        className="variant-card-resource variant-card-resource--clinical"
-                      >
-                        Chromosome view
-                      </Link>
-                      {copiedMitomapVariant === (variant.annotation.mitomap_query || variant.label) && (
-                        <span className="family-mtdna-copy-note" aria-live="polite">
-                          Copied
-                        </span>
-                      )}
+                  </div>
+                  <div className="table-subtle family-mtdna-card-meta">
+                    <span>
+                      MT:{variant.position.toLocaleString()} · {variant.type}
+                    </span>
+                    {variant.rsid && <span>{variant.rsid}</span>}
+                  </div>
+                  <div className="family-mtdna-card-meta">
+                    <span>{variant.annotation.category || 'mitochondrial genome'}</span>
+                    {variant.annotation.consequence && <span>{variant.annotation.consequence}</span>}
+                    {variant.annotation.gnomad_af != null && (
+                      <span>gnomAD {formatPercent(variant.annotation.gnomad_af, 3)}</span>
+                    )}
+                  </div>
+                  {variant.annotation.polymorphism_notes.length > 0 && (
+                    <div className="family-mtdna-polymorphism">
+                      {variant.annotation.polymorphism_notes.slice(0, 2).join(' · ')}
                     </div>
-                  </td>
-                  <td>
-                    <div className="family-mtdna-annotation">
-                      <strong>{variant.annotation.gene || variant.annotation.region}</strong>
-                      <span>{variant.annotation.category || 'mitochondrial genome'}</span>
-                      {variant.annotation.consequence && <span>{variant.annotation.consequence}</span>}
-                      {variant.annotation.gnomad_af != null && (
-                        <span className="table-subtle">
-                          gnomAD {formatPercent(variant.annotation.gnomad_af, 3)}
-                        </span>
+                  )}
+                  <div className="finding-actions">
+                    <GenomeWorkspaceLink
+                      to={buildMitoIgvHref(family.family_id, variant, resolvedProjectId)}
+                      className="variant-card-resource variant-card-resource--clinical"
+                      label={`Open IGV at ${getMitoIgvLocus(variant)}`}
+                    >
+                      IGV
+                    </GenomeWorkspaceLink>
+                    <GenomeWorkspaceLink
+                      to={buildMitoChromosomeHref(
+                        family.family_id,
+                        variant.position,
+                        variant.position,
+                        resolvedProjectId,
                       )}
-                      {variant.annotation.disorders.length > 0 && (
-                        <div className="family-mtdna-disorders">
-                          {variant.annotation.disorders.map((disorder) => (
-                            <span key={disorder}>{disorder}</span>
-                          ))}
-                        </div>
-                      )}
-                      {variant.annotation.polymorphism_notes.length > 0 && (
-                        <div className="family-mtdna-polymorphism">
-                          {variant.annotation.polymorphism_notes.slice(0, 2).join(' · ')}
-                        </div>
-                      )}
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`table-chip family-mtdna-transmission family-mtdna-transmission--${variant.maternal_transmission}`}>
+                      className="variant-card-resource variant-card-resource--clinical"
+                      label={`Open chromosome view at MT:${variant.position.toLocaleString()}`}
+                    >
+                      Chromosome view
+                    </GenomeWorkspaceLink>
+                    <button
+                      type="button"
+                      className="button-link"
+                      onClick={() => openMitomapVariant(variant)}
+                      aria-label={`Open MITOMAP for ${mitomapQuery}`}
+                    >
+                      MITOMAP
+                    </button>
+                    <button
+                      type="button"
+                      className="button-link"
+                      onClick={() => openAcmgModal(variant)}
+                      aria-label={`Classify ${variant.label} with ACMG`}
+                    >
+                      {variant.review?.acmg ? 'Edit ACMG' : 'Classify (ACMG)'}
+                    </button>
+                    {copiedMitomapVariant === mitomapQuery && (
+                      <span className="family-mtdna-copy-note" aria-live="polite">
+                        Copied
+                      </span>
+                    )}
+                  </div>
+                </div>
+                {/* Sample level: each member's call, the maternal line apart from the father. */}
+                <div className="family-mtdna-card-samples">
+                  <div className="family-mtdna-card-transmission">
+                    <span className="stat-label">Transmission</span>
+                    <span
+                      className={`table-chip family-mtdna-transmission family-mtdna-transmission--${variant.maternal_transmission}`}
+                    >
                       {transmissionLabel(variant.maternal_transmission)}
                     </span>
-                  </td>
-                  <td>
-                    <div className="family-mtdna-call-grid">
-                      {maternalLine.map((sample) => (
-                        <VariantCallChip
-                          key={sample.sample_id}
-                          sample={sample}
-                          call={variant.calls[sample.sample_id]}
-                        />
-                      ))}
-                    </div>
-                  </td>
-                  <td>
-                    <div className="family-mtdna-call-grid family-mtdna-call-grid--father">
-                      {fathers.map((sample) => (
-                        <VariantCallChip
-                          key={sample.sample_id}
-                          sample={sample}
-                          call={variant.calls[sample.sample_id]}
-                        />
-                      ))}
-                      {fathers.length === 0 && <span className="table-subtle">No father sample</span>}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {filteredVariants.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="table-subtle">
-                    {mtDNA.variants.length
-                      ? 'No mtDNA variants match the selected filters.'
-                      : 'No MT/chrM small variants are loaded for this family.'}
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
+                  </div>
+                  <div className="family-mtdna-call-group">
+                    <span className="family-mtdna-call-group-label">Mother(s) and children</span>
+                    {maternalLine.map((sample) => (
+                      <VariantCallRow
+                        key={sample.sample_id}
+                        sample={sample}
+                        call={variant.calls[sample.sample_id]}
+                      />
+                    ))}
+                    {maternalLine.length === 0 && (
+                      <span className="table-subtle">No maternal-line sample</span>
+                    )}
+                  </div>
+                  <div className="family-mtdna-call-group">
+                    <span className="family-mtdna-call-group-label">Father</span>
+                    {fathers.map((sample) => (
+                      <VariantCallRow
+                        key={sample.sample_id}
+                        sample={sample}
+                        call={variant.calls[sample.sample_id]}
+                      />
+                    ))}
+                    {fathers.length === 0 && <span className="table-subtle">No father sample</span>}
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          {filteredVariants.length === 0 && (
+            <p className="table-subtle">
+              {mtDNA.variants.length
+                ? 'No mtDNA variants match the selected filters.'
+                : 'No MT/chrM small variants are loaded for this family.'}
+            </p>
+          )}
         </div>
       </section>
 
@@ -853,14 +911,15 @@ const FamilyMitoDNAAnalysisPage: React.FC = () => {
                         {sv.length != null ? `${sv.length.toLocaleString()} bp` : 'length n/a'}
                         {sv.filters.length > 0 && ` · ${sv.filters.join(', ')}`}
                       </div>
-                      <Link
-                        to={routePath`/families/${family.family_id}/chromosome/MT?start=${Math.max(0, sv.start - 100)}&end=${sv.end + 100}${raw(
-                          resolvedProjectId ? `&project_id=${encodeURIComponent(resolvedProjectId)}` : '',
-                        )}`}
-                        className="variant-card-resource variant-card-resource--clinical"
-                      >
-                        Chromosome view
-                      </Link>
+                      <div className="finding-actions">
+                        <GenomeWorkspaceLink
+                          to={buildMitoChromosomeHref(family.family_id, sv.start, sv.end, resolvedProjectId)}
+                          className="variant-card-resource variant-card-resource--clinical"
+                          label={`Open chromosome view at MT:${sv.start.toLocaleString()}-${sv.end.toLocaleString()}`}
+                        >
+                          Chromosome view
+                        </GenomeWorkspaceLink>
+                      </div>
                     </td>
                     <td>{sv.genes.length ? sv.genes.join(', ') : <span className="table-subtle">None</span>}</td>
                     <td>

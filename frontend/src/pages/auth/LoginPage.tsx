@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Navigate, useNavigate, Link, useLocation } from 'react-router';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
+import AuthIntro from './AuthIntro';
 import { isAuthenticated, persistSession } from '../../lib/auth';
 import { buildApiUnavailableMessage, getErrorMessage } from '../../lib/errorMessage';
 import {
@@ -211,100 +212,103 @@ const LoginPage: React.FC<LoginPageProps> = ({ emergency = false }) => {
 
   return (
     <div className="auth-shell">
-      <div className="auth-card">
-        <div className="auth-form">
-          <div className="auth-form-intro">
-            <h1>{emergency ? 'Emergency sign-in' : 'Sign in'}</h1>
-            <p className="page-subtitle">
-              {emergency
-                ? 'For the emergency administrator only, when the Microsoft sign-in cannot be used. Every sign-in here, and everything done with it, is recorded in the audit log.'
-                : usesMicrosoft
-                  ? 'Continue to the family workspace with the Microsoft account of your hospital or university.'
-                  : 'Continue to the family workspace with your user account.'}
-            </p>
-            {loggedOut && (
-              <p className="status-note status-note--success auth-inline-status" role="status">
-                {usesMicrosoft ? 'You have been signed out of CoGA.' : 'You have been signed out.'}
+      <div className="auth-layout">
+        <AuthIntro />
+        <div className="auth-card">
+          <div className="auth-form">
+            <div className="auth-form-intro">
+              <h1>{emergency ? 'Emergency sign-in' : 'Sign in'}</h1>
+              <p className="page-subtitle">
+                {emergency
+                  ? 'For the emergency administrator only, when the Microsoft sign-in cannot be used. Every sign-in here, and everything done with it, is recorded in the audit log.'
+                  : usesMicrosoft
+                    ? 'Continue to the family workspace with the Microsoft account of your hospital or university.'
+                    : 'Continue to the family workspace with your user account.'}
+              </p>
+              {loggedOut && (
+                <p className="status-note status-note--success auth-inline-status" role="status">
+                  {usesMicrosoft ? 'You have been signed out of CoGA.' : 'You have been signed out.'}
+                </p>
+              )}
+              {nextPath !== '/dashboard' && !loggedOut && (
+                <p className="status-note status-note--info auth-inline-status" role="status">
+                  Sign in to continue to your requested page.
+                </p>
+              )}
+            </div>
+
+            {signInConfig.isPending && (
+              <p className="status-note status-note--info" role="status">
+                Loading the sign-in...
               </p>
             )}
-            {nextPath !== '/dashboard' && !loggedOut && (
-              <p className="status-note status-note--info auth-inline-status" role="status">
-                Sign in to continue to your requested page.
+            {signInConfig.isError && (
+              <div className="field-grid">
+                <p className="status-note status-note--error" role="alert">
+                  {`The sign-in could not be loaded: ${getErrorMessage(signInConfig.error, 'the request failed', {
+                    networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
+                  })}`}
+                </p>
+                <button type="button" className="button-secondary" onClick={() => void signInConfig.refetch()}>
+                  Try again
+                </button>
+              </div>
+            )}
+
+            {usesMicrosoft && (
+              <div className="field-grid">
+                {microsoftStep === 'completing' ? (
+                  <p className="status-note status-note--info" role="status">
+                    Completing the Microsoft sign-in...
+                  </p>
+                ) : (
+                  <button
+                    type="button"
+                    className="form-button"
+                    onClick={() => void handleMicrosoftSignIn()}
+                    disabled={microsoftStep !== 'idle'}
+                    aria-busy={microsoftStep === 'leaving' ? 'true' : 'false'}
+                  >
+                    {microsoftStep === 'leaving' ? 'Opening the Microsoft sign-in...' : 'Sign in with Microsoft'}
+                  </button>
+                )}
+                {errorNote}
+                {loggedOut && (
+                  <>
+                    <p className="auth-form-note">
+                      Your Microsoft account may still be signed in in this browser. On a shared computer,
+                      sign out of it too.
+                    </p>
+                    <button type="button" className="button-secondary" onClick={() => void handleMicrosoftSignOut()}>
+                      Sign out of Microsoft
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+
+            {usesPassword && passwordForm}
+
+            {usesMicrosoft && (
+              <p className="auth-form-switch">
+                Your first sign-in makes your CoGA account. An administrator then gives you access to
+                your projects.
               </p>
+            )}
+            {usesPassword && emergency && (
+              <p className="auth-form-switch">
+                <Link to="/login">Back to the Microsoft sign-in</Link>
+              </p>
+            )}
+            {usesPassword && !emergency && (
+              <>
+                <p className="auth-form-note">Secure access via JWT session</p>
+                <p className="auth-form-switch">
+                  Don&apos;t have an account? <Link to="/signup">Sign up</Link>
+                </p>
+              </>
             )}
           </div>
-
-          {signInConfig.isPending && (
-            <p className="status-note status-note--info" role="status">
-              Loading the sign-in...
-            </p>
-          )}
-          {signInConfig.isError && (
-            <div className="field-grid">
-              <p className="status-note status-note--error" role="alert">
-                {`The sign-in could not be loaded: ${getErrorMessage(signInConfig.error, 'the request failed', {
-                  networkFallback: buildApiUnavailableMessage(api.defaults.baseURL),
-                })}`}
-              </p>
-              <button type="button" className="button-secondary" onClick={() => void signInConfig.refetch()}>
-                Try again
-              </button>
-            </div>
-          )}
-
-          {usesMicrosoft && (
-            <div className="field-grid">
-              {microsoftStep === 'completing' ? (
-                <p className="status-note status-note--info" role="status">
-                  Completing the Microsoft sign-in...
-                </p>
-              ) : (
-                <button
-                  type="button"
-                  className="form-button"
-                  onClick={() => void handleMicrosoftSignIn()}
-                  disabled={microsoftStep !== 'idle'}
-                  aria-busy={microsoftStep === 'leaving' ? 'true' : 'false'}
-                >
-                  {microsoftStep === 'leaving' ? 'Opening the Microsoft sign-in...' : 'Sign in with Microsoft'}
-                </button>
-              )}
-              {errorNote}
-              {loggedOut && (
-                <>
-                  <p className="auth-form-note">
-                    Your Microsoft account may still be signed in in this browser. On a shared computer,
-                    sign out of it too.
-                  </p>
-                  <button type="button" className="button-secondary" onClick={() => void handleMicrosoftSignOut()}>
-                    Sign out of Microsoft
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-
-          {usesPassword && passwordForm}
-
-          {usesMicrosoft && (
-            <p className="auth-form-switch">
-              Your first sign-in makes your CoGA account. An administrator then gives you access to
-              your projects.
-            </p>
-          )}
-          {usesPassword && emergency && (
-            <p className="auth-form-switch">
-              <Link to="/login">Back to the Microsoft sign-in</Link>
-            </p>
-          )}
-          {usesPassword && !emergency && (
-            <>
-              <p className="auth-form-note">Secure access via JWT session</p>
-              <p className="auth-form-switch">
-                Don&apos;t have an account? <Link to="/signup">Sign up</Link>
-              </p>
-            </>
-          )}
         </div>
       </div>
     </div>

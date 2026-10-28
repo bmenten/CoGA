@@ -13,6 +13,7 @@ import type {
 } from '../../lib/apiSchema.generated';
 import { apiPath } from '../../lib/apiPath';
 import type { ApiErrorLike } from '../../lib/errorMessage';
+import PageHeader from '../../components/PageHeader';
 import QueryFailure from '../../components/QueryFailure';
 import { formatDateTime } from '../../lib/format';
 import { compareAssemblyNames } from '../../lib/reference';
@@ -198,192 +199,205 @@ const GenePanelsPage: React.FC = () => {
 
   return (
     <div className="page-shell admin-compact space-y-5">
-      <section className="surface-card page-top-card">
-        <div className="page-header">
-          <div className="space-y-1">
-            <p className="page-kicker">Panels</p>
-            <h2 className="catalog-card-title">Gene panels</h2>
-            <p className="catalog-card-copy">
-              Curated panel content and genomic footprint. Create or delete panels (admin).
-            </p>
-          </div>
-        </div>
-      </section>
+      <PageHeader
+        kicker="Panels"
+        title="Gene panels"
+        description={
+          userIsAdmin
+            ? 'Curated panel content and genomic footprint: import panels from PanelApp, keep the Mendeliome in step with Monarch, add your own panels, and manage the catalogue.'
+            : 'Curated panel content and genomic footprint. Panel creation and deletion are available only to admins; you can browse the existing panel catalog below.'
+        }
+      />
       {userIsAdmin && (
-        <>
-          <div className="grid gap-4 xl:grid-cols-2 items-start">
-          <form onSubmit={handleSubmit} className="surface-card field-grid">
-            <label className="field-label">
-              <span>Panel name</span>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
-            </label>
-            <label className="field-label">
-              <span>Genes (comma or space separated)</span>
-              <textarea
-                value={genes}
-                onChange={(e) => setGenes(e.target.value)}
-              />
-            </label>
-            <label className="field-label">
-              <span>Description (optional)</span>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-              />
-            </label>
-            <button type="submit" className="form-button">
-              Create panel
-            </button>
-          </form>
-          <section className="surface-card field-grid">
-            <h3 className="section-title">Import PanelApp panel</h3>
-            <form onSubmit={searchPanelApp} className="analysis-toolbar items-end">
-              <label className="field-label">
-                <span>PanelApp search</span>
-                <input
-                  value={panelAppQuery}
-                  onChange={(e) => setPanelAppQuery(e.target.value)}
-                  placeholder="Ataxia, R169, cardiomyopathy"
-                />
-              </label>
-              <label className="field-label">
-                <span>Confidence</span>
-                <select
-                  value={confidencePreset}
-                  onChange={(event) => setConfidencePreset(event.target.value)}
+        <div className="surface-card card-sections">
+          <section className="card-section" aria-labelledby="panels-external-heading">
+            <div className="space-y-1">
+              <h2 id="panels-external-heading" className="section-title">
+                Import and sync external panels
+              </h2>
+              <p className="section-copy">
+                Panels CoGA takes from an external source: a PanelApp panel at its current version,
+                and the Mendeliome built from the loaded Monarch release.
+              </p>
+            </div>
+
+            <div className="panel-admin-block">
+              <h3 className="card-section-subtitle">Import PanelApp panel</h3>
+              <form onSubmit={searchPanelApp} className="analysis-toolbar items-end">
+                <label className="field-label">
+                  <span>PanelApp search</span>
+                  <input
+                    value={panelAppQuery}
+                    onChange={(e) => setPanelAppQuery(e.target.value)}
+                    placeholder="Ataxia, R169, cardiomyopathy"
+                  />
+                </label>
+                <label className="field-label">
+                  <span>Confidence</span>
+                  <select
+                    value={confidencePreset}
+                    onChange={(event) => setConfidencePreset(event.target.value)}
+                  >
+                    <option value="3">Green only</option>
+                    <option value="2,3">Green + amber</option>
+                    <option value="1,2,3">All confidence levels</option>
+                  </select>
+                </label>
+                <label className="field-label">
+                  <span>Assembly</span>
+                  <select
+                    value={panelAppAssembly}
+                    onChange={(event) => setPanelAppAssembly(event.target.value as 'GRCh38' | 'GRCh37')}
+                  >
+                    <option value="GRCh38">GRCh38</option>
+                    <option value="GRCh37">GRCh37</option>
+                  </select>
+                </label>
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={includePanelAppRegions}
+                    onChange={(event) => setIncludePanelAppRegions(event.target.checked)}
+                  />
+                  Regions
+                </label>
+                <label className="analysis-checkbox">
+                  <input
+                    type="checkbox"
+                    checked={includePanelAppStrs}
+                    onChange={(event) => setIncludePanelAppStrs(event.target.checked)}
+                  />
+                  STRs
+                </label>
+                <button type="submit" className="form-button" disabled={panelAppLoading}>
+                  {panelAppLoading ? 'Searching...' : 'Search PanelApp'}
+                </button>
+              </form>
+              {panelAppResults.length > 0 && (
+                <div className="data-table-shell overflow-x-auto">
+                  <table className="analysis-table">
+                    <thead>
+                      <tr>
+                        <th>Panel</th>
+                        <th>Version</th>
+                        <th>Content</th>
+                        <th>Type</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {panelAppResults.map((panel) => (
+                        <tr key={panel.panelapp_id}>
+                          <td>
+                            <div className="font-semibold">{panel.name}</div>
+                            <div className="table-subtle">
+                              PanelApp {panel.panelapp_id}
+                              {panel.disease_group ? ` · ${panel.disease_group}` : ''}
+                            </div>
+                          </td>
+                          <td>
+                            {panel.version || 'latest'}
+                            {panel.version_created && (
+                              <div className="table-subtle">{formatDateTime(panel.version_created)}</div>
+                            )}
+                          </td>
+                          <td>
+                            {panel.gene_count} genes · {panel.region_count} regions · {panel.str_count} STRs
+                          </td>
+                          <td>{panel.types.join(', ') || 'PanelApp'}</td>
+                          <td>
+                            <button
+                              type="button"
+                              className="form-button"
+                              onClick={() => importPanelApp(panel)}
+                              disabled={panelAppImporting === panel.panelapp_id}
+                            >
+                              {panelAppImporting === panel.panelapp_id ? 'Importing...' : 'Import'}
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+
+            <div className="panel-admin-block">
+              <h3 className="card-section-subtitle">Mendeliome update from Monarch</h3>
+              <p className="section-copy">
+                All genes with a Mendelian disease association in the Monarch knowledge graph
+                (aggregating OMIM, Orphanet and ClinGen). Updating stamps the panel with the current
+                Monarch release and, when the gene set changes, makes a new version; earlier
+                versions stay in the panel&apos;s version history. The Monarch release itself is
+                loaded under <Link to="/admin/reference/monarch">Monarch data</Link>.
+                {mendeliome ? (
+                  <>
+                    {' '}
+                    Current: <strong>v{mendeliome.version ?? 1}</strong>
+                    {mendeliome.external_version ? ` · Monarch ${mendeliome.external_version}` : ''} ·{' '}
+                    {mendeliome.gene_count ?? mendeliome.genes.length} genes.
+                  </>
+                ) : null}
+              </p>
+              <div className="inline-actions">
+                <button
+                  type="button"
+                  className="form-button"
+                  onClick={regenerateMendeliome}
+                  disabled={mendeliomeBusy}
                 >
-                  <option value="3">Green only</option>
-                  <option value="2,3">Green + amber</option>
-                  <option value="1,2,3">All confidence levels</option>
-                </select>
+                  {mendeliomeBusy
+                    ? 'Working…'
+                    : mendeliome
+                      ? `Update Mendeliome (v${mendeliome.version ?? 1})`
+                      : 'Generate Mendeliome'}
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="card-section" aria-labelledby="panels-custom-heading">
+            <h2 id="panels-custom-heading" className="section-title">
+              Add new custom gene panel
+            </h2>
+            <form onSubmit={handleSubmit} className="field-grid panel-create-form">
+              <label className="field-label">
+                <span>Panel name</span>
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  required
+                />
               </label>
               <label className="field-label">
-                <span>Assembly</span>
-                <select
-                  value={panelAppAssembly}
-                  onChange={(event) => setPanelAppAssembly(event.target.value as 'GRCh38' | 'GRCh37')}
-                >
-                  <option value="GRCh38">GRCh38</option>
-                  <option value="GRCh37">GRCh37</option>
-                </select>
-              </label>
-              <label className="analysis-checkbox">
-                <input
-                  type="checkbox"
-                  checked={includePanelAppRegions}
-                  onChange={(event) => setIncludePanelAppRegions(event.target.checked)}
+                <span>Genes (comma or space separated)</span>
+                <textarea
+                  value={genes}
+                  onChange={(e) => setGenes(e.target.value)}
                 />
-                Regions
               </label>
-              <label className="analysis-checkbox">
-                <input
-                  type="checkbox"
-                  checked={includePanelAppStrs}
-                  onChange={(event) => setIncludePanelAppStrs(event.target.checked)}
+              <label className="field-label">
+                <span>Description (optional)</span>
+                <textarea
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
                 />
-                STRs
               </label>
-              <button type="submit" className="form-button" disabled={panelAppLoading}>
-                {panelAppLoading ? 'Searching...' : 'Search PanelApp'}
+              <button type="submit" className="form-button">
+                Create panel
               </button>
             </form>
-            {panelAppResults.length > 0 && (
-              <div className="data-table-shell overflow-x-auto">
-                <table className="analysis-table">
-                  <thead>
-                    <tr>
-                      <th>Panel</th>
-                      <th>Version</th>
-                      <th>Content</th>
-                      <th>Type</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {panelAppResults.map((panel) => (
-                      <tr key={panel.panelapp_id}>
-                        <td>
-                          <div className="font-semibold">{panel.name}</div>
-                          <div className="table-subtle">
-                            PanelApp {panel.panelapp_id}
-                            {panel.disease_group ? ` · ${panel.disease_group}` : ''}
-                          </div>
-                        </td>
-                        <td>
-                          {panel.version || 'latest'}
-                          {panel.version_created && (
-                            <div className="table-subtle">{formatDateTime(panel.version_created)}</div>
-                          )}
-                        </td>
-                        <td>
-                          {panel.gene_count} genes · {panel.region_count} regions · {panel.str_count} STRs
-                        </td>
-                        <td>{panel.types.join(', ') || 'PanelApp'}</td>
-                        <td>
-                          <button
-                            type="button"
-                            className="form-button"
-                            onClick={() => importPanelApp(panel)}
-                            disabled={panelAppImporting === panel.panelapp_id}
-                          >
-                            {panelAppImporting === panel.panelapp_id ? 'Importing...' : 'Import'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
           </section>
-          </div>
-          <section className="surface-card field-grid">
-            <h3 className="section-title">Mendeliome (generated from Monarch)</h3>
-            <p className="section-copy">
-              All genes with a Mendelian disease association in the Monarch knowledge graph
-              (aggregating OMIM, Orphanet and ClinGen). Updating stamps the panel with the current
-              Monarch release and, when the gene set changes, makes a new version; earlier
-              versions stay in the panel&apos;s version history.
-              {mendeliome ? (
-                <>
-                  {' '}
-                  Current: <strong>v{mendeliome.version ?? 1}</strong>
-                  {mendeliome.external_version ? ` · Monarch ${mendeliome.external_version}` : ''} ·{' '}
-                  {mendeliome.gene_count ?? mendeliome.genes.length} genes.
-                </>
-              ) : null}
-            </p>
-            <button
-              type="button"
-              className="form-button"
-              onClick={regenerateMendeliome}
-              disabled={mendeliomeBusy}
-            >
-              {mendeliomeBusy
-                ? 'Working…'
-                : mendeliome
-                  ? `Update Mendeliome (v${mendeliome.version ?? 1})`
-                  : 'Generate Mendeliome'}
-            </button>
-          </section>
+
           {status && <p className="form-status">{status}</p>}
-        </>
+        </div>
       )}
-      {!userIsAdmin && (
-        <section className="surface-card">
-          <p className="section-copy">
-            Panel creation and deletion are available only to admins. You can still browse the
-            existing panel catalog below.
-          </p>
-        </section>
-      )}
-      <section className="surface-card space-y-4">
+      <section className="surface-card space-y-4" aria-labelledby="panels-existing-heading">
         <div className="analysis-toolbar items-end">
-          <h3 className="section-title">Existing panels</h3>
+          <h2 id="panels-existing-heading" className="section-title">
+            Existing panels
+          </h2>
           <input
             type="search"
             value={panelSearch}

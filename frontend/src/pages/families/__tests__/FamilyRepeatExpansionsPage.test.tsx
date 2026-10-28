@@ -167,7 +167,7 @@ describe('FamilyRepeatExpansionsPage', () => {
     const headers = screen.getAllByRole('columnheader').map((header) =>
       header.textContent?.replace(/\s+/g, ' ').trim(),
     );
-    expect(headers).toEqual(['Repeat', 'Disease', 'Family calls', 'Cutoffs']);
+    expect(headers).toEqual(['Repeat', 'Family calls', 'Cutoffs']);
     expect(screen.queryByRole('columnheader', { name: /proband/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('columnheader', { name: /mother/i })).not.toBeInTheDocument();
 
@@ -182,10 +182,16 @@ describe('FamilyRepeatExpansionsPage', () => {
     expect(rowScope.getByText('Interruption A2: CAG 40 + CAA 2')).toBeInTheDocument();
     expect(rowScope.getByText('17 / 20')).toBeInTheDocument();
     expect(rowScope.getAllByText(/pathogenic/i).length).toBeGreaterThan(0);
-    expect(rowScope.getByRole('link', { name: 'Huntington disease' })).toHaveAttribute(
+    // The disease follows the gene in the locus heading, with its OMIM link: no column of its own.
+    expect(rowScope.getByText('Huntington disease').closest('.gene-disease-heading')).toHaveTextContent(
+      'HTT—Huntington disease (OMIM)',
+    );
+    const omimLink = rowScope.getByRole('link', { name: /open huntington disease on omim/i });
+    expect(omimLink).toHaveAttribute(
       'href',
       'https://www.omim.org/search?index=entry&search=Huntington%20disease',
     );
+    expect(omimLink).toHaveAttribute('target', '_blank');
     // Both genome links leave this list behind, so both open a tab — matching the
     // small-variant and structural-variant tables.
     const chromosomeLink = rowScope.getByRole('link', {
@@ -210,7 +216,7 @@ describe('FamilyRepeatExpansionsPage', () => {
     );
     expect(igvLink).toHaveAttribute('target', '_blank');
 
-    const lastCell = (row as HTMLElement).querySelectorAll('td').item(3);
+    const lastCell = (row as HTMLElement).querySelectorAll('td').item(2);
     expect(lastCell.textContent?.replace(/\s+/g, ' ').trim()).toBe('orange ≥ 36 · red ≥ 40');
 
     // The shared family header: the title is the way back to the workspace, and the
@@ -619,7 +625,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
     expect(within(row).getAllByText('Not assessed')).toHaveLength(3);
     expect(within(row).queryByText('Normal')).not.toBeInTheDocument();
     expect(within(row).getByText('12 / 300')).toBeInTheDocument();
-    expect(row.querySelectorAll('td').item(3).textContent?.trim()).toBe('No reference cutoff');
+    expect(row.querySelectorAll('td').item(2).textContent?.trim()).toBe('No reference cutoff');
     expect(callsNotAssessed()).toBe('2');
 
     fireEvent.click(screen.getByLabelText('Aberrant only'));
@@ -675,7 +681,7 @@ describe('FamilyRepeatExpansionsPage — a locus without thresholds (CLIN-26)', 
     ]);
 
     const row = await screen.findByRole('row', { name: /POLG/ });
-    expect(row.querySelectorAll('td').item(3).textContent?.trim()).toBe('normal 10 · no threshold');
+    expect(row.querySelectorAll('td').item(2).textContent?.trim()).toBe('normal 10 · no threshold');
     // The locus flag and the mother's call; the proband's 10 / 10 carries no flag.
     expect(within(row).getAllByText('Not assessed')).toHaveLength(2);
     expect(within(row).getByText('10 / 10')).toBeInTheDocument();
@@ -1036,5 +1042,107 @@ describe('FamilyRepeatExpansionsPage — failed requests (#610)', () => {
 
     expect(await screen.findByRole('heading', { name: 'Family not found' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+  });
+});
+
+// The locus column is held narrow so the table fits the content area: a long motif shows
+// its first 10 nt and "…", the whole of it in the tooltip and the DOM (display only); a long
+// disease name likewise. A locus outside the catalogue names no disease after its ID.
+describe('FamilyRepeatExpansionsPage — the narrow locus column', () => {
+  const members = [{ sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'female' }];
+  const longMotif = 'AAGGGAAGGGAAGGGACAGG';
+  const longDisease = 'Cerebellar ataxia, neuropathy and vestibular areflexia syndrome (CANVAS)';
+  const locus = (overrides: Record<string, unknown>) => ({
+    locus_id: 'RFC1',
+    gene: 'RFC1',
+    display_name: 'RFC1',
+    disease: longDisease,
+    chr: '4',
+    start: 39348424,
+    end: 39348479,
+    motif: longMotif,
+    warning_min: null,
+    pathogenic_min: 400,
+    status: 'normal',
+    calls: {
+      PROBAND: {
+        sample: 'PROBAND',
+        role: 'proband',
+        genotype: '1/1',
+        allele_count: 2,
+        status: 'normal',
+        alleles: [
+          { repeat_count: 11, status: 'normal' },
+          { repeat_count: 11, status: 'normal' },
+        ],
+      },
+    },
+    ...overrides,
+  });
+  const renderWith = (loci: unknown[]) => {
+    apiMock.get.mockImplementation((url: string) => {
+      if (url === '/families/F1') {
+        return Promise.resolve({ data: { family_id: 'F1', members, projects: [] } });
+      }
+      if (url === '/families/F1/repeat-expansions') {
+        return Promise.resolve({ data: { samples: members, loci } });
+      }
+      return Promise.resolve({ data: [] });
+    });
+    render(
+      <QueryClientProvider client={createTestQueryClient()}>
+        <MemoryRouter initialEntries={['/families/F1/repeat-expansions']}>
+          <Routes>
+            <Route path="/families/:familyId/repeat-expansions" element={<FamilyRepeatExpansionsPage />} />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+  };
+
+  it('cuts a long motif to its first 10 nt with the full motif in the DOM and its tooltip', async () => {
+    renderWith([locus({})]);
+    const row = await screen.findByRole('row', { name: /RFC1/ });
+    expect(within(row).getByText('AAGGGAAGGG…')).toHaveAttribute('aria-hidden', 'true');
+    // The full motif is what a screen reader reads, and stays in the DOM.
+    const full = within(row).getByText(longMotif);
+    expect(full).toHaveClass('sr-only');
+    const anchor = full.closest('.truncated-text') as HTMLElement;
+    expect(anchor).toHaveAttribute('tabindex', '0');
+    fireEvent.focus(anchor);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(longMotif);
+    expect(anchor).toHaveAttribute('aria-describedby', screen.getByRole('tooltip').id);
+    fireEvent.blur(anchor);
+    expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  });
+
+  it('cuts a long disease name after the gene, keeping the full name and its OMIM link', async () => {
+    renderWith([locus({})]);
+    const row = await screen.findByRole('row', { name: /RFC1/ });
+    const heading = row.querySelector('.gene-disease-heading') as HTMLElement;
+    expect(within(heading).getByText('RFC1')).toHaveClass('gene-disease-heading-gene');
+    expect(within(heading).getByText(longDisease)).toHaveClass('sr-only');
+    expect(within(heading).getByText(/^Cerebellar ataxia, neuropathy and vestibular…$/)).toBeInTheDocument();
+    fireEvent.mouseEnter(heading.querySelector('.truncated-text') as HTMLElement);
+    expect(screen.getByRole('tooltip')).toHaveTextContent(longDisease);
+    expect(within(heading).getByRole('link', { name: /on omim/i })).toHaveAttribute(
+      'href',
+      `https://www.omim.org/search?index=entry&search=${encodeURIComponent(longDisease)}`,
+    );
+  });
+
+  it('shows a short motif whole, without a tooltip', async () => {
+    renderWith([locus({ motif: 'CAG', disease: 'Short disease' })]);
+    const row = await screen.findByRole('row', { name: /RFC1/ });
+    expect(within(row).getByText('CAG')).not.toHaveClass('truncated-text--cut');
+    expect(within(row).getByText('Short disease')).not.toHaveClass('truncated-text--cut');
+  });
+
+  it('names no disease for a locus outside the catalogue, whose disease is its own ID', async () => {
+    const id = 'chr2_1000000_1000030_CAG';
+    renderWith([locus({ locus_id: id, gene: id, display_name: id, disease: id })]);
+    const row = await screen.findByRole('row', { name: new RegExp(id) });
+    expect(row.querySelector('.gene-disease-heading-diseases')).toBeNull();
+    expect(within(row).queryByRole('link', { name: /omim/i })).not.toBeInTheDocument();
   });
 });

@@ -1,15 +1,21 @@
 import React from 'react';
 import { Link } from 'react-router';
 
+import InfoTip from '../../components/InfoTip';
+import PageHeader from '../../components/PageHeader';
+
 type AdminModule = {
   label: string;
   to: string;
   description: string;
 };
 
+type AdminGroupIcon = 'reference' | 'access' | 'data' | 'variants' | 'database' | 'audit';
+
 type AdminGroup = {
   title: string;
   description: string;
+  icon: AdminGroupIcon;
   modules: AdminModule[];
 };
 
@@ -17,6 +23,7 @@ const adminGroups: AdminGroup[] = [
   {
     title: 'Reference data',
     description: 'System-wide reference datasets and annotations.',
+    icon: 'reference',
     modules: [
       {
         label: 'Species & assemblies',
@@ -51,6 +58,7 @@ const adminGroups: AdminGroup[] = [
   {
     title: 'User & access management',
     description: 'Users, permissions, projects, and access assignments.',
+    icon: 'access',
     modules: [
       {
         label: 'Users',
@@ -67,6 +75,7 @@ const adminGroups: AdminGroup[] = [
   {
     title: 'Data management',
     description: 'Imported and stored family, sample, and assay data.',
+    icon: 'data',
     modules: [
       {
         label: 'Family & sample data',
@@ -93,6 +102,7 @@ const adminGroups: AdminGroup[] = [
   {
     title: 'Variant configuration',
     description: 'Interpretation labels and reusable variant filters.',
+    icon: 'variants',
     modules: [
       {
         label: 'Variant tags',
@@ -109,6 +119,7 @@ const adminGroups: AdminGroup[] = [
   {
     title: 'Database & operations',
     description: 'Technical storage and operational controls.',
+    icon: 'database',
     modules: [
       {
         label: 'ClickHouse tables & operations',
@@ -121,6 +132,7 @@ const adminGroups: AdminGroup[] = [
   {
     title: 'Monitoring & audit',
     description: 'Traceability for operational and administrative activity.',
+    icon: 'audit',
     modules: [
       {
         label: 'Audit logs',
@@ -131,40 +143,60 @@ const adminGroups: AdminGroup[] = [
   },
 ];
 
+// One small line icon per group, drawn in the current colour. Decorative: the heading names it.
+const ICON_PATHS: Record<AdminGroupIcon, string> = {
+  // A book.
+  reference: 'M3 2.5h7.5a1.5 1.5 0 0 1 1.5 1.5v9.5H4.5A1.5 1.5 0 0 1 3 12V2.5Zm0 9.5a1.5 1.5 0 0 1 1.5-1.5H12',
+  // Two people.
+  access: 'M6 7a2.25 2.25 0 1 0 0-4.5A2.25 2.25 0 0 0 6 7Zm-4 6.5c0-2.2 1.8-4 4-4s4 1.8 4 4M11 3a2 2 0 0 1 0 4m1.5 2.75c1 .6 1.5 1.9 1.5 3.75',
+  // A folder.
+  data: 'M2 4.5A1.5 1.5 0 0 1 3.5 3h3l1.5 1.5h4.5A1.5 1.5 0 0 1 14 6v5.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 11.5v-7Z',
+  // Three sliders.
+  variants: 'M3 4h10M3 8h10M3 12h10M6 2.75v2.5M10 6.75v2.5M5 10.75v2.5',
+  // A database cylinder.
+  database: 'M3 4c0-1.1 2.2-2 5-2s5 .9 5 2-2.2 2-5 2-5-.9-5-2Zm0 0v8c0 1.1 2.2 2 5 2s5-.9 5-2V4M3 8c0 1.1 2.2 2 5 2s5-.9 5-2',
+  // A pulse line.
+  audit: 'M1.5 8.5h3l1.5-4 2.5 7 1.5-3h4.5',
+};
+
+const GroupIcon: React.FC<{ icon: AdminGroupIcon }> = ({ icon }) => (
+  <svg className="admin-nav-icon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+    <path d={ICON_PATHS[icon]} />
+  </svg>
+);
+
 const AdminDashboardPage: React.FC = () => (
   <div className="page-shell admin-compact space-y-5">
-    <section className="surface-card page-top-card">
-      <div className="page-header">
-        <div className="space-y-1">
-          <p className="page-kicker">Administration</p>
-          <h1 className="catalog-card-title">Admin dashboard</h1>
-          <p className="catalog-card-copy">
-            Administrative workspaces grouped by operational domain.
-          </p>
-        </div>
-      </div>
-    </section>
+    <PageHeader
+      kicker="Administration"
+      title="Admin dashboard"
+      description="Administrative workspaces grouped by operational domain."
+    />
 
-    <div className="grid gap-4 xl:grid-cols-2">
+    <nav className="surface-card admin-nav" aria-label="Admin workspaces">
       {adminGroups.map((group) => (
-        <section key={group.title} className="surface-card-flat catalog-card">
-          <div className="space-y-2">
-            <h2 className="section-title">{group.title}</h2>
-            <p className="section-copy">{group.description}</p>
-          </div>
-          <div className="hpo-term-grid">
+        <section key={group.title} className="admin-nav-group" aria-labelledby={`admin-group-${group.icon}`}>
+          <h2 id={`admin-group-${group.icon}`} className="admin-nav-title">
+            <GroupIcon icon={group.icon} />
+            {group.title}
+          </h2>
+          <p className="admin-nav-copy">{group.description}</p>
+          <ul className="admin-nav-list">
             {group.modules.map((module) => (
-              <Link key={module.to} to={module.to} className="hpo-term-card">
-                <span className="font-semibold text-(--color-heading)">
-                  {module.label}
-                </span>
-                <span className="table-subtle">{module.description}</span>
-              </Link>
+              <li key={module.to}>
+                {/* The description is the link's tooltip and, while shown, its accessible
+                    description; the link's name stays its label. */}
+                <InfoTip label={module.description} interactiveChild>
+                  <Link to={module.to} className="admin-nav-link">
+                    {module.label}
+                  </Link>
+                </InfoTip>
+              </li>
             ))}
-          </div>
+          </ul>
         </section>
       ))}
-    </div>
+    </nav>
   </div>
 );
 

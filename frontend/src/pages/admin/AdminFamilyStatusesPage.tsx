@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Link } from 'react-router';
+import PageHeader from '../../components/PageHeader';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
 import PageState from '../../components/PageState';
@@ -150,19 +150,12 @@ const AdminFamilyStatusesPage: React.FC = () => {
     toggleActiveMutation.isPending;
 
   return (
-    <div className="page-shell space-y-6">
-      <section className="surface-card page-top-card">
-        <p className="page-kicker">
-          <Link to="/admin" className="table-link">
-            Admin
-          </Link>{' '}
-          / Family statuses
-        </p>
-        <h1 className="catalog-card-title">Family statuses</h1>
-        <p className="section-copy">
-          Curate the workflow statuses analysts can assign to a family from the family page. Deleting
-          a status clears it from any family currently using it.
-        </p>
+    <div className="page-shell admin-compact space-y-5">
+      <PageHeader
+        kicker="Administration"
+        title="Family statuses"
+        description="Curate the workflow statuses analysts can assign to a family from the family page. Deleting a status clears it from any family currently using it."
+      >
         {status && (
           <div
             className={`status-note ${
@@ -172,7 +165,7 @@ const AdminFamilyStatusesPage: React.FC = () => {
             {status.message}
           </div>
         )}
-      </section>
+      </PageHeader>
 
       <section className="surface-card-flat space-y-4">
         <h2 className="section-title">Add a status</h2>

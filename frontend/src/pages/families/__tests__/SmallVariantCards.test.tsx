@@ -8,7 +8,7 @@ import SmallVariantCards from '../SmallVariantCards';
 import type { SmallVariant } from '../smallVariantSearch';
 import api from '../../../lib/api';
 import { createTestQueryClient } from '../../../test/createTestQueryClient';
-import { smallVariant, svSecondHit, transcript } from '../../../test/variants';
+import { genotype, smallVariant, svSecondHit, transcript } from '../../../test/variants';
 
 vi.mock('../../../lib/api', () => ({ default: { get: vi.fn(), post: vi.fn() } }));
 
@@ -200,6 +200,65 @@ describe('SmallVariantCards', () => {
         onToggleReviewTag={vi.fn(async () => undefined)}
       />,
     );
+
+  // OMIM and DECIPHER sit in the card's footer with IGV and the chromosome view, as the
+  // card's other ways out, with their links unchanged.
+  it('lists OMIM and DECIPHER with IGV and the chromosome view in the card footer', () => {
+    const { container } = renderBrca2WithTranscript('ENST00000380152.8');
+    const nav = container.querySelector('.variant-card-nav') as HTMLElement;
+    const names = within(nav)
+      .getAllByRole('link')
+      .map((link) => link.textContent);
+    expect(names).toEqual(['IGV', 'Chromosome view', 'OMIM', 'DECIPHER']);
+    const omim = within(nav).getByRole('link', { name: 'OMIM' });
+    expect(omim).toHaveAttribute('href', 'https://www.omim.org/search?search=BRCA2');
+    expect(omim).toHaveAttribute('target', '_blank');
+    expect(omim).toHaveAttribute('rel', 'noreferrer');
+    const decipher = within(nav).getByRole('link', { name: 'DECIPHER' });
+    expect(decipher).toHaveAttribute('href', 'https://www.deciphergenomics.org/gene/BRCA2');
+    expect(decipher).toHaveAttribute('target', '_blank');
+    // Only once on the card: no longer under the in-silico predictions.
+    expect(screen.getAllByRole('link', { name: 'OMIM' })).toHaveLength(1);
+    expect(screen.getAllByRole('link', { name: 'DECIPHER' })).toHaveLength(1);
+  });
+
+  // The genotype table's numbers are right-aligned under right-aligned headings.
+  it('right-aligns the depth, allele depth and allele fraction headings', () => {
+    const { container } = renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'gt-var',
+            type: 'SNV',
+            chr: '13',
+            start: 32316461,
+            end: 32316461,
+            ref: 'G',
+            alt: 'A',
+            gene: 'BRCA2',
+            genotypes: [genotype({ sample: 'P1', gt: '0/1', dp: 30, ad: [15, 15] })],
+          }),
+        ]}
+        members={[{ sample_id: 'P1', role: 'proband', affected: true, sex: 'female' }]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+    const head = container.querySelector('.variant-card-gthead') as HTMLElement;
+    expect(
+      Array.from(head.querySelectorAll('.variant-card-gthead-num')).map((cell) => cell.textContent),
+    ).toEqual(['DP', 'AD', 'AF']);
+    const line = container.querySelector('.variant-card-gtline') as HTMLElement;
+    expect(line).toHaveTextContent('P1');
+    expect(within(line).getByText('0/1')).toBeInTheDocument();
+    expect(within(line).getByText('15,15')).toBeInTheDocument();
+    expect(within(line).getByText('0.50')).toBeInTheDocument();
+  });
 
   it('shows CCDS and RefSeq without a note for the same transcript version', async () => {
     mockGeneProfile([

@@ -207,6 +207,8 @@ describe('FamilySmallVariantsPage', () => {
     expect(screen.getByRole('button', { name: /save current/i })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: /save current/i }));
     expect(screen.getByPlaceholderText('Preset name')).toBeInTheDocument();
+    // The filter categories open collapsed, behind the "Advanced filters" toggle.
+    fireEvent.click(screen.getByRole('button', { name: /Advanced filters/ }));
     fireEvent.click(screen.getByText('Locations'));
     expect(screen.getByPlaceholderText(/Gene list:/i)).toBeInTheDocument();
     expect(screen.getByPlaceholderText(/^Intervals:/i)).toBeInTheDocument();
@@ -405,6 +407,7 @@ describe('FamilySmallVariantsPage', () => {
     expect(await screen.findByText(/Could not load the gene panel list — this is not an empty result/)).toHaveTextContent(
       /Panels cannot be chosen, and the default Mendeliome scope is not applied/,
     );
+    fireEvent.click(screen.getByRole('button', { name: /Advanced filters/ }));
     const panelSelect = screen.getByRole('combobox', { name: 'Quick gene panel' });
     expect(panelSelect).toHaveValue('P1');
     expect(within(panelSelect).getByRole('option', { name: 'Panel P1 (not in the panel list)' })).toBeInTheDocument();
@@ -1829,6 +1832,166 @@ describe('FamilySmallVariantsPage', () => {
       expect(await screen.findByRole('button', { name: 'Inheritance: De novo / dominant' })).toBeInTheDocument();
       expect(screen.getByText('Active filters 1')).toBeInTheDocument();
       expect(screen.queryByText(/The small-variant list does not apply/)).not.toBeInTheDocument();
+    });
+  });
+
+  // The active preset is named above the filters, marked once the draft departs from it, and
+  // the filter categories open collapsed behind a toggle that keeps their values.
+  describe('the active filter and the advanced filters', () => {
+    const serveTrio = () => {
+      apiMock.get.mockImplementation((url: string) => {
+        if (url === '/families/F1') {
+          return Promise.resolve({
+            data: {
+              members: [
+                { sample_id: 'PROBAND', role: 'proband', affected: true, sex: 'male' },
+                { sample_id: 'MOM', role: 'mother', affected: false, sex: 'female' },
+                { sample_id: 'DAD', role: 'father', affected: false, sex: 'male' },
+              ],
+              projects: [],
+            },
+          });
+        }
+        if (url === '/panels') {
+          return Promise.resolve({
+            data: [{ _id: 'MENDEL', name: 'Mendeliome', source: 'mendeliome' }],
+          });
+        }
+        if (url === '/families/F1/small-variant-filter-presets') {
+          return Promise.resolve({
+            data: [
+              {
+                _id: 'preset-1',
+                owner: 'reviewer',
+                name: 'Dominant shortlist',
+                filters: { impact: 'HIGH' },
+                sample_filters: {},
+                sample_templates: {},
+                created_at: '2026-04-14T10:00:00Z',
+                updated_at: '2026-04-14T10:00:00Z',
+              },
+            ],
+          });
+        }
+        if (url.startsWith('/families/F1/small-variants?')) {
+          return Promise.resolve({
+            data: {
+              variants: [
+                { _id: 'v1', chr: '1', start: 10, end: 10, type: 'SNV', gene: 'ALPHA', ref: 'C', alt: 'T', genotypes: [] },
+              ],
+              total: 1,
+            },
+          });
+        }
+        return Promise.resolve({ data: [] });
+      });
+    };
+
+    const renderAt = (path: string) =>
+      render(
+        <QueryClientProvider client={createTestQueryClient()}>
+          <MemoryRouter initialEntries={[path]}>
+            <Routes>
+              <Route path="/families/:familyId/small-variants" element={<FamilySmallVariantsPage />} />
+            </Routes>
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+
+    const activeFilter = () => screen.getByText('Active filter:').closest('p') as HTMLElement;
+    const advancedToggle = () => screen.getByRole('button', { name: /Advanced filters/ });
+
+    it('names the default filter on a fresh open, with the categories collapsed', async () => {
+      serveTrio();
+      renderAt('/families/F1/small-variants');
+
+      await waitFor(() =>
+        expect(activeFilter()).toHaveTextContent(
+          'Active filter: Phenotype priority (Exomiser-style), Mendeliome panel',
+        ),
+      );
+      expect(within(activeFilter()).getByText('default')).toBeInTheDocument();
+      expect(within(activeFilter()).queryByText('modified')).not.toBeInTheDocument();
+      expect(screen.getByLabelText('Preset or saved search')).toHaveValue('built-in:phenotype_priority');
+      expect(screen.getByLabelText('Preset or saved search')).toHaveClass('variant-preset-select--active');
+
+      // Collapsed, the toggle still says how many categories there are and how many are set.
+      const toggle = advancedToggle();
+      expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      expect(toggle).toHaveTextContent(/\(10 categories, \d+ with filters set\)/);
+      const panel = document.getElementById(toggle.getAttribute('aria-controls') ?? '') as HTMLElement;
+      expect(panel).not.toBeVisible();
+      expect(screen.queryByRole('combobox', { name: 'Quick gene panel' })).not.toBeInTheDocument();
+
+      fireEvent.click(toggle);
+      expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      expect(panel).toBeVisible();
+      expect(screen.getByRole('combobox', { name: 'Quick gene panel' })).toHaveValue('MENDEL');
+    });
+
+    it('marks the filter modified, keeps values while collapsed, and resets to the preset', async () => {
+      serveTrio();
+      renderAt('/families/F1/small-variants');
+      await waitFor(() => expect(within(activeFilter()).getByText('default')).toBeInTheDocument());
+
+      fireEvent.click(advancedToggle());
+      fireEvent.change(screen.getByPlaceholderText('Transcript'), { target: { value: 'NM_000059.4' } });
+      expect(within(activeFilter()).getByText('modified')).toBeInTheDocument();
+      expect(screen.getByLabelText('Preset or saved search')).toHaveClass('variant-preset-select--modified');
+
+      // Collapsing hides the fields without changing them.
+      fireEvent.click(advancedToggle());
+      expect(advancedToggle()).toHaveAttribute('aria-expanded', 'false');
+      expect(screen.getByPlaceholderText('Transcript')).toHaveValue('NM_000059.4');
+      fireEvent.click(advancedToggle());
+      expect(screen.getByPlaceholderText('Transcript')).toHaveValue('NM_000059.4');
+      expect(within(activeFilter()).getByText('modified')).toBeInTheDocument();
+
+      // Hiding the whole filter panel keeps the form, and so the loaded preset, too.
+      fireEvent.click(screen.getByRole('button', { name: 'Hide filters' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Show filters' }));
+      expect(screen.getByPlaceholderText('Transcript')).toHaveValue('NM_000059.4');
+      expect(within(activeFilter()).getByText('modified')).toBeInTheDocument();
+
+      fireEvent.click(within(activeFilter()).getByRole('button', { name: 'Reset to preset' }));
+      expect(screen.getByPlaceholderText('Transcript')).toHaveValue('');
+      expect(screen.getByRole('combobox', { name: 'Quick gene panel' })).toHaveValue('MENDEL');
+      expect(within(activeFilter()).queryByText('modified')).not.toBeInTheDocument();
+      expect(within(activeFilter()).getByText('default')).toBeInTheDocument();
+    });
+
+    it('names a picked saved search, and no preset once the filters are cleared', async () => {
+      serveTrio();
+      renderAt('/families/F1/small-variants');
+      await screen.findByRole('option', { name: 'Dominant shortlist' });
+
+      fireEvent.change(screen.getByLabelText('Preset or saved search'), {
+        target: { value: 'saved:preset-1' },
+      });
+      expect(activeFilter()).toHaveTextContent('Active filter: Dominant shortlist');
+      expect(within(activeFilter()).queryByText('default')).not.toBeInTheDocument();
+      expect(within(activeFilter()).queryByText('modified')).not.toBeInTheDocument();
+
+      // Applied, the search goes through the URL and back into the draft: still not modified.
+      fireEvent.click(screen.getByRole('button', { name: /apply filters/i }));
+      await waitFor(() =>
+        expect(
+          apiMock.get.mock.calls.some(([url]) => (url as string).includes('impact=HIGH')),
+        ).toBe(true),
+      );
+      expect(activeFilter()).toHaveTextContent('Active filter: Dominant shortlist');
+      expect(within(activeFilter()).queryByText('modified')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Clear all filters' }));
+      expect(activeFilter()).toHaveTextContent('Active filter: custom (no preset loaded)');
+      expect(screen.getByLabelText('Preset or saved search')).toHaveValue('');
+    });
+
+    it('names no preset when the page opens on a search from the URL', async () => {
+      serveTrio();
+      renderAt('/families/F1/small-variants?impact=HIGH');
+      await screen.findByText('Showing 1');
+      expect(activeFilter()).toHaveTextContent('Active filter: custom (no preset loaded)');
     });
   });
 });

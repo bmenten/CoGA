@@ -27,6 +27,16 @@ describe('ReferenceDocPage', () => {
     expect(document.querySelector('.content-table-wrap table')).toBeTruthy();
   });
 
+  it('heads the page with the document title, as every page is headed, above the document', () => {
+    renderAt('/docs/reference/sample-qc');
+    const title = screen.getByRole('heading', { level: 1, name: 'Sample-integrity QC — reference' });
+    expect(title.closest('.page-top-card')).not.toBeNull();
+    expect(title).toHaveAttribute('id', 'sample-integrity-qc--reference');
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1);
+    expect(document.querySelector('article h1')).toBeNull();
+    expect(screen.getByRole('link', { name: '← User guide' })).toHaveAttribute('href', '/docs');
+  });
+
   it('shows a not-found state for an unknown slug', () => {
     renderAt('/docs/reference/does-not-exist');
     expect(screen.getByText(/Reference document not found/i)).toBeInTheDocument();

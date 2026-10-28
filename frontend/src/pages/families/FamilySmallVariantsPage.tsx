@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import api from '../../lib/api';
@@ -16,6 +16,7 @@ import SmallVariantResults from './SmallVariantResults';
 import VariantResultsLoading from './VariantResultsLoading';
 import {
   addableTagDefinitions,
+  BUILT_IN_SMALL_PRESETS,
   buildPresetPayload,
   describeUnappliedFilters,
   hasLocationProblems,
@@ -126,6 +127,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     setDraftFilterValue,
     sampleDraftFilters,
     sampleFilters,
+    searchReady,
     toggleDraftFilterListValue,
   } = useSmallVariantSearchState({
     family,
@@ -156,8 +158,34 @@ const FamilySmallVariantsPage: React.FC = () => {
     tone: 'error' | 'success';
     message: string;
   } | null>(null);
-  // Collapse the whole filter panel to give the variant cards more room.
+  // Collapse the whole filter panel to give the variant cards more room. The form stays
+  // mounted while hidden, so what it holds (the loaded preset, open sections) survives.
   const [filtersCollapsed, setFiltersCollapsed] = useState(false);
+  const filterPanelId = useId();
+  // Opened without a search in the URL, the page loads the Phenotype-priority preset scoped
+  // to the Mendeliome panel (useSmallVariantSearchState): the form names it as the active
+  // filter once that draft is in place.
+  const [openedOnDefault] = useState(() =>
+    Array.from(new URLSearchParams(location.search).keys()).every(
+      (key) => key === 'project_id' || key === 'page',
+    ),
+  );
+  const defaultPresetLabel =
+    BUILT_IN_SMALL_PRESETS.find((preset) => preset.value === 'phenotype_priority')?.label ??
+    'Phenotype priority';
+  const initialPreset = useMemo(
+    () =>
+      openedOnDefault && searchReady && members.length
+        ? {
+            value: 'built-in:phenotype_priority',
+            label: mendeliomePanelId
+              ? `${defaultPresetLabel}, Mendeliome panel`
+              : defaultPresetLabel,
+            overrides: { panel_id: mendeliomePanelId ?? '' },
+          }
+        : null,
+    [openedOnDefault, searchReady, members.length, mendeliomePanelId, defaultPresetLabel],
+  );
 
   const { data: presets = [] } = useQuery<SmallVariantFilterPreset[]>({
     queryKey: ['family', familyId, 'small-variant-filter-presets'],
@@ -368,10 +396,13 @@ const FamilySmallVariantsPage: React.FC = () => {
           <>
         <FilterCollapseToggle
           collapsed={filtersCollapsed}
+          controls={filterPanelId}
           onToggle={() => setFiltersCollapsed((current) => !current)}
         />
-        {!filtersCollapsed && (
+        <div id={filterPanelId} hidden={filtersCollapsed}>
         <SmallVariantFilterForm
+          collapsibleAdvanced
+          initialPreset={initialPreset}
           unsupportedFilters={SMALL_VARIANT_UNSUPPORTED_FILTERS}
           unappliedFiltersNote={unappliedFiltersNote}
           activeFilterChips={appliedFilterChips}
@@ -398,7 +429,7 @@ const FamilySmallVariantsPage: React.FC = () => {
           tags={tags}
           toggleDraftFilterListValue={toggleDraftFilterListValue}
         />
-        )}
+        </div>
           </>
         }
       >
