@@ -591,3 +591,93 @@ describe('evaluateAcmg when a lookup failed', () => {
     expect(pp4?.strength).toBe('moderate');
   });
 });
+
+// PP2: a missense variant in a gene with few benign missense variants, in which missense variants
+// are a common mechanism of disease. gnomAD's missense Z stands in for the first half (3.09 or
+// more); the second half is the analyst's judgement, so PP2 is offered for review, never applied.
+// The missense Z is the gene profile's, else the VCF's own MISSENSE_Z, and the suggestion says
+// which it read (TRACE-15, the owner's decision of 2026-10-28).
+describe('evaluateAcmg — PP2 from the gene missense Z', () => {
+  const REVIEW =
+    'Whether missense variants are a common mechanism of disease in this gene is your judgement — review before applying.';
+  const pp2 = (variant: AcmgVariantInput) => find(evaluateAcmg(variant), 'PP2');
+
+  it('offers PP2 for review, reading the gene profile', () => {
+    const suggestion = pp2({ effect: 'missense_variant', gene_missense_z: 3.521 });
+    expect(suggestion).toEqual({
+      code: 'PP2',
+      strength: 'supporting',
+      disposition: 'consider',
+      evidence:
+        'Missense variant in a gene with gnomAD missense Z 3.52 (from the gene profile), 3.09 or more: ' +
+        `few benign missense variants. ${REVIEW}`,
+    });
+    // Never ticked for the analyst: PP2 counts only once they accept it.
+    const [selection] = buildInitialSelections([suggestion!]);
+    expect(selection).toMatchObject({ code: 'PP2', accepted: false, autoSuggested: true });
+  });
+
+  it("reads the VCF's MISSENSE_Z when the gene profile holds none, and says so", () => {
+    for (const gene_missense_z of [null, undefined]) {
+      const suggestion = pp2({ effect: 'missense_variant', gene_missense_z, annotation_extra: { gene_missense_z: 4.2 } });
+      expect(suggestion?.disposition).toBe('consider');
+      expect(suggestion?.evidence).toBe(
+        "Missense variant in a gene with gnomAD missense Z 4.20 (from the VCF's MISSENSE_Z: the gene profile " +
+          `holds none), 3.09 or more: few benign missense variants. ${REVIEW}`,
+      );
+    }
+  });
+
+  it('reads the gene profile first, whatever the VCF holds', () => {
+    // Below the threshold in the gene profile: no PP2, though the VCF's value is above it.
+    expect(
+      pp2({ effect: 'missense_variant', gene_missense_z: 2.5, annotation_extra: { gene_missense_z: 4.2 } }),
+    ).toBeUndefined();
+    // Above it in the gene profile: PP2 reads the gene profile's value, not the VCF's.
+    expect(
+      pp2({ effect: 'missense_variant', gene_missense_z: 3.6, annotation_extra: { gene_missense_z: 1.1 } })?.evidence,
+    ).toMatch(/^Missense variant in a gene with gnomAD missense Z 3\.60 \(from the gene profile\), /);
+  });
+
+  it('starts at a missense Z of 3.09', () => {
+    expect(pp2({ effect: 'missense_variant', gene_missense_z: 3.09 })?.disposition).toBe('consider');
+    expect(pp2({ effect: 'missense_variant', gene_missense_z: 3.089 })).toBeUndefined();
+    expect(pp2({ effect: 'missense_variant', annotation_extra: { gene_missense_z: 3.09 } })?.disposition).toBe(
+      'consider',
+    );
+    expect(pp2({ effect: 'missense_variant', annotation_extra: { gene_missense_z: 3.089 } })).toBeUndefined();
+    // Without a missense Z from either, PP2 is left unmarked.
+    expect(pp2({ effect: 'missense_variant' })).toBeUndefined();
+  });
+
+  it('reads a missense Z only as a finite number', () => {
+    for (const value of [Number.POSITIVE_INFINITY, Number.NaN]) {
+      expect(pp2({ effect: 'missense_variant', gene_missense_z: value })).toBeUndefined();
+      expect(pp2({ effect: 'missense_variant', annotation_extra: { gene_missense_z: value } })).toBeUndefined();
+    }
+    // A value of another type in the VCF's field is not read as a number.
+    for (const value of ['4.2', true, null, { z: 4.2 }]) {
+      expect(pp2({ effect: 'missense_variant', annotation_extra: { gene_missense_z: value } })).toBeUndefined();
+    }
+    // A gene profile value that is no number falls back to the VCF's, as one that is absent.
+    expect(
+      pp2({ effect: 'missense_variant', gene_missense_z: Number.NaN, annotation_extra: { gene_missense_z: 4.2 } })
+        ?.evidence,
+    ).toMatch(/from the VCF's MISSENSE_Z/);
+  });
+
+  it('suggests PP2 for a missense variant only', () => {
+    for (const effect of ['stop_gained', 'synonymous_variant', 'inframe_deletion', 'splice_region_variant']) {
+      // These rule PP2 out: the consequence decides, whatever the gene's missense Z.
+      const suggestions = evaluateAcmg({ effect, gene_missense_z: 5, annotation_extra: { gene_missense_z: 5 } });
+      expect(suggestions.filter((s) => s.code === 'PP2').map((s) => s.disposition)).toEqual(['not_applicable']);
+    }
+    for (const effect of ['5_prime_UTR_variant', 'intergenic_variant', undefined]) {
+      expect(pp2({ effect, gene_missense_z: 5, annotation_extra: { gene_missense_z: 5 } })).toBeUndefined();
+    }
+    // A missense term beside another counts, as it does for the evidence snapshot.
+    expect(pp2({ effect: 'missense_variant&splice_region_variant', gene_missense_z: 5 })?.disposition).toBe(
+      'consider',
+    );
+  });
+});

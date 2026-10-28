@@ -719,6 +719,50 @@ describe('SmallVariantCards', () => {
     expect(within(annotations).getByText(/some other field/i)).toBeInTheDocument();
   });
 
+  it("names the VCF's own missense Z apart from the gene profile's (TRACE-15)", async () => {
+    // The import stores a VCF's MISSENSE_Z under the annotation's gene_missense_z, which the
+    // disclosure listed as a raw "gene missense z" line, read like the gene profile's value
+    // that the In silico column shows as Missense Z.
+    renderCards(
+      <SmallVariantCards
+        variants={[
+          smallVariant({
+            _id: 'scn1a-var',
+            chr: '2',
+            start: 166848000,
+            end: 166848000,
+            type: 'SNV',
+            gene: 'SCN1A',
+            effect: 'missense_variant',
+            gene_missense_z: 5.12,
+            annotation_extra: { gene_missense_z: 4.87 },
+            genotypes: [],
+          }),
+        ]}
+        members={[]}
+        familyId="F1"
+        projectId="P1"
+        locationSearch=""
+        tags={[]}
+        onEditReview={vi.fn()}
+        onAcmgClassify={vi.fn()}
+        onToggleReviewTag={vi.fn(async () => undefined)}
+      />,
+    );
+
+    await userEvent.click(screen.getByText('More annotations & detail'));
+
+    const annotations = screen
+      .getByText('Other scores & annotations')
+      .closest('.variant-card-section') as HTMLElement;
+    const row = within(annotations).getByText('Missense Z (gnomAD, from the VCF)').closest('div') as HTMLElement;
+    expect(within(row).getByText('4.87')).toBeInTheDocument();
+    expect(within(annotations).queryByText(/gene missense z/i)).not.toBeInTheDocument();
+    // The gene profile's value stays in the In silico column, under its own name.
+    expect(screen.getByText('Missense Z')).toBeInTheDocument();
+    expect(screen.getByText('5.12')).toBeInTheDocument();
+  });
+
   it('shows the priority breakdown on a prioritized variant card', () => {
     renderCards(
         <SmallVariantCards

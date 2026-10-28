@@ -22,7 +22,7 @@ from .family_metadata_context import (
     SampleMetadataContext,
 )
 
-from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info, package_text_handle
+from .family_package_common import APCAD_PCF_SOURCE, APCAD_PCF_TRACK_TYPE, APCAD_SOURCE, ParsedPed, _coerce_finite_float, _coerce_int, _is_vcf_file, _jsonb_safe, _missing_scalar, _normalize_header_key, _open_package_text, _parse_format, _parse_vcf_info, whole_package_text_handle
 from .clickhouse_column_bounds import UINT64, column_int
 from .import_progress import bytes_read_on_disk, file_size, read_stats
 
@@ -999,7 +999,7 @@ def _apcad_vcf_samples_with_values(
     any_record = False
     sample_names: list[str] = []
     sample_index_by_name: dict[str, int] = {}
-    with package_text_handle(path) as handle:
+    with whole_package_text_handle(path) as handle:
         for line in handle:
             if line.startswith("#CHROM"):
                 sample_names = line.strip().split("\t")[9:]
@@ -1031,7 +1031,7 @@ def _apcad_vcf_samples_with_values(
 
 def _apcad_interval_file_holds_a_row(path: Path, *, sample_context: SampleMetadataContext) -> bool:
     """Whether an APCAD BED or table holds a row its reader stores, read up to the first."""
-    with package_text_handle(path) as handle:
+    with whole_package_text_handle(path) as handle:
         first, _left_out = _first_stored_row(
             _apcad_interval_rows(handle, sample_context=sample_context, path=path)
         )

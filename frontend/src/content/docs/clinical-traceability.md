@@ -55,8 +55,9 @@ When you save a classification, CoGA freezes the evidence it rests on:
   in-silico scores the dialog read — the gnomAD frequencies (overall, exomes, genomes, popmax), the
   TOPMed frequency, the gnomAD allele, homozygote and hemizygote counts, CADD, REVEL, SpliceAI,
   SIFT, PolyPhen and AlphaMissense — taken from the variant's primary transcript, as the dialog
-  shows them, and, for a missense variant, the gnomAD missense Z of its gene, from the gene's
-  profile, which PP2 reads (PP2 reads it for no other variant, so none is frozen for one);
+  shows them, and, for a missense variant, the gnomAD missense Z of its gene that PP2 reads, with
+  where it came from: the gene's profile, or the VCF's own `MISSENSE_Z` when the gene's profile
+  holds none (PP2 reads it for no other variant, so none is frozen for one);
 - **ACMG (CNV)** (a structural variant or CNV): what the CNV classifier reads — the type, the genes the
   event overlaps and their number, the pLI and the annotated inheritance — with the event's caller and
   position, a fingerprint of its annotation, and the annotation versions its genes came from. The
@@ -75,7 +76,9 @@ banner lists every classification whose evidence changed:
   missense Z 2.95 → 3.52*), and so is a change of the primary transcript they are read from. The
   missense Z can change when the gene profiles are refreshed, without any change to the variant's
   annotation; such a refresh never prompts a re-review of a classification of any other variant
-  (a stop gained, for example). A missense variant no longer called one shows its missense Z as
+  (a stop gained, for example). When PP2 reads the missense Z from the other source now, because
+  the gene's profile gained or lost one, both sources are named (*gnomAD missense Z 4.20 (VCF) →
+  3.52 (gene profile)*). A missense variant no longer called one shows its missense Z as
   gone (*gnomAD missense Z 2.95 → n/a*), beside its new consequence;
 - the annotation changed in another way, or cannot be compared because a fingerprint is missing
   (*annotation set changed*). A classification saved before CoGA froze the frequencies and
@@ -355,7 +358,8 @@ It shows what the record holds:
   was classified (the ClinVar significance and the annotation version and, for a classification saved
   since CoGA froze them, the consequence, impact and LoF call, the population frequencies and in-silico
   scores as they were then, read from its primary transcript, and, for a missense variant, the gnomAD
-  missense Z of its gene), its tags and its note, and, for a variant its compound-het pair review
+  missense Z of its gene and whether PP2 read it from the gene's profile or the VCF), its tags and its
+  note, and, for a variant its compound-het pair review
   reports, that review (*Compound-het pair*: the partner, the gene, the phase, the pair's tags and
   classification, and its note);
 - each reported structural variant or CNV, with its description, classification and ClinGen CNV

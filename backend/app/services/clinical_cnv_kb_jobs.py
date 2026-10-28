@@ -23,6 +23,14 @@ read and the rebuild request close such a job as failed first, and a new rebuild
 accepted; a job still queued past the window never started, and is closed the same way.
 Should the old worker come back, the job is no longer its own: each of its writes is
 guarded by its worker id.
+
+A rebuild is an administrator's (the route requires one), and it is run, and what it built
+loaded, only while the account that asked for it is an active administrator (SEC-35): the job
+keeps that account by its id (``requested_by_id``), and ``_run_job`` checks it as the job
+starts and again before the load, the rebuild's one write, as the build runs for up to
+``CLINICAL_CNV_KB_BUILD_TIMEOUT_SECONDS`` before it. A job whose account no longer exists, has
+been deactivated or is no longer an administrator ends failed, saying why, with nothing
+loaded: the knowledgebase from before stays as it was.
 """
 
 from __future__ import annotations
@@ -49,6 +57,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..core.config import settings
 from ..core.postgres import get_postgres_sessionmaker
 from ..schemas import ClinicalCnvKbJobOut, ClinicalCnvKbStatusOut
+from .access_control import CurrentUser, is_admin_user
+from .metadata_service import get_current_user_by_id
 from .reference_metadata_service import apply_reference_dataset_text
 
 logger = logging.getLogger(__name__)
@@ -76,6 +86,22 @@ _SOURCES_UNRECORDED = (
     "knowledgebase was not loaded; the one loaded before stays as it was."
 )
 _SHA256_HEX = re.compile(r"[0-9a-f]{64}")
+
+
+def _requester_lost(lapse: str) -> str:
+    return (
+        f"Not loaded: the account that requested this rebuild {lapse}, and a rebuild is run and "
+        "loaded only for an active administrator. The knowledgebase from before stays as it "
+        "was; an active administrator requests the rebuild again."
+    )
+
+
+# Why a rebuild is not run, or what it built not loaded, as the job's error says (SEC-35): the
+# account that asked for it no longer exists, has been deactivated, or is no longer an
+# administrator, as the route required. None names the account: the job does.
+REQUESTER_GONE_ERROR = _requester_lost("no longer exists")
+REQUESTER_INACTIVE_ERROR = _requester_lost("has been deactivated")
+REQUESTER_NOT_ADMIN_ERROR = _requester_lost("is no longer an administrator")
 
 
 # What the knowledgebase build script needs from the environment, and nothing else: it
@@ -256,8 +282,11 @@ async def queue_clinical_cnv_kb_rebuild(
     *,
     assembly: str,
     skip_clinvar: bool,
-    requested_by: str | None,
+    requested_by: CurrentUser,
 ) -> ClinicalCnvKbJobOut:
+    """Queue the rebuild an administrator asked for, and start it. The job keeps its requester
+    by the account's id, which its run checks (SEC-35), and the e-mail address it was asked
+    under, which it shows: a Microsoft sign-in may change the address (SEC-32)."""
     if _script_path() is None:
         raise HTTPException(status_code=503, detail=_SCRIPT_MISSING)
     assembly_row = (
@@ -284,8 +313,13 @@ async def queue_clinical_cnv_kb_rebuild(
             await session.execute(
                 text(
                     f"""
-                    INSERT INTO clinical_cnv_kb_jobs (assembly_id, assembly_name, status, skip_clinvar, requested_by)
-                    VALUES (CAST(:assembly_id AS uuid), :assembly_name, 'queued', :skip_clinvar, :requested_by)
+                    INSERT INTO clinical_cnv_kb_jobs (
+                        assembly_id, assembly_name, status, skip_clinvar, requested_by, requested_by_id
+                    )
+                    VALUES (
+                        CAST(:assembly_id AS uuid), :assembly_name, 'queued', :skip_clinvar,
+                        :requested_by, CAST(:requested_by_id AS uuid)
+                    )
                     RETURNING {_JOB_COLUMNS}
                     """
                 ),
@@ -293,7 +327,8 @@ async def queue_clinical_cnv_kb_rebuild(
                     "assembly_id": assembly_row["id"],
                     "assembly_name": assembly_row["assembly_name"],
                     "skip_clinvar": skip_clinvar,
-                    "requested_by": requested_by,
+                    "requested_by": requested_by.email,
+                    "requested_by_id": requested_by.id,
                 },
             )
         ).mappings().first()
@@ -328,7 +363,8 @@ async def _claim_job(job_id: str, worker_id: str) -> dict[str, Any] | None:
                     SET status = 'running', worker_id = :worker_id,
                         started_at = now(), heartbeat_at = now()
                     WHERE id = CAST(:job_id AS uuid) AND status = 'queued'
-                    RETURNING assembly_id::text AS assembly_id, assembly_name, skip_clinvar, requested_by
+                    RETURNING assembly_id::text AS assembly_id, assembly_name, skip_clinvar, requested_by,
+                        requested_by_id::text AS requested_by_id
                     """
                 ),
                 {"job_id": job_id, "worker_id": worker_id},
@@ -375,6 +411,24 @@ async def _record_failure(job_id: str, worker_id: str | None, error: str) -> Non
             "until it has been silent for the stale window and is closed",
             job_id,
         )
+
+
+async def _requester_refusal(requester_id: str | None) -> str | None:
+    """Why the rebuild is not run, or not loaded, for the account that asked for it: it no
+    longer exists (its deletion unlinks the job), has been deactivated, or is no longer an
+    administrator, as the route required (SEC-35). None while it is an active administrator."""
+    user = None
+    if requester_id:
+        sessionmaker = get_postgres_sessionmaker()
+        async with sessionmaker() as session:
+            user = await get_current_user_by_id(session, requester_id)
+    if user is None:
+        return REQUESTER_GONE_ERROR
+    if not user.is_active:
+        return REQUESTER_INACTIVE_ERROR
+    if not is_admin_user(user):
+        return REQUESTER_NOT_ADMIN_ERROR
+    return None
 
 
 class _JobClosed(Exception):
@@ -436,6 +490,16 @@ async def _run_job(job_id: str) -> None:
             logger.info("Clinical CNV knowledgebase rebuild %s is no longer queued; not started", job_id)
             return
         owner = worker_id
+        # Run only for an active administrator (SEC-35); the log names the job, not the account.
+        refusal = await _requester_refusal(row.get("requested_by_id"))
+        if refusal is not None:
+            logger.warning(
+                "Clinical CNV knowledgebase rebuild %s not run: the account that requested it "
+                "is no longer an active administrator",
+                job_id,
+            )
+            await _update_job(job_id, owner, _FAILED, {"error": refusal})
+            return
         script = _script_path()
         if script is None:
             await _update_job(job_id, owner, _FAILED, {"error": _SCRIPT_MISSING})
@@ -498,9 +562,25 @@ async def _run_job(job_id: str) -> None:
                 {"error": _SOURCES_UNRECORDED, "log": log_tail},
             )
             return
-        # Replace the knowledgebase only while the job is still this worker's.
+        # Replace the knowledgebase only while the job is still this worker's, and its
+        # requester still an active administrator: the build ran for up to two hours, and an
+        # account deleted, deactivated or demoted meanwhile has nothing loaded (SEC-35).
         if not await _update_job(job_id, owner, "heartbeat_at = now()", {}):
             raise _JobClosed()
+        refusal = await _requester_refusal(row.get("requested_by_id"))
+        if refusal is not None:
+            logger.warning(
+                "Clinical CNV knowledgebase rebuild %s not loaded: the account that requested it "
+                "is no longer an active administrator",
+                job_id,
+            )
+            await _update_job(
+                job_id,
+                owner,
+                "status = 'failed', worker_id = NULL, completed_at = now(), error = :error, log = :log",
+                {"error": refusal, "log": log_tail},
+            )
+            return
         sessionmaker = get_postgres_sessionmaker()
         async with sessionmaker() as session:
             # The knowledgebase states no release of its own: it is built from the ClinGen

@@ -33,7 +33,10 @@ Paraphase copy number that its Postgres ``integer`` column cannot hold fails the
 a TRGT value does (DATA-7: it failed the insert with a database error, after the sample's
 results were deleted). A sample's coverage BED, APCAD file read as a BED or TRGT VCF that its
 loader refuses fails the dataset naming the sample and the file, by its path in the package:
-the loaders' refusals, which the single-file uploads answer with, name neither.
+the loaders' refusals, which the single-file uploads answer with, name neither. A refused
+per-target coverage table names both too (it named the table alone), and a family TRGT VCF's
+refusal names the file before the loader's words, which name the samples (it named no file;
+DATA-9).
 
 The stores are faked at their edge: the interval table answers the statements
 ``clickhouse_interval_tracks`` sends ClickHouse, and the session the Postgres statements the
@@ -80,6 +83,7 @@ from backend.app.services.family_package_tracks import EmptyTrackFileError
 from backend.app.services.family_package_validation import _validate_dataset
 from backend.app.services.nipt import MONOGENIC_NIPT_ANALYSIS_TYPE
 from backend.app.services.nipt_target_coverage import TARGET_COVERAGE_SOURCE, TARGET_COVERAGE_TRACK_TYPE
+from backend.tests._bgzf import bgzip, bgzip_cut_after
 
 FAMILY = "FAM029"
 SAMPLES = ("S1", "S2")
@@ -525,11 +529,60 @@ async def test_a_family_trgt_vcf_without_a_record_for_a_sample_replaces_no_call(
     stores.repeats = {_uuid("S1"): 4, _uuid("S2"): 6}
     dataset = ManifestDataset(family_vcf=_file(tmp_path, "trgt/family.vcf", text))
 
-    with pytest.raises(HTTPException) as refused:
+    with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
 
+    # The failure names the file, by its path in the package, before the loader's words, which
+    # name the samples without a record (DATA-9). Before: "400: No valid TRGT records found for
+    # S2", naming no file.
+    assert str(refused.value) == f"The family TRGT VCF (trgt/family.vcf): {detail}"
     # Before: both samples' calls were deleted as the #CHROM line was read.
-    assert refused.value.detail == detail
+    assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
+    assert stores.deletes == []
+    assert stores.commits == 0
+
+
+_FAMILY_TRGT_CALL = "chr4\t{pos}\t.\tA\t<STR>\t.\tPASS\tEND=3074933;TRID=HD_HTT;MOTIFS=CAG\tGT:MC\t0/1:18_40\t0/0:17_19\n"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("content", "detail"),
+    [
+        pytest.param(
+            _trgt_vcf(["OTHER"], ["0/1:18_40"]).encode(),
+            "TRGT VCF sample column(s) ['OTHER'] match no sample in this family",
+            id="no-column-of-the-family",
+        ),
+        pytest.param(
+            (_trgt_vcf(["S1", "S2"]) + _FAMILY_TRGT_CALL.format(pos="x")).encode(),
+            "TRGT VCF line 4 holds a value that cannot be read where a number is expected; nothing was stored",
+            id="position-no-number",
+        ),
+        pytest.param(
+            (_trgt_vcf(["S1", "S2"]) + _FAMILY_TRGT_CALL.format(pos="3074876")).encode() + b"\xff\n",
+            "TRGT file must be UTF-8 text or gzipped UTF-8 text",
+            id="not-utf-8",
+        ),
+        pytest.param(
+            gzip.compress((_trgt_vcf(["S1", "S2"]) + _FAMILY_TRGT_CALL.format(pos="3074876") * 50).encode())[:-12],
+            "TRGT file is not valid gzip",
+            id="gzip-cut-short",
+        ),
+    ],
+)
+async def test_every_refusal_of_a_family_trgt_vcf_names_the_file(
+    stores: _Stores, tmp_path: Path, content: bytes, detail: str
+) -> None:
+    stores.repeats = {_uuid("S1"): 4, _uuid("S2"): 6}
+    dataset = ManifestDataset(family_vcf=_file(tmp_path, "trgt/family.vcf", content))
+
+    with pytest.raises(RuntimeError) as refused:
+        await _run(_job(stores, tmp_path, "repeats_trgt", dataset))
+
+    # The TRGT loader's words, after the file, by its path in the package (DATA-9). Before:
+    # "400: " and the loader's words alone, naming no file.
+    assert str(refused.value) == f"The family TRGT VCF (trgt/family.vcf): {detail}"
     assert stores.repeats == {_uuid("S1"): 4, _uuid("S2"): 6}
     assert stores.deletes == []
     assert stores.commits == 0
@@ -1358,14 +1411,30 @@ async def test_a_later_samples_refused_coverage_bed_fails_the_dataset_before_any
 @pytest.mark.parametrize(
     ("table", "error"),
     [
-        pytest.param(_TARGET_TABLE, "coverage_S2.txt holds no target", id="no-target"),
         pytest.param(
-            "chromosome\tstart\tend\n1\t100\t200\n", "The coverage table has no column attribute, mean", id="no-mean"
+            _TARGET_TABLE.encode(), "The per-target coverage table of S2 (coverage_S2.txt) holds no target", id="no-target"
+        ),
+        pytest.param(
+            b"chromosome\tstart\tend\n1\t100\t200\n",
+            "The per-target coverage table of S2 (coverage_S2.txt): The coverage table has no column attribute, mean",
+            id="no-mean",
+        ),
+        # A byte that is no UTF-8 after the first target, and a gzip cut short: the table is
+        # decoded whole.
+        pytest.param(
+            (_TARGET_TABLE + "1\t100\t200\tGENE1\t80\n").encode() + b"1\t200\t300\tGENE2\t8\xff\n",
+            "The per-target coverage table of S2 (coverage_S2.txt): Coverage table file must be UTF-8 text or gzipped UTF-8 text",
+            id="not-utf-8",
+        ),
+        pytest.param(
+            gzip.compress((_TARGET_TABLE + "1\t100\t200\tGENE1\t80\n" * 50).encode())[:-12],
+            "The per-target coverage table of S2 (coverage_S2.txt): Coverage table file is not valid gzip",
+            id="gzip-cut-short",
         ),
     ],
 )
 async def test_a_later_samples_refused_coverage_table_fails_the_dataset_before_any_table_is_replaced(
-    stores: _Stores, tmp_path: Path, table: str, error: str
+    stores: _Stores, tmp_path: Path, table: bytes, error: str
 ) -> None:
     stores.track("S1", TARGET_COVERAGE_TRACK_TYPE, TARGET_COVERAGE_SOURCE, "coverage_S1.old.txt", rows=4)
     before = stores.tracks()
@@ -1376,9 +1445,13 @@ async def test_a_later_samples_refused_coverage_table_fails_the_dataset_before_a
         }
     )
 
-    with pytest.raises(RuntimeError, match=error):
+    with pytest.raises(RuntimeError) as refused:
         await _run(_job(stores, tmp_path, "coverage", dataset))
 
+    # The refusal names the sample and its table, by its path in the package (DATA-9). Before:
+    # the table alone ("coverage_S2.txt holds no target"), or, for one that is no text or
+    # whole gzip, neither ("400: Coverage table file …").
+    assert str(refused.value) == error
     # A monogenic NIPT pair's per-target tables. Before: the plasma's (S1's) table replaced
     # its track, then the father's failed the dataset.
     _assert_untouched(stores, before)
@@ -1729,3 +1802,96 @@ async def test_a_paraphase_copy_number_at_the_integer_columns_bounds_is_stored_a
     assert stores.paraphase == {_uuid("S1"): 2, _uuid("S2"): 2}
     smn1 = {row["sample_id"]: row for row in stores.paraphase_rows if row["gene_symbol"] == "SMN1"}
     assert (smn1[_uuid("S1")]["total_cn"], smn1[_uuid("S2")]["gene_cn"]) == (2**31 - 1, -(2**31))
+
+
+# --- a BGZF file cut where one of its blocks ends (DATA-4) -------------------------------------
+#
+# Cut exactly where one of its blocks ends, a BGZF file is whole gzip: its first blocks were read
+# as the file, the records after the cut gone without a word. A BGZF file must end with BGZF's
+# end-of-file block (the owner's decision of 2026-10-28). The datasets that check every
+# sample's file before they replace any read each file's end in that check.
+
+_BGZF_CUT = "is not valid gzip: it is truncated (it does not end with BGZF's end-of-file block)"
+
+
+@pytest.mark.asyncio
+async def test_a_later_samples_qdnaseq_file_cut_where_a_bgzf_block_ends_fails_the_dataset_before_any_track_is_cleared(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", "coverage", "qdnaseq", "S1_bins.csv.gz", rows=4)
+    before = stores.tracks()
+    bins = "chromosome,start,end,ratio\n" + "".join(
+        f"1,{start},{start + 1000},0.1\n" for start in range(0, 6_000_000, 1000)
+    )
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"bins": _file(tmp_path, "qdnaseq/S1_bins.csv.gz", bgzip(bins.encode()))},
+            "S2": {"bins": _file(tmp_path, "qdnaseq/S2_bins.csv.gz", bgzip_cut_after(bins.encode(), 1))},
+        }
+    )
+
+    with pytest.raises(EOFError) as refused:
+        await _run(_job(stores, tmp_path, "qdnaseq", dataset))
+
+    assert str(refused.value) == f"S2_bins.csv.gz {_BGZF_CUT}"
+    # Before: both files imported, S2's track holding its first block's bins alone.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_a_later_embryos_apcad_bed_cut_where_a_bgzf_block_ends_fails_the_dataset_before_any_track_is_cleared(
+    stores: _Stores, tmp_path: Path
+) -> None:
+    stores.track("S1", "apcad", APCAD_SOURCE, "S1.old.vcf", rows=6)
+    stores.track("S2", "apcad", APCAD_SOURCE, "S2.old.bed", rows=4)
+    before = stores.tracks()
+    bed = "".join(f"1\t{start}\t{start + 1}\trs{start}\t0.5\tpaternal\n" for start in range(100, 300_100, 100))
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"vcf": _file(tmp_path, "apcad/S1.vcf", _apcad_vcf(["S1"], ["0/1:10,10"], ["0/1:12,8"]))},
+            "S2": {"bed": _file(tmp_path, "apcad/S2.apcad.bed.gz", bgzip_cut_after(bed.encode(), 1))},
+        }
+    )
+
+    with pytest.raises(EOFError) as refused:
+        await _run(_job(stores, tmp_path, "apcad", dataset))
+
+    assert str(refused.value) == f"S2.apcad.bed.gz {_BGZF_CUT}"
+    # Before: S1's track replaced, then S2's by its first block's sites alone.
+    _assert_untouched(stores, before)
+
+
+@pytest.mark.asyncio
+async def test_a_nipt_fathers_snv_file_cut_where_a_bgzf_block_ends_fails_the_dataset_before_the_plasma_is_written(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writes: list[str] = []
+
+    async def must_not_write(*_args: Any, **_kwargs: Any) -> None:
+        writes.append("write")
+        raise AssertionError("nothing may be written for a refused NIPT dataset")
+
+    monkeypatch.setattr(family_package_datasets, "upload_family_small_variant_file", must_not_write)
+    records = "".join(f"chr1\t{100 + index * 10}\t.\tA\tG\t30\tPASS\t.\tGT\t0/1\n" for index in range(3_000))
+    father = (_SNV_HEADER.format(sample="S2") + records).encode()
+    dataset = ManifestDataset(
+        per_sample={
+            "S1": {"vcf": _file(tmp_path, "S1.vcf", _SNV_HEADER.format(sample="S1") + records)},
+            "S2": {"vcf": _file(tmp_path, "S2.vcf.gz", bgzip_cut_after(father, 1))},
+        }
+    )
+    job = _job(_Stores(), tmp_path, "snv", dataset)
+    # S1 is the maternal plasma, read first; S2 the father.
+    job.bundle.manifest = PackageManifest(
+        ped="family.ped",
+        analysis_type=MONOGENIC_NIPT_ANALYSIS_TYPE,
+        samples={"S1": {"assay": "nipt_cfdna"}},
+        datasets={"snv": dataset},
+    )
+
+    with pytest.raises(EOFError) as refused:
+        await _run(job)
+
+    assert str(refused.value) == f"The NIPT SNV file of S2 (S2.vcf.gz) {_BGZF_CUT}"
+    # Before: the plasma's calls were written, then the father's first block read as his file.
+    assert writes == []

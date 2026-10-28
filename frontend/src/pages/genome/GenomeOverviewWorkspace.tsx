@@ -582,7 +582,7 @@ const GenomeOverviewWorkspace: React.FC<GenomeOverviewWorkspaceProps> = ({
                   const width = (layout.lengths[chrom] / layout.total) * trackWidth;
                   const left = (layout.offsets[chrom] / layout.total) * trackWidth;
                   // The chromosome's name without its chr, which the narrow slots have no
-                  // room for: 1, X, and M for the mitochondrion (chrM).
+                  // room for: 1, X. The overview leaves the mitochondrion out (ENG-20).
                   const name = formatChromosomeLabel(chrom).replace(/^chr/, '');
                   return (
                     // A button to the keyboard as well as the pointer (#529).
