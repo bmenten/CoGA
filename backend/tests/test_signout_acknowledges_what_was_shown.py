@@ -246,7 +246,12 @@ def test_each_refusal_carries_the_fingerprint_of_the_concerns_it_lists(family) -
     assert drift["structural_drifted"] == [shown_structural]
     assert drift["concerns_changed"] is False
     # SHA-256 over the canonical JSON of the gate and the concerns the refusal lists.
-    concerns = {"drifted": drift["drifted"], "structural_drifted": drift["structural_drifted"]}
+    assert drift["finding_drifted"] == []
+    concerns = {
+        "drifted": drift["drifted"],
+        "structural_drifted": drift["structural_drifted"],
+        "finding_drifted": drift["finding_drifted"],
+    }
     expected = hashlib.sha256(canonical_json({"gate": "evidence_drift", "concerns": concerns}).encode()).hexdigest()
     assert drift["concerns_fingerprint"] == expected
     assert drift["concerns_fingerprint"] == rss.concerns_fingerprint("evidence_drift", concerns)
@@ -497,6 +502,7 @@ def test_the_fingerprints_shown_sign_out_and_the_audit_event_records_them(family
             for entry in stored["drift"]["drifted"]
         ],
         "structural_drifted": [],
+        "finding_drifted": stored["finding_review_drift"]["drifted"],
     }
     assert rss.concerns_fingerprint("evidence_drift", drift_concerns) == fingerprints["drift_concerns_fingerprint"]
     qc_concerns = {

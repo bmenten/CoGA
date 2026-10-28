@@ -247,6 +247,14 @@ pull request updates this list only when it adds clinical behaviour that no area
   serialised per-family variant writes; per-sample and per-source rewrites and deletes that
   keep every other call; calls from two callsets or sources both kept; concurrent review
   saves refused when stale.
+- **Review of repeat expansions and Paraphase findings** — one review per family and assembly
+  per repeat locus and Paraphase region, with tags, a note and a classification on the type's
+  own scale beside the unchanged automatic status; the calls a classification or the Report
+  tag rests on frozen and compared at sign-out (a re-import, a catalogue threshold or a
+  validation of the counting units changes them), counted in the evidence-drift gate; an
+  abnormal call without a review (a count near a boundary at a locus not validated included,
+  a grey zone alone not) acknowledged with a reason; the reviews frozen into the record beside
+  every call (docs/repeat-paraphase-review-design.md).
 - **Sign-out and the signed record** — the frozen snapshot and its drift gates (small
   variants, SVs and CNVs), sample-integrity, sample-QC, incomplete-import and assembly-scope
   gates; the signed view rendered from its record in the release-candidate format; the

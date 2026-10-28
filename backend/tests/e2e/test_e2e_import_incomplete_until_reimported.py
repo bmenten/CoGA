@@ -43,6 +43,9 @@ _OTHER_GATES = {
     "drift_acknowledgement_reason": _ACK,
     "acknowledge_qc": True,
     "qc_acknowledgement_reason": _ACK,
+    # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
+    "acknowledge_unreviewed_findings": True,
+    "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
 }
 _PARAPHASE = {
     "GBA": {

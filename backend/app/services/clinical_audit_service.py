@@ -3,8 +3,8 @@
 Records who classified / tagged / annotated which variant, when, and what changed
 (before -> after), in the same transaction as the change itself, into the
 append-only ``clinical_audit_events`` table (see docs/clinical-traceability.md).
-Small-variant and structural-variant (SV / CNV) review saves, compound-het pair reviews,
-pedigree changes (``family_structure_audit``) and report sign-out write here, all on the
+Small-variant and structural-variant (SV / CNV) review saves, the reviews of a repeat locus
+and of a Paraphase region, compound-het pair reviews, pedigree changes (``family_structure_audit``) and report sign-out write here, all on the
 one per-family hash chain.
 
 This is the clinical *action* log; ``audit_log_pg`` remains the HTTP *access* log.
@@ -620,6 +620,79 @@ async def _record_review_events(
             after=event["after"],
             metadata=dict(metadata) if metadata else None,
         )
+
+
+def finding_review_state(review: Mapping[str, Any] | None) -> dict[str, Any]:
+    """The audited content of a repeat-locus or Paraphase-region review: its classification,
+    tags and note (``review`` a stored row or the values a save writes; None is no review)."""
+    prior = review or {}
+    return {
+        "classification": str(prior.get("classification") or "").strip() or None,
+        "tags": sorted(prior.get("tags") or []),
+        "note": str(prior.get("note") or "").strip() or None,
+    }
+
+
+def diff_finding_review_changes(
+    existing: Mapping[str, Any] | None,
+    new_state: Mapping[str, Any] | None,
+    *,
+    labels: Mapping[str, str],
+) -> list[dict[str, Any]]:
+    """The clinical audit events a repeat or Paraphase review save implies: one
+    ``classification`` event when the analyst's classification changes (``labels`` names its
+    scale's values), one ``tags`` and one ``note`` event, each before -> after, as for the
+    variant reviews. ``new_state`` None is a review that was deleted."""
+    before = finding_review_state(existing)
+    after = finding_review_state(new_state)
+    events: list[dict[str, Any]] = []
+    if before["classification"] != after["classification"]:
+
+        def label(value: str | None) -> str:
+            return labels.get(value, value) if value else "unclassified"
+
+        events.append(
+            {
+                "action": "classification",
+                "summary": f"Classification {label(before['classification'])} → {label(after['classification'])}",
+                "before": {"classification": before["classification"]},
+                "after": {"classification": after["classification"]},
+            }
+        )
+    events.extend(_tags_and_note_events(before, after))
+    return events
+
+
+async def record_finding_review_changes(
+    session: AsyncSession,
+    *,
+    family_uuid: str | None,
+    family_identifier: str | None,
+    modality: str,
+    key: str,
+    assembly_id: str,
+    evidence_digest: str | None,
+    labels: Mapping[str, str],
+    user: CurrentUser,
+    existing: Mapping[str, Any] | None,
+    new_state: Mapping[str, Any] | None,
+) -> None:
+    """Record the clinical audit events of a repeat-locus or Paraphase-region review save.
+
+    On the family's one chain. ``variant_id`` is ``<modality>:<key>`` (``repeat:FXS_FMR1``,
+    ``paraphase:smn1``), so no such id is read as a variant's; ``metadata`` names the modality,
+    the assembly the review is of, and the digest of the calls it rests on as the save left
+    them (None: none frozen).
+    """
+    await _record_review_events(
+        session,
+        diff_finding_review_changes(existing, new_state, labels=labels),
+        family_uuid=family_uuid,
+        family_identifier=family_identifier,
+        variant_id=f"{modality}:{key}",
+        user=user,
+        metadata={"modality": modality, "assembly_id": assembly_id, "evidence_digest": evidence_digest},
+    )
 
 
 COMPOUND_HET_PAIR_ACTION = "compound_het_pair"

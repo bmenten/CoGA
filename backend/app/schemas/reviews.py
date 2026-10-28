@@ -119,6 +119,58 @@ class StructuralVariantReviewUpdate(_VariantReviewUpdate):
     source: Optional[str] = None
 
 
+# The classification an analyst gives a repeat locus and a Paraphase region, beside CoGA's
+# automatic status, which it never changes (docs/repeat-paraphase-review-design.md, B4). The
+# keys are the stored values (the tables' CHECKs); any other is refused (422).
+RepeatReviewClassification = Literal[
+    "pathogenic_expansion",
+    "reduced_penetrance",
+    "premutation",
+    "intermediate",
+    "normal",
+    "uncertain",
+]
+ParaphaseReviewClassification = Literal["affected", "carrier", "risk_allele", "normal", "uncertain"]
+
+
+class FindingReviewDriftOut(BaseModel):
+    """Whether the calls a repeat or Paraphase review rests on are still those it froze.
+
+    ``unchanged``: the frozen calls are the current ones. ``changed``: they differ (``changes``
+    names each difference). ``no_snapshot``: the review holds no frozen calls (a review of
+    tags or a note alone). ``not_found``: the family holds no call at the locus or region now.
+    ``unverifiable``: the current calls could not be read.
+    """
+
+    status: Literal["unchanged", "changed", "no_snapshot", "not_found", "unverifiable"]
+    changes: List[str] = Field(default_factory=list)
+
+
+class FindingReviewOut(BaseModel):
+    """The analyst's review of a repeat locus (``key``: its locus_id) or a Paraphase region
+    (``key``: its gene_symbol) in a family's assembly."""
+
+    key: str
+    classification: Optional[str] = None
+    tags: List[str] = Field(default_factory=list)
+    tag_metadata: Dict[str, Dict[str, Optional[datetime | str]]] = Field(default_factory=dict)
+    note: Optional[str] = None
+    updated_by: Optional[str] = None
+    updated_at: Optional[datetime] = None
+    # When the calls the review rests on were frozen (None: no frozen calls), and whether they
+    # still are the family's calls.
+    evidence_captured_at: Optional[datetime] = None
+    drift: Optional[FindingReviewDriftOut] = None
+
+
+class RepeatExpansionReviewUpdate(_VariantReviewUpdate):
+    classification: Optional[RepeatReviewClassification] = None
+
+
+class ParaphaseReviewUpdate(_VariantReviewUpdate):
+    classification: Optional[ParaphaseReviewClassification] = None
+
+
 class SmallVariantReviewSummaryOut(BaseModel):
     reviewed_variant_count: int = 0
     note_count: int = 0

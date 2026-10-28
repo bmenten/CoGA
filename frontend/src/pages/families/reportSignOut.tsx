@@ -16,6 +16,70 @@ import {
   type FamilyImportUnfinished,
 } from '../../components/ImportIncompleteBanner';
 import { apiErrorMessage } from './reportSignoutQueries';
+
+// A repeat or Paraphase review whose frozen calls are no longer the family's, as the drift
+// gate lists it (finding_review_pg: `finding_drifted`).
+export type FindingDriftItem = { kind: string; key: string; status: string; changes: string[] };
+// A repeat locus or Paraphase region with an abnormal call and no review, as the gate of
+// unreviewed findings lists it; `key` null: that kind's calls could not be read.
+export type UnreviewedFinding = {
+  kind: string;
+  key: string | null;
+  gene: string | null;
+  samples: { sample: string; status: string; nearBoundary: boolean }[];
+};
+
+const FINDING_NOUN: Record<string, string> = { repeat: 'repeat locus', paraphase: 'Paraphase region' };
+
+const FINDING_DRIFT_WORDS: Record<string, string> = {
+  changed: 'its calls changed since the review',
+  not_found: 'the family holds no call there any more',
+  no_snapshot: 'the review froze no calls',
+  unverifiable: 'the calls could not be read',
+};
+
+const record = (value: unknown): Record<string, unknown> =>
+  value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+
+export const parseFindingDrift = (value: unknown): FindingDriftItem[] =>
+  (Array.isArray(value) ? value : []).map((entry) => {
+    const item = record(entry);
+    return {
+      kind: String(item.kind ?? ''),
+      key: String(item.key ?? ''),
+      status: String(item.status ?? ''),
+      changes: Array.isArray(item.changes) ? item.changes.map(String) : [],
+    };
+  });
+
+export const parseUnreviewedFindings = (value: unknown): UnreviewedFinding[] =>
+  (Array.isArray(value) ? value : []).map((entry) => {
+    const item = record(entry);
+    return {
+      kind: String(item.kind ?? ''),
+      key: item.key == null ? null : String(item.key),
+      gene: item.gene == null ? null : String(item.gene),
+      samples: (Array.isArray(item.samples) ? item.samples : []).map((raw) => {
+        const sample = record(raw);
+        return {
+          sample: String(sample.sample ?? ''),
+          status: String(sample.status ?? ''),
+          nearBoundary: Boolean(sample.near_boundary),
+        };
+      }),
+    };
+  });
+
+/** A finding the gate lists, in words: "HTT (repeat locus): PROBAND pathogenic". */
+export const describeUnreviewedFinding = (finding: UnreviewedFinding): string => {
+  const noun = FINDING_NOUN[finding.kind] ?? finding.kind;
+  if (finding.key === null) return `The ${noun} calls could not be read`;
+  const calls = finding.samples
+    .map((sample) => `${sample.sample} ${sample.status.replace(/_/g, ' ')}${sample.nearBoundary ? ' (near a boundary)' : ''}`)
+    .join(', ');
+  return `${finding.gene || finding.key} (${noun}): ${calls}`;
+};
+
 import {
   describeSignedDrift,
   describeSignedStructuralDrift,
@@ -163,6 +227,9 @@ export const useReportSignOut = (
     acknowledgeImportIncomplete?: boolean;
     importReason?: string;
     importFingerprint?: string;
+    acknowledgeUnreviewed?: boolean;
+    unreviewedReason?: string;
+    unreviewedFingerprint?: string;
   };
   type ShownConcerns = { vars: SignOutVars; fingerprint: string | undefined; changed: boolean };
   const [driftGate, setDriftGate] = useState<
@@ -170,6 +237,7 @@ export const useReportSignOut = (
         message: string;
         drifted: SignedDriftItem[];
         structuralDrifted: SignedStructuralDriftItem[];
+        findingDrifted: FindingDriftItem[];
       })
     | null
   >(null);
@@ -190,12 +258,18 @@ export const useReportSignOut = (
     unfinished: FamilyImportUnfinished[];
   }) | null>(null);
   const [importReason, setImportReason] = useState('');
+  const [unreviewedGate, setUnreviewedGate] = useState<(ShownConcerns & {
+    message: string;
+    findings: UnreviewedFinding[];
+  }) | null>(null);
+  const [unreviewedReason, setUnreviewedReason] = useState('');
   const [signOutError, setSignOutError] = useState<string | null>(null);
 
   const closeGates = () => {
     setDriftGate(null);
     setQcGate(null);
     setImportGate(null);
+    setUnreviewedGate(null);
   };
 
   const signOut = useMutation({
@@ -211,6 +285,9 @@ export const useReportSignOut = (
         acknowledge_import_incomplete: vars.acknowledgeImportIncomplete ?? false,
         import_incomplete_acknowledgement_reason: vars.importReason,
         import_incomplete_concerns_fingerprint: vars.importFingerprint,
+        acknowledge_unreviewed_findings: vars.acknowledgeUnreviewed ?? false,
+        unreviewed_findings_acknowledgement_reason: vars.unreviewedReason,
+        unreviewed_findings_concerns_fingerprint: vars.unreviewedFingerprint,
       };
       return (await api.post(apiPath`/families/${familyId}/report/sign-out`, body)).data;
     },
@@ -229,6 +306,7 @@ export const useReportSignOut = (
       setDriftReason('');
       setQcReason('');
       setImportReason('');
+      setUnreviewedReason('');
       // Show the signer what was signed: the new version, rendered from its record, with the
       // report code the EPD report quotes (the signed view confirms it once).
       if (typeof signed?.version === 'number') {
@@ -271,7 +349,12 @@ export const useReportSignOut = (
       // them; it needs an acknowledge-WITH-REASON override, so open the dialog, which lists
       // them (TRACE-19: before, it gave their number only).
       if (gate === 'evidence_drift') {
-        const drift = detail as { message?: string; drifted?: unknown; structural_drifted?: unknown };
+        const drift = detail as {
+          message?: string;
+          drifted?: unknown;
+          structural_drifted?: unknown;
+          finding_drifted?: unknown;
+        };
         const shown = shownConcerns(detail);
         // Concerns that changed after the dialog showed them are acknowledged afresh: the
         // reason written for the earlier ones is not carried over to them.
@@ -280,6 +363,7 @@ export const useReportSignOut = (
           message: drift.message || 'Evidence has changed since some classifications were made.',
           drifted: parseDrift({ drifted: drift.drifted })?.drifted ?? [],
           structuralDrifted: parseStructuralDrift({ drifted: drift.structural_drifted })?.drifted ?? [],
+          findingDrifted: parseFindingDrift(drift.finding_drifted),
           ...shown,
           vars,
         });
@@ -342,6 +426,20 @@ export const useReportSignOut = (
         });
         return;
       }
+      // An abnormal repeat or Paraphase call without a review (REQ-TRACE-016): listed, and
+      // acknowledged with a reason like the gates above.
+      if (gate === 'unreviewed_findings') {
+        const unreviewed = detail as { message?: string; unreviewed_findings?: unknown };
+        const shown = shownConcerns(detail);
+        if (shown.changed) setUnreviewedReason('');
+        setUnreviewedGate({
+          message: unreviewed.message || 'Some repeat or Paraphase findings have no review.',
+          findings: parseUnreviewedFindings(unreviewed.unreviewed_findings),
+          ...shown,
+          vars,
+        });
+        return;
+      }
       // A refusal this page does not know (a gate it was not built for, or none named) is a
       // refusal, never an override: no dialog opens without the concerns it acknowledges.
       setSignOutError(
@@ -359,6 +457,7 @@ export const useReportSignOut = (
       acknowledgeDrift: false,
       acknowledgeQc: false,
       acknowledgeImportIncomplete: false,
+      acknowledgeUnreviewed: false,
     });
   };
 
@@ -401,6 +500,19 @@ export const useReportSignOut = (
     });
   };
 
+  const submitUnreviewedAcknowledgement = async () => {
+    const reason = unreviewedReason.trim();
+    if (!reason || !unreviewedGate) {
+      return;
+    }
+    await attemptSignOut({
+      ...unreviewedGate.vars,
+      acknowledgeUnreviewed: true,
+      unreviewedReason: reason,
+      unreviewedFingerprint: unreviewedGate.fingerprint,
+    });
+  };
+
   return {
     signOut: handleSignOut,
     isPending: signOut.isPending,
@@ -428,7 +540,7 @@ export const useReportSignOut = (
               </p>
               {/* Each classification the gate counts, as the signed version will list it: the
                   acknowledgement covers these (TRACE-19). */}
-              {driftGate.drifted.length || driftGate.structuralDrifted.length ? (
+              {driftGate.drifted.length || driftGate.structuralDrifted.length || driftGate.findingDrifted.length ? (
                 <>
                   <h3 className="report-subheading" id="drift-concerns">
                     Classifications whose evidence changed or cannot be verified
@@ -443,6 +555,13 @@ export const useReportSignOut = (
                       <li key={`sv:${item.variantId}-${index}`}>
                         <strong>{item.variantId}</strong> (structural variant) —{' '}
                         {describeSignedStructuralDrift(item)}
+                      </li>
+                    ))}
+                    {driftGate.findingDrifted.map((item) => (
+                      <li key={`${item.kind}:${item.key}`}>
+                        <strong>{item.key}</strong> ({FINDING_NOUN[item.kind] ?? item.kind} review) —{' '}
+                        {FINDING_DRIFT_WORDS[item.status] ?? item.status}
+                        {item.changes.length ? `: ${item.changes.join('; ')}` : ''}
                       </li>
                     ))}
                   </ul>
@@ -652,6 +771,68 @@ export const useReportSignOut = (
                   className="form-button"
                   disabled={!importReason.trim() || signOut.isPending}
                   onClick={submitImportAcknowledgement}
+                >
+                  Sign out anyway
+                </button>
+              </div>
+          </ModalDialog>
+        ) : null}
+        {unreviewedGate ? (
+          <ModalDialog
+            label="Findings without a review: acknowledgement required"
+            className="modal-surface surface-card report-qc-ack-modal"
+            closeOnBackdrop={false}
+            discardMessage="Discard the reason you have typed?"
+            onClose={() => {
+              setUnreviewedGate(null);
+              setUnreviewedReason('');
+            }}
+          >
+              <h2 className="report-paragraph">
+                <strong>Findings without a review — acknowledgement required</strong>
+              </h2>
+              <ConcernsChanged changed={unreviewedGate.changed} />
+              <p className="report-paragraph">{unreviewedGate.message}</p>
+              <p className="report-paragraph">
+                To sign out anyway you must record a reason — it is frozen into the signed record.
+              </p>
+              {/* Each repeat locus and Paraphase region the gate lists: the acknowledgement
+                  covers these (TRACE-19). */}
+              {unreviewedGate.findings.length ? (
+                <ul className="report-drift-list" aria-label="Findings without a review">
+                  {unreviewedGate.findings.map((finding) => (
+                    <li key={`${finding.kind}:${finding.key ?? 'unreadable'}`}>
+                      {describeUnreviewedFinding(finding)}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <label className="report-footer-label" htmlFor="unreviewed-ack-reason">
+                Reason for signing out with findings that have no review (required)
+              </label>
+              <textarea
+                id="unreviewed-ack-reason"
+                className="variant-review-textarea"
+                rows={3}
+                value={unreviewedReason}
+                onChange={(event) => setUnreviewedReason(event.target.value)}
+              />
+              <div className="inline-actions modal-actions">
+                <button
+                  type="button"
+                  className="form-button"
+                  onClick={() => {
+                    setUnreviewedGate(null);
+                    setUnreviewedReason('');
+                  }}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="form-button"
+                  disabled={!unreviewedReason.trim() || signOut.isPending}
+                  onClick={submitUnreviewedAcknowledgement}
                 >
                   Sign out anyway
                 </button>

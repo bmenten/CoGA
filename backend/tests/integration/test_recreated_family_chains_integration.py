@@ -42,6 +42,7 @@ import pytest
 from sqlalchemy import text
 
 from backend.app.core.config import settings
+from backend.tests._signout_dialogs import no_finding_reviews
 
 pytestmark = pytest.mark.integration
 
@@ -119,6 +120,11 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
         return {
             "drift": {"drifted_count": 0, "drifted": []},
             "structural_drift": {"drifted_count": 0, "drifted": []},
+            # No repeat or Paraphase review and no finding without one (finding_review_pg).
+            "repeat_expansion_reviews": [],
+            "paraphase_reviews": [],
+            "finding_review_drift": {"checked": 0, "drifted_count": 0, "drifted": []},
+            "unreviewed_findings": [],
             "sample_qc": {"overall_status": "pass"},
             "software": {"version": "0.0.0-test", "git_sha": "trace13"},
             "reported_variants": [],
@@ -126,6 +132,8 @@ def test_a_family_made_again_under_its_id_keeps_its_chains_verifiable(monkeypatc
         }
 
     monkeypatch.setattr(rss, "build_family_metadata_context", _context)
+    # No repeat or Paraphase call, and no review of one (finding_review_pg).
+    monkeypatch.setattr(rss, "finding_reviews_for_record", no_finding_reviews)
     monkeypatch.setattr(rss, "build_report_snapshot", _snapshot_body)
 
     async def _run() -> None:

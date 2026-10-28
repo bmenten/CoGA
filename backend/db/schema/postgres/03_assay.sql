@@ -585,6 +585,59 @@ CREATE INDEX IF NOT EXISTS idx_structural_variant_reviews_family ON structural_v
 CREATE UNIQUE INDEX IF NOT EXISTS idx_structural_variant_reviews_family_variant_id ON structural_variant_reviews USING btree (family_id, variant_id) WHERE (variant_id IS NOT NULL);
 
 -- ---------------------------------------------------------------------------
+-- repeat_expansion_reviews / paraphase_reviews
+-- ---------------------------------------------------------------------------
+-- The analyst's review of a repeat locus and of a Paraphase region, one per family and
+-- assembly (docs/repeat-paraphase-review-design.md, B1): tags, a note and a classification on
+-- the scale of its type (B4), beside CoGA's automatic status, which it never changes. The key
+-- is the catalogue's locus_id (a TRGT TRID) or Paraphase's region key (gene_symbol), which a
+-- re-import keeps, with the family's assembly, so a review made on one assembly never reads
+-- as one of another's calls. evidence_snapshot freezes the calls the classification or the
+-- Report tag rests on (finding_review_pg.py); the sign-out compares it with the calls as they
+-- are then. Each change is a clinical audit event (modality "repeat" / "paraphase").
+CREATE TABLE IF NOT EXISTS repeat_expansion_reviews (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    family_id uuid NOT NULL,
+    assembly_id uuid NOT NULL,
+    locus_id text NOT NULL,
+    classification text,
+    tags jsonb DEFAULT '[]'::jsonb NOT NULL,
+    tag_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    note text,
+    evidence_snapshot jsonb,
+    updated_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT repeat_expansion_reviews_pkey PRIMARY KEY (id),
+    CONSTRAINT repeat_expansion_reviews_classification_check CHECK ((classification IS NULL) OR (classification = ANY (ARRAY['pathogenic_expansion'::text, 'reduced_penetrance'::text, 'premutation'::text, 'intermediate'::text, 'normal'::text, 'uncertain'::text]))),
+    CONSTRAINT repeat_expansion_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
+    CONSTRAINT repeat_expansion_reviews_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_repeat_expansion_reviews_key ON repeat_expansion_reviews USING btree (family_id, assembly_id, locus_id);
+
+CREATE TABLE IF NOT EXISTS paraphase_reviews (
+    id uuid DEFAULT gen_random_uuid() NOT NULL,
+    family_id uuid NOT NULL,
+    assembly_id uuid NOT NULL,
+    gene_symbol text NOT NULL,
+    classification text,
+    tags jsonb DEFAULT '[]'::jsonb NOT NULL,
+    tag_metadata jsonb DEFAULT '{}'::jsonb NOT NULL,
+    note text,
+    evidence_snapshot jsonb,
+    updated_by text NOT NULL,
+    created_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()) NOT NULL,
+    CONSTRAINT paraphase_reviews_pkey PRIMARY KEY (id),
+    CONSTRAINT paraphase_reviews_classification_check CHECK ((classification IS NULL) OR (classification = ANY (ARRAY['affected'::text, 'carrier'::text, 'risk_allele'::text, 'normal'::text, 'uncertain'::text]))),
+    CONSTRAINT paraphase_reviews_family_id_fkey FOREIGN KEY (family_id) REFERENCES families(id) ON DELETE CASCADE,
+    CONSTRAINT paraphase_reviews_assembly_id_fkey FOREIGN KEY (assembly_id) REFERENCES assemblies(id) ON DELETE CASCADE
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_paraphase_reviews_key ON paraphase_reviews USING btree (family_id, assembly_id, gene_symbol);
+
+-- ---------------------------------------------------------------------------
 -- structural_variant_filter_presets
 -- ---------------------------------------------------------------------------
 -- A structural-variant preset is its owner's, for one family or reusable. The owner is the

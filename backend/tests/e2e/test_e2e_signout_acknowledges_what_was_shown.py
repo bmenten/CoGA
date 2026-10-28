@@ -40,6 +40,11 @@ FIRST = "1-6000-C-G"
 SECOND = "1-7000-AG-A"
 _DRIFT = {"acknowledge_drift": True, "drift_acknowledgement_reason": "e2e: the reported variants hold no ACMG classification"}
 _QC = {"acknowledge_qc": True, "qc_acknowledgement_reason": "e2e: synthetic genotypes"}
+# The golden trio's abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
+_UNREVIEWED = {
+    "acknowledge_unreviewed_findings": True,
+    "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
+}
 _IMPORT = {
     "acknowledge_import_incomplete": True,
     "import_incomplete_acknowledgement_reason": "e2e: the SV calls are not part of this referral",
@@ -179,17 +184,26 @@ async def _collect(root: Path) -> dict:
             )
             written["after_import_refusal"] = await _written(family_uuid)
 
-            # Every concern acknowledged as shown last: signed out.
-            r["signout"] = _cap(
-                await ac.post(
-                    sign_out,
-                    json={
-                        **acknowledged,
-                        **_IMPORT,
-                        "import_incomplete_concerns_fingerprint": _fingerprint(r["import_changed"]),
-                    },
+            # Every concern acknowledged as shown last: signed out, past the findings without a
+            # review, acknowledged as the dialog lists them.
+            final = {
+                **acknowledged,
+                **_IMPORT,
+                "import_incomplete_concerns_fingerprint": _fingerprint(r["import_changed"]),
+            }
+            r["signout"] = _cap(await ac.post(sign_out, json=final))
+            if ((r["signout"]["json"] or {}).get("detail") or {}).get("gate") == "unreviewed_findings":
+                r["unreviewed_shown"] = r["signout"]
+                r["signout"] = _cap(
+                    await ac.post(
+                        sign_out,
+                        json={
+                            **final,
+                            **_UNREVIEWED,
+                            "unreviewed_findings_concerns_fingerprint": _fingerprint(r["unreviewed_shown"]),
+                        },
+                    )
                 )
-            )
             written["after_signout"] = await _written(family_uuid)
             version = (r["signout"]["json"] or {}).get("version")
             r["detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{version}"))
@@ -316,6 +330,7 @@ def test_the_fingerprints_shown_last_sign_out_and_the_audit_event_records_them(r
             {key: value for key, value in entry.items() if key not in ("classified_by", "classified_at")}
             for entry in snapshot["structural_drift"]["drifted"]
         ],
+        "finding_drifted": snapshot["finding_review_drift"]["drifted"],
     }
     assert rss.concerns_fingerprint("evidence_drift", recorded_drift) == after["drift_concerns_fingerprint"]
     recorded_import = {

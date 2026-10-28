@@ -46,6 +46,9 @@ _SIGNOUT_BODY = {
     "drift_acknowledgement_reason": "e2e validation",
     "acknowledge_qc": True,
     "qc_acknowledgement_reason": "e2e validation",
+    # The abnormal repeat and Paraphase calls are not reviewed here (REQ-TRACE-016).
+    "acknowledge_unreviewed_findings": True,
+    "unreviewed_findings_acknowledgement_reason": "e2e: the repeat and Paraphase calls are not reviewed",
     "acknowledge_import_incomplete": True,
     "import_incomplete_acknowledgement_reason": "e2e validation",
 }

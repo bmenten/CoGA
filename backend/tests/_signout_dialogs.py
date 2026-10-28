@@ -27,6 +27,11 @@ GATE_FIELDS: dict[str, tuple[str, str, str]] = {
         "import_incomplete_acknowledgement_reason",
         "import_incomplete_concerns_fingerprint",
     ),
+    "unreviewed_findings": (
+        "acknowledge_unreviewed_findings",
+        "unreviewed_findings_acknowledgement_reason",
+        "unreviewed_findings_concerns_fingerprint",
+    ),
 }
 _ACKNOWLEDGEMENT_FIELDS = frozenset(field for fields in GATE_FIELDS.values() for field in fields)
 
@@ -82,3 +87,18 @@ async def sign_out_report_through_the_dialogs(
             if following is None:
                 raise
             sent = following
+
+
+async def no_finding_reviews(session: Any, context: Any, sections: Any) -> dict[str, Any]:
+    """``report_signout_service.finding_reviews_for_record`` for a test whose family holds no
+    repeat or Paraphase call and no review of one: its record holds none, and nothing gates.
+
+    A test that stubs the family's context gets the record's repeat and Paraphase sections as
+    unavailable, which the gate of findings without a review lists as calls that could not be
+    read; a test of another gate stubs that away here."""
+    return {
+        "repeat_expansion_reviews": [],
+        "paraphase_reviews": [],
+        "finding_review_drift": {"checked": 0, "drifted_count": 0, "drifted": []},
+        "unreviewed_findings": [],
+    }

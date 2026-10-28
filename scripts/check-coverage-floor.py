@@ -104,6 +104,9 @@ COMBINED_FLOORS: dict[str, float] = {
     "backend/app/services/family_package_import.py": 93.0,  # (96.0)
     "backend/app/services/family_package_jobs.py": 94.0,  # (97.2)
     "backend/app/services/family_package_registration.py": 81.0,  # (84.2)
+    # (95.4 measured locally when it was added: the reviews of repeat loci and Paraphase
+    # regions, whose saves and record the e2e tests exercise)
+    "backend/app/services/finding_review_pg.py": 92.0,
     "backend/app/services/integrity_anchor_service.py": 79.0,  # (82.3)
     "backend/app/services/report_signout_service.py": 96.0,  # (99.5)
     "backend/app/services/small_variant_review_tags.py": 90.0,  # (93.1)

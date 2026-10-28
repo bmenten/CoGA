@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 from .families import (
     FamilyMemberOut,
 )
+from .reviews import FindingReviewOut
 
 
 class AlignmentManifestEntryOut(BaseModel):
@@ -330,6 +331,9 @@ class RepeatExpansionRowOut(BaseModel):
     # else the male chrX note; None for any other status.
     review_reason: Optional[RepeatReviewReason] = None
     calls: Dict[str, RepeatExpansionSampleCallOut] = Field(default_factory=dict)
+    # The analyst's review of the locus in the family's assembly, and whether its frozen calls
+    # are still the family's (None: no review).
+    review: Optional[FindingReviewOut] = None
 
 
 class FamilyRepeatExpansionTableOut(BaseModel):
@@ -427,6 +431,8 @@ class ParaphaseGeneResultOut(BaseModel):
     max_highest_total_cn: Optional[int] = None
     has_copy_number_signal: bool = False
     samples: Dict[str, ParaphaseSampleResultOut] = Field(default_factory=dict)
+    # The analyst's review of the region in the family's assembly (None: no review).
+    review: Optional[FindingReviewOut] = None
 
 
 class FamilyParaphaseTableOut(BaseModel):
