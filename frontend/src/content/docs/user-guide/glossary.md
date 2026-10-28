@@ -4,9 +4,13 @@
   are recorded separately: an unaffected person can be a carrier.
 - **Analyst / reader** — a member's level in a project. An analyst reads and changes the project's
   records; a reader only reads them. An administrator has every right in every project.
-- **APCAD** — *Definition to be confirmed by the laboratory.* On screen, the APCAD track shows
-  parent-of-origin markers (0 to 1) for a phased trio, or the folded minor allele fraction (0 to 0.5)
-  from a depth-based caller.
+- **APCAD** — *What the abbreviation stands for is to be filled in by the laboratory.* A sample's track
+  of allele fractions at single-nucleotide sites. For an embryo, read from the PGT pipeline's VCF, each
+  point is the share of the embryo's reads that carry the alternate allele (0 to 1) at a site where only
+  one parent carries that allele, drawn in that parent's colour; where the run wrote PCF segments, each
+  parent's are drawn over the points. From HiFiCNV the track holds the folded minor allele fraction
+  instead (0 to 0.5), with no parent of origin. It is one of the tracks on which the analyst judges an
+  embryo's aneuploidy and large structural variants; CoGA makes no call from it.
 - **Assembly** — the reference genome build (for example GRCh38) a project uses.
 - **cfDNA** — cell-free DNA. In NIPT: the DNA in maternal plasma, mostly maternal with a small fetal part.
 - **ClinVar** — the public archive of variant–condition interpretations.

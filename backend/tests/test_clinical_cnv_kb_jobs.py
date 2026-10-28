@@ -8,6 +8,14 @@ build runs, stops a build that outlives its timeout or whose job was closed mean
 writes only while the job is its own; the status and a rebuild request first close a job
 whose worker is gone. The one-active rule and the closing itself are SQL, checked against
 real Postgres in ``integration/test_clinical_cnv_kb_one_active_job.py``.
+
+A rebuild is an administrator's (the route requires one), and it ran whoever had asked for
+it by then (SEC-35). The job now keeps its requester by the account's id, and runs only for
+an active administrator, as the owner decided on 2026-10-28: a job whose requester no longer
+exists, has been deactivated or is no longer an administrator when it starts ends failed,
+saying why, with nothing built or loaded; and since the build, which writes nothing, runs
+for up to two hours before the load, a requester who lost those rights meanwhile has nothing
+loaded either. Neither refusal names the account in the log.
 """
 
 from __future__ import annotations
@@ -26,8 +34,25 @@ from fastapi import HTTPException
 from sqlalchemy.exc import IntegrityError
 
 from backend.app.services import clinical_cnv_kb_jobs as kb
+from backend.app.services.access_control import CurrentUser
 
 NOW = datetime(2026, 9, 29, tzinfo=timezone.utc)
+REQUESTER_ID = "00000000-0000-0000-0000-0000000000d1"
+REQUESTER_EMAIL = "lab.admin@example.org"
+
+
+def _account(*, is_active: bool = True, role: str = "admin") -> CurrentUser:
+    """The account that asks for the rebuild, as the lookup finds it."""
+    return CurrentUser(
+        id=REQUESTER_ID,
+        username="lab.admin",
+        email=REQUESTER_EMAIL,
+        first_name="Given-d1",
+        last_name="Surname-d1",
+        role=role,
+        is_active=is_active,
+        created_at=NOW,
+    )
 
 
 def _job_row(**overrides) -> dict:
@@ -122,13 +147,13 @@ def test_status_names_the_active_job_and_whether_the_script_is_there(monkeypatch
 def test_a_rebuild_is_refused_without_the_build_script(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(kb, "_script_path", lambda: None)
     with pytest.raises(HTTPException) as refused:
-        asyncio.run(kb.queue_clinical_cnv_kb_rebuild(_Session(), assembly="GRCh38", skip_clinvar=False, requested_by="a"))
+        asyncio.run(kb.queue_clinical_cnv_kb_rebuild(_Session(), assembly="GRCh38", skip_clinvar=False, requested_by=_account()))
     assert refused.value.status_code == 503
 
 
 def test_a_rebuild_for_an_unknown_assembly_is_refused(script: Path) -> None:
     with pytest.raises(HTTPException) as refused:
-        asyncio.run(kb.queue_clinical_cnv_kb_rebuild(_Session(), assembly="hg19", skip_clinvar=False, requested_by="a"))
+        asyncio.run(kb.queue_clinical_cnv_kb_rebuild(_Session(), assembly="hg19", skip_clinvar=False, requested_by=_account()))
     assert refused.value.status_code == 404
 
 
@@ -140,7 +165,7 @@ def test_only_one_rebuild_runs_at_a_time(script: Path) -> None:
         insert_error=IntegrityError("INSERT", {}, Exception("duplicate key")),
     )
     with pytest.raises(HTTPException) as refused:
-        asyncio.run(kb.queue_clinical_cnv_kb_rebuild(session, assembly="GRCh38", skip_clinvar=False, requested_by="a"))
+        asyncio.run(kb.queue_clinical_cnv_kb_rebuild(session, assembly="GRCh38", skip_clinvar=False, requested_by=_account()))
     assert refused.value.status_code == 409
     assert session.rolled_back is True
 
@@ -173,7 +198,7 @@ def test_a_rebuild_request_first_closes_a_job_whose_worker_is_gone(script: Path,
 
     monkeypatch.setattr(kb, "_run_job", run_job)
     session = _Session(assembly={"id": "asm-1", "assembly_name": "GRCh38"})
-    asyncio.run(kb.queue_clinical_cnv_kb_rebuild(session, assembly="GRCh38", skip_clinvar=False, requested_by="a"))
+    asyncio.run(kb.queue_clinical_cnv_kb_rebuild(session, assembly="GRCh38", skip_clinvar=False, requested_by=_account()))
 
     sqls = [sql for sql, _ in session.statements]
     closing = next(i for i, sql in enumerate(sqls) if _closes_stale_jobs(sql))
@@ -194,7 +219,7 @@ def test_a_queued_rebuild_starts_its_job_in_the_background(script: Path, monkeyp
             _Session(assembly={"id": "asm-1", "assembly_name": "GRCh38"}),
             assembly="GRCh38",
             skip_clinvar=True,
-            requested_by="lab.admin",
+            requested_by=_account(),
         )
         await asyncio.sleep(0)  # let the background task run
         return job
@@ -215,7 +240,8 @@ def test_a_job_is_taken_only_while_queued(monkeypatch: pytest.MonkeyPatch) -> No
     [(sql, params)] = session.statements
     assert "SET status = 'running', worker_id = :worker_id" in sql and "heartbeat_at = now()" in sql
     assert sql.endswith("WHERE id = CAST(:job_id AS uuid) AND status = 'queued' "
-                        "RETURNING assembly_id::text AS assembly_id, assembly_name, skip_clinvar, requested_by")
+                        "RETURNING assembly_id::text AS assembly_id, assembly_name, skip_clinvar, requested_by, "
+                        "requested_by_id::text AS requested_by_id")
     assert params == {"job_id": "job-1", "worker_id": "worker-a"} and session.committed
     assert row == {"assembly_id": "asm-1", "assembly_name": "GRCh38"}
 
@@ -243,7 +269,13 @@ def test_a_write_is_guarded_by_whose_job_it_is(monkeypatch: pytest.MonkeyPatch, 
 
 # --- running a job -------------------------------------------------------------------------------
 
-_ROW = {"assembly_id": "asm-1", "assembly_name": "GRCh38", "skip_clinvar": False, "requested_by": "lab.admin"}
+_ROW = {
+    "assembly_id": "asm-1",
+    "assembly_name": "GRCh38",
+    "skip_clinvar": False,
+    "requested_by": "lab.admin",
+    "requested_by_id": REQUESTER_ID,
+}
 _HEARTBEAT = "heartbeat_at = now()"
 
 
@@ -299,16 +331,25 @@ def _run(
     update_errors: dict[str, Exception] | None = None,
     still_ours: Callable[[str], bool] = lambda assignments: True,
     stderr: bytes | None = None,
+    accounts: dict[str, CurrentUser] | None = None,
+    during_build: Callable[[dict[str, CurrentUser]], None] | None = None,
 ) -> SimpleNamespace:
     """Run one job against stand-ins; each write is recorded with the worker it is guarded by.
-    A build that succeeds writes ``tsv`` and, unless it is None, ``sources``."""
-    run = SimpleNamespace(updates=[], commands=[], applied=[], claims=[], processes=[])
+    A build that succeeds writes ``tsv`` and, unless it is None, ``sources``. The requester's
+    account is looked up in ``accounts`` (by default an active administrator), as it is at
+    that moment: ``during_build`` changes it while the build runs."""
+    run = SimpleNamespace(updates=[], commands=[], applied=[], claims=[], processes=[], looked_up=[])
+    accounts = {REQUESTER_ID: _account()} if accounts is None else accounts
 
     async def claim_job(job_id, worker_id):
         run.claims.append(worker_id)
         if claim_error:
             raise claim_error
         return row
+
+    async def lookup(_session, user_id):
+        run.looked_up.append(user_id)
+        return accounts.get(user_id)
 
     async def update_job(job_id, worker_id, assignments, params):
         run.updates.append((assignments, params, worker_id))
@@ -328,6 +369,8 @@ def _run(
             b"downloading ClinGen\nbuild step failed\n" if returncode else b"built 1 region\n"
         )
         run.processes.append(_Process(returncode, said, runtime))
+        if during_build is not None:
+            during_build(accounts)
         return run.processes[-1]
 
     async def apply_text(session, **kwargs):
@@ -335,6 +378,7 @@ def _run(
         return type("Result", (), {"inserted": 1})()
 
     monkeypatch.setattr(kb, "get_postgres_sessionmaker", lambda: _JobSession)
+    monkeypatch.setattr(kb, "get_current_user_by_id", lookup)
     monkeypatch.setattr(kb, "_claim_job", claim_job)
     monkeypatch.setattr(kb, "_update_job", update_job)
     monkeypatch.setattr(kb.asyncio, "create_subprocess_exec", subprocess_exec)
@@ -562,3 +606,102 @@ def test_a_job_closed_before_the_load_does_not_replace_the_knowledgebase(
 
     assert run.commands and run.applied == []
     assert [assignments for assignments, *_ in run.updates] == [_HEARTBEAT]
+
+
+# --- the account that requested the rebuild (SEC-35) ---------------------------------------------
+
+
+def test_a_queued_rebuild_keeps_its_requester_by_the_account_id(script: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # The run checks the account the job names by its id, as an import job does (SEC-32): the
+    # e-mail address it was asked under is shown with the job, and a Microsoft sign-in may
+    # change it later.
+    async def run_job(job_id: str) -> None:
+        return None
+
+    monkeypatch.setattr(kb, "_run_job", run_job)
+    session = _Session(assembly={"id": "asm-1", "assembly_name": "GRCh38"})
+    asyncio.run(kb.queue_clinical_cnv_kb_rebuild(session, assembly="GRCh38", skip_clinvar=False, requested_by=_account()))
+
+    [(sql, params)] = [(sql, params) for sql, params in session.statements if sql.startswith("INSERT INTO clinical_cnv_kb_jobs")]
+    assert "requested_by_id" in sql and "CAST(:requested_by_id AS uuid)" in sql
+    assert (params["requested_by"], params["requested_by_id"]) == (REQUESTER_EMAIL, REQUESTER_ID)
+
+
+# The requester as the lookup finds it when the rebuild starts or before it loads, and what the
+# job says: the account deleted (its jobs keep no link to it), no account with the id, the
+# account deactivated, or no longer an administrator.
+_LOST_RIGHTS = [
+    pytest.param({**_ROW, "requested_by_id": None}, {}, "REQUESTER_GONE_ERROR", id="account-deleted-link-cleared"),
+    pytest.param(_ROW, {}, "REQUESTER_GONE_ERROR", id="no-account-has-the-id"),
+    pytest.param(_ROW, {REQUESTER_ID: _account(is_active=False)}, "REQUESTER_INACTIVE_ERROR", id="deactivated"),
+    pytest.param(
+        _ROW, {REQUESTER_ID: _account(role="viewer")}, "REQUESTER_NOT_ADMIN_ERROR", id="no-longer-an-administrator"
+    ),
+]
+
+
+@pytest.mark.parametrize(("row", "accounts", "error"), _LOST_RIGHTS)
+def test_a_rebuild_whose_requester_lost_their_rights_before_it_started_is_not_run(
+    script: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    row: dict,
+    accounts: dict[str, CurrentUser],
+    error: str,
+) -> None:
+    caplog.set_level(logging.DEBUG)
+    run = _run(monkeypatch, row=row, accounts=accounts)
+
+    # Before, the build ran and its knowledgebase was loaded, whoever had asked for it.
+    assert run.commands == [], "the build ran for an account that may no longer ask for it"
+    assert run.applied == []
+    expected = getattr(kb, error)
+    assert run.updates == [(kb._FAILED, {"error": expected}, run.claims[0])]
+    # The job says why, and that the knowledgebase from before stays.
+    assert "the account that requested this rebuild" in expected
+    assert "The knowledgebase from before stays as it was" in expected
+    # The log names neither the account nor its address.
+    for personal in (REQUESTER_ID, REQUESTER_EMAIL, "lab.admin", "Given-d1", "Surname-d1"):
+        assert personal not in caplog.text
+
+
+@pytest.mark.parametrize(("row", "accounts", "error"), _LOST_RIGHTS[1:])
+def test_a_rebuild_whose_requester_lost_their_rights_while_it_built_loads_nothing(
+    script: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    row: dict,
+    accounts: dict[str, CurrentUser],
+    error: str,
+) -> None:
+    # Nothing polls for a rebuild: it starts as it is queued, and its build, which writes
+    # nothing, runs for up to two hours before the load replaces the knowledgebase. A
+    # requester deleted, deactivated or demoted meanwhile has nothing loaded.
+    def lose_rights(current: dict[str, CurrentUser]) -> None:
+        current.clear()
+        current.update(accounts)
+
+    caplog.set_level(logging.DEBUG)
+    run = _run(monkeypatch, row=row, during_build=lose_rights)
+
+    assert run.commands, "the build ran: its requester was an active administrator when it started"
+    # Before, the knowledgebase was replaced.
+    assert run.applied == [], "the knowledgebase was loaded for an account that may no longer ask for it"
+    assignments, params, worker = run.updates[-1]
+    assert assignments.startswith("status = 'failed'") and worker == run.claims[0]
+    assert params["error"] == getattr(kb, error)
+    assert "built 1 region" in params["log"]
+    assert run.looked_up == [REQUESTER_ID, REQUESTER_ID]  # as it started, and before the load
+    for personal in (REQUESTER_ID, REQUESTER_EMAIL, "lab.admin", "Given-d1", "Surname-d1"):
+        assert personal not in caplog.text
+
+
+@pytest.mark.parametrize("role", ["admin", "superuser"])
+def test_the_rebuild_of_an_active_administrator_is_loaded(
+    script: Path, monkeypatch: pytest.MonkeyPatch, role: str
+) -> None:
+    run = _run(monkeypatch, accounts={REQUESTER_ID: _account(role=role)})
+
+    assert len(run.applied) == 1
+    assert run.updates[-1][0].startswith("status = 'completed'")
+    assert run.looked_up == [REQUESTER_ID, REQUESTER_ID]

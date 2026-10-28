@@ -6,8 +6,10 @@ take a member's new sample ID and its father and mother from the request; the st
 (``PUT /families/{family}/structure``) takes the IDs of the members it adds. One that holds a
 control character (C0 or DEL: a line break, a tab, an escape, a NUL) or whitespace is refused
 (400) with the rule's message, before anything is read or written under it: no member of the
-request is renamed, and a NUL never reaches Postgres. The whitespace around an ID is still
-stripped, and an empty parent still clears the link. All IDs here are synthetic.
+request is renamed, and a NUL never reaches Postgres. So, since SEC-15, is one that holds a C1
+control, a text-direction or zero-width character, a ``/`` or a ``\\``, or is ``.`` or ``..``.
+The whitespace around an ID is still stripped, and an empty parent still clears the link. All
+IDs here are synthetic.
 """
 
 from __future__ import annotations
@@ -38,6 +40,8 @@ from backend.app.services.family_identifiers import IDENTIFIER_RULE
 FAMILY = "FAM001"
 FATHER, MOTHER, CHILD = "FATHER1", "MOTHER1", "CHILD1"
 NUL, TAB, LF, ESC, DEL, NBSP = "\x00", "\t", "\n", "\x1b", "\x7f", "\xa0"
+# A C1 control, a text-direction character and a zero-width one (SEC-15).
+NEL, RLO, ZWSP = "\x85", "\u202e", "\u200b"
 
 
 @pytest.fixture(autouse=True)
@@ -136,6 +140,11 @@ def _refusal(detail: str) -> str:
         ({"mother_id": f"MOTHER{DEL}1"}, "Mother ID 'MOTHER\\x7f1' contains a control character (\\x7f)."),
         # A valid new ID does not let a bad parent through: nothing is renamed either.
         ({"sample_id": "CHILD2", "mother_id": "MOTHER 1"}, "Mother ID 'MOTHER 1' contains a space."),
+        # SEC-15: a path, and characters a reader cannot see.
+        ({"sample_id": "../CHILD2"}, "Sample ID '../CHILD2' contains a slash (/)."),
+        ({"sample_id": ".."}, "Sample ID '..' is '..'."),
+        ({"father_id": f"FATHER{RLO}1"}, "Father ID 'FATHER\\u202e1' contains a text-direction character (\\u202e)."),
+        ({"mother_id": f"MOTHER{ZWSP}1"}, "Mother ID 'MOTHER\\u200b1' contains a zero-width character (\\u200b)."),
     ],
 )
 async def test_a_member_edit_refuses_an_id_no_sample_can_be_stored_under_before_anything_is_read(
@@ -227,6 +236,11 @@ def test_an_id_that_is_empty_once_stripped_is_left_to_the_route() -> None:
         ({"sample_id": MOTHER, "new_sample_id": "MOTHER 2"}, "Sample ID 'MOTHER 2' contains a space."),
         ({"sample_id": CHILD, "father_id": f"FATHER{ESC}1"}, "Father ID 'FATHER\\x1b1' contains a control character (\\x1b)."),
         ({"sample_id": CHILD, "mother_id": f"MOTHER{TAB}1"}, "Mother ID 'MOTHER\\t1' contains a control character (\\t)."),
+        ({"sample_id": MOTHER, "new_sample_id": "MOTHER\\2"}, "Sample ID 'MOTHER\\2' contains a backslash (\\)."),
+        (
+            {"sample_id": MOTHER, "new_sample_id": f"MOTHER{ZWSP}2"},
+            "Sample ID 'MOTHER\\u200b2' contains a zero-width character (\\u200b).",
+        ),
     ],
 )
 async def test_a_batch_edit_refuses_such_an_id_before_its_first_member_is_renamed(
@@ -358,6 +372,9 @@ def _structure_family(monkeypatch: pytest.MonkeyPatch) -> None:
         (f"SIB{NUL}1", "Sample ID 'SIB\\x001' contains a control character (\\x00)."),
         (f" SIB{LF}1 ", "Sample ID 'SIB\\n1' contains a control character (\\n)."),
         ("SIB 1", "Sample ID 'SIB 1' contains a space."),
+        (f"SIB{NEL}1", "Sample ID 'SIB\\x851' contains a control character (\\x85)."),
+        ("SIB/1", "Sample ID 'SIB/1' contains a slash (/)."),
+        (".", "Sample ID '.' is '.'."),
     ],
 )
 async def test_a_structure_edit_refuses_to_add_a_member_no_sample_can_be_stored_under(

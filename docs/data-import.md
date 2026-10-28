@@ -79,7 +79,11 @@ was never shipped (OPS-17). Build them with the clinical CNV knowledgebase rebui
 (the ↻ button next to the clinical-CNV count on **Admin → Species & assemblies**;
 `POST /admin/clinical-cnv-kb/rebuild`), or upload a file (below). A rebuild whose ClinGen dosage
 curation or recurrent CNV regions cannot be loaded fails, says why on that page, and leaves the
-clinical CNVs as they were.
+clinical CNVs as they were. A rebuild runs, and loads what it built, only while the
+administrator who asked for it is an active administrator (SEC-35): it keeps that account by
+its id, and checks it as it starts and again before the load, as the build runs for up to two
+hours before it. Deactivated, set to another role or deleted by then, the rebuild ends failed,
+saying why, and leaves the clinical CNVs as they were.
 
 ClinGen's recurrent CNV file is pinned per assembly by its SHA-256
 (`CLINGEN_RECURRENT_CNV_SHA256` in `scripts/clinical_cnv_knowledgebase.py`): the rebuild reads
@@ -239,7 +243,12 @@ change is also recorded in `CHANGELOG.md` and TF-18 §8.
 The gene reference is the cached information per human gene: names and identifiers, disease
 links, dosage, constraint, expression and more (`gene_info`). An admin refreshes it from
 **Admin → Species & assemblies** (↻ next to the gene count) or the gene reference page
-(`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`).
+(`/admin/reference/gene-reference`; `POST /admin/gene-reference/refresh-all`). The refresh runs
+as a job that keeps the administrator who asked for it by the account's id, and a worker runs
+it only while that account is an active administrator (SEC-35): deactivated, set to another
+role or deleted by then, the job ends failed, saying why, and writes no gene record, also
+when it is taken up again after its worker stopped. The refresh a start queues on an empty
+cache (`startup-bootstrap`) is no account's, and runs.
 
 HGNC decides which human genes exist. The sync takes the HGNC complete set as its list of
 genes. A symbol that HGNC has renamed is moved onto the current symbol, keeping its locus. A
@@ -347,7 +356,10 @@ one that loops, is left out (`_listed_package_folder` in
 [family_package_source.py](../backend/app/services/family_package_source.py) checks each folder
 with the import's own folder guard before it looks into it), and so is one that leads into the
 temporary folder a bucket package is downloaded to, which is no import root. A symlink that
-stays under the roots is followed, and the folder it leads to is listed. Before, the list
+stays under the roots is followed, and the folder it leads to is listed. A `ped/` folder or a
+long-read folder in a package that is a symlink is followed too, wherever it leads; Discover
+and the validation report it
+([A package folder that is a symbolic link](#4-package-layout-and-manifest)). Before, the list
 followed a folder linked out of the root: it read the manifest it found there, showed the
 package under that manifest's family and analysis type, and named its path outside the root,
 which the import then refused. Typed, such a folder is refused with the reason
@@ -396,10 +408,12 @@ has run. The time left is the running dataset's: the datasets after it are not e
 the page says how many follow. It is first given after half a minute of reading.
 
 A job runs as the account that queued it, found by the account's id whatever its e-mail
-address is by then (SEC-32), and only while that account is active: a job whose account has
-been deactivated, or no longer exists, when a worker takes it up is not run. It ends `failed`,
-saying why, with nothing of the family written; an active administrator queues the import
-again. An import already running when its account is deactivated runs to its end.
+address is by then (SEC-32), and only while that account is an active administrator, as
+queueing an import requires (SEC-35): a job whose account has been deactivated, is no longer
+an administrator, or no longer exists when a worker takes it up is not run, also when a job
+still `validating` is taken up again after its worker stopped. It ends `failed`, saying why,
+with nothing of the family written; an active administrator queues the import again. An
+import already running when its account is deactivated or demoted runs to its end.
 
 Jobs run on background workers: one job at a time per backend process, or more with
 `FAMILY_IMPORT_WORKER_COUNT` (up to 8). A running job writes a heartbeat every minute. The
@@ -708,15 +722,32 @@ Discover names the files it looks for after the family and sample IDs, and looks
 the package folder only (`package_path_within` in
 [family_package_common.py](../backend/app/services/family_package_common.py)). An ID is read as
 written: a `*`, `?` or `[` in it matches only itself, so one sample never takes another's file,
-and a leading `~` is part of the name, not the home folder. The ID rule lets an ID be a path out
-of the folder (an absolute path, or one whose `..` climb out of it): such an ID names no file
-Discover looks for, Discover warns about it (`family_id_leaves_package`,
-`sample_id_leaves_package`), and when it finds no PED it does not propose `<family ID>.ped` for
-such a family ID. A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
+and a leading `~` is part of the name, not the home folder. An ID is no path (the ID rule,
+[Validation](#validation)): one that holds a `/` or a `\`, or is `.` or `..`, is refused
+(`family_id_invalid`, `sample_id_invalid`) before Discover looks anything up under it, so no
+file named after an ID lies outside the package. Discover used to warn about such an ID
+(`family_id_leaves_package`, `sample_id_leaves_package`) and draft a manifest for it (SEC-15).
+A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
 package, or one that loops, counts as absent, as validation refuses it; so does a long-read
 per-sample entry that loops (looked up, it failed Discover and the package list with a 500).
 A folder named like a PED (`FAM1.ped/`) is no PED to Discover or the package list (Discover
 read it as the PED and failed with a 500).
+
+**A package folder that is a symbolic link is reported.** The package list and Discover read
+some of a package's folders by their layout: `ped/`, a long-read dataset folder (`snv/`, `sv/`,
+`cnv/`, `repeats/`, `paraphase/`, `mito/`), a folder in one (a sample's, `snv/HG002/`) and a
+folder in that. When one of them is a symbolic link they follow it, wherever it leads: a PED or
+a per-sample folder behind it lists the package, and Discover proposes a member from a linked
+per-sample folder, though what it holds may be another family's. Discover and the validation
+(a dry run, and the import, which runs it) report each such link as a warning
+(`package_folder_link`): the folder in the package, and where it leads, as a path relative to
+the import folder that holds it (`COUPLE2/snv/HG003`) or as "a folder outside the import
+folders". A message never names an absolute path. Nothing under a link is looked into, and a
+link that leads to no folder is not reported. The owner chose a warning over a refusal
+(SEC-27, `package_folder_link_issues` in
+[family_package_source.py](../backend/app/services/family_package_source.py)). The guards
+above are unchanged: a file the manifest names, or Discover looks for, through a link that
+leads out of the package is still not read.
 
 ### The manifest
 
@@ -1015,7 +1046,12 @@ to be checked sample by sample, as each was written (SAFE-3). When the BED or TR
 sample's file (a coverage BED, an APCAD file read as a BED, a TRGT VCF), the dataset's failure names
 the sample and the file, by its path in the package, before the loader's words: *The coverage BED of
 S2 (coverage/S2.bed): No valid BED records found*. The loaders' own words, which a single-file upload
-answers with, name neither, and the dataset used to fail with them alone. A monogenic NIPT's per-sample SNV
+answers with, name neither, and the dataset used to fail with them alone. A per-target coverage
+table's refusal names the sample and the table too (*The per-target coverage table of S2
+(coverage_S2.txt) holds no target*; it named the table alone, or, for one that is no text or whole
+gzip, neither), and a family TRGT VCF's names the file before the loader's words, which name the
+samples (*The family TRGT VCF (trgt/family.vcf): No valid TRGT records found for S2*; it named no
+file: DATA-9). A monogenic NIPT's per-sample SNV
 files are checked for their one sample column, a record and, for a BGZF file, its end-of-file block
 before the plasma's calls are written.
 The `paraphase` dataset reads every sample's JSON before it replaces any
@@ -1149,7 +1185,8 @@ sample).
 
 **Discover without a PED.** The members are those per-sample folders, named under
 `family.add_members`, so the manifest needs no `ped`. A folder whose name cannot be a sample ID
-(with a space or a control character) is listed too, and Discover refuses it
+(with a space, a control character, a `\` or another character the ID rule refuses) is listed
+too, and Discover refuses it
 (`sample_id_invalid`) rather than leave a member out. Each member's sex is the karyotype TRGT
 genotyped its repeats with (`--karyotype XX` or `XY` in the TRGT VCF's `##trgtCommand`): the
 pipeline sets it from its samplesheet, so it is the recorded sex, which the Sample QC checks
@@ -1212,14 +1249,28 @@ Discover, dry run and import check that:
 - the family ID (the manifest's `family_id`, else the folder name; for Discover, the request's
   `family_id` first) and every sample ID (in the PED, and for Discover a parent the PED names
   but lacks as a member; under `family.add_members` as a member or a parent; a long-read
-  package's per-sample folder) is printable text without spaces. The
-  whitespace around an ID is stripped. An ID that holds a control character (C0, `\x00`–`\x1f`:
-  a line break, a tab, an escape; or DEL, `\x7f`) or whitespace is refused (`family_id_invalid`,
-  `sample_id_invalid`), and nothing else of the package is read until it is corrected: Discover
-  drafts no manifest. Such an ID would reach the pedigree, the report, the audit trail, the logs
-  and file paths, and a NUL cannot be stored at all. The message writes the character as an
-  escape (`\n`, `\x1b`) and says where the ID comes from
-  ([family_identifiers.py](../backend/app/services/family_identifiers.py));
+  package's per-sample folder) is printable text without spaces, and no path. The
+  whitespace around an ID is stripped. An ID is refused (`family_id_invalid`,
+  `sample_id_invalid`), and nothing else of the package is read until it is corrected (Discover
+  drafts no manifest), when it holds a control character (C0, `\x00`–`\x1f`: a line break, a
+  tab, an escape; DEL, `\x7f`; or C1, `\x80`–`\x9f`) or whitespace; another character a
+  reader cannot see (SEC-15): a text-direction character (U+200E, U+200F, U+202A–U+202E,
+  U+2066–U+2069, U+061C), with which `FAM\u202e100` shows as `FAM001`, a zero-width character
+  (U+200B–U+200D, U+2060, and U+FEFF, also the byte-order mark a text file can start with), or
+  any other character that is not printable (a soft hyphen, a private-use or unassigned code
+  point, a file name that is not UTF-8); or a `/` or a `\` anywhere, or when it is `.` or `..`
+  (SEC-15), which a folder named after the ID and a URL's path segment read as a separator,
+  the folder itself or its parent. `..` inside a longer ID (`F..1`) is part of one name, and
+  is kept. Such an ID would reach the pedigree, the report, the audit trail, the logs, file
+  paths and the app's links; two IDs that look the same would name two records, and a NUL
+  cannot be stored at all. The message shows the ID with each character a reader cannot see
+  written as its escape (`\n`, `\x1b`, `\u200b`), says what is wrong and where the ID comes
+  from, and states the rule ([family_identifiers.py](../backend/app/services/family_identifiers.py)).
+  An ID stored before a part of the rule came in is not changed (the data are synthetic); an
+  import or an edit that gives it is refused like any other. On a case-insensitive file
+  system (a macOS bind mount in development) two family IDs that differ only in case share
+  every folder named after an ID; the rule leaves case alone, since production storage is
+  case-sensitive ([development.md](development.md));
 - the PED parses as six-column PED, holds one family and matches `family_id`; sample IDs are
   unique and every parent is in the PED. For an import into an existing family the PED file
   may be missing: the family's stored pedigree is used. A manifest without `ped` must name its
@@ -1257,9 +1308,9 @@ A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional
 warning. A bad phenotype row (an unknown person, HPO ID or status) is a warning: the row is
 skipped and never blocks the import.
 
-The API applies the control-character half of the ID rule to every request that looks an ID
-up. A family or sample ID in a request's path or in its `family_id` or `sample_id` query
-parameter that holds a control character is refused with 400 once the caller is signed in,
+The API applies a part of the ID rule to every request that looks an ID up. A family or
+sample ID in a request's path or in its `family_id` or `sample_id` query parameter that holds
+a C0 control character or DEL is refused with 400 once the caller is signed in,
 before any lookup, with the same answer for every caller; so is any other path parameter
 with one, and a NUL in any query value. A `%00` in a URL arrives as a NUL, and Postgres cannot
 compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
@@ -1287,8 +1338,10 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
   The commit removes the replaced family and its mark; a replacement refused before the
   delete removes the mark.
 - Both refuse (400), before anything is written, a family or sample ID (a PED's parent IDs
-  too) that is not printable text without spaces, as a package import does
-  ([Validation](#validation)); the whitespace around a typed-in ID is stripped.
+  too) that the ID rule refuses, as a package import does ([Validation](#validation)): one
+  that is not printable text without spaces (a control character, whitespace, a
+  text-direction or zero-width character), holds a `/` or a `\`, or is `.` or `..`. The
+  whitespace around a typed-in ID is stripped.
 - The edits of an existing family refuse such an ID the same way: a member's new sample ID,
   the father or mother a member edit names, and a member the structure edit adds
   ([family-member-management.md](family-member-management.md)).
@@ -1764,11 +1817,11 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | --- | --- |
 | `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`, or its path cannot be followed: it runs through a symlink loop, or starts with `~` for a home folder the server does not have. |
 | A folder in the import folder is not in the package list | It holds no manifest, no PED (at its top or in `ped/`) and no long-read per-sample folders, or the import refuses it: it is a symlink that leads out of `FAMILY_IMPORT_ROOTS`, or one that loops. Type its path and validate it to see the reason (`package_folder_not_allowed`). |
-| `family_id_invalid` | The family ID holds a control character or whitespace, or is empty. The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
-| `sample_id_invalid` | A sample ID holds a control character or whitespace. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
-| `family_id_leaves_package`, `sample_id_leaves_package` (warning) | The family or sample ID is a path out of the package folder: an absolute path, or one that climbs out with `..`. Discover looked for none of its files outside the package. Check the ID where it comes from. |
+| `family_id_invalid` | The family ID holds a control character, whitespace, a text-direction or zero-width character or another character that is not printable, a `/` or a `\`, or is `.`, `..` or empty ([Validation](#validation)). The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
+| `sample_id_invalid` | A sample ID breaks the same rule. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
 | `manifest_missing` | The folder has no `manifest.yaml`, `.yml` or `.json`. Run Discover and Write manifest (local folders only). |
 | `manifest_outside_package` | The folder's `manifest.yaml` (`.yml`, `.json`) is a symlink that leads out of the folder, or one that loops. Put the manifest itself in the folder. Write manifest answers 400 with the same message. |
+| `package_folder_link` (warning) | The package's `ped/` folder, a long-read dataset folder, a sample's folder in one, or a folder in that is a symbolic link. The message says where it leads, relative to the import folder that holds it, or that it lies outside the import folders. The package list and Discover follow it (a member may come from it): check that what it holds belongs to this family, or put the files themselves in the package. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest, or the PED path given to Discover, names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |
 | `manifest_schema_version_unsupported` | `schema_version` is not 1. |
 | `ped_family_mismatch`, `ped_multiple_families` | The PED's family ID differs from `family_id`, or it holds more than one family. |
@@ -1777,7 +1830,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | `manifest_relationship_unknown_member` | A `family.relationships` entry names someone who is neither in the PED nor in `family.add_members`. |
 | "Sample '…' not found in family" (haplotypes) | The phased VCF has a sample the family lacks, such as a PGT index the PED does not hold; add it under `family.add_members`. |
 | `existing_family_or_samples` | The family or a sample exists; choose `update` or `overwrite`. |
-| "Not run: the account that requested this import has been deactivated …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, or deleted, before a worker ran it, and a job runs as the account that queued it. Nothing was written: queue the import again as an active administrator. |
+| "Not run: the account that requested this import has been deactivated …", "Not run: the account that requested this import is no longer an administrator …", "Requesting user no longer exists" (a job) | The account that queued the job was deactivated, set to another role than administrator, or deleted, before a worker ran it, and a job runs only as an active administrator, the account that queued it. Nothing was written: queue the import again as an active administrator. |
 | "sample column(s) … match no sample in the family" | Set `vcf_sample` on the dataset. |
 | "… has no sample column for X: '…' is Y" | A per-sample file names another sample: point the entry at X's own file, or, if the file is X's after all, set `vcf_sample` on X's entry. An upload (TRGT, Sniffles, Spectre) takes X's own file. |
 | "… VCF has no #CHROM line", "… has a record before its #CHROM line", "… has more than one #CHROM line" | An uploaded Sniffles or Spectre VCF has no header line naming its sample columns before its records, or two files were joined into one: upload the sample's VCF as the caller wrote it. |
@@ -1798,7 +1851,7 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | *Import incomplete* for `snv` or `haplotypes`, with no import job | A small-variant upload with `overwrite` failed after it had deleted the callset it replaced ([section 6](#6-single-file-uploads)). Upload the callset again, or import it. |
 | *Import incomplete*: "A single-file upload … began rewriting this family's data and has not finished" | An upload is still running, or one stopped (a restart, a crash, running out of memory) or failed after its first write to ClickHouse, and could not put back what it deleted ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once no upload of the family runs, upload again with `overwrite` each dataset and sample the banner names (or import it again with overwrite); each goes from the mark as it is brought again. |
 | *Import incomplete*: "A deletion of this family's data … began and has not finished" | A deletion of the family's data (an admin's deletion of a sample, of its structural variants or of the family, a PED upload or manual family that replaced it, a structure change that cleared its data) is still running, or stopped or failed after its first write to ClickHouse ([The mark of an upload that did not finish](#the-mark-of-an-upload-that-did-not-finish)). Once it no longer runs, upload or import again, with `overwrite`, each dataset and sample the banner names; or, for a sample's deletion, delete the sample again: once it is gone its own items go. |
-| "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset: "The TRGT VCF of … (…): No valid TRGT records found" for a sample's file, "No valid TRGT records found for …" for a family VCF) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
+| "No valid TRGT records found" (TRGT upload, 400, or the `repeats_trgt` dataset: "The TRGT VCF of … (…): No valid TRGT records found" for a sample's file, "The family TRGT VCF (…): No valid TRGT records found for …" for a family VCF) | The TRGT VCF holds no record for the sample (a family VCF: for the samples it names): a header alone, or a file cut short in a copy. Nothing was replaced. Use the sample's complete TRGT VCF. |
 | "… holds no record of the … track", "… holds no interval on a primary chromosome …", "… holds no segment", "… holds no APCAD value for …" | A package's track file holds nothing its reader can store: an empty or truncated pipeline output, or another file than the manifest means. Its dataset failed before the track was deleted ([Where each dataset lands](#where-each-dataset-lands)). Correct the file and import again. |
 | "Paraphase JSON for … holds no gene result", "The NeedlR file of … holds no structural variant", "The SNV file of … holds no record" | That sample's file holds no result; its dataset failed before the sample's data was replaced. |
 | "No mitochondrial call was replaced: the chrM VCF of … holds no variant record" (the `mito` dataset) | A sample's chrM VCF holds no variant record: a failed analysis or a file cut short. Every sample's mitochondrial calls are as they were; rerun the analysis and import its VCF. |

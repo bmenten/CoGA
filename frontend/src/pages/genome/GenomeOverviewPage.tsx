@@ -20,8 +20,8 @@ import GenomeOverviewSidebar, { type GenomeTrackKey, type GenomeTrackVisibility 
 import GenomeOverviewWorkspace, { type Layout } from './GenomeOverviewWorkspace';
 import { normalizeChrom } from '../../lib/chromosomes';
 import {
-  CHROMS,
   DEFAULT_TRACK_WIDTH,
+  GENOME_OVERVIEW_CHROMS,
   roiOnAssembly,
   searchWithResolvedProject,
   useTrackWidth,
@@ -33,9 +33,9 @@ import { routePath } from '../../lib/routePath';
 // does not need to appear in render memo dependency arrays.
 const CHROM_GAP_PX = 8;
 
-/** Every chromosome, each set to `selected`. */
+/** Every chromosome the overview draws, each set to `selected`. */
 const allChroms = (selected: boolean): Record<string, boolean> =>
-  CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: selected }), {} as Record<string, boolean>);
+  GENOME_OVERVIEW_CHROMS.reduce((acc, chrom) => ({ ...acc, [chrom]: selected }), {} as Record<string, boolean>);
 
 /** The chromosomes the page's `?chrom=` list selects: all of them when it names none. */
 const chromSelectionFromSearch = (search: string): Record<string, boolean> => {
@@ -44,7 +44,7 @@ const chromSelectionFromSearch = (search: string): Record<string, boolean> => {
     return allChroms(true);
   }
   const selectedChroms = new Set(chromParams.map(normalizeChrom));
-  return CHROMS.reduce(
+  return GENOME_OVERVIEW_CHROMS.reduce(
     (acc, chrom) => ({ ...acc, [chrom]: selectedChroms.has(chrom) }),
     {} as Record<string, boolean>,
   );
@@ -81,7 +81,7 @@ const GenomeOverviewPage: React.FC = () => {
     chromSelectionFromSearch(location.search),
   );
 
-  const chroms = useMemo(() => CHROMS.filter((chrom) => chromSelected[chrom]), [chromSelected]);
+  const chroms = useMemo(() => GENOME_OVERVIEW_CHROMS.filter((chrom) => chromSelected[chrom]), [chromSelected]);
 
   useEffect(() => {
     setChromSelected(chromSelectionFromSearch(location.search));

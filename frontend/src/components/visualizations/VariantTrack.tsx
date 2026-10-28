@@ -5,6 +5,7 @@ import VizErrorOverlay from './VizErrorOverlay';
 import api from '../../lib/api';
 import type { WithoutNulls } from '../../lib/apiTypes';
 import type { VariantOut, VariantPage } from '../../lib/apiSchema.generated';
+import { formatChromosomeLabel } from '../../lib/chromosomes';
 import { formatGt, hasAltAllele } from '../../lib/genotypes';
 import { cssVar } from '../../lib/colors';
 import { getTrackVariantLimit } from '../../lib/trackSampling';
@@ -270,7 +271,8 @@ const VariantTrack: React.FC<Props> = ({
       {isError && <VizErrorOverlay what="structural variants" onRetry={() => void refetch()} />}
       {tooltip && (
         <VizTooltip x={tooltip.x} y={tooltip.y}>
-          <div>{`${tooltip.v.chr}:${tooltip.v.start}-${tooltip.v.end} ${describeSvType(
+          {/* The chromosome as the viewer names it (#602), however the SV is stored: `chrM`, not `M`. */}
+          <div>{`${formatChromosomeLabel(tooltip.v.chr)}:${tooltip.v.start}-${tooltip.v.end} ${describeSvType(
             tooltip.v.type,
             tooltip.v.copy_change,
           )}${

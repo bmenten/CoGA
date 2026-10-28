@@ -1,12 +1,13 @@
 """The URLs the backend hands out carry each family and sample ID as one encoded segment (SEC-2).
 
 A family or sample ID is printable text without spaces (``family_identifiers.py``), so it may
-hold ``/``, ``?``, ``#``, ``%`` or ``..``. The alignment and signal-track manifests and the
-QC-report link give the browser a URL built from IDs. With the IDs put in as they were, ``?``
-and ``#`` cut the path short, ``%41`` reached the server as ``A`` (another family's sample),
-and a sample ID such as ``../F2/S2`` let the client resolve the request to another family's
-file (the class of #521). Each value is now percent-encoded as one path segment
-(``core/url_path.py``), as the frontend's ``apiPath`` does.
+hold ``?``, ``#``, ``%`` or ``..`` inside a longer name, and one stored before the ID rule
+refused them (SEC-15) may hold ``/`` or be ``..``. The alignment and signal-track manifests
+and the QC-report link give the browser a URL built from IDs. With the IDs put in as they
+were, ``?`` and ``#`` cut the path short, ``%41`` reached the server as ``A`` (another
+family's sample), and a sample ID such as ``../F2/S2`` let the client resolve the request to
+another family's file (the class of #521). Each value is now percent-encoded as one path
+segment (``core/url_path.py``), as the frontend's ``apiPath`` does.
 
 The URLs are read as a browser reads them: ``?`` starts the query, ``#`` the fragment, dot
 segments are resolved, and the server decodes the path once. The requests through the app
@@ -16,8 +17,8 @@ are made the same way (``httpx`` on the ASGI app decodes the path once, as uvico
 Two kinds of ID still cannot be reached through a path segment, whatever the encoding: one
 that is exactly ``.`` or ``..`` (a browser resolves ``%2E%2E`` too), and one holding ``/``,
 since the server matches its routes on the decoded path. Such a request answers 404 rather
-than reaching another resource; whether the ID rule should refuse them is the owner's call
-(SEC-15). All IDs and files are synthetic.
+than reaching another resource; the ID rule refuses both for a new ID since SEC-15, so only an
+ID stored before can be one. All IDs and files are synthetic.
 """
 
 from __future__ import annotations
@@ -43,8 +44,8 @@ from backend.app.services.access_control import CurrentUser
 
 ORIGIN = "http://coga.test"
 
-# IDs holding each character the ID rule allows that has a meaning in a URL, as
-# (family, sample, source).
+# IDs holding each character that has a meaning in a URL, as (family, sample, source): the
+# ID rule allows those but '/' (since SEC-15), which an ID stored before may hold.
 UNSAFE_IDS = {
     "slash": ("F/1", "S/1", "caller/1"),
     "question mark": ("F?1", "S?1", "caller?1"),

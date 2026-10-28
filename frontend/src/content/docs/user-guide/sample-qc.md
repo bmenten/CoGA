@@ -1,6 +1,8 @@
 Open a family and press **Sample QC** to check that the samples are who the pedigree says. A swapped
-tube, a wrong parent, a mislabelled sex, contamination or unexpected relatedness quietly invalidates
-everything downstream, so run it before you interpret.
+tube, a wrong parent, a mislabelled sex or unexpected relatedness quietly invalidates everything
+downstream, so run it before you interpret. It does not measure contamination. Some results can be a
+sign of it, among other causes: a high Mendelian-error rate, or heterozygous calls on a man's X that
+leave his genetic sex indeterminate or female. A pass does not rule contamination out.
 
 The page first works out what kind of case it is and runs only the checks that fit:
 
