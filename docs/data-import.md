@@ -708,11 +708,12 @@ Discover names the files it looks for after the family and sample IDs, and looks
 the package folder only (`package_path_within` in
 [family_package_common.py](../backend/app/services/family_package_common.py)). An ID is read as
 written: a `*`, `?` or `[` in it matches only itself, so one sample never takes another's file,
-and a leading `~` is part of the name, not the home folder. The ID rule lets an ID be a path out
-of the folder (an absolute path, or one whose `..` climb out of it): such an ID names no file
-Discover looks for, Discover warns about it (`family_id_leaves_package`,
-`sample_id_leaves_package`), and when it finds no PED it does not propose `<family ID>.ped` for
-such a family ID. A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
+and a leading `~` is part of the name, not the home folder. An ID is no path (the ID rule,
+[Validation](#validation)): one that holds a `/` or a `\`, or is `.` or `..`, is refused
+(`family_id_invalid`, `sample_id_invalid`) before Discover looks anything up under it, so no
+file named after an ID lies outside the package. Discover used to warn about such an ID
+(`family_id_leaves_package`, `sample_id_leaves_package`) and draft a manifest for it (SEC-15).
+A PED, a NIPT VCF or a dataset's file that is a symlink leading out of the
 package, or one that loops, counts as absent, as validation refuses it; so does a long-read
 per-sample entry that loops (looked up, it failed Discover and the package list with a 500).
 A folder named like a PED (`FAM1.ped/`) is no PED to Discover or the package list (Discover
@@ -1130,7 +1131,8 @@ sample).
 
 **Discover without a PED.** The members are those per-sample folders, named under
 `family.add_members`, so the manifest needs no `ped`. A folder whose name cannot be a sample ID
-(with a space or a control character) is listed too, and Discover refuses it
+(with a space, a control character, a `\` or another character the ID rule refuses) is listed
+too, and Discover refuses it
 (`sample_id_invalid`) rather than leave a member out. Each member's sex is the karyotype TRGT
 genotyped its repeats with (`--karyotype XX` or `XY` in the TRGT VCF's `##trgtCommand`): the
 pipeline sets it from its samplesheet, so it is the recorded sex, which the Sample QC checks
@@ -1193,14 +1195,28 @@ Discover, dry run and import check that:
 - the family ID (the manifest's `family_id`, else the folder name; for Discover, the request's
   `family_id` first) and every sample ID (in the PED, and for Discover a parent the PED names
   but lacks as a member; under `family.add_members` as a member or a parent; a long-read
-  package's per-sample folder) is printable text without spaces. The
-  whitespace around an ID is stripped. An ID that holds a control character (C0, `\x00`–`\x1f`:
-  a line break, a tab, an escape; or DEL, `\x7f`) or whitespace is refused (`family_id_invalid`,
-  `sample_id_invalid`), and nothing else of the package is read until it is corrected: Discover
-  drafts no manifest. Such an ID would reach the pedigree, the report, the audit trail, the logs
-  and file paths, and a NUL cannot be stored at all. The message writes the character as an
-  escape (`\n`, `\x1b`) and says where the ID comes from
-  ([family_identifiers.py](../backend/app/services/family_identifiers.py));
+  package's per-sample folder) is printable text without spaces, and no path. The
+  whitespace around an ID is stripped. An ID is refused (`family_id_invalid`,
+  `sample_id_invalid`), and nothing else of the package is read until it is corrected (Discover
+  drafts no manifest), when it holds a control character (C0, `\x00`–`\x1f`: a line break, a
+  tab, an escape; DEL, `\x7f`; or C1, `\x80`–`\x9f`) or whitespace; another character a
+  reader cannot see (SEC-15): a text-direction character (U+200E, U+200F, U+202A–U+202E,
+  U+2066–U+2069, U+061C), with which `FAM\u202e100` shows as `FAM001`, a zero-width character
+  (U+200B–U+200D, U+2060, and U+FEFF, also the byte-order mark a text file can start with), or
+  any other character that is not printable (a soft hyphen, a private-use or unassigned code
+  point, a file name that is not UTF-8); or a `/` or a `\` anywhere, or when it is `.` or `..`
+  (SEC-15), which a folder named after the ID and a URL's path segment read as a separator,
+  the folder itself or its parent. `..` inside a longer ID (`F..1`) is part of one name, and
+  is kept. Such an ID would reach the pedigree, the report, the audit trail, the logs, file
+  paths and the app's links; two IDs that look the same would name two records, and a NUL
+  cannot be stored at all. The message shows the ID with each character a reader cannot see
+  written as its escape (`\n`, `\x1b`, `\u200b`), says what is wrong and where the ID comes
+  from, and states the rule ([family_identifiers.py](../backend/app/services/family_identifiers.py)).
+  An ID stored before a part of the rule came in is not changed (the data are synthetic); an
+  import or an edit that gives it is refused like any other. On a case-insensitive file
+  system (a macOS bind mount in development) two family IDs that differ only in case share
+  every folder named after an ID; the rule leaves case alone, since production storage is
+  case-sensitive ([development.md](development.md));
 - the PED parses as six-column PED, holds one family and matches `family_id`; sample IDs are
   unique and every parent is in the PED. For an import into an existing family the PED file
   may be missing: the family's stored pedigree is used. A manifest without `ped` must name its
@@ -1238,9 +1254,9 @@ A missing `snv` or `sv_needlr` dataset is a warning; other datasets are optional
 warning. A bad phenotype row (an unknown person, HPO ID or status) is a warning: the row is
 skipped and never blocks the import.
 
-The API applies the control-character half of the ID rule to every request that looks an ID
-up. A family or sample ID in a request's path or in its `family_id` or `sample_id` query
-parameter that holds a control character is refused with 400 once the caller is signed in,
+The API applies a part of the ID rule to every request that looks an ID up. A family or
+sample ID in a request's path or in its `family_id` or `sample_id` query parameter that holds
+a C0 control character or DEL is refused with 400 once the caller is signed in,
 before any lookup, with the same answer for every caller; so is any other path parameter
 with one, and a NUL in any query value. A `%00` in a URL arrives as a NUL, and Postgres cannot
 compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
@@ -1268,8 +1284,10 @@ compare one ([security-posture.md](security-posture.md#1-authentication--rbac)).
   The commit removes the replaced family and its mark; a replacement refused before the
   delete removes the mark.
 - Both refuse (400), before anything is written, a family or sample ID (a PED's parent IDs
-  too) that is not printable text without spaces, as a package import does
-  ([Validation](#validation)); the whitespace around a typed-in ID is stripped.
+  too) that the ID rule refuses, as a package import does ([Validation](#validation)): one
+  that is not printable text without spaces (a control character, whitespace, a
+  text-direction or zero-width character), holds a `/` or a `\`, or is `.` or `..`. The
+  whitespace around a typed-in ID is stripped.
 - The edits of an existing family refuse such an ID the same way: a member's new sample ID,
   the father or mother a member edit names, and a member the structure edit adds
   ([family-member-management.md](family-member-management.md)).
@@ -1744,9 +1762,8 @@ a list for a capture panel takes the panel's key, the `assay_panel` of its cfDNA
 | --- | --- |
 | `package_folder_not_allowed` | The folder is not under `FAMILY_IMPORT_ROOTS`, or its path cannot be followed: it runs through a symlink loop, or starts with `~` for a home folder the server does not have. |
 | A folder in the import folder is not in the package list | It holds no manifest, no PED (at its top or in `ped/`) and no long-read per-sample folders, or the import refuses it: it is a symlink that leads out of `FAMILY_IMPORT_ROOTS`, or one that loops. Type its path and validate it to see the reason (`package_folder_not_allowed`). |
-| `family_id_invalid` | The family ID holds a control character or whitespace, or is empty. The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
-| `sample_id_invalid` | A sample ID holds a control character or whitespace. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
-| `family_id_leaves_package`, `sample_id_leaves_package` (warning) | The family or sample ID is a path out of the package folder: an absolute path, or one that climbs out with `..`. Discover looked for none of its files outside the package. Check the ID where it comes from. |
+| `family_id_invalid` | The family ID holds a control character, whitespace, a text-direction or zero-width character or another character that is not printable, a `/` or a `\`, or is `.`, `..` or empty ([Validation](#validation)). The message says where it comes from (the manifest's `family_id`, the folder name, the request's `family_id`, the PED): correct it there. |
+| `sample_id_invalid` | A sample ID breaks the same rule. The message says where it comes from (the PED, `family.add_members`, a per-sample folder's name, the existing family): correct it there. |
 | `manifest_missing` | The folder has no `manifest.yaml`, `.yml` or `.json`. Run Discover and Write manifest (local folders only). |
 | `manifest_outside_package` | The folder's `manifest.yaml` (`.yml`, `.json`) is a symlink that leads out of the folder, or one that loops. Put the manifest itself in the folder. Write manifest answers 400 with the same message. |
 | "Package manifest path '…' starts with '~'", "… runs through a symlink loop", "Package manifest paths must stay within the package directory" (400) | A path in the manifest, or the PED path given to Discover, names no file in the package. Write it relative to the package folder, without `~`, and replace a symlink on it that leads out of the package or loops. An import job of such a package ends failed with the message. |

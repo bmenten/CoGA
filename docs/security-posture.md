@@ -521,10 +521,15 @@ What the application relies on there:
   to follow (the alignment and signal-track manifests IGV reads, the QC-report link) encode
   each ID the same way (`backend/app/core/url_path.py`), so an ID holding `?`, `#` or `%`
   reaches its own file and one holding `../` cannot reach another family's. Two kinds of ID
-  still cannot be reached through a path segment: one that is exactly `.` or `..` (a browser
+  cannot be reached through a path segment: one that is exactly `.` or `..` (a browser
   resolves it whatever its encoding) and one holding `/` (the backend matches its routes on
-  the decoded path); such a request answers 404. Whether the ID rule should refuse them is
-  open. In-app routes are built the same way, with `routePath` (`lib/routePath.ts`), so a
+  the decoded path); such a request answers 404. The ID rule refuses both since SEC-15, with
+  a `\`, and every character a reader cannot see (a C1 control, a text-direction or
+  zero-width character, any other character that is not printable), wherever an ID is
+  written (`services/family_identifiers.py`); an ID stored before is not changed (the data
+  are synthetic). On a case-insensitive file system (a macOS bind mount in development) two
+  family IDs that differ only in case share every folder named after an ID; production
+  storage is case-sensitive, and the rule leaves case alone. In-app routes are built the same way, with `routePath` (`lib/routePath.ts`), so a
   link or a navigation to a family, panel, CNV or report code keeps an ID holding `?`, `#`,
   `%` or `/` whole; raw, `?` and `#` cut the path short and `/` added a segment no route
   matched (SEC-15). A guard test finds any route template left raw. The IGV page's Back link
