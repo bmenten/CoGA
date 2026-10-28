@@ -53,9 +53,10 @@ def _alignment_candidate_paths(
 ) -> list[Path]:
     """Where the layouts put ``<sample>.<ext><suffix>`` in the family's own folders.
 
-    The IDs come from the request, and the ID rule lets them hold ``/`` and ``..``. Each
-    path is joined and normalised as a string, and one that leaves the family's folder (a
-    sample ID such as ``../F2/S2``) is dropped before anything is looked up. One that
+    The IDs come from the request, and may hold ``/`` and ``..`` (the ID rule refuses both
+    for a new ID since SEC-15, not in a request or an ID stored before). Each path is joined
+    and normalised as a string, and one that leaves the family's folder (a sample ID such as
+    ``../F2/S2``) is dropped before anything is looked up. One that
     stays is kept only when its real path lies inside one of the family's folders too, so
     a symlink cannot lead into another family's folder or out of the data directory
     (``core/family_folders.py``). The endpoints check the IDs against the family's members

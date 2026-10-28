@@ -219,12 +219,13 @@ def test_the_family_is_there_to_be_looked_up(snap: dict[str, Any]) -> None:
 
 
 def test_a_nul_in_a_family_path_is_refused(snap: dict[str, Any]) -> None:
+    from backend.app.services.family_identifiers import IDENTIFIER_RULE
+
     # It used to reach the family lookup, and Postgres failed the request (500).
     r = snap["responses"]["family_nul"]
     assert r["status"] == 400, r
     assert r["json"]["detail"] == (
-        f"family_id '{snap['family']}\\x00X' (in the path) contains a control character (\\x00). "
-        "Family and sample IDs are printable text without spaces."
+        f"family_id '{snap['family']}\\x00X' (in the path) contains a control character (\\x00). {IDENTIFIER_RULE}"
     )
 
 

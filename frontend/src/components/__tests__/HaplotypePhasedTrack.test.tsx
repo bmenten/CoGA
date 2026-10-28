@@ -1,4 +1,4 @@
-import { fireEvent, render } from '@testing-library/react';
+import { fireEvent, render, within } from '@testing-library/react';
 import { beforeEach, describe, expect, test, vi } from 'vitest';
 
 const { useQueryMock } = vi.hoisted(() => ({ useQueryMock: vi.fn() }));
@@ -132,7 +132,7 @@ test('marker tooltip shows colour-coded nucleotide genotypes for all members', (
   // x = 50 over width 500 across region 0–1000 → genomic pos 100 (the first marker).
   fireEvent.mouseMove(canvas, { clientX: 50, clientY: 10 });
   const tooltip = document.body.querySelector('.viz-tooltip');
-  expect(tooltip?.textContent).toContain('1:100');
+  expect(tooltip?.textContent).toContain('chr1:100');
   // ref›alt and every family member, with phased genotypes decoded to nucleotides.
   expect(tooltip?.textContent).toContain('G›A');
   expect(tooltip?.textContent).toContain('FATHER');
@@ -142,6 +142,19 @@ test('marker tooltip shows colour-coded nucleotide genotypes for all members', (
   expect(tooltip?.textContent).toContain('G | G'); // mother 0|0
   // The child's raw marker (hap1 = 0) agrees with its block (hap1 = '0') here.
   expect(tooltip?.textContent).toContain('✓');
+});
+
+// The marker tooltip wrote the chromosome as the route holds it (`1:100`), where the viewer names
+// it chr1 (#602), as the genome overview's SV tooltip does since ENG-20 (found while fixing
+// ENG-20, #1030).
+test('marker tooltip names the chromosome as the viewer does', () => {
+  mockData({ segments });
+  const { container } = renderTrack(true);
+
+  fireEvent.mouseMove(container.querySelector('canvas') as Element, { clientX: 50, clientY: 10 });
+
+  const tooltip = document.body.querySelector('.viz-tooltip') as HTMLElement;
+  expect(within(tooltip).getByText('chr1:100')).toBeInTheDocument();
 });
 
 test('marker tooltip draws an allele that is not a single base in the shared grey', () => {
@@ -181,7 +194,7 @@ test('relative track with no own markers still shows the tooltip on hover near a
   fireEvent.mouseMove(canvas, { clientX: 50, clientY: 10 });
   const tooltip = document.body.querySelector('.viz-tooltip');
   expect(tooltip).not.toBeNull();
-  expect(tooltip?.textContent).toContain('1:100');
+  expect(tooltip?.textContent).toContain('chr1:100');
   expect(tooltip?.textContent).toContain('FATHER');
   expect(tooltip?.textContent).toContain('CHILD');
   expect(tooltip?.textContent).toContain('RELATIVE');
