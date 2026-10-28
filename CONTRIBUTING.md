@@ -89,7 +89,12 @@ The rules these gates enforce, and the ones they cannot:
 - **No lint warnings.** `npm run lint` fails on any ESLint warning (`--max-warnings 0` in
   `frontend/package.json`); type what you would have typed `any`.
 - **Clinical-critical modules keep their coverage.** A module listed under `[tool.mypy]` in
-  `pyproject.toml` needs a floor in `scripts/check-coverage-floor.py`, or CI fails.
+  `pyproject.toml` needs a floor in `scripts/check-coverage-floor.py`, or CI fails. The whole
+  backend's floor there is also the unit run's `--cov-fail-under` in `ci.yml`: change both.
+- **The backend locks are compiled, not edited.** After changing `backend/requirements*.in`,
+  run `./scripts/compile-requirements.sh` (Docker, Python 3.12 for linux/amd64) and commit
+  both locks. CI's `lock` job runs the script again and fails when a lock differs from what
+  it compiles.
 - **The change is recorded.** Until the first release candidate the pull request itself is the
   record ([TF-18 §3a](docs/regulatory/TF-18-change-configuration-management.md)):
   [CHANGELOG.md](CHANGELOG.md) holds one summary of the pre-release work and takes no
@@ -113,8 +118,9 @@ For anything touching clinical behaviour, state what you verified and how.
 
 `main` requires the CI and security checks that [docs/testing.md](docs/testing.md) describes.
 Your branch need not be up to date with `main` before it merges: `main`'s own run after each
-merge checks the combined result, so merge `main` in yourself when it may clash. How that
-protection is enforced, and where it falls short, is recorded in
+merge checks the combined result, so merge `main` in yourself when it may clash. The
+workflows also run for GitHub's merge queue (`merge_group`), which `main` does not require
+yet (OPS-22). How that protection is enforced, and where it falls short, is recorded in
 [TF-18 §6](docs/regulatory/TF-18-change-configuration-management.md).
 
 If `deps` fails on something you did not introduce, it is usually a newly published advisory
