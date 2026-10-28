@@ -66,6 +66,8 @@ _DEMO = Path(__file__).resolve().parents[3] / "demo" / "nipt_family"
 # run imports a copy with every id suffixed (as test_e2e_demo_smoke.py does).
 _TOKENS = ("FAM_NIPT_DEMO", "FATHER_NIPT", "CFDNA_NIPT", "FETUS_NIPT")
 DE_NOVO = "1-1001-A-G"  # GENE_DENOVO, category 1, in the fetal window
+# The demo's region of interest, which its README sets by hand: the span of its coverage BED.
+ROI = "1:1000-20000"
 PATERNAL = "1-10000-A-G"  # a paternal allele the fetus inherited, category 7
 ARTIFACT = "1-9501-A-G"  # the demo's recurrent artifact (EXP_CAT=ARTIFACT), in the plasma only
 # What the server answers a reader's change (SEC-1, access_control.require_change_access).
@@ -193,10 +195,14 @@ async def _signed_versions(family_id: str) -> int:
         ).scalar_one()
 
 
-def _prepare_copy(parent: Path, *, fetus_status: str | None = None) -> dict[str, str]:
+def _prepare_copy(
+    parent: Path, *, fetus_status: str | None = None, roi: str | None = None, declare_coverage: bool = True
+) -> dict[str, str]:
     """Copy the demo package under ``parent`` with every hardcoded id suffixed, and the maternal
     plasma on an assay panel of this run's own; the new ids and the panel (``panel``). With
-    ``fetus_status``, the PED gives the fetus that status instead of the demo's (affected)."""
+    ``fetus_status``, the PED gives the fetus that status instead of the demo's (affected). With
+    ``roi``, the manifest gives the family that region of interest; without
+    ``declare_coverage``, the plasma's coverage BED declares nothing (TRACE-9)."""
     suffix = uuid4().hex[:8]
     ids = {token: f"{token}_{suffix}" for token in _TOKENS}
     panel = f"e2e-nipt-signed-record-{suffix}"
@@ -217,6 +223,14 @@ def _prepare_copy(parent: Path, *, fetus_status: str | None = None) -> dict[str,
             plasma = f"  {ids['CFDNA_NIPT']}:\n    assay: nipt_cfdna\n"
             assert content.count(plasma) == 1, content
             content = content.replace(plasma, f"{plasma}    assay_panel: {panel}\n")
+            if roi is not None:
+                ped = "ped: nipt_trio.ped\n"
+                assert content.count(ped) == 1, content
+                content = content.replace(ped, f'{ped}roi: "{roi}"\n')
+            if not declare_coverage:
+                declared = "        content: read_depth\n"
+                assert content.count(declared) == 1, content
+                content = content.replace(declared, "")
         path.write_text(content, encoding="utf-8")
     return {"root": str(root), "panel": panel, **ids}
 
@@ -271,8 +285,9 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     read the record, the check and the chain back; then a record of an older build."""
     from backend.tests.e2e import _harness
 
-    # What the NIPT page shows.
+    # What the NIPT page shows: its coverage card asks for no gene or panel when it opens.
     r["summary"] = _cap(await ac.get(f"{family}/nipt/summary"))
+    r["coverage"] = _cap(await ac.get(f"{family}/nipt/coverage"))
     r["variants"] = _cap(await ac.get(f"{family}/nipt/variants", params={"page_size": 500}))
     r["de_novo_view"] = _cap(await ac.get(f"{family}/nipt/variants", params={"inheritance": "de_novo"}))
 
@@ -340,6 +355,23 @@ async def _sign_out_and_read(ac, r: dict, family: str, family_id: str, rss) -> N
     r["old_chain"] = _cap(
         await ac.get("/api/admin/integrity/verify", params={"table": "report_signouts", "family_id": family_id})
     )
+
+    # A record signed by a build from before the coverage notes (TRACE-17): its NIPT section
+    # without them.
+    async def _before_notes(*args, **kwargs):
+        body = await real_build(*args, **kwargs)
+        body["nipt"].pop("coverage_notes", None)
+        return body
+
+    mp = pytest.MonkeyPatch()
+    mp.setattr(rss, "build_report_snapshot", _before_notes)
+    try:
+        r["notes_old_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
+    finally:
+        mp.undo()
+    notes_old_version = (r["notes_old_signout"]["json"] or {}).get("version")
+    r["notes_old_detail"] = _cap(await ac.get(f"{family}/report/sign-outs/{notes_old_version}"))
+    r["notes_old_check"] = _cap(await ac.get(f"{family}/report/sign-out-check"))
     # The family ends on a record of today's build.
     r["final_signout"] = _cap(await _harness.sign_out(ac, f"{family}/report/sign-out", SIGN_OUT_BODY))
 
@@ -351,7 +383,9 @@ def signed(tmp_path_factory, request) -> dict:
 
     if not (_DEMO / "manifest.yaml").exists():
         pytest.fail("the demo NIPT package is missing: it is committed (scripts/generate_nipt_demo.py rebuilds it)")
-    copy = _prepare_copy(tmp_path_factory.mktemp("nipt_signed_record"))
+    # A region of interest for the coverage check, and a coverage BED that declares nothing: the
+    # check names it as not read as depth (TRACE-9), the note the record freezes (TRACE-17).
+    copy = _prepare_copy(tmp_path_factory.mktemp("nipt_signed_record"), roi=ROI, declare_coverage=False)
     root = Path(copy["root"])
     mp = pytest.MonkeyPatch()
     mp.setattr(settings, "family_import_roots", [str(root.parent)])
@@ -570,9 +604,52 @@ def test_a_record_without_the_nipt_section_still_verifies_and_is_named_not_compa
     assert check["version"] == _ok(signed, "old_signout")["version"]
     assert check["not_compared"] == ["nipt"]
     assert check["matches"] is True, check
+    assert _ok(signed, "notes_old_signout")["version"] == check["version"] + 1
+
+
+# ---------------------------------- the notes of the coverage check over the tracks (TRACE-17)
+
+
+def test_the_record_freezes_the_coverage_notes_the_nipt_page_showed(signed) -> None:
+    # Without a per-target table the NIPT page's coverage card, which asks for no gene or panel
+    # when it opens, reads the plasma's coverage tracks over the family's ROI and names its
+    # coverage BED, which declares nothing, as not read as depth. The record freezes the notes
+    # word for word, with what the check ran for (the owner's decision of 2026-10-28).
+    coverage = _ok(signed, "coverage")
+    plasma = signed["ids"]["CFDNA_NIPT"]
+    assert coverage["coverage_notes"] == [
+        f"{plasma}: the coverage BED does not declare whether it holds read depth or a log2 ratio; it is not "
+        "read as depth."
+    ]
+    assert coverage["target_region_count"] == 1
+    frozen = _nipt(signed)["coverage_notes"]
+    assert frozen == {
+        "gene": None,
+        "panel": None,
+        "regions": [
+            {"label": region["label"], "chrom": region["chr"], "start": region["start"], "end": region["end"]}
+            for region in coverage["per_region"]
+        ],
+        "notes": coverage["coverage_notes"],
+    }
+    assert [(region["chrom"], region["start"], region["end"]) for region in frozen["regions"]] == [("1", 1000, 20000)]
+
+
+def test_a_record_signed_before_the_coverage_notes_names_them_not_compared(signed) -> None:
+    detail = _ok(signed, "notes_old_detail")
+    assert detail["verified"] is True
+    assert "coverage_notes" not in detail["snapshot"]["nipt"]
+    check = _ok(signed, "notes_old_check")
+    assert check["version"] == _ok(signed, "notes_old_signout")["version"]
+    # The rest of its NIPT section still matches; the notes are not compared, never a change.
+    assert (check["matches"], check["changed_sections"], check["not_compared"]) == (
+        True,
+        [],
+        ["nipt.coverage_notes"],
+    ), check
     final = _ok(signed, "final_signout")
     assert final["version"] == check["version"] + 1
-    assert "nipt" in final["snapshot"]
+    assert final["snapshot"]["nipt"]["coverage_notes"] == _nipt(signed)["coverage_notes"]
 
 
 # ------------------------- a fetus of unknown status, and a pair tagged for the report (TRACE-19)

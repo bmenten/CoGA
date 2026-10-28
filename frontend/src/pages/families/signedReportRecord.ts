@@ -663,6 +663,22 @@ export interface SignedNiptRecessiveGene {
   paternalVariantId: string | null;
 }
 
+/**
+ * The notes of the coverage check without a per-target table, as the record froze them
+ * (`signed_record_nipt._coverage_notes`, TRACE-17): each of the plasma's coverage tracks the check
+ * did not read as depth, with why, word for word as the NIPT page showed them, and what the check
+ * ran for. The sign-out runs it as the NIPT page does without a gene or panel: over the family's
+ * region of interest.
+ */
+export interface SignedNiptCoverageNotes {
+  /** The gene and the panel the check ran for; null: none. */
+  gene: string | null;
+  panel: string | null;
+  /** The regions it read the tracks over; none: the family had no region of interest. */
+  regions: { label: string | null; chrom: string | null; start: number | null; end: number | null }[];
+  notes: string[];
+}
+
 /** A monogenic NIPT family's NIPT results, as its record froze them (`signed_record_nipt`). */
 export interface SignedNipt {
   samples: { father: string | null; maternalPlasma: string | null; fetus: string | null };
@@ -677,6 +693,11 @@ export interface SignedNipt {
   fetalSex: SignedNiptFetalSex | null;
   plasmaSample: SignedNiptCheck | null;
   targetCoverage: SignedNiptTargetCoverage | null;
+  /**
+   * The coverage check's notes over the coverage tracks: `absent` from a record signed before
+   * CoGA froze them; recorded as null with a per-target table, whose targets the check reads.
+   */
+  coverageNotes: SignedRecordSection<SignedNiptCoverageNotes | null>;
   variants: SignedNiptVariant[];
   notClassified: { variantId: string; reason: string }[];
   recessiveGenes: SignedNiptRecessiveGene[];
@@ -1553,6 +1574,18 @@ const parseNiptVariant = (entry: Json): SignedNiptVariant => {
   };
 };
 
+const parseNiptCoverageNotes = (value: Json): SignedNiptCoverageNotes => ({
+  gene: text(value.gene),
+  panel: text(value.panel),
+  regions: objects(value.regions).map((region) => ({
+    label: text(region.label),
+    chrom: text(region.chrom),
+    start: number(region.start),
+    end: number(region.end),
+  })),
+  notes: strings(value.notes),
+});
+
 const parseNipt = (value: Json): SignedNipt => {
   const samples = isObject(value.samples) ? value.samples : {};
   const ff = isObject(value.fetal_fraction) ? value.fetal_fraction : null;
@@ -1611,6 +1644,12 @@ const parseNipt = (value: Json): SignedNipt => {
           })),
         }
       : null,
+    // Null with a per-target table: recorded, as none (TRACE-17).
+    coverageNotes: !has(value, 'coverage_notes')
+      ? { state: 'absent' }
+      : value.coverage_notes === null
+        ? { state: 'recorded', value: null }
+        : parseRecordSection(value, 'coverage_notes', parseNiptCoverageNotes),
     variants: objects(value.variants).map(parseNiptVariant),
     notClassified: objects(value.not_classified).map((entry) => ({
       variantId: text(entry.variant_id) ?? 'a variant',
@@ -2101,6 +2140,29 @@ export const describeNiptCoverage = (coverage: SignedNiptTargetCoverage): string
     coverage.belowCritical ?? 0,
   )} below ${depth(coverage.criticalMeanDepth)}, ${formatCount(coverage.incomplete ?? 0)} with uncovered bases`;
 
+const describeCoverageRegion = (region: SignedNiptCoverageNotes['regions'][number]): string =>
+  `${region.label ?? 'a region'} (${region.chrom ?? '?'}:${region.start?.toLocaleString() ?? '?'}–${
+    region.end?.toLocaleString() ?? '?'
+  })`;
+
+/**
+ * The notes of the coverage check without a per-target table as signed (TRACE-17), word for word,
+ * then what the check ran for: "CFDNA1: the coverage BED does not declare whether it holds read
+ * depth or a log2 ratio; it is not read as depth. The coverage check ran without a gene or panel,
+ * over the family’s region of interest GENEA locus (7:1–1,000)." "none." when it named no track.
+ */
+export const describeNiptCoverageNotes = (coverage: SignedNiptCoverageNotes): string => {
+  const asked = [coverage.gene ? `gene ${coverage.gene}` : null, coverage.panel ? `panel ${coverage.panel}` : null]
+    .filter((part): part is string => Boolean(part));
+  const regions = coverage.regions.map(describeCoverageRegion).join('; ');
+  const ranFor = asked.length
+    ? `for ${asked.join(' and ')}, over ${regions || 'no region'}`
+    : regions
+      ? `without a gene or panel, over the family’s region of interest ${regions}`
+      : 'without a gene or panel, over no region: the family had no region of interest';
+  return `${coverage.notes.length ? coverage.notes.join(' ') : 'none.'} The coverage check ran ${ranFor}.`;
+};
+
 /** A reported variant's NIPT classification as signed, worded as the NIPT page words it. */
 export const describeNiptVariant = (variant: SignedNiptVariant): string => {
   const category =
@@ -2147,11 +2209,13 @@ export const describeReportSections = (sections: string[]): string =>
 
 // The parts of a section CoGA records since a record was signed: the sign-out check compares
 // such a record's section on what it holds and names these as not compared
-// (pgt_analysis.comparable_with_record, signed_record_sections.repeat_expansions_comparable_with_record).
+// (pgt_analysis.comparable_with_record, signed_record_sections.repeat_expansions_comparable_with_record,
+// signed_record_nipt.nipt_comparable_with_record).
 const NOT_COMPARED_PART_LABELS: Record<string, string> = {
   'pgt_analysis.qc_verdict': 'the embryos’ QC verdicts',
   'pgt_analysis.inputs.blocks_outdated': 'whether the haplotype blocks were built for the family’s pedigree',
   'repeat_expansions.count_units': 'the repeat calls’ near-boundary warnings and QA’s records of their counting units',
+  'nipt.coverage_notes': 'the NIPT coverage check’s notes on the coverage tracks it did not read as depth',
 };
 
 // The reference-layer modules a record can predate (annotation_manifest_service.REFERENCE_MODULE_KEYS),

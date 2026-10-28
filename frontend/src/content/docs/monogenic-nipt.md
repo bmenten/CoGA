@@ -423,11 +423,12 @@ signed version, its report code, and whether the family's data still matches it,
 not compare because that version does not hold it (*Not in signed version 2, so not compared: …*).
 
 For a NIPT family the record also holds the **NIPT results**, as CoGA computes them at sign-out: the
-fetal fraction and the quality checks with their verdicts, the coverage of the capture targets, the
-filter funnel and the category counts, each variant tagged *report* as this analysis classifies it (its
-category, reads, inheritance probabilities and, for a de novo candidate in the fetal window, its
-priority), the recessive fetal risk of the reported variants' genes, and what the analysis ran with
-(the coverage tables, the artifact list and the model). The signed version shows them.
+fetal fraction and the quality checks with their verdicts, the coverage of the capture targets (without
+a per-target table, the coverage check's notes on the coverage tracks it did not read as depth; see
+*Coverage*), the filter funnel and the category counts, each variant tagged *report* as this analysis
+classifies it (its category, reads, inheritance probabilities and, for a de novo candidate in the fetal
+window, its priority), the recessive fetal risk of the reported variants' genes, and what the analysis
+ran with (the coverage tables, the artifact list and the model). The signed version shows them.
 
 Sign-out stops at the family's checks. Besides the Sample QC, a NIPT quality check that failed stops it
 until you record a reason: no fetal-fraction estimate, a fetal sex whose two signals disagree, or male
@@ -499,7 +500,9 @@ otherwise HiFiCNV's depth when the import stored it as read. WisecondorX's and Q
 HiFiCNV's normalised depth and a BED declared as a log2 ratio hold log2 ratios, not depths, and are
 never read here, also beside a BED; nor is a coverage BED that does not say what it holds. The card,
 the coverage page and the printed report name each track left out and why. A plasma without such a
-depth track shows every region as without coverage.
+depth track shows every region as without coverage. A sign-out freezes these notes word for word in
+the signed record, with what the check ran for: it runs the check as the card does without a gene or
+panel, over the family's region of interest, since it is not told the page's search.
 
 NIPT has its own sample-integrity checks on the Sample QC page as well (paternity, fetal sex, parent
 sex and the category distribution): see the [Sample-integrity QC reference](/docs/reference/sample-qc).
