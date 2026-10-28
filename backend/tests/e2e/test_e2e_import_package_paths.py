@@ -262,13 +262,15 @@ def test_a_manifest_path_through_a_symlink_loop_is_refused(snap: dict[str, Any])
 
 
 def test_discover_refuses_a_parent_id_the_ped_lacks_that_cannot_be_stored(snap: dict[str, Any]) -> None:
+    from backend.app.services.family_identifiers import IDENTIFIER_RULE
+
     response = snap["discover_parent"]
     assert response["status"] == 200, response["text"]
     assert response["json"]["manifest_yaml"] == ""
     messages = [issue["message"] for issue in response["json"]["errors"] if issue["code"] == "sample_id_invalid"]
     assert messages == [
         "Sample ID 'FATHER\\x1bP4' (a parent of CHILDP4 in the PED) contains a control character (\\x1b). "
-        "Family and sample IDs are printable text without spaces."
+        f"{IDENTIFIER_RULE}"
     ]
 
 

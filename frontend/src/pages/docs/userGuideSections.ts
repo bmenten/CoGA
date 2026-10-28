@@ -76,7 +76,7 @@ const sections: Omit<GuideSection, 'markdown'>[] = [
     id: 'sample-qc',
     title: 'Sample-integrity QC',
     summary:
-      'Check, before you interpret, that the samples are who the pedigree says: swaps, wrong relationships, wrong sex, contamination and consanguinity.',
+      'Check, before you interpret, that the samples are who the pedigree says: swaps, wrong relationships, wrong sex and consanguinity.',
   },
   {
     id: 'small-variant-filtering',
