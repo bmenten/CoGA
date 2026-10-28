@@ -829,6 +829,35 @@ describe('mtDNA variant review', () => {
     expect(within(card).getByRole('button', { name: 'Report' })).toHaveAttribute('aria-pressed', 'true');
   });
 
+  it('shows a saved quick tag on the card without computing the analysis again', async () => {
+    renderWith([mitoVariant('m.3243A>G', { tags: [], updated_at: '2026-10-01T10:00:00Z' })]);
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    const analysisReads = () =>
+      apiMock.get.mock.calls.filter(([url]) => url === '/families/F1/mitochondrial-dna').length;
+    const readsBefore = analysisReads();
+    apiMock.put.mockResolvedValue({
+      data: { variant_id: 'm.3243A>G', tags: ['report'], tag_metadata: {}, updated_at: '2026-10-02T10:00:00Z' },
+    });
+
+    fireEvent.click(within(card).getByRole('button', { name: 'Report' }));
+    // The card shows the review the server saved, and the analysis is not read again.
+    await waitFor(() => expect(apiMock.put).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(within(card).getByRole('button', { name: 'Report' })).toHaveAttribute('aria-pressed', 'true'),
+    );
+    expect(analysisReads()).toBe(readsBefore);
+  });
+
+  it('puts the card back when a quick tag cannot be saved', async () => {
+    renderWith([mitoVariant('m.3243A>G', null)]);
+    apiMock.put.mockRejectedValue(new Error('Network down'));
+    const card = await screen.findByRole('article', { name: /m\.3243A>G/ });
+    fireEvent.click(within(card).getByRole('button', { name: 'Exclude' }));
+    await screen.findByRole('alert');
+    expect(within(card).getByRole('button', { name: 'Exclude' })).toHaveAttribute('aria-pressed', 'false');
+    expect(card).not.toHaveClass('variant-card--excluded');
+  });
+
   it('says so when a quick tag cannot be saved', async () => {
     renderWith([mitoVariant('m.3243A>G', null)]);
     apiMock.put.mockRejectedValue(new Error('Network down'));

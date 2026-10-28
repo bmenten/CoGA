@@ -40,6 +40,7 @@ import {
   fetchFamilyReviewTags,
   hasReviewContent,
   quickTagTogglePayload,
+  searchReadsReviews,
   updateSmallVariantPageReview,
 } from './smallVariantReview';
 import { apiPath, raw } from '../../lib/apiPath';
@@ -202,7 +203,7 @@ const FamilySmallVariantsPage: React.FC = () => {
     queryFn: () => fetchFamilyReviewTags(familyId, projectId),
   });
 
-  const { data, isLoading, isFetching, isError, error } = useQuery<SmallVariantPage>({
+  const { data, isLoading, isFetching, isPlaceholderData, isError, error } = useQuery<SmallVariantPage>({
     queryKey: ['family', familyId, 'small-variants', requestQueryString],
     enabled: variantQueryReady,
     queryFn: async () => {
@@ -307,7 +308,13 @@ const FamilySmallVariantsPage: React.FC = () => {
         tone: 'success',
         message: 'Variant review saved.',
       });
-      void queryClient.invalidateQueries({ queryKey: ['family', familyId, 'small-variants'] });
+      // The card shows the saved review already. The list is searched again only when its
+      // filters read reviews (a tag or note can add or drop a variant there); other cached
+      // searches are marked stale and searched again when next shown.
+      void queryClient.invalidateQueries({
+        queryKey: ['family', familyId, 'small-variants'],
+        refetchType: searchReadsReviews(requestQueryString) ? 'active' : 'none',
+      });
     },
     onError: (error, _variables, context) => {
       context?.snapshots.forEach(([queryKey, snapshot]) => {
@@ -495,13 +502,19 @@ const FamilySmallVariantsPage: React.FC = () => {
       ) : null}
 
       <div className="variant-results-region">
-        {isFetching ? (
+        {/* A new search covers the previous results while it runs; the same search run again
+            (after a review saved under a review filter) leaves them usable, with the header's
+            "Updating…" chip. */}
+        {isFetching && isPlaceholderData ? (
           <VariantResultsLoading
             title="Loading variants"
             message="Applying your filters to this family’s small-variant calls."
           />
         ) : null}
-        <div className={isFetching ? 'variant-results-fetching' : undefined} aria-busy={isFetching}>
+        <div
+          className={isFetching && isPlaceholderData ? 'variant-results-fetching' : undefined}
+          aria-busy={isFetching}
+        >
       <SmallVariantResults
         assemblyName={assemblyName}
         assemblyVersion={assemblyVersion}
