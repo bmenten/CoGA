@@ -46,7 +46,11 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build -d
 
 The development stack mounts `backend/`, `frontend/`, `scripts/` and `data/` into the
 containers, so code changes apply without a rebuild, and it sets `APP_ENV=development` for
-the backend container. Without the second file, `docker compose up --build -d` runs the
+the backend container. On macOS a bind mount is case-insensitive by default: two family IDs
+that differ only in case (`FAM1`, `fam1`) share every folder named after an ID, such as a
+family's data folders under `data/`. The ID rule leaves case alone, since production storage
+is case-sensitive (SEC-15); give such families IDs that differ otherwise when you test with
+them locally. Without the second file, `docker compose up --build -d` runs the
 production images instead: no reload, and the built frontend served by
 `frontend/server.mjs`. That frontend takes the `VITE_…` settings in `.env` when it is built,
 and its footer links **Report a problem** only when `VITE_PROBLEM_REPORT_URL` is set; the

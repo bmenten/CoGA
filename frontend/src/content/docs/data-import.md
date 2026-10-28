@@ -30,8 +30,12 @@ trail, as made by whoever replaced the family, before the family is deleted.
 
 **Family and sample IDs** are printable text without spaces, whichever way a family comes in or is
 edited. The spaces around an ID are dropped. An ID with a space or a control character inside (a line
-break, a tab, an escape: characters a copied ID can carry without showing them) is refused before
-anything is saved; it would otherwise reach the pedigree, the report and the audit trail.
+break, a tab, an escape), or another character a copied ID can carry without showing it (one that turns
+the text's direction, a zero-width one), is refused before anything is saved; it would otherwise reach
+the pedigree, the report and the audit trail, and two IDs that look the same would name two families.
+An ID is no path either: one with a `/` or a `\`, or one that is `.` or `..`, is refused too. A `..`
+inside a longer ID, such as `F..1`, is fine. The message shows each character you cannot see as a code
+such as `\u200b`.
 
 The PED carries only affected or unaffected. Detailed phenotypes are HPO terms on each person, added in
 the family member dialog or brought in by a package import. Either way each change is in the family's
@@ -311,9 +315,9 @@ been deleted.
 - The folder and the manifest exist, and the manifest is a file in the folder, not a link out of it.
 - Every family and sample ID (the manifest's family ID or the folder name, the PED's, and in Discover a
   parent the PED names without a row of its own, the members the manifest adds, a long-read package's
-  per-sample folders) is printable text without spaces. One that is
-  not is refused (`family_id_invalid`, `sample_id_invalid`), and nothing else is checked until it is
-  corrected: Discover drafts no manifest for it.
+  per-sample folders) is printable text without spaces, and no path (no `/` or `\`, and not `.` or
+  `..`). One that is not is refused (`family_id_invalid`, `sample_id_invalid`), and nothing else is
+  checked until it is corrected: Discover drafts no manifest for it.
 - The PED is a six-column PED with **one family**, whose identifier matches the manifest's (by default
   the folder name). Sample identifiers are unique, and every parent is a sample in the same PED. A
   manifest without a PED names every member under `family.add_members`.

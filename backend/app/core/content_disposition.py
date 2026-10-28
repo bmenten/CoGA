@@ -3,7 +3,8 @@
 A download is named after a family or sample ID: ``F1.ped``, ``family-F1-small-variants.csv``,
 a signed URL's ``S1.cram``. A family or sample ID is printable text without spaces
 (``services/family_identifiers.py``), so it may hold a ``"`` that ends the quoted name early, a
-``\\`` that escapes within it, a ``%`` a client may decode, or a character outside ASCII. Put
+``%`` a client may decode, or a character outside ASCII, and one stored before the ID rule
+refused it (SEC-15) a ``\\`` that escapes within the name. Put
 into the header as it is, such a name was misread, or failed the response: Starlette encodes
 a header as Latin-1, so an ID beyond it answered 500. ``content_disposition`` sends such a name
 percent-encoded as UTF-8 in ``filename*`` (RFC 6266, RFC 8187), with an ASCII stand-in in

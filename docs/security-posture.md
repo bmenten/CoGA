@@ -35,10 +35,12 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   the token's e-mail address and user name, so nothing a user keeps as their own is found by
   either. An import job keeps its requester by the account's id
   (`family_import_jobs.requested_by_id`), and the worker runs the import as that account while
-  it is active (*Session tokens*, below); a user's filter presets are the account's
-  (`owner_id`). Their address or user name changing keeps both theirs, and an account that
-  later signs in with an address or user name another left behind gets neither. The address
-  and the user name stay with the record as it was made, shown with it.
+  it is an active administrator (*Session tokens*, below); so do a gene-reference refresh and
+  a clinical CNV knowledgebase rebuild (`requested_by_id` on `gene_info_refresh_jobs` and
+  `clinical_cnv_kb_jobs`, SEC-35); a user's filter presets are the account's (`owner_id`).
+  Their address or user name changing keeps them theirs, and an account that later signs in
+  with an address or user name another left behind gets none of them. The address and the user
+  name stay with the record as it was made, shown with it.
 - ✅ **Without Microsoft sign-in** (development), JWT bearer tokens (HS256) that the
   password sign-in issues work for every account.
   See `backend/app/dependencies.py` (`get_current_user`, `get_current_admin_user`). Roles are
@@ -52,6 +54,10 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   administrator keeps its role and cannot be deactivated. The request's audit row records what changed,
   each field from and to (`request_meta.account_change`), and so does an activation change
   and an account a first Microsoft sign-in made. Project access stays on the project pages.
+  A role change takes effect at the account's next request, and also for the jobs it queued as
+  an administrator that have not started: an import, a gene-reference refresh or a
+  knowledgebase rebuild of an account that is no longer an administrator is not run
+  (*Session tokens*, below).
 - ✅ **Access is scoped by project.** Every family, sample and variant endpoint resolves
   access through one checkpoint: `build_family_metadata_context`
   (`services/family_metadata_context.py`) → `get_accessible_family_mapping`
@@ -69,9 +75,10 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
   `audit_log_events` row of such a request names the kind in `request_meta.record_hidden`
   (`family`, `sample` or `project`), which the response never carries
   (`main._answer_record_not_visible`), and the admin *Audit logs* page shows it in its
-  *Flags* column (§2). Another user's filter preset, on delete, and import job, on read,
-  answer the same way (`404 Preset not found`, `404 Family import job not found`), their rows
-  naming `filter_preset` or `import_job` (SEC-9).
+  *Flags* column (§2). Another user's filter preset, on delete, answers the same way
+  (`404 Preset not found`), its row naming `filter_preset`, and so does the import-job service
+  for another user's job (`404 Family import job not found`, `import_job`), though only an
+  admin may read a job through the API (SEC-9).
   `backend/tests/e2e/test_e2e_inaccessible_records_look_unknown.py` asks every route with a
   family or sample ID in its path, on real Postgres, for a family of another project and for
   an unknown one, and requires the same status and body. Refusals because of the caller's
@@ -259,11 +266,24 @@ Legend: ✅ enforced in code · 🟡 partial, or depends on configuration or a f
 **IDOR review.** Every endpoint that takes a `family_id`, `sample_id` or `project_id` goes
 through the checkpoint above. No unscoped PHI endpoint was found.
 
-**Residual: IDs that are taken.** Family and sample IDs are unique across all projects, so
-creating a family refuses an ID that another project already uses (`409 Family id already
-exists`, `409 Sample id already exists`). A user who may create families (the Family Builder
-is open to an analyst of a project) can learn from that that the ID exists, but nothing else
-about it. Closing that would take IDs scoped per project.
+**Accepted residual: IDs that are taken (SEC-9).** Family and sample IDs are unique across all
+projects, so the Family Builder (`POST /api/ped/manual`), which an analyst of a project may
+use, refuses an ID that is already in use, also by a family or sample the analyst cannot see:
+`409 Family id already exists: <ID>` or `409 Sample id already exists: <IDs>`. With
+`overwrite=true`, a non-admin is refused
+`403 Only admins can overwrite existing families or samples` when the family ID is in use,
+where a free ID creates the family; the page offers the overwrite to an admin only and tells
+anyone else to ask one. Each answer tells the analyst that an ID they gave is taken, and
+nothing else about the record: it names only the request's own IDs, and none of the record's
+project, members, phenotypes, variants or reports. The PED upload (`POST /api/ped/upload`)
+gives the same 409s, but only an admin may call it, and an admin sees every project. The
+residual was accepted by the owner on 2026-10-28, and the behaviour stays as it is: only a
+signed-in analyst of the project the request names, or an admin, reaches the check (a reader,
+a viewer in no project and a request naming another team's project are refused before it, the
+last as an unknown project); the request audit records each attempt with its caller and its
+answer; and closing it would take IDs scoped per project, where an ID now names one family or
+sample in every record, folder and audit entry that carries it
+([TF-13 §2](regulatory/TF-13-cybersecurity.md)).
 
 **Session tokens.** Tokens are bearer JWTs kept in `localStorage`. Moving them to HttpOnly
 cookies would add CSRF surface and rework the Microsoft sign-in and telemetry paths, so the
@@ -273,14 +293,32 @@ token, which MSAL renews silently with its refresh token (kept in the tab's
 `sessionStorage`, gone when the tab closes) before each request, the API client's and the
 IGV viewer's alike (IGV asks for the session's token at each of its requests, SEC-32), and
 2 hours for a local token (`ACCESS_TOKEN_EXPIRE_MINUTES`). Every request re-checks
-`is_active`, so deactivating a user ends their access at once. So does the import worker,
-which runs a queued import job as the account that requested it: a job whose account has
-been deactivated, or no longer exists, when a worker takes it up is not run. It ends failed,
-saying why, before anything of the family is written, and the log names neither the account
-nor its address (`family_package_import.run_family_import_job`; before, the import ran as the
-deactivated account). An import already running when its account is deactivated runs to its
-end: the account is checked as the import starts, and stopping the import part-way would
-leave its family to the import's fail-clean restore. A leaked token of a
+`is_active`, so deactivating a user ends their access at once, and the role, so a role change
+takes effect at the account's next request (`get_current_admin_user`). The jobs an
+administrator queues are held to the same, as the owner decided on 2026-10-28 (SEC-35): each
+keeps its requester by the account's id, and is not run when that account has been
+deactivated, is no longer an administrator, or no longer exists when the job starts. The job
+ends failed, saying why, with nothing written, and the log names neither the account nor its
+address:
+
+- an import job (`family_package_import.run_family_import_job`), which runs as the account
+  that requested it, is checked as a worker takes it up, and again when a job still
+  validating is claimed again after its worker stopped; nothing of the family is written.
+  Before, the import ran as a deactivated account, and for one demoted to viewer on the
+  import project's check alone, which an analyst of the project passes.
+- a gene-reference refresh (`gene_info_jobs_pg.run_gene_reference_refresh_job`) is checked as
+  a worker takes it up, also again after its worker stopped; it frees its slot for the next
+  refresh, and the gene records stay as they were. The refresh a start queues
+  (`startup-bootstrap`) is no account's, and runs.
+- a clinical CNV knowledgebase rebuild (`clinical_cnv_kb_jobs._run_job`) is checked as it
+  starts and again before its load, its one write: it starts as it is queued, and its build,
+  which writes nothing, runs for up to two hours. Nothing is loaded, and the knowledgebase
+  from before stays.
+
+Before, the refresh and the rebuild ran whoever had asked for them, as neither acts with an
+account's rights. An import or a refresh already running when its account is deactivated or
+demoted runs to its end: the account is checked as it starts, and stopping an import
+part-way would leave its family to the import's fail-clean restore. A leaked token of a
 still-active user stays valid until it expires; there is no revocation list, and CoGA's
 sign-out does not end the Microsoft session in the browser (the sign-in page offers *Sign out
 of Microsoft*). For a single-lab internal deployment this is an **accepted residual**.
@@ -542,10 +580,15 @@ What the application relies on there:
   to follow (the alignment and signal-track manifests IGV reads, the QC-report link) encode
   each ID the same way (`backend/app/core/url_path.py`), so an ID holding `?`, `#` or `%`
   reaches its own file and one holding `../` cannot reach another family's. Two kinds of ID
-  still cannot be reached through a path segment: one that is exactly `.` or `..` (a browser
+  cannot be reached through a path segment: one that is exactly `.` or `..` (a browser
   resolves it whatever its encoding) and one holding `/` (the backend matches its routes on
-  the decoded path); such a request answers 404. Whether the ID rule should refuse them is
-  open. In-app routes are built the same way, with `routePath` (`lib/routePath.ts`), so a
+  the decoded path); such a request answers 404. The ID rule refuses both since SEC-15, with
+  a `\`, and every character a reader cannot see (a C1 control, a text-direction or
+  zero-width character, any other character that is not printable), wherever an ID is
+  written (`services/family_identifiers.py`); an ID stored before is not changed (the data
+  are synthetic). On a case-insensitive file system (a macOS bind mount in development) two
+  family IDs that differ only in case share every folder named after an ID; production
+  storage is case-sensitive, and the rule leaves case alone. In-app routes are built the same way, with `routePath` (`lib/routePath.ts`), so a
   link or a navigation to a family, panel, CNV or report code keeps an ID holding `?`, `#`,
   `%` or `/` whole; raw, `?` and `#` cut the path short and `/` added a segment no route
   matched (SEC-15). A guard test finds any route template left raw. The IGV page's Back link
