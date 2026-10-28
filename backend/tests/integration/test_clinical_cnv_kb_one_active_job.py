@@ -11,6 +11,8 @@ running for good, with the same effect. Against the real schema, this checks tha
 * a job whose worker is gone (no heartbeat for the stale window, or never started) is
   closed as failed by the status and by a rebuild request, which is then accepted, while a
   job that still heartbeats is kept; its old worker can no longer write to it;
+* a queued job keeps the administrator who asked for it by the account's id, which its claim
+  gives the run to check (SEC-35);
 * a table created fresh gets the one-active index and the heartbeat columns.
 
 Skipped unless ``RUN_INTEGRATION=1`` (see conftest.py); the CI ``smoke`` job sets it.
@@ -83,10 +85,40 @@ async def _drop_species(sm, species: str) -> None:
         await s.commit()
 
 
+def _requester_email(assembly: str) -> str:
+    return f"{assembly}@example.org"
+
+
+async def _requester(sm, assembly: str):
+    """The administrator who asks for the assembly's rebuilds: an account of the test's own."""
+    from backend.app.services.metadata_service import get_current_user_by_id
+
+    async with sm() as s:
+        user_id = (
+            await s.execute(
+                text(
+                    "INSERT INTO users (username, hashed_password, role, email) "
+                    "VALUES (:e, '', 'admin', :e) "
+                    "ON CONFLICT (email) DO UPDATE SET role = users.role RETURNING id::text"
+                ),
+                {"e": _requester_email(assembly)},
+            )
+        ).scalar_one()
+        await s.commit()
+        return await get_current_user_by_id(s, user_id)
+
+
+async def _drop_requester(sm, assembly: str) -> None:
+    async with sm() as s:
+        await s.execute(text("DELETE FROM users WHERE email = :e"), {"e": _requester_email(assembly)})
+        await s.commit()
+
+
 async def _queue(kb, sm, assembly: str):
+    requester = await _requester(sm, assembly)
     async with sm() as s:
         return await kb.queue_clinical_cnv_kb_rebuild(
-            s, assembly=assembly, skip_clinvar=True, requested_by="lab.admin"
+            s, assembly=assembly, skip_clinvar=True, requested_by=requester
         )
 
 
@@ -190,6 +222,7 @@ def _with_assembly(test):
                 await test(sm, assembly)
             finally:
                 await _drop_species(sm, species)
+                await _drop_requester(sm, assembly)
         finally:
             # Whatever happened, leave the schema in its current shape for the tests that follow.
             await init_postgres_schema()
@@ -210,7 +243,12 @@ def test_a_rebuild_is_refused_while_another_is_queued_or_running(kb) -> None:
 
         # The claim its run makes. Before the fix, a request from here on was accepted, and
         # that second job could never start.
-        assert await service._claim_job(str(first.id), "worker-a") is not None
+        claimed = await service._claim_job(str(first.id), "worker-a")
+        assert claimed is not None
+        # It gives the run the administrator who asked for the rebuild, by the account's id,
+        # which the run checks before it builds and before it loads (SEC-35).
+        requester = await _requester(sm, assembly)
+        assert (claimed["requested_by_id"], claimed["requested_by"]) == (requester.id, requester.email)
         assert await _refusal(service, sm, assembly) == 409  # while it is running
 
         assert await service._update_job(str(first.id), "worker-a", _DONE, {}) is True
